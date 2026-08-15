@@ -310,6 +310,65 @@ await check('a conflict with nowhere to open a window is a refusal that says so'
   assert.match(queueState({ notes: written.notes }).refused, /conflicts with/);
 });
 
+/* ------------------------------------------- the window that delivered it */
+
+await check('THE WINDOW THAT DELIVERED IT IS TOLD ITS BRANCH LANDED', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const marked = [];
+  await run(bd, fakePr(openPr()), { markMerged: async (id) => marked.push(id) });
+  // The *work* bead, not the merge-bead: the window is named after the work, and its
+  // name is the only thing tying a session to a bead (lib/reap.js `namesBead`). The
+  // worker renamed itself `QUEUED-` when it handed the branch over, which was all it
+  // could honestly claim; this is the moment anything knows better.
+  assert.deepEqual(marked, ['zz-work']);
+});
+
+await check('and it happens before the closes, because the reaper is right behind them', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const order = [];
+  const bdSpy = { ...bd, close: async (...a) => { order.push(`close ${a[1]}`); return bd.close(...a); } };
+  await run(bdSpy, fakePr(openPr()), { markMerged: async (id) => order.push(`rename ${id}`) });
+  // Closing the work bead is what makes the window reapable — `sweepCandidate` wants a
+  // finished name and a closed bead. Rename after the close and the race is real: the
+  // window can be gone before it is told what happened to its branch.
+  assert.equal(order[0], 'rename zz-work', `renamed too late — ${order.join(', ')}`);
+});
+
+await check('an epic window is renamed too, even though its bead stays open', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'epic' } } });
+  const marked = [];
+  await run(bd, fakePr(openPr()), { markMerged: async (id) => marked.push(id) });
+  // The prefix is a claim about the *session*, not about the bead's lifecycle. The epic
+  // stays open because its theme is not done; the window that wrote the branch is just
+  // as finished as any other, and one left saying `QUEUED-` reads as still waiting on a
+  // queue that is done with it.
+  assert.deepEqual(marked, ['zz-work']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge']);
+});
+
+await check('a rename that throws cannot un-merge what has merged', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), {
+    markMerged: async () => {
+      throw new Error('no ~/.claude here');
+    },
+  });
+  // Same argument the sweep above makes: a window wearing the wrong name is a cosmetic
+  // fault, and a merge that reports itself as not having happened is not.
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work']);
+});
+
+await check('a pull request merged outside the queue renames it too', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const marked = [];
+  // Adam tapping merge on his phone is the ordinary way this happens, and the window is
+  // no less finished for the queue not having been the one to press it.
+  const prApi = fakePr(openPr({ state: 'MERGED', mergedAt: '2026-08-15T12:00:00Z', mergeCommit: 'abcdef123456' }));
+  await run(bd, prApi, { markMerged: async (id) => marked.push(id) });
+  assert.deepEqual(marked, ['zz-work']);
+});
+
 /* -------------------------------------------------------------- the epic */
 
 await check('AN EPIC WORK BEAD DOES NOT CLOSE ON A MERGE', async () => {

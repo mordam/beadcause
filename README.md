@@ -2499,7 +2499,8 @@ Neither is a corruption, and both are one rewrite away.
 ### The moment a worker actually writes
 
 A store an agent is *able* to use is not a store an agent uses. The worker's own ending
-had two steps in it, and both were for you: a `DONE-` prefix on the session name and the
+had two steps in it, and both were for you: a prefix on the session name — `QUEUED-`,
+or `DONE-` where nothing else finishes the job — and the
 `** BEAD WORK DONE **` line, each written for whoever scrolls a wall of windows hours
 later. Nothing in it was for the next agent — and that ending is the last moment
 anything could be, because immediately after it the done file is written, the shell
@@ -9023,6 +9024,162 @@ either empty (`active`, `retiring`) or optional (`crash`, still null until
 out has always been for).
 
 
+### The severity, the clock, and the commitment it is measured against
+
+Everything above is **detection**, and detection is the half most incident programmes
+never finish: theirs is a document describing a process that runs when somebody remembers
+to run it. Here the error files itself the moment it happens, so detection and recording
+are one act and neither can be forgotten.
+
+What that leaves missing is everything asked *after* "do you detect them". A daemon that
+exited and a red toast on one phone were both `app-error`, which means either everything
+is an emergency or nothing is. "We respond promptly" is not a control; "acknowledged
+within fifteen minutes, resolved within four" is one — **but only if the number was
+written down before the incident rather than after it**.
+
+So every filed error now carries a severity, and the severity carries a commitment:
+
+| | what it means | acknowledge | resolve |
+|---|---|---|---|
+| **sev1** | the daemon is not running — nothing works until it is back | 15 min | 4h |
+| **sev2** | the daemon is up and a function of it has stopped working | 1h | 24h |
+| **sev3** | one page or one action is broken for whoever is looking at it | 24h | 7d |
+| **sev4** | the app caught it and said so; nothing was lost | 7d | 30d |
+
+**The scale is closed, and an id nobody minted is a refusal rather than a warning** — the
+same rule the requirements corpus is built on, for the same reason: a severity scale you
+can add to at the moment of the incident says whatever the person filing wanted it to say.
+
+**It is decided by impact, not by how alarming the stack looked.** `lib/incident.js` reads
+the `kind` the reporter gave, and the two reporters between them emit nine and no more.
+`uncaughtException` and `unhandledRejection` are `sev1` and nothing else can be — those
+arrive only from `installCrashHandlers`, which prints the stack and *then exits 1*, so by
+the time the bead is written the daemon is going down. That is the one fact about impact
+this system knows for certain. A failed `fetch` is `sev2` rather than `sev3`, which is the
+least obvious one: the browser only reports it when the daemon did not answer, and from the
+phone's side that is indistinguishable from the daemon being down. A kind nobody knows is
+`sev3`, deliberately not `sev4` — a report we cannot classify is not thereby harmless, and
+the cheaper mistake is the one that puts a middling bead on the board rather than the one
+that quietly buries something on a thirty-day clock.
+
+**The same bug forty times is worse than the same bug once**, so past ten occurrences the
+severity goes up a level — and it can never reach `sev1`, because that one is a statement
+that the process died and not a statement that something happened a lot. The label is
+rewritten only when it would actually change: this is the hot path of a page in a render
+loop, and a `bd` write per occurrence is the exact cost the [coalescing
+window](#an-error-the-app-hits-files-itself-as-a-p0) exists to avoid.
+
+**And then the clock, which is read and never written.** Nothing in `lib/incident.js`
+stamps a timestamp of its own. `created_at` is when the error filed itself, `started_at` is
+when a session claimed the bead, `closed_at` is when the merge queue closed it — three
+timestamps bd was already keeping, written by people and agents doing their ordinary work
+with no idea an auditor would ever read them. **That is exactly what makes them evidence.**
+A log kept *for* the audit is a log somebody maintains, and a log somebody maintains is one
+that gets maintained the week before the audit. The acknowledgement is `bd update --claim`,
+which every worker session runs as its third line; nothing had to be added, and nothing can
+be forgotten without the work itself not happening.
+
+    beadcause-incidents -w beadcause                 the register, worst first
+    beadcause-incidents -w beadcause --period 90d    what happened in the last 90 days
+
+**Met, missed and pending are three answers, not two.** An incident ninety seconds old has
+not missed a fifteen-minute commitment — it is inside its window — and a report that folded
+"not yet" into "missed" would show a total breach every time it was run *during* an
+incident. Only `false` is a breach.
+
+The communication step is stated and measured, and **sends nothing**, which is deliberate
+in both halves. The bead already *is* the notification here: a P0 lands on the inbox the
+phone is polling. The interesting half is the one that does not exist yet — if the system
+this is ever attested about has user entities under contract, they have to be told inside
+whatever window that contract names, and which system that is has not been settled. A
+commitment stated on the bead and measured is worth having now; a mail-out to a customer
+list nobody has agreed on is not.
+
+### The post-incident review, and the loop it closes
+
+A `sev1` or `sev2` that has been resolved owes a review. Not a document and not a memory —
+**a bead**, because the only thing worse than a review nobody wrote is a review whose
+absence nobody can see.
+
+    beadcause-incidents -w beadcause --reviews          which resolved incidents owe one
+    beadcause-incidents -w beadcause --reviews --file   file the ones that are owed
+
+It asks four questions and the last one is the only one that changes anything. What
+happened, in order. Why — the cause, not the trigger, since the trigger is on the bead
+already. What held and what did not. And then: **does the risk register move?** Either a
+risk already in it now has a different likelihood or a different treatment, or this
+incident was not covered by any risk in it and one is missing — say which, and name it. A
+review whose output is "we fixed the bug" changed nothing; the bug was already fixed, which
+is why the review is being written.
+
+The review is filed **held**, unlike the incident it is about. A P0 crash behind a tap
+defeats the point of filing it automatically; a review is work somebody has to sit down and
+do, and queueing that unasked is how an advocate spends a night on a form. The record
+exists either way, and the record is what the clock reads.
+
+### The exercise, because a plan nobody has run is a document
+
+Everything above is machinery, and machinery is not the thing that fails first. What fails
+first is the hour nobody has ever spent asking what actually happens — and a response plan
+that has never been run is an exception waiting to be written down by somebody else.
+
+    beadcause-incidents -w beadcause --tabletop                the scenarios worth walking
+    beadcause-incidents -w beadcause --tabletop night-exit --file --with "Adam" --when 2026-09-01
+
+Three scenarios come with it, and each is chosen because it breaks a *different*
+assumption this system quietly makes. **night-exit** — the daemon takes an
+`uncaughtException` at 02:00 and launchd restarts it into the same fault four times, and
+nobody is awake; it breaks the assumption that a P0 reaching the inbox is the same thing as
+somebody being told. **silent-sweep** — a background sweep has been throwing for six days
+and the daemon has carried on each time; it breaks the assumption that a degraded system
+looks different from a working one. **no-fix-critical** — a critical advisory with no
+published fix, seven days from its SLA; it breaks the assumption that every finding has a
+remediation you can perform.
+
+The exercise is a bead, filed **before** it happens so it can be scheduled and so its
+absence is visible, with the date and the people on it. Four answers go on it afterwards,
+and the fourth is what changed as a result — a bead, a revised commitment, a registered
+risk. If nothing changed, that goes on it too, because "we ran an exercise and learned
+nothing" is a finding of its own.
+
+An exercise carries the `incident` label so the register stays one `bd` call, and is
+**pulled out of the register** exactly as a review is. Neither is an incident, and counting
+the paperwork about incidents as incidents would make a bad month look worse for having
+been handled properly.
+
+### Dependencies on the same clock
+
+`npm audit` has been in the box the whole time. What it never had is a **deadline**, and
+the deadline is the whole difference between "we scan our dependencies" and a control.
+
+    beadcause-incidents -w beadcause --vulns          the scan, on a remediation clock
+    beadcause-incidents -w beadcause --vulns --file   file what is new, close what is fixed
+
+One vulnerable package is one bead: filed the first time a scan sees it, closed by the
+first scan that no longer does, and the days between the two are the remediation time. The
+SLA is by npm's own severity word — critical 7 days, high 30, moderate 90, low 180 — taken
+as published rather than re-scored locally, because a local score is a judgement made on
+the day by whoever was looking and it is not reproducible a year later. `info` is
+deliberately absent from that table and gets **no bead at all**: an informational advisory
+is not a finding, and a board full of beads nobody will ever action is how the ones that
+matter stop being read.
+
+**There is no state file of first-seen dates**, and that is the design rather than a
+shortcut: an SLA measured against a file this repo writes is measured against a file this
+repo can rewrite. Measured against a bead it is measured against something with a history,
+that somebody had to close, in a graph nobody edits by hand. Same argument as the incident
+clock, and the same three timestamps.
+
+**The severity is read back off the bead rather than re-scanned**, which matters more than
+it sounds: an advisory can be re-scored upstream after the bead is filed, and the deadline
+that counts is the one that was in force when it was detected. Re-scoring a live finding
+into a longer SLA is how a breach disappears.
+
+Reconciliation closes as well as files, and the closing half is the one that is easy to
+leave out. A register that only ever files grows for ever and evidences nothing — `closed_at`
+is the entire measurement.
+
+
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
 Everything above is a **channel**. A question reaches your phone, an answer reaches
@@ -9577,7 +9734,7 @@ signal is the one act here with no undo:
 |---|---|
 | the session **reached one of its three endings** | not timed out, not lapsed, not gone silent. Those four are this daemon's inference about a quiet window, and the inference is the reason to read it |
 | Claude Code still reports that pid as a live session **named after this bead** | records in `~/.claude/sessions` outlive their process and pids get reused, so the pid alone is worthless. A subtask id (`<bead>.1`) is not its parent, either — the id has to stand on its own in the name |
-| the session is **idle** | it goes on working for a moment after it reaches its ending — the `DONE-` rename, the last message — and that moment is `busy` |
+| the session is **idle** | it goes on working for a moment after it reaches its ending — the `QUEUED-` rename, the last message — and that moment is `busy` |
 | and has been for `closeGraceSeconds` | "idle" is a status file the session writes itself, and the gap between two turns looks exactly like the end of the last one |
 
 Then `SIGTERM`; then `SIGKILL` if that was ignored for `closeHardSeconds`; then, after
@@ -9610,7 +9767,7 @@ the two that carry the weight:
 
 | before a window with no worker is queued at all | why |
 |---|---|
-| its name **starts** with `DONE-` or `done-` | not a guess about the session — the session's own account of itself. Both the work brief and `rename-session.sh --done` write that prefix at the end of the work and nowhere else. A window that closed its bead and never got as far as renaming itself is missed on purpose: a session that did not finish its own protocol is a window somebody should read |
+| its name **starts** with `QUEUED-`, `DONE-` or `done-` | not a guess about the session — the session's own account of itself. The work brief writes `QUEUED-` at the end of the work, `rename-session.sh --done` writes `done- ` for one shipped by hand, and the merge queue writes `DONE-` over the first when the branch actually lands. A window that closed its bead and never got as far as renaming itself is missed on purpose: a session that did not finish its own protocol is a window somebody should read |
 | the bead named in that name is **closed** | the strictest reading of guard 1, and the one that does the work here. The case this widening risks is a window of *yours*, opened by hand and named after a bead — and while that bead is open, nothing can reach it. It stays the strict reading even though guard 1 itself now covers delivered and handed-back work, because those two are claims about a **worker** — this advocate launched that pid onto that bead — and a swept window has no worker, so nothing ties an open delivery card to the window in front of you |
 | it has been **idle** for `sweepIdleMinutes` (default 20) | minutes rather than the 90 seconds a worker's window gets, because this window's identity is inferred from its *name* and not from a launch we made. Anybody actually reading it would have touched it inside twenty |
 
@@ -10617,8 +10774,9 @@ duplicate label:
   reconcile renews it; a second mechanism writing a second label from the same handle is a
   second row to sync and a bead the tracker reports as contested by a machine that is not
   contesting anything.
-- **A window whose name says `DONE-`.** A session finished by its own account is not
-  working the bead, and its window can sit there for an hour before the sweep closes it.
+- **A window whose name says `QUEUED-` or `DONE-`.** A session finished by its own
+  account is not working the bead, and its window can sit there for an hour before the
+  sweep closes it.
 - **A bead another Mac already holds.** A claim of ours would be later and would lose the
   tiebreak anyway — and writing it would only tell the holder's card the bead is contested
   when nothing here is going to stand down. This window is a person at a keyboard, and no
@@ -11124,7 +11282,7 @@ session finishes ──► beadcause-deliver ──► pushes the branch ──�
               Merge · Ship · Request changes · Decline
 ```
 
-Eight things follow, and they are the whole of the change:
+Nine things follow, and they are the whole of the change:
 
 - **The merge is still only ever through a pull request.** Not `git merge`, not
   `git push origin main`, not "just this once because it is trivial". There is still no
@@ -11134,6 +11292,26 @@ Eight things follow, and they are the whole of the change:
   work bead is made to *depend* on the merge-bead, and the close gate refuses a bead with
   an open blocker. So a session that tries is refused by the tracker, not by its own good
   behaviour — and a future brief that forgets to say so cannot re-open the hole.
+- **So a worker cannot honestly call itself `DONE-` either, and it no longer does.** The
+  prefix on a finished session's name is what separates shipped work from work that
+  stalled halfway, in a `/resume` list where every entry otherwise looks alike — and a
+  session that renamed itself the moment its delivery was *queued* was claiming a merge
+  it never saw, which is the exact failure the prefix exists to make visible. It writes
+  **`QUEUED-`**, which is true when it is written, and the queue writes **`DONE-`** over
+  it in `finish` — the same function that closes both beads because GitHub says the pull
+  request merged. Nothing infers the merge: the one thing that knows is the thing that
+  renames. **Three doors write it**, because three of them can be the first to know a
+  branch landed: the queue's `finish`, the **Merge** tap on a delivery card (a
+  `--review` delivery files no merge-bead, so the queue never sees that pull request),
+  and `reconcileLanded`, for one merged on github.com. Each renames *before* it closes
+  the bead — the close is what makes the window reapable, so a rename after it races the
+  signal that closes the window. `lib/retitle.js` does the writing, into both stores a
+  name lives in — the pid record every guard here reads, and the transcript entry
+  `/resume` labels the conversation with forever, without touching its mtime, because
+  the picker orders by that. It is best-effort throughout: a window wearing a stale name
+  is cosmetic and a merge that reports itself as not having happened is not, so a window
+  already reaped is a silent no-op rather than a failure.
+
 - **The downmerge is the queue's, and it happens at the last possible moment.** The worker
   used to be asked to `git merge origin/main` before delivering, which was unverifiable
   after the fact and stale again by the time GitHub saw it. The queue asks GitHub to
@@ -12423,6 +12601,94 @@ those is a new shared module arriving with the tags that load it, which is exact
 work this fires on and exactly the work a human bumped for. `bc-p38c.2` stays silent
 under it for the reason it always did: `report.js` went onto twelve pages and nothing
 gained a call into it, so cached HTML without the tag is the app exactly as it was.
+
+## Change management, evidenced — `beadcause-changes`
+
+SOC 2 CC8.1 asks that changes to infrastructure, data, software and procedures are
+authorised, designed, developed, configured, documented, tested, approved and implemented
+to meet objectives. ISO/IEC 27001:2022 A.8.32 asks the same thing in fewer words. It is
+the criterion a first-time service organisation most often fails, and the reason is always
+the same: the answer is a convention rather than a control. A ticket template and a code
+review culture cannot be tested — they can only be evidenced by a person assembling
+screenshots for each sampled change, the week before fieldwork, out of four systems that
+were never asked to agree with each other, and what those screenshots show is what the
+convention *usually* produced.
+
+Here the answer is a gate, and every part of it already leaves a record:
+
+- an unattended session **cannot be opened on a bead nobody endorsed** — `assertEndorsed`
+  in lib/endorse.js is a refusal at the launcher and not merely a filter on a queue, so a
+  change has an authorisation or it has no session at all;
+- the session is archived against the bead on `refs/beadcause/sessions/<bead>`, with the
+  agent, the model, the branch and the commits it made;
+- **the worker does not merge its own branch.** It files a merge bead carrying what it
+  ran, and its own bead is made to depend on that one, so the approval is a different
+  agent looking at the whole board — see [Landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue);
+- the merge writes `beadcause: landed <workspace>/<bead>` onto the merge commit, on
+  `refs/notes/beadcause`, where it is anchored to an immutable object;
+- and the deploy closes a ship bead against the pull request number, or — since auto-ship
+  — records it in the release ledger.
+
+**None of that was built for an auditor**, which is exactly what makes it evidence rather
+than a claim. The command only reads it:
+
+```bash
+beadcause-changes sample --from 2026-04-01 --to 2026-07-01 --size 25 --seed 7
+beadcause-changes all --from 2026-04-01 --to 2026-07-01     # the period, not a sample
+beadcause-changes summary --from "3 months ago"             # one line, for a log
+```
+
+Out comes a document with one row per sampled change and, for each, six columns saying
+where the authorisation, the design, the development, the test, the approval and the
+deployment record actually are — with the bead id, the merge bead id and the ledger
+timestamp, so any cell can be opened rather than believed. Six columns and not eight,
+because two of CC8.1's verbs have no separate record here and inventing one would be worse
+than saying so: *configured* is the same act as developed in a repository where
+configuration is files in the diff, and *implemented* is the commit the row is keyed on,
+so a column for it would tick by construction and teach a reader nothing.
+
+**The seed is what makes it their sample rather than ours.** Selection is a pure function
+of the seed and the commit hash — a hash, sorted, sliced, no clock and no randomness — so
+the auditor picks the seed, nothing here can steer which changes come out, and the same
+window with the same seed returns the same 25 rows on any machine next year. `Math.random`
+would have made the artefact worthless in the only way that matters: a second run
+disagreeing with the one already in the audit file. `test/changesample.mjs` pins the hash
+to a literal for that reason, so changing it fails loudly rather than quietly re-selecting.
+
+**Three states, and the middle one is the point.** `✓` a record exists and says so; `✗`
+the record that would say so does not exist, which is a **finding**; `?` nothing here could
+ask. They are never folded together. A `?` reported as a tick is a lie and reported as a
+finding is noise that trains a reader to ignore the findings, and the first version of the
+totals counted a row with no findings as a row with a complete record — which made a run
+against a checkout with no tracker report 47 of 47 changes clean, the most confident
+possible way of saying nothing at all. Clean now means every column evidenced, and the rows
+that are neither clean nor a finding are counted and named.
+
+**Nothing is dropped, and the strays are the interesting part.** A commit that reached
+`main` outside a pull request is not a change this can shape into a row — no pull request
+means no approval covering it individually — so it goes in its own list at the foot of the
+report rather than out of the population. A tool that quietly counted only the rows it
+could answer for would understate the denominator by precisely the changes that skipped the
+process, which is the population an auditor came to find.
+
+The first run over this repository says three true things worth stating out loud, and it is
+a better advertisement for the tool than a page of ticks would be. The merge queue is
+**new** — the pull requests before #314 have no merge bead, so `approved` is a finding on
+almost every historical change and the control has an effective date rather than a history.
+The release ledger **prunes at 45 days**, where a Type II observation window is three months
+at the short end, so a sample taken at the end of one asks it about deployments it has
+already forgotten; the report says so where it would otherwise read as changes that never
+shipped, and keeping evidence past the observation window is its own bead (bc-4r10.7). And the strays are real:
+the older workflow merged locally and pushed, so those commits are in `main` with no pull
+request behind them.
+
+It names no control id yet. The closed control corpus — SOC 2 CC, ISO/IEC 27001 Annex A and
+ISO/IEC 42001 in one vocabulary, with the crosswalk edges that make CC8.1, A.8.32 and their
+42001 counterparts one implementation with three names — is being built separately, and an
+id minted here before that corpus exists is exactly the fabricated-control problem the
+corpus is closed to prevent. What the report carries instead is the mapping from each column
+to the CC8.1 verbs it answers, in the output where an auditor can argue with it, ready for
+the corpus to point at.
 
 ## The Android app
 
@@ -16064,6 +16330,10 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `release.beads` | file a bead per merged pull request and close it when a deploy makes it live (default `true`). Only ever in a repo whose deploy beadcause can see the outcome of — a bead nothing could close is a chore invented rather than found. See [The release queue](#the-release-queue--the-number-over-ship) |
 | `release.seconds` | how often the queue is swept (default 300, floor 60). Slow on purpose: it is a `gh pr list` per repo when nobody has looked at the board recently, and its news keeps for five minutes |
 | `release.settleSeconds` | how long an [auto-ship](#auto-ship--the-merge-that-does-not-wait-for-the-tap) waits before it fires, so four merges in ten minutes are one deploy (default 600) |
+| `incidents.sev1` … `incidents.sev4` | what we said we would do about an error, in **minutes**, before one happened: `{ acknowledge, resolve }` per severity (defaults 15/240, 60/1440, 1440/10080, 10080/43200). Measured against bd's own `created_at`, `started_at` and `closed_at` — claiming the bead is the acknowledgement and closing it is the resolution. Setting one number leaves the rest, and neither can be set below a minute, because a zero would breach every incident at the moment it was filed. See [The severity, the clock, and the commitment](#the-severity-the-clock-and-the-commitment-it-is-measured-against) |
+| `incidents.escalateAt` | occurrences of one fingerprint before it escalates a severity level (default `10`). It can never reach `sev1`: that one means the process died, which is a fact and not a volume |
+| `incidents.reviewFrom` | the severity at and above which a **resolved** incident owes a post-incident review (default `sev2`). See [The post-incident review](#the-post-incident-review-and-the-loop-it-closes) |
+| `incidents.vulnerabilityDays` | the remediation SLA for a dependency advisory, in days, by npm's own severity word (defaults critical 7, high 30, moderate 90, low 180). `info` is deliberately absent and gets no bead at all. See [Dependencies on the same clock](#dependencies-on-the-same-clock) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
 | `sessionWindows.layout` | deal session windows onto one screen as cards (default `true`; `false` leaves them wherever iTerm cascades them). See [The card table](#the-card-table--where-session-windows-go) |
@@ -16135,7 +16405,7 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
 | `advocates.closeGraceSeconds` | how long an idle session gets between reaching its ending and the first signal (default 90) |
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
-| `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `DONE-`, only a closed bead; `false` leaves your own windows where you put them |
+| `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `QUEUED-`/`DONE-`, only a closed bead; `false` leaves your own windows where you put them |
 | `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
@@ -17849,6 +18119,130 @@ pinned FIRST/LAST list — [the one line every session has to edit](#npm-test) �
 A *missing* harness is a failure and not a skip: cover that quietly stops existing is the
 thing being fixed here, and a wrapper that shrugged when its target went would be a second
 helping of it.
+
+### Nothing is kept without saying for how long — `lib/evidence.js`, `test/evidence.mjs`
+
+A SOC 2 Type II report is not an opinion about the controls that exist today. It asks
+whether they **operated throughout a period**, and the auditor answers that by sampling
+the period — three dispatches from March, the deploy from the week of the outage. So an
+evidence source that is overwritten, rotated without retention, or reset between runs is
+not untidy. It converts a working control into a *testing exception*, because the
+population the sample was to be drawn from is not there to draw from, and an exception in
+a first report is the part a buyer actually reads.
+
+`lib/agentlog.js` is the example that started this. `reset()` deletes the previous run's
+log outright, because a new dispatch is a new run and the phone tailing it wants a clean
+file — correct for the pane, and fatal for the record: what an agent did on a bead
+survives exactly until the next thing is dispatched at that bead, and the runs an auditor
+most wants to read are the ones that were retried. That is bc-eqn1.7, and it is a bug
+about one file. The bug about the system is that nothing anywhere said what was kept.
+
+**`lib/evidence.js` is the register, and it is data rather than a policy document.** One
+entry per evidence class, and a class is an *artefact* rather than a file: `deployment-record`
+is one class written by two modules into two places, because "show me that release went
+through the queue" is one question and nobody sampling it cares that half the answer is a
+JSON file and half a directory. Each entry says what it is, where it lives, which modules
+write it, what it is evidence *of*, whether an auditor would sample it, how long it is
+kept, how it is disposed of, who can alter it — and the field the rest hangs on, whether
+you could tell if somebody had.
+
+**Retention is set from the report, not from the disk.** `RETENTION_FLOOR_MONTHS` is 24:
+a Type II window is twelve months and the report is relied on for about twelve months
+after issuance, during which the auditor — or the buyer's own security review — can come
+back to the population the sample came from. It is a floor, and a shorter number cannot be
+written at all. Anything under it is disk convenience with a retention rule beside it.
+
+**Three integrity mechanisms, and the middle one is weaker than it reads.**
+
+- `chained` — the record is a commit on a `refs/beadcause/*` ref, written through the
+  compare-and-swap in `lib/gitref.js`. Every commit's sha covers its parent, so removing
+  or editing anything but the tip breaks every sha after it. This is the shape the
+  amendment log established and the shape the rest should follow.
+- `history` — the file is inside the common repo, which commits after each write, so
+  prior versions are recoverable. That is **recovery, not tamper-evidence**, and the
+  difference is what a sampled class turns on: the snapshot is explicitly best-effort and
+  is dropped on an `index.lock` collision, so a missing commit is expected rather than
+  suspicious; the repo has no remote and nothing outside it records the head, so a
+  `git reset` there leaves nothing to compare against; and it is written by the same
+  process that writes the file it would be protecting. Good enough for *what did this say
+  before the advocate rewrote it*. Not good enough for a sample.
+- `none` — overwritten or deleted in place, ignored by the common repo, nothing behind it.
+
+**The rules are the ones that cost something, because a register nobody can fail is the
+policy document this was written instead of.** A class an auditor would sample must be
+`chained` or must carry a `gap` naming the bead that will chain it. A class kept as
+evidence with `none` behind it must carry one too. A retention under the floor is refused.
+A `gap` has to name a bead *and* say in a sentence what is missing — "todo" is not a
+gap, it is a note.
+
+**`NOT_EVIDENCE` is the other half of the inventory, not a waiver list.** Plenty of what
+this daemon persists is not evidence of anything: `status.json` is liveness rewritten
+every few seconds, `merge-sweeps.json` is one line the next poll cycle consumes within
+thirty seconds, half a dozen files are credentials, and several modules only read what
+another module owns. Each of those gets an entry with a sentence saying which — and the
+sentence is the price. The check cannot tell a file nobody thought about from a file
+somebody decided about; the exemption is where the deciding is recorded.
+
+**What keeps it true is a scan of the repo, and the scan has a wrong answer available to
+it.** `test/evidence.mjs` walks `lib/` and `bin/` for anything that names `CONFIG_DIR` or
+a `refs/beadcause/` ref and fails when a module appears in neither list — so a module that
+writes a new file under `~/.config/beadcause` cannot land without somebody saying how long
+the file is kept. It fails the other way too: a claim on a file that no longer writes
+anything is stale, and a stale entry reads as a decision somebody made. The wrong answer
+is the one described at the top of `public/editmode.js` — every file here argues in prose
+that names the identifiers around it, so an unblanked scan finds `CONFIG_DIR` in the
+paragraph explaining that a module deliberately stays out of it, and finds
+`CLAUDE_CONFIG_DIR` in the seven that explain what *that* is for while touching nothing of
+ours. `blankComments` replaces comment characters with spaces, preserving length and
+strings, because `refs/beadcause/…` is only ever a string.
+
+**And the rules are proved against broken entries rather than only run against the real
+one.** `REGISTER` is frozen and is supposed to pass; a suite that only ever ran the rules
+over it would report that the register is clean and would be unable to tell you whether
+any rule could ever fire. `entryProblems` takes one entry, so the suite clones a known-good
+class and breaks one field at a time — `history` under `sampled`, a twelve-month retention,
+a one-word `disposal`, a `gap` whose bead is the word "soon".
+
+**`verifyRef` demonstrates the chain instead of asserting it**, and reports three things
+that fail separately: `linear` (no commit has two parents — a merge into an evidence ref
+joined two histories and neither is the record now), `intact` (every parent resolves,
+back to one root), and `anchored`. The third is the only one that can catch a deliberate
+rewrite, and it is the one with no store behind it: a forged history is *perfectly*
+intact, so intactness proves that what you hold is a chain and not that it is the chain
+that was there in January. Detecting that needs a head somebody wrote down beforehand,
+somewhere the rewrite cannot reach. The parameter exists and nothing records one — that
+is bc-hzu4, and the suite pins the behaviour by rewriting a ref and asserting it comes
+back intact, linear and unanchored.
+
+**What it found the first time it ran.** Thirty-one modules under `lib/` and `bin/`
+persist state outside the repo. Ten evidence classes cover the ones that are records;
+sixteen exemptions cover the credentials, the liveness, the bookkeeping, the caches and
+the readers. Two classes could not be registered honestly without a gap: the agent run
+logs, which are destroyed at the next dispatch (bc-eqn1.7), and the deployment record,
+which rests on the common repo's best-effort local history (bc-j3d5). Four classes are
+`chained` and all four share bc-hzu4. Pointed at this checkout, `verifyRef` reports
+`refs/notes/beadcause` as 7,863 commits, linear and intact, and `refs/beadcause/foundations`
+as one — the baseline, with no amendment yet approved. Both are `anchored: null`, because
+there is nothing to anchor them against.
+
+**And writing it down moved one thing to the other list.** The requirement graph looks
+like the strongest evidence here — traceability from a requirement to the commit that
+satisfied it — and the first draft registered `refs/beadcause/requirements/<token>` as
+exactly that. It is a *cache*: `lib/reqindex.js` says so in its own second paragraph, and
+`test/reqindex.mjs` asserts every edge in it can be rebuilt from `refs/notes/beadcause`.
+The evidence is the **note**, which is anchored to an immutable commit, is written once,
+and is what nothing can rebuild. Registering the cache instead would have produced a
+retention rule protecting a derived copy while the record it derives from went unnamed —
+which is the shape of a control that passes its own test and fails an auditor's.
+
+**What it deliberately does not check.** That a `gap` bead exists and is still open — the
+gate would then need a tracker, and a clone of this repo does not have one. And
+`scripts/`, because every check there runs against a throwaway `BEADCAUSE_CONFIG_DIR` it
+makes and deletes, so what they write is a fixture rather than a record; sweeping them in
+would add a dozen exemptions that all say the same thing. Naming the *criterion* a class
+is evidence of is bc-eqn1.2's closed vocabulary and bc-eqn1.3's edges — `serves` is prose
+here on purpose, because a second, weaker vocabulary invented alongside the corpus is the
+three-separately-built-control-sets failure the programme is written against.
 
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
