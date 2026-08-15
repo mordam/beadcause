@@ -288,8 +288,21 @@ solo install behaves exactly as it always did.
 
 ## Asking a question
 
-Anything labelled `human` shows up. To get buttons, diagrams and links, put a
-fenced `decision` block in the body:
+Anything labelled `human` shows up. **A question ends with a fenced `decision` block,
+with nothing after it, and one option in it marked `recommended: true`** — that is the
+rule the briefs teach and `beadcause-ask` refuses a body without it. The prose above the
+block is context; the block is the ask, and it is what turns a wall of text into buttons
+you can tap from a phone. Without one, the card falls back to guessing the options out of
+the prose (`lib/suggest.js`) — and a guessed option *fills* the answer box rather than
+sending it, because nobody wrote it on purpose.
+
+One question per bead: two things to decide is two beads and two cards, because a card
+has one answer box and no way to say which half of it an answer answers. And if what you
+need is a *fact* rather than a choice — a password, a number nobody wrote down — there is
+nothing to offer and inventing two options would be worse than none: `--no-options` says
+so, and is the only way past the check.
+
+The block is also what gets you diagrams, documents and links:
 
 ````markdown
 Some markdown context. Tables, images, links, `code` — all of it renders.
