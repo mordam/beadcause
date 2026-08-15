@@ -9180,6 +9180,118 @@ leave out. A register that only ever files grows for ever and evidences nothing 
 is the entire measurement.
 
 
+## The nonconformity, and why a refusal is not one — `beadcause-capa`
+
+Everything above this line is **detection and correction**, and both are automatic: the
+error files itself, the crash files itself, a severity and a commitment land on the bead
+and the merge queue closes it when the fix ships. That is already further than most
+programmes get. What it does not do is the part Clause 10.2 asks for *after* the bug is
+fixed — why it happened, what was changed so it cannot happen again, and whether that
+actually worked.
+
+The third one is the whole reason this exists. **A corrective action whose effectiveness
+nobody ever checked is the commonest finding there is**, and it is common because the
+check has no natural moment: the bug is fixed, the bead is closed, everybody has moved on,
+and thirty days later nothing reminds anyone. Here something does, and it is not a
+reminder — it is a bead, and it **blocks the record from closing**. bd refuses a close
+over an open blocker, so the tracker itself declines to call a corrective action finished
+before somebody has looked at whether it worked. Nothing has to remember; the graph
+refuses.
+
+    beadcause-capa -w beadcause                  the register, what is wrong with it first
+    beadcause-capa -w beadcause --sections       the five questions a record answers
+    beadcause-capa -w beadcause --owed           incidents that breached and have no record
+    beadcause-capa -w beadcause --raise bc-x --file --days 30
+    beadcause-capa -w beadcause --checks         the checks, soonest due first
+    beadcause-capa -w beadcause --refusals       what the gates refused — the control working
+
+### The record is not the bug bead, and the code is what settles that
+
+The obvious design is to grow these fields on the P0 the error path already files. It
+cannot be that, and the reason is not taste. **The merge queue closes the bug bead when
+the fix lands**, so a blocker on it turns every merge into an owed close with a P0 sitting
+open on the board over a fix that has already shipped. The two records also have genuinely
+different close conditions — the bug is resolved when the fix merges, the nonconformity is
+closed when the action is *shown* to have worked — and one bead cannot carry two.
+
+So a nonconformity is its own bead, raised *from* the bug and carrying a `raisedfrom:` edge
+back to it, exactly as the post-incident review above is its own bead and for the same
+reason: a record whose absence is invisible is a record that does not exist.
+
+It answers five things, seeded with the question under each heading so that nobody has to
+invent it, and **the third is the one that decides whether any of this was worth doing**.
+What happened — which requirement was not met, not only the symptom, since the symptom is
+on the bug. The correction — what stopped the bleeding, and what the failure had already
+done that had to be undone. Then the root cause, which is the *evaluation* the clause asks
+for and not the fix: what would have had to be different for this to be impossible, and is
+that same cause sitting anywhere else in the system right now. Then the action — what
+changed, naming the bead and the commit. And then effectiveness, which is answered
+somewhere else.
+
+An answer counts wherever it is written — the description, the notes, a comment — because
+insisting on one of those produces records that are complete and read as empty, and the
+later answer wins, since appending is how anybody actually corrects one. What does **not**
+count is the seeded question itself: if that prose read as an answer, every record would be
+complete the moment it was filed, and the whole thing would be a form.
+
+### The check is dated, and `deferred` still blocks
+
+The effectiveness check is a bead with the date in three places — in its title, in a
+`due:<day>` label a list can sort by, and in its own first sentence. It is filed **held**,
+like the post-incident review above and for the same reason — a check is work somebody has
+to sit down and do, and queueing that unasked is how an advocate spends a night on a form —
+and then **deferred until its day**, which is what makes the date real rather than
+decorative: it is out of every queue until then and arrives on the date. A deferred bead is
+not a closed one, and the close gate filters on *not closed* rather than on *open*, so it
+goes on holding the door for the whole thirty days regardless.
+
+It asks three narrow questions rather than one wide one. Has it recurred, and what did you
+look at to say so. Is the change still in place — an action reverted in a merge nobody read
+is an action that was never taken. And did it address the cause or the symptom: the root
+cause named something, so is that thing now impossible, or merely less likely because one
+instance of it was fixed? **"It did not work" is a real answer and the useful one**; an
+ineffective action raises the next nonconformity rather than being quietly rewritten into a
+success on the way to closing this one.
+
+Because bd refuses the close, a record closed with its check still open can only have been
+`--force`d. That is a decision somebody made rather than an accident, and the register
+sorts it to the very top and calls it what it is, so the decision was at least made in the
+open.
+
+### A gate refusal is the control working, and it is not stored like a finding
+
+This is the distinction that matters most here, and it is worth more than any field above.
+The enforcement gates refuse work that does not conform — a session on a bead with no
+impact assessment, a merge carrying no control claim, an egress to a host nobody
+registered. **Every one of those refusals is the control operating correctly.** An auditor
+who reads a pile of them as failures draws exactly the wrong conclusion, and unwinding that
+costs far more than preventing it.
+
+So they are not merely labelled differently — they are not the same kind of thing in
+storage. A nonconformity is a bead. **A refusal is a comment on the bead it refused**, with
+a parseable first line naming the gate and the control it enforced, and the refused bead
+carries `gate-refused` so one `bd list` finds every bead a gate has ever stopped. Two
+reasons that beats a second kind of bead. A gate that works refuses often, and a bead per
+refusal is a board nobody reads — with the beads that matter stopping being read alongside
+it. And a refusal is *about* a bead, which it already has: the work that was stopped, which
+is where anybody hitting the refusal will actually look.
+
+A row carrying both labels is a **throw**, not a guess, because the two available guesses
+are "count the control working as a failure" and "stop counting a real finding". The period
+report puts the two in separate fields with separate sentences, and the refusal count is
+printed next to the words saying it is never a finding of any kind. There is no arrangement
+of these two that quietly adds up to twelve failures this quarter.
+
+### What is owed without anybody deciding
+
+One source of a nonconformity needs no judgement at all: an incident that **missed a
+commitment stated in advance**. The number was written down before the incident — that is
+the entire argument for stating it — so a miss is a requirement not met, by construction.
+`--owed` lists those, `--owed --file` raises them, and everything else is raised by hand
+with `--raise`. That asymmetry is deliberate: automating the ones that need a decision
+fills the register with records nobody believes, and a register nobody believes is worse
+than a short one.
+
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
 Everything above is a **channel**. A question reaches your phone, an answer reaches
