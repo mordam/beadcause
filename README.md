@@ -15379,6 +15379,24 @@ answers is said here, in prose, where nothing can mistake it for a vocabulary: i
 and authentication, authorisation against a role, removal on termination, boundary
 protection, and controls over what may run.
 
+### What an agent may run, and the one kind that has no allowlist
+
+Every agent row also carries what that kind may *execute*, read off its foundation:
+twelve allowlisted patterns for the chat session, nineteen for the dispatcher,
+twenty-five and twenty-nine for the two advocates, twenty-four for the merge queue. The
+allowlist names `bd`'s read-only verbs one at a time rather than `bd *`, because `bd *`
+quietly included create, close, delete and label — which is the difference between an
+agent that answers a question and one that can file the bead the proposal flow exists to
+make you approve.
+
+And then the worker, which **has no allowlist at all**. That is deliberate and
+defensible: a session opened to do a bead needs whatever the bead needs, and its
+containment is the worktree it may write to rather than a list of verbs. It is also the
+single widest grant in this system, so the register says it in those words rather than
+letting it render as a number like the other five, and `test/access.mjs` pins the
+wording. A control document whose widest grant is the one you cannot find in it is worse
+than no document.
+
 ### The credentials, and the three that are scoped by something other than a permission
 
 `CREDENTIALS` is closed and hand-written, because there is nothing to derive it from — a

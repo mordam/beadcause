@@ -75,6 +75,14 @@ check('agent rows read writes and ownsRepo off the foundation', () => {
   assert.equal(byId['agent:merge-advocate'].name, 'The merge queue', 'the row is named by the foundation title');
 });
 
+check('the one agent kind with no tool allowlist is registered as having none', () => {
+  const byId = Object.fromEntries(agentPrincipals().map((p) => [p.id, p]));
+  // The widest grant in the system, and the register must not let it read like a number.
+  assert.match(byId['agent:worker'].mayRun, /No tool allowlist/);
+  assert.match(byId['agent:console'].mayRun, /allowlisted patterns/);
+  for (const p of agentPrincipals()) assert.ok(p.mayRun && p.mayRun.length > 20, `${p.id} does not say what it may run`);
+});
+
 check('every credential has a leaver step', () => {
   const covered = new Set(JML.leaver.map((s) => s.credential));
   for (const c of CREDENTIALS) {

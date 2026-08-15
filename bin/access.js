@@ -64,6 +64,7 @@ for (const p of reg.principals) {
   if (p.what) console.log(`    what    ${p.what}`);
   console.log(`    reaches ${p.reaches}`);
   if (p.writes) console.log(`    writes  ${p.writes}`);
+  if (p.mayRun) console.log(`    may run ${p.mayRun}`);
   console.log(`    granted ${p.grant}`);
   console.log(`    revoke  ${p.revoke}`);
 }
