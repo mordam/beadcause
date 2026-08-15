@@ -15311,6 +15311,139 @@ row on a space's card, where a per-space control would quietly govern all of the
 fake Confluence, and the case it exists for is the third paragraph above: a page in a
 space that is not readable, behind a URL that says it is.
 
+## The access register — every principal, human and agent, and what revokes it
+
+Every control framework asks the same question in its own words: who can reach this, on
+whose authority, and what takes it away. The pieces of an answer have been here for a
+long time — a token, an allowlist, per-device sessions, a tailnet with no public
+listener, a foundation per agent kind, an endorsement gate no unattended session may
+cross — but they were **arrangements** rather than a stated control, and the difference
+shows the moment somebody asks for the list. An arrangement is answered by reading six
+files and reasoning. A control is answered by running one command:
+
+```
+beadcause-access            # the whole register, as prose
+beadcause-access --json     # the same thing for a script
+beadcause-access --review   # just the review line; exit 1 when it is overdue
+```
+
+`lib/access.js` is the register, `bin/access.js` prints it, `test/access.mjs` is what
+stops it going quietly stale.
+
+### An agent is not a user account, and modelling it as one is the trap
+
+The obvious shape is a table of accounts with a row per agent, and it is wrong in a way
+that would survive review by being ticked. **Nothing this daemon spawns holds a
+credential of its own.** All six agent kinds run as the single Claude subscription signed
+in on this Mac; there is no per-agent secret to rotate, nothing to disable one at a time,
+and a table implying otherwise describes six accounts that do not exist.
+
+So the register's rows are **grants, not accounts** — the thing that hands a principal
+its reach, chosen because it is the thing a review can actually revoke:
+
+| What grants it | Where it lives | What revokes it |
+|---|---|---|
+| A [foundation](#what-an-agent-is--and-how-it-asks-to-be-different) | `lib/foundation.js`, plus amendments on `refs/beadcause/foundations` | A commit, or an amendment — and never for a `PROTECTED` field |
+| An endorsement | The bead itself | Park it, or never endorse it — an unendorsed bead is worked by nobody |
+| A directory-scoped export | `~/.zshenv` | `unset`, which happens on its own the moment a session is rooted somewhere personal |
+| A network position | The tailnet | Remove the device from the tailnet admin console |
+| An allowlist entry | `auth.google.allowed` | Delete the line — then delete the device rows, because a live cookie outlives it |
+| A device row | `state.json` | The Devices screen |
+| Possession of the token | Whoever photographed the QR | Rotate it |
+
+The fourth row is the boundary, and it is the one an auditor should be told first: there
+is no public listener and [no inbound webhook](#https-on-the-tailnet-name) of any kind,
+so every credential below sits behind a network position an unenrolled device cannot
+take.
+
+### Half of it is derived, and the other half refuses to be silent
+
+The roster of agent kinds is `AGENTS` in `lib/foundation.js`, read at call time. So a
+seventh kind cannot come into existence without the register having heard of it — but
+what *cannot* be derived is the sentence saying what that kind reaches and what takes it
+away, and a register whose answer to a new kind is silence is a register that reports
+completeness on the day it stopped being complete. `AGENT_ACCESS` must therefore cover
+`AGENTS` exactly, and a kind with no row **throws**: the same shape `MARKS` uses to stop
+a new agent shipping as a generic 🤖.
+
+The human half is the opposite — read from live config and live state on every call,
+never copied into the module. "Who can sign in" is a fact about a file, and a second copy
+of it is an answer that drifts and is believed anyway.
+
+And no framework id appears anywhere in `lib/access.js`. That is a seam, not an
+omission: one closed control corpus across SOC 2, ISO 27001 and 42001 is being built
+separately with the crosswalk edges on the control, and an id written here first would be
+a second vocabulary — the "same control implemented three times" that a single corpus
+exists to prevent. This file is the *evidence*; the corpus cites it. Which criteria it
+answers is said here, in prose, where nothing can mistake it for a vocabulary: identity
+and authentication, authorisation against a role, removal on termination, boundary
+protection, and controls over what may run.
+
+### The credentials, and the three that are scoped by something other than a permission
+
+`CREDENTIALS` is closed and hand-written, because there is nothing to derive it from — a
+credential is a fact about a file or an environment variable. Ten of them: the API token,
+the session signing key, a device session, the Google client secret, the tailnet TLS key,
+both Slack tokens, the Atlassian token, the `gh` login, and the Claude subscription every
+agent runs as.
+
+Three are worth reading twice, because their scope is not enforced by a permission system
+at all:
+
+- **`JIRA_API_TOKEN` is scoped by a directory.** `~/.zshenv` exports it under work paths
+  and `unset`s it everywhere else, so a session rooted in a personal repo *physically
+  cannot* authenticate against the work JIRA. Nobody has to remember to remove it.
+- **The `gh` login is wider than beadcause**, and is registered saying so. It is the
+  credential every push, pull request and merge rides on, and it can see every repo that
+  GitHub account can.
+- **The API token carries no identity**, which is the fact worth registering rather than
+  the fact worth hiding. There is no list of who holds it and a photographed QR is a
+  grant, so its row names possession as the authority and rotation as the only revocation.
+
+Where each one lives and how it is rotated is [in the secrets
+section](#where-the-two-secrets-live-and-how-to-rotate-them); the register repeats the
+path and the revocation act rather than linking, because a list you have to follow links
+out of is a list nobody finishes on the day it matters.
+
+### Joiner, mover, leaver — written down for an org of one
+
+Every one of these paths has run zero times, and that is not a reason to leave them
+undocumented. The question is whether the path exists and is followed, and "we would have
+worked it out" is both the answer that fails and the answer that is *true* at the moment
+it matters most — a laptop lost, a contractor finished — which is exactly when nobody is
+in a state to work anything out.
+
+A **joiner** is an allowlist line, a tailnet enrolment, and the token only if they need a
+caller that is not a browser. A **mover** here is usually not a person at all: a role
+change is a change to what an agent may do, which is an amendment or a commit to
+`lib/foundation.js`. A **leaver** is twelve acts, and the twelfth is removing their
+tailnet device.
+
+The leaver path is where the register closes its own loop. Each step names the credential
+it ends, and `test/access.mjs` asserts that **every** id in `CREDENTIALS` appears in at
+least one of them. Add a credential without saying how it comes back and the suite fails
+— so the way out cannot quietly go stale behind the way in, which is the usual way a
+leaver checklist stops being true.
+
+### The quarterly review, and what happens when it is late
+
+`REVIEWS` in `lib/access.js` is append-only, and appending to it is a commit — so who
+performed a review and when is the git identity on that commit, in a history nobody here
+can rewrite. There is deliberately no field restating any of that; a field that can
+disagree with the history is worse than no field.
+
+Ninety days. `test/access.mjs` fails when the next one is past due, `beadcause-access`
+exits 1 on the same condition, and both read the same function so they cannot drift into
+two different controls. Performing a review is: run `beadcause-access`, read it, fix what
+is wrong, append one entry, commit.
+
+**One honest limit, said out loud because an auditor will find it otherwise.** The merge
+queue ignores checks `main` is already failing, so once this red lands on `main` it stops
+blocking other people's merges rather than halting the fleet. That is the right failure
+direction — an unreviewed register must not become a deadlock nobody can commit their way
+out of — but it means the teeth here are a visible red and a card, not a gate. Making it
+one belongs with the rest of the enforcement gates, not with the register.
+
 ## HTTP API
 
 Auth on everything under `/api/` except `/api/health`: header
