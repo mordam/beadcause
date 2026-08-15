@@ -88,6 +88,10 @@ check('the bead comes off the note when there is one', changes[0].bead === 'bc-o
 check('and off the subject when there is not, marked as such', changes[1].bead === 'bc-two' && changes[1].beadFrom === 'subject');
 check('the pull request number is read', changes[0].pr === 322 && changes[1].pr === 300);
 check('a commit that is neither is not a change', changeOf(commits[2]) === null);
+check(
+  'a merge commit is a change too, for a repo that does not squash',
+  changeOf({ commit: 'f'.repeat(40), at: '2026-08-10T10:00:00Z', subject: 'Merge pull request #77 from acme/topic', note: '' })?.pr === 77
+);
 
 /* ------------------------------------------------------------------ 2. the evidence */
 
