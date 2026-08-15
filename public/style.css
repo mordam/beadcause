@@ -5769,6 +5769,15 @@ a.pill { text-decoration: none; }
   letter-spacing: 0; font-size: 11.5px; font-weight: 600;
   color: var(--muted);
 }
+/* The status filter over every tree on the board (bc-rfnr.9.6) — `p0StatusHtml`.
+
+   Drawn as the segmented switch the inbox's scope row is, because it is the same kind of
+   control: one of three, never none, and it changes what every list below it contains.
+   `.chip-row.scopes` above does the banding, including the `nowrap` that keeps the switch
+   one object rather than three chips with the last on a line of its own. What is left
+   here is where it sits: hard against the cards it filters and away from the heading
+   above, so it reads as belonging to the board rather than to the section label. */
+.p0-status { flex-wrap: nowrap; margin: 0 0 2px; }
 /* A card, not a row: these are the four or five things the week is about and they are
    worth the vertical space the rest of the list is rationed out of. Bordered on the
    leading edge in the warn colour the P0 pill already uses, so the section reads as
@@ -5862,10 +5871,20 @@ a.pill { text-decoration: none; }
   background: color-mix(in srgb, var(--warn) 20%, transparent);
   color: var(--warn);
 }
-/* Closed work stays on the board — it is what an epic has *done*, and a tree that hid it
-   would read as smaller than it is — but it recedes. bc-rfnr.9.6 gives it a filter. */
+/* Closed work recedes where it is drawn — it is what an epic has *done*, so it stays
+   legible rather than being deleted from the tree. Whether it is drawn at all is the
+   board's status filter since bc-rfnr.9.6, and the default is not to: an epic reading as
+   twice the size it is was the complaint, and this rule is what the other two options
+   look like. */
 .p0-row.done { opacity: 0.55; }
 .p0-row.done .p0-row-title { text-decoration: line-through; }
+/* A row the filter excluded, kept because something under it was included (`p0Visible`).
+   It is scaffolding rather than an answer, and it has to *look* it — otherwise a `Closed`
+   filter draws open beads with nothing saying why, which reads as the filter not working.
+   A dashed leading edge rather than more transparency: `.done` already owns dimming, and
+   a closed row that is also context would fade to unreadable if the two stacked. */
+.p0-row.via { border-left-style: dashed; }
+.p0-row.via .p0-row-id, .p0-row.via .p0-row-title { opacity: 0.65; }
 /* A P0 with nothing under it. Said in a sentence rather than left as a gap, because an
    empty expansion is indistinguishable from one that failed to arrive. */
 .p0-none {
