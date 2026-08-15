@@ -112,13 +112,18 @@ check('the agent rows are read out of the foundations rather than copied', () =>
   assert.deepEqual(row.allowedTools, ['Bash(only-this)']);
 });
 
-check('the two agents that may write are the two that should', () => {
+check('the agents that may write are the ones that should', () => {
   // Not a restatement of the foundations — a claim about *this* drawing. The whole
   // argument the advocate flow rests on is that the repo advocate may not invent work
   // while the P0 advocate may; a change that quietly made them the same would make the
   // page's central sentence false while every node in it still rendered.
+  //
+  // `merge-advocate` is the fourth, and it is the widest-reaching of them: it merges to
+  // `main` and closes two beads. It is pinned here rather than waved through because a
+  // list that grows whenever somebody adds a foundation is not a guard — the point of
+  // spelling the set out is that adding to it has to be a deliberate edit to this line.
   const writers = map.agents.filter((a) => a.writes).map((a) => a.id).sort();
-  assert.deepEqual(writers, ['dispatch', 'epic-advocate', 'worker'], `writers are now: ${writers.join(', ')}`);
+  assert.deepEqual(writers, ['dispatch', 'epic-advocate', 'merge-advocate', 'worker'], `writers are now: ${writers.join(', ')}`);
   assert.equal(map.agents.find((a) => a.id === 'advocate').writes, false, 'the repo advocate may not invent work');
   assert.equal(map.agents.find((a) => a.id === 'console').writes, false, 'the chat session is the review step');
 });
