@@ -16544,6 +16544,7 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `jiraSeconds` | how often the daemon asks JIRA what is assigned to you (default 60, floor 15) — one HTTP call per workspace whose `jira` block is switched on, and **nothing at all** for the rest. Beside `pollSeconds` rather than inside `jira`, because that block is keyed by workspace name and a number in it would be a setting for a workspace called "seconds". See [the tickets, on a clock](#the-tickets-on-a-clock--and-a-failure-that-is-never-an-empty-list) |
 | `pollSeconds` | how often the daemon *sweeps* — one `bd human list` per workspace, plus a `bd comments` per conversation you are waiting on (default 30). A cost, not a latency: `detectSeconds` is what decides how quickly a change is noticed, and this is the backstop under it |
 | `detectSeconds` | how often it asks *whether anything moved*, which is a ~150-byte read per workspace and spawns nothing (default 5). Setting it equal to `pollSeconds` turns the mechanism off and restores the single-clock cycle — see [noticing in five seconds](#noticing-in-five-seconds--and-not-sweeping-to-find-out) |
+| `agentLogRetentionMonths` | how long an archived agent run's **body** is kept, in months (default 24). Not a free number: 24 is `RETENTION_FLOOR_MONTHS` in `lib/evidence.js`, set from the report — a Type II window is twelve months and the report is relied on for about twelve months after issuance. **Raising it is a setting; lowering it is ignored**, because a shorter period is a disk decision with a retention rule written beside it. The chained record of each run is permanent either way. See [the run that survives its own reset](#the-run-that-survives-its-own-reset--libagentarchivejs-testagentarchivemjs) |
 | `slowRequestMs` | a request past this is named in the log with where its time went (default `1000` — the page-load budget itself, so a line means "this missed the budget" rather than "this was slower than its neighbours"). `0` turns **the log** off and nothing else: the per-route figures behind `/api/timings` are always collected. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | `sync.enabled` | keep a shared tracker shared — `bd dolt pull` then `bd dolt push`, per workspace, on a timer (default `true`). It is on for everybody and it does nothing at all on a workspace with no Dolt remote, which is every workspace until you add one. See [A tracker two Macs share](#a-tracker-two-macs-share) |
 | `sync.seconds` | how often (default 120, floor 30). **Not a performance knob** — it is the width of the window in which two machines can act on stale information, which is why it is a setting and not a constant. There is deliberately no list of *which* workspaces sync: a Dolt remote is that list |
@@ -18335,9 +18336,11 @@ a first report is the part a buyer actually reads.
 `lib/agentlog.js` is the example that started this. `reset()` deletes the previous run's
 log outright, because a new dispatch is a new run and the phone tailing it wants a clean
 file — correct for the pane, and fatal for the record: what an agent did on a bead
-survives exactly until the next thing is dispatched at that bead, and the runs an auditor
-most wants to read are the ones that were retried. That is bc-eqn1.7, and it is a bug
-about one file. The bug about the system is that nothing anywhere said what was kept.
+survived exactly until the next thing was dispatched at that bead, and the runs an auditor
+most wants to read are the ones that were retried. That was bc-eqn1.7, and it is a bug
+about one file — closed by [the run that survives its own reset](#the-run-that-survives-its-own-reset--libagentarchivejs-testagentarchivemjs)
+below, which archives and chains the previous run before the truncation it is still right
+to perform. The bug about the *system* is that nothing anywhere said what was kept.
 
 **`lib/evidence.js` is the register, and it is data rather than a policy document.** One
 entry per evidence class, and a class is an *artefact* rather than a file: `deployment-record`
@@ -18420,9 +18423,11 @@ back intact, linear and unanchored.
 persist state outside the repo. Ten evidence classes cover the ones that are records;
 sixteen exemptions cover the credentials, the liveness, the bookkeeping, the caches and
 the readers. Two classes could not be registered honestly without a gap: the agent run
-logs, which are destroyed at the next dispatch (bc-eqn1.7), and the deployment record,
-which rests on the common repo's best-effort local history (bc-j3d5). Four classes are
-`chained` and all four share bc-hzu4. Pointed at this checkout, `verifyRef` reports
+logs, which were destroyed at the next dispatch (bc-eqn1.7), and the deployment record,
+which rests on the common repo's best-effort local history (bc-j3d5). The first of those
+gaps is closed — the run logs are `chained` now, on `refs/beadcause/agentlogs`, and the
+section below is the argument — so one is left. Five classes are `chained` and all five
+share bc-hzu4. Pointed at this checkout, `verifyRef` reports
 `refs/notes/beadcause` as 7,863 commits, linear and intact, and `refs/beadcause/foundations`
 as one — the baseline, with no amendment yet approved. Both are `anchored: null`, because
 there is nothing to anchor them against.
@@ -18445,6 +18450,100 @@ would add a dozen exemptions that all say the same thing. Naming the *criterion*
 is evidence of is bc-eqn1.2's closed vocabulary and bc-eqn1.3's edges — `serves` is prose
 here on purpose, because a second, weaker vocabulary invented alongside the corpus is the
 three-separately-built-control-sets failure the programme is written against.
+
+### The run that survives its own reset — `lib/agentarchive.js`, `test/agentarchive.mjs`
+
+The section above names `lib/agentlog.js` as the example that started the register, and
+this is the half that closes it. `reset()` deletes the previous run's log outright at every
+dispatch, and that is **correct for the pane** — a phone tailing a live run wants this run,
+not yesterday's answer sitting above today's question, which reads as progress that has
+already happened. It is fatal for the same file read as a record. What an agent did on a
+bead survived exactly until the next thing was dispatched at that bead, so the run an
+incident is reconstructed from — always the one that was *retried* — was the one guaranteed
+to be gone.
+
+So the fix is not to stop resetting. It is to **archive before the `rm`**. `archiveAndReset`
+is the only thing that may call `agentlog.reset` for a dispatched run, and `test/agentarchive.mjs`
+holds that by reading `lib/` and `bin/` with comments blanked: a second call site is not a
+style preference, it is a run destroyed with nobody noticing, which is the bug itself
+returning by a different door.
+
+**Two stores, and the split is the whole design.**
+
+- **The record** is a commit on `refs/beadcause/agentlogs`, appended through the
+  compare-and-swap in `lib/gitref.js`, exactly the way an amendment is chained. A few
+  hundred bytes of provenance and a digest, and it is **permanent**.
+- **The body** — the log text itself — is a file under `~/.config/beadcause/agentlogs/`,
+  and it is **disposed of on a stated rule**.
+
+That is not tidiness, it is the one arrangement that can have both properties. A chained
+store cannot dispose of anything: dropping the middle of a commit chain rewrites every sha
+after it, which is the property the chain exists for — `session-transcripts` in the register
+says outright that its permanence is a *consequence of the shape* rather than a preference.
+That is the right trade for a transcript kept in the repo it belongs to. It is the wrong one
+for a store that grows by a file per dispatch forever: keeping everything for all time is a
+data-governance finding of its own, and "we never got round to deleting it" is not a
+retention decision. So the disposable half is kept where it can be deleted, and the half
+that proves the deletion was legitimate is kept where it cannot.
+
+What survives disposal is therefore not nothing. It is: *this run happened, at this time, on
+this bead, under this agent kind, this model, this foundation revision and this endorsement,
+and its body hashed to this* — followed, further up the same chain, by a commit naming the
+ids it disposed of and the rule it disposed of them under. "There is no run from March" and
+"the run from March was disposed of on 3 May under a 24-month rule" are the same absence and
+completely different answers, and only one of them is a control.
+
+**Provenance is taken, never re-derived.** `model` comes from the call site, because that is
+the only thing that knows what the process was actually launched with; the foundation
+revision is the tip of `refs/beadcause/foundations` read at archive time; the endorsement
+comes from the tracker row the dispatch already had in hand. Nothing recomputes any of them.
+A record disagreeing with the app about which model a run used would be worse than no record
+at all — both are plausible, and there is nothing on either screen to say which one lied.
+It is the same argument `lib/modelcard.js` makes about a chip and a sheet.
+
+**Why the record is the commit message and the tree is empty.** Every other payload ref here
+puts its content in a tree, and this one deliberately does not. The retrieval that matters is
+not "read the tip" — it is *every run at this bead* and *every run between these two dates*,
+which is what an evidence pack for a window and a data-store question about the archive both
+come down to. `git log --since --until --grep` answers both in one process with the full
+record in hand, because `--format=%B` returns a message; a tree would make the same query one
+`cat-file` per run, which is fine for the three runs on a bead and is a day's worth of
+subprocesses for a month of an audit window. In a Stage 2 audit the cost is never the
+storage, it is the retrieval. The tree is empty rather than holding a copy of the record,
+because a fact with two homes in one commit is a fact that can disagree with itself — and the
+body is not in git at all, which is the point of the split above.
+
+**The bead filter has a `·` either side of the key**, and that is not decoration.
+`beadcause/bc-eqn1.7` is a prefix of `beadcause/bc-eqn1.70`, so a substring match answers a
+question about one bead with another bead's runs and says nothing about having done it. The
+suite pins exactly that pair.
+
+**Retention is 24 months, and the number is not this file's to pick.** It is
+`RETENTION_FLOOR_MONTHS`, set from the report rather than from the disk — a Type II window is
+twelve months, and the report is relied on for about twelve months after issuance, during
+which somebody can come back to the population the sample was drawn from. `agentLogRetentionMonths`
+raises it and **cannot lower it**: an install shortening this is not making a retention
+decision, it is making a disk decision and writing a retention rule beside it.
+
+**And the rule is enforced by something that runs**, because a retention period nothing
+applies is a policy without a control behind it. An hourly sweep in the poll cycle deletes
+every body past the period and appends the disposal to the chain. Hourly rather than every
+beat: the boundary moves by a day per day, so a sweep every thirty seconds is 120 `readdir`s
+an hour to find the same nothing, and an hour is well inside any tolerance a 24-month rule
+has. The date comes off the **run id** rather than the file's mtime — an mtime is the one
+thing about a file anybody can change by accident, through a copy, a restore or a backup
+tool, and a retention sweep keying on it disposes of the wrong decade quietly. A body whose
+name carries no date is left alone rather than guessed at.
+
+**Nothing here can lose a run, and the ordering is why.** The body is copied first and
+synchronously, so by the time anything is deleted the evidence is already on disk; the chain
+is appended next; the reset happens last, and happens even when the chain write failed,
+because the pane still needs its clean file and the body is already safe. An orphaned body —
+kept, unchained — is a loud line in the log and a recoverable state. A reset before the copy
+would be neither. Two archives inside the same millisecond get a `-2` suffix rather than one
+overwriting the other, which the suite found by colliding two of them: "improbable" is not a
+property an evidence store may rest on.
+
 
 ### What may leave the Mac — `lib/publishable.js`, `test/publishable.mjs`
 

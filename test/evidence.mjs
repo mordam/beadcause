@@ -53,6 +53,7 @@ import {
   stateModules,
   verifyRef,
 } from '../lib/evidence.js';
+import { ARCHIVE_REF } from '../lib/agentarchive.js';
 import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -168,15 +169,19 @@ await check('a gap has to name a bead and say what is missing', () => {
   assert.ok(broken({ integrity: 'history', gap: { bead: 'bc-j3d5', says: 'todo' } }).some((p) => /gap.says/.test(p)));
 });
 
-await check('the agent run log is registered, and it is bc-eqn1.7 that owns the gap', () => {
-  // The bead this suite was written for depends on that one. If the archive lands and
-  // this entry is not updated, the register goes on saying the log is destroyed after
-  // it has stopped being — which is the failure mode of every compliance document.
+await check('the agent run log is registered, and bc-eqn1.7 closed its gap', () => {
+  // This assertion used to pin the *gap* — `integrity: 'none'`, owned by bc-eqn1.7 —
+  // because the register going on saying the log was destroyed after it had stopped being
+  // is the failure mode of every compliance document. bc-eqn1.7 landed, so it pins the
+  // other direction now, and for the same reason: an entry that quietly slid back to
+  // unchained would be a claim nobody is making on purpose.
   const logs = REGISTER.find((e) => e.id === 'agent-run-logs');
   assert.ok(logs, 'the agent run log is not registered at all');
-  assert.equal(logs.integrity, 'none');
-  assert.equal(logs.gap?.bead, 'bc-eqn1.7');
+  assert.equal(logs.integrity, 'chained');
+  assert.equal(logs.gap, null);
   assert.ok(logs.writers.includes('lib/agentlog.js'));
+  assert.ok(logs.writers.includes('lib/agentarchive.js'));
+  assert.ok(logs.where.some((w) => w.includes(ARCHIVE_REF)), 'the chain is not named in `where`');
 });
 
 /* ------------------------------------------------------------ the inventory */
