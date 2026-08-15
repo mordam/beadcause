@@ -12,8 +12,21 @@
  *    test of one — see the header of lib/access.js for the honest limit of that.
  */
 import assert from 'node:assert/strict';
-import { AGENTS } from '../lib/foundation.js';
-import {
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { cleanupTmp } from './helpers/tmp.mjs';
+
+// Set before the dynamic imports below, because lib/config.js resolves CONFIG_DIR at
+// module scope and the credential rows quote it. A suite that read the real config
+// directory would print this Mac's paths into its own assertions.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-access-'));
+process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
+fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
+
+const { AGENTS } = await import('../lib/foundation.js');
+const { loadConfig } = await import('../lib/config.js');
+const {
   AGENT_ACCESS,
   CREDENTIALS,
   JML,
@@ -26,7 +39,7 @@ import {
   register,
   reviewLine,
   reviewState,
-} from '../lib/access.js';
+} = await import('../lib/access.js');
 
 let failures = 0;
 const check = (name, fn) => {
@@ -114,8 +127,21 @@ check('joiner and mover paths are written down', () => {
   assert.ok(JML.mover.length >= 2, 'the mover path is not documented');
 });
 
+// The check this suite exists for as much as any other. The shared token is `cfg.token`,
+// top-level, and not `cfg.auth.token` where it reads as though it ought to live — and a
+// register built by hand against the wrong key omits the widest human grant in the system
+// on every real install while every hand-written fixture goes green. So the config here is
+// the one the daemon actually loads, in an empty config directory: rename the key and this
+// fails, which is the whole point of not typing the shape out.
+check('the shared token is found where the loader actually puts it', () => {
+  const cfg = loadConfig();
+  assert.ok(cfg.token, 'the loader stopped producing a token — this register is reading the wrong key');
+  const ids = humanPrincipals(cfg, {}, new Date('2026-08-15T12:00:00Z')).map((p) => p.id);
+  assert.ok(ids.includes('human:token-holder'), 'a real config yields no token holder — the key moved');
+});
+
 check('the human half is read from config, not typed into the module', () => {
-  const cfg = { auth: { token: 'sekrit', google: { allowed: ['a@example.com', 'B@Example.com '] } } };
+  const cfg = { token: 'sekrit', auth: { google: { allowed: ['a@example.com', 'B@Example.com '] } } };
   const now = new Date('2026-08-15T12:00:00Z');
   const state = {
     devices: {
@@ -131,7 +157,7 @@ check('the human half is read from config, not typed into the module', () => {
 });
 
 check('an install with no sign-in and no devices still registers the token holder', () => {
-  const people = humanPrincipals({ auth: { token: 'x' } }, {}, new Date('2026-08-15T12:00:00Z'));
+  const people = humanPrincipals({ token: 'x' }, {}, new Date('2026-08-15T12:00:00Z'));
   assert.deepEqual(people.map((p) => p.id), ['human:token-holder']);
 });
 
@@ -151,7 +177,7 @@ check('the boundary is a principal, because a network position is a grant', () =
 });
 
 check('the register assembles both halves and the review', () => {
-  const reg = register({ auth: { token: 'x' } }, {}, new Date('2026-08-15T12:00:00Z'));
+  const reg = register({ token: 'x' }, {}, new Date('2026-08-15T12:00:00Z'));
   assert.ok(reg.principals.length >= AGENTS.length + 2);
   assert.equal(reg.credentials, CREDENTIALS);
   assert.ok(reg.review);
@@ -197,6 +223,8 @@ check('the periodic access review is not overdue', () => {
   assert.equal(s.overdue, false, reviewLine(s));
   assert.ok(REVIEW_INTERVAL_DAYS <= 366, 'an interval longer than a year is not a periodic review');
 });
+
+await cleanupTmp(tmp);
 
 if (failures) {
   console.error(`\n${failures} check(s) failed`);
