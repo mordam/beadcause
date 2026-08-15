@@ -7361,6 +7361,59 @@ the cycle after you tap Noted or dismiss it. `node test/sweepanswer.mjs` drives 
 path through a real `POST /api/respond` — the card stays open, the refusals say which pull
 request they are about, and every other question in the inbox is untouched.
 
+#### A question the pull request answers by landing
+
+The card above is bounded by you: a row waiting for your answer is one nothing else was
+ever going to move, so the follow-up asked GitHub about the two live states and returned
+every other row untouched. That is one word wrong, and the word is *nothing*. **A pull
+request that is waiting on you can still be merged, closed, or rebased into fitting on
+github.com**, by a hand that never saw the card — and when it is, the card is asking you to
+pick a winner among branches that have already landed. There is no answer to type. Tapping
+*Answer #n* would open a session on a branch that is gone; tapping *Noted* closes a card
+that had stopped being about anything hours earlier. It could not close itself either,
+because closing needs every row settled and that row was never asked about again.
+
+It is not hypothetical and it is not rare. `bc-xl7n.30` sat in the inbox for **thirty-eight
+hours** over `#243`, which merged in the first of them; a second card reached the identical
+shape a day later, from a sweep filed that afternoon. The follow-up was alive throughout and
+walked past both every thirty seconds.
+
+So **a row waiting on you is asked about too**, and what it is asked is narrow — *has this
+pull request ended* — with the four outcomes the live rows already have: merged, closed,
+mergeable again, or still conflicting and still yours. A row that still conflicts comes back
+exactly as it was, sentence and all, so `failed` and `unknown` stay the different sentences
+they are and the resolver's own words are not re-derived every cycle. A row that ended stops
+quoting that sentence, for the reason a stale queue note is dropped: *"both sides are
+load-bearing"* beside ✅ **merged** reads as a fact about the merge. When the last waiting
+row ends this way the card closes itself with the ordinary reason, which is the whole point
+— the fix is what clears the inbox, rather than a hand.
+
+**Only GitHub is asked, never the resolver registry**, which is the one trap in a change
+this small. A registry entry outlives the session that made it by up to four hours, so a
+resolver that handed a row back is often still in there; reading it would turn a settled
+question back into *a session is working on it* and put the card straight back where it was.
+
+Two clocks, because the two kinds of row stop for different reasons. A row that is still
+*moving* is given up on at the four-hour window, as it always was — after that nothing in
+the record describes the present. A row waiting on you is chased for as long as the card is
+open, because the thing being watched for is a merge that can happen at any point in that
+wait, and thirty-eight hours is eight windows of never asking. What bounds *that* is a
+cadence rather than a deadline: **a quarter of an hour**, `WAITING_RECHECK_MS`, written into
+the record as `askedAt` so a restart does not reset it. The arithmetic is the argument — the
+poll cycle is thirty seconds and one card has carried seven waiting rows, so asking every
+cycle is 840 `gh pr view`s an hour for a card that is doing nothing; at this cadence it is
+28, and the worst a card can be is fifteen minutes stale, which is well inside how long it
+takes to pick one up off a phone. The tap itself is unaffected: answering a card still asks
+GitHub about that one row [before it opens
+anything](#and-the-hand-back-has-a-button-that-does-something), so a fifteen-minute-old
+card cannot open a window on a branch that landed ten minutes ago.
+
+`node test/sweepcard.mjs` covers both ends: a row handed back and then merged behind the
+system's back is merged rather than still waiting, its button disappears off the card, the
+next cycle inside the window asks GitHub nothing at all, and a card thirty-eight hours old
+— well past the follow-up window — is still asked about and closes itself when the answer
+is that the branch has landed.
+
 #### A card that outlives its record, and the card as its own backup
 
 Everything above runs off `sweep-cards.json`: one record per open card, holding the repo, the
@@ -7402,7 +7455,10 @@ been orphaned for hours is not made worse by another half hour.
 
 **What is not read back is the states.** Whatever the card says a row was, the missing record
 is proof that nothing has checked it lately, and a row recovered straight into *handed back*
-is a row `chaseRow` returns unchanged forever — the orphan again with extra steps. So every
+is a row [asked only whether its pull request has
+ended](#a-question-the-pull-request-answers-by-landing) — so for as long as the branch went
+on conflicting it would keep the state and the missing sentence it was read off a stale card
+with, which is the orphan again with extra steps. So every
 rebuilt row starts at `recovering` and GitHub decides, and until it has, **nothing is written
 onto the card**: *we lost our own bookkeeping* is not news about a pull request, and it is
 not worth waking a phone for. A GitHub that never answers is ended by the same four-hour
