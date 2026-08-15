@@ -12937,10 +12937,12 @@ is trusted to check itself. A local history that diverges from a published head 
 discrepancy no matter which one moved, and finding out which is a question for whoever holds
 both.
 
-Three files, splitting where the trust does. `lib/publishable.js` is the closed vocabulary of
+Four files, splitting where the trust does. `lib/publishable.js` is the closed vocabulary of
 what may leave the Mac — hashes, chain heads, transitions, criterion states, and never a
 record's contents. `lib/publication.js` is the instance: it keeps the chain and publishes it.
-`lib/witness.js` is the far end: it stores, refuses, attests, and compares.
+`lib/witness.js` is the far end: it stores, refuses, attests, and compares. `lib/continuity.js`
+is what any of it entitles somebody to *claim* about a period, and it is the one that refuses
+to let an outage read as a clean window.
 
 ### Append-only, stated twice, because it can fail twice
 
@@ -13046,6 +13048,81 @@ The class is registered as `publication-chain` in `lib/evidence.js` and kept per
 Here permanence is arithmetic rather than policy: removing one record from the middle breaks
 every link after it, so the disposal unit is the whole ref, and dropping it forfeits every
 continuity claim the instance has ever made.
+
+### Offline is ordinary, and an unpublished period is not a clean one
+
+Two rules that point in opposite directions, and beadcause is worse without either.
+
+**Fail open for work.** A daemon with no route to the service keeps doing everything it does
+today: sessions open, merges land, questions arrive. Nothing waits on a server being up, and
+no gate fires because one is unreachable. `publishQuietly` is the door a daemon path calls —
+it answers with an outcome for every way a transport can fail, including the one a `try`
+does not cover. A connection that is *refused* comes back in milliseconds; a connection that
+is **accepted and then silent** hangs for as long as the operating system's keepalive allows,
+which on a laptop that changed networks is minutes, and a tick awaiting that has blocked on
+the service just as completely as one that crashed on it. So the deadline lives in the
+module rather than in the transport: a timeout is a policy about *work*, not about HTTP, and
+a policy every call site has to remember to apply is a policy one of them will not.
+
+**Fail closed for claims.** A period that was never published is not evidence that nothing
+happened — it is an absence of evidence, and `lib/continuity.js` reports it as `unverified`
+rather than compliant. An auditor reading a clean window that was actually an outage is the
+failure the whole file exists to prevent.
+
+Chaining does not answer this, and the difference is the point. `linkProblems` proves a run
+of records is one unbroken chain — and an instance that published nothing for a fortnight has
+a perfectly linked chain straight *across* the fortnight, because the record either side of a
+gap links onto the one before it whatever happened in between. Chaining is an argument about
+**order**; continuity is an argument about **time**, and the only thing on this Mac carrying
+an argument about time that the Mac cannot make by itself is a receipt, stamped by the
+witness's own clock.
+
+So coverage is measured in receipts, never in records. A record's `at` is written by the very
+machine whose history is in question: one stamped 03:00 and witnessed at 09:00 proves nothing
+about 03:00 that could not have been assembled at 08:59.
+
+**The bracket rule.** An interval is verified when it is bracketed by two witnessed instants
+no further apart than `tolerance` — one hour by default, two orders of magnitude looser than
+the 30-second `pollSeconds` it governs, so an interval only goes unverified when publication
+genuinely stopped rather than when a tick ran late. Not "a receipt covers the hour after it"
+and not "the hour before it": either buys time from a single point, and a single point is
+exactly what a machine can manufacture. Two points close together are what bound how long
+anything could have sat unwitnessed and therefore alterable.
+
+Where consecutive witnesses are further apart than the tolerance, the **whole** interval
+between them goes unverified rather than only the excess — something recorded a minute into a
+six-hour silence waited six hours to be seen. Nothing before the first witnessed instant is
+ever verified, because a report that vouched backwards would vouch for time in which the
+install did not exist. The trailing edge is the single concession: from the last witness to
+the end of the window is verified if it is within the tolerance, with the end of the window
+standing in for the bracket the next publication will supply.
+
+**The gap renders as a gap, with its duration and its reason.** An outage and a silence read
+identically in the published record and are entirely different events, so the report uses the
+local chain to say which: records stamped inside the interval mean the instance kept working
+and could not publish; no records inside it mean nothing was recorded either.
+
+    8h unverified: no publication was witnessed across it, and the instance kept
+    working — 7 record(s) are stamped inside it and were witnessed only afterwards
+
+**Reconnecting republishes the queue without loss, and does not heal the gap.** Every record
+that piled up behind an outage lands, in order, the moment the service is reachable — the
+queue is the chain on disk, so nothing is held in memory and nothing is lost to a restart.
+The eight hours in which nobody was watching stay eight hours in which nobody was watching,
+because the receipts that arrived at 18:00 are stamped 18:00. `test/continuity.mjs` asserts
+exactly that, and it is the check a future change reading `at` instead of `received` would
+quietly reverse with every other check still passing.
+
+`claimProblems` is the refusal, in the same shape `lib/operator.js` uses: a claim is refused
+by a function that says what is missing rather than permitted by a flag somebody set. There
+is no argument for how much of a window may be unverified, because there is no honest one —
+99% coverage with a six-hour hole in March is a window with a six-hour hole in March.
+
+`lib/continuity.js` is a leaf on `lib/publishable.js`, like `lib/witness.js` and for the same
+reason: the report is asked for at both ends, by the instance about itself and by the service
+about an instance it holds, and a module that reaches for `~/.config/beadcause` on import
+cannot run on the far end. It takes a window rather than reading the clock, because a
+continuity report that cannot be run twice with the same answer is not evidence of anything.
 
 ## The Android app
 
