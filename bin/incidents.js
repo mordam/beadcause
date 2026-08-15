@@ -8,6 +8,8 @@
  *   beadcause-incidents -w beadcause --reviews --file file the ones that are owed
  *   beadcause-incidents -w beadcause --vulns          npm audit, on a remediation clock
  *   beadcause-incidents -w beadcause --vulns --file   file what is new, close what is fixed
+ *   beadcause-incidents -w beadcause --tabletop       the scenarios worth walking
+ *   beadcause-incidents -w beadcause --tabletop night-exit --file --with "Adam" --when 2026-09-01
  *
  * **Nothing here is a source of truth and that is the point.** Every number is derived,
  * on the spot, from timestamps bd wrote while people and agents did their ordinary work:
@@ -27,6 +29,8 @@ import { loadConfig } from '../lib/config.js';
 import { beadToIssue } from '../lib/filing.js';
 import {
   breaches,
+  EXERCISES,
+  exerciseBead,
   humanMinutes,
   INCIDENT_LABEL,
   periodEvidence,
@@ -76,7 +80,43 @@ const iso = (ms) => (ms == null ? '—' : new Date(ms).toISOString().replace('T'
 const verdict = (met) => (met === true ? 'met' : met === false ? 'MISSED' : 'pending');
 
 if (has('--vulns')) await vulns();
+else if (has('--tabletop')) await tabletop();
 else await incidents();
+
+/* ------------------------------------------------------------------- the exercise */
+
+/**
+ * The plan has never been run, which is where a first report finds its exception.
+ *
+ * Printing the scenarios is most of the value: the hour is the expensive part and nobody
+ * spends it on a scenario they have to invent first. `--file` puts one on the board so it
+ * can be scheduled and so its absence is visible.
+ */
+async function tabletop() {
+  const which = arg('--tabletop');
+  if (!which || which.startsWith('--')) {
+    console.log('the scenarios worth walking — each breaks a different assumption:\n');
+    for (const e of EXERCISES) {
+      console.log(`  ${pad(e.id, 16)}${e.severity}  ${e.scenario}`);
+      console.log(`  ${pad('', 16)}      breaks: ${e.breaks}\n`);
+    }
+    console.log('--tabletop <id|"a scenario of your own"> --file [--with "a, b"] [--when 2026-09-01]');
+    return;
+  }
+  const known = EXERCISES.some((e) => e.id === which);
+  const bead = exerciseBead({
+    id: known ? which : '',
+    scenario: known ? '' : which,
+    participants: String(arg('--with') || '').split(',').map((p) => p.trim()).filter(Boolean),
+    when: arg('--when') || '',
+  });
+  if (!doFile) {
+    console.log(`${bead.title}\n\n${bead.description}\n\n--file files it.`);
+    return;
+  }
+  const id = await bd.create(ws, beadToIssue(bead, {}), { actor: cfg.actor });
+  console.log(`filed ${id} — ${bead.title}`);
+}
 
 /* ------------------------------------------------------------------ the incidents */
 

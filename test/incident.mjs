@@ -48,6 +48,8 @@ process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 const {
+  EXERCISES,
+  EXERCISE_LABEL,
   INCIDENT_LABEL,
   REVIEW_LABEL,
   REVIEW_OF_PREFIX,
@@ -58,6 +60,7 @@ const {
   commitmentNote,
   communicationFor,
   escalated,
+  exerciseBead,
   incidentLabels,
   periodEvidence,
   register,
@@ -290,6 +293,30 @@ await check('the review bead asks the only question that changes anything', () =
 
   const kept = reviewBead(clockFor(incident({ labels: [INCIDENT_LABEL, 'sev1'], started_at: at(1), closed_at: at(30) }), { now: T0 + 100 * MIN }));
   assert.match(kept.description, /met its commitment/i, 'a review is not only for the ones that went badly');
+});
+
+await check('an exercise is paperwork about incidents, not an incident', () => {
+  const rows = [
+    incident({ id: 'a', labels: [INCIDENT_LABEL, 'sev2'], closed_at: at(30) }),
+    { id: 'x1', title: 'Incident response exercise: night-exit', status: 'open', labels: [INCIDENT_LABEL, EXERCISE_LABEL], created_at: at(40) },
+  ];
+  const reg = register(rows, { now: T0 + 100 * MIN });
+  assert.deepEqual(reg.map((r) => r.id), ['a'], 'a bad month must not look worse for having been rehearsed');
+  assert.equal(periodEvidence(reg, {}).total, 1);
+});
+
+await check('a tabletop exercise is a bead with a date, participants and the fourth question', () => {
+  assert.deepEqual(EXERCISES.map((e) => e.id), ['night-exit', 'silent-sweep', 'no-fix-critical']);
+  for (const e of EXERCISES) requireSeverity(e.severity);
+  const bead = exerciseBead({ id: 'night-exit', participants: ['Adam'], when: '2026-09-01' });
+  assert.ok(bead.labels.includes(EXERCISE_LABEL) && bead.labels.includes('exercise:night-exit'));
+  assert.match(bead.description, /2026-09-01/);
+  assert.match(bead.description, /Adam/);
+  assert.match(bead.description, /nothing changed/, 'because "we learned nothing" is a finding of its own');
+  const own = exerciseBead({ scenario: 'The tailnet certificate expires mid-incident.' });
+  assert.match(own.description, /tailnet certificate/);
+  assert.deepEqual(own.labels.filter((l) => l.startsWith('exercise:')), [], 'and an ad-hoc one mints no id');
+  assert.throws(() => exerciseBead({}), /no scenario/);
 });
 
 /* ---------------------------------------------------------------- the evidence */
