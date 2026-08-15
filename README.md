@@ -18626,6 +18626,91 @@ could ever fail — the same lesson `entryProblems` learned one section up. So t
 it at a table minting `notes`, at one claiming a type that is not a shape, and at one
 colliding with the envelope, and asserts each is refused by name.
 
+### Who operates it — `lib/operator.js`, `test/operator.mjs`
+
+The section above settles what may leave the Mac. This one settles where it goes and whose
+hands it lands in, because a witness is only worth what the arrangement around it is worth
+— and the arrangement is a decision somebody makes rather than a hosting bill.
+
+**Each organisation installs and runs its own control-daemon. We host nothing.** That is
+Adam's answer on bc-3muu.9, and it is a product decision more than an infrastructure one.
+Every hosted option considered — Climative infrastructure, a beadcause-operated witness, a
+purpose-built append-only store — put somebody in the position of holding somebody else's
+evidence, which makes them a **subservice organisation** in a system description that did
+not want one, forces a carve-out or inclusive-method decision, and eventually means wanting
+their own attestation. Self-hosted, the control-daemon is inside the customer's own
+boundary and tested in the customer's own engagement. Nobody carves anything out, beadcause
+is a software vendor rather than a service organisation, and the strongest answer to a
+security questionnaire is available and *true*: you run it, we never see your data, not even
+the hashes.
+
+**And the trust model that arrangement supports is the one line bc-3muu.9 exists to
+record.** A control-daemon the organisation hosts is a second copy in the same hands as the
+first. It delivers **corroboration** — a copy that must agree — and no amount of access
+control can make it deliver more, because whoever administers the access control is inside
+the boundary it protects. That is acceptable and it is ordinary: no clause of SOC 2 or
+ISO/IEC 27001 asks for an independent witness, and CloudTrail is first-party too. What is
+*not* acceptable is saying independent, which is a misstatement an auditor finds. So
+independence is carried by the anchor instead (bc-3muu.10) — a receipt signed by a party
+nobody here administers — and the cost of self-hosting is precisely that the anchor stops
+being optional. An install that has not configured one is not a weaker version of this
+design; it is a different one with no tamper-evidence in it.
+
+**Which is why this is a file rather than a paragraph.** Three words, ordered, and nothing
+can set them:
+
+    assuranceOf([local])                    // 'unwitnessed'  — nothing has left the machine
+    assuranceOf([local, control])           // 'corroborated' — a second copy, same hands
+    assuranceOf([local, control, anchor])   // 'independent'  — a receipt from outside
+
+`claimProblems` is the refusal that follows: an arrangement may always claim *less* than it
+supports and never more, and the message says which copy is missing rather than only that
+the claim is denied. There is no `assurance` field on a deployment and no way to write one
+— it is derived on every read, because a record of what an install *believes* about itself
+is the flag [an election](#what-you-elected-to-be-held-to--libelectionjs) declines to
+have, one layer up, and it fails the same way: you believe you set it.
+
+**The refusal that actually earns the file is that an anchor operated from inside the
+arrangement is not an anchor.** Independence is not a feature that can be implemented — it
+is the property of somebody else holding the record — so an anchor run by the organisation
+or by the vendor is a third copy wearing the word, and it is the one mistake that would
+leave every other check in this epic passing over a claim that is false. Immutable object
+storage in an account we administer is the plausible version of it: a genuinely good control
+at the storage layer, and not an anchor at any layer. `PARTIES` is why the mistake has to be
+written down as the word `organisation` next to the word `anchor`, where a reader can see
+it, and `arrangementProblems` is why it is refused by name when it is.
+
+Two smaller rules sit beside it, and both exist because the failure reads as a healthy
+setup in every list. A second control-daemon under the same operator is **redundancy** —
+an availability property, and a good one — but two copies in the same hands are one party,
+so counting it as two is how "we keep backups" becomes "we are corroborated" in a sentence
+nobody meant to overstate. And an arrangement with no `local` deployment in it is a witness
+with nothing to witness; `assuranceOf` answers `null` for it rather than `unwitnessed`,
+which is the same distinction `inScope` draws between `null` and `false` — a caller handed
+the weakest word for a record it could not read goes on to render a continuity claim over
+it.
+
+**`subservices` prints the consequence rather than leaving it to be discovered.** It is
+empty for the shipped model, and the day somebody stands up a hosted control-daemon for a
+customer it stops being empty on its own, naming the deployment and the paperwork it
+forces. The anchor is deliberately not in that list: a subservice organisation performs part
+of the service commitments on the organisation's behalf, which is what holding its evidence
+is, whereas an anchor is handed a hash and returns a receipt and performs no control for
+anybody. It is a supplier in the vendor register, and putting a timestamping CA in a system
+description beside a hosting provider would be wrong in a way an auditor would have to
+unpick.
+
+**`VENDOR_OPERATES` is an empty frozen array, and that is the whole decision as data.** It
+looks like a placeholder. It is what makes "we never hold anyone's evidence" a property of
+this repository that a diff has to break on purpose, and `test/operator.mjs` asserts both
+that it is empty and that `shipped()` names no vendor anywhere. The remaining cost is real
+and is not solved here: correct installation becomes the customer's problem, and a
+misconfigured control-daemon — append-only enforced in the application rather than in
+storage, anchoring switched off, break-glass access that is silent — produces evidence that
+looks fine and is not. That needs an answer in code rather than in documentation, and
+bc-3muu.13 is where a deployment comes to prove its own configuration instead of being
+trusted to have it.
+
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
 There are two `grep` hazards on this laptop. One is a defect in every script that writes
