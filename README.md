@@ -3703,8 +3703,8 @@ at any depth. A row says the bead's id and title, marks it **asks you** when it 
 a question (`pending`), and names any status that is not `open` — sixty rows all saying
 `open` is the default restated sixty times. Closed work stays, struck through and faded,
 because it is what the epic has *done*; bc-rfnr.9.6 gives the whole board a status filter
-that will default to hiding it. Each row is a link into [the dependency
-graph](#what-a-question-is-blocking) at that bead, until bc-rfnr.9.4 makes it expand in place instead. A P0 with nothing under it
+that will default to hiding it. Each row is a disclosure of its own bead — see [the next
+section](#and-a-bead-in-the-tree-opens-where-it-stands). A P0 with nothing under it
 expands to a sentence saying so — an empty gap reads as a tree that failed to arrive.
 
 Two things about it are less obvious than they look.
@@ -3733,6 +3733,80 @@ browser, no `bd` — over a fixture nested five deep: that a collapsed card draw
 all, that an expanded one draws every descendant in the server's order, that the indent
 steps and then stops, that only the tapped card opens, that the same state renders the
 same board twice, and that the tap handler writes state rather than reaching into the DOM.
+
+### And a bead in the tree opens where it stands
+
+A row used to be a link into [the dependency graph](#what-a-question-is-blocking) at that
+bead. It works, and it is the wrong tap: the graph is another page, in a drawer, over a
+force layout you have to find your bead in and then come back from — three gestures to
+read one description, on the screen you opened *because* you wanted to read the tree. A
+graph you have to come back from is a graph you stop opening.
+
+So the row is a `<button>` and the tap expands it in place, into the same details the
+inbox card gives a question — priority, type, owner, every label the tracker holds,
+what it is under and what it is behind, the description, the acceptance criteria, the
+design and notes, and the whole thread. The graph is still one tap away and is drawn
+*inside* the expansion, on the bead you actually tapped rather than on the card above it.
+
+Three things about it are the bead.
+
+**It renders from bead data alone.** This app already had one full bead view and it is
+built out of a *pending question*: parsed options, a box to answer in, a dismissal. Most
+beads under a P0 have never had a question and never will — bc-rfnr had 16 descendants
+and one pending question the day the board was written — and that view drawn over one is
+a card offering to answer something nobody asked. So the expansion reads `/api/bead`,
+which is `bd show` plus the thread and is the same route [the graph's detail
+sheet](#tap-a-bead-then-open-it) paints from, and draws what is there. Anything a bead does
+not carry is simply not drawn, so a one-line bead opens to one line.
+
+**It goes between a bead and its children, not over them.** The tree arrives flat and
+pre-order, so a bead's children are the rows immediately after it; the block is inserted
+after the row, and everything under it stays exactly where it was, one indent further in,
+still tappable and still expandable itself. This is the half of the acceptance that is
+invisible in a screenshot of a leaf — an expansion that replaced the rows under it, or
+appended itself at the end of the tree, would look right on every bead with nothing filed
+under it. It is also why this is not an accordion, unlike the inbox's cards: opening a
+child would close the parent you opened it from, and the parent is the thing holding the
+child's place.
+
+**The details are fetched on the tap and never on the poll.** The tree rows the server
+sends carry an id, a title, a status and a depth — enough for sixty rows and nothing like
+enough for one bead, so the rest is a `bd show` each. One per deliberate tap is a fair
+price; one per open bead every 25 seconds is a phone parked on the inbox spawning `bd`
+forever, and a description does not move on its own. What *does* move is the thread, so
+the fetch runs again on every open — and the copy already in hand stays on screen while it
+does, because taking a bead off the screen to fetch the same bead is losing your place for
+nothing. A tap whose call has not landed says `Reading bc-… from bd…`; a refusal says why,
+naming the bead; a failed *refresh* over a bead you are already reading says neither and
+keeps the text.
+
+Which beads are open lives in `state.p0beadopen`, a second set beside the cards' own and
+for the same reason: the board is one reconcile chunk replaced whole every 25 seconds, so
+an expansion held as a class on a node would fold up under your thumb. Two sets rather
+than one because a card key and a row key have the same shape, and "is this open?" asked
+of the wrong kind of thing would not even be visible.
+
+`node test/p0bead.mjs` runs the real renderers out of `public/app.js` in a `node:vm` over a
+fixture bead carrying no question at all: that the details draw from bead data and none of
+the question card's controls appear, that the expansion lands between a bead and its
+children with the tree still in pre-order, that two beads open at once, that reading,
+refused and refreshing are three different screens, that a reopened bead does not carry the
+reason it closed last time, that the parent is never drawn as something the bead waits on,
+and that a label out of the tracker cannot write markup into the board.
+
+`node scripts/p0bead-check.mjs` is the half a string cannot reach — a real tap in headless
+Chrome at 393×852, against a fixture `/api/bead`: that the tap is delegated to at all
+(a row is a `<button>` nested in a card whose summary is also one), that the fetch is made
+and made *once*, that the child row is still drawn below the expansion and still indented
+deeper, that nothing overflows a 393px phone, and one thing that is invisible everywhere
+else. **The page must not move.** `capturePlace` anchors the scroll to the first card in
+the list, which is right for a poll and wrong for a disclosure that opens above the list:
+six hundred pixels of bead appearing over that card scrolled the page down by 486, so the
+row you tapped left the top of the screen and you landed in the middle of its description.
+`keepTheScreenStill` holds the page offset across the repaint instead — exact rather than
+approximate, because nothing above the row changes height — and calls `releasePlace()`
+after, so the restores `settlePlace` has queued for the next frame do not put the anchor's
+answer back.
 
 ### And the section folds, under a heading that says what it is
 

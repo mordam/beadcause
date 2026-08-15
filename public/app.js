@@ -172,6 +172,41 @@
      */
     p0open: new Set(),
     /**
+     * Which beads *inside* those trees are showing their own details, by bead key
+     * (`workspace/id`). bc-rfnr.9.4.
+     *
+     * A second set rather than more entries in `p0open`, because the two are different
+     * questions about different things: `p0open` is which of your four epics is
+     * unfolded, and this is which of the sixty beads under one of them you are reading.
+     * One set holding both would make "is this open?" a question you cannot ask without
+     * already knowing which kind of thing you are holding — and a card key and a row key
+     * have the same shape, so the mistake would not even be visible.
+     *
+     * **Not an accordion, unlike the inbox's `state.open`.** That one is a Set of one
+     * because `.card.open` is a fixed full-screen layer and a second open card stacks on
+     * the first. A row here expands *in place*, so two open beads are two blocks in one
+     * list rather than two sheets over each other — and nesting is the reason to allow
+     * it: an expanded bead keeps its own children below it, and having to fold the parent
+     * to look at a child is the thing this bead exists to stop.
+     *
+     * Page state and not persisted, for both of the reasons written above `p0open`.
+     */
+    p0beadopen: new Set(),
+    /**
+     * What `/api/bead` said about each of them — `key → { loading, bead, error }`.
+     *
+     * The tree rows the board sends carry an id, a title, a status and a depth: enough
+     * to draw sixty rows and nothing like enough to draw one bead. The rest is a `bd
+     * show` per bead, so it is fetched on the tap that asks for it and never on the poll
+     * — a phone parked on the inbox must not be spawning a `bd` per open bead every
+     * twenty-five seconds, and a description does not move on its own.
+     *
+     * Kept when a bead is folded up rather than dropped, so folding and unfolding is
+     * instant — and asked again on every *deliberate* open anyway, because the half that
+     * does move is the thread underneath it.
+     */
+    p0beaddetail: new Map(),
+    /**
      * Is the whole board folded away? bc-eevn.
      *
      * The opposite of `p0open` on both counts, and deliberately.
@@ -4804,6 +4839,34 @@
   const releasePlace = () => {
     placeGen++;
   };
+
+  /**
+   * Repaint without moving the page under the thing that was just tapped. bc-rfnr.9.4.
+   *
+   * `capturePlace` anchors on the `.card` that owns the top of the list, which is the
+   * right answer for a *poll*: whatever grew or shrank, the row you were reading stays
+   * where it was. It is the wrong answer for a disclosure that opens **above** the list.
+   * Expanding a bead in a P0's tree inserts six hundred pixels between the board and the
+   * first card, and the anchor faithfully scrolls the page down by six hundred pixels to
+   * hold that card still — so the bead you tapped leaves the top of the screen and you
+   * are left looking at the middle of its description. Measured at 393×852: `scrollY`
+   * 0 → 486 on one tap, which reads as the app jumping away from what you asked for.
+   *
+   * Holding the page offset is exact here rather than approximate, and that is why it is
+   * this and not a second anchor: everything the tap changes is *below* the row, so
+   * nothing above it changes height, so the same offset puts every pixel above the tap
+   * back where it was — the row included.
+   *
+   * `releasePlace()` afterwards because `settlePlace` schedules more restores for the
+   * next frame and for every late image, and those would put the anchor's answer back a
+   * frame later. That is what it is for: a deliberate scroll in code says so.
+   */
+  function keepTheScreenStill(paint) {
+    const was = docScroller().scrollTop;
+    paint();
+    docScroller().scrollTop = was;
+    releasePlace();
+  }
   // A thumb, a wheel or an arrow key is the reader deciding where to be, and it
   // ends any restore still waiting on a late diagram. Deliberate scrolls in code
   // call releasePlace() themselves. `scroll` is deliberately not in this list —
@@ -5152,13 +5215,27 @@
     return `Tap for ${total === 1 ? 'the one bead' : `all ${total} beads`} under it`;
   }
 
+  /** A tree row's own key — the same `workspace/id` the server sends, and its fallback. */
+  const p0RowKey = (card, row) => row.key || `${card.workspace}/${row.id}`;
+
+  /** How far one row is indented: `depth` is 1-based from `treeUnder`, capped as above. */
+  const p0Step = (row) => Math.min(Math.max(Number(row.depth) || 1, 1), P0_INDENT_CAP + 1) - 1;
+
   /**
    * One descendant, as a row in its P0's tree.
    *
-   * A link to the graph rather than a control, for now: bc-rfnr.9.4 turns this into an
-   * expansion in place with the bead's details, its PRs and its session under it, and
-   * until it does, a row that swallowed the tap and did nothing would be worse than the
-   * one destination this app already has for a bead nobody is asking about.
+   * **A button since bc-rfnr.9.4, where it was a link to the graph.** The tap opens the
+   * bead's own details underneath it (`p0BeadHtml`) rather than leaving the inbox for a
+   * force layout, which is the difference between reading a tree and navigating away
+   * from one — a graph you have to come back from is a graph you stop opening. Nothing
+   * is lost by it: the way through to the graph is drawn inside the expansion, on the
+   * bead you actually tapped rather than on the card above it.
+   *
+   * A `<button>` rather than a div with a handler, for the reasons `.p0-tap` above is
+   * one: Enter, focus and `aria-expanded` come free, and the row is a disclosure now
+   * rather than a destination. It is also why the caret leads the row instead of ending
+   * it — `.p0-row` wraps, and a caret after a three-line title lands alone on a line of
+   * its own, where the tree's own left edge is where the eye already is.
    *
    * `pending` is the server's word for "this bead is itself a question" (see `p0Card`),
    * and it is drawn because it is the reason to scroll a tree at all — bc-rfnr.9.7 takes
@@ -5170,12 +5247,14 @@
   function p0RowHtml(card, row) {
     const status = String(row.status || 'open');
     const closed = status === 'closed';
-    // `depth` arrives 1-based from `treeUnder` — a direct child is 1 — so the indent is
-    // one step per level *below* the first, capped as above.
-    const step = Math.min(Math.max(Number(row.depth) || 1, 1), P0_INDENT_CAP + 1) - 1;
-    return `<a class="p0-row${closed ? ' done' : ''}${row.pending ? ' asks' : ''}" style="--d:${step}" href="${esc(
-      `${graphUrl({ workspace: card.workspace, id: row.id })}&open=1`
-    )}">
+    const key = p0RowKey(card, row);
+    const on = state.p0beadopen.has(key);
+    return `<button type="button" class="p0-row${closed ? ' done' : ''}${row.pending ? ' asks' : ''}${
+      on ? ' on' : ''
+    }" style="--d:${p0Step(row)}" data-act="p0-bead" data-p0bead="${esc(key)}" data-ws="${esc(
+      card.workspace
+    )}" data-bead="${esc(row.id)}" aria-expanded="${on}"${on ? ` aria-controls="p0bead-${cardId(key)}"` : ''}>
+      <span class="p0-row-caret" aria-hidden="true">${on ? '▾' : '▸'}</span>
       <span class="p0-row-id">${esc(row.id)}</span>
       ${row.pending ? '<span class="pill p0-asks">asks you</span>' : ''}
       ${
@@ -5184,7 +5263,219 @@
           : `<span class="pill st-${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>`
       }
       <span class="p0-row-title">${esc(row.title || '')}</span>
-    </a>`;
+    </button>`;
+  }
+
+  /**
+   * The see-also edges, under all three of the names bd has written them under.
+   *
+   * The same set as `RELATED` in public/graph.js and `RELATED_EDGES` in lib/mentions.js,
+   * repeated rather than imported because nothing served to the browser imports from
+   * `lib/`. Neither a discovery nor a see-also blocks anything, so folding them into
+   * "waits on" would have a bead claiming to be stuck behind something it merely names.
+   */
+  const P0_RELATED_EDGES = new Set(['discovered-from', 'related', 'relates-to']);
+
+  /**
+   * Where a bead sits, split out of the one array `bd show --json` sends.
+   *
+   * `dependencies[]` is one row per outgoing edge with a `dependency_type` saying which
+   * kind it is — and the parent is in there too, as `parent-child`, which is why
+   * `dependency_count` cannot be drawn as "waits on N": a subtask waiting on nothing at
+   * all still arrives counting the edge to its parent. So the array is split and each
+   * edge goes to the group whose heading is true of it. public/graph.js's `relations`
+   * makes the same split for the same reason.
+   */
+  function p0Relations(b) {
+    const rows = (Array.isArray(b.dependencies) ? b.dependencies : []).filter(Boolean);
+    const parent = rows.find((r) => r.dependency_type === 'parent-child');
+    return {
+      parent: parent || (b.parent ? { id: b.parent } : null),
+      waits: rows.filter((r) => r !== parent && !P0_RELATED_EDGES.has(r.dependency_type)),
+      related: rows.filter((r) => P0_RELATED_EDGES.has(r.dependency_type)),
+    };
+  }
+
+  /** One group of linked beads, or nothing at all — never a heading over no rows. */
+  function p0RelGroupHtml(workspace, label, rows) {
+    if (!rows.length) return '';
+    return `<div class="p0-rel-group"><span class="p0-rel-kind">${esc(label)}</span>${rows
+      .map(
+        (r) => `<a class="p0-rel-row" href="${esc(`${graphUrl({ workspace, id: r.id })}&open=1`)}">
+          <span class="pill id">${esc(r.id)}</span>
+          <span class="p0-rel-title">${esc(r.title || '')}</span>
+        </a>`
+      )
+      .join('')}</div>`;
+  }
+
+  /**
+   * What actually happened to a closed bead — the one fact its status pill raises and
+   * does not answer.
+   *
+   * Only while it is actually closed: `bd` clears `closed_at` on a reopen and leaves
+   * `close_reason` sitting there, so a reopened bead would otherwise carry the reason it
+   * was closed last time as though it still applied. public/graph.js's `closedHtml` is
+   * the same rule; this is the second screen that had to learn it.
+   */
+  function p0ClosedHtml(b) {
+    if (b.status !== 'closed') return '';
+    const why = String(b.close_reason || '').trim();
+    const when = relTime(b.closed_at);
+    if (!why && !when) return '';
+    return `<div class="p0-bead-closed">${when ? `<div class="p0-bead-when">Closed ${esc(when)}</div>` : ''}${
+      why ? `<div class="md">${renderMarkdown(why, FROM_BD)}</div>` : ''
+    }</div>`;
+  }
+
+  /**
+   * One bead's own details, opened in place under its row. bc-rfnr.9.4.
+   *
+   * **Rendered from bead data alone, and that is the whole bead.** The app already had
+   * one full bead view — the inbox card — and it is built out of a *pending question*:
+   * parsed options, a box to answer in, a dismissal. Most beads under a P0 have never
+   * had a question and never will, and that view drawn over one is a card offering to
+   * answer something nobody asked. So this reads `/api/bead` — `bd show` plus the thread
+   * — and draws what is there, which is exactly what a bead with no question has.
+   *
+   * **It goes between the row and the rows under it, not over them.** The tree is flat
+   * and pre-order, so a bead's children are the rows that follow it; a block inserted
+   * after the row leaves them exactly where they were, one indent further in, still
+   * tappable and still expandable themselves. A sheet over the list, which is what the
+   * inbox card does, would take the tree away to show you a bead in it.
+   *
+   * Three states, and the one that matters is the middle one: the details are a `bd`
+   * spawn away, so the row says it is reading rather than sitting blank — an empty
+   * expansion is indistinguishable from a tap that did nothing, which is a bug report
+   * about the tap. A refresh over a bead already on screen draws no such line: what is
+   * there is still true, and replacing it with "reading…" would be the app taking the
+   * text away from you to fetch a copy of the same text.
+   */
+  function p0BeadHtml(card, row) {
+    const key = p0RowKey(card, row);
+    if (!state.p0beadopen.has(key)) return '';
+    const got = state.p0beaddetail.get(key);
+    const body = got?.bead
+      ? p0BeadBodyHtml(card, got.bead)
+      : got?.error
+      ? `<div class="p0-bead-note bad">${esc(row.id)} would not open — ${esc(got.error)}</div>`
+      : `<div class="p0-bead-note">Reading ${esc(row.id)} from bd…</div>`;
+    return `<div class="p0-bead" id="p0bead-${cardId(key)}" style="--d:${p0Step(row)}">${body}</div>`;
+  }
+
+  /**
+   * The bead itself, in the order the questions come: what kind of thing it is, how it
+   * ended if it has, what it is under and behind, what it says, and what has been said
+   * about it.
+   *
+   * The status is deliberately *not* repeated here — the row above it is carrying that
+   * pill already, and two pills a centimetre apart saying `closed` is the expansion
+   * arguing with the row it came out of. What is added is everything the row had no
+   * space for: priority, type, owner, labels, the edges, the prose, the thread.
+   *
+   * `threadHtml` rather than a thread of its own, so a comment you opened here is
+   * collapsed the same way and by the same state (`state.thread`) as one you opened on
+   * the card — and so a repaint of the board, which happens every 25 seconds, does not
+   * fold up what you were reading.
+   *
+   * The graph is the last row, as a link. It is where this row used to send you on a
+   * tap, and it has to stay reachable: what the expansion gives you is this bead, and
+   * what the graph gives you is everything around it.
+   */
+  function p0BeadBodyHtml(card, b) {
+    const workspace = b.workspace || card.workspace;
+    const parts = [];
+    const meta = [
+      b.priority != null ? `<span class="pill">P${esc(b.priority)}</span>` : '',
+      b.issue_type ? `<span class="pill">${esc(b.issue_type)}</span>` : '',
+      // The local part only: an owner is an email address, and two thirds of the pill
+      // would be a domain that is the same on every bead in the tracker.
+      b.owner ? `<span class="pill">${esc(String(b.owner).split('@')[0])}</span>` : '',
+      // Labels verbatim, minus the owner ones — those are the pill above, and printing
+      // `owner:carol@example.com` beside `carol` is the same fact twice at four times
+      // the width. Everything else is drawn as the tracker holds it, `held:` leases
+      // included: a lease shortened to the word `held` is no longer the label, and this
+      // is the screen you come to when you want to know what a bead actually carries.
+      ...(b.labels || [])
+        .filter((l) => !String(l).toLowerCase().startsWith('owner:'))
+        .map((l) => `<span class="pill lbl">${esc(l)}</span>`),
+    ].filter(Boolean);
+    if (meta.length) parts.push(`<div class="p0-bead-meta">${meta.join('')}</div>`);
+    parts.push(p0ClosedHtml(b));
+    const rel = p0Relations(b);
+    const groups = [
+      p0RelGroupHtml(workspace, 'Parent', rel.parent ? [rel.parent] : []),
+      p0RelGroupHtml(workspace, 'Waits on', rel.waits),
+      p0RelGroupHtml(workspace, 'Related', rel.related),
+    ].filter(Boolean);
+    if (groups.length) parts.push(`<div class="p0-rel">${groups.join('')}</div>`);
+    if (b.description) parts.push(`<div class="md">${renderMarkdown(b.description, FROM_BD)}</div>`);
+    // The rest of bd's own fields, in the order bd prints them. Acceptance is the one
+    // you close a bead against and it was readable only from a terminal until the
+    // graph's sheet drew it; a board you read a whole epic from cannot be the surface
+    // that leaves it out. `FROM_BD` on all of them, because these are hard-wrapped at
+    // ~78 columns and honouring those newlines makes a paragraph into a ragged column.
+    for (const [label, text] of [
+      ['acceptance', b.acceptance_criteria],
+      ['design', b.design],
+      ['notes', b.notes],
+    ]) {
+      if (!String(text || '').trim()) continue;
+      parts.push(`<div class="section-label">${label}</div>`);
+      parts.push(`<div class="md">${renderMarkdown(text, FROM_BD)}</div>`);
+    }
+    if (b.comments?.length) {
+      parts.push('<div class="section-label">Thread</div>');
+      parts.push(`<div class="comments">${threadHtml({ key: `${workspace}/${b.id}`, comments: b.comments })}</div>`);
+    }
+    parts.push(
+      `<div class="p0-bead-acts"><a class="p0-graph" href="${esc(
+        `${graphUrl({ workspace, id: b.id })}&open=1`
+      )}">🕸 Graph</a></div>`
+    );
+    return parts.filter(Boolean).join('');
+  }
+
+  /**
+   * Ask `bd` for one bead in the tree, and repaint when it answers. bc-rfnr.9.4.
+   *
+   * **`/api/bead` rather than `/api/question`**, which is the same fork `expand` makes
+   * for an agent bead and for the same reason: the question route parses a decision
+   * block and only means anything on a `human` bead, and most beads under a P0 have
+   * never had one. This route is `bd show` plus the thread — an ordinary issue, drawn as
+   * an ordinary issue.
+   *
+   * **Asked again on every open, and the copy already fetched stays on screen while it
+   * runs.** A description does not move but a thread does, and an open bead is worth one
+   * `bd` spawn per deliberate tap — where re-asking on the *poll* would be a spawn per
+   * open bead every twenty-five seconds, which is the thing that must never happen. The
+   * old copy is what makes that free to the reader: re-opening a bead you have already
+   * read paints instantly and quietly corrects itself a second later.
+   *
+   * `render()` unforced on the way back, unlike the tap's. This lands whenever `bd`
+   * finishes, which may be into the middle of an answer somebody is typing — so it
+   * queues behind the guard exactly as a poll does, rather than rebuilding the list
+   * under a half-written sentence.
+   *
+   * A failure keeps whatever was already there and says so only when there is nothing:
+   * a daemon that went away must not blank a bead you are reading.
+   */
+  async function loadBeadDetail(key, workspace, id) {
+    const had = state.p0beaddetail.get(key);
+    state.p0beaddetail.set(key, { ...(had || {}), loading: true });
+    try {
+      const bead = await api(`/api/bead?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(id)}`);
+      state.p0beaddetail.set(key, { loading: false, bead });
+    } catch (err) {
+      state.p0beaddetail.set(key, { loading: false, bead: had?.bead || null, error: err.message });
+    }
+    // Only if it is still open. Folding a bead up while its `bd` call was in flight is
+    // the ordinary case for a slow tracker, and the row it belongs to is already gone.
+    //
+    // Through `keepTheScreenStill` for the same reason the tap is: this is the moment a
+    // one-line "reading…" becomes six hundred pixels of bead, and the anchor would take
+    // that growth out of the page offset with the reader's eyes already on the block.
+    if (state.p0beadopen.has(key)) keepTheScreenStill(() => render());
   }
 
   /**
@@ -5202,8 +5493,12 @@
     if (!rows.length) {
       return `<div class="p0-none">Nothing under this one yet — no beads hang off ${esc(card.id)}.</div>`;
     }
+    // Row, then that bead's own details when it is open, then the next row — which since
+    // the list is pre-order is that bead's first child. That ordering *is* bc-rfnr.9.4's
+    // "children stay reachable": nothing is removed to make room for the expansion, so a
+    // bead you opened still has its subtree under it, one indent further in.
     return `<div class="p0-tree" id="p0tree-${cardId(card.key || `${card.workspace}/${card.id}`)}">${rows
-      .map((row) => p0RowHtml(card, row))
+      .map((row) => p0RowHtml(card, row) + p0BeadHtml(card, row))
       .join('')}</div>`;
   }
 
@@ -6130,6 +6425,33 @@
       if (state.p0open.has(p0)) state.p0open.delete(p0);
       else state.p0open.add(p0);
       render(true);
+      return;
+    }
+
+    /**
+     * Open one bead inside a tree, or fold it up again. bc-rfnr.9.4.
+     *
+     * The same shape as the card toggle above it and for the same reason: a state write
+     * and a repaint, nothing poked in the DOM. The board is one reconcile chunk that is
+     * replaced whole every 25 seconds, so an expansion held as a class on a node would
+     * fold up under your thumb — `state.p0beadopen` is the only record of it, and the
+     * renderer is a pure function of that set.
+     *
+     * `render(true)` first and the fetch after, so the row answers the tap now: folding
+     * costs nothing at all, and opening puts the "reading…" line up while `bd` is asked.
+     * The two are ordered rather than raced because a tap on a bead already open is a
+     * tap that closes it, and a fetch fired before the state moved would be a refresh
+     * for a block that is no longer on the screen.
+     */
+    if (act === 'p0-bead') {
+      const key = btn.dataset.p0bead;
+      closeMenu();
+      closeAgentMenu();
+      const opening = !state.p0beadopen.has(key);
+      if (opening) state.p0beadopen.add(key);
+      else state.p0beadopen.delete(key);
+      keepTheScreenStill(() => render(true));
+      if (opening) loadBeadDetail(key, btn.dataset.ws, btn.dataset.bead);
       return;
     }
 

@@ -5875,6 +5875,96 @@ a.pill { text-decoration: none; }
   font-size: 12px; color: var(--muted);
 }
 
+/* A row is a disclosure since bc-rfnr.9.4, not a link out to the graph — so it is a
+   <button>, stripped back to exactly the line it was as an anchor. `width`, `font` and
+   `text-align` are the three a button does not inherit and an anchor never had to ask
+   for; the three borders are cleared one side at a time because the rule above sets the
+   LEFT one and a `border: 0` shorthand here would take the tree's own edge with it. Same
+   reason the margin is not a shorthand: `margin-left` is the indent. */
+button.p0-row {
+  width: 100%;
+  margin-top: 0; margin-right: 0; margin-bottom: 0;
+  border-top: 0; border-right: 0; border-bottom: 0;
+  background: none;
+  font: inherit; font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+}
+/* Leading the row rather than ending it, unlike the card's. `.p0-row` wraps, so a caret
+   after the title lands alone on a line of its own past a long one — and the left edge
+   of a tree is where the eye already is when it is looking for the next level down. */
+.p0-row-caret { flex: none; font-size: 10px; color: var(--muted); }
+/* The row whose details are open under it. Just a tint: the block below it is the loud
+   part, and a row that changed weight or size when opened would move the sixty rows
+   under it every time you tapped one. */
+.p0-row.on { background: var(--surface); }
+
+/* One bead's own details, opened in place under its row (bc-rfnr.9.4). Indented to its
+   row's own step and then one notch further, so it reads as belonging to the row above
+   rather than to the level below — where its children still are, because the expansion
+   goes BETWEEN a bead and its subtree instead of over it. The accent edge is what says
+   this is the bead you asked about, against the `--line` edge every row carries. */
+.p0-bead {
+  margin: 2px 0 6px;
+  margin-left: calc(var(--d, 0) * 13px + 10px);
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface);
+}
+/* Everything shared with the inbox card, scaled to a block inside a card: the prose,
+   the headings between its fields and the thread. The card's own sizes are set for a
+   full-screen sheet, and at 15.5px a description in here would be larger than the title
+   of the epic it is filed under. */
+.p0-bead .md { font-size: 13.5px; line-height: 1.55; color: var(--prose); }
+.p0-bead .md p, .p0-bead .md ul, .p0-bead .md ol { margin-bottom: 9px; }
+.p0-bead .md > *:last-child { margin-bottom: 0; }
+.p0-bead .md h1, .p0-bead .md h2, .p0-bead .md h3 { font-size: 14px; }
+.p0-bead .section-label { margin: 12px 0 6px; padding-top: 8px; }
+.p0-bead .comments { margin: 8px 0 0; gap: 8px; }
+.p0-bead .comment .md { font-size: 13px; }
+.p0-bead .pill { font-size: 9.5px; padding: 2px 6px; }
+/* What kind of bead it is, whose it is, and what it carries — one wrapping row, because
+   a bead in this tracker can carry six labels and a column of them would be taller than
+   the description under it. */
+.p0-bead-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-bottom: 8px; }
+/* A label, as the tracker actually holds it: not upper-cased and not tracked out, because
+   `held:20260815T200152Z:someone@example.com` is a value rather than a word, and it has
+   to be able to break rather than push the card wider than the screen. */
+.pill.lbl { text-transform: none; letter-spacing: 0; font-weight: 600; overflow-wrap: anywhere; }
+/* How a closed bead ended — straight under the pills, because the row's `closed` pill is
+   what raises the question and this is the only place in the board that answers it. */
+.p0-bead-closed { margin: 0 0 8px; padding-left: 8px; border-left: 2px solid var(--line); }
+.p0-bead-when { margin-bottom: 4px; font-size: 11.5px; color: var(--muted); }
+/* Reading, or refused. A sentence rather than a blank block, for the reason `.p0-none`
+   is one: an empty expansion is indistinguishable from a tap that did nothing. */
+.p0-bead-note { font-size: 12px; color: var(--muted); }
+.p0-bead-note.bad { color: var(--danger); }
+/* What the bead is under and what it is behind. Above the description because "what is
+   this part of, and what is it stuck on" is the question you have before you read a word
+   of it — and a bead with no edges draws nothing here at all. */
+.p0-rel { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.p0-rel-group { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.p0-rel-kind {
+  flex: none;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* Each on its own line — `flex: 1 1 100%` — because these carry a title and a title
+   beside a heading wraps into the heading's column and reads as part of it. */
+.p0-rel-row {
+  display: flex; align-items: baseline; gap: 6px; flex: 1 1 100%;
+  min-width: 0;
+  color: var(--text); text-decoration: none;
+  font-size: 12px;
+}
+.p0-rel-title { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
+/* The way out to the graph, on the bead you tapped rather than on the card above it.
+   It is where this row used to send you, and it stays reachable: the expansion is this
+   bead, and the graph is everything around it. */
+.p0-bead-acts { display: flex; gap: 6px; margin-top: 8px; }
+
 /* The two ways out of a card, on one row under the tree: put an advocate on it, or go
    and look at the graph. The advocate takes the room because it is the thing you can
    *do* here — a 36px target hidden between two counts is a target you miss — and the

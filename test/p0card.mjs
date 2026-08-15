@@ -164,6 +164,10 @@ function board(p0s, open = [], shut = false) {
     workspace: 'all',
     spaces: [],
     p0opening: new Map(),
+    // Empty, always, in this suite: what a row expands *into* is test/p0bead.mjs's
+    // (bc-rfnr.9.4). It is here because `p0RowHtml` asks whether its bead is open before
+    // it draws the caret, and a board rendered without it throws rather than failing.
+    p0beadopen: new Set(),
   };
   const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state });
   vm.runInContext(
@@ -176,7 +180,14 @@ function board(p0s, open = [], shut = false) {
       lift(APP, 'const P0_INDENT_CAP = '),
       lift(APP, 'const P0_SECTION_LABEL = '),
       lift(APP, 'function p0HintText(on, total)'),
+      lift(APP, 'const p0RowKey = ('),
+      lift(APP, 'const p0Step = ('),
       lift(APP, 'function p0RowHtml(card, row)'),
+      // bc-rfnr.9.4's expansion, which every row now offers and no row opens here —
+      // `p0beadopen` is empty above, so this returns '' on all of them. Lifted because
+      // `p0TreeHtml` calls it per row and would otherwise throw; what it *draws* is
+      // test/p0bead.mjs's, which lifts the whole chain underneath it.
+      lift(APP, 'function p0BeadHtml(card, row)'),
       lift(APP, 'function p0TreeHtml(card)'),
       // bc-d6yk's three-state control, which the acts row now calls rather than writing
       // a launch button by hand — and the local "just launched" note it reads.
@@ -284,9 +295,19 @@ check('closed work recedes rather than disappearing', () => {
   assert.match(html, /A fifth, already landed/);
 });
 
-check('each row is a link to that bead in the graph — no tap does nothing', () => {
+check('each row is a disclosure of its own bead — no tap does nothing', () => {
+  // It was a link out to the graph until bc-rfnr.9.4, which turned it into the control
+  // that opens the bead's own details in place. The graph is still reachable and is
+  // drawn *inside* the expansion, on the bead you tapped — see test/p0bead.mjs.
   const html = board([CARD], ['beadcause/bc-rfnr']);
-  assert.match(html, /href="\/graph\?ws=beadcause&amp;id=bc-rfnr\.9\.2&amp;open=1"/);
+  assert.match(
+    html,
+    /<button type="button" class="p0-row"[^>]*data-act="p0-bead" data-p0bead="beadcause\/bc-rfnr\.9"/
+  );
+  assert.match(html, /data-ws="beadcause" data-bead="bc-rfnr\.9\.2"/);
+  // Shut, so the caret points the way the card's does and nothing claims to control a
+  // block that is not on the page.
+  assert.ok(!html.includes('aria-controls="p0bead-'), 'a shut row is claiming to control an expansion');
 });
 
 console.log('\nwhat is open, and what survives a repaint');
