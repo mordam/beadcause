@@ -23,7 +23,8 @@
     "beadcause-plan": "bin/plan.js",
     "beadcause-attic": "bin/attic.js",
     "beadcause-requirements": "bin/requirements.js",
-    "beadcause-incidents": "bin/incidents.js"
+    "beadcause-incidents": "bin/incidents.js",
+    "beadcause-boundary": "bin/boundary.js"
   },
   "scripts": {
     "start": "node bin/router.js",

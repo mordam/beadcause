@@ -12690,6 +12690,120 @@ corpus is closed to prevent. What the report carries instead is the mapping from
 to the CC8.1 verbs it answers, in the output where an auditor can argue with it, ready for
 the corpus to point at.
 
+## The system boundary, as data — `beadcause-boundary`
+
+A SOC 2 report is not about an organisation. It is about a **system** — infrastructure,
+software, people, procedures and data — inside a stated boundary, described to named
+**user entities**. Everything downstream is scoped by it: which criteria are worth
+electing, which controls are tested, which population a sample is drawn from. An argued
+boundary is the cheapest lever in the whole programme, and it is the one most often
+written as a paragraph in a document that nothing can read.
+
+So it is a record, in `lib/boundary.js`, and it ships compiled into the release the way
+the control corpus does. The scope statement [the election](#what-you-elected-to-be-held-to--libelectionjs)
+declares is *computed* from it rather than typed beside it:
+
+    beadcause-boundary show          the whole record
+    beadcause-boundary carved        what is carved out, and what each still bears on
+    beadcause-boundary entities      the named user entities
+    beadcause-boundary gaps          what is not enumerated, and where the rest is held
+    beadcause-boundary declare       the projection `declare` takes
+
+### The subject was decided, not assumed
+
+Climative's **Energy Navigator / Insights** platform is the system, **Climative** is the
+service organisation, **NYSERDA** and **TD** are the user entities, and **beadcause sits
+outside that boundary** (`bc-228x`). Adam's words: *"beadcause is not part of that
+boundary. and yes we'll be using Climative as our first service organization."*
+
+Both halves of that sentence are recorded. The carve-out is a component in the register.
+*First* is a field — `BOUNDARIES` is a map keyed by organisation id and not a constant,
+while there is exactly one entry and it costs nothing, for the reason
+`lib/organisation.js` gives at length: a singleton is a migration waiting for the second
+tenant, over the one record whose whole value is that it has not changed silently.
+
+### Out of the boundary is not out of the audit
+
+This is the distinction the file exists to make impossible to lose. Beadcause opens the
+agent sessions that change the repositories the in-scope system is built from, which puts
+it in the change-management path whether or not it is part of what is *described* to a
+user entity. A carve-out is a statement about the system description and carries no
+implication at all about whether an auditor testing CC8.1 will want records out of the
+carved-out thing.
+
+So a carved-out component may name what it still `bearsOn`, and beadcause names change
+management. All six agent kinds are carved out individually rather than as one row saying
+"beadcause agents", because *what non-human identity can change an in-scope repository* is
+a question asked per identity, and a single row answers it for none of them.
+
+### A census is a field, because the alternative is a blank that reads as an answer
+
+This is the part worth arguing with. Almost nothing about Energy Navigator's internals is
+knowable from this repository — the repositories, hosts, data stores and egress
+destinations inside the boundary are enumerated in the Climative architecture repo and the
+`cl-` tracker, not here. The two tempting shapes are both wrong. An empty list reads as
+*there are none*. An absent field reads as *not applicable*. Neither is true, and both
+validate perfectly against any schema that only checks types.
+
+So every kind of thing a boundary can contain carries a **census** — `enumerated` or
+`partial` — and a partial one must name where the authoritative enumeration is `held`. An
+empty subservice list under a partial census says *nobody has surveyed the processors
+yet*, which is a finding somebody can act on; the same empty list with no census says
+*there are none*, which is false and unfalsifiable at the same time.
+
+    $ beadcause-boundary gaps
+    What Climative's boundary does not yet know
+      repo — 0 recorded, the rest held in github.com/Climative/architecture, and the cl- tracker inside it
+      …
+      subservice — 0 recorded, the rest held in github.com/Climative/architecture
+          The empty list above means unsurveyed, not none. A platform of this shape has
+          hosting and third-party processing behind it, and each one owes a carve-out or
+          inclusive decision.
+
+`--strict` exits 1 when there is at least one gap, so a check can gate on it once the
+enumeration is expected to be complete. Today it is not, and the seven gaps are the honest
+state of the record rather than a to-do somebody forgot to delete.
+
+**The carve-outs are enumerated even though the inside is not**, and that asymmetry is
+real rather than convenient. Carving something out is a decision, and this repository can
+make it in full — everything beadcause is, is knowable from here. Enumerating what is
+inside is a survey of somebody else's estate. A census answers for the inside list only,
+and `CARVE_OUTS_ARE_ENUMERATED` says so in one place rather than leaving it to be inferred
+from a field that does not exist.
+
+### A carve-out owes a CUEC, or a control has vanished
+
+Subservice organisations get a **carve-out** or **inclusive** decision each, and neither
+is a default. A carve-out leaves that organisation's controls out of the description and
+shifts the reliance onto the user entity — so `boundaryProblems` refuses a carve-out with
+no complementary user entity control against it. That is the failure mode worth catching
+in code: a control that exists in nobody's report because one document assumed the other
+covered it. Inclusive drags the subservice organisation's own controls into the test
+population, which is a much larger promise, which is why it is never the quiet one.
+
+`cuecs()` flattens them across every carved-out organisation, because the flat list is
+what a user entity is actually handed and reading it out of a per-organisation structure
+by hand is how one goes missing.
+
+### What it deliberately does not do
+
+**There is no third disposition.** A component is `inside` or `carved-out`. A thing nobody
+has decided about is not a component with an `unknown` state — it is a thing not yet in
+the list, and the census is what says so. Adding `unknown` makes the census redundant and
+then wrong, because a survey that is complete except for the undecided ones reads as
+complete.
+
+**It reads no state and writes none.** A leaf, like `lib/publishable.js` and
+`lib/evidence.js`: the register ships with the release, so a check, a service and a
+migration script can each hold it without dragging in a config directory or a git
+repository. `registryProblems()` runs at import and throws — a boundary you could ship
+broken is a boundary that answers "nothing is carved out" on the machine enforcing
+against it.
+
+**It does not decide what is inside for you.** It cannot; nothing can, from here. The one
+thing it can check is whether the record admits what it does not know, and that is what
+`test/boundary.mjs` spends most of its checks on.
+
 ## What you elected to be held to — `lib/election.js`
 
 Beadcause **records** unconditionally. Sessions are archived against their bead, merges
