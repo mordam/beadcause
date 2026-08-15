@@ -119,9 +119,20 @@ const result = await collect({
   seed,
 });
 
+// An empty population reads identically whether the period was quiet or the branch does
+// not exist here, and only one of those is a report. `head` tells them apart, so it is
+// said before the report rather than left to be inferred from a page of nothing.
+if (!result.head) {
+  warn(`${dir} has no branch \`${arg('--branch') || 'main'}\` — nothing to sample`);
+  // A non-zero status rather than a refusal: the output is still a true report of a window
+  // with nothing in it, and a script that checks the code can tell that apart from a quiet
+  // quarter without parsing the prose.
+  process.exitCode = 2;
+}
+
 if (verb === 'summary') {
   console.log(describeSample(result));
-  process.exit(0);
+  process.exit(process.exitCode || 0);
 }
 
 const text = has('--json') ? `${JSON.stringify(result, null, 2)}\n` : renderReport(result);
