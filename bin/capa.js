@@ -174,7 +174,15 @@ async function owed() {
   const clocks = incidentRegister(incidents, { now, config: cfg });
   const list = nonconformitiesOwed(clocks, records);
   if (!list.length) {
-    console.log('every incident that missed a stated commitment already has a nonconformity record.');
+    // Two different nothings, and reading one as the other is how a register looks
+    // healthy because it is empty: no incident has missed a commitment at all, or every
+    // one that did already has a record. Only the second is an achievement.
+    const breached = clocks.filter((c) => c.breached && c.resolved != null).length;
+    console.log(
+      breached
+        ? `all ${breached} resolved incident${breached === 1 ? '' : 's'} that missed a commitment already have a nonconformity record.`
+        : `no resolved incident in ${ws.name} has missed a stated commitment — there is nothing owed, rather than nothing found.`,
+    );
     return;
   }
   console.log(`${list.length} resolved incident${list.length === 1 ? '' : 's'} missed a commitment and have no record:\n`);
