@@ -129,10 +129,23 @@ await test('every offending field is named, not just the first one', () => {
 });
 
 await test('an amendable request is unchanged — no beyond, no error', () => {
-  const r = amendment.parseAmendment(block('add:\n  allowedTools:\n    - Bash(rg:*)'));
+  // The `set:` is not decoration. bc-eqn1.4 refuses an allowlist change that does not
+  // say what it changes about the agent's system card, so the amendable-and-complete
+  // request is now the one that carries the sentence too. `beyond` is still what this
+  // suite is about, and it is still absent — the two refusals are separate.
+  const r = amendment.parseAmendment(
+    block('set:\n  intendedUse: Surveying a repo, now with a grep that finishes.\nadd:\n  allowedTools:\n    - Bash(rg:*)')
+  );
   assert.equal(r.error, null);
   assert.equal(r.beyond, undefined);
   assert.deepEqual(r.add.allowedTools, ['Bash(rg:*)']);
+});
+
+await test('and without that sentence it is refused — but still not `beyond`', () => {
+  const r = amendment.parseAmendment(block('add:\n  allowedTools:\n    - Bash(rg:*)'));
+  assert.match(r.error, /refused/);
+  assert.equal(r.beyond, undefined, 'nothing here needs a commit — it needs a sentence');
+  assert.ok(r.cardGap, 'and the two refusals are told apart by which key carries them');
 });
 
 await test('the bars still come first: no scope, no request, whichever channel', () => {
@@ -334,6 +347,10 @@ justification: |
   Grep times out on this repo's node_modules and I fell back to reading files one at a
   time, which is why this survey found one thing and not three. rg would have been a
   single call.
+set:
+  intendedUse: |
+    Surveying a repo whose queue has run dry and proposing what is worth doing next —
+    now reading the whole tree rather than the files it could afford to open one by one.
 add:
   allowedTools:
     - Bash(rg:*)

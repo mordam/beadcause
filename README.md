@@ -2238,8 +2238,9 @@ turns later, in a way that looks like the agent being unhelpful. Those change by
 editing the file in a release, which is a human writing code.
 
 Amendable: `purpose`, `role`, `model`, `tools`, `allowedTools`, `env`, `timeoutMs`,
-`permissionMode`. A request naming anything else is **rejected, not filtered** —
-silently dropping half a request would apply an amendment you did not approve.
+`permissionMode`, and the five **card** fields the section below adds. A request naming
+anything else is **rejected, not filtered** — silently dropping half a request would apply
+an amendment you did not approve.
 
 ### The loop
 
@@ -2367,6 +2368,132 @@ channel would have looked identical in the shade and given you nothing to hold.
 parsed.** A malformed request still arrives in the foundation channel carrying its
 error, rather than falling back into the work feed where nobody is looking for a
 constitutional decision.
+
+## The AI system registry — what each of these is for, and what it would be wrong to use it for
+
+ISO/IEC 42001 asks, per AI system, for the intended use, the reasonably foreseeable
+misuse, the populations affected, the human oversight measure, the model, and the
+limitations somebody has to be told about. Beadcause had most of that already and called
+it something else. An allowlist is an oversight measure. `writes: false` is an oversight
+measure. A twelve-hour cooldown is an oversight measure. What was missing was the
+declarative half: nowhere did anything say, in a sentence, *what an agent was for* or
+*what it would be wrong to use it for*.
+
+So five fields on every foundation — `intendedUse`, `foreseeableMisuse`, `affects`,
+`oversight`, `limitations` — and the six agent kinds each carry all five. That is
+`CARD_FIELDS` in `lib/foundation.js`.
+
+**They are foundation fields rather than a register beside the code, and that is the whole
+design.** A register kept next to the thing it describes is a document somebody has to
+remember to update, and it stops being true on the first busy week. These sit inside the
+amendment chain, so a change to what an agent is documented as is a commit on
+`refs/beadcause/foundations` carrying its justification and the bead it came from —
+exactly like a change to an allowlist. Intended use drifting with nothing to show for it
+is the finding this exists to prevent, and a field *outside* `AMENDABLE` is a field that
+can drift in a release with nothing on the ref to record it. That is why they are in the
+amendable set rather than protected beside `id` and `writes`.
+
+All five are prose, including `affects`. A list would invite `add:` — one more population
+appended without re-arguing who else is on it — and the useful content here is not who but
+*how*: "the colleague named as the blocker in a proposal did not take part in the
+conversation that named them" is the sentence, and it does not fit in a list entry.
+
+### An amendment that outdates a card is refused
+
+The half that makes this evidence rather than a document. `CARD_IMPLICATIONS` is the
+table, and each row is an argument rather than a pairing:
+
+| moving this | owes a sentence in |
+|---|---|
+| `model` | `limitations` |
+| `tools`, `allowedTools` | `intendedUse` **or** `foreseeableMisuse` |
+| `permissionMode` | `oversight` |
+
+Nearly everything a card can honestly promise about what an agent will and will not
+manage is a statement about the model underneath it, so moving the model and leaving the
+limitations alone asserts the two are unrelated. A tool grant is the only way an agent's
+reach actually changes: either it is now doing more than the card said it was for, or
+there is a new way for it to go wrong, and naming one of the two is the bar.
+`permissionMode` *is* an oversight measure — it decides whether a person is in the loop
+for each tool call — so a card whose oversight sentence survives a change to it is
+describing a control that is no longer there.
+
+`purpose`, `role`, `env` and `timeoutMs` are deliberately ungated. A role is prose about
+how to behave that the card's own prose does not restate, and a gate on everything is a
+gate people route around by writing a card sentence that says nothing.
+
+It is checked **per moved field, not per patch**. An amendment moving `model` and
+`permissionMode` at once owes both `limitations` and `oversight`; a union would let one
+sentence about the model stand in for a deleted control.
+
+**And the refusal names both halves**, because a refusal a maintainer cannot act on is a
+refusal somebody eventually turns off:
+
+```
+refused: the system card does not change with it: `allowedTools` implicates
+`intendedUse` or `foreseeableMisuse`. Set the named card field in the same amendment, or
+narrow the request so it does not move allowedTools.
+```
+
+It is enforced in **two** places on purpose, and only one of them is the enforcement.
+`foundation.validate` — the funnel every write goes through — is what actually stops it,
+so no future caller of `amend` can walk past a gate that lived only in a parser. The
+second is `parseAmendment`, which refuses the block at the point the *agent* is still the
+audience: refused there, the agent is told in its own transcript which field it moved and
+which sentence it owes, and can re-file with it. Let it through and the same refusal
+arrives on your phone as a 422 while you are tapping approve. The parse refusal is
+**errored and complete**, the way a request naming a protected field already is: the
+scope, the justification and the delta all survive, so nothing about what the agent wanted
+is dropped on the floor.
+
+The reflection prompt an agent gets now prints its own card back to it alongside its
+allowlist, and states the rule with the table filled in from `CARD_IMPLICATIONS` — one
+copy of the mapping, so the prompt cannot describe a gate different from the one that
+runs.
+
+### And beadcause itself is a registered system
+
+Not only its agents. Six kinds of agent do work; the daemon, the phone app and the loop
+connecting them are the system those agents are part of, and an auditor asking "what is
+this thing, and what is it for" is not asking about the worker.
+
+It has **no `BASELINES` entry**, and that was the judgement worth writing down. A seventh
+key in that map would put `beadcause` in `AGENTS` — and every reader of `AGENTS` (the
+activity matcher, the chat launcher, the amendment parser, `POST /api/console`) would
+then be wrong, in a way that fails as a runtime surprise rather than as an error anybody
+sees. So it is a **sibling record** in `lib/systemcard.js`, resolved by the same reader:
+`systemCard(id)` answers for `beadcause` and for any agent kind without the caller
+knowing which it asked about, and `AGENTS` still means agent kinds afterwards.
+
+```js
+systemCard('beadcause')     // the system's own card
+systemCard('worker')        // the worker's, off its baseline
+await systemCards(dir)      // all seven, with approved amendments applied
+registryGaps()              // empty, or the cards missing a field
+```
+
+**Beadcause's own card is not amendable, and that is stronger than amendable rather than
+weaker.** An agent's card is amendable because there is an agent that could ask, and
+because a field outside the chain could drift. Nothing *is* beadcause, so there is nobody
+to file that request; changing what the system is for is a commit to that file, reviewed
+by a person. Said out loud because "not in the chain" otherwise reads as an oversight.
+
+What it does not carry is `tools`, `allowedTools` or a model: those are facts about a
+process that runs, and beadcause is the thing that opens the processes. Its model line
+says `source: 'per-agent'` and points at the six cards below it, rather than drawing a
+blank — a card declining to answer the model question is worse than one that says where
+the answer is. For an agent the same line is honest in the other direction: `model: null`
+means nobody has said anything about *this agent* specifically and the run is routed from
+the bead's complexity tier, so the card answers with the model an unrated bead lands on
+and `routed: true` to say that is a default rather than a decision. `FALLBACK_MODEL` is
+imported from `lib/complexity.js` and never restated — a mapping is a decision, and a
+second copy of a decision goes stale silently because both copies keep rendering.
+
+`test/systemcard.mjs` holds both properties: every registered system resolves to a card
+with all five fields on it (so a seventh agent kind with no card fails there rather than
+shipping as a blank row on a screen), and the gate refuses, by name, in every direction it
+is meant to. All three guards were mutation-tested — delete the throw, delete the parse
+refusal, blank a card field, confirm red, restore.
 
 ## What an agent remembers, and how agents tell each other things
 
