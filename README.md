@@ -12668,6 +12668,124 @@ corpus is closed to prevent. What the report carries instead is the mapping from
 to the CC8.1 verbs it answers, in the output where an auditor can argue with it, ready for
 the corpus to point at.
 
+## What you elected to be held to — `lib/election.js`
+
+Everything above this line records unconditionally. Sessions are archived, merges are
+noted, configuration changes land as commits, and the control vocabulary ships compiled
+into the release. None of that asks permission, because a record that can be turned off is
+not a record.
+
+**Enforcement is the other half, and it is the half that can say no.** A gate that refuses
+a merge, holds a session shut or fails a deploy is not a record — it is a cost, and it is a
+cost most installs should never pay. Most beadcause installs have no architecture checkout,
+no JIRA, no auditor and no interest in an attestation. A compliance layer that warns, logs
+or blocks on those installs makes the platform worse for every person who is not pursuing
+one.
+
+So enforcement is **scoped**, and the scope is two things: a **declared boundary** — who is
+being held to this, and what is inside it — and a set of **elected criteria**, named in the
+closed vocabulary the corpus mints. An install that has declared no boundary and elected
+nothing has nothing in scope. No gate can fire, nothing is warned about, and the layer is
+invisible without ever having been turned off.
+
+### Why a scope and not a flag, which is the whole of the design
+
+The obvious shape is a switch: `compliance.enabled` in `config.json`, false by default.
+It fails in both positions.
+
+**Off by default is where the audit dies.** A gate that can be disabled by editing a file
+is not a control. An auditor asking *how do you know these operated throughout the
+observation window* is told the answer was a config key, and the Type II evidence is worth
+nothing — not because anybody flipped it, but because nothing in the record could
+distinguish a quarter in which nobody did from a quarter in which somebody did.
+
+**On by default is where the platform dies.** Every personal install — sophab, deluvia,
+ehatt — starts refusing merges for a management system nobody asked for, and the fix
+everyone reaches for is precisely the switch that made the first problem.
+
+A scope has neither position, because it has no default. The empty election is the empty
+set, and it is empty because nothing has been added to it rather than because something is
+off. There is no `enabled`, no environment variable and no key in `config.json` — and that
+is asserted rather than promised: `test/election.mjs` reads `lib/election.js` and fails the
+repo for `process.env` or a config import, and reads `lib/config.js` and fails it for a key
+named `election`, `boundary`, `criteria`, `compliance` or `enforce*`.
+
+What a gate gets is `null`, not `false`, and the distinction is the whole of *sees
+nothing*. A gate handed `false` has been told something, and sooner or later says so on a
+screen; a gate handed `null` has been told nothing and returns early, which is the
+beadcause that has always been there:
+
+    const verdict = inScope(await current(), 'SOC2.CC8.1');
+    if (!verdict) return null;   // nothing is claimed here; behave as beadcause always did
+
+When it *is* in scope, the verdict carries the boundary and the moment the criterion was
+elected — because a refusal owes the person in front of it both *who says so* and *since
+when*, and a gate that has to go back for them later is a gate that ends up saying only
+"not permitted".
+
+### Electing is a transition, not a setting
+
+Every change is a chained commit on `refs/beadcause/election` in `~/.config/beadcause`,
+with the actor, the bead and the justification in the message — the same shape
+`refs/beadcause/foundations` uses for what an agent is permitted to be, for the same
+reason. There is no file to edit and no state to set, so `git log` is the history of what
+this organisation has claimed to be held to and *when it started claiming it*, which is the
+question a Type II report is actually asking:
+
+    git -C ~/.config/beadcause log --format='%aI %s' refs/beadcause/election
+    git -C ~/.config/beadcause cat-file -p refs/beadcause/election:election.json
+
+Four actions, and the order matters. `declare` comes first and nothing can be elected
+before it: criteria with no boundary are a list with nothing to be true *of*, and it is
+exactly the half-state where a gate could read as armed while nobody has said what it is
+armed around. `elect` adds criteria and is idempotent — electing what is already elected
+writes no commit, because a no-op transition is a line an auditor has to read and rule out.
+`revoke` takes one criterion back out, so an organisation that changed its mind about the
+privacy category does not have to withdraw its whole boundary and re-declare it, which
+would read in the history as having stopped claiming everything for as long as the two
+commits are apart. And `withdraw` stops the claim entirely.
+
+### Withdrawing does not restore innocence, and that is the point
+
+From a gate's point of view, an install that has withdrawn is byte for byte the install
+that never elected anything. That is the promise, and it is kept — `test/election.mjs`
+compares every predicate against the empty election and requires them equal, because a
+promise that only holds on a virgin machine is not the promise. An absent ref and a state
+whose lists are empty are two different code paths, and only one of them is the one a real
+install ends up on.
+
+What withdrawing is *not* is invisible. The transitions stay in the state, the commits stay
+on the ref, and the justification is required — the only one of the four where it is, since
+withdrawing is the transition an auditor reads first and *(no justification recorded)*
+against it is a sentence nobody can do anything with. So a quarter with nobody in scope
+reads as a gap somebody recorded, rather than as a quiet quarter. A window nobody can
+account for is a finding; a window with an accounted-for gap is a scope note, and making
+the second one cheap is the only way to stop people reaching for the first.
+
+The class is registered as `election-history` in `lib/evidence.js`, kept permanently, and
+this is where permanence does the most work: the whole claim is that an install cannot
+quietly stop being in scope, and a prunable history is exactly how it would.
+
+### What it deliberately does not do
+
+**It does not import the control corpus.** It would be one line to reject an id the corpus
+does not contain, and it is not done. An election is a record of what was elected *then*;
+the corpus is a table that ships with the release. Joining them at read time means a
+criterion retired or renamed in a later release silently changes what an organisation is on
+record as having elected — the flippable switch wearing different clothes. So an id is
+checked here for **shape**, with the framework token as part of it, because `ISO27001.A.5.2`
+and `ISO42001.A.5.2` are different controls and a stored bare `A.5.2` would be a record
+whose meaning depended on who read it. Resolving a shape to a record belongs to whatever is
+showing it to somebody: the surface that offers a list to elect *from* should read the
+corpus and offer only what is in it, which is a check at the point of choosing rather than
+a filter on the record afterwards.
+
+**It does not fail closed on its own account.** A machine with no common repo, no git or an
+unparseable state reads back as having elected nothing. That is the safe direction and it
+is not the obvious one — the tempting alternative is to keep enforcing whatever was last
+known — but an install that cannot read its own election must not be an install that starts
+enforcing a guess.
+
 ## The Android app
 
 A native shell around the same PWA, in `android/`. It exists for the four things a
