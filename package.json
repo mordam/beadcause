@@ -13,6 +13,7 @@
     "beadcause-get": "bin/beadcause-get",
     "beadcause-browse": "bin/beadcause-browse",
     "beadcause-confluence": "bin/beadcause-confluence",
+    "beadcause-changes": "bin/changesample.js",
     "beadcause-file": "bin/file.js",
     "beadcause-propose": "bin/propose.js",
     "beadcause-ask": "bin/ask.js",
