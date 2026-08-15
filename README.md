@@ -18098,6 +18098,90 @@ A *missing* harness is a failure and not a skip: cover that quietly stops existi
 thing being fixed here, and a wrapper that shrugged when its target went would be a second
 helping of it.
 
+### Multi-tenant from the first line — `lib/organisation.js`, `test/organisation.mjs`
+
+Climative is the **first** service organisation. Not the only one, and not "the" one — that
+wording was deliberate when the central service was settled, and this file is what makes it
+true in the schema rather than only in the sentence.
+
+The failure it exists for is not a bug anybody can be shown. A schema written while there is
+one organisation does not *say* there is one organisation; it simply never asks. Everything
+works, every test passes, and the assumption is invisible right up until a second
+organisation enrols — at which point the fix is a migration that re-keys the chains. A chain
+re-keyed is a chain rewritten, and a rewritten chain is precisely the thing the service was
+built to make visible. So the tenant goes on the record now, while there is one of them and
+it costs twelve bytes.
+
+**The closed set is the shape, not the membership, and that is the half people get
+backwards.** `lib/controls.js` and `lib/requirements.js` are closed because their members are
+knowable — there are 192 controls, and a 193rd arrives as a table row somebody writes. The
+register of organisations is the opposite, openly: "how many are there" is the question this
+refuses to answer in advance. What is closed is the *shape* — what an id may be, where it
+sits in a key, which records carry it — and closing the shape is exactly what leaves the
+membership free to grow.
+
+**The organisation is on every record, not derived from the instance.** The obvious design
+records it once at enrolment and resolves a record's tenant by joining through `instance`.
+It is smaller and it is wrong, for a reason that only surfaces years later: *a derived field
+has no history*. An instance moved between organisations — an acquisition, a contractor's
+Mac handed back, an enrolment amended because the first one was a typo — silently changes the
+tenant of every record that instance ever published, including the ones an auditor sampled
+last March. Nothing corrupts and nothing fails; the answer to a question about the past just
+quietly becomes a different answer. `tenancyProblems` is what refuses the join, and it is
+pointed at a vocabulary rather than reading one, so the suite runs it against the plausible
+single-tenant table — org on the enrolment kind, everything else joined — and pins the
+sentence that names it wrong. That table passes every other check in the repo.
+
+**The id sits first in a key, and that is not cosmetic.** `scope(org, ...parts)` is the one
+funnel; every storage key and every route begins with the organisation, so a tenant boundary
+is a string comparison rather than a parse — and a boundary that needs a parser is a boundary
+with a bug in it eventually. It is also what makes the acceptance criterion true rather than
+hoped-for: a second organisation's keys land under a prefix nothing else uses, so no existing
+key is read, rewritten or moved. `test/organisation.mjs` demonstrates that rather than
+asserting it — it builds the first organisation's keys, enrols a second, and compares every
+existing key and record byte for byte. The separator is load-bearing in the same check:
+`climative-uk/...` starts with `climative`, and `climative/` is what closes it.
+
+**What shape alone cannot answer, it says so about.** `chains/evidence` parses perfectly as a
+key belonging to an organisation called `chains`, because `chains` is a legal id and nothing
+in the string says otherwise. So `unscope` and `scopeProblems` answer by shape by default and
+take the register as an optional second argument, at which point the question becomes
+decidable. Guessing would have been easy and it is the one place guessing crosses a tenant
+boundary.
+
+**An id is not a name, and it is never reissued.** `label` is what a human reads and may
+change at will — companies rebrand. `id` is lowercase, opaque and permanent, because every
+record that ever named it still names it. `RESERVED` refuses the words a single-tenant
+install writes when it has one organisation and a column to fill: `default`, `local`, `all`,
+`shared`, and fifteen more. Each of them reads as absence and behaves as presence —
+`default` accumulates chains and criterion states exactly like a tenant, and the day a real
+second organisation arrives there is no way to say which of `default`'s records belonged to
+whom. The suite also checks that every reserved word would *otherwise* have been legal,
+because a reservation that the shape rule already refused would be dead code wearing a
+guarantee. `registryProblems` refuses reissue one step later, for the sharper version of the
+same problem: hand `climative` to a different organisation and the whole of that history is
+ambiguous **while still validating perfectly**.
+
+**An organisation is never deleted, only `withdrawn`** — the same argument withdrawing an
+election makes, and for the same reason
+[a chain has to survive the period it covers](#nothing-is-kept-without-saying-for-how-long--libevidencejs-testevidencemjs):
+the promise is that nothing further is claimed, not that the period never happened. Its
+records stay where they are, still naming it.
+
+**Unknown fails closed.** `foreign(org, records)` returns the records that are not this
+organisation's *and* the ones that name nobody, because a record whose tenant is unknown is
+not safely nobody's — handing it to a caller who asked for one organisation's data is the
+same disclosure as handing over another organisation's. That is the epic's "unverified is not
+compliant" rule pointed at a read instead of at a claim. `stamp` refuses to re-file a record
+that already belongs to somebody else rather than quietly winning, which is how a record ends
+up filed under whichever organisation happened to be handling it.
+
+A leaf, like `lib/evidence.js`: it imports nothing, reads no state and writes none, so a
+check, a service, a daemon and a migration script can each hold it without one of them
+dragging in a config directory or a git repository. Which organisation *this* install belongs
+to is enrolment's question, the protocol that carries these records is the publishing bead's,
+and what an organisation elected is the election's. All this owns is the shape they agree on.
+
 ### Nothing is kept without saying for how long — `lib/evidence.js`, `test/evidence.mjs`
 
 A SOC 2 Type II report is not an opinion about the controls that exist today. It asks
