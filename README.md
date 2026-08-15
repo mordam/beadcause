@@ -11052,6 +11052,98 @@ setting that keeps applying as you add repos to a shared space, instead of being
 forgotten. A quiet space's advocate **watches without launching**: the same asymmetry
 as the notifications, where quiet means "not into my evening", never "hidden".
 
+## The control corpus — SOC 2, 27001 and 42001 in one closed vocabulary
+
+A compliance framework is a vocabulary before it is anything else, and the failure it invites
+is the same one the requirements corpus above exists to prevent: an agent asked to name a
+control before the vocabulary exists **invents one**, and a fabricated `ISO42001.A.6.2.9`
+sitting beside the real `ISO42001.A.6.2.8` is two nodes in the graph forever with nothing to
+tell them apart. So `lib/controls.js` is a closed set, and an id that does not resolve is
+refused at the door rather than stored and believed.
+
+**The part that is not obvious is that there is one corpus and not three.** The tempting
+shape — a file per standard — is how the same control gets implemented three times and
+evidenced three times, because nothing in it can say that SOC 2's `CC6.1`, 27001's `A.8.3`
+and half a dozen 42001 controls are *one implementation with three names*. Instead a record
+carries a **framework**, an **id within it**, and **crosswalk edges** to its counterparts:
+
+| Framework | Edition | Holds | Count |
+|---|---|---|---|
+| `SOC2` | AICPA TSC 2017, with the 2022 revised points of focus | criteria — CC1–CC9, plus A1, C1, PI1 and P1–P8 | 61 |
+| `ISO27001` | 27001:2022 Annex A | controls — organizational, people, physical, technological | 93 |
+| `ISO42001` | 42001:2023 Annex A | controls — A.2 to A.10 | 38 |
+
+192 records and 213 crosswalk edges, all of it shipped with beadcause. Unlike the
+requirements corpus this one does not ride in another repo: the standard does not change per
+install, so an absent corpus here is not a state to degrade into, it is a broken build. There
+is no config key, no environment variable and no loader — the tables are in the file and the
+indexes are built at import.
+
+### Why the framework is inside the id
+
+`A.5.2` is *Information security roles and responsibilities* in 27001 and *AI system impact
+assessment process* in 42001. Two standards, same local id, entirely different control. A
+corpus that kept the framework in a field beside a bare `A.5.2` would have one key for two
+things and would resolve whichever it read last — the silent-wrong-match failure `lib/edits.js`
+argues about with matching an epic by its title. So the id **is** `ISO27001.A.5.2` and
+`ISO42001.A.5.2`, and there is no way to write one down without saying which standard you meant.
+
+That is also what makes the corpus extend rather than fork. ISO/IEC 23894 risk ids or 42005
+impact-assessment ids later are a fourth token and a fourth table, not a fourth module with
+its own idea of what a control is — exactly as the Climative requirements corpus carries `EN`,
+`AS` and `CDP` in one set.
+
+### The crosswalk runs one way, and it is on the control
+
+Edges are declared on **controls, pointing at criteria** — never criteria at criteria. A SOC 2
+criterion is satisfied by N controls and one control satisfies M criteria across frameworks,
+so the fan-out lives where the implementation lives. Written the other way round, a criterion's
+list would need re-syncing every time a control was added, and it would be wrong first and
+noticed last.
+
+The inverse is **computed, not stored**. `satisfiedBy()` inverts the declared edges at build
+time, so there is exactly one place an edge can be written and exactly one place it can be
+wrong — and the build refuses a crosswalk target that does not resolve, which makes the set
+closed in both directions rather than only on the way in.
+
+```js
+crosswalk('ISO42001.A.6.2.8')   // ['SOC2.CC7.2', 'ISO27001.A.8.15'] — event logs, three names
+satisfiedBy('SOC2.CC6.1')       // twelve 27001 controls and two 42001 ones, one programme
+controlsIn(bead.description)    // ids by shape, then kept only if the corpus has them
+keepControls(declared)          // { ids, dropped } — and `dropped` is said out loud
+unclaimed('SOC2')               // the fifteen criteria nothing claims, on purpose
+```
+
+### Fifteen criteria that nothing claims, and why that is the honest answer
+
+`unclaimed('SOC2')` is not empty and is not meant to become empty. Inventing an edge to make
+the matrix look full is the one failure this whole file exists to prevent, so the gap is
+pinned as an exact list in `test/controls.mjs` and has to be argued with rather than drifted
+past. There are two distinct reasons for it:
+
+- **`CC1.2`, `CC3.3`, `CC5.2`** — board oversight, fraud risk and technology general controls
+  are not Annex A controls in either ISO standard. They are management-system **clause**
+  matter (27001 clause 5, 42001 clauses 5 and 6) and COSO umbrellas over a whole theme. The
+  42001 clause half of this corpus is still to come, and these three are most of what it closes.
+- **`PI1.4`, `PI1.5` and ten privacy criteria** — output delivery, stored-record integrity,
+  consent mechanics, data-subject access and disclosure records are ISO/IEC 27701 territory.
+  That standard is not in this corpus, and a criterion is better shown unclaimed than mapped
+  to the nearest 27001 control that merely sounds similar.
+
+Every other common criterion — 30 of the 33 — is claimed by at least one ISO control, and
+that is asserted rather than asserted-about.
+
+### The text is a paraphrase, and the standard is the authority
+
+Every definition in the corpus is plain language for *what conformity looks like in this
+system*: derived, on the SOC 2 side, from the 2022 revised points of focus rather than
+invented, and on the ISO side from the control's stated purpose. None of it is normative text
+and none of it is quoted — an auditor reads the standard. The corpus exists to join a bead to
+a control and a control to its counterparts; it is not a copy of three copyrighted documents
+and must never grow into one, which `test/controls.mjs` enforces by failing any definition
+that has swollen into a block quote.
+
+
 ## Landing work — a branch, a pull request, and a merge queue
 
 An advocate opens sessions on ready work. What happens to that work afterwards has now
