@@ -268,6 +268,36 @@ console.log('\nreconcileLanded');
 
 {
   forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const renamed = [];
+  await reconcileLanded(bd, ws('one-b'), REPO, {
+    rows: [asListed(mergedRow())],
+    markMerged: (id) => renamed.push({ id, closedYet: bd.writes.some((w) => w.kind === 'close') }),
+  });
+  // A pull request merged on github.com never passes the merge queue, so this sweep is
+  // the only thing that can tell the window its branch landed — see lib/retitle.js. It
+  // has to happen *before* the close: closing the work bead is what makes the window
+  // reapable, and a rename after that races the signal that closes it.
+  check('a merge nobody here made still renames the window', renamed.length === 1 && renamed[0].id === 'wg-aaa', JSON.stringify(renamed));
+  check('and it is told before the bead closes, not after', renamed[0]?.closedYet === false, JSON.stringify(renamed));
+}
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa' }]);
+  await reconcileLanded(bd, ws('one-c'), REPO, {
+    rows: [asListed(mergedRow())],
+    markMerged: () => {
+      throw new Error('no ~/.claude here');
+    },
+  });
+  // Cosmetic against structural: a window wearing a stale name must never stop a bead
+  // closing over work that is already in `main`.
+  check('a rename that throws does not stop the close', bd.writes.some((w) => w.kind === 'close'), JSON.stringify(bd.writes));
+}
+
+{
+  forgetPrefixes();
   // The regression that makes this a fight rather than a bug: closed once, reopened by
   // hand, and the comment from the first close is the only evidence that happened.
   const bd = fakeBd([{ id: 'wg-aaa' }], {
