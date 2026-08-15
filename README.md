@@ -12495,7 +12495,7 @@ It names no control id yet. The closed control corpus — SOC 2 CC, ISO/IEC 2700
 ISO/IEC 42001 in one vocabulary, with the crosswalk edges that make CC8.1, A.8.32 and their
 42001 counterparts one implementation with three names — is being built separately, and an
 id minted here before that corpus exists is exactly the fabricated-control problem the
-corpus is closed to prevent. What this file carries instead is the mapping from each column
+corpus is closed to prevent. What the report carries instead is the mapping from each column
 to the CC8.1 verbs it answers, in the output where an auditor can argue with it, ready for
 the corpus to point at.
 
