@@ -1793,7 +1793,7 @@
     const note = (box?.value || '').trim();
     state.prDecline.delete(key);
     disarm();
-    await submit(key, note ? `DECLINE: ${note}` : `DECLINE: close #${d.number} — this approach is not the one.`, {
+    submit(key, note ? `DECLINE: ${note}` : `DECLINE: close #${d.number} — this approach is not the one.`, {
       close: true,
     });
   }
@@ -2787,8 +2787,10 @@
     // while shut, because an open card's way out is `↑ Collapse` and a body that also
     // collapsed would close the sheet under the first tap on a paragraph.
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
-      q.awaitingAgent ? ' replied' : ''
-    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}"${shutCardAct(open)}>
+      q.failed ? ' has-failed' : ''
+    }${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(q.key)}" data-key="${esc(
+      q.key
+    )}"${shutCardAct(open)}>
       ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
@@ -2887,6 +2889,7 @@
       : esc(answerLabel(pickedOption(q)));
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
+      ${failedNoteHtml(q)}
       ${gateNoteHtml(q)}
       ${gated ? gateWhyHtml(q, gated) : ''}
       ${declining ? '' : suggestedHtml(q)}
@@ -3102,6 +3105,42 @@
         <button class="${offer ? 'secondary' : 'primary'}" data-act="gate-dismiss" data-key="${esc(
       q.key
     )}">${offer ? 'Not now' : 'OK'}</button>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * The write did not happen, said on the card it belonged to.
+   *
+   * The sibling of gateNoteHtml above, and deliberately built out of the same parts —
+   * a sentence naming the bead and the reason, a paragraph saying what that leaves,
+   * a row with the way out. A refused close and a refused *write* are two versions of
+   * "nothing was recorded and here is why", and drawing them as two unrelated shapes
+   * would make the rarer one read as a new kind of trouble.
+   *
+   * Red where the gate note is amber, and that is the whole difference in tone. The
+   * gate note is the tracker declining on purpose — nothing went wrong, something is
+   * incomplete — which is why it is the same `--warn` as the unfinished-draft edge.
+   * This one is the write genuinely not landing: bd unreachable, the daemon restarted
+   * under you, a 500. --danger, and the one place on a card where this app uses it.
+   *
+   * **The reason it is on the card at all is the queue.** While the tap waited for the
+   * write, a toast was honest: you had not moved, and the thing that failed was in
+   * front of you. Submits queue now, so the refusal can arrive while you are three
+   * cards further on — and a toast that fades after five seconds over an unrelated
+   * question is indistinguishable from the answer having landed. The note stays until
+   * the card is answered again or you dismiss it.
+   */
+  function failedNoteHtml(q) {
+    const f = q.failed;
+    if (!f) return '';
+    const verb = f.from === 'dismiss' ? 'set aside' : f.from === 'comment' ? 'commented on' : 'answered';
+    return `<div class="failed-note">
+      <strong>${esc(q.id)} was not ${verb} — ${esc(f.reason)}</strong>
+      <p>Nothing was written and nothing was lost. What you typed is still in the box
+      below; press the button under it again when you are ready to try.</p>
+      <div class="row">
+        <button class="secondary" data-act="failed-dismiss" data-key="${esc(q.key)}">Dismiss this</button>
       </div>
     </div>`;
   }
@@ -5840,6 +5879,82 @@
   }
 
   /**
+   * Every write this page owes the tracker, drained one at a time behind the thumb.
+   *
+   * See public/submitqueue.js for what it is and why it is not the send queue the
+   * chat composers use. What matters here is what it changed about submit(): the tap
+   * no longer waits for the write. It puts a job on this and returns, so the list,
+   * the composer and the next card are live again in the same frame.
+   *
+   * Nothing draws it. The queue needs no chrome of its own because the flight already
+   * is that chrome: an answer whose write is still out is a bead visibly held at the
+   * mark being pulled in, and three of them queued is three beads in three lanes.
+   * A counter in the top bar would say the same thing again, in a bar that has no
+   * room for it.
+   *
+   * A page that dropped the file still answers questions — the fallback runs the job
+   * immediately instead of queueing it, which is the behaviour of every build before
+   * this one minus the serialisation. Same bargain as absorb.js and dictate.js: a
+   * missing script degrades the flourish, never the function.
+   */
+  const submits = window.beadcause?.submitQueue?.create() || {
+    add: (_key, run) => {
+      run().catch(() => {});
+      return null;
+    },
+    size: () => 0,
+    sending: () => false,
+    has: () => false,
+  };
+
+  /**
+   * Do not let the tab close over a write that has not gone.
+   *
+   * The queue lives in this page and nowhere else: a phone backgrounded and reaped
+   * mid-drain takes every answer still on it, and the acceptance for this whole
+   * change is that none is lost. The browser will not show our words — it has said
+   * for years that it will not — so this is the generic "leave site?" sheet, which is
+   * the entire vocabulary available. It is asked for only while something is
+   * genuinely owed, because a page that always asks is a page nobody reads.
+   */
+  window.addEventListener('beforeunload', (ev) => {
+    if (!submits.size()) return;
+    ev.preventDefault();
+    ev.returnValue = '';
+  });
+
+  /**
+   * Put the refusal in front of the reader, inside a card that may be taller than the
+   * screen.
+   *
+   * `.card.open` is `position: fixed; inset: 0`, so opening the card is most of
+   * "bring it into focus" — but on a bead with a real description the note sits below
+   * a brief you land at the top of, and a red edge you have to scroll to find is a
+   * red edge you find tomorrow. So this scrolls the card's own scroller to it, using
+   * the same two-scrollers-not-one machinery jumpToMine uses: an open card scrolls
+   * itself on some layouts and hands it to `.brief` on others, and asking which is
+   * cheaper than assuming.
+   *
+   * Twice, because the first call runs against a card that has only just been written
+   * into the DOM and may not be overflowing yet — the same reason jumpToMine asks
+   * again on the next frame.
+   */
+  function showNote(key) {
+    const go = () => {
+      const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+      const note = card?.querySelector('.failed-note, .gate-note');
+      if (!note) return;
+      const self = scrollerOf(card);
+      const scroller = self ? SCROLLER_IN[self](card) : null;
+      if (!scroller) return;
+      scroller.scrollTop += note.getBoundingClientRect().top - scroller.getBoundingClientRect().top - ANCHOR_SLOP;
+    };
+    releasePlace();
+    go();
+    requestAnimationFrame(go);
+  }
+
+  /**
    * Send an answer or a comment, and show it becoming a bead while it goes.
    *
    * The write is the slow part — `bd` can spend a second or three retrying against
@@ -5850,8 +5965,18 @@
    *   1. start the flight, off the card's geometry, *before* anything is sent
    *   2. take the card out of the list and repaint, so the list has already reflowed
    *      behind the bead by the time the bead exists
-   *   3. issue the write, and let the flight cover the round trip
-   *   4. absorb on success, recall on failure
+   *   3. **queue** the write, and return — the tap is finished here
+   *   4. absorb on success, recall and hand the card back in red on failure
+   *
+   * **Step 3 is why this function is no longer awaited by anybody.** It used to be:
+   * every caller awaited it, and it awaited the write and then the flight's absorb,
+   * on the argument that two flights must not overlap. Answering four cards in a row
+   * was therefore four round trips with the thumb waiting on each. The flights do
+   * overlap now — absorb.js gives each live one its own lane, so three answers read
+   * as three beads held at the mark, each swallowed as its own write returns — and
+   * the writes are kept in single file by the queue rather than by the animation.
+   * `bd` is a single Dolt writer, so serial is right on the wire; it is only the
+   * thumb that had no business being serialised with it.
    *
    * Which means every piece of state the card was built from has to be recoverable,
    * because step 4 can be "put it back". That is what `at`/`rAt`/`wasOpen` are for,
@@ -5868,7 +5993,7 @@
    * optimistic dance above — the flight, the removal, the restore on failure — is the
    * same code. All that differs is which route it goes to and what the toast says.
    */
-  async function submit(key, text, { close, dismiss = false, create = null, edits = null, option = null, onRestore = null }) {
+  function submit(key, text, { close, dismiss = false, create = null, edits = null, option = null, onRestore = null }) {
     const q = byKey(key);
     if (!q) return;
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
@@ -5897,6 +6022,11 @@
     // the flight needs was measured above; from here on it is drawing over a list
     // that no longer contains what it came out of.
     state.open.delete(key);
+    // A red card being answered again stops being red on the tap rather than when
+    // the write lands. The mark says "this one was refused and is waiting on you",
+    // and the moment you press it is not waiting on you any more — if the second
+    // attempt is refused too, the catch below puts it back with the new reason.
+    q.failed = null;
     if (close) {
       state.inFlight.add(key);
       if (at >= 0) state.questions.splice(at, 1);
@@ -5919,119 +6049,141 @@
       render(true);
     };
 
-    try {
-      const res = await api(dismiss ? '/api/dismiss' : close ? '/api/respond' : '/api/comment', {
-        method: 'POST',
-        body: JSON.stringify(
-          dismiss
-            ? // Whatever was in the box, if anything. Sent as `reason` rather than as
-              // `response` so it can never be mistaken for an answer by a route that
-              // reads markers out of one — a dismissal must not merge a pull request.
-              { workspace: q.workspace, id: q.id, reason: text }
-            : close
-            ? {
-                workspace: q.workspace,
-                id: q.id,
-                response: text,
-                // Explicit, rather than leaving the server to read the numbers back
-                // out of the sentence: the text is for you, the array is for it.
-                ...(create ? { create } : {}),
-                // Which button was pressed, for the one thing the sentence cannot
-                // say: whether this answer commissions work rather than settling it.
-                // Sent as the id and read back off the bead server-side — the card
-                // in front of you may be a poll old, and only the bead knows.
-                ...(option ? { option } : {}),
-                // And your rewrites, keyed by the same numbers. The server puts each
-                // one back through the parser's own normaliser before anything is
-                // created, so a priority you typed into the wrong box is clamped
-                // there rather than failing at `bd create` with half the proposal filed.
-                ...(edits ? { edits } : {}),
-              }
-            : // Which agent picks this up. Absent or unknown resolves to the
-              // default server-side, so an old phone still gets an answer.
-              { workspace: q.workspace, id: q.id, text, agent: state.agent || undefined }
-        ),
-      });
-      clearDraft(key);
-      if (close) {
-        // The card left the list on the tap; this is only the belt to that braces —
-        // a poll that landed mid-write could have merged it back in, and the suppress
-        // set comes off in the same breath.
-        state.inFlight.delete(key);
-        state.questions = state.questions.filter((x) => x.key !== key);
-        // And out of the other channel, on the same tap. An answered request that
-        // stayed in the pane would still be showing its approve button — for a bead
-        // that has already been closed on the answer you just gave.
-        state.requests = (state.requests || []).filter((x) => x.key !== key);
-        state.open.delete(key);
-        // Inside the Android shell, drop the notification for this question now.
-        // Otherwise it sits in the shade with buttons that would answer a bead that
-        // is already closed.
-        window.BeadcauseNative?.answered?.(key);
-        // The dismissal toast says when it comes back, because a card that vanishes
-        // with "Dismissed" on screen reads as gone for good — and it is not. The
-        // server names the condition it is waiting on; without one, a new comment
-        // is what brings it back.
-        toast(
-          dismiss
-            ? `${q.id} set aside — back when ${res?.until ? `${res.until} clears` : 'someone comments'}`
-            : // An approval the server would not act on, and the one outcome here that
-              // is genuinely unexpected: a proposed bead that already exists is not
-              // created, however the tap read. First, because "Answered" over a create
-              // that did not happen is the sort of quiet difference you find out about
-              // a fortnight later. The whole sentence is on the thread.
-              res?.skipped?.length
-              ? `Answered ${q.id} — ${res.skipped.length} already filed, not created again`
-              : // A commission leaves the inbox without being finished, and the card
-              // vanishing looks identical either way. This line is the only place
-              // the difference is visible, so it comes off what the server did
-              // rather than off which button was pressed.
-              res?.handedBack
-              ? `Answered ${q.id} — handed back as work`
-              : `Answered ${q.id}`
-        );
-        render(true);
-        // The tracker took it, so it may be swallowed. Awaited rather than fired and
-        // forgotten so a caller that answers two questions in a row cannot have the
-        // second flight start on top of the first one's.
-        await flight?.absorb();
-      } else {
-        toast(res?.elevated ? 'Comment added — running with tools, this once' : 'Comment added — an agent will be told');
-        // The server has spent the arm on this dispatch, so the box must come back
-        // off. Re-read rather than assume: if the dispatch was refused the arm is
-        // still there, and a tick that lied either way would be the worst outcome.
-        loadAgents();
-        // Reflect the awaiting-agent flag the server just set, without waiting
-        // for the next poll.
-        q.awaitingAgent = true;
-        // Collapsed on the tap already. You have said your piece; keeping the card
-        // open in front of you implies there is something left for you to do with it,
-        // when the next move belongs to the agent. It comes back up when it replies.
+    // Everything above ran on the tap. Everything below runs when the queue reaches
+    // it, which may be several answers later — so nothing in here may assume the card
+    // it is about is still the one on screen, and every path out of it ends by saying
+    // so on the row rather than only in a toast that has long since gone.
+    const job = async () => {
+      try {
+        const res = await api(dismiss ? '/api/dismiss' : close ? '/api/respond' : '/api/comment', {
+          method: 'POST',
+          body: JSON.stringify(
+            dismiss
+              ? // Whatever was in the box, if anything. Sent as `reason` rather than as
+                // `response` so it can never be mistaken for an answer by a route that
+                // reads markers out of one — a dismissal must not merge a pull request.
+                { workspace: q.workspace, id: q.id, reason: text }
+              : close
+              ? {
+                  workspace: q.workspace,
+                  id: q.id,
+                  response: text,
+                  // Explicit, rather than leaving the server to read the numbers back
+                  // out of the sentence: the text is for you, the array is for it.
+                  ...(create ? { create } : {}),
+                  // Which button was pressed, for the one thing the sentence cannot
+                  // say: whether this answer commissions work rather than settling it.
+                  // Sent as the id and read back off the bead server-side — the card
+                  // in front of you may be a poll old, and only the bead knows.
+                  ...(option ? { option } : {}),
+                  // And your rewrites, keyed by the same numbers. The server puts each
+                  // one back through the parser's own normaliser before anything is
+                  // created, so a priority you typed into the wrong box is clamped
+                  // there rather than failing at `bd create` with half the proposal filed.
+                  ...(edits ? { edits } : {}),
+                }
+              : // Which agent picks this up. Absent or unknown resolves to the
+                // default server-side, so an old phone still gets an answer.
+                { workspace: q.workspace, id: q.id, text, agent: state.agent || undefined }
+          ),
+        });
         clearDraft(key);
+        if (close) {
+          // The card left the list on the tap; this is only the belt to that braces —
+          // a poll that landed mid-write could have merged it back in, and the suppress
+          // set comes off in the same breath.
+          state.inFlight.delete(key);
+          state.questions = state.questions.filter((x) => x.key !== key);
+          // And out of the other channel, on the same tap. An answered request that
+          // stayed in the pane would still be showing its approve button — for a bead
+          // that has already been closed on the answer you just gave.
+          state.requests = (state.requests || []).filter((x) => x.key !== key);
+          state.open.delete(key);
+          // Inside the Android shell, drop the notification for this question now.
+          // Otherwise it sits in the shade with buttons that would answer a bead that
+          // is already closed.
+          window.BeadcauseNative?.answered?.(key);
+          // The dismissal toast says when it comes back, because a card that vanishes
+          // with "Dismissed" on screen reads as gone for good — and it is not. The
+          // server names the condition it is waiting on; without one, a new comment
+          // is what brings it back.
+          toast(
+            dismiss
+              ? `${q.id} set aside — back when ${res?.until ? `${res.until} clears` : 'someone comments'}`
+              : // An approval the server would not act on, and the one outcome here that
+                // is genuinely unexpected: a proposed bead that already exists is not
+                // created, however the tap read. First, because "Answered" over a create
+                // that did not happen is the sort of quiet difference you find out about
+                // a fortnight later. The whole sentence is on the thread.
+                res?.skipped?.length
+                ? `Answered ${q.id} — ${res.skipped.length} already filed, not created again`
+                : // A commission leaves the inbox without being finished, and the card
+                // vanishing looks identical either way. This line is the only place
+                // the difference is visible, so it comes off what the server did
+                // rather than off which button was pressed.
+                res?.handedBack
+                ? `Answered ${q.id} — handed back as work`
+                : `Answered ${q.id}`
+          );
+          render(true);
+          // The tracker took it, so it may be swallowed. Deliberately *not* awaited:
+          // this used to be, so that two flights could not overlap, and that await is
+          // exactly what made the next queued write wait out an animation it has
+          // nothing to do with. Overlapping is handled where it belongs now — each
+          // live flight holds its own lane at the mark (absorb.js) — so the swallow
+          // plays out at its own pace while the next answer is already on the wire.
+          flight?.absorb();
+        } else {
+          toast(res?.elevated ? 'Comment added — running with tools, this once' : 'Comment added — an agent will be told');
+          // The server has spent the arm on this dispatch, so the box must come back
+          // off. Re-read rather than assume: if the dispatch was refused the arm is
+          // still there, and a tick that lied either way would be the worst outcome.
+          loadAgents();
+          // Reflect the awaiting-agent flag the server just set, without waiting
+          // for the next poll.
+          q.awaitingAgent = true;
+          // Collapsed on the tap already. You have said your piece; keeping the card
+          // open in front of you implies there is something left for you to do with it,
+          // when the next move belongs to the agent. It comes back up when it replies.
+          clearDraft(key);
+          render(true);
+          // Not absorbed: this bead is still open, and the mark eating it would say it
+          // had been dealt with. It settles onto the row it just came back to. Not
+          // awaited, for the same reason the absorb above is not.
+          flight?.land();
+        }
+      } catch (err) {
+        // The tracker refusing to *close* the bead is not the answer failing, and it
+        // must not read like one. The server wrote nothing and said why, so the card
+        // comes back carrying the reason and the offer — and the draft stays in the
+        // box, because the failure mode this whole path exists to stop is you deciding
+        // the answer was lost and typing it in again.
+        // Which button was pressed rides along, because the note reads differently for
+        // the two: an answer is always worth keeping, a wordless dismissal is not.
+        const gate = err.status === 409 && err.body?.gate ? err.body.gate : null;
+        if (gate) q.closeGate = { ...gate, from: dismiss ? 'dismiss' : 'answer', canComment: err.body.canComment };
+        // Anything else: the write simply did not happen, and *the card is where that
+        // has to be said*. A toast was enough while the tap waited for the write —
+        // you were looking at the thing that failed. Now the failure can arrive three
+        // cards later, and a message that fades after five seconds over an unrelated
+        // question is indistinguishable from having been answered. So it goes on the
+        // row, in the close gate's own family (`failedNoteHtml`), and stays there
+        // until the card is answered again or you dismiss the note.
+        else q.failed = { reason: err.message || 'the write did not go through', from: dismiss ? 'dismiss' : close ? 'answer' : 'comment' };
+        // Reverse the travel first, then re-open the card underneath where the beads
+        // came down. A tracker that refused the answer must not be shown swallowing it.
+        await flight?.recall();
+        restoreCard();
+        // The card is rebuilt by restoreCard, so the note is on screen; put the caret
+        // back where it was rather than making you find the box again. Both refusals
+        // do this now and not just the gate: a queued write that failed while you were
+        // elsewhere has to interrupt, or the red edge is a thing you find tomorrow.
+        openOnly(key);
         render(true);
-        // Not absorbed: this bead is still open, and the mark eating it would say it
-        // had been dealt with. It settles onto the row it just came back to.
-        await flight?.land();
+        showNote(key);
       }
-    } catch (err) {
-      // The tracker refusing to *close* the bead is not the answer failing, and it
-      // must not read like one. The server wrote nothing and said why, so the card
-      // comes back carrying the reason and the offer — and the draft stays in the
-      // box, because the failure mode this whole path exists to stop is you deciding
-      // the answer was lost and typing it in again.
-      // Which button was pressed rides along, because the note reads differently for
-      // the two: an answer is always worth keeping, a wordless dismissal is not.
-      const gate = err.status === 409 && err.body?.gate ? err.body.gate : null;
-      if (gate) q.closeGate = { ...gate, from: dismiss ? 'dismiss' : 'answer', canComment: err.body.canComment };
-      else toast(err.message, true);
-      // Reverse the travel first, then re-open the card underneath where the beads
-      // came down. A tracker that refused the answer must not be shown swallowing it.
-      await flight?.recall();
-      restoreCard();
-      // The card is rebuilt by restoreCard, so the note is on screen; put the caret
-      // back where it was rather than making you find the box again.
-      if (gate) openOnly(key);
-    }
+    };
+    submits.add(key, job);
   }
 
   /**
@@ -6937,7 +7089,7 @@
             beads.length === 1 ? '' : 's'
           }${declined ? `, declining ${declined}` : ''}${adjusted ? `, ${adjusted} adjusted` : ''}.`
         : `Not now — none of the ${beads.length} proposed beads.`;
-      await submit(key, text, {
+      submit(key, text, {
         close: true,
         create: approved.length ? approved : null,
         edits: adjusted ? edits : null,
@@ -6975,7 +7127,7 @@
       // Built here rather than read out of the decision block's option: the server
       // consents on the marker alone, and a card that has just re-read GitHub knows
       // more about this PR than the block written when the session ended.
-      await submit(key, `MERGE: ${d.method} and merge #${d.number}${d.bead ? `, then close ${d.bead}` : ''}.`, { close: true });
+      submit(key, `MERGE: ${d.method} and merge #${d.number}${d.bead ? `, then close ${d.bead}` : ''}.`, { close: true });
       return;
     }
 
@@ -7007,7 +7159,7 @@
         return;
       }
       disarm();
-      await submit(key, `SHIP: ${d.method} and merge #${d.number}, then deploy ${d.workspace || 'it'}.`, { close: true });
+      submit(key, `SHIP: ${d.method} and merge #${d.number}, then deploy ${d.workspace || 'it'}.`, { close: true });
       return;
     }
 
@@ -7403,7 +7555,7 @@
       }
       disarm();
       const box = btn.closest('.card')?.querySelector('[data-role="answer"]');
-      await submit(key, (box?.value || '').trim(), { close: true, dismiss: true });
+      submit(key, (box?.value || '').trim(), { close: true, dismiss: true });
       return;
     }
 
@@ -7423,7 +7575,7 @@
       const text = (box?.value || getDraft(key)).trim();
       if (!text) return toast('Write something first', 'refused');
       if (q) q.closeGate = null;
-      await submit(key, text, { close: false });
+      submit(key, text, { close: false });
       if (box) box.value = '';
       return;
     }
@@ -7434,6 +7586,18 @@
     if (act === 'gate-dismiss') {
       const q = byKey(key);
       if (q) q.closeGate = null;
+      render(true);
+      return;
+    }
+
+    // The same move on the red note, and the same bargain: the draft stays, only the
+    // marker goes. It has its own action rather than sharing gate-dismiss because the
+    // two notes can in principle both be on one card — a close the tracker gated, then
+    // a write that failed outright — and one button clearing both would take away a
+    // refusal you have not read.
+    if (act === 'failed-dismiss') {
+      const q = byKey(key);
+      if (q) q.failed = null;
       render(true);
       return;
     }
@@ -7457,7 +7621,7 @@
        */
       const q = byKey(key);
       const asChanges = act === 'answer' && q?.delivery;
-      await submit(key, asChanges ? `CHANGES: ${text}` : text, {
+      submit(key, asChanges ? `CHANGES: ${text}` : text, {
         close: act === 'answer',
         // Which choice this sentence is making, when it is making one. The words may
         // have been edited into a qualified version of it and the server never tries

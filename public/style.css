@@ -1052,6 +1052,22 @@ body {
   edges, and you are looking at the draft, not for it.
 */
 .card.has-draft:not(.open) { box-shadow: inset 3px 0 0 var(--warn); }
+/*
+  And the same edge in the bad colour, for a card whose write did not go through.
+
+  The convention above is the reason this is three pixels of inset shadow rather than
+  anything new: one shape down the left edge means "this row is not finished with",
+  and a second shape for a second flavour of that would make the first one stop
+  reading as a category. What differs is only the colour, which is the whole of the
+  difference in meaning — --warn is you not having finished, --danger is the tracker
+  not having taken it.
+
+  After the draft rule and at identical specificity, so a card that is both — which is
+  the ordinary case, since a refused write hands the draft back with it — shows red.
+  A failure outranks an unfinished sentence: one of them needs a decision from you and
+  the other only needs your thumb.
+*/
+.card.has-failed:not(.open) { box-shadow: inset 3px 0 0 var(--danger); }
 
 .card-head { padding: 14px 15px 0; }
 
@@ -1821,6 +1837,32 @@ body {
 .gate-note p { margin: 0 0 8px; color: var(--muted); }
 .gate-blockers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
 .gate-note .row { display: flex; gap: 8px; }
+
+/*
+  The write itself did not land — deliberately the same shape as the gate note above,
+  in the one colour this app otherwise keeps off a card.
+
+  Red rather than amber, and that inversion is the point of having two. The gate note
+  is the tracker declining on purpose: nothing failed, something is incomplete, and
+  red there would read as the answer having been lost, which is the one conclusion it
+  exists to prevent. This is the opposite case — the request genuinely did not go
+  through — and amber here would file a broken write under "waiting on you".
+
+  Same border/tint/radius arithmetic as .gate-note rather than its own, so the two
+  read as one family seen twice. Only the token changes.
+*/
+.failed-note {
+  padding: 11px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.failed-note strong { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 4px; }
+.failed-note p { margin: 0 0 8px; color: var(--muted); }
+.failed-note .row { display: flex; gap: 8px; }
 
 /*
   The same fact, said before you type instead of after you press — so it is drawn

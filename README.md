@@ -1718,6 +1718,15 @@ decided and the things your decision made should not look identical. They fan ou
 around the mark rather than stacking on it, each with a thread of its own, because
 four beads landing on one point look like one bead.
 
+**Flights fan against each other too, for the same reason.** Answering three cards in
+a row now puts three flights in the air at once (below), and the fan above is *within*
+one flight — so without a second one they would hold on the identical standoff point
+and three answers waiting to be swallowed would read as one. Each live flight takes a
+**lane**: a further half-fan around the mark and a further ring out from it, held for
+as long as the flight is and given back when its last bead lands. Four lanes, which is
+what a phone can hold before the outermost ring leaves the top of the screen; a fifth
+simultaneous flight shares the last lane rather than flying somewhere silly.
+
 Four things about this are load-bearing, and each of them is a way it could have
 been built wrong:
 
@@ -1729,13 +1738,14 @@ been built wrong:
   would only have moved the pause somewhere else.
 - **A refused write takes it back.** The last step is gated: the beads are absorbed
   only once the server has accepted, and if it hasn't they fly home the way they
-  came and the card re-opens underneath them with your text still in it. A tracker
-  that rejected your answer must not be shown swallowing it. Which is why the card
-  is removed *optimistically* but every piece of state it was built from — its index
-  in each channel, whether it was open, the proposal's per-bead yes/no, and above
-  all the draft, which is still only cleared once the server says yes — is kept
-  until the write resolves. A poll that overlaps the write is suppressed for that
-  one bead, or the list would drop a card back underneath the flight leaving it.
+  came and the card re-opens underneath them **marked red, carrying the reason** —
+  see *Answering does not wait for the tracker* below. A tracker that rejected your
+  answer must not be shown swallowing it. Which is why the card is removed
+  *optimistically* but every piece of state it was built from — its index in each
+  channel, whether it was open, the proposal's per-bead yes/no, and above all the
+  draft, which is still only cleared once the server says yes — is kept until the
+  write resolves. A poll that overlaps the write is suppressed for that one bead, or
+  the list would drop a card back underneath the flight leaving it.
 - **A comment ends differently, deliberately.** *Comment only* does not close the
   bead, so nothing is absorbed: the card collapses to a bead on the tap and the bead
   settles back onto the row it came from. The mark eating a bead that is still open
@@ -1759,13 +1769,134 @@ lands, that what replaces it is a bead-sized circle on the overlay, that approvi
 three beads puts four in the air in two colours, that a forced repaint underneath
 destroys none of them, that they arrive at the mark and are held there with nothing
 threaded while the write is still out, that a thread then grows and the overlay ends
-empty, that a refused write returns them and gives the card back with the typed
-answer verbatim, that a comment is never threaded, and that with reduced motion no
-bead ever moves and the card still goes. `--baseline` serves the committed `public/`
-instead of the working copy — which is how you tell a real failure from a flaky one:
-baseline must fail every flight case and pass the controls. `--shots` drops a PNG per
-stage into `.claude/shots/`, because the one thing an assertion about coordinates
-cannot tell you is whether it looks like anything.
+empty, that three cards answered back to back all leave inside one write's worth of
+time and hold in three separate lanes while exactly one write is on the wire, that a
+refused write returns the beads and gives the card back with the typed answer verbatim
+*and marked red*, that the red survives collapsing the card and clears when the note is
+dismissed without eating the draft, that a comment is never threaded, and that with
+reduced motion no bead ever moves and the card still goes.
+
+`--baseline` serves the committed `public/` instead of the working copy — which is how
+you tell a real failure from a flaky one. **Not every case discriminates, and it is
+worth knowing which.** The flight cases and the red-card cases fail at baseline and
+pass here. *"All three are answerable inside the time a single write takes"* passes at
+baseline too, and that is not a broken assertion — it is the honest measurement, and it
+is why the queue's own claim is the line under it. The card has been removed
+optimistically since the flight landed, so three taps have always been possible in a
+few milliseconds; what a page without the queue cannot do is keep them off the wire at
+the same time. `--shots` drops a PNG per stage into `.claude/shots/`, because the one
+thing an assertion about coordinates cannot tell you is whether it looks like anything.
+
+### Answering does not wait for the tracker
+
+Three cards answered in a row used to put three writes on the wire at the same time.
+Nothing on screen said so — the card has left the list on the tap since the flight
+landed, so the *thumb* was already free — but `bd` is a single Dolt writer, and three
+simultaneous closes against one lock is three of them retrying each other out of the
+way. The second and third answers were racing the first for a lock, and the only thing
+that ever said one had lost was a toast.
+
+So the write moved off the tap and onto a queue. **`public/submitqueue.js`** holds every
+write this page owes and drains them one at a time, oldest first; `submit()` does its
+optimistic half — launch the flight, splice the card out, repaint — and then hands the
+write over and returns. What is parallel is the thumb and the writes, not the writes and
+each other.
+
+Three rules it holds, and each is a way it could have been built wrong:
+
+- **Serial on the wire, and only there.** Two writes in the air buy nothing against one
+  writer and cost lock contention. The queue is the only thing keeping them apart now:
+  `submit()` used to `await flight?.absorb()` on the argument that two flights must not
+  overlap, and that await is exactly what would have made each queued write wait out an
+  animation it has nothing to do with. Flights overlap deliberately now — see the lanes
+  above — and the writes are single-filed by the queue instead.
+- **Tap order, never reordered.** The beads one answer creates can be what the next
+  answer is about, and a queue that filed them in a sequence you never chose would be
+  worse than a slow one.
+- **A refused write must not strand the queue.** Each job owns its own failure — that is
+  what hands the card back — so a throw is caught and the drain carries on. One refusal
+  taking every answer tapped behind it with it would be the worst outcome available.
+
+**It is not `public/sendqueue.js`, and the difference is the whole reason there are two
+files.** That queue exists to *join*: two things said to an agent mid-turn are
+concatenated and delivered as one turn, because two `claude -p` runs back to back would
+answer the first without knowing the second exists. Submits are the opposite — each entry
+is its own write against its own bead, and joining two of them would be answering one
+question with another question's words. The failure modes differ the same way: a refused
+message goes back into a composer, a refused submit hands a whole card back to the list.
+One file each rather than a mode flag, because nothing but "run them in order" is
+actually shared.
+
+**Nothing draws the queue**, and that is deliberate. The flight already is that chrome:
+an answer whose write is still out is a bead visibly held at the mark being pulled in,
+and three queued is three beads in three lanes. A counter in the top bar would say the
+same thing again, in a bar that has no room for it.
+
+**A page closed mid-drain would take the writes with it**, so it asks first —
+`beforeunload`, and only while something is genuinely owed, which is why `size()` counts
+the write that is *on the wire* as well as the ones behind it. The browser will not show
+our words; the generic "leave site?" sheet is the entire vocabulary available.
+
+**And it degrades rather than breaking.** A page that dropped the file — the fetch is
+network-first, and the one moment it is wanted is the moment the link is bad — falls back
+to sending each write straight out, which is what every build before this one did. Same
+bargain as `absorb.js` and `dictate.js`: a missing script costs the flourish, never the
+function.
+
+`node test/submitqueue.mjs` drives the real file in a vm with nothing in it but a
+`window`, the way `test/queue.mjs` drives its neighbour: that a tap returns before its
+write does, that jobs run one at a time and in tap order, that a refusal does not strand
+the ones behind it, that nothing is joined, and that `size()` counts the one in the air.
+The browser half is `scripts/absorb-check.mjs`, above.
+
+### A write that fails comes back on the card, not in a toast
+
+A refused write used to put its reason in a toast and hand the card back. That was
+honest while the tap waited for the write — you had not moved, and the thing that had
+failed was in front of you. It stopped being honest the moment submits queued: the
+refusal can now arrive while you are three cards further on, and a message that fades
+after five seconds over an unrelated question is indistinguishable from the answer
+having gone through.
+
+So it goes on the card. `q.failed` carries the server's own reason, `failedNoteHtml`
+draws it above the answer box, and the card is opened and scrolled to it — an open card
+is `position: fixed; inset: 0`, so opening it is most of "bring it into focus", but on a
+bead with a real description the note is below a brief you land at the top of, and a red
+edge you have to scroll to find is a red edge you find tomorrow.
+
+**That genuinely interrupts, and it is meant to.** If you were part-way through the next
+card when the refusal landed, that card collapses and this one comes up over it. What
+makes it safe rather than rude is that every keystroke is already kept — see *the answer
+box* below — so the sentence you were in the middle of is in its draft and its card is
+one tap away, still marked amber. The alternative is a write nobody knows did not
+happen, which is the failure this whole section exists to stop.
+
+**It joins the close gate's family rather than being a second mechanism.** Same shape as
+`gateNoteHtml` — a sentence naming the bead and the reason, a paragraph saying what that
+leaves, a row with the way out — because a refused close and a refused *write* are two
+versions of "nothing was recorded and here is why", and drawing them as two unrelated
+things would make the rarer one read as a new kind of trouble.
+
+**Red where the gate note is amber, and that inversion is the point of having two.** The
+gate note is the tracker declining on purpose: nothing failed, something is incomplete,
+and red there would read as the answer having been lost — the one conclusion it exists to
+prevent. This is the opposite case, the request genuinely not going through, and amber
+here would file a broken write under "waiting on you". `--danger`, and the only place on
+a card this app uses it.
+
+Down the left edge of the shut card it is the same three pixels of inset shadow as the
+unfinished-draft mark, in the bad colour — `.card.has-failed:not(.open)` after
+`.card.has-draft:not(.open)` at identical specificity, so a card that is both (which is
+the ordinary case, since a refused write hands the draft back with it) shows red. A
+failure outranks an unfinished sentence: one of them needs a decision from you and the
+other only needs your thumb.
+
+The red clears two ways and no others: **answering again**, which drops it on the tap
+rather than when the second write lands, and **dismissing the note**, which takes only
+the marker and leaves the draft. Dismissal has its own action rather than sharing the
+gate note's, because the two notes can in principle both be on one card — a close the
+tracker gated, then a write that failed outright — and one button clearing both would
+take away a refusal you have not read.
 
 ### The answer box does not scroll away
 
