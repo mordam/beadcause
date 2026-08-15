@@ -18527,6 +18527,96 @@ could ever fail — the same lesson `entryProblems` learned one section up. So t
 it at a table minting `notes`, at one claiming a type that is not a shape, and at one
 colliding with the envelope, and asserts each is refused by name.
 
+### A deployment says what it can back up — `lib/posture.js`, `bin/attest.js`
+
+The section above ends with the service holding chain heads. bc-3muu.9 puts the daemon that
+produces them on the customer's own hardware, and that one move changes who can get it
+wrong. While we host it, correct configuration is ours to guarantee and a misconfiguration
+is ours to notice. Hosted by somebody else, a deployment with **append-only enforced
+nowhere but in the application**, with **anchoring never configured**, with a **retention
+shorter than the window it is meant to support**, or running a **build nobody can
+identify**, produces evidence that looks exactly like good evidence. Nobody finds out until
+an auditor pulls the thread, and by then the period is over and cannot be re-observed.
+
+**Documentation cannot fix that, and this is the argument for building it instead of
+writing it down.** A runbook is read once, on the day of the install, by somebody who is
+not the person still running the box three years later. So the deployment says what it is
+continuously, in the record itself: a `posture` record, on the same chain as everything
+else, carrying six facts —
+
+| field | what it says | why it is a claim and not a note |
+|---|---|---|
+| `storage` | `storage` \| `application` \| `none` \| `unknown` | who could delete a row. `application` means the *code* refuses to rewrite and the operator running the code still can |
+| `anchoring` | whether an anchor is configured at all | without one, nothing witnesses a head anywhere the local operator does not administer |
+| `anchored` | when anchoring last succeeded, or `never` | an anchor witnesses the head it saw. One from March says nothing about June |
+| `retention` | months kept, or `permanent` | a report relied on for twelve months needs twenty-four |
+| `build` | the commit running, or `unknown` | a record whose producer cannot be identified |
+| `provenance` | `matched` \| `mismatched` \| `unknown` | `mismatched` is a tree somebody changed under the daemon — invisible to anything recording a version string |
+
+**Every one of them is observed, and there is deliberately no way to state one.** No
+`posture.json`, no config key, no argument that says "we are append-only, trust us":
+`observe` takes *places to look* — the checkout, the store, a witness for anchoring — and
+where it cannot look it writes `unknown` rather than an optimistic default. A deployment
+able to assert its own posture would have the runbook's failure mode one layer down and
+harder to see, and `test/posture.mjs` reads the signature of `observe` and fails the repo
+if any posture field ever becomes an argument to it.
+
+**The refusal is the whole point, and it is bc-3muu.4's rule pointed at configuration
+instead of connectivity.** A posture that cannot back a claim does not produce a smaller
+claim, a warning, or compliant-with-exceptions — the interval it covers reports
+`unverified`. That is not the same as failed, which is why `CRITERION_STATES` keeps
+`unverified` and `unmet` apart, and it never blocks anybody's work: a daemon whose
+anchoring was never configured goes on dispatching sessions and writing chains exactly as
+before. What it stops doing is claiming a period it cannot show.
+
+**A posture change renders rather than resolves.** `report` cuts the run of records into
+the intervals each posture covers, so a quarter with anchoring off for five weeks reads as
+five weeks with anchoring off — a scope note an auditor can price — instead of averaging
+into a clean quarter, which is what a posture held as current state rather than as history
+would produce. A `chain-head` published inside such a stretch is reported as unbacked,
+which is the acceptance in one line: a head published under a posture that cannot support a
+claim is a number, not a witness.
+
+```
+UNVERIFIED — 2026-01-01T00:00:00.000Z to 2026-03-31T00:00:00.000Z
+
+  ✓ 2026-01-01T00:00:00Z to 2026-02-01T00:00:00Z
+      storage=storage, anchoring=true, anchored=2026-01-01T00:00:00Z, …
+  ✗ 2026-02-01T00:00:00Z to 2026-03-08T00:00:00Z
+      changed: anchoring=false, anchored=never
+      · anchoring is not configured, so no head is witnessed anywhere the local
+        operator does not administer
+  ✓ 2026-03-08T00:00:00Z onwards
+      changed: anchoring=true, anchored=2026-03-08T00:00:00Z
+```
+
+**And an auditor can run it without us, because otherwise the verdict is the vendor's word
+about the vendor.** `report` takes published records and nothing else — no repository, no
+content, no network, no config directory — so `beadcause-attest verify` works against an
+export on a laptop that has never seen this install. It reads a JSON array or one record
+per line, because an export is written by whoever exports it and a verifier that only reads
+its own output is one nobody else can use, and it exits 0 when the interval may be claimed
+and 2 when it may not. The daemon and the auditor call the same function, which is the only
+way the two answers cannot quietly diverge.
+
+```bash
+beadcause-attest posture                  # what this deployment observes about itself
+beadcause-attest record --instance <tok>  # that posture, as a record for the chain
+beadcause-attest verify export.json --from 2026-01-01T00:00:00Z --to 2026-03-31T00:00:00Z
+```
+
+**Expect `unverified` from every install today, and that is the correct output rather than
+a threshold to relax.** Nothing anchors yet — that is bc-3muu.10 — and a git ref in a
+directory its operator owns is enforced by the application and not by the store, which is
+what bc-3muu.3 changes by putting a copy of the head somewhere else. The number that must
+never appear is a deployment reporting `verified` because nobody looked, and the one
+constant this file does not import is the retention floor: `OBSERVATION_MONTHS` is declared
+here rather than taken from `lib/evidence.js`, because a deployment that could lower the
+bar it is measured against by editing the file that declares the bar is doing the
+self-assessment this whole section refuses. If the two ever disagree, the disagreement is
+the finding.
+
+
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
 There are two `grep` hazards on this laptop. One is a defect in every script that writes
