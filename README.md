@@ -18098,6 +18098,130 @@ A *missing* harness is a failure and not a skip: cover that quietly stops existi
 thing being fixed here, and a wrapper that shrugged when its target went would be a second
 helping of it.
 
+### Nothing is kept without saying for how long — `lib/evidence.js`, `test/evidence.mjs`
+
+A SOC 2 Type II report is not an opinion about the controls that exist today. It asks
+whether they **operated throughout a period**, and the auditor answers that by sampling
+the period — three dispatches from March, the deploy from the week of the outage. So an
+evidence source that is overwritten, rotated without retention, or reset between runs is
+not untidy. It converts a working control into a *testing exception*, because the
+population the sample was to be drawn from is not there to draw from, and an exception in
+a first report is the part a buyer actually reads.
+
+`lib/agentlog.js` is the example that started this. `reset()` deletes the previous run's
+log outright, because a new dispatch is a new run and the phone tailing it wants a clean
+file — correct for the pane, and fatal for the record: what an agent did on a bead
+survives exactly until the next thing is dispatched at that bead, and the runs an auditor
+most wants to read are the ones that were retried. That is bc-eqn1.7, and it is a bug
+about one file. The bug about the system is that nothing anywhere said what was kept.
+
+**`lib/evidence.js` is the register, and it is data rather than a policy document.** One
+entry per evidence class, and a class is an *artefact* rather than a file: `deployment-record`
+is one class written by two modules into two places, because "show me that release went
+through the queue" is one question and nobody sampling it cares that half the answer is a
+JSON file and half a directory. Each entry says what it is, where it lives, which modules
+write it, what it is evidence *of*, whether an auditor would sample it, how long it is
+kept, how it is disposed of, who can alter it — and the field the rest hangs on, whether
+you could tell if somebody had.
+
+**Retention is set from the report, not from the disk.** `RETENTION_FLOOR_MONTHS` is 24:
+a Type II window is twelve months and the report is relied on for about twelve months
+after issuance, during which the auditor — or the buyer's own security review — can come
+back to the population the sample came from. It is a floor, and a shorter number cannot be
+written at all. Anything under it is disk convenience with a retention rule beside it.
+
+**Three integrity mechanisms, and the middle one is weaker than it reads.**
+
+- `chained` — the record is a commit on a `refs/beadcause/*` ref, written through the
+  compare-and-swap in `lib/gitref.js`. Every commit's sha covers its parent, so removing
+  or editing anything but the tip breaks every sha after it. This is the shape the
+  amendment log established and the shape the rest should follow.
+- `history` — the file is inside the common repo, which commits after each write, so
+  prior versions are recoverable. That is **recovery, not tamper-evidence**, and the
+  difference is what a sampled class turns on: the snapshot is explicitly best-effort and
+  is dropped on an `index.lock` collision, so a missing commit is expected rather than
+  suspicious; the repo has no remote and nothing outside it records the head, so a
+  `git reset` there leaves nothing to compare against; and it is written by the same
+  process that writes the file it would be protecting. Good enough for *what did this say
+  before the advocate rewrote it*. Not good enough for a sample.
+- `none` — overwritten or deleted in place, ignored by the common repo, nothing behind it.
+
+**The rules are the ones that cost something, because a register nobody can fail is the
+policy document this was written instead of.** A class an auditor would sample must be
+`chained` or must carry a `gap` naming the bead that will chain it. A class kept as
+evidence with `none` behind it must carry one too. A retention under the floor is refused.
+A `gap` has to name a bead *and* say in a sentence what is missing — "todo" is not a
+gap, it is a note.
+
+**`NOT_EVIDENCE` is the other half of the inventory, not a waiver list.** Plenty of what
+this daemon persists is not evidence of anything: `status.json` is liveness rewritten
+every few seconds, `merge-sweeps.json` is one line the next poll cycle consumes within
+thirty seconds, half a dozen files are credentials, and several modules only read what
+another module owns. Each of those gets an entry with a sentence saying which — and the
+sentence is the price. The check cannot tell a file nobody thought about from a file
+somebody decided about; the exemption is where the deciding is recorded.
+
+**What keeps it true is a scan of the repo, and the scan has a wrong answer available to
+it.** `test/evidence.mjs` walks `lib/` and `bin/` for anything that names `CONFIG_DIR` or
+a `refs/beadcause/` ref and fails when a module appears in neither list — so a module that
+writes a new file under `~/.config/beadcause` cannot land without somebody saying how long
+the file is kept. It fails the other way too: a claim on a file that no longer writes
+anything is stale, and a stale entry reads as a decision somebody made. The wrong answer
+is the one described at the top of `public/editmode.js` — every file here argues in prose
+that names the identifiers around it, so an unblanked scan finds `CONFIG_DIR` in the
+paragraph explaining that a module deliberately stays out of it, and finds
+`CLAUDE_CONFIG_DIR` in the seven that explain what *that* is for while touching nothing of
+ours. `blankComments` replaces comment characters with spaces, preserving length and
+strings, because `refs/beadcause/…` is only ever a string.
+
+**And the rules are proved against broken entries rather than only run against the real
+one.** `REGISTER` is frozen and is supposed to pass; a suite that only ever ran the rules
+over it would report that the register is clean and would be unable to tell you whether
+any rule could ever fire. `entryProblems` takes one entry, so the suite clones a known-good
+class and breaks one field at a time — `history` under `sampled`, a twelve-month retention,
+a one-word `disposal`, a `gap` whose bead is the word "soon".
+
+**`verifyRef` demonstrates the chain instead of asserting it**, and reports three things
+that fail separately: `linear` (no commit has two parents — a merge into an evidence ref
+joined two histories and neither is the record now), `intact` (every parent resolves,
+back to one root), and `anchored`. The third is the only one that can catch a deliberate
+rewrite, and it is the one with no store behind it: a forged history is *perfectly*
+intact, so intactness proves that what you hold is a chain and not that it is the chain
+that was there in January. Detecting that needs a head somebody wrote down beforehand,
+somewhere the rewrite cannot reach. The parameter exists and nothing records one — that
+is bc-hzu4, and the suite pins the behaviour by rewriting a ref and asserting it comes
+back intact, linear and unanchored.
+
+**What it found the first time it ran.** Thirty-one modules under `lib/` and `bin/`
+persist state outside the repo. Ten evidence classes cover the ones that are records;
+sixteen exemptions cover the credentials, the liveness, the bookkeeping, the caches and
+the readers. Two classes could not be registered honestly without a gap: the agent run
+logs, which are destroyed at the next dispatch (bc-eqn1.7), and the deployment record,
+which rests on the common repo's best-effort local history (bc-j3d5). Four classes are
+`chained` and all four share bc-hzu4. Pointed at this checkout, `verifyRef` reports
+`refs/notes/beadcause` as 7,863 commits, linear and intact, and `refs/beadcause/foundations`
+as one — the baseline, with no amendment yet approved. Both are `anchored: null`, because
+there is nothing to anchor them against.
+
+**And writing it down moved one thing to the other list.** The requirement graph looks
+like the strongest evidence here — traceability from a requirement to the commit that
+satisfied it — and the first draft registered `refs/beadcause/requirements/<token>` as
+exactly that. It is a *cache*: `lib/reqindex.js` says so in its own second paragraph, and
+`test/reqindex.mjs` asserts every edge in it can be rebuilt from `refs/notes/beadcause`.
+The evidence is the **note**, which is anchored to an immutable commit, is written once,
+and is what nothing can rebuild. Registering the cache instead would have produced a
+retention rule protecting a derived copy while the record it derives from went unnamed —
+which is the shape of a control that passes its own test and fails an auditor's.
+
+**What it deliberately does not check.** That a `gap` bead exists and is still open — the
+gate would then need a tracker, and a clone of this repo does not have one. And
+`scripts/`, because every check there runs against a throwaway `BEADCAUSE_CONFIG_DIR` it
+makes and deletes, so what they write is a fixture rather than a record; sweeping them in
+would add a dozen exemptions that all say the same thing. Naming the *criterion* a class
+is evidence of is bc-eqn1.2's closed vocabulary and bc-eqn1.3's edges — `serves` is prose
+here on purpose, because a second, weaker vocabulary invented alongside the corpus is the
+three-separately-built-control-sets failure the programme is written against.
+
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
 There are two `grep` hazards on this laptop. One is a defect in every script that writes
