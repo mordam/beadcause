@@ -22,7 +22,8 @@
     "beadcause-checkin": "bin/checkin.js",
     "beadcause-plan": "bin/plan.js",
     "beadcause-attic": "bin/attic.js",
-    "beadcause-requirements": "bin/requirements.js"
+    "beadcause-requirements": "bin/requirements.js",
+    "beadcause-incidents": "bin/incidents.js"
   },
   "scripts": {
     "start": "node bin/router.js",
