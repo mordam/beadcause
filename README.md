@@ -15354,7 +15354,12 @@ its reach, chosen because it is the thing a review can actually revoke:
 The fourth row is the boundary, and it is the one an auditor should be told first: there
 is no public listener and [no inbound webhook](#https-on-the-tailnet-name) of any kind,
 so every credential below sits behind a network position an unenrolled device cannot
-take.
+take. The boundary is a register row of its own, and it carries the answer about data in
+transit — [HTTPS on the MagicDNS name](#https-on-the-tailnet-name), terminated by the
+router, with WireGuard underneath it either way. That last clause is the one worth having
+written down: an install with no certificate yet is a normal state here, and on that day
+the traffic is still encrypted and only the browser's lock is missing. The one plaintext
+hop is loopback, between the router and whichever backend it last swapped to.
 
 ### Half of it is derived, and the other half refuses to be silent
 

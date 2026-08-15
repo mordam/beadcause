@@ -144,6 +144,10 @@ check('the boundary is a principal, because a network position is a grant', () =
   assert.equal(b.kind, 'machine');
   assert.match(b.grant, /[Tt]ailscale/);
   assert.match(b.revoke, /tailnet/);
+  // The in-transit answer has to survive a certificate not being there, because that is
+  // a normal state of this install and an auditor will ask about exactly that day.
+  assert.match(b.inTransit, /WireGuard/);
+  assert.match(b.inTransit, /loopback/);
 });
 
 check('the register assembles both halves and the review', () => {
