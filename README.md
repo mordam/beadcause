@@ -18825,6 +18825,89 @@ looks fine and is not. That needs an answer in code rather than in documentation
 bc-3muu.13 is where a deployment comes to prove its own configuration instead of being
 trusted to have it.
 
+### Which install is speaking — `lib/instance.js`, `test/instance.mjs`
+
+The two sections above settle what may leave the Mac and whose hands it lands in. This one
+settles the field both of them leave opaque: `instance` is a token in a published record,
+and every continuity claim the service holds is a claim *about an install*. A chain
+attributed to the wrong one is not a slightly wrong record. It is a true-looking record of
+something that never happened.
+
+**An install is not an account, which is why none of the credentials already here would
+do.** One person runs several installs, a team runs dozens, and worktrees and observer
+instances share a Mac and a tracker. The daemon token says *may this request act*, [device
+pairing](#pairing-a-phone) says *is this phone allowed in*, Google sign-in says *which human
+is this*. None of them says which of the running daemons is speaking, and none of them
+survives being copied — surviving a copy is what a bearer token is *for*.
+
+**So the identity is a keypair and the id is the key.** `id` is the first 128 bits of the
+digest of the public key, so a token and a key cannot drift apart and there is no registry
+lookup to get wrong: anybody holding both can check one against the other with no stored
+state at all. Enrolment publishes the fingerprint, the daemon keeps the private half in
+`instance.key`, and everything after is signed. That is "cannot be minted by whoever feels
+like it" in its exact form — anybody may generate a keypair and enrol as *themselves*, and
+nobody can speak as an install whose private key they do not hold.
+
+The `.key` suffix is load-bearing rather than tasteful. The config directory is [a git
+repository](#where-the-rest-lives-configbeadcause-is-a-git-repo) and everything in it not refused by
+the denylist is committed on every change; `*.key` is refused, so the suffix is the only
+thing keeping an install's identity out of its own history. `instance.json` — the public
+half — *is* committed, which is the right way round, because an enrolment is a fact worth
+having a history of. `test/instance.mjs` asserts both against the real denylist rather than
+against a copy of it, because a rename to `instance-private.json` is a one-line diff that
+reads like tidying up.
+
+**The hard case is the observer, and holding the key cannot solve it.** A second instance is
+booted [by copying a real config directory](#a-second-instance--observer-mode), so the copy
+holds the private key by construction. An observer publishing continuity for the daemon it
+was copied from is the failure that banner exists to prevent, with an auditor at the end of
+it — and the README is already emphatic that the way `BEADCAUSE_OBSERVE` fails is you
+believing you set it. A guard that is only the flag is a guard that is only the failure
+mode.
+
+What the copy cannot bring with it is *where it is*. `placementOf` digests the three facts a
+copy changes and a restart does not — the resolved directory, the account and platform, and
+the moment that directory came into existence — and the daemon recomputes it at every boot.
+The documented recipe, a copy at `/tmp/bc`, fails on the path; a copy back over the same
+path fails on the birth time; a copy onto somebody else's Mac fails on the account. The
+hostname is deliberately *not* in it: a laptop is renamed by a network it joins, and an
+identity that stops publishing because of DHCP is one nobody keeps. Placement is the brace,
+the flag is the belt, and `publishProblems` asks for both.
+
+**Placement is never published.** It is a digest of a home directory path, and a path is
+content in every sense [the boundary](#what-may-leave-the-mac--libpublishablejs-testpublishablemjs) means it.
+It is a local self-check; the enrolment record carries a fingerprint and a tenant and
+nothing else, and the suite asserts field by field that it does.
+
+**What this cannot catch is worth saying rather than implying.** A whole-machine clone
+reproduces all three facts, so two daemons would publish under one id — and no local check
+can tell them apart, because they are locally identical by construction. It is caught one
+layer up instead, and caught well: two writers on one chain fork the sequence, and
+`linkProblems` finds a fork by arithmetic. A limit with a named catcher is a design; a limit
+with none is a hole.
+
+**Stable across restarts, stable across reinstalls, deliberately not stable across a wiped
+machine.** A restart reloads two files. Reinstalling beadcause replaces the checkout and
+never touches the config directory, and nothing in an identity is derived from the
+repository, so a reinstall cannot mint a second identity for one install. A *lost* config
+directory is the opposite case and gets the opposite answer: the private key is gone, the
+old id is unspeakable, and `reenrol` mints a new install whose chain starts at seq 0. An
+install that could re-mint its own past identity from scratch is an install anybody could
+mint, and the old instance falling silent is a finding somebody should see (bc-3muu.5)
+rather than something to paper over.
+
+**A move is a question, and it is asked out loud.** A legitimately moved config directory is
+locally identical to a copy of one, so `adopt` exists, requires the caller to say
+`deliberate`, refuses outright while observing, and records what the placement was before —
+because the useful question a year later is not where it is but how many times it has been
+somewhere else. Fail-closed on the ambiguous case with one named way through beats a
+heuristic that guesses right most of the time.
+
+Nothing wires this into the daemon yet: there is no service to enrol *with* until
+bc-3muu.3 lands the protocol, and the directory is an argument rather than a constant, so a
+check, an installer, a service and a daemon can each point it somewhere without dragging in
+each other's state.
+
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
 There are two `grep` hazards on this laptop. One is a defect in every script that writes
