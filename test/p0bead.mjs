@@ -447,9 +447,25 @@ check('the tap writes state and fetches — it pokes no DOM', () => {
   assert.notEqual(at, -1, 'the row tap handler is gone');
   const body = APP.slice(at, APP.indexOf('\n    }\n', at));
   assert.match(body, /state\.p0beadopen\.(add|delete)/);
-  assert.match(body, /render\(true\)/);
+  assert.match(body, /keepTheScreenStill\(\(\) => render\(true\)\)/);
   assert.match(body, /loadBeadDetail\(/);
   assert.ok(!/classList|\.hidden|innerHTML|querySelector/.test(body), 'the tap is reaching into the DOM');
+});
+
+check('and it holds the page still, then stops the anchor putting it back', () => {
+  // `capturePlace` anchors on the first card in the list, so an expansion opening above
+  // that card scrolls the page down by its own height and the row you tapped leaves the
+  // screen — measured 0 → 486 at 393×852. Holding the offset is exact rather than
+  // approximate because nothing above the row changes height. scripts/p0bead-check.mjs
+  // is what proves it in a browser; this is the shape of the fix.
+  const at = APP.indexOf('function keepTheScreenStill(paint)');
+  assert.notEqual(at, -1, 'keepTheScreenStill is gone');
+  const fn = APP.slice(at, APP.indexOf('\n  }\n', at));
+  assert.match(fn, /const was = docScroller\(\)\.scrollTop;/);
+  assert.match(fn, /docScroller\(\)\.scrollTop = was;/);
+  // Without this, `settlePlace` restores the anchor's answer on the next frame and on
+  // every late image, and the correction lasts one frame.
+  assert.match(fn, /releasePlace\(\);/);
 });
 
 check('the details are fetched on the tap and never on the poll', () => {
@@ -462,8 +478,9 @@ check('the details are fetched on the tap and never on the poll', () => {
   assert.match(fn, /\/api\/bead\?workspace=/, 'the expansion is not reading /api/bead');
   assert.ok(!fn.includes('/api/question'), 'the expansion is asking for a decision block');
   // Unforced on the way back: this lands whenever bd finishes, which may be into the
-  // middle of an answer somebody is typing.
-  assert.match(fn, /if \(state\.p0beadopen\.has\(key\)\) render\(\);/);
+  // middle of an answer somebody is typing. And through `keepTheScreenStill`, because
+  // this is the moment a one-line "reading…" becomes six hundred pixels of bead.
+  assert.match(fn, /if \(state\.p0beadopen\.has\(key\)\) keepTheScreenStill\(\(\) => render\(\)\);/);
 });
 
 check('a label, a title and a close reason out of the tracker cannot write markup', () => {
