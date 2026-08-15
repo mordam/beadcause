@@ -22,13 +22,14 @@
  * path is the same depth as the live one, so a *relative* link still resolves), and takes
  * a normal attic entry to about 2 MB.
  *
- * The link goes on the seven files and never on the directory: `.gitignore` says
- * `public/vendor/` **with a trailing slash**, which matches a directory and not a symlink
- * to one — so a symlinked `public/vendor` shows up as `?? public/vendor` in git status and
- * `bin/deliver.js` refuses the delivery at the very end, after the suite has passed. A
- * real directory holding seven links is ignored exactly as a real directory holding seven
- * copies is. This is the same trap `node_modules` escapes only because its rule has no
- * slash.
+ * The link goes on the seven files and never on the directory: a symlinked `public/vendor`
+ * shows up as `?? public/vendor` in git status (`.gitignore`'s `public/vendor` pattern has
+ * no trailing slash — bc-slxm — precisely so a *symlinked directory* still matches, but a
+ * worktree that does that anyway breaks something else: git refuses to resolve any path
+ * *underneath* a symlinked directory at all, which is what test/gitignoreresidue.mjs hits,
+ * bc-0i27.25) and `bin/deliver.js` refuses the delivery at the very end, after the suite has
+ * passed. A real directory holding seven links is ignored exactly as a real directory
+ * holding seven copies is — which is also the trick `node_modules` uses, one level up.
  */
 import fs from 'node:fs';
 import path from 'node:path';

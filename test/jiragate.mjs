@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Approve, discuss and cancel on a JIRA ticket row — the gate, and what it does to beads.
+ * Approve, discuss, cancel and forget on a JIRA ticket — the gate, and what it does to beads.
  *
  *     npm test
  *     node test/jiragate.mjs
  *
  * test/jiracancel.mjs owns the earmark itself: keyed by the ticket, never pruned, on
- * disk. This is everything that acts on it — the three decisions (lib/jiragate.js), the
- * three routes behind them, and the row that offers them (public/app.js).
+ * disk. This is everything that acts on it — the acts (lib/jiragate.js), their
+ * routes, and the row that offers them (public/app.js).
  *
  * What is asserted, and why each is here rather than assumed:
  *
@@ -63,7 +63,9 @@ const { Bd } = await import(LIB('bd.js'));
 const { UNENDORSED } = await import(LIB('endorse.js'));
 const { createEpicFiler, TICKET_LABEL } = await import(LIB('jiraepic.js'));
 const { STATE_KEY, isCancelled, cancelledRecord } = await import(LIB('jiracancel.js'));
-const { approveTicket, beadifyTicket, cancelTicketAndEpic, CANCELLED_PREFIX } = await import(LIB('jiragate.js'));
+const { approveTicket, beadifyTicket, cancelTicketAndEpic, forgetCancel, CANCELLED_PREFIX } = await import(
+  LIB('jiragate.js')
+);
 const { saveState } = await import(LIB('config.js'));
 
 /* ------------------------------------------------------------------- the stub bd */
@@ -349,6 +351,58 @@ await check('a ticket that was never cancelled is not an error', async () => {
   assert.equal(out.reopened, false);
 });
 
+/* ------------------------------------------------------- and forget, which is not it */
+
+/*
+ * bc-0i27.19. The fourth act, on a record the poller can no longer match. Everything
+ * here is about the two ways it differs from beadify, because reaching for beadify is
+ * the obvious wrong move: it reopens the epic, and it needs a workspace that still
+ * exists.
+ */
+
+await check('forget drops the record and leaves the closed epic closed', async () => {
+  reset();
+  await cancelTicketAndEpic(bd, ALPHA, 'TECH-1', { filer: createEpicFiler({ bd }) });
+  assert.equal(issueOf('aa-epic').status, 'closed');
+  const out = forgetCancel('alpha', 'TECH-1', { tickets: [] });
+  assert.equal(out.forgotten, true);
+  assert.equal(out.bead, 'aa-epic', 'said out loud, because the bead is the thing it is NOT touching');
+  assert.equal(isCancelled('alpha', 'TECH-1'), false, 'the record is off disk');
+  assert.equal(issueOf('aa-epic').status, 'closed', 'beadify would have reopened it — that is the difference');
+});
+
+await check('it refuses a ticket the sweep is still answering with, and names beadify', async () => {
+  reset();
+  await cancelTicketAndEpic(bd, ALPHA, 'TECH-1', { filer: createEpicFiler({ bd }) });
+  // The payload the button was drawn from is up to a minute old. A ticket reassigned to
+  // you inside that minute is live again, and dropping its record would un-cancel it —
+  // which is the one thing bc-0i27.19 says a drop may never do.
+  assert.throws(
+    () => forgetCancel('alpha', 'TECH-1', { tickets: [{ workspace: 'alpha', key: 'TECH-1' }] }),
+    (err) => err.status === 409 && /beadify/.test(err.message)
+  );
+  assert.equal(isCancelled('alpha', 'TECH-1'), true, 'and nothing was written');
+});
+
+await check('a workspace the config no longer has is exactly the case it must serve', () => {
+  reset();
+  // The commonest way to strand a record is the workspace leaving `config.json`. Every
+  // other act here takes a workspace object and would have nothing to be handed; this
+  // one takes the name off the record and touches no `bd` at all.
+  saveState({ [STATE_KEY]: { 'retired/TECH-4': { workspace: 'retired', key: 'TECH-4', bead: 'zz-1', at: '' } } });
+  const out = forgetCancel('retired', 'TECH-4', { tickets: [] });
+  assert.equal(out.forgotten, true);
+  assert.equal(out.workspace, 'retired');
+  assert.equal(isCancelled('retired', 'TECH-4'), false);
+});
+
+await check('and a record already gone is false, not a throw — two phones, one row', () => {
+  reset();
+  const out = forgetCancel('alpha', 'TECH-1', { tickets: [] });
+  assert.equal(out.forgotten, false);
+  assert.equal(out.bead, null);
+});
+
 /* --------------------------------------------------------------------- the routes */
 
 const { createApp, listen } = await import(LIB('server.js'));
@@ -422,6 +476,23 @@ await check('POST /api/jira/cancel earmarks it, and beadify puts it back', async
   assert.equal(issueOf('aa-epic').status, 'open');
 });
 
+await check('POST /api/jira/forget drops a stranded record without resolving the workspace', async () => {
+  reset();
+  // A workspace that is not in `cfg.workspaces` — which is what stranded usually means,
+  // and which every other route here answers 400 for. This one must not: the record was
+  // written under that name and the name is all there is left of it.
+  saveState({ [STATE_KEY]: { 'retired/TECH-4': { workspace: 'retired', key: 'TECH-4', bead: 'zz-1', at: '' } } });
+  const res = await call('POST', '/api/jira/forget', { workspace: 'retired', key: 'TECH-4' });
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.forgotten, true);
+  assert.equal(isCancelled('retired', 'TECH-4'), false);
+
+  const junk = await call('POST', '/api/jira/forget', { workspace: 'alpha', key: '../../etc' });
+  assert.equal(junk.status, 400, 'the ticket key is still validated — the record is keyed on it');
+  const noWs = await call('POST', '/api/jira/forget', { workspace: 'a/b', key: 'TECH-4' });
+  assert.equal(noWs.status, 400, 'and a slash in the name would key a record nothing could match');
+});
+
 await check('a body that does not name a JIRA key is refused before anything is written', async () => {
   reset();
   const res = await call('POST', '/api/jira/cancel', { workspace: 'alpha', key: '../../etc' });
@@ -429,21 +500,21 @@ await check('a body that does not name a JIRA key is refused before anything is 
   assert.equal(isCancelled('alpha', '../../etc'), false, 'an earmark nobody could ever cancel back');
 });
 
-await check('a GET is not one of these — all three write, so all three are POST only', async () => {
+await check('a GET is not one of these — they all write, so they are all POST only', async () => {
   reset();
   const res = await call('GET', '/api/jira/approve');
   assert.notEqual(res.status, 200, `a GET must not endorse anything: ${JSON.stringify(res.json)}`);
   assert.ok(labelsOf('aa-epic').includes(UNENDORSED), 'and nothing moved');
 });
 
-await check('all three are registered the way the route table can see them', async () => {
+await check('all four are registered the way the route table can see them', async () => {
   // `routeTable` reads literal `if (p === '…' && req.method === '…')` out of the
   // handler's text, and test/routes.mjs asserts every path it finds has a README row.
   // A route written any other way — a `||` chain over three paths, which is how these
   // began — is invisible to both, which means undocumented *and* free to collide.
   const { routeTable } = await import(LIB('server.js'));
   const table = routeTable(app.handler);
-  for (const path of ['/api/jira/approve', '/api/jira/cancel', '/api/jira/beadify']) {
+  for (const path of ['/api/jira/approve', '/api/jira/cancel', '/api/jira/beadify', '/api/jira/forget']) {
     assert.ok(table.includes(`POST ${path}`), `${path} is not in the derived route table`);
   }
 });

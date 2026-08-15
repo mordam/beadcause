@@ -1,9 +1,19 @@
 node_modules
-# No trailing slash, and that is the whole of bc-slxm: a pattern ending in `/` matches
-# **directories only**, and in a worktree `public/vendor` is a *symlink* to the main
-# checkout's copy — which is what a session that wants to run the browser checks is told
-# to make. git saw `?? public/vendor` there, and bin/deliver.js refuses a worktree with
-# uncommitted changes in it, at the very end, after the suite has already passed.
+# No trailing slash (bc-slxm): a pattern ending in `/` matches **directories only**, and
+# for a while a worktree's `public/vendor` *was* a symlink to the main checkout's copy —
+# that is what left it unmatched and showing as `?? public/vendor`, which made
+# bin/deliver.js refuse a worktree with uncommitted changes in it, at the very end, after
+# the suite had already passed.
+#
+# `node scripts/vendor.js` (run automatically in a fresh worktree) no longer symlinks the
+# directory itself: `public/vendor` is a real directory holding one symlink per bundle to
+# the main checkout's copy (bc-oqu7/bc-mf9s) — a real directory holding seven links is
+# ignored exactly as one holding seven copies is, so the trailing-slash question no longer
+# applies either way. Don't "fix" a worktree by replacing `public/vendor` with one symlink
+# to the whole directory: it still passes this pattern, but git then refuses to resolve
+# *any* path underneath it ('fatal: pathspec ... is beyond a symbolic link'), which is
+# exactly what test/gitignoreresidue.mjs hits (bc-0i27.25). Re-run `node scripts/vendor.js`
+# instead if `public/vendor` is ever a bare symlink.
 # `node_modules` above has always been spelled this way, which is why only vendor bit.
 public/vendor
 *.log

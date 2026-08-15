@@ -59,9 +59,11 @@ const {
   cancelledKeys,
   cancelledRecord,
   isCancelled,
+  inSweep,
   liveResults,
   liveTickets,
   readCancelled,
+  strandedCancels,
   uncancelTicket,
 } = await import(LIB('jiracancel.js'));
 
@@ -191,6 +193,74 @@ check('beadify lifts it, and the record it hands back names the bead to reopen',
   assert.equal(isCancelled('alpha', 'TECH-1'), false);
   assert.deepEqual(liveTickets([ticket('alpha', 'TECH-1')]).map((t) => t.key), ['TECH-1'], 'a row again');
   assert.equal(uncancelTicket('alpha', 'TECH-1'), null, 'and a ticket that was never away is null, not an error');
+});
+
+/* ------------------------------------------------ and the ones nothing can see */
+
+/*
+ * bc-0i27.19. `cancelledTickets` is a filter over the poller's answer, so a record whose
+ * ticket JIRA stopped returning was on disk for ever with nothing that could name it.
+ * `strandedCancels` is the walk of the store that can, and everything below is about the
+ * one property that makes it safe to put a Drop button beside: it must never include a
+ * ticket the poller is still answering with.
+ */
+
+check('a record whose ticket is still in the sweep is not stranded — it is in the fold', () => {
+  reset();
+  cancelTicket({ workspace: 'alpha', key: 'TECH-1', bead: 'aa-epic' });
+  assert.deepEqual(strandedCancels([ticket('alpha', 'TECH-1')]), [], 'the fold above already draws this one');
+  assert.equal(inSweep([ticket('alpha', 'TECH-1')], 'alpha', 'TECH-1'), true);
+});
+
+check('a record whose ticket the poller no longer returns is', () => {
+  reset();
+  cancelTicket({ workspace: 'alpha', key: 'TECH-1', bead: 'aa-epic', by: 'adam' });
+  // Resolved, reassigned, or moved out of the configured projects — the poller cannot
+  // tell those apart and neither can this. What it knows is that nothing answers for it.
+  const out = strandedCancels([ticket('alpha', 'TECH-2')]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].key, 'TECH-1');
+  assert.equal(out[0].bead, 'aa-epic', 'so the line can say which bead was closed with it');
+  assert.equal(out[0].by, 'adam');
+  assert.equal(inSweep([ticket('alpha', 'TECH-2')], 'alpha', 'TECH-1'), false);
+});
+
+check('the workspace is half the key here too, so one workspace does not strand another', () => {
+  reset();
+  cancelTicket({ workspace: 'alpha', key: 'TECH-1' });
+  cancelTicket({ workspace: 'beta', key: 'TECH-1' });
+  // Two workspaces pointed at one JIRA project. The sweep answered for alpha only.
+  const out = strandedCancels([ticket('alpha', 'TECH-1')]);
+  assert.deepEqual(out.map((r) => r.workspace), ['beta']);
+});
+
+check('most recently cancelled first, like the fold above it', () => {
+  reset();
+  cancelTicket({ workspace: 'alpha', key: 'TECH-1', at: '2026-01-01T00:00:00Z' });
+  cancelTicket({ workspace: 'alpha', key: 'TECH-9', at: '2026-06-01T00:00:00Z' });
+  assert.deepEqual(strandedCancels([]).map((r) => r.key), ['TECH-9', 'TECH-1']);
+});
+
+check('nothing cancelled costs nothing, and an empty sweep strands everything', () => {
+  reset();
+  assert.deepEqual(strandedCancels([ticket('alpha', 'TECH-1')]), [], 'no records, no walk');
+  cancelTicket({ workspace: 'alpha', key: 'TECH-1' });
+  // The one shape that would be wrong is a *failed* read arriving as an empty list — and
+  // it cannot, because lib/jirapoll.js serves the last good answer for a workspace it
+  // could not ask. An empty answer here means the tickets really are gone.
+  assert.deepEqual(strandedCancels([]).map((r) => r.key), ['TECH-1']);
+  assert.deepEqual(strandedCancels(undefined).map((r) => r.key), ['TECH-1'], 'and no tickets at all is not a throw');
+});
+
+check('a record too broken to key is not listed, and the next write prunes it', () => {
+  reset();
+  // Nothing can be drawn for a record with no ticket key: it matches no sweep, so it
+  // suppresses nothing, and there is no button that could name it. It also cannot
+  // survive a write, because every write here saves the normalised map back.
+  saveState({ [STATE_KEY]: { 'alpha/TECH-1': { workspace: 'alpha' }, 'alpha/TECH-2': { workspace: 'alpha', key: 'TECH-2' } } });
+  assert.deepEqual(strandedCancels([]).map((r) => r.key), ['TECH-2']);
+  uncancelTicket('alpha', 'TECH-2');
+  assert.deepEqual(JSON.parse(fs.readFileSync(STATE_PATH, 'utf8'))[STATE_KEY], {}, 'the unkeyed one went with it');
 });
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);

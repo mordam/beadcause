@@ -238,10 +238,31 @@ const configure = (extra) =>
     JSON.stringify({ bdBin: FAKE_BD, actor: 'beadcause', workspaces: [{ name: 'demo', dir: wsDir }], ...extra }, null, 2)
   );
 
+/**
+ * Prose, then the `decision` block last with one option recommended — what the brief tells
+ * a worker to write, and what `bin/ask.js` now refuses to file without.
+ */
+const ASK_BODY = [
+  'Which of these two did you mean?',
+  '',
+  '```decision',
+  'question: Gross or net?',
+  'options:',
+  '  - id: gross',
+  '    label: Gross',
+  '    response: Gross - the fee comes off the full charge.',
+  '    recommended: true',
+  '  - id: net',
+  '    label: Net',
+  '    response: Net - the fee comes off after processing costs.',
+  '```',
+  '',
+].join('\n');
+
 /** `bin/ask.js`, run the way the brief tells a worker to run it: body on stdin. */
 const ask = () => {
   const res = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'ask.js'), '-w', 'demo', '-t', 'Gross or net?'], {
-    input: 'Which of these two did you mean?\n',
+    input: ASK_BODY,
     encoding: 'utf8',
     // HOME into the temp tree so discoverWorkspaces finds no ~/beads to reconcile.
     env: { ...process.env, HOME: tmp, BEADCAUSE_CONFIG_DIR: process.env.BEADCAUSE_CONFIG_DIR },

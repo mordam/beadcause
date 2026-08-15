@@ -288,8 +288,21 @@ solo install behaves exactly as it always did.
 
 ## Asking a question
 
-Anything labelled `human` shows up. To get buttons, diagrams and links, put a
-fenced `decision` block in the body:
+Anything labelled `human` shows up. **A question ends with a fenced `decision` block,
+with nothing after it, and one option in it marked `recommended: true`** — that is the
+rule the briefs teach and `beadcause-ask` refuses a body without it. The prose above the
+block is context; the block is the ask, and it is what turns a wall of text into buttons
+you can tap from a phone. Without one, the card falls back to guessing the options out of
+the prose (`lib/suggest.js`) — and a guessed option *fills* the answer box rather than
+sending it, because nobody wrote it on purpose.
+
+One question per bead: two things to decide is two beads and two cards, because a card
+has one answer box and no way to say which half of it an answer answers. And if what you
+need is a *fact* rather than a choice — a password, a number nobody wrote down — there is
+nothing to offer and inventing two options would be worse than none: `--no-options` says
+so, and is the only way past the check.
+
+The block is also what gets you diagrams, documents and links:
 
 ````markdown
 Some markdown context. Tables, images, links, `code` — all of it renders.
@@ -9072,6 +9085,11 @@ bead can move. On top of that, two exclusions of our own:
   same near-verbatim threshold that refuses a duplicate approval. Waits, not
   disappears: it is a pill on the repo's advocate card naming the bead it is behind,
   and it goes back in the queue by itself when that one closes.
+- **A container is not work at all.** Some beads are shelves — the standing roots
+  everything else is filed under, which exist so that other work has somewhere to go and
+  are never themselves finished. They carry a `container` label and they are out of every
+  queue and every count. See [a standing root is furniture, not
+  work](#a-standing-root-is-furniture-not-work).
 - **A bead whose pull request is already open is not ready.** The work exists, on a
   branch, and what happens to it next is a merge, a review or a conflict resolution —
   none of which is a fresh session's job, and a worker briefed to *merge* opened beside a
@@ -10770,6 +10788,76 @@ turn every abandoned session into a bead nothing may ever pick up again. Blocked
 deferred are queue questions `bd ready` already answers, and answering them twice here would
 be a second opinion with no incident behind it. `node test/stillopen.mjs` covers both layers,
 including that the gate reads the tracker rather than the row it was handed.
+
+### A standing root is furniture, not work
+
+The guard above refuses a bead because it is finished. This one refuses a bead that was
+never a job in the first place — and unlike every other refusal here, the bead it protects
+is one that must stay open forever.
+
+Some beads are shelves. bc-w156 says of itself "a permanent container, not a piece of
+work", and its acceptance criterion is that the root must exist and *not be closed*;
+bc-xl7n is the unsorted backlog, where every bead nothing has yet decided a home for
+lands. Nothing in the daemon could read either sentence, and the dispatcher did the
+opposite of both.
+
+**What that cost, measured on 2026-08-13.** bc-w156 was an open P0 epic with no children,
+so it sat in `bd ready` like anything else. [An epic is planned, not
+worked](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) only reaches an
+epic with enough ready children to batch: below `minBatchBeads` an epic is never a batch
+head and never a planner candidate, so a *childless* one falls through the hierarchy filter
+and is dispatched as an ordinary ready bead. That is a worker window, and a worker window's
+one sanctioned ending is `bin/deliver.js -b <bead>`, which runs `bd close`. So an advocate
+tick that found a standing root ready opened a session whose **success deletes the root from
+the board**. Three windows were opened on that state in two days; all three survived by
+reading the prose and handing back, which is exactly the protection [the duplicate
+marker](#the-duplicate-that-comes-ready-the-moment-its-original-lands) exists to replace —
+the gap was that it had no machine-readable form.
+
+The other roots were safe by accident and not by property: they happened to have ready
+children. The day the last child of one closes, it is bc-w156.
+
+So a container carries a `container` label, and the hold is the same two layers as
+everything else here:
+
+- **A filter**, forced on in `bd ready` rather than left to the caller, so nothing can ask
+  for a queue containing a container. The bead leaves every queue and every count of how
+  much work is waiting.
+- **A refusal**, at the worker's door and the planner's. It reads the row the endorsement
+  check has already fetched, so a container that reached the launcher by a retry, a tap on
+  a stale row, or a caller written next month still cannot be worked. It bites on the
+  planner too: a planner's job is to cut an epic into the children that finish it, and a
+  shelf is never finished.
+
+**Nothing here is quiet by accident, and nothing is loud by accident either.** The
+[no-P0-above](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists)
+rule announces every bead it withholds, because a bead held with nothing on screen reads
+as an advocate that decided there was nothing to do. This one says nothing: a container is
+not withheld work, it is not work, and a line every thirty seconds for the life of the
+daemon would teach everyone to scroll past exactly the kind of line that rule needs read.
+The refusal at the door is loud, because that one is a caller being told no.
+
+**The P0 advocate's door is deliberately left open to containers**, and it is the only
+asymmetry between the three doors into an unattended session. An [EpicAdvocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero)
+is re-entrant, belongs to its epic for as long as the epic is open, files children *under*
+the root, and never closes it — a standing root is precisely what that agent is for.
+Guarding this door too would point the one agent that looks after standing roots at
+everything except standing roots.
+
+**A container still draws on the P0 board, and stays a valid parent**, which is the half
+that keeps this from being a way to delete a subtree: the marker says "do not work *this*",
+never "do not work under this". No code was needed for it — the board is built from the
+tracker's graph and never from `bd ready`, so a bead this filter removes from every queue is
+untouched on the screen. That is the right way round: the board's furniture has to be
+visible *as* furniture, because filing under it is what it is for.
+
+What this is *not* strong enough to be: a container is not protected from `bd close` typed
+by hand, and could not be — bd is a separate tool with no hook in it. What it is protected
+from is the only ending a dispatched session has. The belt on top of that is already there
+and is not this marker's: a delivery refuses to close an **epic** on a merge, and every
+standing root is an epic. `node test/container.mjs` covers both layers, the planner's door,
+and — the assertion most likely to be "fixed" by somebody tidying — that the P0 advocate's
+door still lets one through.
 
 ### The session log, kept in the repo
 
@@ -15308,6 +15396,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/jira/approve` | `{workspace, key}` | endorses the epic behind a JIRA ticket **and its open children**, in one act — see [approve, discuss, cancel](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires). Aimed at the *ticket key*, because which beads make up a ticket is a `bd list --parent` at this end of the wire. Answers the verdict shape (`applied[]`, `failed[]`) plus `{epic, children, truncated}`. A ticket whose epic has not been filed yet is a `409`; a closed child is left closed |
 | POST | `/api/jira/cancel` | `{workspace, key}` | earmarks the ticket so it is never proposed again — a keyed record in `state.json` that **nothing prunes** — and closes its epic with a reason that names the ticket, marker left on. An epic that has already been approved is left completely alone (`bead: 'endorsed'`), because by then it is real work. The earmark is written even if `bd` will not answer, since letting the ticket come back next sweep is the failure this prevents. Nothing is written to JIRA |
 | POST | `/api/jira/beadify` | `{workspace, key}` | the reverse: lifts the earmark, **reopens** the epic that was closed with it, drops the filer's memory of the workspace so the next sweep re-reads, and drops the *ingester's* memory of this one ticket so a reading that had failed is tried again rather than remembered forever. Reopening rather than re-filing is what makes it one epic and not two — the `external_ref` survives a close, so a fresh sweep would find the closed bead and raise nothing. A ticket that was never cancelled is `restored: false`, not an error |
+| POST | `/api/jira/forget` | `{workspace, key}` | drops a cancel record whose ticket the poller can no longer find, and **leaves its closed epic closed** — see [the records with no ticket left](#the-records-with-no-ticket-left). Not beadify: nothing is being put back, so reopening the epic would leave a held bead for a ticket nobody is assigned. The only route here that does not resolve `workspace` against the config, because a workspace that has left the config is the commonest way to strand a record; the name is taken as stored and validated only for being non-empty and slash-free. A ticket the current sweep still returns is a `409` naming beadify — that is the rule that a drop can never un-cancel a live ticket. A record already gone is `forgotten: false`, not an error. Nothing is written to JIRA |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
@@ -16323,16 +16412,17 @@ per-space switch for a space that wants these to skip the gate, and the note on 
 says plainly which of the two happened, because a bead claiming to be waiting for a tap
 over a session already running on it is the worse of the two errors.
 
-**A ticket that stops arriving is left completely alone, and that is the decision.**
-The query is `assignee = "<you>"`, so a ticket reassigned to a colleague simply stops
-coming back and beadcause is left holding an epic — possibly with children, possibly with
-a branch — for work that is no longer yours. bc-uz6e put the three answers up (leave it,
-gate it by putting `unendorsed` back on, close it with a reason) and the answer was **leave
-it alone: let the engineer reassign it**. So nothing sweeps for epics whose ticket has
-gone, and nothing revokes or closes one; a half-finished branch is not undone by JIRA
-changing its mind. The good consequence: a ticket handed *back* to you finds its epic by
-ref and files nothing new, because the ref is in the tracker whether or not the ticket was
-in the last sweep.
+**A ticket that stops arriving is left completely alone by *this* sweep, and that is the
+decision.** The query is `assignee = "<you>" AND resolution = EMPTY`, so a ticket stops
+coming back for two quite different reasons — it was reassigned to a colleague, or it was
+resolved — and nothing in the filing can tell them apart. It reacts to neither. bc-uz6e put
+the three answers up for the **reassigned** case (leave it, gate it by putting `unendorsed`
+back on, close it with a reason) and the answer was **leave it alone: let the engineer
+reassign it**; a half-finished branch is not undone by JIRA changing its mind. The
+**resolved** case is [its own sweep](#a-ticket-that-is-resolved--the-epic-closed-or-left-alone-and-told),
+because there the epic's own acceptance has come true. The good consequence is unchanged: a
+ticket handed *back* to you finds its epic by ref and files nothing new, because the ref is
+in the tracker whether or not the ticket was in the last sweep.
 
 **A summary that is rewritten follows onto the title — while the title is still ours.**
 A ticket being renamed is ordinary: a placeholder is triaged into a real title, a summary
@@ -16369,6 +16459,23 @@ and the next read takes it back. A rename is logged in full, both titles, and sa
 comment on the bead; it emits no bus event, for the reason filing does not, but it *does*
 drop the endorsement queue's cache, because that screen is the one drawing the old title.
 
+**The status line and the assignee inside the body stay frozen forever, and that is a
+decision, not the gap bc-yc16 left behind.** bc-yc16 answered only the title; bc-0i27.22
+is the rest of that question, and the answer is: leave the body exactly as it arrived. Not
+because nobody thought to keep it live, but because it does not need to be — the row this
+ticket draws (`jiraRowHtml`) and the ticket view behind it (`/api/jira/ticket`) both read
+the status off the poller's own answer, refreshed on every inbox poll, so nobody reading
+where a ticket stands today is reading it off the bead; the bead is not the only place, or
+even the current one. The assignee is narrower still: the whole query this epic exists
+because of is *assigned to you*, so for as long as the ticket keeps arriving, the name the
+body would show and the name the poll is filtering on are the same fact twice over. The one
+way they could diverge — the ticket reassigned to somebody else — is the case bc-uz6e
+already decided: nothing here reacts to a ticket that stops arriving, the epic is left
+exactly as it was, branch and all, and a frozen assignee line is that same abandonment
+already chosen for the rest of the epic, not a new one. Widening `renameFor`'s "is this
+still ours" test to a body a person may have appended to would cost the guarantee bc-yc16
+built it to protect, for a line whose live value is already on screen somewhere better.
+
 **Who owns it is not the JIRA assignee, and that is deliberate.** `bd` takes `owner` from
 the git identity of the directory the command runs in, which for a work workspace is
 already the work address. So nothing tries to force one: the assignee is recorded *on* the
@@ -16398,6 +16505,92 @@ one question a fake cannot answer: that a ref written on the way in comes back o
 way past, on create, on update, and on a bead that has since been closed. If it did not,
 every sweep would look up a ticket, find nothing, and file another perfectly well-formed
 epic a minute later.
+
+### A ticket that is resolved — the epic closed, or left alone and told
+
+The epic filed above carries one acceptance criterion: *"`<KEY>` is resolved in JIRA — the
+ticket is the source of truth for that, not this bead"*. So the day somebody resolves the
+ticket, that bead's stated done-condition has come true — and the bead is still open, still
+`unendorsed`, still in the endorsement queue, still offered to whoever is deciding what to
+work on next. For ever. Nothing noticed, because nothing was looking: the poll asks
+`resolution = EMPTY`, so a resolved ticket does not come back marked resolved, it simply
+**stops coming back** — exactly like one reassigned to a colleague.
+
+bc-jrvh put four answers up and the one picked is the **cancel split**, which is not a new
+policy at all. It is the line [cancel already draws](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires):
+
+- **The epic is still unendorsed → close it**, with a reason naming the resolution. Nobody
+  has read it, nothing has been worked on it, and a held bead closed with a reason is the
+  honest record of something proposed and overtaken.
+- **The epic has been endorsed → leave it completely alone**, and comment once that the
+  ticket resolved. By then it is real work: an advocate may have opened a session on it,
+  there may be children, there may be a branch. **beadcause does not undo work because JIRA
+  changed its mind** — and the comment says so out loud, because a note reporting a
+  resolution on a bead somebody has a branch against otherwise reads as an instruction to
+  stop.
+
+**Telling resolved from reassigned costs one `GET` per vanished ticket**, and that is the
+whole of the new expense. `resolution` is not on any list of fields beadcause asks for
+otherwise — every other read is of a ticket the query already guaranteed was unresolved —
+so the by-key read asks for its own three. A **null** resolution means still open:
+reassigned, or a site that hides the field. Nothing at all happens to those epics, and the
+answer is read off the presence of the resolution object rather than off any name in it,
+because *do nothing* has to be the case that is impossible to arrive at by accident. The
+resolution's **name** is carried onto the close reason — `Done`, `Won't Do`, or whatever the
+site renamed them to — which is also the field the day somebody wants a `Won't Do` handled
+differently from a `Done`.
+
+**Three things vanish without being resolved, and each is skipped for its own reason.** A
+workspace whose JIRA read *failed* is skipped outright, because a failed read serves the
+last good answer and acting on the difference either side of an outage would close an epic
+for every ticket on a site that was merely unreachable. A ticket **cancelled** in beadcause
+is filtered out of the sweep list and so vanishes identically — its epic was already closed,
+by the tap that cancelled it. And a ticket the daemon simply never saw is not a vanishing
+either: the candidates come from the filer's own `ref → id` map, which is seeded from the
+tracker on the first authoritative read after a restart, so this survives a restart without
+inventing a vanishing out of a poller that has only just started.
+
+**Except that seeding only happens for a workspace with a ticket it does not already
+know** (`fileFor` — a quiet tick makes no `bd` call at all), so a workspace whose tickets
+*all* resolve while the daemon is down comes back up with an empty map, nothing to compare
+its (also empty) live list against, and would otherwise leave those epics open forever —
+bc-0i27.23. Rather than pay a full `bd list --all` per workspace per tick to catch it, this
+sweep keeps its own copy of the filer's map in `state.json`, written back every tick the
+filer's map is non-empty and skipped when nothing has changed — the same free-quiet-tick
+shape as everywhere else in this file. On a restart with nothing live, that copy is what
+the vanished-ticket check falls back to, so the epic still closes on the next tick rather
+than being lost the moment the map was empty when the tickets vanished.
+
+**Written once, and never again.** A resolved ticket stays resolved, so a sweep with no
+memory would re-ask JIRA and re-comment the same epic once a minute for ever. The record is
+[the same shape as a cancel](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires):
+keyed `<workspace>/<KEY>` in `state.json`, written after the `bd` call rather than before it
+so a lock race cannot leave a ticket marked as dealt with that never was, and pruned by
+nothing on a timer. A vanished ticket that answered *still open* is backed off six hours
+rather than recorded, so a colleague's ticket costs four reads a day instead of fourteen
+hundred, and the day they resolve it is still noticed. At most five tickets per workspace
+are asked about on any one tick, which is what keeps the first minute after a restart from
+being a burst against somebody's rate limit.
+
+**And the way back, because a resolution can be reversed.** A ticket reopened in JIRA comes
+back through the poll and finds its epic by ref — a ref survives a close — so nothing new is
+filed, which without something here would leave the ticket on screen with a closed bead that
+nothing would ever raise again. So a returning ticket drops its record, and an epic **this
+sweep closed** is reopened with a comment saying why. Only that one: a bead closed by a
+person, or by a cancel, is not this sweep's to reopen.
+
+**No bus event, and the queue cache dropped only on a close** — the same shape as the filing
+above, for the same reasons. A held epic is out of every queue and every count, so closing
+one changes nothing a phone is drawing and an event would wake every parked client to redraw
+an identical inbox. The endorsement queue is the one screen that does change, because a held
+bead is what it draws, and its fifteen-second cache would otherwise go on offering approve on
+a bead that is closed. A comment on an endorsed epic changes neither, so it drops nothing.
+
+`node test/jiraresolved.mjs` covers both halves of the split, the reassigned case that must
+stay untouched, the three vanishings that are not resolutions, the record that makes it
+happen once, the backoff, the cap, the way back, and the failure paths — a JIRA read that
+throws must leave the ticket unrecorded and un-backed-off, because a question that could not
+be asked must never look like an answer of *no*.
 
 ### Approve, discuss and cancel on the row — and a cancel that never expires
 
@@ -16477,9 +16670,77 @@ somebody decides it explicitly and with an allowlist.
 
 `node test/jiracancel.mjs` covers the record — keyed by the ticket, on disk, unpruned
 across a ticket leaving and re-entering the inbox, both filters, and the reversal.
-`node test/jiragate.mjs` covers the three acts, the three routes, and the row: that it
+`node test/jiragate.mjs` covers the acts, their routes, and the row: that it
 never offers a button that would be refused, and that the second tap on cancel says what
 it will not take back.
+
+### The records with no ticket left
+
+The rule above — **nothing prunes a cancel record** — is right, and it has a cost that
+took a while to show up. The fold at the foot of the ticket section is a *filter over
+what the poller answered*, deliberately: a record for a ticket nobody is assigned cannot
+be put back as a row anyway, and filtering is one `state.json` read for the whole list
+rather than one per ticket per parked phone.
+
+So a ticket that is cancelled and then **resolved, reassigned, or moved into a project
+this workspace is no longer pointed at** stops being returned, drops out of the fold, and
+its record stays on disk for ever. Nothing listed it, nothing counted it, and nothing
+could drop it. Over years that is a quietly growing object in `state.json` that no screen
+in the app could account for.
+
+**The answer is to list them, not to expire them.** An absence rule would have to prove
+it can never fire on a ticket that is merely missing from one sweep — a JIRA outage, a
+project moved out of the configured list, a paging bug — and the whole reason this record
+has no clock is that a record which expires is a ticket that comes back. Listing needs to
+prove nothing: a record you can see and drop by hand cannot un-cancel a live ticket,
+because a live ticket is not on the list.
+
+`strandedCancels` in `lib/jiracancel.js` is the one list here that **walks the store**
+rather than filtering the tickets, which is the only way to see something the poller never
+mentions. It is still one read, and still nothing at all when there are no records. A
+workspace JIRA could not be asked this minute does not appear, because `lib/jirapoll.js`
+serves that workspace's last good answer rather than an empty one; a workspace switched
+off, or dropped from the config, does — and that is the case it exists for.
+
+They ride the inbox payload as `strandedCancels`, and the fold draws them under a line of
+their own. **Lines rather than cards**, because there is no summary, no status and no link
+to JIRA to be had — the record is all beadcause ever kept. The fold's own label counts
+them (`3 cancelled — 1 with no ticket left`), which is the one number in the ticket
+section allowed to name them, since unlike the live rows it is a number a tap *can* bring
+down.
+
+**And unlike every other list on this payload, it is not filtered to the account you are
+in (bc-0i27.24).** [Accounts](#accounts--one-life-at-a-time) says a bead in the account
+you are not in "goes quiet, and is never lost" — it is on the screen the moment you
+switch. That promise depends on some account claiming the workspace, and the commonest
+way a record ends up here is the opposite: the workspace was dropped from the config
+entirely, which usually drops it out of every account's `workspaces` list too. There is
+then no account switch that reaches it, and — unlike a question or a live ticket — this
+record has no other surface to be found on. So `strandedCancels` skips `inAccount`
+altogether and every account sees the list whole, the same exemption `requests` already
+has for its own reason. It can afford to: each line already names the workspace it came
+from, so a record for a workspace you would not otherwise see reads as *this is where it
+came from*, not as another account's business on your screen.
+
+The one control is **Drop**, `POST /api/jira/forget`, and it is not Beadify. Beadify means
+*put this ticket back*: it reopens the closed epic and expects the row to return on the
+next sweep, and here neither is true, so it would strand a held bead instead of a record.
+Drop lifts the earmark and leaves the epic closed, which is what the history of a
+cancelled ticket should look like. It is the only route in this path that does not resolve
+its workspace against the config, because a workspace that has left the config is the
+commonest way to strand a record and every other route would answer `400` on exactly the
+records this is here to clear. And it re-asks the poller at the moment of the write: a
+ticket assigned back to you since the payload was drawn is a `409` naming beadify, never a
+silent un-cancel.
+
+Records too broken to key — no workspace, or no ticket — are not on the list and need no
+button. `readCancelled` drops them on read, and every write in that file saves the
+normalised map back, so the first cancel or drop after one appears prunes it; a record
+that matches no ticket was never suppressing one.
+
+`node test/jiracancel.mjs` covers the list and the live-ticket guard; `node
+test/jiragate.mjs` covers the drop, including the workspace that is no longer configured
+and the `409`; `node test/jiraview.mjs` covers the fold.
 
 ### Reading the ticket — the children under the epic, and what the row says while it happens
 
