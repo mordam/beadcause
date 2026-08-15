@@ -189,6 +189,22 @@
      * frame is already the shape you left it in.
      */
     p0shut: localStorage.getItem('beadcause.p0shut') === '1',
+    /**
+     * Which statuses the board's trees draw — one filter over every card. bc-rfnr.9.6.
+     *
+     * **One, and above the board rather than one per card.** Every tree on the screen is
+     * answering the same question at the same time ("what is left under my epics", or
+     * "what have they delivered"), and a control per card would mean setting it four
+     * times to ask it once — and then reading four trees that could each be showing
+     * something different, with the only record of which on the cards themselves.
+     *
+     * **Stored by id rather than as a set of statuses**, so an unknown value — a newer
+     * page's option, a hand-edited key — falls back to the default in `p0StatusFilter`
+     * instead of drawing an empty board. Persisted like `p0shut` and unlike `p0open`:
+     * whether you are reading what is left or what has landed is a standing preference,
+     * where which epic is unfolded is where you happen to be looking.
+     */
+    p0status: localStorage.getItem('beadcause.p0status') || 'live',
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -5138,6 +5154,98 @@
   const P0_SECTION_LABEL = 'Epics assigned to you';
 
   /**
+   * The three things the status filter can be asking for. bc-rfnr.9.6.
+   *
+   * **Not one chip per status.** `open`, `in_progress` and `blocked` are three words for
+   * the same answer — this is still going — and a control offering them separately would
+   * be three taps to say the one thing anybody wants said, with four of the eight
+   * combinations meaning nothing. What the board is actually asked is which of two
+   * questions it is answering, plus the case where you want both at once.
+   *
+   * **`live` is the default and it is the whole point of the bead.** A tree that drew its
+   * closed beads by default is an epic reading as twice the size it is: bc-rfnr had 16
+   * descendants and 9 of them had landed. But closed work is not hidden either — a closed
+   * child is how you read what a P0 has *delivered*, which is the one thing the "N open"
+   * count on the card can never tell you — so it is one tap away rather than gone.
+   *
+   * `match` takes the status string and nothing else. Anything richer would be a
+   * predicate over a row, and a row-level rule is exactly what `p0Visible` cannot use:
+   * ancestors are kept for their children's sake and not for their own.
+   */
+  const P0_STATUS_FILTERS = [
+    { id: 'live', label: 'Not closed', match: (s) => s !== 'closed' },
+    { id: 'all', label: 'All', match: () => true },
+    { id: 'closed', label: 'Closed', match: (s) => s === 'closed' },
+  ];
+
+  /** The filter in force, with an unknown or absent id reading as the default. */
+  function p0StatusFilter() {
+    return P0_STATUS_FILTERS.find((f) => f.id === state.p0status) || P0_STATUS_FILTERS[0];
+  }
+
+  /**
+   * One card's tree, narrowed to the filter — **with the ancestors of everything kept**.
+   *
+   * That second half is the whole difficulty. The rows are flat and pre-order with a
+   * `depth` drawn as an indent (`p0RowHtml`), so a row's place in the tree is carried
+   * entirely by what is above it: drop an open parent while keeping its closed child and
+   * the child appears indented under whatever row happened to precede it, which is a
+   * different bead's child. So a row that the filter excludes is still drawn when
+   * something under it is included, marked `context` — it is there to hold the branch up,
+   * not because it matched, and the row draws itself dimmer to say so.
+   *
+   * Pre-order is what makes the walk cheap and correct: a parent is always seen before
+   * its children, so a parent that matched on its own is already `true` in the map by the
+   * time a child walks up to it, and the walk can stop at the first ancestor already
+   * marked — everything above that one is marked too.
+   */
+  function p0Visible(rows) {
+    const all = rows || [];
+    const { match } = p0StatusFilter();
+    const byId = new Map(all.map((r) => [r.id, r]));
+    // `id → matched on its own`. False means kept for a descendant's sake.
+    const keep = new Map();
+    for (const row of all) {
+      if (!match(String(row.status || 'open'))) continue;
+      keep.set(row.id, true);
+      // Up the parent chain until it leaves the tree — `parent` on a top-level row is the
+      // P0 itself, which is the card and never a row — or reaches one already kept.
+      let up = byId.get(row.parent);
+      while (up && !keep.has(up.id)) {
+        keep.set(up.id, false);
+        up = byId.get(up.parent);
+      }
+    }
+    return all.filter((r) => keep.has(r.id)).map((r) => ({ ...r, context: !keep.get(r.id) }));
+  }
+
+  /**
+   * The filter itself: one row of chips above the cards, drawn as the segmented switch
+   * the inbox's scope row already is (`.chip-row.scopes`), because it is the same kind of
+   * control — one of three, never none, and it changes what every list under it contains.
+   *
+   * **Each chip carries what it would leave you with**, counted over the cards actually on
+   * the board rather than over the payload, for the reason the kind chips carry theirs: a
+   * chip offering "Closed" on a board where nothing has landed is a control that sends you
+   * to an empty screen, and the count is what stops you tapping it to find out. Counted on
+   * the rows' own statuses and not through `p0Visible` — the ancestors it keeps are
+   * context, and counting them would have "Closed 12" over a tree with four closed beads
+   * in it.
+   */
+  function p0StatusHtml(cards) {
+    const on = p0StatusFilter().id;
+    const rows = cards.flatMap((c) => c.tree || []);
+    return `<div class="chip-row scopes p0-status" role="group" aria-label="Which beads the trees show">${P0_STATUS_FILTERS.map(
+      (f) => {
+        const n = rows.filter((r) => f.match(String(r.status || 'open'))).length;
+        return `<button type="button" class="chip" data-act="p0-status" data-status="${esc(f.id)}" aria-pressed="${
+          f.id === on
+        }">${esc(f.label)}<span class="chip-count">${n}</span></button>`;
+      }
+    ).join('')}</div>`;
+  }
+
+  /**
    * The line under the title saying what a tap does, and how much there is.
    *
    * It carries the *total* where the count above it carries what is open, which is the
@@ -5145,10 +5253,19 @@
    * epic is nine of ten or nine of sixty. And it is the honest place to say a P0 has
    * nothing under it at all — a card promising a tree and opening on one sentence is a
    * worse read than a card that said so with its mouth shut.
+   *
+   * **Two numbers since bc-rfnr.9.6**, because the filter put a wedge between them: `shown`
+   * is what the tap will actually give you and `total` is what is filed. Promising 16 and
+   * opening on 7 is the hint lying about the one thing it exists to say — and the two
+   * ways of having nothing are different sentences, since "nothing filed under it yet" over
+   * an epic with nine closed children under a `Not closed` filter is the control's doing
+   * and not the tracker's.
    */
-  function p0HintText(on, total) {
+  function p0HintText(on, shown, total) {
     if (on) return 'Tap to fold it up';
     if (!total) return 'Nothing filed under it yet';
+    if (!shown) return 'Nothing under it matches the filter';
+    if (shown < total) return `Tap for ${shown} of the ${total} beads under it`;
     return `Tap for ${total === 1 ? 'the one bead' : `all ${total} beads`} under it`;
   }
 
@@ -5166,6 +5283,12 @@
    *
    * Only a non-open status is drawn. There can be sixty rows here, and sixty pills all
    * saying `open` is the default restated sixty times.
+   *
+   * **`context` is bc-rfnr.9.6's**: this row did not match the status filter and is drawn
+   * only so the rows under it keep their place. A class and nothing more — no
+   * `aria-hidden`, no `tabindex` taken away — because it is still a real link to a real
+   * bead, and a screen reader that skipped it would read the tree with a level missing,
+   * which is the exact failure drawing the row at all is preventing.
    */
   function p0RowHtml(card, row) {
     const status = String(row.status || 'open');
@@ -5173,7 +5296,7 @@
     // `depth` arrives 1-based from `treeUnder` — a direct child is 1 — so the indent is
     // one step per level *below* the first, capped as above.
     const step = Math.min(Math.max(Number(row.depth) || 1, 1), P0_INDENT_CAP + 1) - 1;
-    return `<a class="p0-row${closed ? ' done' : ''}${row.pending ? ' asks' : ''}" style="--d:${step}" href="${esc(
+    return `<a class="p0-row${closed ? ' done' : ''}${row.context ? ' via' : ''}${row.pending ? ' asks' : ''}" style="--d:${step}" href="${esc(
       `${graphUrl({ workspace: card.workspace, id: row.id })}&open=1`
     )}">
       <span class="p0-row-id">${esc(row.id)}</span>
@@ -5202,7 +5325,17 @@
     if (!rows.length) {
       return `<div class="p0-none">Nothing under this one yet — no beads hang off ${esc(card.id)}.</div>`;
     }
-    return `<div class="p0-tree" id="p0tree-${cardId(card.key || `${card.workspace}/${card.id}`)}">${rows
+    // And an epic whose whole tree the filter excludes says *that* instead, in the same
+    // place and for the same reason: the two are different facts, and an epic with nine
+    // landed children reading as one nobody has broken down yet is the filter telling a
+    // lie about the tracker. Names the control, since the control is what to change.
+    const shown = p0Visible(rows);
+    if (!shown.length) {
+      return `<div class="p0-none">Nothing under ${esc(card.id)} matches the filter — all ${
+        rows.length === 1 ? 'one bead' : `${rows.length} beads`
+      } under it are the other side of it.</div>`;
+    }
+    return `<div class="p0-tree" id="p0tree-${cardId(card.key || `${card.workspace}/${card.id}`)}">${shown
       .map((row) => p0RowHtml(card, row))
       .join('')}</div>`;
   }
@@ -5237,6 +5370,14 @@
    * count stays on the shut line, and the fold is display only, so the list below is
    * narrowed to your epics' descendants exactly as it was. See `state.p0shut`, which is
    * stored shut-side-true so that every default there has ever been reads as open.
+   *
+   * **And one status filter over the lot of them (bc-rfnr.9.6).** It sits between the
+   * heading and the cards — above the board, not on it — because it is one question asked
+   * of every tree at once, and it goes away with the cards when the board is folded: a
+   * control over things that are not on screen is a control you set and cannot see the
+   * effect of. What it narrows is the *trees* and nothing else; the list under the board
+   * is `underOwnedP0s`'s business, and a bead you filtered out of a tree is still a
+   * question you are being asked.
    */
   /**
    * The one control on a P0 card, in its three states — and the point of bc-d6yk is that
@@ -5298,6 +5439,10 @@
         const key = c.key || `${c.workspace}/${c.id}`;
         const on = state.p0open.has(key);
         const tree = c.tree || [];
+        // What the tap will actually open, which since bc-rfnr.9.6 is not the same number
+        // as what is filed under the epic. Counted here rather than inside the hint so the
+        // hint stays a sentence about two numbers and nothing else.
+        const shown = p0Visible(tree).filter((r) => !r.context).length;
         return `<div class="p0-card${on ? ' on' : ''}" data-key="${esc(key)}">
           <button type="button" class="p0-tap" data-act="p0" data-p0="${esc(key)}" aria-expanded="${on}"${
             on ? ` aria-controls="p0tree-${cardId(key)}"` : ''
@@ -5309,7 +5454,7 @@
             }</span></span>
             <span class="p0-title">${esc(c.title || '')}</span>
             ${c.waitingOn ? `<span class="p0-waiting">${esc(c.waitingOn)}</span>` : ''}
-            <span class="p0-hint">${p0HintText(on, tree.length)}</span>
+            <span class="p0-hint">${p0HintText(on, shown, tree.length)}</span>
           </button>
           ${on ? p0TreeHtml(c) : ''}
           <div class="p0-acts">
@@ -5329,7 +5474,7 @@
         <span class="chev" aria-hidden="true">›</span>
         ${P0_SECTION_LABEL}
         <span class="p0-kind-n">${mine.length}</span>
-      </button>${shut ? '' : cards}</section>`;
+      </button>${shut ? '' : p0StatusHtml(mine) + cards}</section>`;
   }
 
   function render(force = false) {
@@ -6153,6 +6298,29 @@
     if (act === 'p0-fold') {
       state.p0shut = !state.p0shut;
       localStorage.setItem('beadcause.p0shut', state.p0shut ? '1' : '0');
+      render(true);
+      return;
+    }
+
+    /**
+     * Which statuses every tree on the board draws. bc-rfnr.9.6.
+     *
+     * The same shape as the fold above and for the same reasons: a state write, a
+     * `localStorage` write on the tap because the next thing that happens to this page is
+     * a poll and there is no later save, and a repaint. Nothing is poked in the DOM — the
+     * board is one reconcile chunk that is replaced whole every 25 seconds, so a filter
+     * applied by hiding nodes would come undone under your thumb, exactly as an open tree
+     * would (see `state.p0open`).
+     *
+     * An id this page does not know is ignored rather than stored: `p0StatusFilter` would
+     * fall back and draw the default, and writing it would leave the phone in a state
+     * whose control had no chip pressed.
+     */
+    if (act === 'p0-status') {
+      const pick = btn.dataset.status;
+      if (!P0_STATUS_FILTERS.some((f) => f.id === pick)) return;
+      state.p0status = pick;
+      localStorage.setItem('beadcause.p0status', pick);
       render(true);
       return;
     }

@@ -3696,14 +3696,17 @@ The card is a summary you can open. Collapsed it is what the week is about — t
 much is in flight, how much is open, the title, the advocate's sentence if there is one,
 and a line saying how many beads are behind the tap. That last number is the *total*,
 where the count above it is what is left: "9 open" tells you nothing about whether the
-epic is nine of ten or nine of sixty.
+epic is nine of ten or nine of sixty. Since bc-rfnr.9.6 it is two numbers whenever the
+status filter is narrowing anything — "Tap for 7 of the 16 beads under it" — because the
+line promises what the tap will actually open, and a filter is exactly what puts a wedge
+between what is filed and what you will get.
 
 Tap it and the tree unfolds in place, indented under each parent, one row per descendant
 at any depth. A row says the bead's id and title, marks it **asks you** when it is itself
 a question (`pending`), and names any status that is not `open` — sixty rows all saying
-`open` is the default restated sixty times. Closed work stays, struck through and faded,
-because it is what the epic has *done*; bc-rfnr.9.6 gives the whole board a status filter
-that will default to hiding it. Each row is a link into [the dependency
+`open` is the default restated sixty times. Closed work is struck through and faded where
+it is drawn at all; whether it is drawn is [the board's status
+filter](#one-status-filter-over-the-whole-board), which defaults to not. Each row is a link into [the dependency
 graph](#what-a-question-is-blocking) at that bead, until bc-rfnr.9.4 makes it expand in place instead. A P0 with nothing under it
 expands to a sentence saying so — an empty gap reads as a tree that failed to arrive.
 
@@ -3733,6 +3736,64 @@ browser, no `bd` — over a fixture nested five deep: that a collapsed card draw
 all, that an expanded one draws every descendant in the server's order, that the indent
 steps and then stops, that only the tapped card opens, that the same state renders the
 same board twice, and that the tap handler writes state rather than reaching into the DOM.
+
+### One status filter over the whole board
+
+Between the heading and the cards sits one control — **Not closed · All · Closed** — and
+it decides what every tree on the board draws. Not one per card: every tree on the screen
+is answering the same question at the same time, so a control per card would be four taps
+to ask it once, and then four trees that could each be showing something different with
+the only record of which on the cards themselves.
+
+**It defaults to not closed**, which is the whole reason it exists. `bc-rfnr` has 16
+descendants and nine of them have landed; a tree that drew all sixteen by default is an
+epic reading as twice the size it is, and the number you came for — what is left — is the
+one you have to count out of the list yourself. Open, in progress and blocked are one
+answer here (*this is still going*) rather than three chips, because the four other
+combinations of three checkboxes mean nothing anybody wants to ask.
+
+**And closed work is one tap away rather than gone.** A closed child is how you read what
+a P0 has *delivered*, which is the one thing the "N open" count on the card can never tell
+you. Each chip carries what it would leave you with, counted over the cards on the board,
+so `Closed 0` says there is nothing behind that tap before you take it.
+
+The part that fails silently is the ancestors. The rows arrive flat with a `depth` drawn
+as an indent, so a row's place in the tree is carried entirely by what is above it: drop
+an open parent while keeping its closed child and the child does not leave a gap, it
+indents under whatever row happened to precede it and reads as *that* bead's child. So a
+row the filter excludes is still drawn when something under it is included — marked with
+a dashed leading edge, because it is scaffolding rather than an answer, and a `Closed`
+filter drawing open beads with nothing to say why reads as the filter not working. Pre-
+order is what makes that cheap: a parent is always seen before its children, so the walk
+up the parent chain can stop at the first ancestor already kept.
+
+Three smaller decisions, each of which had a wrong way that looked fine:
+
+- **It narrows the trees and nothing else.** The list under the board is
+  `underOwnedP0s`'s business — a bead you filtered out of a tree is still a question you
+  are being asked, and a status filter that reached the list would hide it with nothing on
+  screen saying where it went.
+- **The pick is page state, persisted** (`beadcause.p0status`), like the fold and unlike
+  which cards are open. The board is one reconcile chunk replaced whole every 25 seconds,
+  so a filter applied by hiding nodes would come undone under your thumb; and whether you
+  are reading what is left or what has landed is a standing preference. An id the page
+  does not know — a newer option, a hand-edited key — reads as the default rather than
+  being stored, so the phone can never come back with no chip pressed and an empty board.
+- **An epic the filter empties says so in its own sentence.** "Nothing under `bc-done`
+  matches the filter" and "nothing filed under it yet" are different facts, and the second
+  one over an epic with nine closed children is the control lying about the tracker.
+
+`node test/p0card.mjs` covers it in the same `node:vm` as the rest of the board, over a
+fixture with both awkward shapes in it: a closed parent with an open child, and an open
+parent with a closed one. `node scripts/p0filter-check.mjs` is the half no renderer test
+can see — a real tap in headless Chrome at 393×852: that the chips are inside `#list` at
+all, since every handler on this page is delegated from that element and one drawn outside
+it renders perfectly and does nothing; that three chips fit one line on a phone; that the
+list under the board has exactly the rows it had either side of every tap; and that a
+reload comes back where you left it, which is two separate ends — the write on the tap and
+the read at boot — either of which can be missing with the page looking right all session.
+The mark on a held-up row is read as a computed border style rather than as a class, so it
+fails on a stale stylesheet too, which is what [v62](docs/sw-cache/v62.md) is about.
 
 ### And the section folds, under a heading that says what it is
 
