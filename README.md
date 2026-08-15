@@ -15375,14 +15375,16 @@ The human half is the opposite — read from live config and live state on every
 never copied into the module. "Who can sign in" is a fact about a file, and a second copy
 of it is an answer that drifts and is believed anyway.
 
-And no framework id appears anywhere in `lib/access.js`. That is a seam, not an
-omission: one closed control corpus across SOC 2, ISO 27001 and 42001 is being built
-separately with the crosswalk edges on the control, and an id written here first would be
-a second vocabulary — the "same control implemented three times" that a single corpus
-exists to prevent. This file is the *evidence*; the corpus cites it. Which criteria it
-answers is said here, in prose, where nothing can mistake it for a vocabulary: identity
-and authentication, authorisation against a role, removal on termination, boundary
-protection, and controls over what may run.
+And nothing in the register is **keyed** by a framework id — no exported value in
+`lib/access.js` contains one, and a couple of comments name a criterion only so a later
+reader knows what a paragraph was for. That is a seam, not an omission: one closed control
+corpus across SOC 2, ISO 27001 and 42001 is being built separately with the crosswalk
+edges on the control, and an id written into the data here first would be a second
+vocabulary — the "same control implemented three times" that a single corpus exists to
+prevent. This file is the *evidence*; the corpus cites it, in that direction. Which
+criteria it answers is said here, in prose, where nothing can join on it: identity and
+authentication, authorisation against a role, removal on termination, boundary
+protection, protection of data in transit, and controls over what may run.
 
 ### What an agent may run, and the one kind that has no allowlist
 
