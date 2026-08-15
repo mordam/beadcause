@@ -1630,8 +1630,13 @@
         if (!bead) return;
         const field = el.dataset.field;
         bead[field] =
+          // Labels are split on the comma and otherwise left alone. They used to be
+          // slugged here as well, which quietly turned `owner:adam@example.com` into
+          // `owner-adam-example-com` — a lookalike no label query matches — and the
+          // structured labels are exactly the ones worth typing (bc-vriu.1). The server
+          // normalises identically; see `labelList` in lib/draft.js for why.
           field === 'labels'
-            ? el.value.split(',').map((s) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')).filter(Boolean)
+            ? el.value.split(',').map((s) => s.trim()).filter(Boolean)
             : el.value;
         if (el.tagName === 'TEXTAREA') autoGrow(el);
         markDirty();

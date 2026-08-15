@@ -150,6 +150,36 @@ console.log('\nthe tab bars');
   check('the agents page wears .agent-tabs', wears('foundations.html', '.agent-tabs'));
   check('the monitor wears .mon-tabs', wears('monitor.html', '.mon-tabs'));
   check('and neither page wears the other bar’s class', !wears('foundations.html', '.mon-tabs') && !wears('monitor.html', '.agent-tabs'));
+
+  /*
+    Where .mon-tabs sticks, which is a contract across two files (bc-ugd4).
+
+    The strip pins under a sticky `.topbar` whose height is a runtime fact — 104px with
+    the space picker's row and 61px without it, and the picker hides itself below two
+    workspaces. So the offset is `var(--topbar-h)`, published by public/montabs.js from
+    a `ResizeObserver` on the bar. Two files, and either half is silently useless
+    without the other: a stylesheet asking for a variable nobody sets falls back to the
+    two-row bar and leaves a 43px hole for anybody running one repo, and a script
+    setting a variable nobody reads is dead code that reads as a fix.
+
+    `scripts/topbar-check.mjs` measures the real thing, in both bar heights, and is what
+    would actually catch it — but it wants Chrome and is not in `npm test`, so the two
+    names being spelled the same in both files is asserted here, where it costs nothing.
+  */
+  const mon = top.find((b) => b.prelude === '.mon-tabs');
+  const body = mon ? blank(css).slice(mon.opens + 1, mon.closes) : '';
+  const VAR = '--topbar-h';
+  check(
+    `.mon-tabs sticks at var(${VAR}) rather than a constant`,
+    /position:\s*sticky/.test(body) && new RegExp(`top:\\s*var\\(\\s*${VAR}\\b`).test(body),
+    `it declares "${(body.match(/top:[^;]*/) || ['no top'])[0].trim()}" — a number here is right for one of the bar's two heights`
+  );
+  const montabs = fs.readFileSync(path.join(PUBLIC, 'montabs.js'), 'utf8');
+  check(
+    `and public/montabs.js is what sets ${VAR}`,
+    montabs.includes(`setProperty('${VAR}'`) && /ResizeObserver/.test(montabs),
+    `nothing in montabs.js calls setProperty('${VAR}', …) off a ResizeObserver, so the stylesheet is on its fallback`
+  );
 }
 
 /* ------------------------------------------- a flex row says it is one (bc-8l74)

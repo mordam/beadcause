@@ -110,6 +110,8 @@ process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
 
 const { reconcileLanded, landedReason, describeLanded, describeTruncation, windowDays } = await import(LIB('landed.js'));
 const { forgetPrefixes } = await import(LIB('beadref.js'));
+// The real predicate, so the fixture's gate below refuses exactly what the daemon's does.
+const { isMergeReason } = await import(LIB('bd.js'));
 const prlib = await import(LIB('pr.js'));
 
 /** Does `merged:A..B` span roughly `days`? Roughly, because both ends round to a second. */
@@ -215,8 +217,12 @@ function fakeBd(beads, { gate = () => null, comments = () => [], questions = [],
       calls.listLabel += 1;
       return questions;
     },
-    async closeGate(_ws, id) {
-      return gate(id);
+    // `opts` carries the reason the close would use, which one gate is entirely about —
+    // an epic does not close on a merge (lib/bd.js). Handed to the fixture's `gate` so a
+    // case can assert both that the rule bites and that the sweep passes it its own
+    // sentence rather than something it made up.
+    async closeGate(_ws, id, opts) {
+      return gate(id, opts);
     },
     async comment(_ws, id, text) {
       writes.push({ kind: 'comment', id, text });
@@ -258,6 +264,36 @@ console.log('\nreconcileLanded');
   check('and a comment says so on the bead', /Landed as \[#42\]/.test(said?.text || ''), said?.text);
   check('the result names what it closed', result.closed.length === 1 && result.closed[0].id === 'wg-aaa', JSON.stringify(result));
   check('the sweep reports itself as having run', result.ok === true && result.checked === 1, JSON.stringify(result));
+}
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const renamed = [];
+  await reconcileLanded(bd, ws('one-b'), REPO, {
+    rows: [asListed(mergedRow())],
+    markMerged: (id) => renamed.push({ id, closedYet: bd.writes.some((w) => w.kind === 'close') }),
+  });
+  // A pull request merged on github.com never passes the merge queue, so this sweep is
+  // the only thing that can tell the window its branch landed — see lib/retitle.js. It
+  // has to happen *before* the close: closing the work bead is what makes the window
+  // reapable, and a rename after that races the signal that closes it.
+  check('a merge nobody here made still renames the window', renamed.length === 1 && renamed[0].id === 'wg-aaa', JSON.stringify(renamed));
+  check('and it is told before the bead closes, not after', renamed[0]?.closedYet === false, JSON.stringify(renamed));
+}
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa' }]);
+  await reconcileLanded(bd, ws('one-c'), REPO, {
+    rows: [asListed(mergedRow())],
+    markMerged: () => {
+      throw new Error('no ~/.claude here');
+    },
+  });
+  // Cosmetic against structural: a window wearing a stale name must never stop a bead
+  // closing over work that is already in `main`.
+  check('a rename that throws does not stop the close', bd.writes.some((w) => w.kind === 'close'), JSON.stringify(bd.writes));
 }
 
 {
@@ -334,6 +370,28 @@ console.log('\nreconcileLanded');
     result.skipped.some((s) => s.why === 'an epic with 1 open child issue'),
     JSON.stringify(result.skipped)
   );
+}
+
+{
+  forgetPrefixes();
+  // **This sweep is what closed bc-ka5y** — an epic naming twenty-three adoptees, closed
+  // as "Merged #212 as 72789c0b into main on GitHub" with twenty-one of them still open,
+  // because bd sees an epic with no children and an `Adopts:` line is prose. So the gate
+  // is now asked about the *reason*, and this asserts both halves: that the sentence
+  // reaching it is the one this close would carry, and that the epic survives.
+  let asked = null;
+  const bd = fakeBd([{ id: 'wg-aaa', issue_type: 'epic' }], {
+    gate: (id, opts) => {
+      asked = opts;
+      return isMergeReason(opts?.reason)
+        ? { kind: 'merge-reason', blockers: [], reason: 'an epic does not close on a merge — a pull request is no evidence about the theme' }
+        : null;
+    },
+  });
+  const result = await reconcileLanded(bd, ws('seven-c'), REPO, { rows: [asListed(mergedRow())] });
+  check('the gate is told the reason this close would carry', /Merged #42 as abc1234/.test(asked?.reason || ''), JSON.stringify(asked));
+  check('an epic is left open rather than closed on a merge', bd.writes.length === 0, JSON.stringify(bd.writes));
+  check('and the sweep reports it as a skip', result.skipped.some((s) => /no evidence about the theme/.test(s.why)), JSON.stringify(result.skipped));
 }
 
 {

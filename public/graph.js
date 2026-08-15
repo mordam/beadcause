@@ -81,6 +81,14 @@
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+  // A comment author with any `(who)` taken back off, so `beadcause (carol@example.com)`
+  // is recognised as beadcause. The rule is `writtenByDaemon` in lib/byline.js; it is
+  // restated here rather than imported because nothing under public/ imports from lib/.
+  const bylineBase = (author) => {
+    const m = /^(.*?)\s*\(([^()]*)\)$/.exec(String(author || '').trim());
+    return (m ? m[1] : String(author || '')).trim();
+  };
+
   /* ------------------------------------------------------------------ ages */
 
   // Every age on this page is measured from the *server's* clock, sent with the
@@ -1022,11 +1030,17 @@
    * "waits on 1", because bd counts the edge to its parent among them.
    *
    * So the array is split rather than counted, and each edge goes to the group whose
-   * label is true of it. `discovered-from` and `related` get their own group instead
-   * of being folded into "waits on": neither blocks anything, and a bead that says it
-   * is waiting on something it is not is worse than one that says nothing.
+   * label is true of it. `discovered-from` and the see-alsos get their own group
+   * instead of being folded into "waits on": neither blocks anything, and a bead that
+   * says it is waiting on something it is not is worse than one that says nothing.
+   *
+   * **`relates-to` is the spelling bd writes and `related` is the one this file had.**
+   * The set held only the second until bc-arj0.4, because the whole tracker held one
+   * see-also and it was made by hand with the older name. It is the same word here as
+   * lib/mentions.js's `RELATED_EDGES` — repeated rather than imported, because this
+   * file is served to a browser and imports nothing at all.
    */
-  const RELATED = new Set(['discovered-from', 'related']);
+  const RELATED = new Set(['discovered-from', 'related', 'relates-to']);
 
   function relations(b) {
     const known = Array.isArray(b.dependencies);
@@ -1075,6 +1089,13 @@
    * one dependent and no children, so it paid for a call that drew nothing. That case is
    * the Blocks list now, which is what makes this gate tight in both directions — the
    * only bead that asks and gets nothing back is one whose count and edges disagree.
+   *
+   * Since bc-arj0.4 there is a second such bead and it is no longer rare: a see-also is
+   * counted here and then dropped by `dependentsHtml`, because it is already drawn above
+   * the description. So a bead whose only incoming edges are see-alsos pays for a call
+   * that renders an empty div. Tightening it would mean a count of edges *by type*, which
+   * bd does not offer without the rows this call is fetching — and the empty div has no
+   * height, so what it costs is one request and nothing on the screen.
    */
   const hasDependents = (b) => Boolean(b && b.dependent_count);
 
@@ -1136,10 +1157,18 @@
    *  - **`discovered-from`** is work that came *out* of this bead. It waits on nothing —
    *    "Discovered here" is what it is, and calling it blocked would be a queue that
    *    does not exist.
-   *  - **`related`** is the same word from either end; bd stores that edge once, on
+   *  - **`related`** is the same word from either end; bd stores *that* edge once, on
    *    whichever bead it was created from, so it shows up above the description on one of
    *    the pair and down here on the other. Same label both ways, because it means the
    *    same thing both ways.
+   *  - **`relates-to`** is the same relationship under the name `bd dep relate` actually
+   *    writes, and it is the one exception here: bd stores it **twice**, one row at each
+   *    end. So the row is already up above the description under Related, drawn from
+   *    `bd show`'s own dependencies, and printing the incoming half as well would put the
+   *    same neighbour on the card twice under one heading — the exact duplication the
+   *    `parent-child` rule above exists to prevent. Dropped, therefore, rather than
+   *    grouped. The older one-ended `related` is not dropped, because on that end it is
+   *    the only row there is.
    *
    * Everything left blocks — including an edge with no type at all, which is the same
    * benefit of the doubt `relations` gives a typeless dependency going the other way.
@@ -1149,7 +1178,9 @@
    * not. Pure, like `childrenHtml`, so the whole block can be rendered in a test.
    */
   function dependentsHtml(dependents) {
-    const rows = (dependents || []).filter(Boolean).filter((r) => r.dependency_type !== 'parent-child');
+    const rows = (dependents || [])
+      .filter(Boolean)
+      .filter((r) => r.dependency_type !== 'parent-child' && r.dependency_type !== 'relates-to');
     if (!rows.length) return '';
     const of = (type) => rows.filter((r) => r.dependency_type === type);
     const groups = [
@@ -1315,6 +1346,57 @@
   }
 
   /**
+   * "Model · opus · complexity:high · ran on opus" — the routing decision, in full.
+   *
+   * bc-nc6o.5, and the sibling of the inbox chip in public/app.js. The chip has a meta
+   * row to fit in and says the short form; this has a sheet, so it says the three facts
+   * separately rather than compressing them: what it is **routed to**, **why** — the
+   * tier, or the absence of one — and what a finished session **actually ran on**.
+   *
+   * **Those last two are a different fact and the row exists to keep them apart.** A
+   * model chosen a second before a window opens is a plan; the hour inside it was billed
+   * to whatever the session was really on, and they come apart for at least four ordinary
+   * reasons (see lib/ranmodel.js). Showing one number for both is the failure this whole
+   * sub-epic is against, because the wrong one is entirely plausible.
+   *
+   * **Drawn on every bead, open or closed**, directly under the session row: that row
+   * leads to what ran, and this says what it ran *on*, so on a closed bead the sheet
+   * reads in order — it closed, here is why, here is the session, here is the model. The
+   * unworked case is not a gap either: every bead is routed somewhere, and an untiered
+   * one is routed to the expensive model, which is worth seeing before somebody opens a
+   * window on it rather than after the bill.
+   *
+   * Reads `b.model`, derived once on the daemon in lib/modelcard.js and handed to the
+   * inbox card as the same object — not worked out here from `b.labels`. The tier is a
+   * label but the model is a *mapping* over it, and a browser copy of that mapping is
+   * one that keeps drawing confidently after the router has moved on.
+   */
+  function modelRowHtml(b) {
+    const m = b?.model;
+    if (!m?.model) return '';
+    const ran = (m.ran || []).filter(Boolean);
+    const bits = [
+      `<span class="model-kind">Model</span>`,
+      `<span class="model-picked">${esc(m.model)}</span>`,
+      m.problem
+        ? `<span class="model-why is-bad">⚠ ${esc(m.problem)}</span>`
+        : m.tier
+          ? `<span class="model-why">complexity:${esc(m.tier)}</span>`
+          : // Not "unknown": nothing failed, nobody rated it, and that is the state most
+            // of this tracker is in. The row says which way the silence is resolved.
+            `<span class="model-why is-none">no tier — the fallback</span>`,
+    ];
+    if (ran.length) {
+      bits.push(
+        m.diverged
+          ? `<span class="model-ran is-diverged">⚠ ran on ${esc(ran.join(', '))}</span>`
+          : `<span class="model-ran">ran on ${esc(ran.join(', '))}</span>`
+      );
+    }
+    return `<div class="model-row" id="sheet-model">${bits.join('')}</div>`;
+  }
+
+  /**
    * Owner handles on a bead, off its labels — the client's copy of `ownersOf`.
    *
    * Duplicated rather than shared because there is no module boundary between a browser
@@ -1461,7 +1543,9 @@
       // Carries an id because it does not survive the rows: `loadLinks` takes it off the
       // moment the edges land, the same way `waits on` is not drawn once they have. It is
       // here at all because the count is what can be said at first paint — and it is only
-      // ever a count of edges, so on an epic every one of them is a child.
+      // ever a count of edges, so on an epic every one of them is a child, and since
+      // bc-arj0.4 some of them are see-alsos to beads that merely named this one. There is
+      // no count bd offers that would be better; the rows say it properly a moment later.
       b.dependent_count ? `<span class="pill" id="pill-blocks">blocks ${esc(b.dependent_count)}</span>` : '',
       // Only when the rows are not there to say it better. A count and the list it
       // counts, one above the other, is the sheet saying the same thing twice — and
@@ -1499,6 +1583,11 @@
     // started reading, which is the cost `loadLinks` accepts and this one need not:
     // one row is a known height, where a list of children is not.
     parts.push(sessionRowHtml(b.id, null));
+    // And directly under it: what that session was routed to, and what it ran on. Under
+    // rather than over because the session row is the one that leaves the tracker, and
+    // splitting the two would put a fact about the run above the link to the run itself.
+    const model = modelRowHtml(b);
+    if (model) parts.push(model);
     // Above the description, because "what is this under, and what is it stuck
     // behind" is the question you have before you read a word of it — and because
     // a bead with neither draws nothing here, so it looks exactly as it did before.
@@ -1544,7 +1633,12 @@
       parts.push(
         `<div class="comments">${b.comments
           .map(
-            (c) => `<div class="comment${c.author && c.author !== 'beadcause' ? ' from-agent' : ''}">
+            // On the *base* of the byline: a daemon that knows who it is writes
+            // `beadcause (carol@example.com)`, and an "an agent said this" stripe over
+            // beadcause's own comment is the wrong sentence. Same rule as
+            // `writtenByDaemon` in lib/byline.js, restated because nothing under
+            // public/ imports from lib/.
+            (c) => `<div class="comment${c.author && bylineBase(c.author) !== 'beadcause' ? ' from-agent' : ''}">
               <span class="who">${esc(c.author || '')}</span>
               <div class="md">${md(c.text || '')}</div>
             </div>`

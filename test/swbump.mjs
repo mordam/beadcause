@@ -25,12 +25,30 @@
  * a check that cries wolf on every second branch gets ignored, which is worse than not
  * having it. Only the call-on-a-member-the-other-half-lacks case is red, because that
  * one is a `TypeError` rather than an opinion.
+ *
+ * The stylesheet pair (bc-jdwc) sits inside that advisory rather than beside the red,
+ * and the reason is a count. Replayed over the last 75 pull requests to merge, it names
+ * a pair on exactly one unbumped branch — bc-pzti's `.bead-dupe`, pinned below — and
+ * independently finds the coupling on 12 of the 13 branches that did bump. So it raises
+ * no alarm the advisory was not already raising and it agrees with almost every bump a
+ * human made; what it cannot do is say how much an unstyled name costs, which is the
+ * difference between a warning in the wrong colour and v37's nav of naked links.
+ *
+ * The script-tag pair (bc-nib3.10) is the one shape that lands on *both* sides of that
+ * line, and which side it lands on is decided by the caller. A file added whole is
+ * reached off the window — `window.beadcause.filterMenu.mount(...)` — and the only thing
+ * that loads it is a `<script src>` tag a cached page only just gained; called flat that
+ * is a `TypeError` and red, and called behind `&&` or `?.` it is a control that never
+ * appears and sits in the advisory. bc-nib3.3 has one of each in a single commit, which
+ * is why that branch is pinned below with its version bump put back. Over all 240 merges
+ * `main` has ever had it fires on no unbumped branch at all and independently explains 4
+ * of the 31 that did bump, so it costs the ordinary branch nothing.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyse, cacheVersion, memberCalls, memberDefs, report, shellFiles } from '../lib/swbump.js';
+import { analyse, breaking, cacheVersion, globalCalls, globalInstalls, markupSelectorUses, memberCalls, memberDefs, report, scriptSrcs, shellFiles, styleCouplings, styleSelectors } from '../lib/swbump.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -170,10 +188,260 @@ check('a call is a call and a bare read is not', () => {
   if (calls.has('pending')) throw new Error('a bare .pending read was counted as a call');
 });
 
-// ------------------------------------------------------------------------- the verdict
-
+/** A `public/sw.js` with a version and a SHELL, which is all `analyse` reads out of it. */
 const SW = (version, extra = []) =>
   [`const CACHE = '${version}';`, 'const SHELL = [', "  '/console.js',", "  '/sendqueue.js',", "  '/report.js',", ...extra, '];'].join('\n');
+
+// ------------------------------------------------------- the stylesheet half (bc-jdwc)
+
+check('a stylesheet is read for what it styles, not for what it declares', () => {
+  const css = [
+    '/* .commented-out is prose about a class, not a rule */',
+    ':root { --bg: #0b0f14; --line: #263140; }',
+    '.chip-row { display: flex; background: #141a22; }',
+    '@media (prefers-color-scheme: light) { #board .chip-row { color: #fff; } }',
+  ].join('\n');
+  const sel = styleSelectors(css);
+  if (!sel.has('.chip-row')) throw new Error('a class in a selector was not read');
+  if (!sel.has('#board')) throw new Error('an id in a selector inside @media was not read');
+  for (const junk of ['#0b0f14', '#141a22', '#fff', '#263140', '.commented-out']) {
+    if (sel.has(junk)) throw new Error(`${junk} was read as something the sheet styles`);
+  }
+});
+
+check('the four shapes this app puts a class on the page with', () => {
+  const uses = markupSelectorUses([
+    '  <div class="chip-row" id="board">',
+    '    return `<p class="hint ${tone}">${text}</p>`;',
+    '    el.className = "card open";',
+    "    el.classList.add('flash');",
+    "    el.classList.toggle('shut', !open);",
+    "    el.classList.remove('flash-old');",
+  ]);
+  for (const want of ['.chip-row', '#board', '.hint', '.card', '.open', '.flash', '.shut']) {
+    if (!uses.has(want)) throw new Error(`${want} was not read as drawn`);
+  }
+  if (uses.has('.flash-old')) throw new Error('classList.remove was read as drawing a class');
+  const past = markupSelectorUses([
+    '  <a href="https://beads.example/x" class="ref-link">go</a>',
+    '  // <div class="dead-code">',
+    '  <!-- <div class="commented-out"> -->',
+  ]);
+  if (!past.has('.ref-link')) throw new Error('a class after a URL was lost to the // in it');
+  for (const junk of ['.dead-code', '.commented-out']) {
+    if (past.has(junk)) throw new Error(`${junk} was read out of a comment`);
+  }
+  if ([...uses].some((u) => u.includes('$'))) throw new Error(`an interpolated token was read as a name: ${[...uses]}`);
+});
+
+const CSS = (rules) => rules.map((r) => `${r} { display: block; }`).join('\n');
+
+check('a class newly drawn in one shell file and newly styled in another is a pair', () => {
+  const found = styleCouplings([
+    { path: 'public/style.css', status: 'M', base: CSS(['.card']), head: CSS(['.card', '.bead-dupe']), added: [] },
+    { path: 'public/console.js', status: 'M', base: 'const a = 1;\n', head: '', added: ['  return `<p class="bead-dupe">${text}</p>`;'] },
+  ]);
+  if (found.length !== 1) throw new Error(`expected one pair, got ${JSON.stringify(found)}`);
+  const [c] = found;
+  if (c.selector !== '.bead-dupe' || c.styles !== 'public/style.css' || c.draws !== 'public/console.js') {
+    throw new Error(`the pair names the wrong halves: ${JSON.stringify(c)}`);
+  }
+});
+
+check('restyling a class the page already drew is merely older, not broken', () => {
+  const found = styleCouplings([
+    { path: 'public/style.css', status: 'M', base: CSS(['.card']), head: CSS(['.card', '.card:active']), added: [] },
+    { path: 'public/app.js', status: 'M', base: '<div class="card">\n', head: '', added: ['    html += `<div class="card">${row}</div>`;'] },
+  ]);
+  if (found.length) throw new Error(`an existing class was reported as a pair: ${JSON.stringify(found)}`);
+});
+
+check('a class the sheet already styled is not a pair either', () => {
+  const found = styleCouplings([
+    { path: 'public/style.css', status: 'M', base: CSS(['.chip']), head: CSS(['.chip', '.chip:hover']), added: [] },
+    { path: 'public/app.js', status: 'M', base: 'const a = 1;\n', head: '', added: ['    html += `<b class="chip">${n}</b>`;'] },
+  ]);
+  if (found.length) throw new Error(`a class the cached sheet already knows was reported: ${JSON.stringify(found)}`);
+});
+
+check('a page added whole, styles and all, is never a mixed pair', () => {
+  const r = analyse({
+    swBase: SW('beadcause-v37', ["  '/style.css',", "  '/graph.html',"]),
+    swHead: SW('beadcause-v37', ["  '/style.css',", "  '/graph.html',"]),
+    files: [
+      { path: 'public/graph.html', status: 'A', base: '', head: '<div class="node-card">', added: ['<div class="node-card">'] },
+      { path: 'public/style.css', status: 'M', base: CSS(['.card']), head: CSS(['.card', '.node-card']), added: ['.node-card { display: block; }'] },
+    ],
+  });
+  if (r.styles.length) throw new Error(`an added page was treated as a cached older half: ${JSON.stringify(r.styles)}`);
+});
+
+check('the pair is silent once the version moves', () => {
+  const files = [
+    { path: 'public/style.css', status: 'M', base: CSS(['.card']), head: CSS(['.card', '.bead-dupe']), added: [] },
+    { path: 'public/console.js', status: 'M', base: '', head: '', added: ['  `<p class="bead-dupe">x</p>`'] },
+  ];
+  const shell = ["  '/style.css',"];
+  const unbumped = analyse({ swBase: SW('beadcause-v37', shell), swHead: SW('beadcause-v37', shell), files });
+  if (unbumped.styles.length !== 1) throw new Error('the unbumped branch was not flagged');
+  const bumped = analyse({ swBase: SW('beadcause-v37', shell), swHead: SW('beadcause-v38', shell), files });
+  if (bumped.styles.length) throw new Error('a bumped branch was still flagged');
+});
+
+check('the advisory names the pair when it has one', () => {
+  const lines = report({
+    bumped: false,
+    version: { after: 'beadcause-v37' },
+    changed: ['public/style.css', 'public/console.js'],
+    advisory: true,
+    couplings: [],
+    styles: [{ selector: '.bead-dupe', styles: 'public/style.css', draws: 'public/console.js' }],
+  });
+  const text = lines.join('\n');
+  for (const want of ['.bead-dupe', 'public/style.css', 'public/console.js', 'looks like a working page']) {
+    if (!text.includes(want)) throw new Error(`the advisory does not name ${want}`);
+  }
+});
+
+// ------------------------------------------------ the script-tag half (bc-nib3.10)
+
+check('a script tag is read out of markup, and one inside a comment is not', () => {
+  const srcs = scriptSrcs([
+    '  <script src="/filtermenu.js"></script>',
+    "  <script defer src='/vendor/marked.js'></script>",
+    '  <!-- <script src="/retired.js"></script> -->',
+    '  <script src="https://cdn.example/x.js"></script>',
+    '  <a href="https://x/y">see /notascript.js</a>',
+  ]);
+  for (const want of ['public/filtermenu.js', 'public/vendor/marked.js']) {
+    if (!srcs.has(want)) throw new Error(`${want} was not read as loaded`);
+  }
+  for (const junk of ['public/retired.js', 'public/notascript.js']) {
+    if (srcs.has(junk)) throw new Error(`${junk} was read as loaded`);
+  }
+  if ([...srcs].some((s) => s.includes('cdn.example'))) throw new Error('an off-origin script was read as a cached file');
+});
+
+check('the namespace line is not a surface — the export beside it is', () => {
+  const installs = globalInstalls([
+    '  // window.beadcause.notThis = prose about the line below',
+    '  window.beadcause = window.beadcause || {};',
+    '  window.beadcause.filterMenu = { mount };',
+    '  self.beadcause.stream = { open };',
+  ].join('\n'));
+  for (const want of ['beadcause.filterMenu', 'beadcause.stream']) {
+    if (!installs.has(want)) throw new Error(`${want} was not read as installed`);
+  }
+  if (installs.has('beadcause')) throw new Error('the `window.beadcause = window.beadcause || {}` line was read as a surface');
+  if (installs.has('beadcause.notThis')) throw new Error('a comment was read as an install');
+});
+
+check('a call through the window is read as its chain, and ?. marks it guarded', () => {
+  const calls = globalCalls([
+    '    chrome = window.beadcause.filterMenu.mount(host, {',
+    '    window.beadcause?.absorb?.launch(id);',
+    '    const n = window.beadcause.filterMenu;',
+  ]);
+  const hard = calls.find((c) => c.chain === 'beadcause.filterMenu.mount');
+  if (!hard) throw new Error(`the mount call was not read: ${JSON.stringify(calls)}`);
+  if (hard.optional) throw new Error('a plain call was read as optional-chained');
+  const soft = calls.find((c) => c.chain === 'beadcause.absorb.launch');
+  if (!soft || !soft.optional) throw new Error(`the ?. call was not read as guarded: ${JSON.stringify(calls)}`);
+  if (calls.some((c) => c.chain === 'beadcause.filterMenu')) throw new Error('a bare read was counted as a call');
+});
+
+/** The bc-nib3.3 shape in four lines: a new file, the tag that loads it, a caller. */
+const TAGGED = (callLine, callerBase = 'const a = 1;\n') => ({
+  swBase: SW('beadcause-v50', ["  '/index.html',", "  '/inboxfilter.js',", "  '/filtermenu.js',"]),
+  swHead: SW('beadcause-v50', ["  '/index.html',", "  '/inboxfilter.js',", "  '/filtermenu.js',"]),
+  files: [
+    {
+      path: 'public/filtermenu.js',
+      status: 'A',
+      base: '',
+      head: '  function mount(host) {}\n  window.beadcause = window.beadcause || {};\n  window.beadcause.filterMenu = { mount };\n',
+      added: ['  window.beadcause.filterMenu = { mount };'],
+    },
+    {
+      path: 'public/index.html',
+      status: 'M',
+      base: '<script src="/inboxfilter.js"></script>\n',
+      head: '<script src="/filtermenu.js"></script>\n<script src="/inboxfilter.js"></script>\n',
+      added: ['  <script src="/filtermenu.js"></script>'],
+    },
+    { path: 'public/inboxfilter.js', status: 'M', base: callerBase, head: `${callerBase}${callLine}\n`, added: [callLine] },
+  ],
+});
+
+check('a file added whole whose loader is an edit to a cached page IS a pair', () => {
+  const r = analyse(TAGGED('    chrome = window.beadcause.filterMenu.mount(host, {'));
+  const broke = breaking(r);
+  if (broke.length !== 1) throw new Error(`expected one breaking pair, got ${JSON.stringify(r.scripts)}`);
+  const [s] = broke;
+  if (s.provides !== 'public/filtermenu.js' || s.calls !== 'public/inboxfilter.js' || s.chain !== 'beadcause.filterMenu.mount') {
+    throw new Error(`the pair names the wrong halves: ${JSON.stringify(s)}`);
+  }
+  if (!s.tags.includes('public/index.html')) throw new Error(`the page that gained the tag was not named: ${JSON.stringify(s)}`);
+});
+
+check('the same call behind a check is named in the advisory, not failed', () => {
+  const line = '    if (host && window.beadcause && window.beadcause.filterMenu) window.beadcause.filterMenu.mount(host);';
+  const r = analyse(TAGGED(line));
+  if (breaking(r).length) throw new Error(`a guarded call was failed: ${JSON.stringify(r.scripts)}`);
+  if (r.scripts.length !== 1 || !r.scripts[0].guarded) throw new Error(`the guarded pair was not named: ${JSON.stringify(r.scripts)}`);
+  const text = report(r).join('\n');
+  for (const want of ['beadcause.filterMenu', 'public/filtermenu.js', '/filtermenu.js', 'looks like a working page']) {
+    if (!text.includes(want)) throw new Error(`the advisory does not name ${want}`);
+  }
+});
+
+check('an optional-chained call is guarded too', () => {
+  const r = analyse(TAGGED('    window.beadcause?.filterMenu?.mount(host);'));
+  if (breaking(r).length) throw new Error(`a ?. call was failed: ${JSON.stringify(r.scripts)}`);
+  if (r.scripts.length !== 1) throw new Error(`the ?. pair was not named at all: ${JSON.stringify(r.scripts)}`);
+});
+
+check('a page that already loaded the file is not a pair', () => {
+  const data = TAGGED('    window.beadcause.filterMenu.mount(host);');
+  const page = data.files.find((f) => f.path === 'public/index.html');
+  page.base = '<script src="/filtermenu.js"></script>\n<script src="/inboxfilter.js"></script>\n';
+  const r = analyse(data);
+  if (r.scripts.length) throw new Error(`a tag the cached page already had was read as new: ${JSON.stringify(r.scripts)}`);
+});
+
+check('a call the caller already made is not newly reaching for anything', () => {
+  const call = '    window.beadcause.filterMenu.mount(host);';
+  const r = analyse(TAGGED(call, `${call}\n`));
+  if (r.scripts.length) throw new Error(`a chain the caller already walked was reported: ${JSON.stringify(r.scripts)}`);
+});
+
+check('a new file on every page that nothing calls into is still additive — bc-p38c.2', () => {
+  const r = analyse({
+    swBase: SW('beadcause-v50', ["  '/index.html',", "  '/console.js',"]),
+    swHead: SW('beadcause-v50', ["  '/index.html',", "  '/console.js',"]),
+    files: [
+      { path: 'public/report.js', status: 'A', base: '', head: '  window.beadcause.report = { send };\n', added: ['  window.beadcause.report = { send };'] },
+      { path: 'public/index.html', status: 'M', base: '<p>x</p>\n', head: '<script src="/report.js"></script>\n', added: ['  <script src="/report.js"></script>'] },
+      { path: 'public/console.js', status: 'M', base: 'const a = 1;\n', head: 'const a = 2;\n', added: ['const a = 2;'] },
+    ],
+  });
+  if (r.scripts.length) throw new Error(`a file nothing calls into was reported as a pair: ${JSON.stringify(r.scripts)}`);
+});
+
+check('the script pair is silent once the version moves', () => {
+  const data = TAGGED('    window.beadcause.filterMenu.mount(host);');
+  const bumped = analyse({ ...data, swHead: data.swHead.replace('beadcause-v50', 'beadcause-v51') });
+  if (bumped.scripts.length) throw new Error(`a bumped branch was still flagged: ${JSON.stringify(bumped.scripts)}`);
+});
+
+check('the failure names the caller, the file and the tag', () => {
+  const text = report(analyse(TAGGED('    window.beadcause.filterMenu.mount(host);'))).join('\n');
+  for (const want of ['public/inboxfilter.js', 'public/filtermenu.js', 'public/index.html', '<script src="/filtermenu.js">', 'Bump const CACHE']) {
+    if (!text.includes(want)) throw new Error(`the failure text does not name ${want}`);
+  }
+});
+
+// ------------------------------------------------------------------------- the verdict
 
 check('a member gained in one shell file and called in another fails, unbumped', () => {
   const r = analyse({
@@ -289,10 +557,75 @@ if (hasRev(DMT) && hasRev(`${DMT}^2`)) {
   note(`bc-dmt (${DMT.slice(0, 7)}) is not in this clone — skipped`);
 }
 
+/**
+ * bc-pzti (#209): the one branch in the last 75 pull requests the stylesheet half fires
+ * on, and it is a true one — `console.js` gained a `class="bead-dupe"` duplicate warning,
+ * `style.css` gained the block that lays it out, and `public/sw.js` was not touched at
+ * all. A phone on the cached older sheet draws that warning as an underlined blue link
+ * at body size. That is the whole measurement in one commit, so it is pinned here.
+ */
+const PZTI = 'e7aa8e68';
+
+if (hasRev(`${PZTI}^1`) && hasRev(`${PZTI}^2`)) {
+  check(`bc-pzti (${PZTI.slice(0, 7)}) is named: console.js draws .bead-dupe, style.css only just styles it`, () => {
+    const mergeBase = (gitQuiet(['merge-base', `${PZTI}^1`, `${PZTI}^2`]) || '').trim();
+    const r = analyse(collect(mergeBase, `${PZTI}^2`));
+    const hit = r.styles.find((c) => c.selector === '.bead-dupe');
+    if (!hit) throw new Error(`the .bead-dupe pair was not found; styles: ${JSON.stringify(r.styles)}`);
+    if (hit.styles !== 'public/style.css' || hit.draws !== 'public/console.js') throw new Error(`wrong halves: ${JSON.stringify(hit)}`);
+    if (r.couplings.length) throw new Error('the member rule fired on a branch that gains no member call');
+    const text = report(r).join('\n');
+    if (!text.includes('.bead-dupe')) throw new Error('the advisory did not name the pair it found');
+  });
+} else {
+  note(`bc-pzti (${PZTI.slice(0, 7)}) is not in this clone — skipped`);
+}
+
+/**
+ * bc-nib3.3 (#247): the branch this check was blind to, and the reason bc-nib3.10 exists.
+ *
+ * `public/filtermenu.js` arrived whole — the collapsing filter chrome lifted out of
+ * `inboxfilter.js` so the History tab could mount the same one — and the only thing that
+ * puts it on a page is a `<script src>` tag in `index.html` and `history.html`. The
+ * member rule cannot see either half of that: the new file is not *modified*, and the
+ * tag is markup rather than a call. swbump printed an advisory and the session bumped
+ * the version anyway, on an argument it wrote out by hand in `docs/sw-cache/v51.md`.
+ *
+ * So the fixture is that same diff with the bump put back — v51 returned to v50, which
+ * is the state the branch was actually in when the check shrugged at it — and both
+ * halves of the new rule are in the one commit: `inboxfilter.js` calls
+ * `window.beadcause.filterMenu.mount(...)` flat, and `history.js` checks for it first.
+ */
+const NIB33 = '4419dd69';
+
+if (hasRev(`${NIB33}^1`) && hasRev(`${NIB33}^2`)) {
+  check(`bc-nib3.3 (${NIB33.slice(0, 7)}) unbumped is failed: inboxfilter.js calls into a file only a new <script src> loads`, () => {
+    const mergeBase = (gitQuiet(['merge-base', `${NIB33}^1`, `${NIB33}^2`]) || '').trim();
+    const data = collect(mergeBase, `${NIB33}^2`);
+    if (analyse(data).scripts.length) throw new Error('the branch as merged bumped the version and must say nothing');
+    const unbumped = analyse({ ...data, swHead: data.swHead.replace(/^const CACHE = '[^']+';$/m, `const CACHE = '${cacheVersion(data.swBase)}';`) });
+    const broke = breaking(unbumped);
+    const hit = broke.find((s) => s.calls === 'public/inboxfilter.js');
+    if (!hit) throw new Error(`the filtermenu pair was not failed; scripts: ${JSON.stringify(unbumped.scripts)}`);
+    if (hit.provides !== 'public/filtermenu.js' || !hit.tags.includes('public/index.html')) throw new Error(`wrong halves: ${JSON.stringify(hit)}`);
+    const soft = unbumped.scripts.find((s) => s.calls === 'public/history.js');
+    if (!soft) throw new Error('history.js mounts the same control and was not seen at all');
+    if (!soft.guarded) throw new Error('history.js checks for the file before reaching in and must not be red');
+    const text = report(unbumped).join('\n');
+    for (const want of ['public/inboxfilter.js', 'public/filtermenu.js', 'Bump const CACHE']) {
+      if (!text.includes(want)) throw new Error(`the failure text does not name ${want}`);
+    }
+  });
+} else {
+  note(`bc-nib3.3 (${NIB33.slice(0, 7)}) is not in this clone — skipped`);
+}
+
 if (hasRev(P38C)) {
   check(`bc-p38c.2 (${P38C.slice(0, 7)}) adding report.js to every page fails nothing`, () => {
     const r = analyse(collect(`${P38C}^`, P38C));
     if (r.couplings.length) throw new Error(`a purely additive branch was failed: ${JSON.stringify(r.couplings)}`);
+    if (r.styles.length) throw new Error(`a purely additive branch was named a stylesheet pair: ${JSON.stringify(r.styles)}`);
+    if (r.scripts.length) throw new Error(`a purely additive branch was named a script pair: ${JSON.stringify(r.scripts)}`);
   });
 } else {
   note(`bc-p38c.2 (${P38C.slice(0, 7)}) is not in this clone — skipped`);
@@ -320,7 +653,7 @@ if (!base) {
     const short = baseArg || base.slice(0, 8);
     const where = headArg ? `${short}..${headArg}` : `${short}..working tree`;
     const lines = report(r);
-    if (r.couplings.length) {
+    if (r.couplings.length || breaking(r).length) {
       bad(`this branch (${where}) ships a pair the cache version does not separate`, lines.join('\n'));
     } else if (r.advisory) {
       ok(`this branch (${where}) ships no pair that must break — read the advisory below`);

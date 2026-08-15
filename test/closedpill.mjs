@@ -149,11 +149,17 @@ await check('and it costs no `bd` call that was not already being made', async (
   const verbs = bdCalls()
     .map((c) => c[1])
     .sort();
-  // Three calls, and the same three `forWorkspace` has always made: the counts, the
-  // claimed beads, the ones held for endorsement. A fourth is the whole objection to
-  // this pill — the advocate console repaints every twenty seconds across every
-  // workspace at once, so a `bd` call added to this row is added to all of them forever.
-  assert.deepEqual(verbs, ['list', 'ready', 'status'], `got ${JSON.stringify(bdCalls())}`);
+  // The calls `forWorkspace` makes, and **none of them is this pill's**: `closed_issues`
+  // rides on the `status` summary the row was already reading. That is the whole
+  // objection this check exists to hold — the advocate console repaints every twenty
+  // seconds across every workspace at once, so a `bd` call added to this row is added to
+  // all of them forever, and a pill costing one would not be worth it.
+  //
+  // Two `ready` calls rather than one since lib/shipbead.js: the held beads and the ship
+  // beads, which have to be counted apart because they only partly overlap and both come
+  // out of `ready`. Asserted as the exact multiset so that a *third* one still fails
+  // here — the point was never the number three, it was that nothing is added lightly.
+  assert.deepEqual(verbs, ['list', 'ready', 'ready', 'status'], `got ${JSON.stringify(bdCalls())}`);
 });
 
 await check('a bd too old to report it draws no pill, rather than claiming nothing is done', async () => {

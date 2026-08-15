@@ -46,11 +46,33 @@
  * the whole selection because the server sorted the whole selection, not because
  * anything here put two lists together.
  *
- * ## What it does not do
+ * ## The filter bar, and why the URL is where it lives
  *
- * **It does not filter.** Status, priority, provenance and an id substring are bc-nib3.3
- * and land on top of this — the server already takes all four. The one narrowing this
- * page has is the picker every page has.
+ * Four filters — status, priority, provenance, and a substring of the bead id — in the
+ * same collapsing panel the inbox uses (public/filtermenu.js). Not a second vocabulary
+ * of control: two lists in one app that narrow differently are two applications, and the
+ * panel had already been argued about once.
+ *
+ * All four are **in the query string**, and that is the whole of where they are kept.
+ * There is no localStorage half and no server-side memory of them, for one reason that
+ * decides it: a narrowed ledger is a *link*. `/history?status=closed&priority=P0` is a
+ * home screen shortcut to the P0s that landed, it is the same screen for whoever you
+ * send it to, and bc-nib3.7 turns `/closed` into exactly that URL with no state anywhere
+ * for it to disagree with. The inbox's kinds go the other way — they are on the device,
+ * because "I am reading merges this hour" is not a place.
+ *
+ * Which makes the URL something a person can type, so all four are **sent as written and
+ * refused out loud**. `/api/history` 400s on a word it does not know and names it, and
+ * this page draws that sentence under the control rather than dropping the parameter and
+ * showing an unnarrowed list under chips that claim otherwise — the failure lib/history.js
+ * `parseQuery` exists to prevent, arriving one layer up. A value the chips cannot
+ * represent becomes a chip of its own, pressed, so the way out of a refused URL is a tap
+ * rather than the address bar.
+ *
+ * The one thing *not* in the URL is the picker, which every page keeps the same way —
+ * see public/spacebar.js.
+ *
+ * ## What it does not do
  *
  * **It does not stream.** Every other standing view mounts stream.js and refreshes off
  * the daemon's event log; this one does not, and a fifth long poll parked against a page
@@ -76,6 +98,7 @@
   const out = document.getElementById('history');
   const pulse = document.getElementById('pulse');
   const refreshBtn = document.getElementById('hist-refresh');
+  const filterHost = document.getElementById('hist-filters');
 
   /* One screenful and a bit, which is one request. The server pages over a list it has
      already swept and sorted, so the size is a readability decision rather than a cost
@@ -100,6 +123,9 @@
      *  over — both straight off the response. */
     total: null,
     errors: [],
+    /** How old the last answer was, off `x-beadcause-kept` — `null` until one has
+     *  landed, which is what keeps the mark off a first paint. See `parseKept`. */
+    kept: null,
     /** What is on screen, newest first, in the order the server sent it. */
     rows: [],
     /** Bumped on every rebuild. An in-flight fetch whose generation has moved on
@@ -110,6 +136,11 @@
     /** Has an answer landed yet? Until one has, "the ledger is empty" is a thing this
      *  page does not know, and a blank list saying so would be a guess. */
     ready: false,
+    /** The daemon's own sentence about a filter it would not honour — `not a status:
+     *  close`. Kept apart from `errors[]`, which is about a *repo* that fell over: this
+     *  one is about the control, it names a word you typed, and it is drawn under the
+     *  control rather than over the list. Null whenever the last request was accepted. */
+    refusal: null,
   };
 
   const esc = (s) =>
@@ -129,6 +160,230 @@
     const days = Math.round(hrs / 24);
     if (days < 365) return `${days}d`;
     return `${Math.round(days / 365)}y`;
+  }
+
+  /**
+   * How old the answer was, off the header the daemon puts it on.
+   *
+   *     x-beadcause-kept: stale; age=41; refreshing
+   *
+   * The daemon serves a kept answer immediately and sweeps behind it (lib/cache.js), so
+   * a list can be up to date, ten seconds old, or — if `bd` has started refusing — much
+   * older than that with a failure attached. Those are three different things to be
+   * looking at and only the first is the one this page used to claim silently.
+   *
+   * A missing or unparseable header is `null` rather than a guess: an older daemon does
+   * not send one, and "I do not know how old this is" must not draw as "this is fresh".
+   */
+  function parseKept(value) {
+    if (!value) return null;
+    const parts = String(value).split(';').map((s2) => s2.trim());
+    const age = parts.find((s2) => s2.startsWith('age='));
+    return {
+      stale: parts[0] === 'stale',
+      ageSec: age ? Number(age.slice(4)) || 0 : 0,
+      refreshing: parts.includes('refreshing'),
+    };
+  }
+
+  /* ----------------------------------------------------------------- the filters */
+
+  /**
+   * The statuses, as `bd` stores them and as `/api/history` will accept them.
+   *
+   * A copy of `STATUSES` in lib/history.js, and it has to be: this file is served to a
+   * phone and that one runs in the daemon. The copy is safe in the direction that
+   * matters — a status the server has and this list does not is a chip missing from a
+   * panel, while a status this list has and the server does not is a 400 naming it, out
+   * loud, the moment the chip is pressed. Neither is a screen quietly showing the wrong
+   * beads. test/historyfilter.mjs reads both files and fails if they drift.
+   */
+  const STATUS_CHIPS = [
+    { id: 'open', label: 'Open', note: 'Filed and not yet picked up.' },
+    { id: 'in_progress', label: 'In progress', note: 'Somebody or something has it in hand right now.' },
+    { id: 'blocked', label: 'Blocked', note: 'Waiting on something else before it can move.' },
+    { id: 'deferred', label: 'Deferred', note: 'Put off to a date rather than dropped.' },
+    { id: 'closed', label: 'Closed', note: 'Finished, with the close reason on the row.' },
+  ];
+
+  /** P0 to P4, sent as they are displayed — which is what `parseQuery` takes `P` for. */
+  const PRIORITY_CHIPS = [
+    { id: 'P0', label: 'P0', note: 'Critical — the work everything else waits behind.' },
+    { id: 'P1', label: 'P1', note: 'High.' },
+    { id: 'P2', label: 'P2', note: 'Medium, which is most of the tracker.' },
+    { id: 'P3', label: 'P3', note: 'Low.' },
+    { id: 'P4', label: 'P4', note: 'Backlog.' },
+  ];
+
+  /**
+   * Who filed it — and this is the `agent-filed` **label**, never the byline.
+   *
+   * `created_by` is a field an agent writes whatever it likes into, so lib/history.js
+   * derives `provenance` from the label instead and lets the byline ride along for
+   * display. The note says so on the chip, because "Agent" over a list that disagreed
+   * with a `createdBy` you can read on the sheet is a screen you would be right not to
+   * trust.
+   */
+  const PROVENANCE_CHIPS = [
+    { id: 'agent', label: 'Agent', note: 'Filed by an agent — the agent-filed label, not the byline.' },
+    { id: 'human', label: 'Human', note: 'Everything without that label: filed by you, or by bd itself.' },
+  ];
+
+  /**
+   * What is narrowed, exactly as it will be sent.
+   *
+   * Strings rather than anything parsed, and unknown words are kept: the URL is typed by
+   * people, and a value this page does not recognise is the server's to refuse by name.
+   * Dropping it here would be the silent-empty-list failure with an extra step.
+   */
+  const filters = { status: [], priority: [], provenance: '', id: '' };
+
+  /** Is the list showing less than the whole selection? What the summary line's
+   *  `narrowed` mark means, and what the count line has to say out loud. */
+  const narrowed = () =>
+    filters.status.length > 0 || filters.priority.length > 0 || Boolean(filters.provenance) || Boolean(filters.id);
+
+  const splitList = (raw) => [
+    ...new Set(
+      String(raw || '')
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean)
+    ),
+  ];
+
+  /** `1`, `p1` and `P1` are one priority and the endpoint takes all three; the chips
+   *  display `P1`, so that is the spelling the URL is written in. Anything else is left
+   *  exactly as typed, to be refused as typed. */
+  const canonPriority = (raw) => (/^[pP]?[0-9]$/.test(raw) ? `P${raw.replace(/^[pP]/, '')}` : raw);
+
+  /** The filters off the address bar. Called once, at load — this page never has two
+   *  sources for them. */
+  function readUrl() {
+    const q = new URLSearchParams(location.search);
+    filters.status = splitList(q.get('status')).map((v) => v.toLowerCase());
+    filters.priority = splitList(q.get('priority')).map(canonPriority);
+    filters.provenance = String(q.get('provenance') || '')
+      .trim()
+      .toLowerCase();
+    filters.id = String(q.get('id') || '').trim();
+  }
+
+  /**
+   * And back again, so a reload and a shared link are the same screen.
+   *
+   * `replaceState` rather than `pushState`: a filter chip is not a place you go back
+   * *to*, and a panel of them would otherwise fill the back stack with steps between
+   * you and the page you arrived from. Every other parameter on the address is kept, and
+   * `t` is the one dropped — the token is picked up into localStorage by spacebar.js
+   * before this file runs, and a filter link is a thing you send to a phone rather than
+   * a credential.
+   */
+  function writeUrl() {
+    const q = new URLSearchParams(location.search);
+    for (const k of ['status', 'priority', 'provenance', 'id', 't']) q.delete(k);
+    if (filters.status.length) q.set('status', filters.status.join(','));
+    if (filters.priority.length) q.set('priority', filters.priority.join(','));
+    if (filters.provenance) q.set('provenance', filters.provenance);
+    if (filters.id) q.set('id', filters.id);
+    const search = q.toString();
+    const next = location.pathname + (search ? `?${search}` : '') + location.hash;
+    // Only when it actually moved. A no-op replaceState is harmless but it is also a
+    // lie in a debugger, and the picker announcing itself on load calls through here.
+    if (next !== location.pathname + location.search + location.hash) history.replaceState(null, '', next);
+  }
+
+  /** The filters as the endpoint takes them. Empty ones are absent rather than blank —
+   *  `status=` is a parameter the server would have to have an opinion about. */
+  function filterParams(q) {
+    if (filters.status.length) q.set('status', filters.status.join(','));
+    if (filters.priority.length) q.set('priority', filters.priority.join(','));
+    if (filters.provenance) q.set('provenance', filters.provenance);
+    if (filters.id) q.set('id', filters.id);
+    return q;
+  }
+
+  /** How long the id box waits for you to stop typing. */
+  const TYPE_WAIT = 250;
+  let typeTimer = null;
+
+  /**
+   * One chip group over a list of selected strings.
+   *
+   * The strays at the end are the point: a value in the URL that no chip stands for is
+   * drawn as its own chip, pressed, labelled with the word itself. So `?status=close`
+   * arrives as a refusal from the daemon *and* as a chip saying `close` that you can tap
+   * off — which is the whole of the way out, on a phone, without the address bar.
+   */
+  function chipGroup({ id, legend, all, chips, multi = true }) {
+    const selected = () => (id === 'provenance' ? (filters.provenance ? [filters.provenance] : []) : filters[id]);
+    return {
+      id,
+      legend,
+      all,
+      multi,
+      options: () => {
+        const on = selected();
+        const known = chips.map((c) => ({ ...c, on: on.includes(c.id) }));
+        const strays = on
+          .filter((v) => !chips.some((c) => c.id === v))
+          .map((v) => ({
+            id: v,
+            label: v,
+            note: `Not one this tracker has — the daemon refuses it. Tap to drop it.`,
+            on: true,
+          }));
+        return [...known, ...strays];
+      },
+      pick: (pickedId) => {
+        if (id === 'provenance') {
+          filters.provenance = filters.provenance === pickedId ? '' : pickedId;
+        } else {
+          const on = filters[id];
+          filters[id] = on.includes(pickedId) ? on.filter((v) => v !== pickedId) : [...on, pickedId];
+        }
+        applyFilters();
+      },
+    };
+  }
+
+  /** The four groups, coarsest first — which is also the order they narrow by the most. */
+  const filterGroups = () => [
+    chipGroup({ id: 'status', legend: 'Status', all: 'All statuses', chips: STATUS_CHIPS }),
+    chipGroup({ id: 'priority', legend: 'Priority', all: 'All priorities', chips: PRIORITY_CHIPS }),
+    // Single-choice: a bead is filed by one or the other, so both pressed is the same
+    // list as neither, and the chip you tap twice clears it.
+    chipGroup({ id: 'provenance', legend: 'Filed by', all: 'Anyone', chips: PROVENANCE_CHIPS, multi: false }),
+    {
+      id: 'beadid',
+      legend: 'Bead id',
+      text: true,
+      all: 'Any id',
+      placeholder: 'bc-nib3',
+      value: () => filters.id,
+      set: (v) => {
+        filters.id = v.trim();
+        // Typed, not tapped: `bc-nib3` is seven requests if every keystroke is one, and
+        // the sweep behind them is only free once it is warm. The list still moves while
+        // you type — just a beat behind the field rather than a beat behind every letter.
+        clearTimeout(typeTimer);
+        typeTimer = setTimeout(applyFilters, TYPE_WAIT);
+      },
+    },
+  ];
+
+  /**
+   * A filter moved: put it in the address bar and read the ledger again.
+   *
+   * The whole list rather than a re-filter of what is on screen, because the filtering
+   * happens in the daemon over a swept cache — see lib/history.js. Nothing here has the
+   * rows a wider filter would add, and re-narrowing the ones it does have would be a
+   * second, quietly different implementation of `matches`.
+   */
+  function applyFilters() {
+    clearTimeout(typeTimer);
+    writeUrl();
+    rebuild(state.scope || scopeOf(filterNow()));
   }
 
   /* ------------------------------------------------------------------ the fetch */
@@ -160,9 +415,30 @@
   async function fetchPage(refresh) {
     const q = new URLSearchParams({ limit: String(PAGE), offset: String(state.offset) });
     for (const [k, v] of Object.entries(state.scope || {})) q.set(k, v);
+    filterParams(q);
     if (refresh) q.set('refresh', '1');
     const res = await fetch(`/api/history?${q}`, { headers: { 'x-beadcause-token': token } });
-    if (!res.ok) throw new Error(res.status === 404 ? 'no ledger here' : `HTTP ${res.status}`);
+    if (!res.ok) {
+      // A 400 here is a filter the daemon would not honour, and its message names the
+      // word — `not a status: close`. Read rather than reduced to `HTTP 400`: the whole
+      // reason the endpoint refuses instead of dropping the parameter is so that this
+      // sentence can be put under the control, and throwing away the sentence is the
+      // silent empty list arriving by a longer road. See `state.refusal`.
+      let why = '';
+      try {
+        why = String((await res.json())?.error || '');
+      } catch {
+        // Not JSON, or no body at all — a proxy in front of a daemon that is not
+        // running answers plenty of things that are neither. The status still is one.
+      }
+      const err = new Error(res.status === 404 ? 'no ledger here' : why || `HTTP ${res.status}`);
+      if (res.status === 400 && why) err.refusal = why;
+      throw err;
+    }
+    // Every page carries it, and the latest one wins: a scroll that begins on a kept
+    // answer and reaches its fourth page after the sweep landed is looking at fresh rows
+    // by then, and the mark should have gone.
+    state.kept = parseKept(res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-beadcause-kept') : null);
     const data = await res.json();
     const rows = Array.isArray(data.rows) ? data.rows : [];
     state.rows.push(...rows);
@@ -197,9 +473,12 @@
       await fetchPage(refresh);
     } catch (err) {
       if (gen !== state.gen) return;
+      // A refused filter is not a repo that fell over, and drawing it as one would blame
+      // `beadcause` for a word you typed. It goes under the control instead.
+      if (err && err.refusal) state.refusal = err.refusal;
       // Whatever is already on screen stays there. A failed second page is not a reason
       // to throw away the first.
-      state.errors = [{ workspace: labelOf(), error: String((err && err.message) || err) }];
+      else state.errors = [{ workspace: labelOf(), error: String((err && err.message) || err) }];
       state.more = false;
     } finally {
       if (gen === state.gen) {
@@ -225,6 +504,11 @@
     state.more = true;
     state.total = null;
     state.errors = [];
+    state.kept = null;
+    // Cleared here rather than on the next answer: a refusal is about the request that
+    // is being replaced, and leaving it up while a corrected one is in flight is the
+    // page still complaining about a word you have already taken off.
+    state.refusal = null;
     state.loading = false;
     // There is always something to ask for now — every selection is a legal request,
     // including the empty one — so the page is never `ready` before an answer.
@@ -285,17 +569,79 @@
    *  over the repos that answered, so a selection with a repo in `errors[]` would be a
    *  smaller number presented as the whole of it. */
   function countLine(label) {
-    if (state.total == null || state.errors.length) return '';
-    return `<p class="hist-count">${plural(state.total, 'bead')} in ${esc(label)}</p>`;
+    // Suppressed by a repo that could not be read *at all*, because then the number is a
+    // count of some of the selection presented as the whole of it. A repo being drawn
+    // over a failed refresh is not that: every one of its rows is here and counted, they
+    // are simply older, which `keptSuffix` says on the same line.
+    if (state.total == null || state.errors.some((e) => !e || !e.stale)) return '';
+    // `total` is what the *filters* matched, not what the space holds — see `ledger` in
+    // lib/history.js. So the sentence has to change with them: "142 beads in beadcause"
+    // under a status chip would be the one number on the screen that is not about what
+    // is on the screen.
+    const said = narrowed()
+      ? `${plural(state.total, 'bead')} match in ${esc(label)}`
+      : `${plural(state.total, 'bead')} in ${esc(label)}`;
+    return `<p class="hist-count">${said}${keptSuffix()}</p>`;
   }
 
+  /**
+   * The daemon's refusal, verbatim, under the control that caused it.
+   *
+   * Its own line rather than a row in `errors[]`: that one says "⚠ Could not read
+   * beadcause", which for a misspelled status would be blaming the repo for a word in
+   * the address bar. The message names the word and lists what it could have been,
+   * because lib/history.js writes it that way on purpose.
+   */
+  function refusalHtml() {
+    if (!state.refusal) return '';
+    return `<p class="hist-refused">⚠ That filter was refused: ${esc(state.refusal)}</p>`;
+  }
+
+  /**
+   * The mark that says you are looking at a kept answer — and it is deliberately quiet.
+   *
+   * A spinner over the list would be worse than the staleness it is announcing: the whole
+   * point of the daemon answering out of memory is that the rows are *there*, instantly,
+   * and covering them to say "these arrived instantly" would be the one change that undoes
+   * the improvement. So it is a clause at the end of the count line, in the muted colour
+   * the count is already in, and it disappears on the repaint that brings fresh rows.
+   *
+   * Nothing is drawn for a fresh answer, and nothing is drawn before one has landed — the
+   * first paint of a cold page must not accuse the daemon of holding something back.
+   */
+  function keptSuffix() {
+    const k = state.kept;
+    if (!k || !k.stale) return '';
+    const secs = Math.max(0, Math.round(k.ageSec));
+    const ago = secs < 60 ? `${secs}s` : `${Math.round(secs / 60)}m`;
+    return ` <span class="hist-kept">· as of ${ago} ago${k.refreshing ? ', refreshing' : ''}</span>`;
+  }
+
+  /**
+   * The repos that would not answer — and the ones being drawn over a failure.
+   *
+   * Two different sentences, because they are two different situations and the old one
+   * was wrong about the second. A repo with `stale: true` **is** on screen: its rows are
+   * the last good sweep, and what has failed is the attempt to replace them. Saying
+   * "could not read it, everything below is the rest of the selection" about a repo whose
+   * rows are half the list is both alarming and untrue. What a person needs told there is
+   * that the list has stopped moving, and how long ago it stopped.
+   */
   function troubleHtml() {
     if (!state.errors.length) return '';
-    const which = state.errors
-      .map((e) => `${esc((e && e.workspace) || 'a repo')} (${esc((e && e.error) || 'would not answer')})`)
-      .join(', ');
-    const rest = state.rows.length ? ' Everything below is the rest of the selection.' : '';
-    return `<p class="hist-trouble">⚠ Could not read ${which}.${rest}</p>`;
+    const named = (e) => `${esc((e && e.workspace) || 'a repo')} (${esc((e && e.error) || 'would not answer')})`;
+    const dead = state.errors.filter((e) => !e || !e.stale);
+    const held = state.errors.filter((e) => e && e.stale);
+    const lines = [];
+    if (dead.length) {
+      const rest = state.rows.length ? ' Everything below is the rest of the selection.' : '';
+      lines.push(`⚠ Could not read ${dead.map(named).join(', ')}.${rest}`);
+    }
+    if (held.length) {
+      const when = state.kept && state.kept.stale ? ` The rows below are as of ${Math.max(0, Math.round(state.kept.ageSec))}s ago.` : '';
+      lines.push(`⚠ ${held.map(named).join(', ')} — showing the last good read.${when}`);
+    }
+    return lines.map((l) => `<p class="hist-trouble">${l}</p>`).join('');
   }
 
   /** The foot of the list: what is left, and the way to ask for it. */
@@ -322,6 +668,12 @@
     const label = labelOf();
 
     if (!state.rows.length) {
+      // A refused filter is neither of the two blank screens below: nothing was read, so
+      // "nothing here yet" would be a claim about the tracker made on no evidence at all.
+      if (state.refusal) {
+        out.innerHTML = `${refusalHtml()}<div class="empty"><strong>Nothing was read.</strong>The filter above has a word in it the tracker does not use. Tap it off, or clear it, and the list comes back.</div>`;
+        return;
+      }
       // "Still coming" and "there is nothing" are the same blank screen, and here they
       // are not the same wait: a cold daemon sweeping five hundred beads on a loaded
       // Mac has been measured at 28s, and `{rows: [], total: 0}` is a perfectly good
@@ -339,6 +691,14 @@
         out.innerHTML = `${troubleHtml()}<div class="empty"><strong>Nothing could be read.</strong>Whether there is any history in ${esc(label)} is not something this page can say. ⟳ to try again.</div>`;
         return;
       }
+      // Narrowed and empty is a different sentence from empty, and the difference is
+      // whose fault it is: one is a repo nobody has filed in, the other is four chips
+      // that between them match nothing. Saying the first over the second is the screen
+      // that sends you looking for a missing bead that is right there under `All`.
+      if (narrowed()) {
+        out.innerHTML = `<div class="empty"><strong>Nothing in ${esc(label)} matches.</strong>The filter is narrower than the ledger. Widen it and everything comes back.</div>`;
+        return;
+      }
       out.innerHTML = `<div class="empty"><strong>Nothing in ${esc(label)} yet.</strong>Every bead this selection has ever had would be here.</div>`;
       return;
     }
@@ -347,7 +707,7 @@
     // because under a single repo it is the same word all the way down — noise in the
     // one place where the id has to be what your eye lands on.
     const showWorkspace = !(state.scope && state.scope.workspace);
-    out.innerHTML = `${countLine(label)}${troubleHtml()}
+    out.innerHTML = `${refusalHtml()}${countLine(label)}${troubleHtml()}
       <div class="hist-list card">${state.rows.map((r) => rowHtml(r, showWorkspace)).join('')}</div>
       ${footHtml()}`;
     watchFoot();
@@ -418,6 +778,21 @@
       // answered out of the cache it is doubting.
       rebuild(scopeOf(filterNow()), true);
     });
+  }
+
+  /* ------------------------------------------------------------ the control */
+
+  /* The address bar first, and before anything is drawn or asked for: the very first
+     request this page makes has to be the narrowed one, or a link to `?status=closed`
+     is a screenful of open beads that then rearranges itself. */
+  readUrl();
+
+  /* And the panel it is shown in — the inbox's, from public/filtermenu.js. A page that
+     fails to load that file still lists the whole ledger, with whatever the URL asked
+     for still applied: the filters live in `filters` and the chrome only moves them, so
+     the missing half is the controls rather than the narrowing. */
+  if (filterHost && window.beadcause && window.beadcause.filterMenu) {
+    window.beadcause.filterMenu.mount(filterHost, { groups: filterGroups, narrowed });
   }
 
   paint();

@@ -26,9 +26,11 @@
  *    when it is also outside the filter and also in a muted space, because that is the
  *    only one of the three that no chip on this Mac can undo — reporting it as
  *    `'filtered'` sends somebody to press **All** for a card that was never hidden.
- * 4. **The stamp happens where the answer is known.** `created_by` is `cfg.actor` —
- *    the literal string `beadcause` on every machine — so the addressee cannot be
- *    derived by the daemon reading the graph. `bin/ask.js` is driven end to end against
+ * 4. **The stamp happens where the answer is known.** `created_by` is `cfg.actor`, a
+ *    byline — bare `beadcause` until this machine sets `me`, and only then
+ *    `beadcause (carol@example.com)` (lib/byline.js, test/byline.mjs) — so the
+ *    addressee is not something the daemon reading the graph can derive.
+ *    `bin/ask.js` is driven end to end against
  *    a stub `bd` for that reason: what is under test is the argv it builds, and a unit
  *    test of `addresseeLabel` would pass just as happily against an ask.js that never
  *    called it.
@@ -276,10 +278,32 @@ const configure = (extra) => {
   );
 };
 
+/**
+ * A body the way the brief tells a worker to write one: prose, then the `decision` block
+ * last with one option recommended. `bin/ask.js` refuses anything else, so a body without
+ * it would fail this file's tests for a reason that has nothing to do with addressing.
+ */
+const ASK_BODY = [
+  'Which of these two did you mean?',
+  '',
+  '```decision',
+  'question: Gross or net?',
+  'options:',
+  '  - id: gross',
+  '    label: Gross',
+  '    response: Gross - the fee comes off the full charge.',
+  '    recommended: true',
+  '  - id: net',
+  '    label: Net',
+  '    response: Net - the fee comes off after processing costs.',
+  '```',
+  '',
+].join('\n');
+
 /** `bin/ask.js`, run the way the brief tells a worker to run it: body on stdin. */
 const ask = (args) => {
   const res = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'ask.js'), '-w', 'demo', '-t', 'Gross or net?', ...args], {
-    input: 'Which of these two did you mean?\n',
+    input: ASK_BODY,
     encoding: 'utf8',
     // HOME into the temp tree so discoverWorkspaces finds no ~/beads to reconcile onto
     // stdout, which is the stream the id comes back on.

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * **One card per sweep** — what conflicted, what got fixed, and what needs Adam.
+ * **One card per conflicting branch** — what conflicted, what got fixed, and what needs Adam.
  *
  *     npm test
  *     node test/sweepcard.mjs
@@ -28,6 +28,12 @@
  * 5. **A tracker write every cycle.** The follow-up runs every slow cycle forever; one
  *    that amended whether or not anything moved would be a `bd` write and a woken phone
  *    every two minutes, saying the same thing each time.
+ * 6. **A card per merge for a branch that never stops conflicting.** The one that actually
+ *    happened (bc-xl7n.36): a sweep runs per merge, so #243 staying conflicting for seven
+ *    hours filed thirteen identical cards, two thirds of that day's unsorted backlog. The
+ *    fix is invisible from the inbox — what you see is a card that did *not* appear — so
+ *    the fold has a section of its own here, including the subset rule that looks right
+ *    and re-splits on the first sweep that finds fewer branches than the card names.
  *
  * The tracker is a spy, `gh` is a pair of functions, and the resolver registry is the real
  * one from lib/resolvers.js — the states are read out of it, so a fake would be a test of
@@ -69,8 +75,10 @@ const {
   followSweepCards,
   readSweepCards,
   resolverSaid,
+  markResolving,
   rowsOf,
   settledReason,
+  sweepAnswer,
   sweepCardBody,
   sweepCardTitle,
   tally,
@@ -85,11 +93,18 @@ const ws = { name: 'demo', dir: path.join(tmp, 'beads') };
 const cfg = { workspaces: [ws], sessionDirs: { demo: checkout } };
 
 /** A `bd` that records what it was asked to do and answers plausibly. */
-function fakeBd({ create = 'bc-card', fail = null } = {}) {
+function fakeBd({ create = 'bc-card', fail = null, status = 'open' } = {}) {
   return {
     calls: [],
+    /** What `stillOpen` asks, and the only thing that ends a record waiting on Adam. */
+    status,
     async graph() {
       return { issues: [] };
+    },
+    async show(w, id) {
+      this.calls.push({ kind: 'show', workspace: w?.name, id });
+      if (fail === 'show') throw new Error('dolt is locked');
+      return { id, status: this.status };
     },
     async create(w, spec) {
       this.calls.push({ kind: 'create', workspace: w?.name, spec });
@@ -146,16 +161,23 @@ const rows = rowsOf(
     handed: [row(14)],
     queued: [row(11), { ...row(9), note: '#9 is 2nd in line' }],
     reused: [{ ...row(12), note: 'told the session already on it' }],
+    unreachable: [{ ...row(13), why: 'a session was opened on #13 4 minutes ago and this daemon has restarted since' }],
     failed: [{ ...row(20), why: 'iTerm refused the Apple event' }],
   })
 );
-check('every pull request the sweep acted on is a row', rows.length === 5, JSON.stringify(rows.map((r) => r.number)));
-check('in number order, so the card does not shuffle between amendments', String(rows.map((r) => r.number)) === '9,11,12,14,20');
+check('every pull request the sweep acted on is a row', rows.length === 6, JSON.stringify(rows.map((r) => r.number)));
+check('in number order, so the card does not shuffle between amendments', String(rows.map((r) => r.number)) === '9,11,12,13,14,20');
 check('a window that opened is working', rows.find((r) => r.number === 14).state === 'working');
 check('a queued one is queued', rows.find((r) => r.number === 11).state === 'queued');
 // A session that already had it and a session just opened for it are the same fact to
 // somebody reading the card: something is happening, nothing is needed.
 check('a session that was already on it is working too', rows.find((r) => r.number === 12).state === 'working');
+// bc-9d37.11. A daemon restart takes the handle with it, so the sweep can neither nudge
+// the window nor open a second one — but the window is there and working. Calling that
+// `failed` would put it in NEEDS_ADAM and hand Adam back a branch that is perfectly fine,
+// once per merge, which is the amplification bc-xl7n.36 was filed for.
+check('a window this daemon can no longer reach is still working, not failed', rows.find((r) => r.number === 13).state === 'working');
+check('and the card says why it cannot be spoken to', /restarted/.test(rows.find((r) => r.number === 13).note || ''), JSON.stringify(rows.find((r) => r.number === 13)));
 check('a window that would not open is a failure from the start', rows.find((r) => r.number === 20).state === 'failed');
 check('and it carries why', rows.find((r) => r.number === 20).note === 'iTerm refused the Apple event');
 check('the beads travel with the row', String(rows.find((r) => r.number === 14).beads) === 'bc-14');
@@ -203,6 +225,161 @@ bd = fakeBd({ fail: 'create' });
 const refused = await fileSweepCard(bd, ws, swept({ handed: [row(14)] }), { dir: checkout });
 check('a tracker that refuses the card says so rather than throwing', /could not file/.test(refused?.error || ''), JSON.stringify(refused));
 check('and nothing is left to follow up', Object.keys(readSweepCards()).length === 0);
+
+/* ------------------------------------------------------------------- the fold */
+
+/**
+ * The acceptance of bc-xl7n.36, staged as the case that produced it.
+ *
+ * A card is filed per *sweep* and a sweep runs per merge, which is right for a branch that
+ * conflicts and is then resolved and wrong for one that conflicts and stays that way: #243
+ * was caught by thirteen consecutive merges in seven hours and filed thirteen cards, eleven
+ * of them naming it and nothing else, which was 65% of that day's unsorted backlog. The
+ * amplification is per merge and it is independent of whether the cards ever close — a row
+ * whose resolver is still working keeps its card open *by design*.
+ */
+console.log('\na branch that keeps conflicting gets one card, not one per merge');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+for (const after of [232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 244])
+  await fileSweepCard(bd, ws, swept({ after, handed: [row(243)] }), { dir: checkout });
+
+check('thirteen merges, one card', bd.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(bd.calls.map((c) => c.kind)));
+check('and the other twelve amended it', bd.calls.filter((c) => c.kind === 'update').length === 12);
+check('one record, not thirteen', Object.keys(readSweepCards()).length === 1, JSON.stringify(Object.keys(readSweepCards())));
+
+let folded = readSweepCards()['bc-card'];
+check('every merge is remembered on it', folded.merges.length === 13, JSON.stringify(folded.merges));
+check('the first one still anchors it', folded.merges[0] === 231 && folded.after === 231);
+check('and it is still one pull request', folded.prs.length === 1 && folded.prs[0].number === 243);
+// The title is what a phone shows in a list, and "#244 left 1 conflicting pull request
+// behind it" is the wrong fact to lead with on the thirteenth telling.
+check('the title counts the merges it has survived', /survived 13 merges since #231/.test(sweepCardTitle(folded)), sweepCardTitle(folded));
+const foldedBody = sweepCardBody(folded);
+check("so does the heading", /13 merges have landed in `main` since #231/.test(foldedBody), foldedBody.split("\n")[0]);
+check('and it says out loud that it ate the other twelve', /One card per conflicting branch, not one per merge/.test(foldedBody));
+check('naming them, so the card is not lying about its own age', /#231, #232, #233/.test(foldedBody), foldedBody);
+check('the one-line question counts them too', /conflicted through 13 merges/.test(toQuestion('demo', { id: 'bc-card', title: sweepCardTitle(folded), description: foldedBody }).question || ""), foldedBody);
+
+console.log('\nand the test is an overlap, not a subset');
+
+/**
+ * The rule that looks right and re-splits on the first sweep that finds *fewer*.
+ *
+ * "Fold when the open card's rows are a subset of this sweep's" folds {243} into {243,300}
+ * and then cannot fold {243} back, because the card is no longer a subset of the sweep —
+ * so the next merge files a second card about #243 and the whole thing is back.
+ */
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+await fileSweepCard(bd, ws, swept({ after: 232, handed: [row(243), row(300)] }), { dir: checkout });
+check('a sweep that finds more folds in and brings the new one with it', readSweepCards()['bc-card'].prs.length === 2);
+await fileSweepCard(bd, ws, swept({ after: 233, handed: [row(243)] }), { dir: checkout });
+check('and a sweep that finds fewer still folds', bd.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(bd.calls.map((c) => c.kind)));
+check('leaving the one it no longer names on the card', readSweepCards()['bc-card'].prs.length === 2);
+check('rows in number order, so the card does not shuffle', String(readSweepCards()['bc-card'].prs.map((r) => r.number)) === '243,300');
+
+console.log('\nbut a sweep about different branches is a different card');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let other = fakeBd({ create: 'bc-other' });
+await fileSweepCard(other, ws, swept({ after: 232, handed: [row(400)] }), { dir: checkout });
+check('nothing overlapping, so it files its own', other.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(other.calls.map((c) => c.kind)));
+check('and there are two records to chase', Object.keys(readSweepCards()).length === 2, JSON.stringify(Object.keys(readSweepCards())));
+check('neither of which grew the other', readSweepCards()['bc-card'].prs.length === 1 && readSweepCards()['bc-other'].prs.length === 1);
+
+console.log('\nand a card he has already dealt with is never amended in silence');
+
+/**
+ * The opposite call to `stillOpen`, and deliberately: a record can outlive its card by a
+ * cycle — Adam taps Noted, the bead closes, and the follow-up drops the record next time
+ * round — so folding on trust would write this sweep's report into something nothing will
+ * ever show him. One duplicate card is the cheaper failure than a silent one.
+ */
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let closed = fakeBd({ create: 'bc-two', status: 'closed' });
+await fileSweepCard(closed, ws, swept({ after: 232, handed: [row(243)] }), { dir: checkout });
+check('a closed card is not folded into', closed.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(closed.calls.map((c) => c.kind)));
+check('the sweep gets a card of its own instead', Object.keys(readSweepCards()).includes('bc-two'));
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let blind = fakeBd({ create: 'bc-two', fail: 'show' });
+await fileSweepCard(blind, ws, swept({ after: 232, handed: [row(243)] }), { dir: checkout });
+check('and a tracker that will not say is not taken for a yes', blind.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(blind.calls.map((c) => c.kind)));
+
+console.log('\nwhat folding does to a row that was waiting on him');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let rec0 = readSweepCards()['bc-card'];
+fs.writeFileSync(
+  SWEEP_CARDS_PATH,
+  JSON.stringify({
+    'bc-card': {
+      ...rec0,
+      at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      prs: [{ ...rec0.prs[0], state: 'handed-back', said: 'both sides rewrote renderRow' }],
+    },
+  })
+);
+await fileSweepCard(bd, ws, swept({ after: 232, handed: [{ ...row(243), beads: [] }] }), { dir: checkout });
+folded = readSweepCards()['bc-card'];
+check('a window opened for it again, so it is working again', folded.prs[0].state === 'working');
+// `markResolving` clears `said` for exactly this reason: a reason for stopping printed
+// beside a session that is running is two facts from different hours read as one.
+check('and the reason it stopped last time is gone', folded.prs[0].said === '');
+check('the beads survive a sweep that did not find them', String(folded.prs[0].beads) === 'bc-243');
+/**
+ * `at` is both the four-hour follow-up window and the floor `resolverSaid` reads comments
+ * from. A card being actively re-swept that kept its original `at` would expire mid-flight
+ * and start telling him nothing here can say.
+ */
+check('and the follow-up window starts again from this merge', Date.now() - Date.parse(folded.at) < 60_000, folded.at);
+
+console.log('\nand a card filed before any of this still folds');
+
+wipe();
+fs.writeFileSync(
+  SWEEP_CARDS_PATH,
+  JSON.stringify({
+    'bc-old': {
+      card: 'bc-old',
+      workspace: 'demo',
+      key: 'demo',
+      dir: checkout,
+      repo: 'neadamthal/beadcause',
+      after: 100,
+      base: 'main',
+      at: new Date().toISOString(),
+      prs: [{ number: 243, branch: 'b', title: 't', url: '', beads: [], state: 'handed-back', note: '', said: '' }],
+    },
+  })
+);
+bd = fakeBd({ create: 'bc-new' });
+await fileSweepCard(bd, ws, swept({ after: 101, handed: [row(243)] }), { dir: checkout });
+check('a record with no merges list reads as the one merge it names', readSweepCards()['bc-old']?.merges.join(',') === '100,101');
+check('and no second card was filed', !bd.calls.some((c) => c.kind === 'create'), JSON.stringify(bd.calls.map((c) => c.kind)));
+check('the title of a one-merge card is unchanged', /^#231 left 1 conflicting pull request behind it in /.test(sweepCardTitle({ after: 231, merges: [231], repo: 'neadamthal/beadcause', prs: [{}] })));
+
+console.log('\nand the fold can be turned off, which is what every other suite here assumes');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let second = fakeBd({ create: 'bc-two' });
+await fileSweepCard(second, ws, swept({ after: 232, handed: [row(243)] }), { dir: checkout, fold: false });
+check('opted out, it files rather than amends', second.calls.filter((c) => c.kind === 'create').length === 1);
+check('and does not even ask whether the other card is open', !second.calls.some((c) => c.kind === 'show'));
 
 /* ------------------------------------------------------------------ the card */
 
@@ -357,7 +534,27 @@ resolvers.reset();
 out = await followSweepCards(bd, cfg, { mergeability: github, said: async () => 'you have to pick a side here' });
 check('the card is finished', out[0]?.done === true, JSON.stringify(out));
 check('it stays open, because one of them still needs Adam', out[0].closed !== true && !bd.calls.some((c) => c.kind === 'close'));
-check('and the record is dropped — nothing left to chase', Object.keys(readSweepCards()).length === 0);
+/**
+ * And the record is *kept*, which is bc-9d37.8 and used to be the opposite.
+ *
+ * Nothing moves out of `handed-back` on its own — that is why this used to be the end of
+ * the record — but Adam's answer moves it, and the record is the only thing that can say
+ * which repo, which checkout and which branch a window for it would open on. So the card
+ * is what bounds it, and the card is asked rather than a clock.
+ */
+check('the record is kept — his answer still has somewhere to land', Object.keys(readSweepCards()).length === 1);
+check('and the row it kept is the one waiting on him', readSweepCards()['bc-card']?.prs.find((r) => r.number === 11)?.state === 'handed-back');
+
+const quiet = bd.calls.length;
+out = await followSweepCards(bd, cfg, { mergeability: github, said: async () => 'you have to pick a side here' });
+check('a further quiet cycle writes nothing', !bd.calls.slice(quiet).some((c) => c.kind !== 'show'), JSON.stringify(bd.calls.slice(quiet)));
+check('but it does ask whether the card is still there', bd.calls.slice(quiet).some((c) => c.kind === 'show'));
+check('and the record survives an open card', Object.keys(readSweepCards()).length === 1);
+
+bd.status = 'closed';
+out = await followSweepCards(bd, cfg, { mergeability: github, said: async () => 'you have to pick a side here' });
+check('a card he has answered or dismissed ends the record', Object.keys(readSweepCards()).length === 0);
+check('and it says so', out[0]?.gone === true, JSON.stringify(out));
 
 console.log('\nbut a sweep that resolved itself takes its own card back out of the inbox');
 
@@ -385,7 +582,9 @@ out = await followSweepCards(bd, cfg, { now: Date.now() + 5 * 60 * 60 * 1000, me
 check('a record past its window stops claiming a session is on it', out[0]?.done === true, JSON.stringify(out));
 check('the card says nothing here can say', /nothing here can say/.test(bd.calls.filter((c) => c.kind === 'update').pop()?.fields.description || ''));
 check('it is not closed — an unknown is not a resolution', !bd.calls.some((c) => c.kind === 'close'));
-check('and it is dropped', Object.keys(readSweepCards()).length === 0);
+// Kept, for the reason above: an `unknown` is one of the three states that need him, and
+// the card is still in his inbox with a button on it that has to reach a checkout.
+check('and it is kept, because it is still waiting on him', Object.keys(readSweepCards()).length === 1);
 
 resolvers.reset();
 wipe();
@@ -421,6 +620,94 @@ check(
 // A card that reaches the browser only when something else happens to move is a card that
 // looks like a feature that does not work — see the poll handler's `changed`.
 check('and a card filed or amended wakes the phones parked on /api/poll', /type: 'sweep-card'/.test(server), 'no bus event');
+
+/* ------------------------------------------------------- answering a hand-back */
+
+/**
+ * bc-9d37.8. The card used to have one button and it only dismissed, so the far end of
+ * the loop was open: a resolver said only Adam could pick a winner, the card said so, he
+ * typed which one wins, and nothing read it.
+ *
+ * What is asserted here is the *card's* half — the options it emits and how it reads an
+ * answer back. The act is `resolveSweepFor` in lib/server.js and test/sweepanswer.mjs
+ * drives it through a real `POST /api/respond`; the split is the one the file keeps,
+ * because only the daemon may open a resolver.
+ */
+console.log('\nthe hand-back is answerable now');
+
+const waiting = {
+  card: 'bc-card',
+  workspace: 'demo',
+  key: 'demo',
+  dir: checkout,
+  repo: 'neadamthal/beadcause',
+  after: 231,
+  base: 'main',
+  at: new Date().toISOString(),
+  prs: [
+    { ...row(11), state: 'handed-back', note: '', said: 'both sides rewrote renderRow' },
+    { ...row(14), state: 'failed', note: 'iTerm refused the Apple event', said: '' },
+    { ...row(9), state: 'resolved', note: '', said: '' },
+  ],
+};
+
+const cardQ = toQuestion('demo', { id: 'bc-card', title: sweepCardTitle(waiting), description: sweepCardBody(waiting) });
+check('the block still parses with options on it', !cardQ.decisionError && (cardQ.decision?.options || []).length === 3, JSON.stringify(cardQ.decisionError || cardQ.decision));
+check('one option per row that is waiting, and Noted last', String((cardQ.decision?.options || []).map((o) => o.id)) === 'resolve-11,resolve-14,noted');
+check('a resolved row gets no button — there is nothing to decide about it', !(cardQ.decision?.options || []).some((o) => o.id === 'resolve-9'));
+check('the tap writes the marker into the box rather than answering', cardQ.decision.options[0].response === 'RESOLVE #11: ');
+// The whole reason it may not close: the card amends itself as the row it just restarted
+// finishes, and a closed card cannot report the end of what it began.
+check('and it does not close the card', cardQ.decision.options[0].closes === false && cardQ.decision.options[2].closes === true);
+check('the card says how to answer it', /Say which side wins/.test(sweepCardBody(waiting)));
+
+// The rule this file has always kept, now that there is more in the block to break it:
+// nothing interpolated into the YAML is text beadcause did not write. A branch name may
+// legally carry a double quote, and one of those in a scalar is a card with no buttons.
+const hostile = {
+  ...waiting,
+  prs: [{ ...row(11), branch: 'wt-"quote"-11', title: 'a: title — with "quotes" and #hashes', state: 'handed-back', note: '', said: 'he said "both"' }],
+};
+const hostileQ = toQuestion('demo', { id: 'bc-card', title: 'x', description: sweepCardBody(hostile) });
+check('a branch or a title full of quotes still parses', !hostileQ.decisionError && (hostileQ.decision?.options || []).length === 2, JSON.stringify(hostileQ.decisionError));
+check(
+  'and the resolver own words stay in the markdown, never in the block',
+  /he said "both"/.test(sweepCardBody(hostile)) && !/he said/.test(JSON.stringify(hostileQ.decision)),
+  JSON.stringify(hostileQ.decision)
+);
+
+console.log('\nand reading the answer back');
+
+check('the tapped option names the pull request', sweepAnswer(waiting, 'RESOLVE #11: take main’s renderRow', 'resolve-11')?.number === 11);
+check('and the marker is stripped off the instruction', sweepAnswer(waiting, 'RESOLVE #11: take main’s renderRow', 'resolve-11')?.note === 'take main’s renderRow');
+// The surfaces that can only send text — an ntfy action button, a Slack button.
+check('the marker alone is enough', sweepAnswer(waiting, 'RESOLVE #14: give it another go')?.number === 14);
+// Two rows waiting, so "take main's version" is an instruction to nobody in particular.
+check('a bare sentence over two waiting rows is an ordinary answer', sweepAnswer(waiting, 'take main’s renderRow') === null);
+check('Noted is never read as an instruction', sweepAnswer(waiting, 'Noted — read the sweep of x.', 'noted') === null);
+
+const alone = { ...waiting, prs: [waiting.prs[0], waiting.prs[2]] };
+check('with exactly one waiting, a bare sentence is unambiguous', sweepAnswer(alone, 'take main’s renderRow')?.number === 11);
+check('and it carries the whole sentence', sweepAnswer(alone, 'take main’s renderRow')?.note === 'take main’s renderRow');
+check('an empty box is not an answer', sweepAnswer(alone, '   ') === null);
+// Tapped but nothing typed: the caller has to say so rather than open a window on a
+// decision nobody made — asserted end to end in test/sweepanswer.mjs.
+check('a tap with no instruction still names the row, with nothing to say', sweepAnswer(alone, 'RESOLVE #11:', 'resolve-11')?.note === '');
+
+console.log('\nand the row goes back into motion');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ handed: [row(14)], failed: [{ ...row(11), why: 'iTerm refused' }] }), { dir: checkout });
+const restarted = markResolving('bc-card', 11, 'working', '');
+check('the answered row is live again', restarted.prs.find((r) => r.number === 11)?.state === 'working');
+check('and the record on disk says so', readSweepCards()['bc-card'].prs.find((r) => r.number === 11)?.state === 'working');
+check('the other rows are untouched', restarted.prs.find((r) => r.number === 14)?.state === 'working');
+check('a card whose record has gone is said so rather than invented', markResolving('bc-nothing', 11, 'working') === null);
+
+const wired = fs.readFileSync(LIB('server.js'), 'utf8');
+check('the daemon is what acts on it', /resolveSweepFor\(/.test(wired), 'nothing in the server answers a sweep card');
+check('beside the other three answers that write something', wired.indexOf('resolveSweepFor(ws,') < wired.indexOf('await bd.respond(ws, body.id'), 'the act runs after the close');
 
 /* ------------------------------------------------------------------------ done */
 

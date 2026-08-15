@@ -34,6 +34,7 @@
  *   - title: Cache-bust site.js
  *     type: task
  *     priority: 2
+ *     complexity: low          # low | medium | high, or leave it off
  *     description: |
  *       No ?v= on the script tag, so a shipped header change looks absent.
  *     acceptance: A deploy changes the URL.

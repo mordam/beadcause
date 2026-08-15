@@ -650,6 +650,29 @@ console.log('\none pull request, full screen\n');
   const anon = conflictPromptFor('demo', row, 'Adam', { sweptAfter: true });
   check('a sweep with no number to give does not invent one', !/#1 merged/.test(anon), anon.slice(0, 400));
   check('and still gets the swept reason rather than the press', /A pull request merged into/.test(anon) && !/pressed \*\*Resolve/.test(anon), anon.slice(0, 400));
+
+  /* ------------------------------------ and the third reason: he answered the card */
+
+  // bc-9d37.8. A resolver stopped saying only Adam could pick a winner, the sweep card said
+  // so, and he answered it. The sentence he typed is the decision this window exists to
+  // apply — so it replaces the same paragraph, above the steps, where a session reads the
+  // reason for its own existence before it reads anything else.
+  const told = conflictPromptFor('demo', row, 'Adam', {
+    sweptAfter: 204,
+    instruction: 'take main’s renderRow\nand keep our tests',
+  });
+  check('an answered brief carries his sentence verbatim', /take main’s renderRow/.test(told) && /and keep our tests/.test(told), told.slice(0, 600));
+  // Every line of it, or a blockquote that stops half way reads as the brief resuming in
+  // his voice — which over an instruction is the worst place for that to happen.
+  check('every line of it is quoted', /> take main’s renderRow\n> and keep our tests/.test(told), told.slice(0, 600));
+  check('it says to treat it as the decision rather than a suggestion', /not as a suggestion/.test(told), told.slice(0, 600));
+  check('and it still claims nobody pressed Resolve conflicts', !/pressed \*\*Resolve conflicts\*\*/.test(told), told.slice(0, 400));
+  // What an answer is *not*: permission to skip the gate, or to merge into the base. Those
+  // live in the paragraphs this parameter does not touch, and this is what says so.
+  const toldParas = told.split('\n\n');
+  check('the steps are untouched by it', tapParas.slice(2).every((p) => toldParas.includes(p)), 'an instruction changed more than the reason line');
+  check('including the one that says the base is not yours to merge into', /Nothing here merges into/.test(told));
+  check('and the one that sends it back unmergeable rather than guessed at', /much better outcome than a resolution nobody can check/.test(told));
 }
 
 {

@@ -404,7 +404,38 @@ console.log('\nwired into the poll cycle');
   check('and its failure is reported like every other sweep', /sweepFailed\('the JIRA poll'/.test(src));
   check(
     'the tickets ride the inbox payload as `tickets`, which is what the row reads',
-    /tickets: liveTickets\(jira\.tickets\(\)\)/.test(src)
+    // The field and the filter, and not what is inside the filter: bc-0i27.6 lifted the
+    // poller's answer into a `held` local so the cancelled half could be split off it
+    // without asking twice, and a pattern anchored to `liveTickets(jira.tickets())` read
+    // that as the live filter having been dropped.
+    /tickets: liveTickets\(/.test(src) && /const held = jira\.tickets\(\)/.test(src)
+  );
+  check(
+    'and the cancelled ones ride a field of their own, counted by nothing',
+    // bc-0i27.6. They are not rows — beadify lives on a ticket's own view and a view
+    // needs a way in, which is the whole of why they are on the payload at all.
+    /cancelledTickets: cancelledTickets\(held\)/.test(src),
+    'a cancelled ticket has no way back — the beadify button has nowhere to live'
+  );
+  check(
+    'and the records the poller cannot match ride a third field, off the same read',
+    // bc-0i27.19. `strandedCancels(held)` rather than `strandedCancels(jira.tickets())`:
+    // the whole reason `held` exists is that the poller is asked once for a payload every
+    // parked phone rebuilds, and a third caller asking again is the shape that turns a
+    // free thing costly. It is also the only one of the three that would be *wrong* asked
+    // twice — two reads a moment apart could disagree about a ticket and strand a live one.
+    /strandedCancels\(held\)/.test(src),
+    'a cancel record whose ticket JIRA stopped returning has no screen anywhere'
+  );
+  check(
+    'and unlike the two fields above it, it is not filtered to the active account',
+    // bc-0i27.24. A workspace dropped from the config is usually dropped from every
+    // account's `workspaces` list too, so `mine` here would not scope the list to your
+    // account — it would usually hide the record from every account there is, with no
+    // widening left that could ever bring it back. `strandedCancels(held)` must be
+    // followed straight by `.map(`, never by `.filter(mine)`.
+    /strandedCancels\(held\)\.map\(/.test(src),
+    'a stranded record for a workspace no account claims went unreachable again'
   );
   check(
     'each one stamped with its space, or the inbox filter files it under Other',

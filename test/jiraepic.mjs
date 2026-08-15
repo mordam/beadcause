@@ -26,6 +26,11 @@
  *    nothing; a `create` that throws is not retried on the very next tick, because a
  *    ticket bd will never accept would otherwise buy a full read of the workspace every
  *    minute for as long as it exists.
+ * 5. **A rewritten summary follows onto the title — and only while it is ours** (bc-yc16).
+ *    The one write in this file that changes a bead somebody has already read, so every
+ *    refusal is worth a case of its own: a title edited by hand, an adopted bead, an epic
+ *    a session is working, one that is finished, and a refusal re-decided every tick,
+ *    which would cost a full read of the workspace for as long as the ticket exists.
  *
  * No tracker and no network: `bd` is a fake that records every call and keeps its rows in
  * an array, which is exactly the shape the real `listAll` hands back.
@@ -55,6 +60,8 @@ const {
   refFor,
   refIndex,
   refOn,
+  renameFor,
+  RENAMEABLE,
   RETRY_MS,
   TICKET_LABEL,
   TITLE_MAX,
@@ -146,6 +153,9 @@ function fakeBd({ rows = [], p0s = [], createFails = null, listFails = null } = 
       calls.push(`update ${id} ${JSON.stringify(fields)}`);
       const row = rows.find((r) => r.id === id);
       if (row && fields.externalRef) row.external_ref = fields.externalRef;
+      // The rename has to land in the rows, or every test of "and then the next tick"
+      // would be reading a tracker that had quietly refused the write.
+      if (row && fields.title) row.title = fields.title;
     },
     async comment(workspace, id) {
       calls.push(`comment ${id}`);
@@ -420,6 +430,162 @@ checks('refIndex resolves a doubled ref to the older bead on every machine', () 
   assert.equal(index.get('jira-TECH-1').id, 'bc-1');
 });
 
+/* ----------------------------------------------------------------------------------- the rename */
+
+console.log('\na summary that changes — the title follows, while it is still ours');
+
+const OURS = (title) => ({ title, ours: true });
+
+checks('nothing to do when the bead already says what the ticket says', () => {
+  const t = ticket('TECH-1');
+  const row = { id: 'bc-1', title: epicTitle(t), status: 'open' };
+  assert.equal(renameFor(row, t, OURS(row.title)), null);
+});
+
+checks('a summary that moved is a rename, from and to', () => {
+  const row = { id: 'bc-1', title: 'TECH-1 — TECH-1 needs doing', status: 'open' };
+  const out = renameFor(row, ticket('TECH-1', { summary: 'Fix the login redirect loop' }), OURS(row.title));
+  assert.deepEqual(out, { from: 'TECH-1 — TECH-1 needs doing', to: 'TECH-1 — Fix the login redirect loop' });
+});
+
+checks('but never onto a title beadcause did not write', () => {
+  const row = { id: 'bc-1', title: 'The login thing, properly this time', status: 'open' };
+  const t = ticket('TECH-1', { summary: 'Fix the login redirect loop' });
+  assert.equal(renameFor(row, t, { title: row.title, ours: false }), null);
+  assert.equal(renameFor(row, t, null), null, 'a bead this filer knows nothing about was rewritten');
+});
+
+checks('nor when the bead has been retitled since we last looked', () => {
+  // The drift is noticed against a map up to a minute old. A minute is long enough.
+  const row = { id: 'bc-1', title: 'Renamed by hand thirty seconds ago', status: 'open' };
+  const t = ticket('TECH-1', { summary: 'Fix the login redirect loop' });
+  assert.equal(renameFor(row, t, OURS('TECH-1 — TECH-1 needs doing')), null);
+});
+
+checks('nor onto an epic somebody is working, or one that is finished', () => {
+  const t = ticket('TECH-1', { summary: 'Fix the login redirect loop' });
+  const title = 'TECH-1 — TECH-1 needs doing';
+  for (const status of ['in_progress', 'closed', 'blocked']) {
+    assert.equal(renameFor({ id: 'bc-1', title, status }, t, OURS(title)), null, `${status} was rewritten`);
+  }
+  assert.ok(renameFor({ id: 'bc-1', title, status: 'open' }, t, OURS(title)), 'an open epic did not follow');
+  assert.deepEqual([...RENAMEABLE], ['open']);
+});
+
+await checksAsync('end to end: the epic filed last minute follows the ticket renamed this one', async () => {
+  const bd = fakeBd();
+  const filer = createEpicFiler({ bd });
+  await filer.sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  const id = bd.rows[0].id;
+  bd.calls.length = 0;
+
+  const out = await filer.sweep(CFG, [WS], okResult([ticket('TECH-1', { summary: 'Fix the login redirect loop' })]));
+  assert.equal(out.filed.length, 0, 'a renamed ticket was filed a second epic');
+  assert.equal(out.renamed.length, 1);
+  assert.deepEqual(out.renamed[0].renamed, {
+    from: 'TECH-1 — TECH-1 needs doing',
+    to: 'TECH-1 — Fix the login redirect loop',
+  });
+  assert.equal(bd.of(id).title, 'TECH-1 — Fix the login redirect loop');
+  assert.ok(
+    bd.calls.some((c) => c.startsWith(`comment ${id}`)),
+    'the bead was renamed with nothing on it saying so'
+  );
+  assert.equal(bd.rows.length, 1);
+});
+
+await checksAsync('and again, and again — a rename leaves the title still ours', async () => {
+  const bd = fakeBd();
+  const filer = createEpicFiler({ bd });
+  await filer.sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  await filer.sweep(CFG, [WS], okResult([ticket('TECH-1', { summary: 'A first stab' })]));
+  const out = await filer.sweep(CFG, [WS], okResult([ticket('TECH-1', { summary: 'The real title' })]));
+  assert.equal(out.renamed.length, 1, 'the second rename was refused as though somebody had edited it');
+  assert.equal(bd.rows[0].title, 'TECH-1 — The real title');
+});
+
+await checksAsync('a title edited by hand is never rewritten, then or later', async () => {
+  const bd = fakeBd();
+  const filer = createEpicFiler({ bd });
+  await filer.sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  bd.rows[0].title = 'Login redirect loop — the real problem is the cookie';
+
+  const out = await filer.sweep(CFG, [WS], okResult([ticket('TECH-1', { summary: 'Fix the login redirect loop' })]));
+  assert.equal(out.renamed.length, 0);
+  assert.equal(bd.rows[0].title, 'Login redirect loop — the real problem is the cookie');
+  const later = await filer.sweep(CFG, [WS], okResult([ticket('TECH-1', { summary: 'Renamed yet again' })]));
+  assert.equal(later.renamed.length, 0, 'a hand-edited title came back under a later summary');
+});
+
+await checksAsync('a refusal is remembered, so it does not re-read the workspace every tick', async () => {
+  const bd = fakeBd();
+  const filer = createEpicFiler({ bd });
+  await filer.sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  bd.rows[0].title = 'Renamed by hand';
+  const moved = okResult([ticket('TECH-1', { summary: 'Fix the login redirect loop' })]);
+  await filer.sweep(CFG, [WS], moved);
+  bd.calls.length = 0;
+  await filer.sweep(CFG, [WS], moved);
+  assert.deepEqual(bd.calls, [], `the same refusal cost ${bd.calls.join(', ')} all over again`);
+});
+
+await checksAsync('an adopted bead is somebody’s own, and its title is never touched', async () => {
+  const bd = fakeBd({ rows: [{ id: 'bc-hand', title: 'TECH-1: something else entirely', status: 'open', labels: [] }] });
+  const filer = createEpicFiler({ bd });
+  await filer.sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  const out = await filer.sweep(CFG, [WS], okResult([ticket('TECH-1', { summary: 'Fix the login redirect loop' })]));
+  assert.equal(out.renamed.length, 0);
+  assert.equal(bd.of('bc-hand').title, 'TECH-1: something else entirely');
+});
+
+await checksAsync('an epic being worked keeps its name while the session runs', async () => {
+  const bd = fakeBd();
+  const filer = createEpicFiler({ bd });
+  await filer.sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  bd.rows[0].status = 'in_progress';
+  const out = await filer.sweep(CFG, [WS], okResult([ticket('TECH-1', { summary: 'Fix the login redirect loop' })]));
+  assert.equal(out.renamed.length, 0);
+  assert.equal(bd.rows[0].title, 'TECH-1 — TECH-1 needs doing');
+});
+
+await checksAsync('after a restart: an epic that agrees with JIRA is ours again', async () => {
+  const bd = fakeBd();
+  await createEpicFiler({ bd }).sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  // A second filer over the same tracker is what a daemon restart looks like from here.
+  const fresh = createEpicFiler({ bd });
+  await fresh.sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  const out = await fresh.sweep(CFG, [WS], okResult([ticket('TECH-1', { summary: 'Fix the login redirect loop' })]));
+  assert.equal(out.renamed.length, 1, 'a restart lost the right to follow a title it had written itself');
+});
+
+await checksAsync('and one that disagrees at the first read is left alone for good', async () => {
+  // The gap this decision leaves open on purpose: a summary rewritten while the daemon
+  // was down is indistinguishable from a bead somebody retitled, so it refuses.
+  const bd = fakeBd({
+    rows: [{ id: 'bc-1', title: 'TECH-1 — something older', status: 'open', labels: [], external_ref: 'jira-TECH-1' }],
+  });
+  const out = await createEpicFiler({ bd }).sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  assert.equal(out.renamed.length, 0);
+  assert.equal(bd.rows[0].title, 'TECH-1 — something older');
+});
+
+await checksAsync('a rename that bd refuses is a failure, and is not tried again this minute', async () => {
+  const bd = fakeBd();
+  const filer = createEpicFiler({ bd });
+  await filer.sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  bd.update = async () => {
+    bd.calls.push('update');
+    throw new Error('dolt is wedged');
+  };
+  const moved = okResult([ticket('TECH-1', { summary: 'Fix the login redirect loop' })]);
+  const out = await filer.sweep(CFG, [WS], moved);
+  assert.equal(out.failed.length, 1, 'a refused rename was swallowed');
+  assert.equal(out.renamed.length, 0);
+  bd.calls.length = 0;
+  await filer.sweep(CFG, [WS], moved);
+  assert.deepEqual(bd.calls, [], 'it spun on the same refused write on the very next tick');
+});
+
 /* ------------------------------------------------------------------------------------- the cost */
 
 console.log('\nwhat it costs when nothing has arrived');
@@ -522,7 +688,10 @@ console.log('\nwired into the poll cycle, and into bd');
   );
   check(
     'through the cancel filter, so a cancelled ticket is never filed a second epic',
-    /import \{ liveResults[^}]*\} from '\.\/jiracancel\.js'/.test(server),
+    // The name anywhere in the list rather than at the head of it. bc-0i27.6 added a
+    // third import from this module and `liveResults` stopped being first, which read
+    // here as the cancel filter having been taken off the filer.
+    /import \{[^}]*\bliveResults\b[^}]*\} from '\.\/jiracancel\.js'/.test(server),
     'a cancel that filtered only the rows on the screen would file a fresh bead on every restart'
   );
   check(
@@ -535,9 +704,9 @@ console.log('\nwired into the poll cycle, and into bd');
     !/jiraEpics\?\.sweep\(cfg, cfg\.workspaces, out\.changed\)/.test(server)
   );
   check(
-    'and the endorsement queue’s cache is dropped when something was filed',
-    /if \(epics\.filed\.length\) forgetQueue\(\)/.test(server),
-    'the queue would serve a list without the new epic for another fifteen seconds'
+    'and the endorsement queue’s cache is dropped when something was filed — or renamed',
+    /if \(epics\.filed\.length \|\| epics\.renamed\?\.length\) forgetQueue\(\)/.test(server),
+    'the queue would serve a list without the new epic — or with the old title — for another fifteen seconds'
   );
   // Deliberately not anchored to what follows it: `createApp` returns a growing list and
   // bc-0i27.5 appended `jiraIngest` after this, which a `jiraEpics }` pattern read as the

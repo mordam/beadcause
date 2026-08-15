@@ -307,7 +307,8 @@
   this one bead or four. It files an issue labelled <code>human</code> with a fenced
   <code>decision</code> block in the body: the question, the options, the exact response text each
   option records, a mermaid diagram, files to read, links, images. The daemon sweeps every beads
-  workspace under <code>~/beads/</code>, pushes what is new, and serves a mobile-first PWA over the
+  workspace under every root in <code>workspaceRoots</code> — <code>~/beads/</code> by default —
+  pushes what is new, and serves a mobile-first PWA over the
   tailnet. Answering writes a <code>bd comment</code> and closes the bead, so whatever was blocked
   on the answer turns up in <code>bd ready</code> for the next session.</p>
 
