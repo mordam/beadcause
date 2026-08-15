@@ -16035,6 +16035,133 @@ bookkeeping rather than arriving on your phone as an answer. `node test/byline.m
 the real poller over three comments that differ only in their author — this Mac's byline,
 another Mac's, and an agent's — and asserts that exactly one of them rings.
 
+## The management system — off by default, and turning it on is a record
+
+Beadcause is growing a compliance layer: a control corpus, edges from a control to the
+evidence that exercises it, gates that refuse work producing none, and the reads an
+auditor asks for. None of that is on here, and none of it is on anywhere unless somebody
+turned it on and said why.
+
+That is not a courtesy. Most installs have no architecture checkout, no JIRA, no
+requirements corpus and no interest in an attestation — sophab, deluvia and ehatt are all
+three of them — and a compliance layer that warns, throws or blocks work on those installs
+makes the platform worse for every user who is not pursuing one. The compliance layer is a
+feature of the platform, not a tax on it. So the shape is the one
+[the requirements corpus](#which-requirement-a-change-was-for--refsbeadcauserequirements)
+already takes when the architecture checkout is not on disk: **absent configuration is an
+answer, not a failure.** `loadCorpus` hands back `{}` and every caller degrades to knowing
+no requirements; `management.state()` hands back off and every caller degrades to knowing
+no controls. The feature is off, byte for byte, rather than broken.
+
+### Nothing runs when it is off, and that is enforced by where the door is
+
+`lib/management.js` exports one gate:
+
+```js
+const controls = await whenOn(async () => (await import('./controls.js')).build());
+```
+
+The loader is not called at all when the layer is off, so the module behind it is never
+parsed, never constructed and never given the chance to throw on an install that has none
+of what it needs. `null` is what an off install gets back, and `whenOn(fn, { fallback })`
+is there for a caller that wants to name its own empty answer instead. A compliance route,
+when there is one, is therefore a 200 with a null body rather than a 500 — the same
+contract `/api/requirements` already keeps for `{corpus: null}`.
+
+`node test/management.mjs` runs every read against a directory that has no ref, no state
+file and no git repo in it, and asserts that not one of them so much as `git init`s the
+config directory. Off has to cost nothing, and that includes costing no store.
+
+### Why it is a commit and not a config key
+
+Here is the tension the whole design turns on: **a gate that can be silently switched off
+is not a control.** If the enforcement gates could be disabled by editing `config.json`, an
+auditor asking "how do you know these operated for the whole observation window" would have
+no answer — the key is one line in a file with no history, no author and no reason, and the
+report built on it would be worth nothing.
+
+So on is not a value read at startup. It is a **transition**, appended as a commit to
+`refs/beadcause/management` in `~/.config/beadcause`, exactly as
+[an approved amendment](#what-an-agent-is--and-how-it-asks-to-be-different) is a commit on
+`refs/beadcause/foundations`. The on/off history *is* the evidence, in the same store, with
+the same compare-and-swap, and readable months later by a person with git and no beadcause
+running at all:
+
+```sh
+git -C ~/.config/beadcause log --format='%aI %s' refs/beadcause/management
+git -C ~/.config/beadcause cat-file -p refs/beadcause/management:management.json
+```
+
+Two consequences fall out of that and both are deliberate. **Nothing in
+`lib/management.js` reads the config** — `CONFIG_DIR` is a path and is the only thing taken
+from that module — because the moment a settings file can influence the answer, the chain
+stops recording what was true and starts recording what somebody last typed. The suite pins
+it as a static read of the source. And **the daemon does not import the writers at all**:
+the only thing that can flip this is a person at a terminal, which is the point of a switch
+whose whole job is to be hard to flip quietly.
+
+**A reason is mandatory in both directions.** An enable with no reason opens a window with
+no scope statement — nobody months later can say what the layer was turned on *for* — and a
+disable with no reason is precisely the silent gap the mechanism exists to prevent. What
+you type becomes the commit message, which is what an auditor reads.
+
+A redundant call writes nothing and says so. Enabling an install that is already on is not
+a transition, and a record padded with non-events is one nobody can read.
+
+### A disabled period is a period, not an absence
+
+Off again, from on, is the transition an auditor actually reads. A window with an
+unexplained gap in it is a finding; a window with a gap nobody recorded is a report that
+cannot be relied on. So the record is read back as **periods** rather than as events:
+
+```
+$ beadcause-management windows
+OFF  never → 2026-08-15 09:12Z  (default — never enabled)
+ON   2026-08-15 09:12Z → 2026-09-02 14:40Z  Adam: SOC 2 Type II observation window opens
+OFF  2026-09-02 14:40Z → 2026-09-02 18:05Z  Adam: the gate blocked the release and we needed the release
+ON   2026-09-02 18:05Z → now  Adam: gate fixed, window resumes
+```
+
+The stretch before the layer was ever enabled is in there too, marked as the implicit one,
+because "never enabled before this date" is a fact about the window somebody is looking at
+and leaving it out would make the timeline start in the middle.
+
+`beadcause-management coverage --from <iso> --to <iso>` is the question a Type II report is
+built on, answered from the record rather than from anybody's memory: it hands back every
+gap in that window with the reason recorded at the time and the person who recorded it, so
+a finding arrives with its explanation already attached. `complete` is a boolean on purpose
+— 99.4% of an observation window is not a passing grade, it is a finding with a number
+beside it — and the command exits non-zero when there is a gap, so a scheduled check can be
+one line.
+
+`beadcause-management verify` is the integrity read. Every transition carries a dense `seq`
+and sits in a commit whose parent is the one before, so removing a transition from the
+middle means rewriting every commit after it and leaves a hole the check reports, and a
+payload edited without the history shows up as a commit count that no longer matches the
+transitions in it. **What it does not defend against is a truncation at the tip** by
+somebody with write access to `~/.config/beadcause`: nothing outside that repo records its
+head, which is the same honest limit the config repo's own history has — it answers "what
+did this say before", not "was this altered". Anchoring the head somewhere an operator
+cannot reach is real work and belongs with the enforcement gates, not here.
+
+Note what this makes the enable/disable history: a control in its own right, alongside the
+change management it governs — SOC 2 CC8.1 and ISO 27001 A.8.32.
+
+### The commands
+
+```
+beadcause-management status                          is it on, since when, who said so
+beadcause-management on  --reason "…" [--bead <id>]  turn it on, recorded
+beadcause-management off --reason "…" [--bead <id>]  turn it off, recorded as a gap
+beadcause-management history [<n>]                   the transitions, newest first
+beadcause-management windows                         the same record as periods
+beadcause-management coverage --from <iso> --to <iso>  was it on for the whole window
+beadcause-management verify                          does the chain hold together
+```
+
+There is no config key and no HTTP route that writes any of this, and there is not meant
+to be one.
+
 ## Config — `~/.config/beadcause/config.json`
 
 | key | meaning |
