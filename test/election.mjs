@@ -324,9 +324,13 @@ await check('withdrawing without a justification is refused', async () => {
   await assert.rejects(() => withdraw({}), /justification/);
 });
 
+/** What was in scope at the moment of the withdraw, so the next check can name it. */
+let withdrawn = null;
+
 await check('withdrawing returns a gate to exactly the fresh install', async () => {
   const before = await current();
   assert.equal(enforcing(before), true, 'something was in scope first, or this proves nothing');
+  withdrawn = [...before.criteria];
 
   const { election } = await withdraw({
     bead: 'bc-3muu.6',
@@ -345,8 +349,8 @@ await check('and does not erase the record of having been in scope', async () =>
   const out = e.transitions.at(-1);
   assert.equal(out.action, 'withdraw');
   assert.ok(out.justification.length >= 20, 'the reason is on the record, not in somebody\'s head');
-  assert.deepEqual(out.criteria, ['SOC2.CC6.1', 'SOC2.CC7.2', 'SOC2.CC8.1'].filter((c) => out.criteria.includes(c)));
-  assert.equal(out.boundary.name, 'Climative', 'what was withdrawn is named, not just that something was');
+  assert.deepEqual([...out.criteria].sort(), withdrawn, 'what stopped being claimed is named, one criterion at a time');
+  assert.equal(out.boundary.name, 'Climative', 'and so is the boundary, not just that there was one');
 });
 
 await check('the history is the chain, and the justifications are in it', async () => {
