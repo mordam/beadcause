@@ -19033,6 +19033,86 @@ bc-3muu.3 lands the protocol, and the directory is an argument rather than a con
 check, an installer, a service and a daemon can each point it somewhere without dragging in
 each other's state.
 
+### A silent instance is a finding — `lib/findings.js`, `test/findings.mjs`
+
+The three sections above settle what may leave the Mac, whose hands it lands in, and which
+install is speaking. This one is what the whole arrangement is *for*, and it is the answer to
+the question that started it: what stops somebody quietly running a build with the compliance
+layer stripped out?
+
+**Nothing stops them.** What the service does is notice. An enrolled instance that stops
+publishing, publishes a chain that does not extend its predecessor, or turns out not to be
+held at all any more is a discrepancy somebody reads — not a row the report silently lacks.
+
+**The failure this file exists to prevent is the easiest one in the world to ship.** Every
+natural way to write a report iterates the things it holds. A service that iterates its
+ledgers cannot report the instance whose ledger it no longer has, and the report it produces
+is not merely incomplete — it is *clean*, confidently, with every row it printed correct.
+That is worse than an error, because an error gets looked at. The same mistake already
+shipped here once, against the tracker rather than a service: a change sample where nothing
+could be asked reported 47 of 47 clean, which is the most confident possible way to say
+nothing at all. So `clean` here means *every member of the population accounted for and
+current*, and never "no findings" — a survey that covers nobody is not clean, and says so
+in the sentence it carries.
+
+**The population is a union of four sources, and each can name somebody the others cannot.**
+The ledgers the service holds. The refusals it recorded, which name instances whose *first*
+publication was rejected and which therefore have no ledger at all. The comparisons somebody
+ran. And the previous survey — the only source that can name an instance the service has
+*stopped* holding. Delete a ledger to quieten the report and the report gets louder, because
+last night's survey still names the instance and the absence is now the finding. Surveys
+chain for the same reason [records do](#append-only-stated-twice-because-it-can-fail-twice).
+
+**"Within a stated interval" means the interval is stated, and that somebody looked.**
+`EXPECTED_MS` is six hours, exported rather than buried in a comparison, and every silence
+finding quotes both it and how long the silence has run: "last witnessed …, 9 hours ago, and
+one publication every 6 hours is expected" is a sentence an auditor can check, where
+"instance X is silent" is one nobody can. Silence is dated by the *service's* receipt rather
+than by the `at` the record carries, because an instance that is behind on everything else
+should not also be the authority on whether it is late. And a survey that has not itself run
+within the interval raises `unsurveyed` against itself: an instance can only be found silent
+by somebody looking, so a gap between surveys is a gap in the guarantee rather than a quiet
+stretch, and it is reported in the same list as everything else instead of being inferred
+from a missing file.
+
+**A verdict is trusted; a flag on somebody's object is not.** Whether a comparison is
+divergent is decided by looking its verdict up in the table [`compare` reaches
+them from](#both-directions-and-they-are-not-the-same-event), never by reading the
+`divergent` boolean sitting on the result. The two agree today, which is exactly why
+consulting the flag would be harmless right up until a comparison built somewhere else
+arrived pre-declared clean. A verdict the surveyor does not recognise is a finding too: an
+answer nobody can classify is the one case where saying nothing would be worst.
+
+**The second half of the bead was already refused, and what was missing was that it be
+reported.** [The witness](#the-service-is-a-witness-and-it-cannot-author) refuses a record
+that re-uses a sequence number or names the wrong predecessor, and hands back sentences; a
+service that turns those into a `400` and nothing else has an event that lives for as long
+as the connection does. `rejection` carries those sentences into a finding with a place to
+live. The refused record itself is deliberately *not* carried — it was refused, so the
+service does not hold it, and a finding that quietly stored what the admission rule turned
+away would be a second copy of [the
+boundary](#what-may-leave-the-mac--libpublishablejs-testpublishablemjs) that nobody is
+checking.
+
+**None of this rests on trusting the surveyor, which is the point of `surveyProblems`.** A
+report travels: it is read by somebody who did not run it, later, possibly through a service
+somebody else administers. Point that function at a report *and at the inputs it was made
+from* and it says what the report fails to account for — a row quietly dropped, a row marked
+`current` with findings hanging off it, a report marked clean carrying findings, a report
+marked clean covering nobody. Sentences rather than a boolean, because the reader of a
+refused survey has to know which row to go and look at. Same discipline as `tableProblems`
+and `entryProblems`: a rule only ever run against inputs that pass is a rule nobody has
+watched fire.
+
+Pure, and a leaf below the config directory for the reason `lib/witness.js` is one — the far
+end has to be hostable somewhere that is not this Mac, so there is no git, no filesystem and
+no clock but the one a caller passes. It cannot mint a record either: `record`, `next` and
+`genesis` are not imported, and the suite reads the source and fails the repo if they ever
+are. A surveyor that could author is a surveyor that could answer its own question. Nothing
+wires it into a daemon yet, and what it does *not* answer is whether a period an instance was
+publishing across can be claimed — linked is not continuous, that is bc-3muu.4, and rounding
+the two together would let the weaker fact be quoted as the stronger one.
+
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
 There are two `grep` hazards on this laptop. One is a defect in every script that writes
