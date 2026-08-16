@@ -897,6 +897,38 @@
   }
 
   /**
+   * One parked conversation — a window that closed, kept whole.
+   *
+   * **The row has to say three things, and the third is the one that makes it a row you
+   * can look at rather than a loss you have to mourn.** What it was (the bead or the pull
+   * request), what it is waiting for (the sentence `finish` wrote, or "it went quiet"),
+   * and that it *can be brought back* — which is what the ↩ and the trip count are for. A
+   * parked session drawn like a dead one would read as the daemon having killed thirteen
+   * windows, and every objection to closing them would be correct.
+   *
+   * Deliberately not a button. Nothing here offers "resume this now", because the resume
+   * is not something to do to a conversation — it is what happens when the thing it is
+   * waiting on arrives, and it happens at the dispatch seam with every gate still in front
+   * of it (lib/resume.js says why). A button here would be a second door into a launch,
+   * which is exactly the shape bc-2uj4 exists to prevent.
+   */
+  function parkedRow(p) {
+    const back = Number(p.resumes) || 0;
+    return `<a class="work-row adv-worker" href="${esc(graphUrl(p.workspace, p.bead || ''))}">
+      <span class="work-phase">↩</span>
+      <span class="work-main">
+        <span class="work-title">${esc(p.title || p.bead || p.sessionId.slice(0, 8))}</span>
+        <span class="work-sub">${p.bead ? `<span class="pill id">${esc(p.bead)}</span>` : ''}
+          <span class="tag dim">${esc(p.kind)}</span>
+          ${back ? `<span class="tag">resumed ${back}×</span>` : ''}
+          ${esc(p.waitingOn || 'waiting')}
+        </span>
+      </span>
+      <time>${esc(age(p.at))}</time>
+    </a>`;
+  }
+
+  /**
    * What it would pick up next, in the order it would take it.
    *
    * Always drawn, including while sessions are open — public/work.js hides this the
@@ -1186,8 +1218,17 @@
             // each open session whether it is still working and takes back only the slots
             // whose window has gone. The label is the promise — a button called "free
             // slots" that sometimes keeps them all would be worse than either behaviour.
-            a.workers.length
-              ? `<button class="adv-btn" data-adv="reclaim" data-ws="${esc(key)}" title="Ask each open session whether it is still working. Windows that have gone give their slots back; the rest keep them and are asked to check in or finish.">Reclaim sessions</button>`
+            // **Offered whenever there are windows, not whenever there are slots.** The
+            // gate used to be `a.workers.length`, and that hid the button in precisely
+            // the state it is most wanted: on 2026-08-16 this advocate was paused with
+            // zero workers while fifteen Claude sessions were live on the Mac and
+            // thirteen of them were idle — nothing on the slot list, a screen full of
+            // rectangles, and the one control that asks a window whether it is still
+            // working was not on the card. What makes Reclaim useful is a window being
+            // open; whether this advocate happens to hold a slot for it is a fact about
+            // the advocate. See bc-2uj4.5.3.
+            a.workers.length || sessions.length
+              ? `<button class="adv-btn" data-adv="reclaim" data-ws="${esc(key)}" title="Ask each open session whether it is still working. Windows that have gone give their slots back; the rest keep them and are asked to check in or finish. Any window this advocate opened that is quiet right now is parked — closed, with its conversation kept, so an answer brings the same session back.">Reclaim sessions</button>`
               : '',
             // Clears the attempt counters, so beads it gave up on are eligible again.
             `<button class="adv-btn" data-adv="forget" data-ws="${esc(key)}" title="Clear attempt counters so beads it gave up on are eligible again">Forget attempts</button>`,
@@ -1237,6 +1278,23 @@
             'Closing',
             String(a.closing.length),
             a.closing.map(closingRow).join(''),
+            { tone: 'warn' }
+          )
+        : '',
+      // The conversations that are waiting on you — closed windows, kept whole.
+      //
+      // Above "Up next" on purpose. Everything below this line is work the daemon will
+      // pick up on its own; this is the only section on the card that is *blocked on
+      // Adam*, and a list of things somebody has to do belongs above a list of things
+      // that happen anyway. It is also the section that replaces reading a screen of
+      // windows: each row says what it is waiting for, and none of them is a process or
+      // a slot any more.
+      (a.parked || []).length
+        ? section(
+            `${key}:parked`,
+            'Parked — waiting on you',
+            String(a.parked.length),
+            a.parked.map(parkedRow).join(''),
             { tone: 'warn' }
           )
         : '',
