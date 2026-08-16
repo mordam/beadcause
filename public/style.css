@@ -2967,6 +2967,37 @@ button.work-row {
 
 .deploy-body { padding: 0 12px 12px; }
 .deploy-why { margin: 0 0 8px; font-size: 13px; color: var(--prose); }
+
+/* A refusal over a stale LaunchAgent, as fields rather than as the paragraph that
+   used to sit in `.deploy-why` — see launchAgentHtml in public/prs.js. Bordered and
+   tinted like `.svc.bad` on the monitor, because it is the same failure seen from the
+   other end: there, launchd is running the wrong program; here, a deploy has just
+   declined to restart it. The rows are a `dl` so the headings are headings, and the
+   labels sit in a fixed column so four values line up as a table you scan down. */
+.deploy-la {
+  margin: 0 0 10px; padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line)); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+}
+.la-head { margin: 0 0 8px; font-size: 12.5px; font-weight: 600; color: var(--prose); }
+.la-fields { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+/* Not a grid: a path is longer than any column can be, so the value wraps under its
+   own heading on a phone and sits beside it once there is room. */
+.la-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.la-row dt {
+  flex: none; min-width: 58px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--muted);
+}
+.la-row dd { flex: 1; min-width: 0; margin: 0; font-size: 12.5px; color: var(--prose); }
+.la-row code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+  word-break: break-all;
+}
+/* The gloss on a value — "is what launchd would have restarted", or the sentence
+   behind a command. Quiet, and on its own line when the value already fills one. */
+.la-note { display: inline-block; color: var(--muted); font-size: 11px; }
+.la-why { margin: 8px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
 .deploy-where { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
 .deploy-where code { font-size: 11px; }
 .deploy-reason { margin: 6px 0 0; font-size: 12.5px; color: var(--prose); }

@@ -8245,9 +8245,29 @@ than before them. It is the right shape for the repo that wants it and the wrong
 for everyone: rewriting a LaunchAgent from inside an unattended deploy at three in the
 morning is a big hammer for a failure a sentence names perfectly well.
 
+**The refusal above is also four fields, and that is what you actually read it as.** The
+paragraph is the log's shape; a phone's is a list. So the verdict lands on the deploy
+record as `launchAgent`, carrying `label`, `program`, `plist`, `fix` and `fixCommand`
+beside the prose, and both readers take the fields:
+
+- On the deploy strip the unfolded row draws them as a bordered block — the label, the
+  program launchd would have restarted, the plist that says so, and the command in
+  `<code>` under a heading that says **Fix** — with the reasoning as a quiet line under
+  it and the `error` paragraph not repeated beside them.
+- The ntfy push sends three short lines: `refused: <label> is stale`, `launchd would
+  restart <program>`, `fix: <command>`. It used to send `error.slice(0, 300)`, and since
+  the message leads with the refusal and *ends* with the command, the truncation ate the
+  fix — a push telling you a deploy was refused and unable to say what to type.
+
+`fixCommand` is null wherever there is no honest one: how a label this repo did not
+install gets reinstalled is not ours to know, so those verdicts carry the action as a
+phrase and offer no command to stand behind.
+
 `node test/launchagent.mjs` covers the verdicts against plists it writes in a temp home,
 so it never reads the real `~/Library/LaunchAgents`; `node test/deploy.mjs` covers the
-runner acting on one — the command never runs, the rebuild before it did.
+runner acting on one — the command never runs, the rebuild before it did;
+`node test/launchagentcard.mjs` covers the fields reaching the record, the push and the
+screen, including the arithmetic that the old 300-character slice cut the fix off.
 
 #### A deploy is a fact about a repo, and a workspace may be forty of them
 
@@ -14816,6 +14836,29 @@ one repo serving another repo's rows. So a refresh carries the generation it sta
 and may only *write* if that is still the current one. It still finishes, and still answers
 whoever was waiting on it — a ⟳ that raced a drop asked a real question and gets a real
 answer; what it may not do is become the value the next reader sees.
+
+## Wireframes you can move — `design/`
+
+There has never been a way to re-lay-out a screen here except by editing `style.css`
+and looking at what happened. `design/inbox.excalidraw` is the inbox — the list, and a
+card open — as boxes you can drag at <https://excalidraw.com>, save back over the same
+file, and hand to a session as `git diff design/`.
+
+Excalidraw and not Figma, and the reason is the round trip rather than the drawing.
+Figma can be imported *into*: `html.to.design` will pull a live URL in as real layers
+and it starts from a prettier picture than this does. What it cannot do is give the
+file back — Figma's REST API is read-only for document content, so nothing an agent
+writes becomes a `.fig`, and reading hand-edits out means walking node geometry and
+re-deriving what somebody meant. That is a re-implementation, not a diff. An
+`.excalidraw` is JSON in the repo: some fidelity given up for a loop that closes.
+
+`design/wireframe.mjs` seeds a screen from the real numbers off `public/style.css` —
+the topbar's 10/16/10, `--tabbar-h`, `--radius`, `.card-head`'s 14/15/0, the 12px list
+gap, the 52px compose — because a wireframe that lies about spacing gets believed.
+**It seeds once.** `--write` over a screen somebody has edited destroys exactly what
+the directory exists to collect; `--check` is the safe verb and never exits non-zero,
+because drift is the point. Nothing in `npm test` gates on it. Full loop, and the two
+details that are load-bearing — bound labels, derived seeds — in `design/README.md`.
 
 ## The monitor — what it is doing right now
 
