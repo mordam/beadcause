@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v60';
+const CACHE = 'beadcause-v64';
 const SHELL = [
   '/',
   '/index.html',
@@ -49,6 +49,11 @@ const SHELL = [
   // because it is loaded on the tap that answers a question — the one moment the
   // link is least likely to be there and most likely to be slow.
   '/absorb.js',
+  // And the queue those writes go on. The strongest shell argument of any file here:
+  // the one moment it is wanted is the moment the link is bad, because a link good
+  // enough to fetch it is a link the write would have gone straight out over. A page
+  // cached without it answers questions one blocking round trip at a time.
+  '/submitqueue.js',
   // The mic on the answer box. In the shell rather than network-first because the one
   // moment it is wanted is the moment a notification was opened on a phone that has
   // just woken up — the same argument as absorb.js above.
@@ -72,6 +77,12 @@ const SHELL = [
   // about — and, because the menu is where the page's own top-right buttons now live, no
   // refresh, no endorsement queue and no way out to a browser either.
   '/accountbar.js',
+  // Whether the screen is current, and the banner that says when it is not. In the shell
+  // for the reason the other two are, taken one step further: the moment this file exists
+  // for is a phone that cannot reach the daemon, which is exactly the moment a file that
+  // is not cached cannot be fetched. A shell without it is an app that goes quiet about
+  // being out of date precisely when it is.
+  '/freshness.js',
   // The panel every filter bar in the app is drawn in — the collapsed line, the chips,
   // the hover-and-tap state machine. In the shell because two pages mount it and
   // neither has any control on it at all without it: the inbox loses the scope switch
