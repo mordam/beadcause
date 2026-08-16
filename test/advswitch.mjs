@@ -46,6 +46,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+// Not a bare `fs.rmSync`: both teardowns here run immediately before `process.exit`, so
+// they cannot await, and the tree they are taking away is a scratch CONFIG_DIR the
+// common repo may still be committing into. See test/helpers/tmp.mjs.
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -98,7 +102,7 @@ if (process.env.BEADCAUSE_ADVSWITCH_CHILD) {
   } finally {
     for (const s of servers) s.close();
   }
-  fs.rmSync(tmp, { recursive: true, force: true });
+  removeTreeSync(tmp);
   process.exit(0);
 }
 
@@ -516,5 +520,5 @@ await (await import(LIB('commonrepo.js'))).flush();
 await new Promise((r) => setTimeout(r, 300));
 
 console.log(`\n${ran - failures}/${ran} passed\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+removeTreeSync(tmp);
 process.exit(failures ? 1 : 0);
