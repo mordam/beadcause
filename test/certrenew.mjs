@@ -45,6 +45,7 @@ import tls from 'node:tls';
 import { execFileSync } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -78,7 +79,7 @@ function skip(name) {
   console.log(`  skip ${name}`);
 }
 const done = (code) => {
-  fs.rmSync(tmp, { recursive: true, force: true });
+  removeTreeSync(tmp);
   console.log(failures ? `\n${failures} of ${ran} failed` : `\n${ran} passed`);
   process.exit(code ?? (failures ? 1 : 0));
 };
@@ -131,6 +132,36 @@ process.env.BEADCAUSE_TAILSCALE = FAKE;
 const setMode = (mode) => fs.writeFileSync(CONTROL, mode);
 const calls = () => (fs.existsSync(CALLS) ? fs.readFileSync(CALLS, 'utf8').trim().split('\n').filter(Boolean) : []);
 const forgetCalls = () => fs.rmSync(CALLS, { force: true });
+
+/**
+ * A certificate for NAME that is genuinely past its date, written wherever asked.
+ *
+ * `-days` will not go backwards, so the two dates are given outright. `-not_before` and
+ * `-not_after` arrived in OpenSSL 3.5 and are absent from LibreSSL, so this returns null
+ * there rather than throwing, and the section that needs it skips out loud — a green
+ * suite that quietly stopped checking the expiry behaviour is the failure this whole
+ * file exists to prevent.
+ */
+const stamp = (msFromNow) => new Date(Date.now() + msFromNow).toISOString().replace(/[-:T]/g, '').replace(/\.\d+Z$/, 'Z');
+function mintExpired(agoDays, certFile, keyFile) {
+  fs.mkdirSync(path.dirname(certFile), { recursive: true });
+  try {
+    execFileSync(
+      'openssl',
+      [
+        'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', keyFile, '-out', certFile,
+        '-not_before', stamp(-(agoDays + 90) * 86400000),
+        '-not_after', stamp(-agoDays * 86400000),
+        '-subj', `/CN=${NAME}`,
+      ],
+      { stdio: ['ignore', 'ignore', 'ignore'], timeout: 60000 }
+    );
+  } catch {
+    return null;
+  }
+  return { name: NAME, cert: fs.readFileSync(certFile), key: fs.readFileSync(keyFile), certFile, keyFile };
+}
 
 /** A certificate for NAME valid for `days`, written wherever asked. */
 function mint(days, certFile, keyFile) {
@@ -586,6 +617,120 @@ await check('tls.enabled false waits for nothing — plain http is the answer, n
   assert.equal(startRenewal(off, [waiting.server], { notify: () => {} }), null);
   closeServer(waiting.server);
 });
+
+/* ------------------------------------------ past the date, deliberately — bc-jv86 */
+
+/**
+ * What the daemon serves once the certificate has genuinely expired, which until now
+ * depended on whether the Mac happened to reboot.
+ *
+ * A daemon that was already up kept the expired certificate on the socket and kept
+ * 307-ing plain http to the name — `renewOnce` leaves `tlsMaterial` alone on every
+ * failure. A daemon that *booted* after the date did the opposite and did it silently:
+ * `certificate()` counted `left <= 0` as no certificate at all, re-asked `tailscale`,
+ * and returned null when that failed, so the router bound plain http with no redirect.
+ * Same machine, same config, same disk, two behaviours — and 90 days of a failing
+ * renewal is long enough for a reboot to arrive by accident.
+ *
+ * bc-jv86 chose the loud one: never downgrade an origin without being asked. An
+ * interstitial is a page somebody can read and act on; plain http is the microphone,
+ * the service worker and the installed PWA turning off with nothing on screen to say
+ * why, on the exact machine where a fortnight of priority-5 pushes has already gone
+ * unread. So the expired certificate goes on the socket, the redirect stays, and the
+ * alarm keeps firing — which is what this section pins.
+ */
+setMode('refuse');
+const dead = mintExpired(3, CERT_FILE, KEY_FILE);
+
+if (!dead) {
+  skip('a boot after the expiry date serves the expired certificate rather than dropping to http — this openssl cannot mint one');
+  skip('and the renewal loop still calls it an alarm rather than a state it has fixed');
+} else {
+  await check('a boot after the expiry date serves the expired certificate rather than dropping to http', async () => {
+    forgetCalls();
+    const said = [];
+    // Exactly what `listen()` does on the way to binding the port.
+    const material = certificate(cfg, { quiet: false, onWarn: (m) => said.push(m) });
+
+    assert.ok(material, 'an expired certificate is still a certificate — returning null here is the silent downgrade');
+    assert.ok(daysLeftOf(material.cert) <= 0, `it has to be the expired one — ${daysLeftOf(material.cert)} days left`);
+    assert.equal(material.cert.toString(), dead.cert.toString());
+    assert.equal(calls().length, 1, 'and it must have asked tailscale for a replacement first');
+    assert.ok(
+      said.some((m) => /EXPIRED/.test(m) && /serving it anyway/.test(m)),
+      `the log has to say what it is doing and why — got: ${said.join(' | ')}`
+    );
+
+    // The half that matters: the socket a restart builds behaves like the one that was
+    // already up — TLS on the port, and plain http 307'd rather than served.
+    const listener = tailnetServer(material, (req, res) => {
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('expired');
+    });
+    await new Promise((resolve) => listener.front.listen(0, '127.0.0.1', resolve));
+    const deadPort = listener.front.address().port;
+    try {
+      assert.equal(listener.plain, null, 'no plain-http server is built for it — that is the fallback bc-jv86 refused');
+
+      const spoke = await new Promise((resolve) => {
+        const socket = tls.connect({ host: '127.0.0.1', port: deadPort, rejectUnauthorized: false, servername: NAME }, () => {
+          const peer = socket.getPeerCertificate();
+          socket.destroy();
+          resolve({ connected: true, fingerprint: peer?.fingerprint256 });
+        });
+        socket.on('error', (err) => resolve({ connected: false, code: err.code }));
+      });
+      assert.ok(spoke.connected, `TLS has to be what is on the port — ${spoke.code}`);
+      assert.equal(spoke.fingerprint, new X509Certificate(dead.cert).fingerprint256, 'and the expired certificate is what it presents');
+
+      const answer = await new Promise((resolve) => {
+        const socket = net.connect(deadPort, '127.0.0.1', () =>
+          socket.end(`GET /?t=sekrit HTTP/1.1\r\nHost: 100.96.105.106:${deadPort}\r\nConnection: close\r\n\r\n`)
+        );
+        let body = '';
+        socket.setEncoding('latin1');
+        socket.on('data', (chunk) => (body += chunk));
+        socket.on('close', () => resolve(body));
+        socket.on('error', () => resolve(body));
+      });
+      assert.match(answer, /^HTTP\/1\.1 307 /, `plain http must still be redirected, not served — got: ${answer.split('\r\n')[0]}`);
+      assert.match(answer, new RegExp(`Location: https://${NAME}:${deadPort}/\\?t=sekrit\r\n`), `got: ${answer}`);
+    } finally {
+      closeServer(listener.server);
+    }
+  });
+
+  await check('and the renewal loop still calls it an alarm rather than a state it has fixed', async () => {
+    const expiredServer = tailnetServer(dead, () => {}).server;
+    const result = renewOnce(cfg, [expiredServer], { log: () => {}, warn: () => {} });
+    assert.equal(result.state, 'stale', `got ${result.state}: ${result.detail}`);
+    assert.ok(result.daysLeft <= 0, `and it reports the truth about the calendar — got ${result.daysLeft}`);
+    assert.equal(expiredServer.tlsMaterial.cert.toString(), dead.cert.toString(), 'the socket keeps what it has');
+
+    const pushed = [];
+    const shouted = [];
+    const timer = startRenewal(cfg, [expiredServer], {
+      notify: (state) => {
+        pushed.push(state);
+        return Promise.resolve();
+      },
+      everyMs: 40,
+      log: () => {},
+      warn: (m) => shouted.push(m),
+    });
+    try {
+      await new Promise((r) => setTimeout(r, 200));
+    } finally {
+      clearInterval(timer);
+    }
+    assert.ok(pushed.length >= 1, 'an expired certificate is the loudest thing this loop has to say');
+    assert.ok(pushed[0].daysLeft <= 0, `the push carries the negative number, which is what makes it priority 5 — got ${pushed[0].daysLeft}`);
+    assert.ok(
+      shouted.some((m) => /EXPIRED/.test(m)),
+      `and the log says EXPIRED rather than "-3 days left" — got: ${shouted.join(' | ')}`
+    );
+  });
+}
 
 closeServer(provisional.server);
 closeServer(server);

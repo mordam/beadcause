@@ -41,17 +41,16 @@
 // this process, so nothing here touches a real bead or needs the daemon.
 // `--baseline` serves the committed copies of the changed files instead of the
 // working ones, which is how you check a failure here is a real one.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PHONE = { width: 393, height: 852, dpr: 3 };
 const WIDE = { width: 1200, height: 900, dpr: 1 };
 const TOKEN = 'drawer-check-token';
@@ -130,6 +129,24 @@ const BEAD = {
     '',
     paras(30),
   ].join('\n'),
+};
+
+/**
+ * The rows behind `dependent_count: 2` — one child, one bead genuinely waiting on it.
+ *
+ * `/api/bead-links` answers both off one `bd dep list --direction=up`, and the sheet
+ * appends them under the description after it has painted. Kept here rather than in a
+ * unit test as well because three of the things that can break it are only observable in
+ * a browser: the slot id, the field names, and whether the block lands inside the drawer's
+ * frame at all.
+ */
+const LINKED = {
+  workspace: WS,
+  id: 'dr-one',
+  children: [
+    { id: 'dr-one.1', title: 'The child of it', status: 'closed', dependency_type: 'parent-child' },
+  ],
+  dependents: [{ id: 'dr-two', title: 'The bead waiting on it', status: 'open', dependency_type: 'blocks' }],
 };
 
 const QUESTIONS = [{ ...toQuestion(WS, BEAD), comments: [] }];
@@ -268,6 +285,10 @@ function serve() {
     }
     // What the graph's detail sheet fetches when you ask a node for its text.
     if (p === '/api/bead') return json({ ...BEAD, comments: [] });
+    // And what it asks for straight afterwards: the two edges behind `blocks 2`. One is
+    // a child and one is not, which is the whole reason this is one call and two lists —
+    // the same bead under both headings is what the split exists to prevent.
+    if (p === '/api/bead-links') return json(LINKED);
     if (p === '/api/asset') {
       const body = DOCS[url.searchParams.get('p') || ''];
       if (body == null) {
@@ -329,80 +350,6 @@ function serve() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
-}
-
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9700 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-drawer-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      // Offscreen renderers are throttled to about a frame a second, which turns
-      // every transition measured below into a measurement of the throttling.
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -568,6 +515,35 @@ const SHEET = `(() => {
   }
 })()`;
 
+// The block that lands under the description a moment after the sheet paints: what waits
+// on the bead, and what is under it. Read as rows and headings rather than as text,
+// because the claim is that a *child* is never among what the bead blocks — and the two
+// groups read almost the same as prose.
+const LINKS = `(() => {
+  const f = document.querySelector('.drawer-frame');
+  try {
+    const d = f.contentDocument;
+    const slot = d.getElementById('sheet-links');
+    if (!slot) return { there: false, kinds: [], ids: [] };
+    const at = (sel) => [...slot.querySelectorAll(sel)];
+    const group = (label) => {
+      const head = at('.rel-kind').find((e) => e.textContent.trim() === label);
+      const box = head && head.closest('.rel-group');
+      return box ? [...box.querySelectorAll('a.rel-row .pill.id')].map((e) => e.textContent.trim()) : [];
+    };
+    return {
+      there: true,
+      kinds: at('.rel-kind').map((e) => e.textContent.trim()),
+      ids: at('a.rel-row .pill.id').map((e) => e.textContent.trim()),
+      blocks: group('Blocks'),
+      children: group('Children'),
+      pill: !!d.getElementById('pill-blocks'),
+    };
+  } catch (e) {
+    return { there: false, kinds: [], ids: [] };
+  }
+})()`;
+
 /**
  * Tap a standalone page's own ✕ and say where it left you.
  *
@@ -619,7 +595,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-drawer-');
 
 try {
   await s.send('Page.enable');
@@ -634,7 +610,7 @@ try {
   await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
   if (!(await waitFor(s, `!!document.querySelector('.card[data-key]')`))) throw new Error('the list never rendered');
 
-  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}][data-act="toggle"]').click()`);
   if (!(await waitFor(s, `!!document.querySelector('.docs a[href^="/doc?"]')`)))
     throw new Error('the brief never rendered its doc link');
 
@@ -963,6 +939,39 @@ try {
     sheet.up ? `${sheet.width}px at x=${sheet.left}, in a ${sheet.frame}px panel` : 'the sheet never came up'
   );
   await shot(s, 'phone-graph-sheet');
+
+  /* ---- and what points at that bead, once the second call lands ---- */
+
+  await waitFor(s, `(${LINKS}).ids.length === 2`, 60);
+  const links = await evalJs(s, LINKS);
+  check(
+    'the beads waiting on it arrive under the description, one tappable row each',
+    links.blocks.join(',') === 'dr-two' && links.kinds.includes('Blocks'),
+    links.there ? `Blocks: ${links.blocks.join(', ') || '(none)'} — headings ${links.kinds.join(', ')}` : 'no slot'
+  );
+  check(
+    'the child is under Children and nowhere else — `blocks 2` counted it too',
+    links.children.join(',') === 'dr-one.1' && !links.blocks.includes('dr-one.1'),
+    `Children: ${links.children.join(', ') || '(none)'}, Blocks: ${links.blocks.join(', ') || '(none)'}`
+  );
+  check(
+    'and the count goes when the rows that replace it are on screen',
+    links.pill === false,
+    links.pill ? 'the `blocks 2` pill is still up over the list' : 'gone'
+  );
+  // Scrolled to, because the block lands *below* the description and this bead's is
+  // thirty paragraphs long — a shot of the sheet's first screen is a picture of
+  // everything except the thing that just arrived.
+  await evalJs(
+    s,
+    `(() => {
+      const d = document.querySelector('.drawer-frame').contentDocument;
+      d.getElementById('sheet-links').scrollIntoView({ block: 'center' });
+      return true;
+    })()`
+  );
+  await sleep(200);
+  await shot(s, 'phone-graph-links');
 
   // Two ✕s are on screen now — the sheet's and the panel's — and they must not be the
   // same button. Dismissing the sheet leaves you on the graph, which is where the

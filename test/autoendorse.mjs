@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * A space may file without the hold — and only a space, and only if asked.
+ * A repo may file without the hold — and only if asked, at exactly one of three levels.
  *
  *     npm test
  *     node test/autoendorse.mjs
  *
  * `unendorsed` is the most consequential label in beadcause: it is the difference between
  * a bead an agent invented sitting in a queue and an unattended session running on work
- * nobody has read (lib/endorse.js). `autoEndorse` switches it off for a space. That is a
+ * nobody has read (lib/endorse.js). `autoEndorse` switches it off — for one repo, for a
+ * space, or globally, resolved in that order. That is a
  * safety property being turned off on purpose, which is a thing worth being able to do —
  * a personal repo where the only reader of the tracker is the person who would have
  * pressed Endorse pays a tap per discovery for a review that is not happening — and it is
@@ -26,11 +27,14 @@
  *    an agent decided this was work. A change that dropped them together would look like
  *    one feature and be two.
  *
- * 3. **It is per space, resolved from the workspace.** The whole point is "yes here, no
- *    there". One config with two workspaces in two different spaces has to give two
- *    different answers from the same command, and the answer must come from the space —
- *    not from a flag on the command line, because a session endorsing its own discoveries
- *    is exactly what the hold is for.
+ * 3. **It resolves per workspace, then per space, then globally.** The whole point is
+ *    "yes here, no there". One config with two workspaces has to give two different
+ *    answers from the same command — and "here" turned out to be finer than a space: the
+ *    reason to drop the hold is that nobody but you reads *this* tracker, which is true
+ *    of one checkout and not of the five sitting beside it in the same space. So there
+ *    are three levels and one resolution path through them, and the answer must come
+ *    from the config rather than from a flag on the command line, because a session
+ *    endorsing its own discoveries is exactly what the hold is for.
  *
  * 4. **What the worker is told matches what happens.** The brief promises "nothing will
  *    be worked on it until Adam endorses it". In an auto-endorsing space that sentence is
@@ -64,7 +68,17 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const { Bd } = await import(LIB('bd.js'));
 const { UNENDORSED, QUEUE_EXCLUDED, isHeld, assertEndorsed } = await import(LIB('endorse.js'));
 const { FILED_LABEL, PRIORITY_FLOOR, DISCOVERED_FROM, beadToIssue, provenanceNotes } = await import(LIB('filing.js'));
-const { autoEndorseAllowed, readSettings, applySettings, spaceDetail, SETTINGS } = await import(LIB('spaces.js'));
+const {
+  autoEndorseAllowed,
+  autoEndorseInherited,
+  readSettings,
+  applySettings,
+  readWorkspaceSettings,
+  applyWorkspaceSettings,
+  spaceDetail,
+  SETTINGS,
+  WORKSPACE_SETTINGS,
+} = await import(LIB('spaces.js'));
 
 /* ------------------------------------------------------------------- the stub bd */
 
@@ -222,7 +236,7 @@ async function check(name, fn) {
   }
 }
 
-console.log('\na space may endorse what its agents file\n');
+console.log('\na repo may endorse what its agents file\n');
 
 /* ============================================== 1. off unless asked, in as many words */
 
@@ -254,6 +268,102 @@ await check('and a space carrying something unreadable inherits rather than gues
   assert.equal(autoEndorseAllowed(cfg, 'a'), false, 'the string asked for nothing legible; the hold is the safe reading');
 });
 
+/* ================================ 1b. and one workspace outranks the space it is in */
+
+/**
+ * The level this whole suite used to stop one short of, and the config on this Mac is
+ * why. There are two spaces — Personal, holding beadcause, deluvia, ehatt, sophab and
+ * two more, and Climative. "beadcause does not hold; the rest still do" was not sayable:
+ * the space was the finest thing that could answer, so the only switch available unheld
+ * six repos at once.
+ */
+const PER_REPO = {
+  workspaces: [{ name: 'a' }, { name: 'b' }],
+  spaces: [{ name: 'P', workspaces: ['a', 'b'] }],
+};
+
+await check('a workspace beats its space, in both directions, and answers only for itself', () => {
+  const loose = { ...PER_REPO, spaces: [{ name: 'P', workspaces: ['a', 'b'], autoEndorse: false }], autoEndorsePerWorkspace: { a: true } };
+  assert.equal(autoEndorseAllowed(loose, 'a'), true, 'on for one repo while the space holds');
+  assert.equal(autoEndorseAllowed(loose, 'b'), false, 'and the repo beside it is untouched — the whole point');
+
+  const held = { ...PER_REPO, spaces: [{ name: 'P', workspaces: ['a', 'b'], autoEndorse: true }], autoEndorsePerWorkspace: { a: false } };
+  assert.equal(autoEndorseAllowed(held, 'a'), false, 'and the other direction, which a list of names could not say');
+  assert.equal(autoEndorseAllowed(held, 'b'), true);
+});
+
+await check('it beats the global too, for a workspace in no space at all', () => {
+  assert.equal(autoEndorseAllowed({ autoEndorse: false, autoEndorsePerWorkspace: { loose: true } }, 'loose'), true);
+  assert.equal(autoEndorseAllowed({ autoEndorse: true, autoEndorsePerWorkspace: { tight: false } }, 'tight'), false);
+  // The repos in no space are the ones with no card to set this from — `Other` is a
+  // group the picker offers, not a space — so the resolver has to answer for them from
+  // a hand-edited config, and this is that claim.
+  assert.equal(autoEndorseAllowed({ autoEndorse: true, autoEndorsePerWorkspace: { tight: false } }, 'other'), true);
+});
+
+await check('and it falls through to the space on anything that is not a real boolean', () => {
+  const space = [{ name: 'P', workspaces: ['a'], autoEndorse: true }];
+  assert.equal(autoEndorseAllowed({ spaces: space, autoEndorsePerWorkspace: { a: 'false' } }, 'a'), true, 'a string is not an override');
+  assert.equal(autoEndorseAllowed({ spaces: space, autoEndorsePerWorkspace: { a: 0 } }, 'a'), true);
+  assert.equal(autoEndorseAllowed({ spaces: space, autoEndorsePerWorkspace: null }, 'a'), true, 'and neither is a missing map');
+  assert.equal(autoEndorseAllowed({ spaces: space }, 'a'), true, 'nor an absent one — every existing config');
+  // The direction that matters most: an unreadable override on a repo whose space says
+  // nothing lands back on the global, which is the hold.
+  assert.equal(autoEndorseAllowed({ autoEndorsePerWorkspace: { a: 'true' } }, 'a'), false);
+});
+
+await check('what Inherit on the repo row would resolve to is the same answer minus the repo', () => {
+  const cfg = { autoEndorse: false, spaces: [{ name: 'P', workspaces: ['a'], autoEndorse: true }], autoEndorsePerWorkspace: { a: false } };
+  assert.equal(autoEndorseAllowed(cfg, 'a'), false, 'the repo says no');
+  assert.equal(autoEndorseInherited(cfg, 'a'), true, 'and the button has to say the space says yes');
+  // Through the space to the global when the space says nothing, so the button never
+  // promises the opposite of what pressing it does.
+  assert.equal(autoEndorseInherited({ autoEndorse: true, autoEndorsePerWorkspace: { a: false } }, 'a'), true);
+  assert.equal(autoEndorseInherited({}, 'a'), false);
+});
+
+await check('the per-repo override is three-state, writable, and refuses what it cannot read', () => {
+  assert.deepEqual(
+    WORKSPACE_SETTINGS,
+    ['autoEndorse', 'autoMerge', 'requireApproval', 'autoShip'],
+    'these four answer per repo; everything else groups by space'
+  );
+  const cfg = { autoEndorsePerWorkspace: {} };
+  assert.equal(readWorkspaceSettings(cfg, 'a').autoEndorse, null, 'unset is inherit, not off');
+
+  assert.deepEqual(applyWorkspaceSettings(cfg, 'a', { autoEndorse: true }), ['autoEndorse']);
+  assert.equal(cfg.autoEndorsePerWorkspace.a, true);
+  assert.deepEqual(applyWorkspaceSettings(cfg, 'a', { autoEndorse: true }), [], 'pressing it twice changed nothing');
+
+  assert.deepEqual(applyWorkspaceSettings(cfg, 'a', { autoEndorse: false }), ['autoEndorse'], 'off is a value, not an absence');
+  assert.equal(readWorkspaceSettings(cfg, 'a').autoEndorse, false);
+
+  applyWorkspaceSettings(cfg, 'a', { autoEndorse: null });
+  assert.equal('a' in cfg.autoEndorsePerWorkspace, false, 'null deletes the key — the only way back to inheriting');
+  assert.throws(() => applyWorkspaceSettings(cfg, 'a', { autoEndorse: 'yes' }), /true, false or null/);
+  assert.throws(() => applyWorkspaceSettings(cfg, 'a', { quietHours: null }), /not a per-repo setting/);
+  assert.throws(() => applyWorkspaceSettings(cfg, 'a', null), /must be an object/);
+});
+
+await check('and it writes into a config that has never had the map, without touching its neighbours', () => {
+  const cfg = { autoEndorse: false, autoEndorsePerWorkspace: { b: true } };
+  applyWorkspaceSettings(cfg, 'a', { autoEndorse: false });
+  assert.deepEqual(cfg.autoEndorsePerWorkspace, { b: true, a: false });
+  const bare = { autoEndorse: false };
+  applyWorkspaceSettings(bare, 'a', { autoEndorse: true });
+  assert.deepEqual(bare.autoEndorsePerWorkspace, { a: true }, 'the map is made on demand');
+  assert.equal(autoEndorseAllowed(bare, 'a'), true, 'and the daemon reading the same object agrees at once');
+});
+
+await check('the hold survives an upgrade: a config from before this existed answers exactly as it did', () => {
+  // The one regression that would matter more than the feature. Every install on the
+  // planet has no `autoEndorsePerWorkspace`, and the level being added in front of the
+  // other two must be invisible to all of them.
+  assert.equal(autoEndorseAllowed({}, 'a'), false);
+  assert.equal(autoEndorseAllowed({ spaces: [{ name: 'P', workspaces: ['a'], autoEndorse: true }] }, 'a'), true);
+  assert.equal(autoEndorseAllowed({ autoEndorse: true }, 'a'), true);
+});
+
 /* ============================================ 2. it drops the hold and nothing else */
 
 await check('an endorsed filing loses the marker and keeps every other stamp', () => {
@@ -275,7 +385,9 @@ await check('an endorsed filing loses the marker and keeps every other stamp', (
 await check('the note says it was endorsed by nobody, and never promises a tap that is not coming', () => {
   const free = provenanceNotes({ rationale: 'Found while reading lib/filing.js.' }, { from: 'zz-loose', endorsed: true });
   assert.match(free, /arrived \*\*endorsed\*\*/, 'the first thing a reader needs is that this is already workable');
-  assert.match(free, /auto-endorsement is on for this space/, 'and why, so the setting is findable from the bead');
+  // "repo" rather than "space": the answer resolves per workspace first, so a bead endorsed
+  // by its repo's own override would send a reader to a space control that says nothing.
+  assert.match(free, /auto-endorsement is on for this repo/, 'and why, so the setting is findable from the bead');
   assert.ok(!new RegExp(`\`${UNENDORSED}\``).test(free), 'a bead saying it is held while a session runs on it is the worse error');
   assert.ok(!/until you endorse it/.test(free));
   assert.match(free, /Found while reading lib\/filing\.js/, 'the agent’s own argument still travels');
@@ -341,8 +453,20 @@ await check('the brief promises the hold only where the hold is real', async () 
   const free = workPromptFor('loose', bead, 1, null, 'Adam', { autoEndorse: true });
   const held = workPromptFor('tight', bead, 1, null, 'Adam');
 
+  /**
+   * The brief with the absolute paths taken out of it.
+   *
+   * The claim below is about what the brief *says* — and the brief also quotes the
+   * checkout's own path four times, at `bin/file.js`, `bin/ask.js` and friends. A
+   * checkout whose directory happens to contain the word would fail this for a reason
+   * that has nothing to do with the prompt, which is not hypothetical: it failed on a
+   * worktree called `discuss-unendorsed-3zo95`, where the only thing promising the hold
+   * was a folder name. Nothing is weakened by eliding them — a path is not a promise.
+   */
+  const prose = (s) => s.split(ROOT).join('<repo>');
+
   assert.match(free, /arrives endorsed/, 'a worker told otherwise would watch a session open on what it filed');
-  assert.ok(!new RegExp(UNENDORSED).test(free), 'and the word that is not true here does not appear');
+  assert.ok(!new RegExp(UNENDORSED).test(prose(free)), 'and the word that is not true here does not appear');
   assert.ok(!/until\s+Adam endorses it/.test(free));
   // The one sentence that has to survive either wording: what a session does next.
   assert.match(free, /carry straight on with zz-loose/);
@@ -388,10 +512,36 @@ await check('the details screen can draw it: what the space says, what it resolv
   assert.equal(spaceDetail({ ...cfg, autoEndorse: true }, 'Mine').defaults.autoEndorse, true, 'and moves with the global');
 });
 
+await check('the repo row carries all three claims a three-state control is made of', () => {
+  const cfg = {
+    workspaces: [{ name: 'loose' }, { name: 'tight' }],
+    spaces: [{ name: 'Mine', workspaces: ['loose', 'tight'], autoEndorse: true }],
+    autoEndorsePerWorkspace: { tight: false },
+  };
+  const byName = Object.fromEntries(spaceDetail(cfg, 'Mine').repos.map((r) => [r.name, r]));
+  // The resolved answer, what this repo itself says, and what Inherit would mean. Drawn
+  // from one payload so the tag and the pressed button on a row cannot disagree.
+  assert.equal(byName.tight.autoEndorse, false, 'the repo overrides the space');
+  assert.equal(byName.tight.own.autoEndorse, false, 'and the Off button is the one lit');
+  assert.equal(byName.tight.inherits.autoEndorse, true, 'while Inherit has to read "on" — the space says yes');
+  assert.equal(byName.loose.autoEndorse, true);
+  assert.equal(byName.loose.own.autoEndorse, null, 'a repo that says nothing lights Inherit, not Off');
+  assert.equal(byName.loose.inherits.autoEndorse, true);
+});
+
 await check('and the page has the control, so the setting is reachable from a phone', () => {
   const js = read('public/monitor.js');
   assert.match(js, /'autoEndorse',/, 'no control on the space details card');
   assert.match(js, /r\.autoEndorse \?/, 'and the per-repo row never says which way it resolved');
+  // The per-repo control writes a different body from the space's, so it must not be
+  // reachable through the space handler: a press meant for one repo arriving as the
+  // whole space's answer is the exact bug this feature exists to end.
+  assert.match(js, /key: 'autoEndorse'/, 'the repo row is not a control');
+  assert.match(js, /data-repo-set="\$\{esc\(s\.key\)\}"/, 'and the press does not carry which setting it is');
+  assert.match(js, /r\.inherits\[s\.key\]/, 'and Inherit never names what it would resolve to');
+  assert.ok(/closest\('\[data-repo-set\]'\)/.test(js), 'nothing on the page picks the repo press up');
+  const css = read('public/style.css');
+  assert.ok(css.includes('.space-repo-set'), 'the buttons sit in a row with no rule for it');
 });
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);

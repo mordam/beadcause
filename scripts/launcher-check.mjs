@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 //
-// Does the launcher's repo row filter, and does ＋ still start?
+// Does the launcher's repo row filter, does ＋ still start, and are the dismissed
+// ones out of the way?
 //
 //   node scripts/launcher-check.mjs [--baseline] [--keep]
 //
@@ -11,21 +12,34 @@
 // kind of change that half-lands: the filter works and ＋ starts in the wrong
 // repo, or All has no way to start anything at all.
 //
+// The second filter over the same list is the one the ✕ writes. Closing a row is
+// soft — the transcript stays and saying anything reopens it — so the list is the
+// live conversations and a toggle beside the tabs gives the dismissed ones back.
+// What that can break is a screen rather than a function, which is why it is here
+// as well as in test/dismissed.mjs: a repo whose conversations have all been
+// dismissed has to read as filtered rather than as empty, and the control that
+// unfilters it has to be findable at 393px beside four tabs and a ＋.
+//
+// The third thing here is a dot, and it is here because a browser is the only thing
+// that can see it. A conversation mid-turn draws a spark in its phase slot, and for
+// months it drew one that was 0px wide (bc-7vzr) — `.spark` is sized in px and
+// `.console-row` never made the slot a flex parent. Every test of that row read HTML,
+// and the HTML is identical either way.
+//
 // Same shape as console-check.mjs: the real public/console.{js,html} and
 // public/style.css in a headless Chrome the size of a phone, against a fixture
 // `/api/consoles` served from this process, so nothing here talks to a daemon or
 // touches a bead. `--baseline` serves the committed copies instead of the working
 // ones — baseline has no tabs at all, so it must fail.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'launcher-check-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -47,9 +61,10 @@ for (const v of ['marked.js', 'purify.js']) {
 
 const at = (n) => new Date(Date.UTC(2026, 7, 1, 10, n)).toISOString();
 
-// Three repos, and deliberately one of them with nothing in it: a repo you have
-// never talked to still needs a tab, because the tab is how you reach it to start.
-const WORKSPACES = ['beadcause', 'sophab', 'deluvia'];
+// Four repos, and deliberately two of them with nothing to list: one never talked to
+// at all — a tab is how you reach it to start — and one whose only conversation has
+// been dismissed, which is the same empty list for an entirely different reason.
+const WORKSPACES = ['beadcause', 'sophab', 'deluvia', 'ehatt'];
 
 const row = (id, workspace, title, extra = {}) => ({
   id,
@@ -68,7 +83,10 @@ const row = (id, workspace, title, extra = {}) => ({
 });
 
 const CONSOLES = [
-  row('bc-1', 'beadcause', 'The launcher is one pile'),
+  // Mid-turn, so the phase slot draws a spark rather than 💬. It is a *live* row on a
+  // repo that has other live rows, which is the case the launcher actually has to draw:
+  // the whole point of the dot is telling this row apart from the ones beside it.
+  row('bc-1', 'beadcause', 'The launcher is one pile', { status: 'thinking' }),
   row('bc-2', 'beadcause', 'A finished one', { closedAt: at(5) }),
   // Started from /foundations, not from here — same record, same workspace, so it
   // lands under beadcause's tab looking exactly like the two above it unless the
@@ -76,9 +94,12 @@ const CONSOLES = [
   row('bc-3', 'beadcause', 'Chat with the critic', { agent: 'critic', agentName: 'Critic', agentEmoji: '🧨' }),
   row('sp-1', 'sophab', 'Hero openings'),
   row('sp-2', 'sophab', 'Pricing tiers'),
+  row('eh-1', 'ehatt', 'The only one ehatt ever had', { closedAt: at(6) }),
 ];
 
-const COUNTS = { all: 5, beadcause: 3, sophab: 2, deluvia: 0 };
+/** What each tab lists by default — the live ones — and what it is holding back. */
+const COUNTS = { all: 4, beadcause: 2, sophab: 2, deluvia: 0, ehatt: 0 };
+const DISMISSED = { all: 2, beadcause: 1, sophab: 0, deluvia: 0, ehatt: 1 };
 
 // One thread to land in, so a ＋ that navigates arrives somewhere real.
 const THREAD = {
@@ -135,7 +156,7 @@ function serve() {
        which is exactly what makes it survive a reload here. Two endpoints, and the
        fixture has to hold the value between them or the tab would come back as All. */
     if (p === '/api/spaces') {
-      return json({ spaces: [], workspaces: WORKSPACES, counts: {}, filter, waiting: 0 });
+      return json({ spaces: [], workspaces: WORKSPACES, filter });
     }
     if (p === '/api/filter' && req.method === 'POST') {
       let body = '';
@@ -143,7 +164,7 @@ function serve() {
       return void req.on('end', () => {
         const parsed = JSON.parse(body || '{}');
         filter = { space: parsed.space || 'all', workspace: parsed.workspace || 'all' };
-        json({ ok: true, filter, dismissAsk: null });
+        json({ ok: true, filter });
       });
     }
     if (p === '/api/console' && req.method === 'POST') {
@@ -179,78 +200,6 @@ function serve() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const q = msg.id != null && pending.get(msg.id);
-      if (!q) return;
-      pending.delete(msg.id);
-      msg.error ? q.reject(new Error(msg.error.message)) : q.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9700 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-launcher-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 const evalJs = async (s, expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
   if (r.exceptionDetails)
@@ -282,16 +231,43 @@ const ROWS = `[...document.querySelectorAll('#recent .console-row')].map(
 
 // What each row says about who it is with: the mark in the phase slot, and the
 // agent pill if it has one.
-const MARKS = `[...document.querySelectorAll('#recent .console-row')].map((r) => ({
-  id: (r.querySelector('[data-close]')?.dataset.close) || '',
-  title: r.querySelector('.work-title').textContent.trim(),
-  phase: r.querySelector('.work-phase').textContent.trim(),
-  agentPill: r.querySelector('.pill.agent')?.textContent.trim() || null,
-}))`;
+//
+// The spark is measured rather than found, because finding it proves nothing: the
+// markup carries `<span class="spark">` whether or not anything is drawn, so a check
+// that queried for it passed for months against a launcher with no visible dot at
+// all (bc-7vzr). `.spark` is sized in px, so with no flex parent it lays out as an
+// empty inline box — width 0 — and it defaults to `var(--muted)`, so even laid out it
+// can be the same dead grey as an idle row. Hence the rect, the paint and the
+// animation, one each for the three ways this goes wrong.
+const MARKS = `(() => {
+  // What \`var(--accent)\` actually resolves to under whichever theme Chrome is in —
+  // the token text off :root would be a string to compare against a painted rgb().
+  const probe = document.createElement('span');
+  probe.style.cssText = 'display:none;background:var(--accent)';
+  document.body.appendChild(probe);
+  const accent = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  return {
+    accent,
+    rows: [...document.querySelectorAll('#recent .console-row')].map((r) => {
+      const spark = r.querySelector('.spark');
+      const css = spark && getComputedStyle(spark);
+      return {
+        id: (r.querySelector('[data-close]')?.dataset.close) || '',
+        title: r.querySelector('.work-title').textContent.trim(),
+        phase: r.querySelector('.work-phase').textContent.trim(),
+        agentPill: r.querySelector('.pill.agent')?.textContent.trim() || null,
+        spark: spark ? Math.round(spark.getBoundingClientRect().width) : null,
+        sparkPaint: css ? css.backgroundColor : null,
+        sparkAnim: css ? css.animationName : null,
+      };
+    }),
+  };
+})()`;
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-launcher-');
 
 // `--out=<dir>` writes what the assertions are describing. This is a layout
 // change on a phone, and a row of passing assertions says nothing about whether
@@ -346,7 +322,7 @@ try {
   );
   check('All is what an unvisited launcher opens on', tabs[0]?.on === true, JSON.stringify(tabs[0]));
   check(
-    'each tab carries how many conversations it holds',
+    'each tab carries how many conversations it would list',
     tabs[0]?.text === `All ${COUNTS.all}` &&
       tabs[1]?.text === `beadcause ${COUNTS.beadcause}` &&
       tabs[2]?.text === `sophab ${COUNTS.sophab}`,
@@ -358,15 +334,133 @@ try {
     JSON.stringify(tabs[3])
   );
   check(
+    'and so does one whose conversations have all been dismissed',
+    tabs[4]?.ws === 'ehatt' && tabs[4]?.text === 'ehatt',
+    JSON.stringify(tabs[4])
+  );
+  check(
     'only the selected tab is in the tab order',
     tabs.filter((t) => t.stop).length === 1 && tabs.find((t) => t.stop)?.ws === 'all',
     tabs.filter((t) => t.stop).map((t) => t.ws).join(',')
   );
-  check('All shows every conversation', (await evalJs(s, ROWS)).length === COUNTS.all, `${(await evalJs(s, ROWS)).length}`);
+  check('All shows every live conversation', (await evalJs(s, ROWS)).length === COUNTS.all, `${(await evalJs(s, ROWS)).length}`);
   await shot('all');
 
+  /* ---- the dismissed ones are hidden, and the toggle says how many ---- */
+  const titles = `[...document.querySelectorAll('#recent .work-title')].map((t) => t.textContent.trim())`;
+  const TOGGLE = `(() => {
+    const b = document.querySelector('#ws-dismissed');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    const css = getComputedStyle(b);
+    return {
+      hidden: b.hidden || r.width === 0,
+      text: b.textContent.trim().replace(/\\s+/g, ' '),
+      pressed: b.getAttribute('aria-pressed'),
+      label: b.getAttribute('aria-label'),
+      right: Math.round(r.right),
+      paint: [css.backgroundColor, css.color, css.borderColor].join(' / '),
+    };
+  })()`;
+
+  const hidden = await evalJs(s, titles);
+  const off = await evalJs(s, TOGGLE);
+  check(
+    'a dismissed conversation is not on the default list',
+    !hidden.includes('A finished one') && hidden.length === COUNTS.all,
+    hidden.join(' | ')
+  );
+  check(
+    'the toggle says how many are being kept back, and fits beside the tabs',
+    off?.hidden === false && off?.text === `Dismissed ${DISMISSED.all}` && off?.right <= VP.width,
+    JSON.stringify(off)
+  );
+  check('and it reads as off until it is pressed', off?.pressed === 'false', JSON.stringify(off?.pressed));
+
+  await evalJs(s, `document.querySelector('#ws-dismissed')?.click()`);
+  await sleep(250);
+  const shownTitles = await evalJs(s, titles);
+  const on = await evalJs(s, TOGGLE);
+  const dismissedRows = await evalJs(
+    s,
+    `[...document.querySelectorAll('#recent .console-row')].filter((r) => r.classList.contains('closed'))
+       .map((r) => ({
+         title: r.querySelector('.work-title').textContent.trim(),
+         mark: [...r.querySelectorAll('.pill')].map((p) => p.textContent.trim()).join(','),
+         href: r.querySelector('a')?.getAttribute('href') || null,
+         x: !!r.querySelector('[data-close]'),
+       }))`
+  );
+  check(
+    'pressing it puts them back on the list',
+    shownTitles.includes('A finished one') && shownTitles.length === COUNTS.all + DISMISSED.all,
+    shownTitles.join(' | ')
+  );
+  check('and says so', on?.pressed === 'true' && /^Hide /.test(on?.label || ''), JSON.stringify(on));
+  // A control whose only tell is an attribute is a control nobody can see is on. The
+  // chips press the same way everywhere in the app; this is that paint, on this one.
+  check(
+    'and looks it — a pressed chip is painted, not just labelled',
+    Boolean(on?.paint) && on.paint !== off?.paint,
+    `${off?.paint} → ${on?.paint}`
+  );
+  check(
+    'each of them is marked dismissed, and is still the way back into it',
+    dismissedRows.length === DISMISSED.all &&
+      dismissedRows.every((r) => /dismissed/.test(r.mark) && /^\/console\?id=/.test(r.href || '')),
+    JSON.stringify(dismissedRows)
+  );
+  check(
+    'and carries no ✕ — there is nothing left to dismiss',
+    dismissedRows.every((r) => !r.x),
+    JSON.stringify(dismissedRows.filter((r) => r.x))
+  );
+  const withThem = await evalJs(s, TABS);
+  check(
+    'the tab counts move with what the list is showing',
+    withThem[0]?.text === `All ${COUNTS.all + DISMISSED.all}` &&
+      withThem[1]?.text === `beadcause ${COUNTS.beadcause + DISMISSED.beadcause}`,
+    withThem.map((t) => t.text).join(' | ')
+  );
+  await shot('dismissed');
+
+  /* ---- the choice survives the trip into a conversation and back ---- */
+  await openLauncher();
+  const kept = await evalJs(s, TOGGLE);
+  check(
+    'it is still showing them after a reload — the same tab, one navigation later',
+    kept?.pressed === 'true' && (await evalJs(s, titles)).includes('A finished one'),
+    JSON.stringify(kept)
+  );
+  await evalJs(s, `document.querySelector('#ws-dismissed')?.click()`);
+  await sleep(250);
+
+  /* ---- a repo whose conversations have all been dismissed ---- */
+  await tapTab('ehatt');
+  const allGone = await evalJs(
+    s,
+    `({
+      rows: document.querySelectorAll('#recent .console-row').length,
+      note: (document.querySelector('#recent .empty')?.textContent || '').replace(/\\s+/g, ' ').trim(),
+      toggle: document.querySelector('#ws-dismissed')?.textContent.trim().replace(/\\s+/g, ' ') || null,
+    })`
+  );
+  check(
+    'a repo whose conversations are all dismissed reads as filtered, not as empty',
+    allGone.rows === 0 && /dismissed/i.test(allGone.note) && !/yet/.test(allGone.note),
+    JSON.stringify(allGone)
+  );
+  check(
+    'and the control that would show them is on the screen with its count',
+    allGone.toggle === `Dismissed ${DISMISSED.ehatt}`,
+    String(allGone.toggle)
+  );
+  await shot('all-dismissed');
+  await tapTab('all');
+
   /* ---- an agent chat is not a chat session ---- */
-  const marks = await evalJs(s, MARKS);
+  const seen = await evalJs(s, MARKS);
+  const marks = seen.rows;
   const agentRow = marks.find((m) => m.title === 'Chat with the critic');
   const plainRows = marks.filter((m) => m.title !== 'Chat with the critic');
   check(
@@ -383,6 +477,30 @@ try {
     'a chat session carries no agent pill — it is what the mark is read against',
     plainRows.every((m) => m.agentPill === null),
     JSON.stringify(plainRows.filter((m) => m.agentPill))
+  );
+
+  /* ---- and a conversation mid-turn says so, visibly ---- */
+  const busyRow = marks.find((m) => m.title === 'The launcher is one pile');
+  const idleRows = marks.filter((m) => m.title !== 'The launcher is one pile');
+  check(
+    'a conversation mid-turn draws a spark in the phase slot',
+    busyRow?.spark !== null,
+    JSON.stringify(busyRow)
+  );
+  check(
+    'and it is on the screen — a bare span with no flex parent lays out 0px wide',
+    (busyRow?.spark || 0) > 0,
+    `the dot is ${busyRow?.spark}px wide`
+  );
+  check(
+    'and it is the accent, breathing — not the dead grey of an idle row',
+    busyRow?.sparkPaint === seen.accent && busyRow?.sparkAnim === 'breathe',
+    `${busyRow?.sparkPaint} / ${busyRow?.sparkAnim} vs accent ${seen.accent}`
+  );
+  check(
+    'no other row draws one — it is the tell, not decoration',
+    idleRows.every((m) => m.spark === null),
+    JSON.stringify(idleRows.filter((m) => m.spark !== null).map((m) => m.title))
   );
 
   /* ---- selecting one filters the list to it ---- */

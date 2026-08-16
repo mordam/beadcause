@@ -132,6 +132,51 @@ object Api {
         post(conn, "/api/comment", JSONObject().put("workspace", workspace).put("id", id).put("text", text))
     }
 
+    /**
+     * What the daemon says the published APK is, and what the last deploy did.
+     *
+     * The same `/api/update` the pages read (lib/update.js). The shell asks it for one
+     * field — `apk.versionCode` — and asks for itself rather than being handed the page's
+     * copy, because the download that follows is the shell's own act: a WebView that has
+     * been talked into naming a different build is a WebView that has talked the phone
+     * into installing one.
+     */
+    fun update(conn: Conn): JSONObject = get(conn, "/api/update")
+
+    /**
+     * Pull a file off the server onto disk — the APK, and nothing else so far.
+     *
+     * Streamed rather than buffered: it is around 28 MB and the phone this runs on has no
+     * reason to hold that twice. Written to a `.part` and renamed only after the length
+     * agrees with what was advertised, so a download cut off halfway by a tailnet dropping
+     * cannot leave a plausible-looking APK behind for the installer to choke on. The
+     * caller owns both paths; this owns the bytes and the check.
+     *
+     * `expectedSize` of 0 means the caller was not told a size, which happens with a
+     * published APK that has no sidecar beside it. Then the length check is skipped —
+     * unknown is not a mismatch — and the installer's own signature and manifest checks
+     * are what stand behind it.
+     */
+    fun downloadTo(conn: Conn, path: String, dest: java.io.File, expectedSize: Long = 0): Long {
+        val u = url(conn, path).build()
+        val req = Request.Builder().url(u).header("x-beadcause-token", conn.token).build()
+        val part = java.io.File(dest.parentFile, "${dest.name}.part")
+        part.parentFile?.mkdirs()
+        client.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) throw ApiException(res.code, "HTTP ${res.code} fetching $path")
+            val body = res.body ?: throw IOException("empty response fetching $path")
+            part.outputStream().use { out -> body.byteStream().copyTo(out, 64 * 1024) }
+        }
+        val got = part.length()
+        if (expectedSize > 0 && got != expectedSize) {
+            part.delete()
+            throw IOException("downloaded $got bytes of an expected $expectedSize — the link dropped")
+        }
+        dest.delete()
+        if (!part.renameTo(dest)) throw IOException("could not put the download in place at ${dest.name}")
+        return got
+    }
+
     /** File a new `human` question. Backs the share target. */
     fun ask(conn: Conn, workspace: String, title: String, body: String, priority: Int = 1): String {
         val res = post(
@@ -216,19 +261,23 @@ data class Event(
      */
     val quiet: Boolean,
     /**
-     * Why: `"filtered"` (outside what the inbox is narrowed to) or `"muted"` (the
-     * owning space is muted or inside its quiet hours). Null when it made a noise,
-     * and null from a server too old to say — which is why [quiet] stays the field
-     * anything acts on, and this one only says how to describe it.
+     * Why: `"addressed"` (the question names somebody who is not this Mac's person),
+     * `"filtered"` (outside what the inbox is narrowed to) or `"muted"` (the owning
+     * space is muted or inside its quiet hours). Null when it made a noise, and null
+     * from a server too old to say — which is why [quiet] stays the field anything acts
+     * on, and this one only says how to describe it.
      */
     val quietReason: String?,
     /**
-     * Why a `dismissed` event happened — `"filtered"` today, and nothing else.
+     * Why a `dismissed` event happened — `"filtered"` (the inbox was narrowed past this
+     * bead) or `"addressed"` (the question was handed to somebody else from the card, so
+     * it has stopped being this Mac's to answer).
      *
      * Separate from [quietReason], which says why the phone stayed *dark* for an
      * arrival. This says why a row already in the shade was taken away, and the two
-     * would be confusing to read off one field even though today they both say
-     * "filtered". Null from a server too old to send it.
+     * would be confusing to read off one field even where they use the same word. Null
+     * from a server too old to send it. Nothing branches on the value — the row goes
+     * either way — so a reason this shell has never heard of is logged and obeyed.
      */
     val reason: String?,
 )

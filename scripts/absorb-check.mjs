@@ -21,6 +21,10 @@
 //     out of while they are still in the air
 //   • nothing may be absorbed until the write has actually been accepted, and a
 //     refused write has to fly them home and give the card back with its text
+//   • the write is on a queue now, so the *next* card has to be answerable while the
+//     last one is still on the wire — and the refusal, when it comes, arrives while
+//     you are somewhere else entirely and has to say so on the card rather than in a
+//     toast that has already gone
 //
 // So this drives the real public/app.js and public/absorb.js in a headless Chrome
 // the size of a phone, against fixtures served from this process, with the fixture's
@@ -32,18 +36,17 @@
 // `--shots` drops a PNG per stage of the flight into .claude/shots/, because the one
 // thing an assertion about a bead's coordinates cannot tell you is whether it looks
 // like anything.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
 import { proposalBody, proposalTitle } from '../lib/proposal.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'absorb-check-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -154,9 +157,22 @@ const PLAIN_ISSUE = {
   ].join('\n'),
 };
 
-const QUESTIONS = [PROPOSAL_ISSUE, PLAIN_ISSUE].map((i) => ({ ...toQuestion(WS, i), comments: [] }));
+// Three more of the same, for the case this whole change exists for: answering a run
+// of cards without waiting on the last one. Three rather than two because two proves
+// only that a second tap is *possible* — three proves the queue is a queue.
+const RUN_ISSUES = [1, 2, 3].map((n) => ({
+  ...PLAIN_ISSUE,
+  id: `ab-run${n}`,
+  title: `Run of cards, number ${n}`,
+}));
+
+const QUESTIONS = [PROPOSAL_ISSUE, PLAIN_ISSUE, ...RUN_ISSUES].map((i) => ({
+  ...toQuestion(WS, i),
+  comments: [],
+}));
 const PROP_KEY = QUESTIONS[0].key;
 const PLAIN_KEY = QUESTIONS[1].key;
+const RUN_KEYS = QUESTIONS.slice(2).map((q) => q.key);
 if (!QUESTIONS[0].proposal?.beads?.length) {
   console.error('the fixture did not parse back into a proposal — lib/proposal.js changed shape');
   process.exit(1);
@@ -170,7 +186,13 @@ const TYPED = 'Net, because the ledger already nets the fees before it writes a 
 // How the write behaves. Mutated from the run below, which is the whole trick: a
 // slow /api/respond is what turns a 1.5-second animation into something a test can
 // stop in the middle of and measure.
-const write = { delay: 3500, fail: false, seen: 0 };
+// `inAir`/`mostInAir` are what tell a queued submit path from an unqueued one, and
+// they are the only thing here that can. Everything visible in the page was already
+// optimistic before the queue landed — the card leaves the list on the tap either way
+// — so the difference is on the wire: three taps used to put three writes in the air
+// at once against a tracker that is a single Dolt writer, and now they go in single
+// file. Nothing in the DOM says which of those just happened; the server does.
+const write = { delay: 3500, fail: false, seen: 0, inAir: 0, mostInAir: 0 };
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -185,7 +207,7 @@ const TYPES = {
 // The committed copies, for --baseline. Read through git rather than from a second
 // checkout so the comparison is against HEAD of this very worktree. absorb.js is new,
 // so at baseline it is simply absent — which is exactly the state being compared to.
-const BASE_FILES = ['/app.js', '/style.css', '/index.html', '/absorb.js'];
+const BASE_FILES = ['/app.js', '/style.css', '/index.html', '/absorb.js', '/submitqueue.js'];
 const committed = (p) => {
   try {
     // stderr swallowed: /absorb.js genuinely does not exist at HEAD, and git saying
@@ -219,10 +241,12 @@ function serve() {
     }
     if (p === '/api/respond' || p === '/api/comment') {
       write.seen++;
-      const t = setTimeout(
-        () => (write.fail ? json({ error: 'bd: database is locked' }, 500) : json({ ok: true })),
-        write.delay
-      );
+      write.inAir++;
+      write.mostInAir = Math.max(write.mostInAir, write.inAir);
+      const t = setTimeout(() => {
+        write.inAir--;
+        return write.fail ? json({ error: 'bd: database is locked' }, 500) : json({ ok: true });
+      }, write.delay);
       return t.unref?.();
     }
     if (p.startsWith('/api/')) return json({});
@@ -241,80 +265,6 @@ function serve() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
-}
-
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9700 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-absorb-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      // Without these the renderer runs at about a frame a second while offscreen,
-      // and every measurement below measures the throttling instead of the flight.
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -357,6 +307,23 @@ const MARK = `(() => {
 })()`;
 
 const CARD = (key) => `!!document.querySelector('#list .card[data-key=${JSON.stringify(key)}]')`;
+// The red note, and the red edge on the shut card. Both, because they are two halves
+// of one claim: the note is what says *why*, and the edge is what makes the card
+// findable in a list you have scrolled several cards down.
+const FAILED = (key) =>
+  `(() => {
+     const c = document.querySelector('#list .card[data-key=${JSON.stringify(key)}]');
+     if (!c) return null;
+     const note = c.querySelector('.failed-note');
+     const r = note && note.getBoundingClientRect();
+     return {
+       marked: c.classList.contains('has-failed'),
+       open: c.classList.contains('open'),
+       note: note ? note.textContent.replace(/\\s+/g, ' ').trim() : null,
+       border: note ? getComputedStyle(note).borderTopColor : null,
+       onScreen: r ? r.top >= 0 && r.top <= innerHeight : false,
+     };
+   })()`;
 const OPEN = (key) => `!!document.querySelector('#list .card.open[data-key=${JSON.stringify(key)}]')`;
 const THREADS = `document.querySelectorAll('.flight-layer .fthread').length`;
 const LAYER = `(document.querySelector('.flight-layer') || { children: [] }).children.length`;
@@ -384,7 +351,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-absorb-');
 
 try {
   await s.send('Page.enable');
@@ -415,7 +382,7 @@ try {
 
   console.log('an approved proposal — four beads, and a slow write to watch them over');
 
-  await tap(s, `#list .card[data-key=${JSON.stringify(PROP_KEY)}] [data-act="toggle"]`);
+  await tap(s, `#list .card[data-key=${JSON.stringify(PROP_KEY)}][data-act="toggle"]`);
   await waitFor(s, `!!document.querySelector('.proposal[data-key=${JSON.stringify(PROP_KEY)}]')`);
   // Approve files everything not explicitly declined, so with nothing picked it is
   // the whole proposal — and it is in the card's top bar, not under the rows.
@@ -506,14 +473,98 @@ try {
     empty ? 'layer empty, card gone' : 'something was still on the overlay'
   );
 
+  /* =============== 1b. three answered back to back ========================== */
+
+  // bc-ka5y.10.1, and the case the queue exists for. A 2.2s write against three taps:
+  // if answering still blocked on the write, the second tap could not happen until
+  // ~2.2s in and the third until ~4.4s, so all three landing inside one write's worth
+  // of time is the measurement. `write.seen` is the other half — three taps must be
+  // three writes, never a join, because each one is its own bead.
+  console.log('\nthree cards answered back to back — none of them waits for the last');
+
+  write.fail = false;
+  write.delay = 2200;
+
+  const seenAtStart = write.seen;
+  write.mostInAir = 0;
+  const began = Date.now();
+  for (const key of RUN_KEYS) {
+    // The option button opens the card and writes the answer into the box; the button
+    // under it is what sends. Two gestures, exactly as a thumb would.
+    await tap(s, `#list .card[data-key=${JSON.stringify(key)}] [data-act="option"][data-opt="net"]`);
+    await waitFor(s, `!!document.querySelector('#list .card[data-key=${JSON.stringify(key)}] [data-act="answer"]')`);
+    await tap(s, `#list .card[data-key=${JSON.stringify(key)}] [data-act="answer"]`);
+    // The claim: the card is out of the list *now*, without waiting for anything.
+    await waitFor(s, `!${CARD(key)}`, 14, 60);
+  }
+  const tookToTap = Date.now() - began;
+  const stillListed = await evalJs(s, RUN_KEYS.map((k) => CARD(k)).join(' || '));
+  check(
+    'all three are answerable inside the time a single write takes',
+    !stillListed && tookToTap < write.delay,
+    `${tookToTap}ms for three taps, against a ${write.delay}ms write`
+  );
+
+  // At least two of the three are still owed at this point, and that is what the beads
+  // are drawing: one flight per queued answer, all in the air together.
+  const midFlight = await evalJs(s, `${BEADS}.length`);
+  check(
+    'the queued answers are in the air together, not one at a time',
+    midFlight >= 2,
+    `${midFlight} bead(s) in the air at once`
+  );
+
+  // Measured *after* they have arrived, and that is not fussiness — the three cards
+  // are identical and each moves up into the last one's place as it leaves, so all
+  // three flights set off from very nearly the same rectangle. Where they must differ
+  // is at the far end: `slot()` fans beads within one flight, so without a per-flight
+  // lane three queued answers hold on one standoff point and read as one bead.
+  await sleep(1200);
+  await shot(s, 'three-in-lanes');
+  const lanes = await evalJs(s, `({ beads: ${BEADS}, mark: ${MARK} })`);
+  const apart = lanes.beads.flatMap((b, i) => lanes.beads.slice(i + 1).map((o) => dist(b, o)));
+  check(
+    'and each holds its own lane at the mark rather than stacking on one point',
+    lanes.beads.length >= 2 && apart.every((d) => d > 6),
+    lanes.beads.length >= 2
+      ? `${lanes.beads.length} bead(s), closest pair ${Math.min(...apart)}px apart`
+      : 'they had all landed before this could be measured'
+  );
+
+  let landed = false;
+  for (let i = 0; i < 90 && !landed; i++) {
+    landed = write.seen - seenAtStart >= RUN_KEYS.length;
+    if (!landed) await sleep(150);
+  }
+  check(
+    'three taps are three separate writes — nothing is joined',
+    landed && write.seen - seenAtStart === RUN_KEYS.length,
+    `${write.seen - seenAtStart} write(s) for ${RUN_KEYS.length} taps`
+  );
+  // The discriminating one, and the only assertion in this section that a page
+  // without the queue cannot pass: three taps used to put three writes in the air
+  // together against a tracker that can only take one at a time.
+  check(
+    'and they go in single file — never two in the air against one Dolt writer',
+    write.mostInAir === 1,
+    `${write.mostInAir} write(s) in the air at the busiest moment`
+  );
+  check('and the overlay is empty once they have all landed', await waitFor(s, `${LAYER} === 0`, 40, 150), '');
+
   /* =============== 2. a write the tracker refuses ============================ */
 
-  console.log('\na refused write — the beads have to come back');
+  // Rewritten for bc-ka5y.10.2, and the before-picture was exactly this section as it
+  // stood: the card came back with the draft in it and the reason went into a toast.
+  // That was honest while the tap waited for the write — you had not moved. It stopped
+  // being honest the moment submits queued, because the refusal can now land while you
+  // are three cards further on, where a message that fades in five seconds over an
+  // unrelated question is indistinguishable from the answer having gone through.
+  console.log('\na refused write — the beads come back, and so does the card, in red');
 
   write.delay = 900;
   write.fail = true;
 
-  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="toggle"]`);
+  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}][data-act="toggle"]`);
   await waitFor(s, `!!document.querySelector('#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-role="answer"]')`);
   await evalJs(
     s,
@@ -548,6 +599,54 @@ try {
     restored.text === TYPED ? 'verbatim' : `got ${JSON.stringify((restored.text || '').slice(0, 40))}`
   );
   check('nothing is left on the overlay afterwards', restored.layer === 0, `${restored.layer} element(s)`);
+
+  const failed = await evalJs(s, FAILED(PLAIN_KEY));
+  check(
+    'the card comes back marked failed, carrying the reason the server gave',
+    Boolean(failed?.note) && /database is locked/.test(failed.note),
+    failed?.note ? `“${failed.note.slice(0, 60)}…”` : 'no note on the card at all'
+  );
+  check(
+    'the note is drawn red, not the amber a close gate uses',
+    Boolean(failed?.border) && failed.border !== 'rgba(0, 0, 0, 0)',
+    failed?.border || 'no border — the stylesheet has no rule for it'
+  );
+  check(
+    'it is brought into focus rather than left to be found',
+    Boolean(failed?.open) && Boolean(failed?.onScreen),
+    failed?.open ? (failed?.onScreen ? 'open, note on screen' : 'open, but the note is off screen') : 'the card is shut'
+  );
+
+  // The edge is the half that has to survive collapsing the card, because the whole
+  // failure mode is a refusal arriving while you are reading something else.
+  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="collapse"]`);
+  await sleep(220);
+  const shut = await evalJs(s, FAILED(PLAIN_KEY));
+  check(
+    'and it stays marked once it is shut again',
+    Boolean(shut) && shut.marked && !shut.open,
+    shut ? (shut.marked ? 'has-failed, collapsed' : 'the mark came off with the card') : 'the card went'
+  );
+
+  // Cleared by dealing with it, which is the other half of the acceptance: a red that
+  // never goes away is a red nobody reads. And the draft has to survive that.
+  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}][data-act="toggle"]`);
+  await waitFor(s, `!!document.querySelector('#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] .failed-note')`);
+  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="failed-dismiss"]`);
+  await sleep(220);
+  const cleared = await evalJs(s, FAILED(PLAIN_KEY));
+  const keptDraft = await evalJs(
+    s,
+    `(() => {
+       const box = document.querySelector('#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-role="answer"]');
+       return box ? box.value : null;
+     })()`
+  );
+  check(
+    'dismissing the note clears the red and keeps the answer',
+    Boolean(cleared) && !cleared.marked && !cleared.note && keptDraft === TYPED,
+    cleared?.note ? 'the note stayed' : keptDraft === TYPED ? 'red gone, draft intact' : 'it ate the draft'
+  );
 
   /* =============== 3. a comment, which closes nothing ======================== */
 

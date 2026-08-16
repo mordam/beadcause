@@ -41,10 +41,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort, freePort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -255,16 +256,6 @@ const BASE = {
 const { createApp, listen } = await import(LIB('server.js'));
 const { sign } = await import(LIB('auth.js'));
 
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
-
 /** Sign-in on, with an explicit http redirect URI so `tailscale cert` stays out of it. */
 const onPort = await freePort();
 const onCfg = {
@@ -283,9 +274,9 @@ const onCfg = {
 const onServers = listen(onCfg, createApp(onCfg).handler);
 
 /** The same daemon with sign-in never configured — every install, by default. */
-const offPort = await freePort();
-const offCfg = { ...BASE, port: offPort };
+const offCfg = { ...BASE, port: 0 };
 const offServers = listen(offCfg, createApp(offCfg).handler);
+const offPort = await boundPort(offServers);
 
 const post = (port, pathname, body, headers = {}) =>
   new Promise((resolve, reject) => {
@@ -321,12 +312,34 @@ const up = async (port) => {
   }
 };
 await up(onPort);
-await up(offPort);
 
-/** What a browser holds after the dance in test/auth.mjs — nothing more than this. */
+/**
+ * What a browser holds after the dance in test/auth.mjs — nothing more than this.
+ *
+ * `sid` and the row beside it are what bc-nim4 added: a session is a name in the
+ * device list now, so that one device can be revoked without ending the rest, and the
+ * gate refuses a cookie whose row is not there. Minting one here therefore means
+ * writing the row too — which is exactly what the callback does.
+ */
+const SID = 'attribution-test-session';
+fs.writeFileSync(
+  path.join(process.env.BEADCAUSE_CONFIG_DIR, 'state.json'),
+  JSON.stringify({
+    devices: {
+      [SID]: {
+        email: SIGNED_IN,
+        label: 'the test',
+        first: new Date().toISOString(),
+        last: new Date().toISOString(),
+        exp: Math.floor(Date.now() / 1000) + 86400,
+      },
+    },
+  })
+);
+
 const sessionCookie = (email, { seconds = 3600 } = {}) =>
   `beadcause_session=${sign(
-    { sub: 'sub-1', email, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + seconds },
+    { sub: 'sub-1', email, sid: SID, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + seconds },
     process.env.BEADCAUSE_SESSION_KEY
   )}`;
 
@@ -707,7 +720,7 @@ if (!bdOnPath) {
 }
 
 for (const s of [...(onServers || []), ...(offServers || [])]) s.close?.();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n${failures}/${ran} failed\n` : `\n${ran}/${ran} passed\n`);
 process.exit(failures ? 1 : 0);

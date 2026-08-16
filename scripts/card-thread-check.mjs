@@ -29,17 +29,17 @@
 // daemon or a bead. `--baseline` serves the committed app.js/style.css, where every
 // comment is open, the epic offers to close itself and the card opens at the top, so
 // it must fail.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
+import { aliasPage, pageAliases } from '../lib/pagealias.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'card-thread-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -185,14 +185,22 @@ const TYPES = {
 
 const committed = (rel) => execFileSync('git', ['show', `HEAD:${rel}`], { cwd: ROOT });
 const BASELINED = ['/app.js', '/style.css'];
+const ALIASES = pageAliases();
 
 /**
  * Every write the page attempted — nothing here should write anything.
  *
  * `/api/presence` is not a write in that sense: it is the page telling the daemon
  * which card is on screen, it happens on every open, and the monitor depends on it.
+ *
+ * Neither is `/api/error`, and that one is kept separately rather than merely ignored
+ * (bc-zjep). It is the page saying it threw, which is worth a line of its own at the foot
+ * of this run — "the page reported no errors" names what happened, where "none of this
+ * wrote anything — ["/api/error"]" reads as the card writing to the tracker and sent two
+ * sessions looking for a write that was never there.
  */
 const writes = [];
+const errors = [];
 const real = () => writes.filter((w) => w.path !== '/api/presence');
 
 function serve() {
@@ -214,13 +222,17 @@ function serve() {
       let body = '';
       req.on('data', (c) => (body += c));
       return void req.on('end', () => {
-        writes.push({ path: p, ...JSON.parse(body || '{}') });
+        const record = { path: p, ...JSON.parse(body || '{}') };
+        (p === '/api/error' ? errors : writes).push(record);
         json({ ok: true });
       });
     }
     if (p.startsWith('/api/')) return json({});
 
-    const rel = p === '/' ? 'index.html' : p.replace(/^\/+/, '');
+    /* Through the daemon's own alias table, so a shell path with no file behind it
+       serves the page it serves in the app rather than a 404 — see lib/pagealias.js
+       for what one 404 there costs this check. */
+    const rel = aliasPage(p, ALIASES).replace(/^\/+/, '');
     if (BASELINE && BASELINED.includes(`/${rel}`)) {
       res.writeHead(200, { 'content-type': TYPES[path.extname(rel)] });
       return res.end(committed(`public/${rel}`));
@@ -234,78 +246,6 @@ function serve() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
-}
-
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const q = msg.id != null && pending.get(msg.id);
-      if (!q) return;
-      pending.delete(msg.id);
-      msg.error ? q.reject(new Error(msg.error.message)) : q.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9700 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-thread-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -325,7 +265,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-thread-');
 
 const shot = async (name) => {
   if (!OUT) return;
@@ -352,7 +292,7 @@ const openCard = async (id) => {
   const card = CARD(id);
   if (!(await evalJs(s, `!!${card}`))) throw new Error(`no card for ${id}`);
   if (!(await evalJs(s, `${card}.querySelector('[data-role="answer"]') !== null`))) {
-    await evalJs(s, `${card}.querySelector('[data-act="toggle"]').click()`);
+    await evalJs(s, `${card}.click()`);
     await waitFor(`${card}.querySelector('[data-role="answer"]') !== null`);
   }
   await sleep(900);
@@ -640,6 +580,14 @@ try {
   );
   check('and the draft with it', survived.draft === DRAFT, JSON.stringify(survived.draft));
   check('none of this wrote anything', real().length === 0, JSON.stringify(real().map((w) => w.path)));
+  /* Last, because an error can arrive at any point in the run — the install that used to
+     fail here landed during the very first page load — and this is the assertion that has
+     seen all of them. */
+  check(
+    'and the page reported no errors of its own',
+    errors.length === 0,
+    errors.map((e) => `${e.kind || 'error'} — ${e.message || JSON.stringify(e)}`).join(' · ')
+  );
 } finally {
   if (!KEEP) close();
   server.close();

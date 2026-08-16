@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · requirements</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <a href="/" class="icon-btn" id="back" aria-label="Back to the inbox">‹</a>
+      <span class="dot" id="pulse"></span>
+      <h1>Requirements</h1>
+    </div>
+    <div class="sheet-actions">
+      <button id="req-refresh" class="icon-btn" aria-label="Refresh">⟳</button>
+    </div>
+  </header>
+
+  <main class="work">
+    <!--
+      Coverage leads, and that is the whole design of this page rather than a layout
+      choice. A screen listing requirements and the files carrying them, with no
+      denominator anywhere on it, gets read as an index of the codebase — and is then
+      silently wrong about every requirement nothing has recorded yet, which for a long
+      time will be most of them. So the first thing drawn is how much is missing.
+
+      Nothing here is a button. This page reads the graph and cannot change it: a
+      requirement is promoted from a terminal, after somebody has approved it, because
+      the file it lands in belongs to a repo the whole team clones.
+    -->
+    <div id="requirements">
+      <div class="empty">Reading the graph…</div>
+    </div>
+  </main>
+
+  <script src="/report.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       Before stream.js, which stamps it on every answer. See public/freshness.js. -->
+  <script src="/freshness.js"></script>
+  <script src="/tabbar.js"></script>
+  <script src="/requirements.js"></script>
+</body>
+</html>

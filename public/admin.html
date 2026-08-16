@@ -54,6 +54,44 @@
       <div class="empty">Asking the daemon…</div>
     </div>
 
+    <!-- Every browser that is signed in, and a revoke button each. Beside the
+         sign-out above because they are the same act at different ranges: signing out
+         ends the one in your hand, and this ends the one you left somewhere. Drawn
+         only where Google sign-in is configured — see lib/devices.js. -->
+    <div id="devices"></div>
+
+    <!--
+      The way in to the in-app terminal, and now the only standing one: it used to be
+      a ⌨️ in the inbox header, which spent the widest screen in the app on the thing
+      it is opened least for (bc-l8jp.2). Here because this is the page about what is
+      running on this Mac rather than about beads, and next to the pause controls
+      because "open one" and "pause the ones that are open" are the same subject —
+      #admin above already draws an In-app terminals row per space.
+
+      Static markup rather than a row rendered by admin.js, deliberately. Everything
+      inside #admin depends on /api/admin answering with a payload this page
+      understands, and an older daemon — an installed APK, a cached service worker —
+      makes that whole block collapse to one sentence saying so. The only door to the
+      terminal must not be behind that.
+
+      Not hidden when terminals are disabled in config either, for the same reason the
+      header link never was: /terminal says so itself, in a sentence, which is more
+      than a missing button ever says.
+    -->
+    <section class="card admin-card">
+      <div class="admin-head">
+        <h2>Terminal</h2>
+      </div>
+      <div class="admin-row">
+        <p class="admin-detail">
+          A real shell on this Mac, in the browser — a Claude session you drive from
+          the phone. Opening one from a bead instead, with the bead already in it, is
+          the ⌨️ item on that bead's menu in the inbox.
+        </p>
+        <a class="primary admin-door" href="/terminal">⌨️ Open a terminal</a>
+      </div>
+    </section>
+
     <!-- HTTPS. Below the pause controls because that is what this screen is opened
          for, and on this screen at all because the alternative is a hand-edit of
          ~/.config/beadcause/config.json and a setting on Tailscale's website that
@@ -66,12 +104,40 @@
     <div id="pairing" hidden></div>
   </main>
 
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
+       exception, a rejected promise, a failed fetch, any red toast. Ahead of every
+       other script, because it can only catch what loads after it — and it is purely
+       additive, so a page that fails to load it behaves exactly as it did before. -->
+  <script src="/report.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       Before stream.js, which stamps it on every answer. See public/freshness.js. -->
+  <script src="/freshness.js"></script>
+  <!-- The account switcher in the top bar — which of your lives every screen is about,
+       and the menu the page's own top-right buttons live in. Before the page's own
+       script, because it *moves* those buttons rather than copying them: a page that
+       wires one by id afterwards is still wiring the element the thumb lands on. See
+       public/accountbar.js. -->
+  <script src="/accountbar.js"></script>
   <!-- What this page already has, from the last time you were on it: the payload it
        boots from, and the reconciler that keeps a repaint from throwing away the DOM
-       it did not need to touch. First of the shared files, because every page script
-       below asks it for a warm list before it asks the daemon for a cold one. -->
+       it did not need to touch. First of the shared files a page draws with, because
+       every page script below asks it for a warm list before it asks the daemon for a
+       cold one. -->
   <script src="/warm.js"></script>
+  <!-- The delta stream: one long poll on /api/poll, so this page learns what moved
+       instead of re-asking for everything on a clock. Beside warm.js because the two
+       are the same bargain at the two ends of a visit — one paints what you already
+       had, the other keeps it true. -->
+  <script src="/stream.js"></script>
   <script src="/tabbar.js"></script>
+  <!-- The app keeping itself in step with what was just deployed: reloads the page when
+       a deploy moved public/, and drives the Android shell's own update when one
+       rebuilt the APK. On every standing view, because the "Update app" button belongs to
+       the app rather than to a screen — and after stream.js, whose events it listens on
+       rather than opening a second parked poll of its own. -->
+  <script src="/update.js"></script>
   <script src="/admin.js"></script>
 </body>
 </html>

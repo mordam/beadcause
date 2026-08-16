@@ -13,6 +13,17 @@
   Behind that, once the view you asked for is on screen, the *other* views' payloads
   are fetched in the background, so the tab you tap next is already warm.
 
+  **Filled once is not the same as kept warm.** That background fill happens once per
+  document and the TTL below then ages what it fetched out — which is fine for a page
+  you pass through and wrong for the inbox, which is a page you sit on for hours. So a
+  warmed payload is *maintained* rather than merely stored: the inbox is parked on the
+  delta stream anyway, and an entry the log has not contradicted is as true as it was
+  when it was fetched, however old it is — `refresh()` says so and resets its clock for
+  no request at all. What an entry that *has* been contradicted costs is then decided
+  per path, on what the request costs the daemon, and `/api/prs` is deliberately never
+  re-asked here because it is a `gh` call per repo. See `MAINTAINED` in public/app.js
+  for the table and the argument behind each row.
+
   **Within a document.** A list that is rebuilt with `innerHTML` on every refresh
   throws away every card, including the twenty that did not change — and with them
   the rendered mermaid diagrams, the open ⋮ menu, the caret in a textarea and the
@@ -51,8 +62,14 @@
   /**
    * Every standing view, and the payload each one boots from.
    *
-   * The order is the tab bar's order, so the background warm fills the tabs in the
-   * order a thumb travels along them. One list, one place to add a view — the same
+   * **The order is the order they are warmed in, and it is the tabs first.** The
+   * background warm is deliberately sequential (see `prewarm`), so a view near the end
+   * of this list waits out every sweep before it — and this list used to be in the tab
+   * bar's order from back when the bar had five tabs. Two of those have since gone
+   * (bc-l8jp.5, bc-l8jp.6), which left the *only two* views a thumb can reach in one tap
+   * queued behind two that it cannot: `/api/prs` is a `gh` call per repo, and Advocates
+   * sat fourth waiting for it. So the tabs come first now, and the pages reached from a
+   * row on the inbox come after them. One list, one place to add a view — the same
    * argument as `TABS` in tabbar.js, and the two have to stay in step: a view added
    * there and forgotten here is a tab that is still cold, which is invisible until
    * you are on a phone wondering why one tab is slower than the other two.
@@ -74,10 +91,51 @@
    */
   const VIEWS = [
     { id: 'inbox', paths: ['/api/questions?scope=human'] },
-    { id: 'console', paths: ['/api/consoles'] },
-    { id: 'prs', paths: ['/api/prs'] },
+    // The heaviest of the three tabs and the one this order is for: `/api/work` is two
+    // `bd` calls per workspace, so it is the tab that most needs to be warm — and the
+    // one whose entry the inbox goes on to *maintain* off the stream rather than merely
+    // fill once. See `refresh` below and `MAINTAINED` in public/app.js.
     { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
-    { id: 'admin', paths: ['/api/admin', '/api/work'] },
+    // `/api/work` was under /admin too, because /admin fetched it — for the single
+    // `observing` boolean, which the delta stream now carries on every wake (bc-rk2o).
+    // It is off this list rather than merely unused: a path under a view is a path that
+    // view does not warm for the others, and leaving it here would have left /monitor
+    // cold every time you arrived from /admin. /admin still *reads* a held `/api/work`
+    // for its first frame; it is simply no longer the page that fills it.
+    //
+    // The ledger (bc-nib3.2) is here in tab order and is the one view that warms
+    // **nothing** — a recorded decision rather than a gap, because a tab missing from
+    // this list is a tab that stays cold and nobody notices until they are on a phone
+    // wondering why one is slower than the others.
+    //
+    // Every path above is a constant, which is the whole mechanism: the list is fetched
+    // from whatever page you are on, for the pages you are not. History has no constant
+    // to offer. Its boot request carries the space picker's current selection —
+    // `workspace=`, or `space=`, or neither — so any path written here would be the
+    // right ledger only for whoever happened to have the picker set the way this file
+    // guessed, and warming every selection is a sweep of the whole tracker to fill a
+    // cache for a page that may not be opened.
+    //
+    // It is also the view that needs it least: the one screen in the app explicitly
+    // about what has already happened, where an instant first frame of slightly stale
+    // rows buys less than it does anywhere else.
+    { id: 'history', paths: [] },
+    { id: 'admin', paths: ['/api/admin'] },
+    // Below the bar: both are reached from a row on the inbox rather than from a tab,
+    // so they are warmed after the tabs are — and `/api/prs` last of all, because it is
+    // a `gh` call per repo and the slowest thing on this list.
+    { id: 'console', paths: ['/api/consoles'] },
+    // The endorsement queue, and the same kind of view as the two either side of it: no
+    // tab, reached in one tap from the 🗳 in the inbox's top bar or from the advocate
+    // console's `N held for endorsement` pill. It is second to last because it is the
+    // second most expensive thing on this list — `/api/unendorsed` is a `bd` sweep of
+    // every workspace and then a `bd show` per row for the provenance line
+    // (lib/endorsequeue.js) — and not last only because `/api/prs` shells out to `gh`
+    // once per repo. Warming it is the whole of why arriving at that page is instant:
+    // it is the one screen in the app whose rows are the full bead, so the wait in
+    // front of it was the longest of any view here.
+    { id: 'endorse', paths: ['/api/unendorsed'] },
+    { id: 'prs', paths: ['/api/prs'] },
   ];
 
   /* ------------------------------------------------------------------ storage */
@@ -184,6 +242,48 @@
    */
   function forget() {
     for (const path of keys()) drop(path);
+  }
+
+  /**
+   * Bring a held payload up to date without asking for it again — and reset its clock.
+   *
+   * The gap this closes: `prewarm` fills a path once per document and the TTL then ages
+   * the entry out fifteen minutes later, so an inbox left open — which is the way this
+   * app is actually used — had a *cold* Advocates tab for all but the first quarter of an
+   * hour, and nothing to re-warm it, because `prewarmed` never goes back to false. The
+   * entry was not wrong when it was dropped; it was merely old, and the delta stream
+   * knows the difference.
+   *
+   * So: a page that is parked on `/api/poll` calls this on every wake. `mutate` folds
+   * whatever the wake carried into the data — the advocate roster rides every wake
+   * whatever woke it — and the write underneath stamps `at` afresh, which is what stops
+   * a quiet hour ageing out a payload nothing has invalidated. It costs no request, and
+   * it is the only way an entry can stay young without one.
+   *
+   * Returning `mutate`'s `null` means "I cannot maintain this shape", and is a miss, not
+   * a write: a payload from an older daemon that lacks the fields being folded in should
+   * be re-fetched rather than half-patched. A miss for any reason — nothing held, aged
+   * out while the screen was dark, a `mutate` that threw — is the caller's cue that a
+   * fetch is the only way back.
+   *
+   * @param {string} path
+   * @param {function} mutate  `(data) => data | null`
+   * @param {number} [seq]     the log position the result is true at; the entry's own by default
+   * @returns {boolean} whether an entry is now held, fresh, for this path
+   */
+  function refresh(path, mutate, seq = null) {
+    const hit = read(path);
+    if (!hit) return false;
+    let next;
+    try {
+      next = mutate ? mutate(hit.data) : hit.data;
+    } catch {
+      // A held payload we cannot reason about. Nothing here is load-bearing and the
+      // caller's fallback is a fetch, so this is a miss rather than a thrown error.
+      return false;
+    }
+    if (next == null) return false;
+    return write(path, next, seq == null ? hit.seq : seq);
   }
 
   /** Has this path been fetched inside `ms`? What stops the background warm churning. */
@@ -376,6 +476,7 @@
     PREWARM_FLOOR_MS,
     read,
     write,
+    refresh,
     drop,
     forget,
     fresh,

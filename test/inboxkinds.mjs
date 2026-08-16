@@ -5,10 +5,11 @@
  *     npm test
  *     node test/inboxkinds.mjs
  *
- * The inbox carries five different jobs at one address — a plain question, an
- * advocate's proposal, a worker's merge, a pull request, and (under `Both` and `Agent`)
- * the live beads nobody is asking you about — and public/inboxfilter.js is the one place
- * that knows which is which. Five things about it are worth a suite, and none is visible
+ * The inbox carries seven different jobs at one address — a plain question, an
+ * advocate's proposal, a worker's merge, a pull request, a JIRA ticket assigned to you,
+ * a bead held for endorsement, and (under `Both` and `Agent`) the live beads nobody is
+ * asking you about — and
+ * public/inboxfilter.js is the one place that knows which is which. Five things about it are worth a suite, and none is visible
  * by reading one function:
  *
  * 1. **The kinds have to partition the list.** `KINDS` is a table of predicates, and
@@ -189,6 +190,11 @@ function load({ hover = false, store = new Map(), card = true } = {}) {
   };
   const ctx = vm.createContext({ window, document: doc, localStorage, setTimeout, clearTimeout });
   if (card) vm.runInContext(read('public/prcard.js'), ctx, { filename: 'prcard.js' });
+  // The panel itself, which inboxfilter.js mounts rather than draws — index.html loads
+  // it first for the same reason. The real one, not a stub: every check below about
+  // hover, pinning and the summary line is a check on *that* file, reached through this
+  // one, and a stub would be the second implementation the split exists to prevent.
+  vm.runInContext(read('public/filtermenu.js'), ctx, { filename: 'filtermenu.js' });
   vm.runInContext(read('public/inboxfilter.js'), ctx, { filename: 'inboxfilter.js' });
   const host = doc.createElement('nav');
   host.replaceChildren = El.prototype.replaceChildren.bind(host);
@@ -215,18 +221,41 @@ const ROWS = {
   // are not beads at all — no id in any tracker, nothing to answer. See `chatRows` in
   // public/app.js.
   session: { key: 'chat/abc', workspace: 'w', session: { id: 'abc', title: 'New beads' } },
+  // A JIRA ticket, the third of those and the only one that is not even a thing this
+  // app holds — it comes off JIRA. Shaped as bc-0i27.2's poller holds one: key,
+  // summary, status, updated, url, assignee, and no description body. See `jiraRows`
+  // in public/app.js.
+  jira: {
+    key: 'jira:w/TECH-1204',
+    workspace: 'w',
+    jira: {
+      key: 'TECH-1204',
+      summary: 'The meter reads zero after a reconnect',
+      status: 'In Progress',
+      updated: '2026-08-11T09:00:00Z',
+      url: 'https://example.atlassian.net/browse/TECH-1204',
+      assignee: 'adam.morgan@climative.ai',
+    },
+  },
+  // Held for endorsement: an agent row like the three below it in every way except the
+  // one that decides what may happen to it. `held` is not a status — bd has no such
+  // state — it is `awaitingEndorsement` computed server-side in `agentBeads`, which is
+  // why the fixture carries an ordinary `open` beside it. That pairing is the whole
+  // hazard this kind introduces: without `!q.held` on the three agent predicates, this
+  // row is an endorsement *and* an unclaimed bead, and the check below is what says so.
+  endorsement: { key: 'w/e1', workspace: 'w', agent: true, status: 'open', held: true },
   claimed: { key: 'w/a1', workspace: 'w', agent: true, status: 'in_progress' },
   blocked: { key: 'w/a2', workspace: 'w', agent: true, status: 'blocked' },
   unclaimed: { key: 'w/a3', workspace: 'w', agent: true, status: 'open' },
 };
 
 const QUESTION_KINDS = ['question', 'proposal', 'delivery'];
-const AGENT_KINDS = ['claimed', 'blocked', 'unclaimed'];
-/* On neither side, so every scope can hold one: a pull request comes off `gh`, and a
-   chat session off no sweep at all, so for neither is there a scope that could have
-   missed it — which is what `side: 'any'` means. public/app.js `kindsForScope` is the
-   other half. */
-const ANY_KINDS = ['pr', 'session'];
+const AGENT_KINDS = ['endorsement', 'claimed', 'blocked', 'unclaimed'];
+/* On neither side, so every scope can hold one: a pull request comes off `gh`, a chat
+   session off no sweep at all, and a JIRA ticket off JIRA, so for none of the three is
+   there a scope that could have missed it — which is what `side: 'any'` means.
+   public/app.js `kindsForScope` is the other half. */
+const ANY_KINDS = ['pr', 'session', 'jira'];
 /** A pull request on a given rung, as the row app.js synthesises from the board. */
 const prOn = (stage) => ({ key: `pr:w#${stage}`, workspace: 'w', pr: { number: 1, stage } });
 
@@ -260,6 +289,39 @@ await check('an agent row with a status nobody has heard of is still exactly one
   const odd = { key: 'w/a9', workspace: 'w', agent: true, status: 'wat' };
   const hits = list(model.KINDS.filter((k) => k.test(odd))).map((k) => k.id);
   assert.deepEqual(hits, ['unclaimed']);
+});
+
+await check('a held bead is an endorsement whatever its status says', () => {
+  // The three agent kinds split on `status`, and `held` is orthogonal to all three: a
+  // bead can be held and claimed, held and blocked, or held and open. Every one of them
+  // is a decision waiting on you before it is a report about work, so every one lands on
+  // the same chip — and none of them lands on two. This is the check that fails if
+  // `!q.held` is dropped from any of the three predicates below it in the table.
+  for (const status of ['open', 'in_progress', 'blocked', 'wat']) {
+    const row = { key: `w/h-${status}`, workspace: 'w', agent: true, status, held: true };
+    const hits = list(model.KINDS.filter((k) => k.test(row))).map((k) => k.id);
+    assert.deepEqual(hits, ['endorsement'], `held+${status} matched ${hits.join(', ') || 'nothing'}`);
+  }
+});
+
+await check('a bead that is not held is untouched by the new kind', () => {
+  // The other direction, and the one a partition needs stated: `held` absent and `held`
+  // false both have to leave the three status kinds exactly as they were, or adding this
+  // row would have quietly emptied the agent side of the inbox.
+  for (const held of [undefined, false]) {
+    const row = { key: 'w/n1', workspace: 'w', agent: true, status: 'open', held };
+    const hits = list(model.KINDS.filter((k) => k.test(row))).map((k) => k.id);
+    assert.deepEqual(hits, ['unclaimed'], `held=${held} matched ${hits.join(', ') || 'nothing'}`);
+  }
+});
+
+await check('a question is never an endorsement, whatever it carries', () => {
+  // `held` is a field only `agentBeads` writes, so a human-side row cannot have one —
+  // but the predicate says `q.agent` first rather than trusting that, because the kind
+  // whose test is "none of the above" is one field away from absorbing anything new.
+  const row = { key: 'w/q9', workspace: 'w', title: 'a question', held: true };
+  const hits = list(model.KINDS.filter((k) => k.test(row))).map((k) => k.id);
+  assert.deepEqual(hits, ['question'], `matched ${hits.join(', ') || 'nothing'}`);
 });
 
 await check('a delivery that is also a proposal is still one kind, not two', () => {
@@ -721,18 +783,36 @@ await check('the service worker ships it, on a version a cached phone will notic
 await check('app.js filters the list through it, rather than only drawing it', () => {
   const app = read('public/app.js');
   assert.ok(app.includes('inboxFilter'), 'app.js never asks the control anything');
-  assert.ok(/inRepo\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
+  // `inBoard`, not `inRepo`: bc-rfnr.2 put the P0 board's descendant filter between the
+  // two, and the kind filter is deliberately last so the chips count what you can
+  // actually get to. What this check is about is that `inKind` still narrows the list
+  // rather than only colouring the chips — whichever variable it is handed.
+  assert.ok(/inBoard\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
+  // The P0 board still narrows it — bc-rfnr.2 — but bc-0xil put one thing ahead of it:
+  // a bead picked in the search box *replaces* the board's narrowing rather than
+  // stacking on it, because half the beads worth searching for are under somebody
+  // else's P0 or under none, and stacked they would answer an explicit search with an
+  // empty list. So what this asserts is the branch, not the bare call.
+  assert.ok(
+    /const inBoard = beadPicked\(\) \? inBead\(inRepo\) : underOwnedP0s\(inRepo\)/.test(app),
+    'the P0 board no longer narrows the list'
+  );
   assert.ok(app.includes('surveyKinds('), 'the chips are never told what is on screen');
 });
 
-await check('the counts beside the list are counted over the same filter as the list', () => {
-  // A picker saying 5 above a list showing 1 is the two halves of one screen
-  // disagreeing about the same beads.
+await check('nothing beside the list counts it a second time', () => {
+  // There used to be two: a `· N` per repo on the space picker and an **N waiting**
+  // pill in the top bar, both counted off the render that drew the list so they could
+  // follow a kind-filter tap that fetches nothing. bc-ka5y.1 deleted both — a picker
+  // saying 5 above a list showing 1 is the two halves of one screen disagreeing about
+  // the same beads, and the cheapest way to never disagree is to say nothing.
   const app = read('public/app.js');
-  const publish = app.slice(app.indexOf('function publishSpaces'), app.indexOf('let pendingRender'));
-  assert.ok(publish.includes('inKind(q)'), 'the space picker counts rows the list is hiding');
+  // The call, rather than the word: app.js's edit-mode freeze paragraph names
+  // `publishCounts()` in prose, explaining what its removal cost.
+  assert.ok(!/^\s*publishCounts\(/m.test(app), 'the space picker is being sent counts again');
+  assert.ok(!app.includes("$('#waiting')"), 'the "N waiting" pill is back in the top bar');
   const summary = app.slice(app.indexOf('function paintSummary'), app.indexOf('function paintArmed'));
-  assert.ok(summary.includes('inKind(q)'), 'the "N waiting" count ignores the kind filter');
+  assert.ok(!summary.includes('inKind(q)'), 'paintSummary is counting the list again');
 });
 
 await check('the panel says [hidden] twice, because display:flex beats the UA rule', () => {

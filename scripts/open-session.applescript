@@ -14,11 +14,25 @@
 -- "as it was before any of this existed" — which is what an older caller passes, and
 -- what every failure below degrades to:
 --
---   1. the command to type
+--   1. the command to type — keep it short, see below
 --   2. the tab name
 --   3. the profile to open with, or "" for iTerm's default profile
 --   4. the window's bounds as "left,top,right,bottom", or "" to let iTerm cascade
 --   5. "return-focus" to hand the keyboard back, anything else to take it
+--
+-- ## Why the command has to be short
+--
+-- `write text` types into a shell that has only just started and is still working
+-- through `~/.zshrc`. Until its line editor is up, that tty is in canonical mode, and a
+-- canonical-mode tty on macOS holds `MAX_CANON` = 1024 bytes of unread input — byte
+-- 1025 onward is dropped, newline included, so the line is never submitted and the
+-- window sits at a prompt showing a command cut off mid-argument.
+--
+-- So the caller does not send the real command any more; it writes that to a file and
+-- sends `source '<path>'`, which is a constant ~60 bytes however long the real one
+-- grows. The whole argument, and the measurement behind it, is beside `sourceLine` in
+-- lib/session.js. Nothing here enforces it — this script types what it is given — so if
+-- you ever hand it something long again, this is the failure you will get.
 --
 -- ## Why the geometry is four integers and not a position and a size
 --

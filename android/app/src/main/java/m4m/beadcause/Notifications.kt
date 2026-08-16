@@ -514,6 +514,37 @@ object Notifications {
 
     const val REPAIR_NOTIFICATION_ID = 2
 
+    /**
+     * The app has just replaced itself and is coming back — or is trying to.
+     *
+     * Posted on every successful self-update, beside the relaunch rather than instead of
+     * it: whether a broadcast receiver may start an activity depends on state it cannot
+     * see (see [UpdateReceiver]), and the one ending that is not acceptable is the app
+     * silently not coming back. [MainActivity] cancels this as soon as it is on screen,
+     * so on the phones where the relaunch worked this is a row that appears and clears.
+     */
+    fun updated(ctx: Context) {
+        val intent = Intent(ctx, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        val notification = NotificationCompat.Builder(ctx, CHANNEL_REPLIES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Beadcause updated")
+            .setContentText("Now on ${BuildConfig.VERSION_NAME}. Tap to reopen.")
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    ctx, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+            .setAutoCancel(true)
+            .build()
+        NotificationManagerCompat.from(ctx).notifySafely(UPDATE_NOTIFICATION_ID, notification)
+    }
+
+    fun clearUpdated(ctx: Context) = NotificationManagerCompat.from(ctx).cancel(UPDATE_NOTIFICATION_ID)
+
+    const val UPDATE_NOTIFICATION_ID = 5
+
     /** Answered, commented, or gone: drop its line and re-render what's left. */
     fun cancel(ctx: Context, key: String) = Tray.remove(ctx, key)
 

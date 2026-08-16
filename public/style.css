@@ -66,9 +66,9 @@ body {
   justify-content: space-between;
   /* The space picker is a full-width third child (see .spacebar), so the bar wraps to
      two lines on the pages that have one and stays a single line on the pages that do
-     not. It is its own row because the first one is already full: a mark, a dot, a
-     count chip and four icons is a 360px phone spent, and a dropdown squeezed in
-     between them would have room for about five characters of a repo name. */
+     not. It is its own row because the first one is already full — measured, not
+     assumed, and the arithmetic is in .spacebar below. `scripts/topbar-check.mjs` is
+     what keeps a third row from arriving without anybody deciding to spend it. */
   flex-wrap: wrap;
   gap: 12px;
   padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
@@ -78,7 +78,16 @@ body {
 }
 
 .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.brand h1 { font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.brand h1 {
+  font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -0.01em;
+  /* Truncated rather than wrapped, since bc-exqi put the account chip at the other end of
+     this row. A page whose title is a *session's* — a bead's whole summary line, on
+     /session and /beadsession — has a brand wide enough to push the chip onto a second
+     row, and a second row of sticky chrome costs 46px of transcript on the one screen
+     that is nothing but transcript (`scripts/say-check.mjs` measures exactly that). An
+     ellipsis on a title you can read in full one line below it is the cheaper half. */
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* The app mark where the word used to be. The artwork carries its own dark
    rounded tile — it is the home-screen icon — so it needs no plate under it and
@@ -91,32 +100,6 @@ body {
      without a hairline the mark reads as three loose dots beside the pulse dot,
      which is itself a teal circle. The ring is what says "this is a tile". */
   box-shadow: 0 0 0 1px var(--line);
-}
-
-/* What the reclaimed width is spent on: how many beads are asking you something.
-   A chip rather than a badge — it is a number with a word, and the word is what
-   makes "3" mean something. Tapping it narrows the list to those three. */
-.waiting {
-  display: inline-flex; align-items: baseline; gap: 5px;
-  flex: 0 1 auto; min-width: 0;
-  padding: 5px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
-  font: 650 13px/1 inherit;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.waiting[hidden] { display: none; }
-.waiting .word { font-weight: 600; opacity: 0.85; }
-
-/* Two icons, a dot, a chip and three more icons on a 320px phone is one thing too
-   many, and the number is the part that matters. Under 360px the word goes and the
-   count stays, which still reads as a count because of where it sits. */
-@media (max-width: 359px) {
-  .waiting .word { display: none; }
-  .waiting { padding: 5px 9px; }
 }
 
 .dot {
@@ -224,6 +207,101 @@ body {
    zero is the answer to the question the chip asks. */
 .filter-panel .chip.none { opacity: 0.55; }
 .filter-panel .chip.none[aria-pressed="true"] { opacity: 1; }
+/*
+  The one filter that is not a set of chips: the History tab's bead-id substring.
+
+  16px, and that is not a taste decision — iOS zooms the whole page in on a focused
+  input with a smaller font, and a panel that is absolutely positioned over a list does
+  not survive the viewport moving underneath it. `appearance: none` because a
+  `type="search"` otherwise arrives with the platform's own inset box, which inside a
+  dark panel is a white rectangle.
+*/
+.filter-text {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  appearance: none;
+}
+.filter-text:focus { outline: none; border-color: var(--accent); }
+.filter-text::placeholder { color: var(--muted); opacity: 0.7; }
+/*
+  The bead search box: pills, the input, and the list of matches under it.
+
+  `position: relative` and an absolutely positioned list, so the dropdown draws *over*
+  the chips below it rather than pushing them down — a panel that grew by four rows
+  under your thumb would move the kind chips out from under the finger reaching for
+  them, and the panel itself is already absolutely positioned over the list for exactly
+  that reason.
+*/
+.filter-typeahead {
+  position: relative;
+  display: flex; flex-direction: column; gap: 7px;
+  /* The row it sits in is `display: flex` — it holds chips everywhere else — so without
+     this the wrapper is sized to its content and the input's own `width: 100%` resolves
+     against *that*, leaving the box fifty pixels short of the panel it is in. `min-width:
+     0` because a long title in a suggestion would otherwise push a flex item wider than
+     its container rather than being ellipsised inside it. */
+  flex: 1 1 100%; width: 100%; min-width: 0;
+}
+.pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill-row[hidden] { display: none; }
+/* The base .pill is an uppercase metadata badge; a bead id is neither. */
+.filter-typeahead .pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 4px 3px 8px;
+  text-transform: none; letter-spacing: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+  color: var(--text);
+}
+/*
+  The X. 22px square rather than the glyph's own size — a 10px character is not a target
+  on a phone, and this one removes a filter, so a miss is a list that stays narrowed and
+  a person who thinks the control is broken.
+*/
+.pill-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  padding: 0; border: 0; border-radius: 5px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+.pill-x:hover, .pill-x:focus-visible { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger); }
+.suggest {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 2;
+  display: flex; flex-direction: column;
+  margin-top: 4px;
+  /* Six rows and then a scroll: the panel is over a list on a phone about fifteen rows
+     tall, and a dropdown that filled the screen would leave nothing to filter. */
+  max-height: 232px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.4);
+}
+.suggest[hidden] { display: none; }
+.suggest-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 8px 10px;
+  border: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  background: transparent; color: var(--text);
+  font: inherit; font-size: 13px; text-align: left;
+  cursor: pointer;
+}
+.suggest-row:last-child { border-bottom: 0; }
+/* Hover and the arrow keys land on the same look, so a list driven from the keyboard
+   and one driven from a thumb are visibly one control. */
+.suggest-row:hover, .suggest-row.active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.suggest-id { flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 650; }
+.suggest-note { flex: 1 1 auto; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Not a row: it is a sentence about the list, and it must not look pressable. */
+.suggest-note-line { padding: 8px 10px; color: var(--muted); font-size: 13px; }
 .chip-row {
   display: flex; gap: 8px;
   overflow-x: auto;
@@ -256,17 +334,55 @@ body {
 
 /* The space row is the coarser of the two that filter. */
 .chip-row.spaces .chip { font-weight: 620; }
+/*
+  Every chip in the app: the filter and scope chips, the space row, the repo tabs,
+  the monitor's tabs, the chips the console edits a bead with, and the composer's
+  suggestions — which restyle themselves at `.suggested .chip` and are the only ones
+  that do.
+
+  This block was two blocks until bc-297u/bc-syzm. A second bare `.chip`, written for
+  the composer's suggestions a thousand lines below, had the same specificity and so
+  won `padding`, `background`, `color`, `font-size` and `font-weight` for *every* chip
+  in the app — every filter chip was drawn in the suggestion chip's paint, and the
+  block written beside them here contributed `flex: 0 0 auto` and nothing else. The
+  layout half of that block was not a mistake and is kept here, because it is what the
+  rest of the stylesheet already assumes: `display: inline-flex` is why
+  `.show-dismissed[hidden]` and `.ws-pick[hidden]` have to say `display: none` out
+  loud, and the `gap` is what sets a chip's label off from its count and its bell.
+  What went with the composer is the paint and the metrics — see `.suggested .chip`.
+*/
 .chip {
   flex: 0 0 auto;
+  min-height: 34px;
+  max-width: 100%;
+  display: inline-flex; align-items: center; gap: 5px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
   border-radius: 999px;
   padding: 7px 14px;
+  font: inherit;
   font-size: 13px;
   font-weight: 550;
   cursor: pointer;
 }
+/*
+  The one rule that decides what a pressed chip looks like, anywhere in the app —
+  the filter and scope chips, the space row, the monitor's tabs, the chips the
+  console edits a bead with. A filled accent, the same paint a selected tab gets
+  below, because a chip that is on has been *chosen* and that is worth shouting.
+
+  There used to be a second, unscoped `.chip[aria-pressed]` further down at the
+  composer's suggestion chips, quoted `'true'` where this one is quoted `"true"`
+  — which is why grepping for either came back looking conclusive. Same
+  specificity, so that one won the background (a 16% wash) while this one still
+  handed over `color: var(--accent-ink)`, and every pressed chip in the app was
+  near-black ink on a translucent teal: 1.0:1 in the dark theme, and white on a
+  pale teal at 1.6:1 in the light one, which is invisible rather than merely dim.
+  The wash is a real intent, but it is the *composer's* intent and it is scoped to
+  `.suggested` now — see `.suggested .chip[aria-pressed="true"]`. Anything setting
+  a pressed chip's paint belongs in one of those two rules, quoted `"true"`.
+*/
 .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 /*
   A muted space. Dimmed, but the count stays at full strength — the questions are
@@ -290,6 +406,63 @@ body {
   without it, iOS and Android each impose their own chrome and the bar has a
   platform-shaped hole in it — and the wheel or menu that opens on tap is still the
   operating system's own, which no scripted dropdown gets to be.
+
+  ## The row it costs, and why it keeps it (bc-hne3)
+
+  A row of sticky chrome on a phone is worth arguing about, so it was measured rather
+  than argued: `scripts/topbar-check.mjs` at 360×640, six workspaces, the inbox's
+  "3 waiting" chip drawn.
+
+  The row is **43px** — a 31px control and the bar's own 12px gap. The bar goes 61px →
+  104px, and the bar plus the tab bar goes 116px → 159px, which is 18% → 25% of a
+  640px screen. That is the real price. Against it: the two levels of the selection,
+  the count, and the accent border that says five other repos are being held off this
+  screen, all of which are how you know what the list under them is about.
+
+  **The first row cannot hold it, and that is arithmetic.** 360px less the bar's 32px
+  of padding is 328px. On the inbox the brand is 133px with the "3 waiting" chip in it,
+  and the icon buttons are 172px — four of them at their 40px minimum with 4px between,
+  the fifth (open-in-Chrome) being 0px wide because it is not drawn on a phone. With the
+  bar's two 12px gaps that is 329px, so the row is already one pixel *over* full before
+  a picker is mentioned. Inline, the picker needs 184px — 148px for its widest row
+  (`Personal — all · 3`: 106px of text in 42px of padding) and 36px for the count and
+  its gap. Even with the chip taken away, 88px is left and it is 96px short, so what
+  would ship is a dropdown ellipsing its own repo name.
+
+  Three ways out were tried against the real pages. None of them survives the numbers:
+
+  - **Collapse into the first row when it fits** (`flex: 1 1 <basis>` instead of
+    `1 0 100%`, so wrapping does the deciding). Hiding the "3 waiting" chip while a
+    repo is picked does *not* buy the inbox back: measured, it stays two lines with
+    the chip gone, because the icon buttons are 172 of the 328 on their own. A
+    150px basis collapses `/console`, `/monitor` and `/endorse` only — and on
+    `/monitor` the select lands at 122px against a 123px label, clipped on arrival. A
+    basis wide enough for the label (190px) collapses nothing at 360px. So the offer
+    is: the picker keeps its row on the inbox, the PR board and the foundations
+    screen, moves and shrinks on the other three, and clips on one. One control that
+    is the same on every page is most of what the picker bought (see the header of
+    public/spacebar.js); a control that is a title here and a chip there is four
+    controls again, wearing one name.
+  - **Hide it on scroll down, bring it back on scroll up.** The bar is `position:
+    sticky`, so it is in flow: shrinking it while you are scrolled into the list moves
+    every card up 43px under your thumb. Doing it honestly means a fixed, translated
+    header on six pages — and the row is back the moment you scroll up, which is the
+    moment you were reading it anyway.
+  - **Fold it into the brand — tap the mark to change repo.** The only one that gets
+    one row at 360px, and it pays with the thing the picker is for: the repo name is
+    exactly what does not fit beside four icon buttons, so what is left is a control
+    whose current value is invisible. An app that looks identical showing everything
+    and showing one sixth of it is one you stop trusting (see `.narrowed` below).
+
+  So the row stays, and what settles it is how far the first row would have to be
+  cleared to hold the picker instead. Measured at 360px: two of the four icon buttons
+  gone leaves 87px; two gone *and* the chip hidden leaves 176px, which is still 8px
+  short of the 184px; it takes **three of the four buttons and the chip** to clear it,
+  at 220px. That is not a layout trick, it is emptying the bar — and if the icons ever
+  do get thinned that far, `scripts/topbar-check.mjs` says so in as many words.
+
+  Note the control is already 31px against the 40px every icon button on the bar has,
+  which is the other reason not to shave the row: the height is the tap target.
 */
 .spacebar {
   flex: 1 0 100%;
@@ -337,20 +510,220 @@ body {
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
 
-/* How many beads inside the selection are asking you something. Hidden at zero: the
-   picker's job is to say where you are, and a nought beside it would read as a
-   complaint. */
-.spacepick-count {
-  flex: 0 0 auto;
-  min-width: 22px;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font: 700 12px/1.4 inherit;
-  text-align: center;
+/*
+  "What you are looking at is out of date" — public/freshness.js.
+
+  Directly under the top bar and above everything else, because the one thing it has to
+  beat is the list it is warning you about. Amber rather than red: the screen is behind,
+  which is a thing to know, not a thing that has gone wrong — red is what a refusal and a
+  conflict already use, and a page that cries in the same colour for a slow tailnet is a
+  page whose red stops meaning anything.
+
+  It is *sticky under a sticky bar*, which needs the bar's own height to sit against: the
+  bar is `position: sticky; top: 0` at z-index 20, so this pins below it at a lower layer
+  and never over it. On a page whose bar wraps to two rows the two simply stack, which is
+  why `top` is not a number here — `position: sticky` with no `top` at all would scroll
+  away, and a warning that scrolls away is one you can be halfway down a list without.
+*/
+.stale {
+  position: sticky;
+  top: 0;
+  z-index: 19;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--warn) 16%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  color: var(--text);
+  font-size: 13px; line-height: 1.35;
 }
-.spacepick-count[hidden] { display: none; }
+.stale[hidden] { display: none; }
+.stale-what { flex: 1 1 auto; min-width: 0; }
+/* A real target, because it is pressed in exactly the situation where a thumb is already
+   irritated — and it is the one control that puts the screen right. */
+.stale-retry {
+  flex: 0 0 auto;
+  min-height: 34px; padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: 10px;
+  background: var(--surface); color: var(--text);
+  font: 650 13px/1 inherit; cursor: pointer;
+}
+
+/*
+  The account switcher — the address at the right-hand end of the bar, and the menu the
+  page's own top-right buttons now live in. See public/accountbar.js.
+
+  It is an ordinary flex item on the *first* row, deliberately, and that is the whole of
+  how it fits the two-row budget `scripts/topbar-check.mjs` measures: the picker below is
+  `flex: 1 0 100%` and takes a row of its own, and a third row is what that check exists
+  to refuse. It can afford the width because it takes some back — up to four loose icon
+  buttons that used to sit here are rows in the menu now.
+*/
+/*
+  `flex: 1 1 0` rather than `auto`, and that is the line that keeps the bar on one row.
+
+  `.topbar` is `flex-wrap: wrap`, and a wrapping flex line **wraps before it shrinks**: an
+  item whose content is 178px wide is placed at 178px and pushed to a second row if the
+  line is full, however shrinkable it is. Two pages have a title that wide — /session and
+  /beadsession draw a bead's whole summary line up here — so an `auto` basis put the chip
+  on a row of its own there and cost 46px of sticky chrome on the two screens that are
+  nothing but transcript. A basis of 0 has no content width to wrap on: it takes what is
+  left of the row, and the address inside it ellipsises into whatever that turns out to
+  be. See `scripts/say-check.mjs`, which measures the transcript underneath.
+*/
+.accountbar {
+  position: relative;
+  display: flex; align-items: center; justify-content: flex-end;
+  flex: 1 1 0; min-width: 0;
+}
+
+/* Emptied by the hoist rather than removed, because the monitor puts a tally back into
+   it on every poll. With nothing left in it, its gap would otherwise draw a hole. */
+.topbar .sheet-actions.hoisted:empty { display: none; }
+
+.accountchip {
+  display: flex; align-items: center; gap: 6px;
+  /* Shrinkable to almost nothing, deliberately: the bar wraps to a second row when its
+     first is full, and a second row is 43px of sticky chrome on every page — which is
+     what `scripts/topbar-check.mjs` and `scripts/say-check.mjs` both measure. The address
+     is the half that gives way, because it is the one thing here that is still readable
+     truncated: a chip saying `you@work…` still says which account, and a page that lost
+     43px of transcript to say it in full has spent the wrong thing. */
+  min-width: 0;
+  max-width: min(46vw, 260px);
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--text);
+  font: 600 13px/1.2 inherit;
+  cursor: pointer;
+}
+.accountchip-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accountchip-caret { color: var(--muted); font-size: 10px; }
+/* No account configured: the chip is drawing this Mac's address rather than a choice
+   anybody has made, and it should not look like a live selection. */
+.accountchip.unset { color: var(--muted); }
+
+.accountmenu {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  /* Above the bar itself, which is sticky at 20 — a menu behind its own chip is the one
+     way this can fail while looking like it worked. */
+  z-index: 30;
+  min-width: 232px; max-width: 84vw;
+  padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.35);
+}
+.accountmenu[hidden] { display: none; }
+
+.accountmenu-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: var(--tap);
+  padding: 8px 10px;
+  border: 0; border-radius: 9px;
+  background: none; color: var(--text);
+  font: 600 14px/1.2 inherit; text-align: left;
+  cursor: pointer;
+}
+.accountmenu-row:hover { background: var(--surface-2); }
+.accountmenu-glyph { width: 22px; text-align: center; color: var(--muted); }
+.accountmenu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The hoisted buttons keep their own glyph and lose the plate around it: inside a menu
+   the row is the target, and a button-inside-a-button reads as two things to press.
+
+   They stay hit-testable all the same. `pointer-events: none` was the obvious way to make
+   the row the only target and it takes the glyph out of the document's hit testing
+   altogether — which is not only a tap: it is also what edit mode points at, and what
+   `scripts/editgesture-check.mjs` retypes. The row's own handler already skips forwarding
+   when the tap landed on the button, so nothing fires twice. */
+.accountmenu-item .icon-btn {
+  width: 22px; min-width: 22px; height: 22px; min-height: 22px;
+  border: 0; background: none; padding: 0;
+}
+/* The actions and "Switch accounts" are two kinds of thing — one acts on this page, one
+   changes which app you are in — so there is a line between them rather than a heading. */
+.accountmenu-actions:not(:empty) { border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-bottom: 4px; }
+/* A hoisted control that is itself hidden takes its row with it. The 🌐 button is the one
+   that does this: it is only on the page inside the Android shell, where the native
+   bridge fills it in (see MainActivity.kt), and a menu row whose button is hidden drew a
+   label with a hole where the glyph should be — an action that does nothing, on every
+   phone in a browser. Live rather than read once at the hoist, because that button's
+   `hidden` is set by a script that may not have run yet. */
+.accountmenu-item:has(.icon-btn[hidden]) { display: none; }
+
+/*
+  The picker. A dialog rather than a second menu: it is a decision about the whole app
+  rather than a control on this page, and it holds a form.
+*/
+.accountpick {
+  border: none; border-radius: 16px; padding: 20px;
+  width: 420px; max-width: 92vw; max-height: 86dvh; overflow: auto;
+  background: var(--surface); color: var(--text);
+}
+.accountpick::backdrop { background: rgb(0 0 0 / 0.55); }
+.accountpick-title { margin: 0 0 8px; font-size: 17px; font-weight: 650; }
+.accountpick-lede { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.accountpick-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.accountpick-none { color: var(--muted); font-size: 13.5px; }
+
+.accountpick-row { display: flex; align-items: stretch; gap: 6px; }
+.accountpick-pick {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; min-height: var(--tap);
+  border: 1px solid var(--line); border-radius: 11px;
+  background: var(--bg); color: var(--text); text-align: left; cursor: pointer;
+}
+/* The one in force, said in the border as well as the tick — the tick alone is four
+   pixels of the row, and this list is read at arm's length on a phone. */
+.accountpick-row.on .accountpick-pick {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+.accountpick-tick { width: 14px; color: var(--accent); font-size: 13px; }
+.accountpick-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.accountpick-who strong { font-size: 14.5px; font-weight: 650; }
+.accountpick-mail { font-size: 12.5px; color: var(--prose); overflow: hidden; text-overflow: ellipsis; }
+.accountpick-scope { font-size: 12px; color: var(--muted); }
+.accountpick-edit {
+  width: var(--tap); min-height: var(--tap);
+  border: 1px solid var(--line); border-radius: 11px;
+  background: var(--bg); color: var(--muted); font-size: 15px; cursor: pointer;
+}
+
+.accountpick-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.accountpick-add, .accountpick-close, .accountpick-remove {
+  flex: 1 1 auto; min-height: var(--tap); padding: 0 14px;
+  border-radius: 11px; font: 650 14px/1 inherit; cursor: pointer;
+}
+.accountpick-add { border: 0; background: var(--accent); color: var(--accent-ink); }
+.accountpick-close { border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.accountpick-remove { border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line)); background: var(--bg); color: var(--danger); }
+
+.accountform-field { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+.accountform-field input {
+  width: 100%; padding: 11px 12px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--text); font-size: 16px;
+}
+.accountform-field input[readonly] { color: var(--muted); }
+.accountform-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.accountform-ws { border: 1px solid var(--line); border-radius: 11px; padding: 6px 10px; background: var(--bg); }
+.accountform-pick { display: flex; align-items: center; gap: 10px; min-height: 38px; font-size: 14px; cursor: pointer; }
+/* The app's own teal on the ticks rather than the browser's blue — there are up to forty
+   of them on this form and they are the loudest thing on the screen. */
+.accountform-list input[type="checkbox"] { accent-color: var(--accent); width: 18px; height: 18px; }
+/* A repo under a workspace nobody has ticked is not a choice yet. Dimmed rather than
+   removed, so the shape of what is inside that workspace is still readable while you
+   decide whether to take it. */
+.accountform-ws:has(> .accountform-pick input:not(:checked)) .accountform-repos { opacity: 0.45; }
+/* The second grain, and indented so it reads as inside the workspace above it rather
+   than as another one. Only ever drawn for a workspace holding more than one checkout,
+   which on almost every install is none of them. */
+.accountform-repos { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 2px 0 6px 26px; }
+.accountform-repo { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--prose); cursor: pointer; }
+.accountform-error { margin: 10px 0 0; color: var(--danger); font-size: 13px; }
 
 .list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 12px; }
 
@@ -390,30 +763,47 @@ body {
   color: var(--muted);
 }
 
-/* The prompt that appears when narrowing the filter leaves unread notifications on
-   the phone for beads it now hides. See dismissAskHtml() in app.js.
+/* The repos this sweep could not read, above the list. See troubleHtml() in app.js.
 
-   --warn rather than --accent, and that is the whole of the visual decision: --accent
-   is this app's colour for a bead being decided, and nothing here decides anything.
-   This is the app noticing something it is about to leave in a mess and saying so,
-   which is the same voice as an unsent draft and a gate — so it borrows their orange
-   rather than inventing a fourth colour for one pane. */
-.shade-ask {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
+   --danger and not --warn, which is the one place this app steps outside the orange
+   an unsent draft and a gate use. That orange means "something is about to be left in
+   a mess"; this means the screen under it is *incomplete*, and every count on it is
+   arithmetic over a sweep with a hole in it. A caveat about whether you can believe
+   the list is not the same voice as an unsent draft, and drawing it in the same colour
+   would let it be read as one more thing to tidy. */
+.trouble {
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warn) 8%, var(--surface));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
 }
-.shade-ask header { display: flex; gap: 11px; align-items: flex-start; }
-.shade-icon { font-size: 20px; line-height: 1.3; }
-.shade-ask h2 { margin: 0; font-size: 15.5px; line-height: 1.3; color: var(--text); }
-.shade-ask p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
-/* Both buttons full width and side by side, because both are answers — Leave them is
-   recorded, not a cancel, so making it the smaller target would misdescribe it. */
-.shade-actions { display: flex; gap: 8px; }
+.trouble strong { display: block; font-size: 14px; color: var(--text); }
+.trouble ul { margin: 7px 0 0; padding-left: 17px; }
+.trouble li { font-size: 12.5px; line-height: 1.45; color: var(--text); margin-top: 3px; }
+.trouble li b { font-weight: 700; }
+/* The error is `bd`'s own sentence and can be long. Wrapped rather than truncated:
+   which lock, which workspace and which command is the whole of what makes it
+   actionable, and a phone that has to be turned sideways to read it is still a phone
+   that was told. */
+.trouble-held { display: block; color: var(--muted); font-size: 11.5px; }
+.trouble-note { display: block; margin-top: 7px; color: var(--muted); font-size: 11.5px; }
+
+/* A tracker that is no longer the same tracker as the machine it shares one with —
+   see `syncTroubleHtml`. The same box and deliberately not the same colour, because
+   the two panes stack and the claim underneath each is different: the red one says
+   the list is stale and it is honest about it, and this one says the list is
+   *perfect* about this Mac and quietly missing everybody else's. Two identical red
+   boxes would read as one problem said twice.
+
+   --warn here, unlike the pane above, and the reason is the sentence it is closer to:
+   this is something that has been left in a mess and will stay that way until
+   somebody deals with it, which is exactly what the orange means everywhere else in
+   this app. The left rule is what carries it at a glance when both are on screen. */
+.trouble-sync {
+  border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+  background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+  border-left-width: 3px;
+}
 
 /* How many are waiting, on the ⚖️ in the header — the channel's only presence in
    the chrome, since a request is never in the list below. */
@@ -611,6 +1001,32 @@ body {
   border-radius: var(--radius);
   overflow: hidden;
 }
+
+/*
+  Shut, the whole card is the way into it — bc-rfnr.9.3 took the "Show details"
+  button off the top bar, and the `data-act` the article carries while it is shut is
+  what the list's delegated handler resolves a tap on the body to. These two rules
+  are the whole of *saying so*, and they are load-bearing in that order:
+
+  `cursor: pointer` is the desktop half, and on iOS it is also what makes `:active`
+  fire on a non-button element at all — Safari sends the pressed state only to
+  elements it has decided are clickable, and this is the property it decides by.
+
+  The press tint is the affordance a phone actually has: no hover on a thumb, no
+  chevron on these cards, so what says "control" is the row going down under the
+  finger, which is what every native list does. `:has()` keeps it off the card when
+  the thing being pressed is a control *on* the card — a proposal's ✓ tinting the
+  whole card would say the card was about to open, which is the one thing that tap
+  does not do.
+
+  Deliberately no `user-select: none`. Text in a card has to stay selectable, and it
+  is the handler that drops a tap ending in a live selection — a stylesheet that
+  forbade the selection would have made the guard untestable and the id uncopyable.
+*/
+.card[data-act] { cursor: pointer; }
+.card[data-act]:active:not(:has(button:active, a:active, input:active, textarea:active, label:active)) {
+  background: var(--surface-2);
+}
 /* `.card.answering` — a 50% dim held over the card for as long as bd took — used to
    live here, with a "Recording your answer…" row under it. Both are gone: the card
    now leaves on the tap and the answer flies to the mark as a bead, which says the
@@ -636,6 +1052,22 @@ body {
   edges, and you are looking at the draft, not for it.
 */
 .card.has-draft:not(.open) { box-shadow: inset 3px 0 0 var(--warn); }
+/*
+  And the same edge in the bad colour, for a card whose write did not go through.
+
+  The convention above is the reason this is three pixels of inset shadow rather than
+  anything new: one shape down the left edge means "this row is not finished with",
+  and a second shape for a second flavour of that would make the first one stop
+  reading as a category. What differs is only the colour, which is the whole of the
+  difference in meaning — --warn is you not having finished, --danger is the tracker
+  not having taken it.
+
+  After the draft rule and at identical specificity, so a card that is both — which is
+  the ordinary case, since a refused write hands the draft back with it — shows red.
+  A failure outranks an unfinished sentence: one of them needs a decision from you and
+  the other only needs your thumb.
+*/
+.card.has-failed:not(.open) { box-shadow: inset 3px 0 0 var(--danger); }
 
 .card-head { padding: 14px 15px 0; }
 
@@ -647,6 +1079,36 @@ body {
 }
 .pill.p0, .pill.p1 { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
 .pill.id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: none; letter-spacing: 0; }
+/*
+  "🧠 sonnet · low" — which model this bead is routed to (bc-nc6o.4, `modelChipHtml`).
+
+  Lowercase where every other pill shouts, because the contents are *names* rather than
+  labels: `sonnet` and `opus` are what the CLI is called and what a log will say, and
+  `SONNET` is a word this app invented. Uppercasing them would make the chip harder to
+  match against the thing it is about.
+
+  Outlined rather than filled, and that carries the meaning: a bordered chip is a **plan**
+  — nothing has run yet, this is where a window would go — and the filled `.ran` state is a
+  **fact**, a session that finished and left a `ran:` label behind. So a list scrolled past
+  at speed separates the beads that have been worked from the beads that are merely routed,
+  without either of them needing a word for it.
+*/
+.pill.model {
+  text-transform: none; letter-spacing: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.pill.model.ran { background: var(--surface-2); border-color: transparent; color: var(--text); }
+/* The two that are worth a second look, in the colour this app already uses for "a state
+   somebody has to resolve" rather than for an error: a bead whose labels name two tiers is
+   quietly on the expensive model, and a session that ran somewhere other than where it was
+   sent is the one case the plan on its own would have lied about. Neither is a failure. */
+.pill.model.diverged, .pill.model.bad {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
+}
 .meta time { font-size: 12px; color: var(--muted); margin-left: auto; }
 
 /*
@@ -665,6 +1127,75 @@ body {
   display: flex; align-items: baseline; gap: 6px;
   font-size: 12.5px; line-height: 1.45; color: var(--muted);
   margin: -2px 0 8px;
+}
+
+/*
+  "📮 carol" — who this question is for, and the way to change the answer.
+
+  A pill because that is what it is: the same kind of fact as the workspace and the id
+  beside it, and it sits in the same row. A *button* because it is the only pill on the
+  card you can act on, which is the one thing the row does not otherwise say — so it
+  gets the pressable affordances a <span> has no need of (a border it can light up, a
+  tap target, `cursor`) and nothing else that would make it read as a different object.
+
+  Colour is left to `.pill.on` and `.pill.mine`, which already exist further down this
+  file: a pill for a question addressed to *you* is accented, an open panel is accented
+  harder, and one addressed to somebody else stays the ordinary grey of every other
+  pill — which is right, because a question that is not yours is a fact and not a state
+  to fix. `.any` dims it a shade further: unaddressed is the resting state of nearly
+  every question, and the pill saying so must not compete with the two that mean
+  something.
+*/
+.pill.for {
+  border: 1px solid transparent;
+  font: inherit; font-size: 11px; font-weight: 650; letter-spacing: 0.03em;
+  text-transform: none;
+  cursor: pointer;
+}
+.pill.for.any { opacity: 0.75; }
+.pill.for:active { transform: scale(0.97); }
+
+/*
+  The panel behind it. Full width under the pills, above the question — the same place
+  the postmark line goes, and for the same reason: it is *about* the card rather than
+  part of what the card is asking, and putting it below the question would push the one
+  thing you opened this card to read off the screen on a phone.
+*/
+.address-panel {
+  display: flex; flex-direction: column; gap: 9px;
+  margin: 0 0 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+.address-say { font-size: 12.5px; line-height: 1.45; color: var(--muted); margin: 0; }
+.address-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.address-btn {
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 13px; font-weight: 560;
+  cursor: pointer;
+}
+/* The handle it already carries. Filled for `.option.picked`'s reason — it is a claim
+   about the bead rather than about the button — and disabled with it, because a tap
+   that would write the label already on the bead is a tap with nothing behind it. */
+.address-btn.picked { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.address-btn:disabled { cursor: default; }
+.address-btn:not(.picked):disabled { opacity: 0.5; }
+.address-typed { display: flex; flex-direction: column; gap: 4px; }
+.address-typed input {
+  min-height: var(--tap);
+  padding: 8px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 15px;
 }
 
 .q { font-size: 19px; font-weight: 630; line-height: 1.4; margin: 0 0 5px; letter-spacing: -0.012em; }
@@ -730,6 +1261,15 @@ body {
 .console-row .work-row { flex: 1; min-width: 0; }
 .console-row.closed { opacity: 0.55; }
 .console-row.closed .work-title { font-weight: 500; }
+/* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex parent
+   or it is laid out as an empty inline box — which is to say, as nothing at all.
+   `.work-phase` is a flex *item* of `.work-row`, which blockifies the slot but not its
+   children, so this line is still owed. The same one `.session-row` and `.chat-card`
+   need, for the same reason. */
+.console-row .work-phase { display: flex; align-items: center; justify-content: center; }
+/* Breathing, not a dead grey dot: this list is where you find the conversation that is
+   still thinking, and against the ✓ and the 💬 beside it a muted dot reads as idle. */
+.console-row .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 /* The pills sit flush against each other in the markup — the row is one line and a
    template that breaks would put whitespace inside the ellipsis. */
 .console-row .work-sub .pill { margin-right: 5px; }
@@ -1052,8 +1592,8 @@ body {
 .pr-num { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: var(--accent); }
 .pr-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 590; line-height: 1.35; }
 .pr-branch { font-size: 12px; color: var(--muted); }
-/* The session's own account of what it did, on the card rather than behind
-   "Show details" — merge is two taps from here, so what you would want to have read
+/* The session's own account of what it did, on the card rather than behind the tap
+   that opens it — merge is two taps from here, so what you would want to have read
    before those two taps has to be above them. */
 .pr-summary { display: flex; flex-direction: column; gap: 9px; }
 .pr-summary .md { font-size: 13px; line-height: 1.55; }
@@ -1299,6 +1839,32 @@ body {
 .gate-note .row { display: flex; gap: 8px; }
 
 /*
+  The write itself did not land — deliberately the same shape as the gate note above,
+  in the one colour this app otherwise keeps off a card.
+
+  Red rather than amber, and that inversion is the point of having two. The gate note
+  is the tracker declining on purpose: nothing failed, something is incomplete, and
+  red there would read as the answer having been lost, which is the one conclusion it
+  exists to prevent. This is the opposite case — the request genuinely did not go
+  through — and amber here would file a broken write under "waiting on you".
+
+  Same border/tint/radius arithmetic as .gate-note rather than its own, so the two
+  read as one family seen twice. Only the token changes.
+*/
+.failed-note {
+  padding: 11px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.failed-note strong { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 4px; }
+.failed-note p { margin: 0 0 8px; color: var(--muted); }
+.failed-note .row { display: flex; gap: 8px; }
+
+/*
   The same fact, said before you type instead of after you press — so it is drawn
   quieter than the refusal above. No fill and a dashed edge: nothing has gone wrong
   and nothing is waiting on you here, it is a note about what this bead can do. The
@@ -1377,27 +1943,48 @@ body {
   max-height: 92px; overflow-y: auto;
   overscroll-behavior: contain;
 }
-.chip {
-  min-height: 34px;
-  max-width: 100%;
-  display: inline-flex; align-items: center; gap: 5px;
+/*
+  A suggestion chip is quieter than a filter chip and holds a sentence rather than a
+  word, so it is the one place in the app a chip restyles itself: a lower-contrast
+  wash, tighter metrics, and text that sets left and wraps instead of centring.
+
+  Scoped, and that is the whole point of the rule. It was a bare `.chip` until
+  bc-297u/bc-syzm — same specificity as the app-wide block up at `.chip`, a thousand
+  lines above, so it silently won every property the two shared and drew every filter
+  chip, space chip and monitor tab in the composer's paint. Only what differs is left
+  here; the layout the two agreed on went up to the block that draws them all. The
+  same collision, one level down, is why the pressed rule below is scoped too.
+*/
+.suggested .chip {
   padding: 6px 12px;
-  border: 1px solid var(--line); border-radius: 999px;
   background: var(--surface-2); color: var(--text);
-  font: inherit; font-size: 13.5px; font-weight: 540;
+  font-size: 13.5px; font-weight: 540;
   text-align: left; line-height: 1.3;
-  cursor: pointer;
 }
 .chip:active { transform: scale(0.98); }
 .chip .star { color: var(--accent); font-size: 11px; }
 .chip.rec { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
-/* Pressed means "these are the words in the box right now" — it is a statement
-   about the textarea, not a decision, and it goes away the moment you type. */
-.chip[aria-pressed='true'] {
+/*
+  Pressed means "these are the words in the box right now" — it is a statement
+  about the textarea, not a decision, and it goes away the moment you type. So it
+  is a wash and an edge rather than the filled accent a chosen chip gets up at
+  `.chip[aria-pressed="true"]`; that difference is the whole point of the rule.
+
+  Two things it has to say out loud. It is scoped to `.suggested`, because while
+  it was a bare `.chip[aria-pressed]` it was painting every pressed chip in the
+  app with the composer's argument — and only half of it, since it sets no colour
+  and the general rule's `var(--accent-ink)` survived onto the wash. And it names
+  its own ink for the same reason: without `color`, the general rule reaches
+  across the whole stylesheet and hands this chip near-black text again. `--text`
+  rather than `--accent` is what the quiet reading needs anyway — accent on a 16%
+  accent wash measures 3.5:1 in the light theme, under AA, where this is 11:1.
+*/
+.suggested .chip[aria-pressed="true"] {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   border-color: var(--accent);
+  color: var(--text);
 }
-.chip[aria-pressed='true'] .star { color: var(--accent); }
+.suggested .chip[aria-pressed="true"] .star { color: var(--accent); }
 
 .primary {
   flex: 1;
@@ -1444,14 +2031,20 @@ body {
 }
 
 /*
-  The card's top bar. Reading on the left, acting on the right — and on an open card
-  the ⋮ and the way out beyond that, hard right because that is the side a thumb
-  reaches on a phone and the same side in both corners, so collapsing is one habit
-  rather than two.
+  The card's top bar. Acting on the card, hard right — and on an open card the ⋮ and
+  the way out beyond that, on the same side because that is the side a thumb reaches
+  on a phone and the same side in both corners, so collapsing is one habit rather
+  than two.
 
-  It wraps rather than shrinking: at 393px a three-bead proposal's two bulk buttons
-  and the details toggle do not fit on one line, and a bar that squeezed them would
-  clip a label whose whole job is to say how many beads the next tap creates.
+  Reading used to be a "Show details" button hard left of all that, and bc-rfnr.9.3
+  took it out: the card is the control now (see cardBodyOpens in public/app.js), so
+  the bar holds only what *acts*. A shut card that is not a proposal therefore has no
+  bar at all — cardTopHtml returns nothing rather than an empty row, because the
+  padding here and the `+ .card-head` rule below are both visible on an empty one.
+
+  It still wraps rather than shrinking: at 393px a three-bead proposal's two bulk
+  buttons can want two lines, and a bar that squeezed them would clip a label whose
+  whole job is to say how many beads the next tap creates.
 */
 .card-top {
   display: flex; flex-wrap: wrap;
@@ -1459,8 +2052,6 @@ body {
   gap: 8px;
   padding: 12px 15px 0;
 }
-/* Hard left, and the only thing on the bar that is about reading the card. */
-.card-top > .detail { margin-right: auto; }
 /* The head brings its own top padding; with a row above it that reads as a gap. */
 .card-top + .card-head { padding-top: 6px; }
 .agent-card .card-top { padding: 10px 14px 0; }
@@ -1753,6 +2344,21 @@ body {
 .doc { padding: 16px 16px 40px; max-width: 780px; margin: 0 auto; }
 .doc pre { white-space: pre-wrap; }
 .doc .pdf { width: 100%; height: calc(100vh - 140px); border: 1px solid var(--line); border-radius: 10px; }
+/* Publishing this document to Confluence. A footer rather than anything in the top
+   bar: it is the last thing on the page on purpose, so it is read after the document
+   and never pressed instead of scrolling. Drawn at all only when there is a Confluence
+   to publish to — see doc.js. */
+.publish {
+  max-width: 780px;
+  margin: 0 auto 40px;
+  padding: 12px 16px calc(env(safe-area-inset-bottom) + 12px);
+  border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.publish-target { font-size: 14px; line-height: 1.45; }
+.publish-what { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.publish-note { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.publish-err { color: var(--danger); }
 /* The work view: one card per workspace, its claimed beads, a way into its graph. */
 .work { padding: 12px 16px 40px; max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
 .work-card { padding: 12px 14px; }
@@ -1863,6 +2469,23 @@ button.work-row {
 .adv-limit .adv-step { border: 0; padding: 4px 8px; min-width: 30px; font-size: 15px; line-height: 1; }
 .adv-limit.held { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .adv-limit.held > b { color: var(--warn); }
+/* Dialled up but not sent. The accent border and the accented number are the whole
+   signal that this number is *yours* and not the daemon's yet — the Apply segment
+   beside it is the other half, and it only exists in this state. `held` keeps its
+   amber where the two collide: a limit the global cap will not honour is worth more
+   than a reminder that you have not pressed Apply. */
+.adv-limit.pending { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.adv-limit.pending:not(.held) > b { color: var(--accent); }
+/* Inside the pill rather than beside it, because the number and the press that commits
+   it are one control — a separate button in the row would read as another action like
+   Pause. Square-ended on the left so it reads as a segment of the pill it sits in. */
+.adv-limit .adv-apply {
+  margin-left: 2px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 0; border-radius: 999px;
+  font-size: 11.5px; font-weight: 650;
+}
 /* A window we opened, not a process we can see — dotted while it is only that, solid
    once the session claimed the bead and the tracker can confirm it. */
 .adv-worker .work-phase { display: flex; align-items: center; justify-content: center; color: var(--accent); }
@@ -1911,6 +2534,32 @@ button.work-row {
    under it would put the answer above the question. This way the reading order is the
    causal order — say it, watch it land. See public/session.js. */
 .say-block { display: contents; }
+
+/* Pointing the Mac at it — the button above the box. `display: contents` for the same
+   reason the say block has it: both are wrappers that exist so one half of the page can
+   be repainted without rebuilding the transcript, and neither should introduce a box of
+   its own into the flow. */
+.win-block { display: contents; }
+.win-block .say-note { margin-top: 4px; }
+/* At the far end of the label row, on the same terms as `.label-mic` above and for the
+   same reason: a row of its own for one button is 44px of transcript pushed under the
+   fold, and scripts/say-check.mjs measures exactly that. */
+.label-win { margin-left: auto; align-self: center; }
+/* Not `.primary`. Sending a message is the act this page is for and owns the one filled
+   button; bringing a window to the front is a convenience beside it, and two filled
+   buttons an inch apart would make you read both to find out which one talks to the
+   session. Sized to the label's line box, like the mic — wide enough to stay a real tap
+   target, short enough that the row is the height it always was. */
+.win-btn {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.win-btn:disabled { opacity: 0.5; }
 .session-say { display: flex; gap: 8px; align-items: flex-end; margin-top: 6px; }
 /* Borrowed wholesale from `.composer textarea` rather than restyled: this is the same
    act on the same phone as the bead console's box, and two composers that look
@@ -1956,16 +2605,76 @@ button.work-row {
    lines.
 
    The offset grew when the composer arrived above it: a box, its send button and a line
-   of hint are about 120px that used to be transcript. The floor is what stops a landscape
-   phone — where 100dvh is barely 390px — from computing a negative height and showing
-   nothing at all. */
+   of hint are about 120px that used to be transcript. It grew again by 60 when the
+   window button did — one more label row, and a button on it that is taller than the
+   line of text it sits beside. Both times the number is a measurement, and
+   scripts/say-check.mjs is what measures it: it asserts the pane still ends on the
+   screen of a 393×852 phone, which is the assertion that catches the next thing added
+   here. The floor is what stops a landscape phone — where 100dvh is barely 390px — from
+   computing a negative height and showing nothing at all. */
 .session-page { padding-bottom: 24px; }
 .session-solo { padding-bottom: 0; }
 .session-solo .agent-log {
   max-height: none;
-  height: calc(100dvh - 380px);
+  height: calc(100dvh - 440px);
   min-height: 160px;
 }
+
+/* ------------------------------------------- and the same bead, once it has finished */
+
+/* /bead-session?workspace=&id= — what a session left behind, read weeks later. It
+   borrows `.session-detail`, `.session-facts` and `.agent-log` from the live page above
+   on purpose: it is the same subject at a different time, and a second set of facts
+   styles would drift from the first inside a month. What is here is only the part that
+   is genuinely new, which is *absence* — three sections that are each missing
+   independently and have to say so without looking broken.
+
+   No `.session-solo` here, deliberately. That rule sizes the transcript to fill the
+   screen because the live page is a pane you watch; this one is three blocks you scroll
+   through, and a log pinned to `100dvh - 440px` would push the worktree section — the
+   answer to "where did the work go" — permanently under the fold. */
+.bead-session { padding-bottom: 24px; }
+
+/* "Not available", and the reason. Muted, because on most beads this is what the whole
+   page says and a wall of warning-coloured text would read as an error rather than as
+   the ordinary state of a bead nobody's session ever touched. `strong` carries the two
+   words, so the answer is legible before the sentence explaining it. */
+.arc-none { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.arc-none strong { color: var(--text); font-weight: 600; }
+.arc-none code { font-size: 11.5px; }
+
+/* What the session learned, exactly as it typed it — see public/beadsession.js for why
+   this is not rendered markdown. `pre-wrap` keeps its line breaks and wraps its prose,
+   which is the one piece of structure a memory has; the prose font rather than the
+   monospace one, because this is the only thing on the page written to be read. */
+.arc-memory {
+  margin: 10px 0 0;
+  padding: 11px 13px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg);
+  color: var(--prose);
+  font-size: 13px; line-height: 1.55;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* One sentence above the worktree's own facts: which of the three states it is in, in
+   words, before the table says it in a field. */
+.arc-where { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text); }
+
+/* The pills: the other sessions on this bead, and the diff. Shaped like `.work-graph`
+   because they do the same job — a link out of a detail view — and an empty row of them
+   collapses to nothing rather than leaving a gap where a control would be. */
+.arc-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.arc-links:empty { display: none; }
+.arc-link {
+  flex: none; min-height: 34px; display: inline-flex; align-items: center;
+  padding: 5px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  color: var(--text); text-decoration: none; font-size: 12.5px; font-weight: 550;
+}
+/* The one you are already reading. Still in the row — dropping it would renumber the
+   list under your thumb every time you moved between sessions — and not a link. */
+.arc-link.is-here { color: var(--muted); border-style: dashed; }
 
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
@@ -2028,14 +2737,61 @@ button.work-row {
 /* The same row, in a card, in the one list that holds everything else waiting on you —
    which is what took PRs off the tab bar (bc-l8jp.6). The row inside is `.work-row` and
    the lamps and facts are the board's own, so what is here is only the seam: the card's
-   padding around a row that was built to sit in a list, and the title becoming a link
-   because this card does not fold open. */
+   padding around a row that was built to sit in a list, and the title becoming a link in
+   the open view, where nothing else wants that tap (bc-l8jp.7). */
 .pr-card { padding: 12px 14px 8px; }
 .pr-card .pr-row { align-items: flex-start; border-top: 0; padding: 0; }
 .pr-card .work-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .pr-card .pr-title-link { color: inherit; text-decoration: none; }
 .pr-card .pr-title-link:hover { text-decoration: underline; }
 .pr-card .board-note { margin: 8px 0 2px; }
+/* The shut row is the whole card's tap target. `button.work-row` above already strips the
+   UA's borders and font; what is left is that it fills the card and stays a row. */
+.pr-card button.pr-row { width: 100%; text-align: left; gap: 10px; }
+
+/*
+  A pull request, full screen (bc-l8jp.7).
+
+  It opens into `.card.open` — the same fixed sheet a question opens into, with the same
+  four rows: a `.card-top` that stays, a `.card-head` that says what this is, a `.brief`
+  that scrolls, and a pinned `.freeform` at the bottom. So there is no layout here, only
+  the two blocks that are this card's own: the facts list, and the buttons under the box.
+*/
+.card.open.pr-card { padding-left: 0; padding-right: 0; }
+.card.open.pr-card > .card-head,
+.card.open.pr-card > .brief { padding-left: 15px; padding-right: 15px; }
+
+/* The facts. A fixed label column so the values line up — short labels on purpose, since
+   on a 390px screen every character spent on one is taken off a branch name that is
+   already going to wrap. */
+.pr-facts { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 14px; font-size: 13px; }
+.pr-facts > div { display: flex; gap: 10px; align-items: baseline; }
+.pr-facts dt { flex: none; width: 62px; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.pr-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--prose); }
+
+.pr-quiet { font-size: 13px; color: var(--muted); margin: 6px 0; }
+.pr-quiet.warn { color: var(--warn); }
+
+/* The sentence that explains a path rather than a state: what a conflict means and what
+   the button about to be pressed will do about it. Set apart from the actions under it,
+   because it is the argument for them. */
+.pr-conflict {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--prose);
+}
+.pr-conflict code { font-size: 12px; }
+
+.pr-row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pr-freeform .row { align-items: center; }
+
+/* What the last act said back. On the card rather than in a toast: GitHub's refusals are
+   the reason this screen re-reads the pull request before it draws a button, and a
+   refusal you had to have been looking at is one you press the button over twice. */
+.pr-said { margin: 8px 0 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.pr-said.pr-ok { color: var(--bead-made); }
+.pr-said.pr-bad { color: var(--danger); }
 .board-num { color: var(--muted); font-variant-numeric: tabular-nums; }
 .board-nobead { font-style: italic; opacity: 0.8; }
 .board-facts { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
@@ -2396,6 +3152,69 @@ button.work-row {
 .sheet-body { flex: 1; overflow-y: auto; padding: 14px 16px calc(env(safe-area-inset-bottom) + 28px); }
 .sheet-title { margin: 0 0 10px; font-size: 18px; line-height: 1.3; }
 .sheet-body .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+
+/* How a closed bead ended, straight under its pills. The pill says "closed" and stops;
+   this is the sentence bin/deliver.js (or an answer, or a revoke) actually wrote, and
+   this sheet is the only place in the app that shows it whole — /history clamps its copy
+   to two lines (`.hist-why`) and is no longer even sent more than 240 characters of it,
+   both on the understanding that tapping the row lands here. So nothing here clamps: the
+   worst reason in this tracker is 1664 characters and the sheet body already scrolls.
+
+   Framed rather than headed, and the frame is why it can sit above the description
+   without a `.section-label` — a label there would put a full-width rule between the
+   pills and the bead, which reads as the end of the sheet rather than the start of it. */
+.closed-note {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.closed-when { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.closed-note .md { font-size: 13.5px; line-height: 1.5; }
+.closed-note .md p, .closed-note .md ul, .closed-note .md ol { margin: 0 0 8px; }
+.closed-note .md > *:last-child { margin-bottom: 0; }
+
+/* The way through to what its session did — `/bead-session`, and see `sessionRowHtml`.
+   Shaped like `.rel-row` below because it is the same gesture in the same place: a row on
+   the sheet you tap to go somewhere. It is deliberately *not* one of them, though, and the
+   glyph is why — those rows go to another bead, this one leaves the tracker for the log of
+   a session that has stopped, and giving it the status dot the others carry would say it
+   was a fourth kind of neighbour.
+
+   Two lines rather than one: the top line is the same words whatever the answer is, so the
+   thing that actually varies — how many sessions, and when the newest ran — needs somewhere
+   to sit that is not competing with it. 44px is the floor every tap target in this app
+   holds to, and this box keeps it in all three states so resolving the row never moves the
+   description under your thumb. */
+.sheet-session {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.sess-glyph { flex: none; font-size: 15px; line-height: 1; }
+.sess-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sess-what { font-size: 14px; }
+.sess-sub { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The affordance, and the only part of the row that says "this one goes somewhere" without
+   a word — so it exists on exactly the state that does. */
+.sess-go { flex: none; color: var(--muted); font-size: 17px; line-height: 1; }
+/* Still looking, and not yet an answer either way. Stepped back rather than shown as a
+   spinner: it is one row, it resolves in a request, and a spinner on it would draw the eye
+   to the least important thing on the sheet. */
+.sheet-session.is-checking { opacity: 0.55; }
+/* Nothing ran on this bead — which is most beads. Quiet enough to read as the ordinary
+   state of the tracker rather than as something missing, and the glyph fades with it so the
+   row does not advertise a mark it has not got. */
+.sheet-session.is-none { color: var(--muted); background: transparent; }
+.sheet-session.is-none .sess-glyph { opacity: 0.4; }
 
 /* Where the bead sits: its parent, and what it is stuck behind. Above the
    description, quiet enough not to compete with the title, and every row a link —
@@ -2828,6 +3647,22 @@ button.work-row {
   border-bottom: 1px solid var(--line);
 }
 .repo-tabs .chip-row { flex: 1; min-width: 0; }
+/*
+  Dismissed, and how many of them. Outside the scrolling row, beside ＋, because a
+  control that says what the list is *not* showing you must not be something you
+  scroll a row of repos to find — that is the same argument that put ＋ there.
+
+  `[hidden]` needs saying out loud: `.chip` sets `display: inline-flex`, and an author
+  rule beats the UA sheet's `[hidden] { display: none }` however specific either is.
+  The same line, for the same reason, is on `.ws-pick` below.
+*/
+.show-dismissed { flex: none; white-space: nowrap; }
+.show-dismissed[hidden] { display: none; }
+/* On is just a pressed chip — there is deliberately no rule here. This control
+   carried `color: var(--accent)` of its own (bc-es8) for as long as the two
+   colliding `.chip[aria-pressed]` rules left a pressed chip unreadable; with that
+   collision settled at `.chip[aria-pressed="true"]` the workaround is one control
+   opting out of the app's own paint for no reason a reader could see. */
 /* Same paint as a pressed chip. A tab is selected, not pressed, so the attribute
    differs and the rule has to say so — see `.chip[aria-pressed="true"]`. */
 .chip[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
@@ -2854,6 +3689,106 @@ button.work-row {
 .ws-pick[hidden] { display: none; }
 .ws-pick .section-label { margin-top: 12px; }
 .ws-pick .hint { color: var(--muted); font-size: 13px; }
+
+/*
+  The handles — one per chat you have open, All on the left, above everything the
+  launcher draws.
+
+  Sized to stay put. It is the one strip that is on screen in *both* views, so it is a
+  fixed row of the page's flex column rather than something inside either of them, and
+  switching between a conversation and the list moves nothing on it. That is the whole
+  reason it is above the repo tabs instead of under them, where the bead first put it:
+  under them it would jump up the screen on the first tap, taking the handle out from
+  under the thumb that pressed it.
+
+  `[hidden]` needs saying out loud, the same as `.show-dismissed` and `.ws-pick` above:
+  an author `display` beats the UA sheet's `[hidden] { display: none }` however specific
+  either is, and this row is hidden whenever nothing is open.
+*/
+.chat-tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 6px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.chat-tabs::-webkit-scrollbar { display: none; }
+.chat-tabs[hidden] { display: none; }
+
+/* The pill is the wrapper, not the link, because the ✕ lives inside it — a button
+   cannot be nested in a link, and the two have to read as one object. */
+.chat-tab {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  max-width: 70vw;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  padding-left: 11px;
+}
+.chat-tab-all { padding-right: 11px; }
+/* Selected is `aria-selected` on the link inside, where the `role="tab"` is — so the
+   pill reads it off its own child. Same paint as a selected chip in the row below. */
+.chat-tab:has([aria-selected="true"]) {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+.chat-tab-face {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  /* The pill is short, so the tap target is made up in padding rather than height:
+     a 40px row of handles over a conversation is a conversation forty pixels shorter. */
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+/* Hard, and in characters rather than pixels: a chat is titled with a sentence, and
+   what a handle has to carry is enough of it to tell this conversation from the other
+   three — which is a number of words, not a fraction of the screen. */
+.tab-name { overflow: hidden; text-overflow: ellipsis; }
+.chat-tab-face .tab-name { max-width: 12ch; }
+/* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex parent
+   or it lays out as an empty inline box — which is to say, as nothing at all. The same
+   line `.session-row` and `.chat-card` each need, for the same reason, and the one the
+   launcher's own rows are still missing (bc-7vzr). scripts/tabs-check.mjs measures the
+   dot's width rather than looking for the element, because that is the only way to
+   tell this apart from a working one. */
+.tab-mark { flex: none; display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; }
+/* The bar's 🧾 count, on a handle. Never truncated with the title — it is the reason
+   you would come back to a chat you are not reading. */
+.tab-beads { flex: none; font-size: 11.5px; opacity: 0.9; }
+/* Breathing, not a dead grey dot, and legible on the selected pill's accent fill:
+   the spark is the whole answer to "is that one still going", which is the question a
+   handle exists to answer without opening it. */
+.chat-tab .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+.chat-tab:has([aria-selected="true"]) .spark { background: var(--accent-ink); }
+.tab-x {
+  flex: none;
+  width: 30px;
+  align-self: stretch;
+  border: 0;
+  border-radius: 0 999px 999px 0;
+  background: none;
+  color: inherit;
+  opacity: 0.6;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tab-x:hover, .tab-x:focus-visible { opacity: 1; }
 
 .thread {
   flex: 1;
@@ -3053,6 +3988,20 @@ button.work-row {
 .bead-head .meta { margin-bottom: 0; }
 .bead.open .bead-head { border-bottom: 1px solid var(--line); }
 .bead-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+
+/* "This looks like a bead you already filed", on the card it looks like. Above the
+   fold and outside .bead-body on purpose: the sheet opens with every card collapsed,
+   and a warning only the open card carries is one nobody reads. A link, because the
+   only useful next move is to go and look at the bead it names — the underline is
+   left off so a run of them does not read as a paragraph of links, and the whole
+   block is tappable rather than the id alone. */
+.bead-dupe {
+  display: block; padding: 0 14px 12px;
+  font-size: 12.5px; line-height: 1.4; color: var(--warn);
+  text-decoration: none;
+}
+.bead.open .bead-dupe { padding: 12px 14px 0; }
+a.bead-dupe:active { opacity: 0.6; }
 
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field > span {
@@ -3260,7 +4209,34 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    and remembered open: a card with six panes expanded is a wall, and the one you were
    reading must survive the twenty-second repaint.
 */
-.mon-card .work-head { align-items: center; flex-wrap: wrap; }
+/* Every card on this page opens with the same head: the repo's name, one line saying
+   what its advocate is doing, and — on the cards that have them — the controls, at the
+   right end. It has always been written as a row. `align-items` and `flex-wrap` have
+   been on this rule since it was added, and `.adv-actions { margin-left: auto }` has no
+   other meaning than "push the controls to the far end of a row". What was never here
+   is the `display: flex` that makes any of those three do anything, so the head laid
+   out as a plain block and the parts stacked: 127px of head on a phone at 393px, with
+   the controls left-aligned on a third line under the name. That is bc-8l74, and this
+   is the row it was written for — measured at 393px, the same head is 88px, and the two
+   cards with no controls go from 80px to 36px. What this does *not* change is that the
+   controls are too wide for a phone and `.card` is `overflow: hidden`, so the last of
+   them is cut off: that is `.adv-actions` needing a `flex-wrap` of its own, and it is
+   bc-04wd's, not this rule's. The clip is in the same place before and after.
+
+   `h2 { margin: 0 }` is part of that fix rather than a tidy beside it. These headings
+   are otherwise unstyled, so they carry the UA's 0.83em top and bottom — 40px of
+   margin that a flex row cannot collapse, which would leave the head "one line" and
+   still taller than the three lines it replaced. The row gap is small and the column
+   gap is the 8px the rest of this page uses, because the two axes are different
+   questions: 8px is the space between a name and the state beside it, 4px is what a
+   wrapped row of controls needs to still read as part of the head above it.
+
+   One selector for all four heads on purpose. The space card is `mon-card space-card`
+   and the two plain ones are `mon-card plain`, so `.mon-card` reaches every card this
+   page draws — which is why the copy of this rule that used to sit under
+   `.space-card .work-head` is gone rather than fixed alongside it. */
+.mon-card .work-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.mon-card .work-head h2 { margin: 0; }
 .mon-card.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
 .mon-card.plain { opacity: 0.82; }
 
@@ -3282,6 +4258,16 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   padding: 0 4px; color: var(--muted);
 }
 .svc.ok .svc-dot { color: var(--accent); }
+/* The one line in that block you can press: the cap across every advocate, as the same
+   stepper the advocate cards carry. Centred rather than baseline-aligned because a pill
+   of buttons has no baseline worth sharing with the text beside it, and pushed to the
+   right end so the three lines still read as a column of statements with the single
+   control at the edge of one of them. Wraps on a phone rather than squeezing the
+   sentence, which is the half that says what the number means. */
+.svc-set { align-items: center; flex-wrap: wrap; gap: 8px; padding-block: 2px; }
+.svc-set .adv-limit { margin-left: auto; }
+.svc-num { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.svc-num.warn { color: var(--warn); }
 
 .svc.bad {
   padding: 10px 12px; color: var(--text);
@@ -3570,23 +4556,66 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    the same object to a thumb — this page is opened on the Mac, but the phone
    reaches it through the same pairing and the same hands.
 
-   The last five declarations are inherited rather than chosen: they are what this
+   Most of these declarations are inherited rather than chosen: they are what this
    bar was already getting from the agents' block while both were a bare `.tabs`,
    and they are written out here so that scoping the two apart (bc-4aw) changes
-   nothing on the page. The negative margin in particular is the agents' page
-   pulling its bar out to the body's padding; this one keeps it only because it
-   always had it. `gap` beats `.chip-row`'s 8px by sitting later in the file, which
-   is exactly how it beat it before. */
+   nothing on the page. `gap` beats `.chip-row`'s 8px by sitting later in the file,
+   which is exactly how it beat it before.
+
+   The one it inherited and should not have was `margin: -18px -16px 14px`, which
+   is bc-3ui6. On the agents' page that is a bar cancelling its parent's padding:
+   `.agent-tabs` sits inside `.launcher`, which pads `18px 16px 40px`, so the two
+   negative values pull the strip back out to the edge of a box inset by exactly
+   that much. This bar's parent is `<body>` — `padding: 0 env(safe-area-inset-*)`,
+   which is 0 on a phone in portrait — so there was nothing to cancel and the
+   margins simply pushed the strip 16px past each edge and 18px up behind the top
+   bar. Two things followed, and both are the sort that read as somebody else's
+   bug. The nav laid out 392px wide inside a 360px body, so the *document* was
+   376px and Chrome shrink-fitted the whole page to 96% — every element on the
+   advocate console, including the bottom tab bar, drawn at a size nobody chose,
+   and the page draggable sideways by 16px. And the strip's own first chip started
+   at x -2 with its top 10px under the bar, so the tab you are on was clipped at
+   two edges at once.
+
+   Zero, then, not the body's padding — because the body has none, and a margin
+   here is a claim about a parent that has to be true. `scripts/topbar-check.mjs`
+   is what notices if it stops being: it fails any page laying out wider than the
+   screen it is being measured on.
+
+   The other half of the same inheritance was `top: 0`, and that is bc-ugd4. On the
+   agents' page it is correct for the same reason the margins were: `.agent-tabs`
+   sticks inside `.launcher`, which is `overflow-y: auto`, so its scroll container
+   already *starts* below the top bar and zero means "the top of what is scrolling".
+   Here the scroll container is the viewport, whose top is behind a `.topbar` that is
+   sticky at z-index 20 — so the strip pinned itself under the bar and the
+   Advocates/PRs/Mirror swap was gone from the first scroll until you scrolled back
+   up. Measured at 360×640 and 393×852: at scrollY 400 the nav's rect was top 0,
+   bottom 53 and the bar's was top 0, bottom 104. Nothing of it was on screen, and it
+   was carrying the whole cost of being sticky for none of the benefit.
+
+   `--topbar-h` is the bar's height, published by public/montabs.js from a
+   `ResizeObserver` on `.topbar` — see the block there for why the number cannot be
+   written here. Short version: it is 104px with the space picker's row and 61px
+   without, the picker hides itself under two workspaces, and the bar also carries
+   `env(safe-area-inset-top)` and wraps. The fallback is the two-row bar, so a page
+   that somehow loses that script is 43px wrong in the uncommon case rather than a
+   whole bar wrong in the common one.
+
+   The 14px used to be a bottom margin, and a margin is transparent — under a strip
+   that now actually stays put, that was a 14px band of the list sliding through
+   between the strip's border and the pane. It is padding on the pinned box instead,
+   which is the same gap drawn in `var(--bg)`; the border-bottom moves down by it,
+   which is what a border under a bar with room beneath it should do anyway. */
 .mon-tabs {
   position: sticky;
-  top: 0;
+  top: var(--topbar-h, 104px);
   z-index: 3;
-  padding: 8px 14px;
+  padding: 8px 14px 14px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
   display: flex;
   gap: 2px;
-  margin: -18px -16px 14px;
+  margin: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -3701,90 +4730,6 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 
 .mir-links { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 14px; }
 .mir-links a { color: var(--accent); font-size: 13.5px; font-weight: 600; text-decoration: none; }
-
-/* ------------------------------------------------------------------- drawer */
-
-/* Detail over the tab you were on: the dependency graph, or a document a question
-   told you to read. See public/drawer.js — the panel holds an iframe of the page
-   that already exists, which is why there is nothing here about its contents.
-
-   Above the tab bar (25), .card.open (40) and the toast (40), below the token
-   dialog (60 and a real <dialog>, which lives in the top layer anyway): a drawer
-   covers the brief you were reading — and the bar, since back is what dismisses it
-   — and is covered by anything that has to be answered first. */
-.drawer-wrap {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-}
-.drawer-wrap[hidden] { display: none; }
-
-.drawer-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  transition: opacity 180ms ease;
-}
-.drawer-wrap.open .drawer-backdrop { opacity: 1; }
-
-.drawer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg);
-  border-left: 1px solid var(--line);
-  box-shadow: -18px 0 44px rgba(0, 0, 0, 0.45);
-  /* The page inside an iframe is told nothing about the notch — insets resolve to
-     zero in there — so the panel holds it off the hardware itself. */
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-  transform: translateX(100%);
-  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1);
-}
-.drawer-wrap.open .drawer { transform: none; }
-.drawer:focus { outline: none; }
-
-.drawer-frame {
-  flex: 1;
-  width: 100%;
-  border: 0;
-  background: var(--bg);
-}
-
-/* The strip a swipe-to-dismiss starts from. Transparent and narrow, in front of the
-   iframe, because a touch that lands in an iframe is never seen out here. */
-.drawer-edge {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 18px;
-  z-index: 2;
-}
-
-/* Wide enough to have somewhere else to look: inset, so the tab underneath stays
-   visible and the drawer reads as detail rather than as a new page. */
-@media (min-width: 760px) {
-  .drawer {
-    top: 14px;
-    right: 14px;
-    bottom: 14px;
-    width: min(680px, 62vw);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .drawer,
-  .drawer-backdrop { transition: none; }
-}
 
 /* ── The tab bar ──────────────────────────────────────────────────────────────
 
@@ -3970,7 +4915,18 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    second shape for it would be a second thing to learn. What is different here is the
    padding: it is a card in a stack of cards rather than a line in a list, and
    `.work-row`'s own top border is the card's border in this context. */
-.chat-card { padding: 10px 12px; border-top: 0; text-decoration: none; }
+/* The card is the row *and* the ✕ beside it, which is why it is a flex wrapper here
+   and the link inside it carries the layout. Same shape as `.console-row` in the
+   launcher, and for the same reason: a <button> cannot live inside an <a>, so the two
+   are siblings and dismissing can never also open the conversation. */
+.chat-card { display: flex; align-items: center; gap: 6px; padding: 10px 12px; }
+.chat-card .work-row {
+  flex: 1; min-width: 0;
+  padding: 0;
+  /* The card's own border is the divider in this context — see the note above. */
+  border-top: 0;
+  text-decoration: none;
+}
 .chat-card .work-sub .pill { margin-right: 5px; }
 /* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex
    parent or it is laid out as an empty inline box — which is to say, as nothing at
@@ -3980,6 +4936,173 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    "is it thinking or is it waiting on me", which is what the row is for. */
 .chat-card .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 
+/* A JIRA ticket, as one row in the inbox (bc-0i27.3).
+
+   Deliberately the chat row's shape with the ✕ taken off: the two are the same kind of
+   thing on this screen — something outside `bd` that the inbox nonetheless holds — and a
+   fourth row shape would be a fourth thing to recognise in a list you scan past. The
+   whole card is the link here, because there is no second control beside it to keep out
+   of the way, which is the one place it differs from `.chat-card` above.
+
+   The ticket key is `.pill.id`, monospaced with the bead ids for the same reason those
+   are: `TECH-1204` and `TECH-1240` are a glance apart in a proportional face. */
+/* A column rather than a row since bc-0i27.5, and the change is one line: the ticket
+   still draws as one centred row, but what beadcause made of it goes *underneath* that
+   row rather than inside it — because the ingestion's id is a link to the bead, and the
+   row it sits under was an `<a>` to JIRA until bc-0i27.6 made it the button that opens
+   the ticket over the tab. `.work-row` is `flex: none`
+   for the same reason: in a column it would otherwise stretch to fill the card. The
+   three controls bc-0i27.7 added sit under both, on the same argument again: approve,
+   discuss and cancel beside a summary on a 360px phone leaves neither a readable width,
+   and the summary is what you read *before* deciding. */
+.jira-card { display: flex; flex-direction: column; align-items: stretch; padding: 10px 12px; }
+.jira-card .work-row {
+  flex: none; min-width: 0;
+  padding: 0;
+  /* The card's own border is the divider in this context — the note on `.chat-card`
+     above is the whole of why. */
+  border-top: 0;
+  text-decoration: none;
+}
+.jira-card .work-sub .pill { margin-right: 5px; }
+/* What the ingestion made of the ticket: an id and a count, a wait, or a failure. Indented
+   to the width of the emoji slot above it so it lines up with the title rather than with
+   the card's edge — it is a note about that row and reads as one. */
+.jira-ingest {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: 6px 0 0 30px;
+  font-size: 11.5px; color: var(--muted);
+}
+.jira-ingest .pill.id { margin: 0; }
+/* Still reading is not a state anybody should read as finished, so it is quieter than the
+   answer that replaces it — and a failure is the one thing here worth a colour, because
+   nothing retries it until the daemon restarts. */
+.jira-ingest.waiting { font-style: italic; opacity: 0.8; }
+.jira-ingest.bad { color: var(--danger); }
+/* The slot holds one emoji rather than a spark, so this is not the flex-parent line
+   `.chat-card` needs — it is the centring every other row of this shape has. */
+.jira-card .work-phase { display: flex; align-items: center; justify-content: center; }
+
+/* Approve, discuss, cancel (bc-0i27.7).
+
+   `flex-wrap` rather than three fixed widths: the row grows a fourth thing to say — a
+   bead id, a count, an ingestion that failed — and a bar that could not wrap would push
+   the cancel off the edge of a narrow phone rather than under the other two.
+
+   Cancel is pushed to the far end by the auto margin, which is the same ranking every
+   destructive control on this page gets: never where a thumb lands on the way to the
+   one you meant. */
+.jira-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0 30px; }
+.jira-acts .jira-cancel { margin-left: auto; }
+/* The link is styled as a button so Discuss and Approve read as one pair of choices —
+   it goes to a page rather than posting anything, and that is not a distinction worth
+   making with a different shape. */
+.jira-acts a.secondary { display: inline-flex; align-items: center; text-decoration: none; }
+/* What there is to say when there is no button: a bead still being filed, or the id of
+   one already approved. Muted, because neither is an instruction. */
+.jira-wait { font-size: 12px; color: var(--muted); }
+/* What just happened, pinned under the row rather than toasted away — see the note on
+   `jiraSaid` in public/app.js. Full width so it never shares a line with a button. */
+.jira-said { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--muted); }
+.jira-said.bad { color: var(--danger); }
+
+/*
+  The ticket, full screen (bc-0i27.6).
+
+  It opens into `.card.open` — the same fixed sheet a question and a pull request open
+  into, with the same four rows: a `.card-top` that stays, a `.card-head` saying what
+  this is, a `.brief` that scrolls, and a pinned `.freeform` holding the buttons. So
+  there is no layout here either, only what is this card's own: the beads under the
+  ticket, and the ticket's own words.
+
+  The side padding moves off the card and onto the two rows that want it, exactly as the
+  pull request's does, so the card's own 12px does not fight the sheet's 15px.
+*/
+.card.open.jira-card { padding-left: 0; padding-right: 0; }
+.card.open.jira-card > .card-head,
+.card.open.jira-card > .brief { padding-left: 15px; padding-right: 15px; }
+/* The title goes back to being the link out to JIRA once the card is open — there is
+   something on screen to leave from now, which is the whole reason the shut row stopped
+   being one. Underlined on hover only: a whole summary underlined reads as a warning. */
+.jira-card .work-title a { color: inherit; text-decoration: none; }
+.jira-card .work-title a:hover { text-decoration: underline; }
+
+/* What beadcause made of the ticket, at the top of the brief: the epic, whether it is
+   still held, and the beads written under it. Above the ticket's own words on purpose —
+   the decision on this screen is about those beads, and the description is the evidence
+   for it rather than the subject. */
+.jira-beads { margin: 0 0 14px; }
+.jira-beads-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; color: var(--muted); }
+.jira-reading { margin: 6px 0 0; font-size: 12.5px; font-style: italic; color: var(--muted); }
+.jira-kids { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.jira-kid { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; color: var(--prose); }
+/* A child closed since the decomposition — revoked, or done. Struck rather than hidden:
+   an epic whose children were turned down is a different picture from one with none,
+   and it is the picture you would decide differently about. */
+.jira-kid.shut { opacity: 0.6; text-decoration: line-through; }
+.jira-kid-status { font-size: 11px; color: var(--muted); text-decoration: none; }
+
+/* The ticket's own text. Plain — `adfText` in lib/jira.js flattens Atlassian's document
+   format one way only, so what arrives is text that already carries its own bullets and
+   fences, and `pre-wrap` is the whole of rendering it. `anywhere` because a JIRA
+   description is where a 300-character URL lives. */
+.jira-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.5; color: var(--prose); }
+.jira-desc { margin: 0 0 14px; }
+.jira-facts { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
+.jira-parent { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.jira-omitted { margin: 14px 0 0; font-size: 12px; font-style: italic; color: var(--muted); }
+.jira-thread { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.jira-comment { border-top: 1px solid var(--line); padding-top: 10px; }
+.jira-who { margin: 0 0 4px; font-size: 11.5px; color: var(--muted); }
+
+/* The cancelled tickets, folded at the foot of the list (bc-0i27.6).
+
+   Quiet on purpose and shut by default: these have been decided about, they are not
+   asking anything, and the only reason they are on the screen at all is that beadify
+   lives on a ticket's own view and a view needs a way in. Full width so the row inside
+   it keeps the card shape the live ones have. */
+.jira-cancelled { margin: 10px 0 0; }
+.jira-fold {
+  width: 100%;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  background: none; border: 0;
+  font: inherit; font-size: 12.5px; color: var(--muted);
+  text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+/* The one control on a cancelled ticket. `.secondary` is `flex: 1`, which is right for
+   the pair on a live row and wrong for a lone button — stretched across a phone it reads
+   as the whole card being one. */
+.jira-acts .jira-back { flex: 0 0 auto; padding: 0 22px; }
+.jira-cancelled .jira-card { opacity: 0.85; }
+.jira-cancelled .card.open { opacity: 1; }
+
+/* The records with no ticket left, at the foot of the same fold (bc-0i27.19).
+
+   Lines rather than cards, deliberately: there is no summary, no status and no link to
+   JIRA to draw, so a card here would be a card of empty fields beside cards that are
+   full. The paragraph above them is not decoration — it is the only place that says why
+   a ticket key with nothing attached to it is on the screen at all, and what dropping
+   one does to the bead that was closed with it. */
+.jira-orphans { margin: 12px 0 0; padding: 0 12px 8px; }
+.jira-orphans-why { margin: 0 0 8px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.jira-orphan {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.jira-orphan-what { flex: 1 1 auto; min-width: 0; }
+.jira-orphan-key { font-weight: 600; font-size: 13px; }
+/* The workspace beside the key rather than under it: two records can carry the same
+   ticket key from two workspaces pointed at one JIRA project, and without this they read
+   as one row drawn twice. */
+.jira-orphan-ws { margin-left: 6px; font-size: 12px; color: var(--muted); }
+.jira-orphan-when { display: block; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+/* Same override as `.jira-acts .jira-back` above and for the same reason: `.secondary`
+   is `flex: 1`, and a lone button allowed to stretch reads as the whole line being one. */
+.jira-orphan .jira-back { flex: 0 0 auto; padding: 0 18px; }
+
 /* ------------------------------------------------------------------- drawer */
 
 /* Detail over the tab you were on: the dependency graph, or a document a question
@@ -3987,9 +5110,10 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    that already exists, which is why there is almost nothing here about its contents:
    only the header the page hands its title to, and the page's own header going away.
 
-   Above .card.open (40) and the toast (40), below the token dialog (60 and a real
-   <dialog>, which lives in the top layer anyway): a drawer covers the brief you
-   were reading, and is covered by anything that has to be answered first. */
+   Above the tab bar (25), .card.open (40) and the toast (40), below the token
+   dialog (60 and a real <dialog>, which lives in the top layer anyway): a drawer
+   covers the brief you were reading — and the bar, since back is what dismisses it
+   — and is covered by anything that has to be answered first. */
 .drawer-wrap {
   position: fixed;
   inset: 0;
@@ -4119,7 +5243,15 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    most of these have a global default behind them, so "off" and "inheriting an off"
    are different answers and the Inherit button has to say which one you would get.
 */
-.space-card .work-head { align-items: center; flex-wrap: wrap; }
+/* This card's head is not styled here. It is `work-card mon-card space-card` — the same
+   two classes every other card on this page carries — so `.mon-card .work-head` above
+   draws it and `.work-card` pads it, and a second copy of either rule down here is a
+   copy to keep in step for no gain. There used to be exactly that: the same two flex
+   properties, and the same missing `display: flex` that made them do nothing (bc-8l74).
+   It is also why this card gained `work-card` in monitor.js at the same time — it was
+   the one card on the page without it, so it had no padding at all and was living off
+   the 20px of margin an unstyled <h2> brings. Take that margin away and the title sits
+   on the card's top border, which is what the fix above would have done to it. */
 /* Not a card at all: the one line that says the settings belong to a space and none
    is picked. Indented to the cards' own padding so it reads as page text. */
 .space-none { margin: 0 2px 4px; }
@@ -4152,6 +5284,24 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .space-arrow { color: var(--muted); }
 
+/* The Slack channel — the one field on this card you type into rather than press.
+   Same box as the clocks above so the two typed controls on the page look like one
+   thing, and `flex: 1 1 12ch` because a channel id is eleven characters: it takes the
+   room it needs on a phone and the three buttons wrap under it rather than squeezing
+   the field down to something you cannot read what you typed in. */
+.space-channel input[type="text"] {
+  flex: 1 1 12ch;
+  min-width: 11ch;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
 /* Seven days across a 360px phone: square, so the row fits without wrapping and each
    is still a 40px target in the direction a thumb misses in. */
 .space-day {
@@ -4161,10 +5311,29 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   text-align: center;
 }
 
-/* What each repo actually resolves to — the space's answer after the two per-repo
-   lists that outrank it have had their say. One line per repo, wrapping. */
-.space-repos { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 6px; }
-.space-repo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* What each repo actually resolves to — the space's answer after the three per-repo
+   lists that outrank it have had their say. Two lines per repo: the tags it resolves to,
+   wrapping, and under them the one setting a repo may answer for itself.
+
+   A column rather than one wrapping row, and the reason is the phone. Six tags and three
+   buttons in a single `flex-wrap` line at 393px is a block of pills where a thumb cannot
+   tell a statement from a control — and the buttons would land in a different place on
+   every row, because the tags above them are different widths. On their own line they
+   are always in the same place, and the rows are separated by a rule instead of by the
+   gap they used to share with the tags inside them. The buttons are a size down from
+   `.adv-btn` for the same reason a repo row is not a settings row: this is the fine
+   adjustment under an answer, not the answer. */
+.space-repos { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 6px; }
+.space-repo { display: flex; flex-direction: column; gap: 5px; padding: 7px 0; border-top: 1px solid var(--line); }
+.space-repo:first-child { border-top: 0; padding-top: 0; }
+.space-repo-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* Four settings per repo now, not one — so the label takes the slack and the three
+   buttons line up down the rows instead of starting wherever the word ended. It still
+   wraps below ~148px of label, which is a narrow phone with a long repo name. */
+.space-repo-set { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.space-repo-what { flex: 1 1 auto; min-width: 148px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.space-repo-moot { font-weight: 400; opacity: 0.7; }
+.space-repo-set .adv-btn { min-height: 28px; padding: 2px 10px; font-size: 12px; }
 
 /* -------------------------------------------------------------------- admin
 
@@ -4210,10 +5379,14 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .admin-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .admin-btns .primary, .admin-btns .secondary { flex: 1 1 190px; }
 
-.admin-kill { width: 100%; margin-top: 10px; }
+/* Two buttons on this page arm before they act, and they share this because they are
+   the same promise: `.admin-kill` stops the running sessions, and `.admin-revoke` ends
+   a signed-in device — one of which may be a phone that is not in the room. Full width
+   so the second tap lands where the first one did. */
+.admin-kill, .admin-revoke { width: 100%; margin-top: 10px; }
 /* Armed: the second press is the one that acts, so it stops being an outline and
    becomes solid — the same change the eye reads as "this is live now". */
-.admin-kill.armed {
+.admin-kill.armed, .admin-revoke.armed {
   background: var(--danger);
   color: var(--accent-ink);
   border-color: var(--danger);
@@ -4221,6 +5394,16 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .admin-warn { margin: 7px 0 4px; font-size: 12.5px; line-height: 1.5; color: var(--warn); }
 .admin-warn strong { font-weight: 700; }
+
+/* The terminal card's door — the one control on this page that is a way *in* rather
+   than a switch. `.primary` was written for a <button> in a flex row, so an anchor
+   wearing it needs the three things the button got for free: a box that fills the
+   card, a label centred in it, and no underline. Same bargain as .tls-link below. */
+.admin-door {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%;
+  text-decoration: none;
+}
 
 /* The HTTPS card.
 
@@ -4274,6 +5457,29 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .eq-head { margin-bottom: 2px; }
 .eq-count { margin: 0 0 4px; font-size: 16px; font-weight: 650; color: var(--text); }
 .eq-head .subtitle { margin-bottom: 0; }
+
+/* The count, and the one tap that answers all of it — on a line together, because they
+   are the same sentence: "3 beads waiting on you" and the button that makes that zero.
+   It sits here rather than in `.eq-bar` for the reason that bar has a rule of its own:
+   the bar does not exist until you have started ticking, and the whole point of Endorse
+   all is that it is reachable when you have ticked nothing. */
+.eq-head-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.eq-head-row .eq-count { flex: 1 1 auto; min-width: 0; }
+/* Beside the count and no wider than its own words. A full-width primary across the top
+   of a queue is a control you press before you have read anything, which is the exact
+   tap this one arms to prevent. `.board-btn.merge.armed` already turns it amber between
+   the two taps, the same as Revoke and Merge. */
+.eq-all { flex: 0 0 auto; }
+/* Onto its own line under both, where the armed hint can be a sentence — it has to name
+   a count and every repo it covers, which is not a thing that fits beside a button.
+
+   In the armed button's own amber rather than `.board-hint`'s muted grey, and that is
+   the load-bearing half of this rule: directly beneath it sits the page's subtitle, in
+   the same size and the same grey, and a muted hint there reads as the second line of
+   the page's own prose. The question and the button that asked it have to be the same
+   colour, or the sentence that says what the next tap does is the one sentence nobody
+   reads. */
+.eq-all-hint { flex: 1 1 100%; margin: 6px 0 2px; color: var(--warn); }
 
 /* Sticky, because what it acts on is the list you are scrolling: you tick the sixth
    row eight hundred pixels below the fifth, and a bar that had scrolled away would
@@ -4359,6 +5565,22 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .eq-two { display: flex; gap: 10px; }
 .eq-two .eq-lab { flex: 1; min-width: 0; }
 
+/* Talking about a bead instead of deciding on it. No rule of its own: `.section-label`
+   already draws one above every heading in here, and a second one under the bead's own
+   words left a stripe of empty card between two lines that meant the same thing. */
+.eq-talk .comments { margin: 8px 0 10px; }
+.eq-talk .section-label:first-child { margin-top: 14px; }
+/* Escaped text, not markdown — the same bargain the rest of this page makes (see the
+   note on `field` in public/endorse.js), so pre-wrap is what carries the line breaks. */
+.eq-bubble { margin: 0; font-size: 14px; line-height: 1.55; color: var(--prose); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The chosen agent's own brief. An agent whose foundation you cannot read is a name you
+   are guessing at — the same line the inbox draws under its chips. */
+.eq-agent-desc { margin: 6px 0 2px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+/* Nobody is going to buzz you when the answer lands (see `talkHtml`), so the one thing
+   this line owes you is that something is in fact happening. */
+.eq-waiting { margin: 0 0 8px; font-size: 12.5px; color: var(--accent); }
+.pill.talk { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+
 /* Revoke closes a bead, so it arms — outline until the first press, solid danger
    after it, which is the same promise `.admin-kill.armed` makes and the same one an
    armed Merge makes on the PR board. */
@@ -4369,3 +5591,847 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    and the bead ids on every board. Nothing had said so, and a browser's own underline
    under an uppercase 11px chip reads as a rendering fault rather than as a link. */
 a.pill { text-decoration: none; }
+
+/* ------------------------------------------------------------------ the ledger
+
+   The History tab (bc-nib3.2): every bead the selected space has ever had, most
+   recently touched first. It is a list you *scan* — the opposite bargain from the
+   endorsement queue, which puts the whole bead in the row because you are being asked
+   to decide about it. So: one line of chips, one line of title, and the close reason
+   underneath when there is one, because that sentence is the single most useful thing
+   in the whole record ("Landed as #92 as 677b5a5b — still owed: DEPLOYED").
+
+   Built on `.card` for the surface and its own rows rather than on `.work-row`, which
+   is a one-line flex row and cannot hold three stacked lines without fighting it. */
+.hist-count { margin: 0 0 2px; font-size: 13px; color: var(--muted); }
+/* The kept-answer mark (bc-1kwl.2.3). Deliberately no colour of its own and no weight:
+   serving a ten-second-old list while the sweep runs behind it is the *ordinary* case
+   now, not a fault, and a warning colour here would cry wolf on every second page load.
+   It is a clause on the end of the count line, dimmer than the count itself. */
+.hist-kept { opacity: 0.75; }
+.hist-trouble {
+  margin: 0 0 4px;
+  font-size: 13px; line-height: 1.45;
+  color: var(--warn);
+}
+/* A filter the daemon would not honour, drawn at the top of the list because that is
+   directly under the control that caused it — `not a status: close` beside the chips is
+   a sentence you can act on, and the same words at the foot of an empty page are not.
+   `.hist-trouble`'s colour deliberately, because both are the same kind of news. */
+.hist-refused {
+  margin: 0 0 6px;
+  font-size: 13px; line-height: 1.45;
+  color: var(--warn);
+}
+.hist-list { padding: 0 14px 0 4px; }
+
+/* The left padding is on *every* row and not only the marked ones. The accent rule
+   below is an inset shadow, which draws inside the box — so a `padding-left` that
+   arrived with the marker would shunt those rows 10px right and leave the list ragged
+   down its own left edge, which is worse than no marker at all on a list this long. The
+   gutter is always there; the rule moves into it. */
+.hist-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  min-height: var(--tap);
+  padding: 10px 0 10px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--text); text-decoration: none;
+}
+.hist-list .hist-row:first-child { border-top: 0; }
+.hist-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.hist-top { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.hist-title { font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere; }
+/* The close reason, at prose weight and clamped to two lines. Clamped rather than
+   ellipsised on one: these sentences carry a PR number and a sha at the *end*, which is
+   the half a single line would throw away. Two lines hold 94 characters at 393px and
+   226 at the widest this page gets, which is the measurement `CLOSE_REASON_MAX` in
+   lib/history.js sits above — the payload stops at 240 so this rule stays the only
+   clamp a reader ever sees. */
+.hist-why {
+  font-size: 12.5px; line-height: 1.4; color: var(--muted);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+.hist-row > time {
+  flex: none;
+  font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  padding-top: 3px;
+}
+/* A finished bead is not a quiet one — the record is mostly closed beads and dimming
+   the majority of a list dims the list. Only the id goes quiet, which is enough to
+   separate the handful of live rows at a glance. */
+.hist-row.is-closed .pill.id { opacity: 0.72; }
+/* The type, and the repo when more than one is in view — text rather than chips, so the
+   row's three pills stay the three things worth a chip. */
+.hist-kind { font-size: 11.5px; color: var(--muted); }
+.pill.st-closed { background: transparent; color: var(--muted); }
+
+/* A bead whose session was archived — the thing you are actually looking for when you
+   came here to ask what happened. Marked three ways on purpose, because this is a list
+   of two hundred near-identical rows and a tint alone disappears in one: the glyph, the
+   accent rule down the left edge, and the `aria-label` on the glyph for a reader that
+   gets neither. Same inset-shadow idiom as `.eq-bead.unfolded`. */
+.hist-row.has-session { box-shadow: inset 3px 0 0 var(--accent); }
+.hist-sess { font-size: 12px; line-height: 1; }
+
+.hist-foot { display: flex; justify-content: center; padding: 4px 0 2px; }
+.hist-more-note { font-size: 12.5px; color: var(--muted); }
+.hist-more {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface);
+  color: var(--text); font-size: 14px; font-weight: 600;
+  cursor: pointer;
+}
+
+/* Whose P0 this is — the owner row on the bead sheet, and the one control on /graph that
+   writes anything (see `ownerRowHtml`). Shaped like `.sheet-session` and `.rel-row`
+   because it is the same furniture in the same place: one line, one border, 44px of it,
+   so resolving the buttons late never moves the description under a thumb. */
+/* The held row (bc-rfnr.7). Shaped like `.owner-row` because it sits directly under one
+   and two differently-shaped rows would read as two kinds of thing, and toned like
+   `.pill.p1` for the reason that pill is: every other hold in this app clears itself and
+   this one waits on a decision. Not an error colour — an orphaned bead is a state of the
+   tracker, and most of them got there by being filed before anybody drew the board. */
+.adopt-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--p1, var(--line));
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.adopt-kind {
+  flex: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--p1, var(--muted));
+}
+.adopt-why { min-width: 0; color: var(--muted); }
+.adopt-acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+/* 16px on the select specifically: iOS Safari zooms the whole page on focus for anything
+   smaller, and a sheet that jumps under a thumb reaching for a button is worse than a
+   control two points larger than its neighbours. */
+.adopt-pick {
+  max-width: 46vw;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 16px;
+}
+.adopt-btn {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+.adopt-btn[disabled] { opacity: 0.5; }
+.adopt-none, .adopt-err { color: var(--muted); font-size: 12px; }
+
+/* What a session on this bead runs on — the model row on the bead sheet (bc-nc6o.5,
+   `modelRowHtml`). Shaped like `.owner-row` and `.sheet-session` because it sits directly
+   under them and three differently-shaped rows in a column would read as three kinds of
+   thing; toned quieter than either, because on most beads it is saying the ordinary thing
+   (untiered, never worked) and only earns attention in its two warn states. */
+.model-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.model-kind {
+  flex: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* The routed model is the answer, so it is the only thing on the row drawn at full
+   strength — the tier beside it is the reason for it, and the run behind it is a footnote
+   until the two disagree. */
+.model-picked { font-weight: 650; }
+.model-why { min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+/* No tier is a state, not a fault — the same quiet italic `.owner-who.is-none` gives
+   "unowned", and for the same reason: it is what most of a tracker looks like. */
+.model-why.is-none { font-style: italic; }
+.model-why.is-bad { color: var(--warn); font-style: normal; }
+.model-ran { margin-left: auto; color: var(--muted); }
+.model-ran.is-diverged { color: var(--warn); }
+
+.owner-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.owner-kind {
+  flex: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* The local part is the readable half of an email address and the whole of what tells two
+   colleagues apart; the domain is the same on every row and would push the buttons off a
+   four-inch screen. The full handle stays in the title for anyone who needs it. */
+.owner-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Unowned is a state, not a fault — quiet, the same weight `.sheet-session.is-none` gives
+   "nothing ran on this bead", because both are the ordinary condition of most of a tracker. */
+.owner-who.is-none { color: var(--muted); font-style: italic; }
+.owner-and { color: var(--muted); }
+.owner-acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.owner-btn {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 12.5px;
+  cursor: pointer;
+}
+.owner-btn:disabled { opacity: 0.5; cursor: default; }
+.owner-btn.is-clear { color: var(--muted); }
+.owner-err { font-size: 12px; color: var(--danger); }
+
+/* The epics assigned to you, as a section rather than as the top of the list — see
+   `p0SectionHtml`, and bc-eevn for why the heading no longer says "Your P0s". The
+   distinction is the point of bc-rfnr.2: sorted to the top, six self-filed crash P0s
+   (lib/errors.js files every daemon crash at P0) push your epics below the fold with
+   nothing on screen to say they moved. A section cannot be pushed down by its own list. */
+.p0-board { display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; }
+/* The heading is the fold (bc-eevn): one button across the width of the section, so the
+   tap that puts the board away is the whole line rather than a chevron you have to hit —
+   the same bargain `.p0-tap` makes one level down. A button because that is what it is:
+   `aria-expanded`, Enter and the keyboard come free, and the shared `.chev` rule above
+   turns the chevron down when it is open. Kept at the size and weight it had as a div,
+   because it is still a section label; nothing about it should read as a control until
+   you look for one. `--tap` tall so a thumb can find it on a phone. */
+.p0-kind {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%;
+  min-height: var(--tap);
+  margin: 0; padding: 0;
+  border: 0; background: none;
+  text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* The count, and it is on the *shut* line as much as the open one — a fold that hid the
+   fact there was anything behind it would be a section you forget you own. Pushed to the
+   far end, where `.p0-open` on each card already puts its number, so folded and unfolded
+   the counts sit in one column. Not upper-cased or tracked out with the label: it is a
+   number, and letter-spacing on a number reads as two numbers. */
+.p0-kind-n {
+  margin-left: auto;
+  letter-spacing: 0; font-size: 11.5px; font-weight: 600;
+  color: var(--muted);
+}
+/* The status filter over every tree on the board (bc-rfnr.9.6) — `p0StatusHtml`.
+
+   Drawn as the segmented switch the inbox's scope row is, because it is the same kind of
+   control: one of three, never none, and it changes what every list below it contains.
+   `.chip-row.scopes` above does the banding, including the `nowrap` that keeps the switch
+   one object rather than three chips with the last on a line of its own. What is left
+   here is where it sits: hard against the cards it filters and away from the heading
+   above, so it reads as belonging to the board rather than to the section label. */
+.p0-status { flex-wrap: nowrap; margin: 0 0 2px; }
+/* A card, not a row: these are the four or five things the week is about and they are
+   worth the vertical space the rest of the list is rationed out of. Bordered on the
+   leading edge in the warn colour the P0 pill already uses, so the section reads as
+   urgent without a word spent saying so. */
+.p0-card {
+  display: flex; flex-direction: column; gap: 4px;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+/* The summary *is* the control (bc-rfnr.9.2): everything above the tree is one button,
+   so the tap that opens a P0 is the whole card rather than a caret you have to hit. A
+   button because that is what it is — keyboard, Enter, and `aria-expanded` come free,
+   where a div with a click handler has none of the three — stripped back to text and
+   laid out as the column of lines it was when it was a div and two anchors. */
+.p0-tap {
+  display: flex; flex-direction: column; gap: 4px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0; padding: 0;
+  border: 0; background: none;
+  color: inherit; font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.p0-head { display: flex; align-items: center; gap: 8px; }
+.p0-head .pill.id { flex: none; }
+/* Pushed to the far end, and the two counts in a fixed order — how much is left is the
+   number you scan for, so it sits where the eye lands last and stays put between polls. */
+.p0-open { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.p0-flight { font-size: 11.5px; color: var(--accent); }
+/* After the counts rather than before the id, so it is the last thing on the line and
+   the two numbers keep the position the eye already knows. */
+.p0-caret { flex: none; font-size: 11px; color: var(--muted); }
+/* A span since bc-rfnr.9.2 — it is inside the tap button now, and neither an anchor nor
+   a second button can live in one. Sized above everything around it because it is the
+   line you actually read. */
+.p0-title { font-size: 14px; line-height: 1.35; color: var(--text); text-decoration: none; }
+/* Only drawn when the advocate has written one (bc-rfnr.3). Quiet, because it is a
+   status line under a title rather than a second title. */
+.p0-waiting { font-size: 12px; color: var(--muted); }
+/* What a tap does, and how many beads are behind it — the total, where `.p0-open` is
+   what is left. Quietest line on the card: it is an instruction, and an instruction as
+   loud as the title is one you read instead of the title. */
+.p0-hint { font-size: 11.5px; color: var(--muted); }
+
+/* The tree, revealed under the summary. Rules above it rather than a box around it: the
+   card is already a box, and a second border inside it makes a 60-row epic read as a
+   page inside a page. */
+.p0-tree {
+  display: flex; flex-direction: column; gap: 1px;
+  margin: 6px 0 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+/* One descendant. The indent is `--d` steps of 13px set inline from the row's own
+   `depth`, and it is a MARGIN rather than a padding so the row's box narrows with it and
+   the title wraps inside the card instead of running off it. Capped at three steps in
+   `p0RowHtml` — 39px is the most a 360px phone can give away and still leave a bead
+   title readable, and this tracker nests deeper than three. */
+.p0-row {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  min-height: 34px;
+  margin-left: calc(var(--d, 0) * 13px);
+  padding: 6px 8px;
+  border-left: 2px solid var(--line);
+  border-radius: 0 7px 7px 0;
+  color: var(--text); text-decoration: none;
+  font-size: 12.5px;
+}
+.p0-row:hover { background: var(--surface); }
+.p0-row-id { flex: none; font-size: 11.5px; color: var(--muted); }
+/* The marks ride on the first line beside the id, ahead of the title rather than after
+   it, because the title is the part that wraps: a pill pushed past a three-line title
+   lands alone on a line of its own, where a word in upper case shouts. Smaller than a
+   pill anywhere else in the app for the same reason — there can be sixty of these. */
+.p0-row .pill { flex: none; font-size: 9.5px; padding: 2px 6px; }
+/* `min-width: 0` with `overflow-wrap` because a bead title is a sentence and an id is
+   not: without it a long unbroken token pushes the row wider than the card, and a card
+   wider than the screen shrink-fits the whole page (see the note on measuring layout). */
+.p0-row-title { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; }
+/* A bead that is itself asking you something. It is the reason to open a tree at all —
+   and once bc-rfnr.9.7 takes the flat list away, the only place a question is drawn. */
+.p0-row.asks { border-left-color: var(--warn); }
+.pill.p0-asks {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+/* Closed work recedes where it is drawn — it is what an epic has *done*, so it stays
+   legible rather than being deleted from the tree. Whether it is drawn at all is the
+   board's status filter since bc-rfnr.9.6, and the default is not to: an epic reading as
+   twice the size it is was the complaint, and this rule is what the other two options
+   look like. */
+.p0-row.done { opacity: 0.55; }
+.p0-row.done .p0-row-title { text-decoration: line-through; }
+/* A row the filter excluded, kept because something under it was included (`p0Visible`).
+   It is scaffolding rather than an answer, and it has to *look* it — otherwise a `Closed`
+   filter draws open beads with nothing saying why, which reads as the filter not working.
+   A dashed leading edge rather than more transparency: `.done` already owns dimming, and
+   a closed row that is also context would fade to unreadable if the two stacked. */
+.p0-row.via { border-left-style: dashed; }
+.p0-row.via .p0-row-id, .p0-row.via .p0-row-title { opacity: 0.65; }
+/* A P0 with nothing under it. Said in a sentence rather than left as a gap, because an
+   empty expansion is indistinguishable from one that failed to arrive. */
+.p0-none {
+  margin: 6px 0 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--muted);
+}
+
+/* The two ways out of a card, on one row under the tree: put an advocate on it, or go
+   and look at the graph. The advocate takes the room because it is the thing you can
+   *do* here — a 36px target hidden between two counts is a target you miss — and the
+   graph is the link the id pill used to be, moved down now the summary above it is one
+   tap target and cannot hold an anchor of its own. */
+.p0-acts { display: flex; align-items: stretch; gap: 6px; margin-top: 4px; }
+.p0-advocate {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.p0-advocate:disabled { opacity: 0.6; cursor: default; }
+.p0-graph {
+  display: flex; align-items: center;
+  flex: none;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+/* The same control as a link, once there is an advocate to go and look at (bc-d6yk).
+   Same box as the button it replaces — a card whose control changed size between polls
+   would move the two cards below it while you were reading them — and centred by flex
+   rather than by `text-align`, because the busy dot is a sibling of the text and has to
+   sit on its baseline rather than beside a line of it. */
+a.p0-advocate {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  text-decoration: none;
+}
+/* Live, so it breathes: the one on this card is the window you just opened, and an
+   advocate that is thinking and one that has stopped must not read the same. Listed here
+   rather than added to the shared rule above, because that rule's list is of *rows* and
+   this is a control. */
+a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+
+/* ------------------------------------------------------------- edit mode
+
+   The app as the thing you point at (bc-p49x.1). Two controls and one tint, and all
+   three exist to answer the same question at a glance: is a tap on this screen going
+   to open a card, or is it going to name an element?
+
+   Nothing here changes layout. That is the point: edit mode freezes the repaints so the
+   element under your thumb is still the element you meant, and a mode that reflowed the
+   page on the way in would have thrown the referent away before the first gesture — the
+   same loss the freeze exists to prevent, arriving through the stylesheet instead. So
+   the banner is `position: fixed` over the page rather than a row inserted into it, and
+   the tint is a colour on a pseudo-element rather than a border on anything real. */
+
+/* The way in, mirroring ＋ across the foot of the screen. Left because that is the other
+   thumb, and the same height because the two are peers: one creates, one edits. */
+.editmode {
+  position: fixed;
+  z-index: 24;
+  left: calc(env(safe-area-inset-left) + 14px);
+  bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 14px);
+  display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  color: var(--text);
+  font: inherit; font-size: 19px; line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+  -webkit-tap-highlight-color: transparent;
+}
+/* Smaller than ＋ and quieter until it is on, then filled: the mode is rare, and a
+   second circle shouting at the same volume as the app's primary action all day is a
+   bad trade for a control most sessions never touch. */
+.editmode.on {
+  border-color: var(--warn);
+  background: var(--warn);
+  color: var(--accent-ink);
+}
+
+/* The banner. It says the one thing that is not otherwise visible — that the screen has
+   stopped repainting — because a frozen inbox and a quiet one look identical, and a
+   person who thought the app had hung would reload it and lose the mode.
+
+   z-index 45 is above an open card, which is the fixed full-screen layer at 40. An open
+   card is a screen you can be pointing at too, and a banner underneath it would leave
+   the only way out of the mode covered by the thing you were editing. */
+.editbar {
+  position: fixed;
+  z-index: 45;
+  top: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
+  background: var(--warn);
+  color: var(--accent-ink);
+  font-size: 13.5px; font-weight: 600;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
+}
+.editbar-dot {
+  flex: none;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--accent-ink);
+}
+.editbar-say { flex: 1 1 auto; }
+/* The second way out, beside the sentence that explains why you want one. ✏️ at the foot
+   of the screen is the first, and on an open card it is the one that is covered. */
+.editbar-done {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 14px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+
+/* Room for the banner, and a tint over everything under it. `padding-top` on the body
+   rather than a margin on the list: four different things are fixed to the top of this
+   page and pushing the document is what moves all of them together. */
+body.editing {
+  padding-top: calc(env(safe-area-inset-top) + 44px);
+  /* A hold is the gesture that picks an element up, and both of these are what the phone
+     would otherwise do with one instead: iOS raises the callout menu over the thing you
+     are pointing at, and a hold that drifts a pixel starts selecting text through the
+     card. Neither is undone by anything JavaScript can say afterwards.
+     Scrolling is deliberately NOT disabled here — you have to be able to reach the rest
+     of the screen — and is refused per-gesture, once a drag is genuinely under way. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Drawn on a pseudo-element with pointer-events off, so the whole page reads as held
+   without a single element on it becoming untappable — the taps are exactly what the
+   mode is for. */
+body.editing::after {
+  content: '';
+  position: fixed;
+  z-index: 44;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px var(--warn);
+}
+
+/* The app updating itself — public/update.js. Two controls, on every standing page.
+
+   The button is an .icon-btn that carries words rather than a glyph, because "Update
+   app" is not a thing there is an unambiguous symbol for and this is the one control in
+   that bar you press twice a month rather than twice an hour. It is tinted `--accent`
+   so that it reads as arrived rather than as always having been there. */
+.app-update {
+  width: auto;
+  padding: 0 12px;
+  gap: 6px;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--text);
+  font-size: 13px; font-weight: 600;
+  white-space: nowrap;
+}
+/* Armed: the second tap installs and restarts the app, so it says so in the colour every
+   other arming button in this app uses for the same beat. */
+.app-update.armed {
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 20%, var(--surface));
+}
+.app-update:disabled { opacity: 0.6; cursor: default; }
+
+/* The ask, once the download has landed. Fixed to the foot rather than the head: the top
+   bar is where the *reminder* lives, and a sheet over the top of a card you are reading
+   would cover the thing you opened the app for. Above the tab bar and below edit mode's
+   frame (44). */
+.app-update-ask {
+  position: fixed;
+  z-index: 42;
+  left: 12px; right: 12px;
+  bottom: calc(env(safe-area-inset-bottom) + 68px);
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+}
+.app-update-ask p { margin: 0 0 10px; font-size: 14px; }
+.app-update-row { display: flex; gap: 8px; justify-content: flex-end; }
+.app-update-row button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.app-update-row button.ghost {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--muted);
+}
+
+/* The pass, still held, after the mode has ended.
+   Leaving edit mode puts the whole screen back the way the app has it — which is the
+   truth, and is also exactly what a save that failed would look like. This badge is the
+   difference: the way back in says how many edits are waiting, so a reverted screen reads
+   as "nothing was applied yet" rather than as "it lost them". */
+.editmode[data-changes]::after {
+  content: attr(data-changes);
+  position: absolute;
+  top: -3px; right: -3px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--accent-ink);
+  font-size: 11px; font-weight: 700; line-height: 18px;
+}
+
+/* The running count of the pass, and the way into the list. It sits in the banner
+   because the banner is the one thing guaranteed to be visible and reachable in this
+   mode — an open card covers the whole rest of the screen — and it is hidden at zero,
+   since a 0 is a control with nothing behind it. */
+.editbar-count {
+  flex: none;
+  min-width: 30px; min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: var(--accent-ink);
+  color: var(--warn);
+  font: inherit; font-size: 13px; font-weight: 700;
+  cursor: pointer;
+}
+.editbar-count[hidden] { display: none; }
+
+/* --- what a gesture looks like while it is happening ---------------------------
+
+   Every one of these is a state of the *conversation*, not of the app: an element that
+   has been picked up, one being retyped, one that has something said about it. None of
+   them survives the mode, and the fact that they are all borrowed from --warn — the
+   colour of the banner that says the screen is frozen — is the point. Nothing in this
+   family may use --accent, which on this screen means a thing that actually happened. */
+
+/* Picked up: lifted, and unmistakably held rather than merely highlighted, because from
+   here a lift of the thumb means describe and a drag means point. */
+.editpick {
+  outline: 2px solid var(--warn);
+  outline-offset: 2px;
+  border-radius: 6px;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.45);
+}
+/* And in flight. `pointer-events: none` is load-bearing rather than cosmetic: it is what
+   lets the drop ask what is *under* the thumb instead of being answered by the element
+   already in it. The transform the drag writes makes its own stacking context, so it
+   floats over its siblings without this file positioning anything. */
+.editdrag {
+  pointer-events: none;
+  opacity: 0.88;
+  transition: none;
+}
+
+/* Being retyped. A caret in --warn as well, so the one place on the screen where typing
+   goes is obvious with a keyboard over the bottom half of it. */
+.editretype {
+  outline: 2px solid var(--warn);
+  outline-offset: 2px;
+  border-radius: 4px;
+  caret-color: var(--warn);
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* Retyped, and still not saved: the words on screen are yours, the app's are underneath
+   them in the change list, and this is the difference said in a way a glance catches. */
+.editretyped {
+  text-decoration: underline wavy var(--warn);
+  text-underline-offset: 3px;
+}
+/* Something has been said about this one. Dashed rather than solid because it is a note
+   against the element, not a change to it. */
+.editsaid {
+  outline: 1px dashed var(--warn);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* --- the note box -------------------------------------------------------------
+
+   A sheet at the foot of the screen, which is where the keyboard comes from: a box in
+   the middle of the page is a box the keyboard covers on a phone, and this one exists
+   to be typed into. Above the banner in z-order because it is a question, and a question
+   underneath the thing that raised it is one nobody can answer. */
+.editnote {
+  position: fixed;
+  z-index: 47;
+  left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px calc(env(safe-area-inset-bottom) + 14px);
+  background: var(--surface);
+  border-top: 2px solid var(--warn);
+  box-shadow: 0 -10px 30px rgb(0 0 0 / 0.4);
+}
+.editnote-what {
+  margin: 0;
+  font-size: 13.5px; font-weight: 600;
+  color: var(--text);
+}
+.editnote-ask {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.editnote-box {
+  width: 100%;
+  min-height: 74px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit; font-size: 15px;
+  resize: vertical;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.editnote-row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.editnote-cancel, .editnote-add {
+  min-height: 40px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer;
+}
+/* Filled, because it is the one that files something — and refused while the box is
+   empty, since a point with no note is not an edit. */
+.editnote-add {
+  border-color: var(--warn);
+  background: var(--warn);
+  color: var(--accent-ink);
+}
+.editnote-add[disabled] { opacity: 0.45; cursor: default; }
+
+/* --- the change list ----------------------------------------------------------
+
+   The pass, reviewable before it is anything else. Same foot of the same screen as the
+   note box and one layer under it: the note is a question about one edit, this is
+   everything said so far. */
+.editlist {
+  position: fixed;
+  z-index: 46;
+  left: 0; right: 0; bottom: 0;
+  max-height: 62vh;
+  display: flex; flex-direction: column;
+  padding: 10px 14px calc(env(safe-area-inset-bottom) + 12px);
+  background: var(--surface);
+  border-top: 2px solid var(--warn);
+  box-shadow: 0 -10px 30px rgb(0 0 0 / 0.4);
+}
+.editlist-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.editlist-count { font-size: 13.5px; font-weight: 700; color: var(--warn); }
+.editlist-close {
+  min-height: 34px;
+  padding: 4px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+/* The rows scroll and the head and the foot do not, so the sentence saying none of this
+   has changed the app cannot be scrolled off the bottom of the pass it is about. */
+.editlist-rows {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.editlist-row {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.editlist-kind { flex: none; width: 18px; text-align: center; }
+.editlist-said { flex: 1 1 auto; color: var(--text); overflow-wrap: anywhere; }
+/* The words, under the gesture that pointed at them: on a point they are the whole of
+   the edit, and a list showing only "above the title" would be a list of gestures. */
+.editlist-note { display: block; margin-top: 2px; color: var(--muted); font-style: normal; }
+.editlist-drop {
+  flex: none;
+  min-width: 34px; min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.editlist-none { padding: 10px 0; color: var(--muted); font-size: 13px; }
+.editlist-foot { margin: 8px 0 0; color: var(--muted); font-size: 11.5px; }
+/* The one control in this mode that makes anything real, and the sentence saying nothing
+   is real yet, on one line. The sentence takes the space that is left so the button keeps
+   its width on a narrow phone — a Save that wrapped to two characters would be the least
+   findable thing on the screen. */
+.editlist-actions { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.editlist-actions .editlist-foot { flex: 1 1 auto; }
+.editlist-save {
+  flex: none;
+  min-height: 40px;
+  padding: 8px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--warn);
+  color: #131313;
+  font: inherit; font-size: 14px; font-weight: 700;
+  cursor: pointer;
+}
+/* Disabled while a Save is in flight and while there is nothing to save. Faded rather
+   than hidden: a button that disappears reads as a control that failed. */
+.editlist-save[disabled] { opacity: 0.45; cursor: default; }
+
+/* ---------------------------------------------------------------- requirements
+   The coverage view (bc-fvmx.8). Deliberately a short block: the page reuses
+   `.lede`, `.section-label`, `.pill` and `.empty` from the rest of the app, and adds
+   only the row and the two-length bar, which is the one thing here nothing else draws.
+
+   The bar carries two claims stacked in one track — how many requirements have any
+   edge, and how many of those a merge actually proved — because drawing only the
+   first would say a forecast and a landed diff are the same evidence. */
+.req-list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.req-row {
+  display: flex; flex-direction: column; gap: 8px; width: 100%;
+  padding: 12px 14px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  color: inherit; font: inherit;
+}
+.req-row.is-detail { cursor: default; }
+.req-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.req-meta { color: var(--muted); font-size: 12px; }
+.req-files { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
+.req-files code { font-size: 11px; }
+.reqbar {
+  position: relative; height: 6px; border-radius: 3px;
+  background: var(--line); overflow: hidden;
+}
+/* Covered sits under proved, so the darker proved length reads as a subset rather
+   than as a second, competing measurement. */
+.reqbar-covered, .reqbar-observed { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+.reqbar-covered { background: var(--accent); opacity: 0.35; }
+.reqbar-observed { background: var(--accent); }
+.req-back {
+  margin: 12px; padding: 10px 14px; border-radius: 10px;
+  background: transparent; border: 1px solid var(--line); color: var(--muted); font: inherit;
+}

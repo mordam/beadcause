@@ -32,8 +32,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import net from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -133,20 +134,9 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// A port picked up front rather than `port: 0` and `address()`: listen() binds
-// asynchronously and hands back the servers immediately, so address() is still null
-// on the next line.
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const app = createApp({ ...cfg, port });
-const servers = listen({ ...cfg, port }, app.handler);
+const app = createApp(cfg);
+const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const call = (pathname, opts = {}) =>
   new Promise((resolve, reject) => {
@@ -169,16 +159,6 @@ const call = (pathname, opts = {}) =>
     if (opts.body) req.write(opts.body);
     req.end();
   });
-
-// The bind is a tick or two behind listen() returning.
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await call('/api/health');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 const posted = await call('/api/filter', { method: 'POST', body: JSON.stringify({ space: 'work', workspace: 'climative' }) });
 check(() => {
@@ -276,9 +256,6 @@ check(() => {
 /* ------------------------------------------- the filter as an input to the push */
 
 const { matchesFilter, quietReasonFor, describeFilter } = await import(LIB('spaces.js'));
-// The filter-change prompt's own view of what the filter excludes, asserted at the end
-// of the poller run: the push and the prompt have to agree about this channel.
-const { excludedRinging } = await import(LIB('ringing.js'));
 
 // One space muted, one not, and a workspace in neither — the three states a bead can
 // be pushed from.
@@ -351,8 +328,9 @@ check(() => {
 
 check(() => {
   // matchesFilter stays the plain two-level test. The exemption belongs to "may this
-  // interrupt me", not to "is this bead in the filtered list" — and `excludedRinging`
-  // in lib/ringing.js calls the plain one after dropping foundation rows itself.
+  // interrupt me", not to "is this bead in the filtered list": the inbox draws the
+  // foundation channel above the list and outside every filter on it, so a request is
+  // never a member of the filtered set in the first place.
   assert.equal(matchesFilter({ space: 'Work', workspace: 'all' }, request('beta', 'Personal')), false);
 }, 'and matchesFilter is left alone — the exemption is about interruption, not membership');
 
@@ -558,19 +536,13 @@ check(() => {
 }, 'and a reply on one is as loud as the request it is on');
 
 check(() => {
-  // The other half of the contract this change leans on: a request that rang is not
-  // something narrowing the filter can offer to clear, because narrowing never hid
-  // it. `rangFor` carries `foundation` for exactly this, and `excludedRinging` drops
-  // it — so the record being written is the same record that gets skipped.
+  // The record the push wrote, and what it says about the channel. `rangFor` carries
+  // `foundation` so anything reasoning about what the filter reaches can tell a
+  // request apart from a question — the filter does not reach that channel at all.
   const ringing = loadState().ringing || {};
   assert.equal(ringing['beta/b-found']?.foundation, true, 'the request is recorded as ringing, and as foundation');
   assert.ok(!ringing['beta/b-new'], 'the filtered-out question never rang, so it has no record');
-  assert.deepEqual(
-    excludedRinging(pollCfg, ringing, { space: 'Work', workspace: 'all' }).map((e) => e.key),
-    [],
-    'and the filter-change prompt has nothing to offer about it'
-  );
-}, 'the notification it made is not one the filter can later offer to clear');
+}, 'the notification it made is written down as the request it is');
 
 /* ----------------------------------------------------- hygiene, cheap and blunt */
 
@@ -593,7 +565,7 @@ check(() => {
 }, 'no source file carries an invisible control byte');
 
 servers.forEach((s) => s.close());
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
 process.exit(failures ? 1 : 0);

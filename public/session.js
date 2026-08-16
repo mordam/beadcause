@@ -49,9 +49,35 @@
  *   - **Nothing typed is thrown away.** A send that fails puts the words back in the
  *     box and says why; a repaint restores the draft; and the box is not cleared until
  *     the daemon has said it delivered.
- *   - **What the channel changes about your message, it admits to.** `write text`
- *     presses return at the end of a line, so a two-paragraph message goes as one
- *     line — said before you send it and again after.
+ *   - **What the channel changes about your message, it admits to.** It used to close
+ *     the newlines up — `write text` presses return at the end of a line, so two
+ *     paragraphs went as one — and the page warned you before and after. It does not
+ *     reflow any more, so what it says now is what a multi-line message *looks like* on
+ *     the Mac: the composer there shows `[Pasted text #1 +6 lines]` rather than the
+ *     words. `scripts/say-check.mjs` fails on any claim of a flattening that has stopped
+ *     happening.
+ *
+ * ## And then you can go and find it
+ *
+ * The dead end after that one. You could read a session and answer it, and still not
+ * know which of a dozen worktree windows on the desk it *is* — finding it meant going
+ * through iTerm's window list by hand, comparing paths. So there is a button above the
+ * box: it brings that window to the front of the Mac and doubles it in place, and
+ * closing this view puts it back at exactly the bounds and position it had.
+ *
+ * Three things about it are the same shape as the composer, on purpose, because they
+ * are the same fact seen twice:
+ *
+ *   - **It is gated on the same `reach`**, from the same response. A session in
+ *     Terminal.app, tmux or over ssh has no iTerm window, and gets the reason rather
+ *     than a button that would do nothing.
+ *   - **The daemon owns whether it is up, and how big it used to be.** `focused` comes
+ *     back with the facts, so a reload finds the window as it left it; the rectangle to
+ *     restore to is held in lib/focus.js, keyed by pid, because a phone that locks or a
+ *     tab that is swiped away would otherwise be the only thing that knew it.
+ *   - **Every way of leaving puts it back.** The close sends a restore as the page is
+ *     torn down; the ways of leaving that send nothing — a lock, a discarded tab — are
+ *     covered by a lease the poll below is already renewing.
  */
 (() => {
   'use strict';
@@ -90,6 +116,16 @@
     note: null,
     /** True while a send is in flight, so a double tap cannot send twice. */
     sending: false,
+    /**
+     * Whether its window is up on the Mac at double size — the daemon's answer, not
+     * ours. Kept server-side (lib/focus.js) so a reload of this page finds the window
+     * as it left it, rather than offering to enlarge one that already is.
+     */
+    focused: false,
+    /** True while a focus or a restore is in flight. */
+    focusing: false,
+    /** What the last one said back, when it was worth saying. */
+    focusNote: null,
   };
 
   const esc = (s) =>
@@ -175,6 +211,55 @@
   }
 
   /**
+   * The button that points the Mac at it — or the reason there is nothing to point at.
+   *
+   * The last dead end after the composer. You could watch a session think and answer
+   * it, and still not know *which of a dozen worktree windows on the desk it is*. So
+   * one tap raises that window and doubles it in place, and closing this view puts it
+   * back exactly where it was; lib/focus.js holds the rectangle and explains why it is
+   * held there rather than here.
+   *
+   * Gated on the same `reach` as the composer, from the same response, so the two can
+   * never disagree about whether this session has a window at all. When it has not, the
+   * label says so and no button is drawn — a button that did nothing would be the same
+   * lie as a disabled box.
+   *
+   * **The sentence is not repeated.** The composer's blocked line sits directly under
+   * this and states the reason in full; saying it twice, forty pixels apart, would read
+   * as a bug rather than as thoroughness. This block says which of its two halves is
+   * missing, and the why below covers both.
+   */
+  function windowHtml() {
+    const reach = state.reach;
+    if (!reach) {
+      return `<div class="session-label">Its window <span>Not from this server.</span></div>`;
+    }
+    if (!reach.can) {
+      return `<div class="session-label">Its window <span>There isn't one to bring up.</span></div>`;
+    }
+    const up = state.focused;
+    const note = state.focusNote
+      ? `<p class="say-note say-${esc(state.focusNote.kind)}">${esc(state.focusNote.text)}</p>`
+      : '';
+    // On the label row, at the far end, exactly where the mic sits on the composer's —
+    // and for the reason written beside `.label-mic` in the stylesheet: the transcript
+    // below is what this page is for, and a row of its own for one button is 44px of log
+    // pushed under the fold. scripts/say-check.mjs measures precisely that.
+    //
+    // Which is also why the sentence is three words. `.session-label` wraps, and on a
+    // 393px phone a label, a sentence and a button do not fit on one line — the button
+    // silently drops onto a second row and costs the 44px anyway. "Twice the size" is
+    // the half worth saying; that the window comes to the front is what the button says.
+    return `<div class="session-label">Its window <span>${
+      up ? 'Up, twice the size.' : 'Twice the size.'
+    }</span><span class="label-win"><button class="win-btn" type="button"
+        data-focus="${up ? 'restore' : 'focus'}" ${state.focusing ? 'disabled' : ''}>${
+      up ? 'Put it back' : 'Bring it up'
+    }</button></span></div>
+      ${note}`;
+  }
+
+  /**
    * The box, or the reason there isn't one.
    *
    * A session out of reach gets the sentence the daemon wrote and no composer at all —
@@ -250,6 +335,7 @@
     // it said anything once.
     out.innerHTML = `<div class="session-detail session-solo">
       ${factsHtml(s)}
+      <div class="win-block" data-win-block>${windowHtml()}</div>
       <div class="say-block" data-say-block>${sayHtml(s)}</div>
       <div class="session-label">Transcript <span>Its own log, as the terminal showed it.</span></div>
       <pre class="agent-log" data-session-log>${esc(state.logText || 'opening the transcript…')}</pre>
@@ -294,6 +380,91 @@
     });
   }
 
+  /* --------------------------------------------------- pointing the Mac at it */
+
+  /**
+   * Redraw the button alone.
+   *
+   * Same reason `repaintSay` exists: the transcript below is a `<pre>` several thousand
+   * lines long, and rebuilding it to change one word on a button would take the
+   * keyboard down with it on iOS. Delegated rather than re-wired, because unlike the
+   * composer this half holds nothing you could lose.
+   */
+  function repaintWindow() {
+    const block = out.querySelector('[data-win-block]');
+    if (!block || !state.session) return render();
+    block.innerHTML = windowHtml();
+  }
+
+  /**
+   * Ask the daemon to raise that window, or to put it back.
+   *
+   * `focused` is read back off the response rather than toggled here: the daemon owns
+   * the saved rectangle, and a page that decided for itself would offer "put it back"
+   * for a window it had already lost — a window closed by hand between two taps comes
+   * back as a 409, and the button has to return to offering the enlarge.
+   */
+  async function windowAct(action) {
+    if (state.focusing) return;
+    state.focusing = true;
+    state.focusNote = null;
+    repaintWindow();
+    try {
+      const res = await fetch('/api/session-focus', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
+        body: JSON.stringify({ pid, action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.reach) state.reach = data.reach;
+        state.focused = false;
+        state.focusNote = { kind: 'bad', text: data.error || `HTTP ${res.status}` };
+        return;
+      }
+      state.focused = !!data.focused;
+      state.focusNote = data.focused
+        ? { kind: 'ok', text: 'It is at the front of the Mac now.' }
+        : null;
+    } catch (err) {
+      state.focusNote = { kind: 'bad', text: `Couldn't reach the server: ${err.message}` };
+    } finally {
+      state.focusing = false;
+      repaintWindow();
+    }
+  }
+
+  // One delegated listener for the life of the page: the button is rebuilt on every
+  // repaint, and re-binding it each time is a listener leak waiting to happen.
+  out.addEventListener('click', (ev) => {
+    const btn = ev.target.closest?.('[data-focus]');
+    if (!btn || btn.disabled) return;
+    ev.preventDefault();
+    windowAct(btn.dataset.focus);
+  });
+
+  /**
+   * Put the window back as this page goes away.
+   *
+   * `pagehide` and not `visibilitychange`, and the difference is the whole feature: a
+   * phone that locks while you walk over to the Mac fires `visibilitychange`, and
+   * shrinking the window at that moment would undo the one thing you asked for. What
+   * `pagehide` fires on is *leaving* — the drawer's ✕, the back button, a closed tab, a
+   * navigation away — which is the close the bead asked to restore on. The phone that
+   * locked and never came back is covered instead by the lease in lib/focus.js, which
+   * is measured from this page's own polling.
+   *
+   * `sendBeacon`, because a `fetch` started in a handler that is tearing the document
+   * down is not promised to leave the machine. It cannot set a header, so the token
+   * rides as `?t=` — the same query parameter every endpoint here already accepts, and
+   * this URL is never one that gets shared or pasted.
+   */
+  addEventListener('pagehide', () => {
+    if (!state.focused || !navigator.sendBeacon) return;
+    const body = new Blob([JSON.stringify({ pid, action: 'restore' })], { type: 'application/json' });
+    navigator.sendBeacon(`/api/session-focus?t=${encodeURIComponent(token)}`, body);
+  });
+
   const autoGrow = (el) => {
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
@@ -314,7 +485,17 @@
     const box = block.querySelector('[data-say-text]');
     // Only worth restoring if it was the focused element — putting the caret back into
     // a box you were not typing in would open the keyboard over the transcript.
-    const at = box && box === document.activeElement ? box.selectionStart : null;
+    const live = box && box === document.activeElement ? box : null;
+    // Both ends, and the direction with them. A caret is the case where the two ends are
+    // equal, so carrying only `selectionStart` — which this did until bc-nh19 — hands back
+    // a caret at the left edge of whatever you had picked out, and the direction is the
+    // end the next Shift-arrow extends from. This box is repainted by a poll, which lands
+    // by definition at the moment you are mid-sentence in it, so the words you selected to
+    // type over are gone before you have typed anything. Same three fields as
+    // public/mirror.js's composer (bc-c3ve).
+    const at = live ? live.selectionStart : null;
+    const to = live ? live.selectionEnd : null;
+    const way = live ? live.selectionDirection || 'none' : 'none';
 
     block.innerHTML = sayHtml(state.session);
     wireSay();
@@ -322,7 +503,7 @@
     const fresh = block.querySelector('[data-say-text]');
     if (fresh && at !== null) {
       fresh.focus();
-      fresh.setSelectionRange(at, at);
+      fresh.setSelectionRange(at, to ?? at, way);
     }
   }
 
@@ -427,9 +608,14 @@
       // under a page left open: whether it is still reachable (a window closed by hand)
       // and whether it is mid-turn (which decides what the hint says).
       const was = `${state.reach?.can}·${state.reach?.why}·${state.session?.status}`;
+      const wasUp = `${state.reach?.can}·${state.focused}`;
 
       state.session = data;
       state.reach = data.reach || null;
+      // Not while a tap is in flight: this poll is two seconds stale by definition, and
+      // letting it answer would flip the button back under the thumb that just pressed
+      // it. The request's own response is the authority, and it is a moment away.
+      if (!state.focusing) state.focused = !!data.focused;
       state.file = data.file || null;
       state.logText =
         (data.lines || []).join('\n') ||
@@ -457,6 +643,10 @@
       // …and the composer alone if what it says has actually changed. Not on every
       // poll: it holds the caret and, on iOS, the keyboard.
       if (was !== `${state.reach?.can}·${state.reach?.why}·${state.session?.status}`) repaintSay();
+      // The button says one of two things and the lease can change which without anyone
+      // touching it: three minutes after this page stopped being watched, the daemon
+      // puts the window back on its own, and a tab left open must say so.
+      if (wasUp !== `${state.reach?.can}·${state.focused}`) repaintWindow();
     } catch (err) {
       // A transport failure is not a session that has gone, so it does not stop the
       // polling — it says so where the transcript would be and tries again.
