@@ -40,6 +40,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// Not `fs.rmSync(tmp)`. This suite calls `saveState`, every save calls `snapshot`, and
+// `snapshot` schedules a `git init` in CONFIG_DIR two seconds later — which under test is
+// the scratch directory this teardown is walking. That race is bc-5uy8 and it fails the
+// whole run from the last line of a suite whose every check passed.
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -355,6 +360,6 @@ check('a junk field reads as nothing parked — a window left open, never one cl
   assert.deepEqual(s.opened, {});
 });
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} failed\n` : '\nall good\n');
 process.exit(failures ? 1 : 0);
