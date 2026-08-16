@@ -8245,9 +8245,29 @@ than before them. It is the right shape for the repo that wants it and the wrong
 for everyone: rewriting a LaunchAgent from inside an unattended deploy at three in the
 morning is a big hammer for a failure a sentence names perfectly well.
 
+**The refusal above is also four fields, and that is what you actually read it as.** The
+paragraph is the log's shape; a phone's is a list. So the verdict lands on the deploy
+record as `launchAgent`, carrying `label`, `program`, `plist`, `fix` and `fixCommand`
+beside the prose, and both readers take the fields:
+
+- On the deploy strip the unfolded row draws them as a bordered block — the label, the
+  program launchd would have restarted, the plist that says so, and the command in
+  `<code>` under a heading that says **Fix** — with the reasoning as a quiet line under
+  it and the `error` paragraph not repeated beside them.
+- The ntfy push sends three short lines: `refused: <label> is stale`, `launchd would
+  restart <program>`, `fix: <command>`. It used to send `error.slice(0, 300)`, and since
+  the message leads with the refusal and *ends* with the command, the truncation ate the
+  fix — a push telling you a deploy was refused and unable to say what to type.
+
+`fixCommand` is null wherever there is no honest one: how a label this repo did not
+install gets reinstalled is not ours to know, so those verdicts carry the action as a
+phrase and offer no command to stand behind.
+
 `node test/launchagent.mjs` covers the verdicts against plists it writes in a temp home,
 so it never reads the real `~/Library/LaunchAgents`; `node test/deploy.mjs` covers the
-runner acting on one — the command never runs, the rebuild before it did.
+runner acting on one — the command never runs, the rebuild before it did;
+`node test/launchagentcard.mjs` covers the fields reaching the record, the push and the
+screen, including the arithmetic that the old 300-character slice cut the fix off.
 
 #### A deploy is a fact about a repo, and a workspace may be forty of them
 
