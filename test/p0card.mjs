@@ -175,6 +175,10 @@ function board(p0s, open = [], shut = false, status = 'live') {
     workspace: 'all',
     spaces: [],
     p0opening: new Map(),
+    // Empty, always, in this suite: what a row expands *into* is test/p0bead.mjs's
+    // (bc-rfnr.9.4). It is here because `p0RowHtml` asks whether its bead is open before
+    // it draws the caret, and a board rendered without it throws rather than failing.
+    p0beadopen: new Set(),
   };
   const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state });
   vm.runInContext(
@@ -195,7 +199,14 @@ function board(p0s, open = [], shut = false, status = 'live') {
       lift(APP, 'function p0Visible(rows)'),
       lift(APP, 'function p0StatusHtml(cards)'),
       lift(APP, 'function p0HintText(on, shown, total)'),
+      lift(APP, 'const p0RowKey = ('),
+      lift(APP, 'const p0Step = ('),
       lift(APP, 'function p0RowHtml(card, row)'),
+      // bc-rfnr.9.4's expansion, which every row now offers and no row opens here —
+      // `p0beadopen` is empty above, so this returns '' on all of them. Lifted because
+      // `p0TreeHtml` calls it per row and would otherwise throw; what it *draws* is
+      // test/p0bead.mjs's, which lifts the whole chain underneath it.
+      lift(APP, 'function p0BeadHtml(card, row)'),
       lift(APP, 'function p0TreeHtml(card)'),
       // bc-d6yk's three-state control, which the acts row now calls rather than writing
       // a launch button by hand — and the local "just launched" note it reads.
@@ -309,9 +320,19 @@ check('closed work recedes rather than disappearing where it is drawn', () => {
   assert.match(html, /A fifth, already landed/);
 });
 
-check('each row is a link to that bead in the graph — no tap does nothing', () => {
+check('each row is a disclosure of its own bead — no tap does nothing', () => {
+  // It was a link out to the graph until bc-rfnr.9.4, which turned it into the control
+  // that opens the bead's own details in place. The graph is still reachable and is
+  // drawn *inside* the expansion, on the bead you tapped — see test/p0bead.mjs.
   const html = board([CARD], ['beadcause/bc-rfnr']);
-  assert.match(html, /href="\/graph\?ws=beadcause&amp;id=bc-rfnr\.9\.2&amp;open=1"/);
+  assert.match(
+    html,
+    /<button type="button" class="p0-row"[^>]*data-act="p0-bead" data-p0bead="beadcause\/bc-rfnr\.9"/
+  );
+  assert.match(html, /data-ws="beadcause" data-bead="bc-rfnr\.9\.2"/);
+  // Shut, so the caret points the way the card's does and nothing claims to control a
+  // block that is not on the page.
+  assert.ok(!html.includes('aria-controls="p0bead-'), 'a shut row is claiming to control an expansion');
 });
 
 console.log('\nwhat is open, and what survives a repaint');
@@ -460,11 +481,14 @@ const LANDED = {
   ],
 };
 
+/** The opener a row is drawn with — a `<button>` since bc-rfnr.9.4, an `<a>` before it. */
+const ROW_OPEN = '<button type="button" class="';
+
 /**
  * The class list on one row, by bead id — the row's own and not its neighbour's.
  *
- * Taken from the `<a` immediately before the id rather than out of a window of the
- * surrounding string, which is what a first draft of this did: the marks are three
+ * Taken from the row's own opener immediately before the id rather than out of a window
+ * of the surrounding string, which is what a first draft of this did: the marks are three
  * classes on one element and the row above is only a few hundred characters away, so a
  * slice wide enough to hold the row is wide enough to hold the one before it and every
  * assertion about a class passes for the wrong reason.
@@ -472,8 +496,9 @@ const LANDED = {
 function rowClass(html, id) {
   const at = html.indexOf(`>${id}<`);
   assert.notEqual(at, -1, `no row for ${id}`);
-  const open = html.lastIndexOf('<a class="', at);
-  return html.slice(open + '<a class="'.length, html.indexOf('"', open + '<a class="'.length));
+  const open = html.lastIndexOf(ROW_OPEN, at);
+  assert.notEqual(open, -1, `the row for ${id} is not drawn with ${ROW_OPEN}`);
+  return html.slice(open + ROW_OPEN.length, html.indexOf('"', open + ROW_OPEN.length));
 }
 
 /** Every chip on the filter, as `{label, on, count}` — the control read off the board. */
@@ -538,11 +563,17 @@ check('selecting closed shows closed descendants with their ancestors intact', (
   assert.equal(indentOf(html, 'bc-rfnr.9.2.1'), 2);
 });
 
-check('a row kept only for its children says so, and is still a link to its bead', () => {
+check('a row kept only for its children says so, and still opens its own bead', () => {
   const html = board([CARD], ['beadcause/bc-rfnr'], false, 'closed');
   assert.equal(rowClass(html, 'bc-rfnr.9'), 'p0-row via', 'an ancestor kept for its child is not marked');
-  const row = html.slice(html.lastIndexOf('<a class="', html.indexOf('>bc-rfnr.9<')), html.indexOf('>bc-rfnr.9<'));
-  assert.match(row, /href="\/graph\?ws=beadcause&amp;id=bc-rfnr\.9&amp;open=1"/);
+  const row = html.slice(html.lastIndexOf(ROW_OPEN, html.indexOf('>bc-rfnr.9<')), html.indexOf('>bc-rfnr.9<'));
+  // Held up for its child and still a tap of its own. Since bc-rfnr.9.4 that tap expands
+  // the bead in place rather than leaving for the graph, so what says the row is still
+  // reachable is its own `p0-bead` act and not an `href` — the way through to the graph
+  // moved inside the expansion. A context row that lost its act would be scaffolding you
+  // cannot open, which is the same dead row this check was written to prevent.
+  assert.match(row, /data-act="p0-bead" data-p0bead="beadcause\/bc-rfnr\.9"/);
+  assert.match(row, /data-ws="beadcause" data-bead="bc-rfnr\.9"/);
   // The bead that actually matched is not marked — otherwise the mark says nothing.
   assert.equal(rowClass(html, 'bc-rfnr.9.2.1.1.1'), 'p0-row done');
 });
