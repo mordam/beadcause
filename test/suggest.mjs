@@ -471,18 +471,29 @@ check(
 
 /* --------------------------------------- and the same rule for a written option */
 
-// The buttons a real `decision` block draws are not this file's output, but they are
-// now governed by the same rule and are one careless refactor from breaking it: they
-// used to answer and close on two taps, and the second tap is gone. scripts/option-check.mjs
-// proves the whole gesture in a browser; these two are here because they cost nothing
-// and run without Chrome, which is what `npm test` has.
+// The buttons a real `decision` block draws are not this file's output, and since
+// bc-5ldc they are governed by a *narrower* version of the same rule rather than the
+// same one: on a shut card a choice answers on the second tap, and on an open card it
+// fills the box and sends nothing. What has to hold here is the half that touches a
+// suggestion's own guarantee — the box-filling path never posts — plus the arm in
+// front of the half that does. scripts/option-check.mjs proves the whole gesture in a
+// browser; these are here because they cost nothing and run without Chrome, which is
+// what `npm test` has. test/optionanswer.mjs is where the shut half is pinned properly.
 const optHandler = app.slice(app.indexOf("if (act === 'option')"));
 const optBody = optHandler.slice(0, optHandler.indexOf('\n    }\n') + 1);
+// The shut-card branch, and everything after it — which is the open card's path.
+const shutAt = optBody.indexOf('if (!state.open.has(key) && !getDraft(key).trim()) {');
+const openPath = shutAt === -1 ? optBody : optBody.slice(optBody.indexOf('[data-role="answer"]', shutAt));
 check('the client still has a handler for a written option', optBody.length > 100, String(optBody.length));
 check(
-  'and it fills the box rather than sending it — a choice is picked here and committed by the button under it',
-  !/submit\(|api\(/.test(optBody),
-  (optBody.match(/.*(submit\(|api\().*/) || [])[0]
+  'the shut card’s choice is the one that sends, and it is guarded by an arm',
+  shutAt !== -1 && /state\.armed !== token[\s\S]*?return;[\s\S]*?submit\(/.test(optBody.slice(shutAt)),
+  shutAt === -1 ? 'no shut-card branch at all' : 'the write is not behind the arm'
+);
+check(
+  'and on an open card it fills the box rather than sending it — a choice is picked there and committed by the button under it',
+  !/submit\(|api\(/.test(openPath),
+  (openPath.match(/.*(submit\(|api\().*/) || [])[0]
 );
 check(
   'it remembers which choice was made, because the words can be edited and the id cannot',
