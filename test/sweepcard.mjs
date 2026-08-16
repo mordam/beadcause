@@ -462,6 +462,57 @@ check(
   (await chaseRow(rec, { ...live, state: 'resolved' }, { mergeability: async () => { throw new Error('asked about a finished row'); } })).state === 'resolved'
 );
 
+/*
+ * And the one that used to be terminal and is not — bc-9d37.17.
+ *
+ * `handed-back` is documented as a state only Adam's answer moves, and that was read as
+ * "nothing can move it", so `chaseRow` never asked. But the pull request can merge or
+ * close on github.com while it waits, and then the card is asking him to pick a winner
+ * among branches that have already landed — a question no answer improves, on a card that
+ * could never close. Two of those accumulated inside a day.
+ */
+console.log('\nand a row waiting on Adam, which the pull request itself can still end');
+
+const stalled = { ...handed, state: 'handed-back', said: 'both sides are load-bearing' };
+check(
+  'one that merged while it waited is merged rather than still waiting',
+  (await chaseRow(rec, stalled, { mergeability: answer('MERGED', 'UNKNOWN') })).state === 'merged'
+);
+check(
+  "and it stops quoting the resolver's sentence, which was about a hand-back that is over",
+  (await chaseRow(rec, stalled, { mergeability: answer('MERGED', 'UNKNOWN') })).said === ''
+);
+check('one that was closed while it waited is closed', (await chaseRow(rec, stalled, { mergeability: answer('CLOSED', 'UNKNOWN') })).state === 'closed');
+check(
+  'one somebody rebased into fitting is mergeable again',
+  (await chaseRow(rec, stalled, { mergeability: answer('OPEN', 'MERGEABLE') })).state === 'resolved'
+);
+check(
+  'one that still conflicts comes back untouched, sentence and all',
+  (await chaseRow(rec, stalled, { mergeability: answer('OPEN', 'CONFLICTING'), said: async () => { throw new Error('re-derived a hand-back it already had'); } })) === stalled
+);
+check(
+  'a GitHub that would not answer leaves it waiting',
+  (await chaseRow(rec, stalled, { mergeability: answer('OPEN', 'UNKNOWN', true) })).state === 'handed-back'
+);
+check(
+  'and the other two states that need him are asked about the same way',
+  (await chaseRow(rec, { ...stalled, state: 'failed', said: '' }, { mergeability: answer('MERGED', 'UNKNOWN') })).state === 'merged' &&
+    (await chaseRow(rec, { ...stalled, state: 'unknown', said: '' }, { mergeability: answer('MERGED', 'UNKNOWN') })).state === 'merged'
+);
+
+/*
+ * The registry is not consulted for one, and that is not an optimisation. A resolver that
+ * handed a row back can still be in the registry for the rest of its four hours, and
+ * reading it here would turn a settled question back into "a session is working on it".
+ */
+resolvers.remember('demo', 14, { branch: 'b', term: 'w1' });
+check(
+  'a registry entry left over from the session that handed it back does not revive it',
+  (await chaseRow(rec, stalled, { mergeability: answer('OPEN', 'CONFLICTING') })).state === 'handed-back'
+);
+resolvers.reset();
+
 /* ------------------------------------------------------- the resolver sentence */
 
 console.log("\nreading the resolver's own sentence off the pull request");
@@ -569,6 +620,76 @@ check('with a reason naming what became mergeable', /#14/.test(closing?.reason |
 check('and it says nothing needed him', /Nothing needed you/.test(settledReason({ ...rec, prs: [] })));
 check('the record is gone', Object.keys(readSweepCards()).length === 0);
 check('and the log line says so', /every conflicting pull request came back mergeable/.test(describeSweepCard(out[0])), describeSweepCard(out[0]));
+
+/* ------------------------------------------------------- the question that died */
+
+/*
+ * bc-9d37.17, end to end: the card that waits on him over a pull request that has since
+ * landed, and closes itself when it notices. bc-xl7n.30 sat in the inbox for thirty-eight
+ * hours in exactly this shape.
+ */
+console.log('\nand a card waiting on him over a branch that lands anyway settles itself');
+
+resolvers.reset();
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ handed: [row(14), row(11)] }), { dir: checkout });
+
+let asks = 0;
+const github2 = (merged) => async (dir, number) => {
+  asks += 1;
+  return merged.has(number)
+    ? { pr: { number, state: 'MERGED', mergeable: 'UNKNOWN' }, unresolved: false }
+    : { pr: { number, state: 'OPEN', mergeable: 'CONFLICTING' }, unresolved: false };
+};
+
+out = await followSweepCards(bd, cfg, { mergeability: github2(new Set()), said: async () => 'you have to pick a side here' });
+check('both are handed back and it stays open', out[0]?.needing === 2 && out[0]?.closed !== true, JSON.stringify(out));
+
+// #14 merges on github.com. Nothing here did it and nothing here was told.
+out = await followSweepCards(bd, cfg, { mergeability: github2(new Set([14])), said: async () => 'you have to pick a side here' });
+let card = bd.calls.filter((c) => c.kind === 'update').pop().fields.description;
+check('the row that landed says so', /#14/.test(card) && /merged while it was being worked/.test(card), card);
+check('and it is not one of the ones waiting on him any more', out[0]?.needing === 1, JSON.stringify(out));
+check('the question he is asked names only the branch that is still there', !/Answer #14/.test(card) && /Answer #11/.test(card), card);
+check("and the dead branch stopped quoting the resolver's sentence", !/#14[\s\S]{0,120}pick a side here/.test(card), card);
+check('it is still open, because one of them still is', !bd.calls.some((c) => c.kind === 'close'));
+
+/*
+ * And it is asked on a clock rather than every cycle — `WAITING_RECHECK_MS`. Seven waiting
+ * rows on a card bounded by the card rather than by time is 840 `gh pr view`s an hour at
+ * the poll cycle's cadence, for a card that is doing nothing at all.
+ */
+const quietAsks = asks;
+const quietCalls = bd.calls.length;
+out = await followSweepCards(bd, cfg, { mergeability: github2(new Set([14])), said: async () => 'x' });
+check('a cycle inside the window asks GitHub nothing', asks === quietAsks, `${asks - quietAsks} calls`);
+check('and writes nothing but the question of whether the card is still there', !bd.calls.slice(quietCalls).some((c) => c.kind !== 'show'));
+
+out = await followSweepCards(bd, cfg, { waitingMs: 0, mergeability: github2(new Set([14, 11])), said: async () => 'x' });
+check('once the last one lands too, the card closes itself', out[0]?.closed === true, JSON.stringify(out));
+check('with a reason naming both', /#14/.test(bd.calls.find((c) => c.kind === 'close')?.reason || '') && /#11/.test(bd.calls.find((c) => c.kind === 'close')?.reason || ''));
+check('and the record is dropped, because nothing is left to receive an answer', Object.keys(readSweepCards()).length === 0);
+
+/*
+ * The TTL bounds the rows that are still *moving* and nothing else. bc-xl7n.30's record
+ * was thirty-eight hours old — eight windows — and the row it was waiting on had merged in
+ * the first of them, so a chase that stopped at four hours was a chase that never ran.
+ */
+console.log('\nand the wait outlives the follow-up window, because the merge it is waiting for might');
+
+resolvers.reset();
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ handed: [row(14)] }), { dir: checkout });
+out = await followSweepCards(bd, cfg, { mergeability: github2(new Set()), said: async () => 'you have to pick a side here' });
+check('it is waiting on him', out[0]?.needing === 1, JSON.stringify(out));
+
+const day = Date.now() + 38 * 60 * 60 * 1000;
+out = await followSweepCards(bd, cfg, { now: day, mergeability: github2(new Set([14])), said: async () => 'x' });
+check('a day and a half later it is still asked about', out[0]?.closed === true, JSON.stringify(out));
+check('the card closes rather than expiring into "nothing here can say"', !/nothing here can say/.test(bd.calls.filter((c) => c.kind === 'update').pop()?.fields.description || ''));
+check('and nothing is left in the file', Object.keys(readSweepCards()).length === 0);
 
 /* --------------------------------------------------------------- the refusals */
 

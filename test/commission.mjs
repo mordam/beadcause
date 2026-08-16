@@ -137,9 +137,14 @@ const fs = require('fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(CALLS)}, JSON.stringify(args) + '\\n');
 const DESC = ${BLOCK_JSON};
+// zz-plain is the control for the typed-answer rule: an ordinary question with no
+// decision block at all, which is the commonest kind there is. Every other id gets the
+// block, so a test that does not ask for the plain one behaves exactly as it always did.
 const bead = (id) => ({
   id, issue_type: 'task', status: 'open', title: 'Build it or not', comment_count: 0,
-  priority: 1, labels: ['human'], description: DESC, dependencies: [],
+  priority: 1, labels: ['human'],
+  description: id === 'zz-plain' ? 'Should we do the thing? No buttons on this one.' : DESC,
+  dependencies: [],
 });
 if (args[0] === 'show') { process.stdout.write(JSON.stringify([bead(args[1])])); process.exit(0); }
 if (args[0] === 'human' && args[1] === 'list') {
@@ -301,12 +306,58 @@ check(
 // The `closes` flag is the bead's, not the caller's. A client that could name its
 // own would be able to leave any question open — and one running against a card a
 // poll out of date would close a commission the agent has since marked otherwise.
+/* ------------------------------------ a typed answer where a button would commission */
+
+/**
+ * The change bc-my5e made, and the bead that paid for it.
+ *
+ * This used to assert the opposite — "a typed answer names no option, so it closes" —
+ * and that was right for a card whose options all settle the question. On this one they
+ * do not: `build-both` is a build order. bc-wy06 asked "`worktree-launchagent-fields-jrw0`
+ * never reached main. Land it?", Adam typed **"Ship it"**, and the sentence was recorded,
+ * the bead closed, and the commission discarded. The branch was still unmerged two days
+ * later, and every screen showed the question as settled.
+ *
+ * So a sentence on a card where one of the buttons starts work is *not an answer yet*.
+ * The alternative — matching the words against the labels — was considered and rejected:
+ * "ship it but not yet" matches as confidently as "ship it", and a commission may not be
+ * granted on a guess any more than it may be discarded on one.
+ */
 reset();
 const typed = await call('/api/respond', { workspace: 'demo', id: 'zz-1', response: 'Do it however you like.' });
+const typedWrites = writes();
+
+check(
+  () => assert.deepEqual(typedWrites.map((a) => a[0]), ['comment'], `bd was told to: ${JSON.stringify(typedWrites)}`),
+  'a typed answer on a bead that carries a commission option is recorded and NOT closed'
+);
+check(
+  () => assert.ok(!typedWrites.some((a) => a[0] === 'label'), `label writes: ${JSON.stringify(typedWrites)}`),
+  'and the human label stays, so the card is still in the inbox with its options'
+);
+check(() => assert.equal(typed.json.closed, false), 'the response does not claim a close');
+check(
+  () => assert.equal(typed.json.handedBack, false),
+  'nor a hand-back — nothing was handed to anybody, which is the whole difference'
+);
+check(() => assert.equal(typed.json.needsChoice, true), 'it says what actually happened: a choice is still owed');
+check(
+  () => assert.match(String(typedWrites[0]?.[2] || ''), /pick an option/i),
+  'and the thread says so, so the words are not silently sitting there'
+);
+
+/**
+ * The control, and the one that would break first if this were implemented as "never
+ * close a typed answer": a card whose options all settle still closes on a sentence.
+ * zz-2 carries no decision block at all, which is the commonest question there is.
+ */
+reset();
+const plain = await call('/api/respond', { workspace: 'demo', id: 'zz-plain', response: 'Yes, go ahead.' });
 check(
   () => assert.deepEqual(writes().map((a) => a[0]), ['comment', 'close'], `bd was told to: ${JSON.stringify(writes())}`),
-  'a typed answer names no option, so it closes'
+  'a typed answer on a bead with no commission option closes, exactly as it always did'
 );
+check(() => assert.equal(plain.json.needsChoice, false), 'and does not ask for a choice that does not exist');
 
 reset();
 const bogus = await call('/api/respond', {

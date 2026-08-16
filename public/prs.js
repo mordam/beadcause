@@ -501,6 +501,60 @@
   }
 
   /**
+   * A deploy refused because the LaunchAgent it would have restarted is not this tree.
+   *
+   * `rec.error` says all of this already, in one paragraph, and a paragraph is what
+   * this used to be: `deploy-why`, wrapped, in the gap above the steps, with the
+   * program and the fix somewhere in the middle of it. That reads as narrative when
+   * what you actually want is four lookups — *which label, which program, which file,
+   * what do I type*. So each is a row with a heading, and the paths and the command are
+   * `<code>`, because a path in prose is a path you have to select carefully.
+   *
+   * The paragraph is not repeated below: the fields are the same sentences with the
+   * connective tissue removed, and printing both would only make you check whether
+   * they agreed. What is kept is `lines` — the reasoning, which is the one part the
+   * fields genuinely drop — under the fix rather than above it.
+   *
+   * `null` for every ordinary deploy, which is nearly all of them; see lib/deploy.js.
+   */
+  function launchAgentHtml(rec) {
+    const la = rec.launchAgent;
+    if (!la) return '';
+
+    // Each row only if it has an answer. An `unreadable` plist has no program, and a
+    // "Program: —" would be a field pretending to be a fact.
+    const row = (name, value, note = '') =>
+      value ? `<div class="la-row"><dt>${esc(name)}</dt><dd>${value}${note ? ` <span class="la-note">${esc(note)}</span>` : ''}</dd></div>` : '';
+
+    const code = (v) => `<code>${esc(v)}</code>`;
+    // A command when there is one, with the phrase beside it saying what running it
+    // does; the phrase alone when there is not, because a label this repo did not
+    // install has an action and no command — see lib/launchagent.js.
+    const fix = la.fixCommand
+      ? `${code(la.fixCommand)}${la.fix ? ` <span class="la-note">${esc(la.fix)}</span>` : ''}`
+      : la.fix
+        ? esc(la.fix)
+        : '';
+
+    // The reasoning, minus whichever of its lines was carrying the command — that one
+    // is now the Fix row above it, and a paragraph ending "fix it: npm run
+    // install-service" three lines under a heading that says exactly that reads as two
+    // sources you have to check against each other.
+    const why = (la.lines || []).filter((l) => !la.fixCommand || !l.includes(la.fixCommand));
+
+    return `<section class="deploy-la">
+      <p class="la-head">Refused — the LaunchAgent is not in step with this checkout.</p>
+      <dl class="la-fields">
+        ${row('Label', code(la.label))}
+        ${row('Program', code(la.program), 'is what launchd would have restarted')}
+        ${row('Plist', code(la.plist))}
+        ${row('Fix', fix)}
+      </dl>
+      ${why.length ? `<p class="la-why">${esc(why.join(' '))}</p>` : ''}
+    </section>`;
+  }
+
+  /**
    * The unfolded deploy: what it moved, every step it ran, and the runner's own log.
    *
    * The log is a second request (`?id=`) because the list deliberately does not carry
@@ -526,7 +580,7 @@
     const dir = where && where !== rec.workspace && where !== rec.repo ? `<code>${esc(where)}</code>` : '';
 
     return `<div class="deploy-body">
-      ${rec.error ? `<p class="deploy-why">${esc(rec.error)}</p>` : ''}
+      ${rec.launchAgent ? launchAgentHtml(rec) : rec.error ? `<p class="deploy-why">${esc(rec.error)}</p>` : ''}
       <div class="deploy-where">
         ${moved}${moved && dir ? ' · ' : ''}${dir}
         ${rec.bead ? ` · <a class="pill id" href="${esc(graphUrl(rec.workspace, rec.bead))}">${esc(rec.bead)}</a>` : ''}
