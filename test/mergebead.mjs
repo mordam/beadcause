@@ -117,6 +117,27 @@ check('the title names the pull request first, because that is what the queue is
   assert.ok(t.length <= 160);
 });
 
+check('and it does not say the bead twice', () => {
+  // A beadcause pull request title *opens* with the bead id, so borrowing it wholesale
+  // put the id in twice: `Merge #359 — bc-kneh: bc-kneh: A delivered pull request…`, which
+  // is what the card in a hand actually said. The prefix comes off the borrowed half.
+  const t = mergeBeadTitle({ number: 359, bead: 'bc-kneh', title: 'bc-kneh: A delivered pull request' });
+  assert.equal(t, 'Merge #359 — bc-kneh: A delivered pull request');
+});
+
+check('a title that never carried the id is left exactly as it is', () => {
+  // The github.com case: opened by hand, no prefix, and nothing here may invent one.
+  assert.equal(mergeBeadTitle({ number: 12, bead: 'bc-x', title: 'Bump the runner' }), 'Merge #12 — bc-x: Bump the runner');
+  assert.equal(mergeBeadTitle({ number: 12, bead: 'bc-x' }), 'Merge #12 — bc-x');
+  assert.equal(mergeBeadTitle({ number: 12, title: 'no bead at all' }), 'Merge #12: no bead at all');
+});
+
+check('a dotted child id is stripped as a literal, not as a pattern', () => {
+  assert.equal(mergeBeadTitle({ number: 8, bead: 'bc-eqn1.11', title: 'bc-eqn1.11 — dotted' }), 'Merge #8 — bc-eqn1.11: dotted');
+  // `.` must not match `x`, or a title merely shaped like the id loses its first word.
+  assert.equal(mergeBeadTitle({ number: 8, bead: 'bc-eqn1.11', title: 'bc-eqn1x11: other' }), 'Merge #8 — bc-eqn1.11: bc-eqn1x11: other');
+});
+
 check('the body says what depends on what — the first question anyone opening one has', () => {
   const body = mergeBeadBody(spec, { tests: spec.tests });
   assert.match(body, /bc-7qo depends on this bead/, 'it does not say what the dependency is for');
