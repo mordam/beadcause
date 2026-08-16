@@ -19582,6 +19582,135 @@ could ever fail — the same lesson `entryProblems` learned one section up. So t
 it at a table minting `notes`, at one claiming a type that is not a shape, and at one
 colliding with the envelope, and asserts each is refused by name.
 
+### Anchoring the head where nobody involved can rewrite it — `lib/anchor.js`, `lib/timestamp.js`, `lib/translog.js`
+
+The section above ends with a service that holds a second copy of every chain head. That is
+corroboration and it is worth building, but it is not independence: beadcause writes the
+daemon, beadcause writes the service, and one operator administers both. An auditor who
+wants to be difficult says *you could have rewritten both copies*, and they are right —
+nothing in a system you run end to end can answer that.
+
+**So the thin slice that is genuinely third-party is not built at all.** Independence is not
+a feature; it is the property of somebody else holding the record. What is built here is the
+client: what is sent (a hash, and nothing else), what comes back (two receipts), and — the
+part that actually matters — how either receipt is checked years later by somebody holding
+only the files.
+
+**Two tiers, doing different jobs.** The control-daemon is continuous and high-resolution:
+every transition, seconds after it happens, first-party and cheap. The anchor is rare and
+coarse: one head an interval, timestamped outside our administration. It cannot say what
+happened *between* anchors and it is not meant to. What it says is that everything before
+this point existed by then and has not been rewritten since — the one claim no amount of
+first-party record keeping can make. Conflating the two would let the weaker fact be quoted
+as the stronger one, which is the same discipline `linkProblems` keeps one section up.
+
+**Both receipts, every time, because they fail differently.** That was settled on bc-3muu.10
+and it is the reason the pair is worth the extra hundred lines:
+
+| | `lib/timestamp.js` — RFC 3161 | `lib/translog.js` — a transparency log |
+|---|---|---|
+| What it is | one signature from a named certificate authority over your digest and its own clock | an inclusion proof against a signed, public, append-only Merkle tree |
+| Its strength | verifies **offline, forever**, from the token and a certificate — no network, no service that has to still exist | **no single party can rewrite it unseen**; the tree is published, witnessed and gossiped |
+| Its weakness | it is one party, and a compromised or defunct CA takes its assurance with it | checking it *well* means checking the log stayed consistent over time |
+
+An auditor who distrusts one is unlikely to distrust the other for the same reason. So
+`verifyAnchor` returns the two verdicts **separately** and counts how many stood up on their
+own, because the claim being made is that a rewrite is detectable by *either* receipt alone —
+and a verifier that collapses both into one boolean cannot support it. `ok` stays strict at
+both, because degrading to one silently is how a pair becomes a single point of failure that
+nobody announced.
+
+**Nothing but a hash ever leaves, and this is where that boundary is really tested.** What is
+anchored is the digest of the `chain-head` record above, so the argument made for a service
+you host survives out to a party you have no agreement with at all: the third party learns a
+32-byte number and the time it saw it, and could not say which repository, which bead, or
+even which product it came from. `submission()` is the one funnel that builds both requests,
+and the suite rebuilds the timestamp request **byte for byte** rather than asserting the
+digest is in it — "the digest is present" is not the claim, "nothing else is" is, and only
+byte equality says that. It is also why the anchor cannot double as a backup, which was asked
+and settled: a hash is not a copy, and off-site recovery of the evidence is an availability
+control over the service rather than a job for a witness.
+
+**A receipt separated from what it anchors proves nothing**, so an anchor is one record
+carrying the ref, the head, the digest and both receipts — and one carrying a single receipt
+is refused rather than accepted as a weaker anchor. A half-anchored head that renders as
+anchored is worse than a gap, because somebody would have to notice the difference later and
+nobody ever does.
+
+```js
+const sub = submission(record);                    // → { digest, timestampRequest, entry }
+const verdict = verifyAnchor(anchor, { ca, keys });
+verdict.independent;                               // 2 — both stood up on their own
+verifyAnchor(anchor, { keys }).inclusion.ok;       // true — the log proof needs nobody's CA
+verifyAnchor(anchor, { ca }).timestamp.ok;         // true — the token needs no network at all
+
+const v = await verifyRef(cwd, ref, withAnchor(anchor));
+rewriteProblems(anchor, v);                        // [] — or the sentence naming the rewrite
+```
+
+**And this is the field `verifyRef` has been waiting for since it was written.** `anchored`
+is the only one of its three answers that can catch a deliberate rewrite, and it has been
+null for every caller because nothing recorded a head to pass it — that was bc-hzu4.
+`withAnchor` is that head. `test/anchor.mjs` ends by doing it end to end against a real
+repository: verify a chain, publish its head, anchor the record, keep the receipts, then
+rewrite the middle of the history and watch the result come back **`intact: true`** and
+`anchored: false`. A forged history is perfectly self-consistent; only the receipts say it is
+not the history that was there in March.
+
+**A missed anchor renders as an unanchored interval rather than as silence**, which is the
+other half of the criterion and the half that is easy to skip. An interval nobody wrote down
+cannot be *missed* — without a stated period there is no such thing as a late anchor, so a
+daemon that quietly stopped anchoring in April renders as an unbroken run of green. So
+`coverage()` states the interval, labels every span across the window, and adds the gaps up:
+
+```
+Anchored every 24h; 3 anchor(s) in the window.
+  anchored  2026-08-01T00:00:00.000Z → 2026-08-02T00:00:00.000Z (24h) at 8f2c1ab09e7d
+  anchored  2026-08-02T00:00:00.000Z → 2026-08-03T12:00:00.000Z (36h) at 8f2c1ab09e7d
+  UNANCHORED 2026-08-03T12:00:00.000Z → 2026-08-06T00:00:00.000Z (60h) — 96h between anchors, and one was due every 24h
+  anchored  2026-08-06T00:00:00.000Z → 2026-08-07T00:00:00.000Z (24h) at 8f2c1ab09e7d
+60h are witnessed by nobody outside this machine.
+```
+
+**The verifiers are written out rather than depended on, and that is a deliberate cost.** A
+timestamp token is CMS and there is no reading one without ASN.1; Node ships no decoder. So
+`lib/der.js` is ~200 lines of tags and lengths, strict on the way in — indefinite lengths,
+non-minimal lengths, padded integers and trailing bytes are all refused, because BER's
+several spellings of one value are several byte strings and *a signature covers bytes*. It
+keeps offsets rather than re-encoding, for the same reason: hashing a decoder's idea of the
+signed attributes is how a verifier ends up right about a document nobody sent. The code that
+decides whether a compliance receipt is genuine is code an auditor may reasonably want to
+read end to end, and a general-purpose ASN.1 library is not readable in an afternoon.
+
+**Both suites are cross-checks rather than fixtures, because a fixture cannot be made wrong
+on demand.** `test/helpers/tsa.mjs` mints a certificate authority out of the same DER writer,
+so the RFC 3161 checks watch every refusal fire one at a time — a token for another digest, a
+lifted signature, attributes that do not cover the content, a signer with no timestamping
+usage, a signer chaining to somebody else, a stamp from outside its own certificate's
+validity, SHA-1, a replayed nonce. Each of those reads as a perfectly valid token to a
+verifier missing that one check. `test/helpers/translog.mjs` implements RFC 6962's
+*recursive* definitions while `lib/translog.js` verifies with the iterative decomposition
+production logs use, and the suite runs every leaf of every tree up to 40 entries and every
+earlier size for consistency: two independent implementations agreeing across ~1600 cases,
+where a helper mirroring the verifier's own arithmetic would agree with it about the bugs
+too. It also pins the one mistake that makes a whole log meaningless — an odd node is
+promoted, never paired with a copy of itself, which is CVE-2012-2459.
+
+**One policy assertion is worth reading twice: a token outlives the certificate that signed
+it.** That is the entire point of a timestamp, so the validity check is that the authority was
+authorised *at `genTime`* rather than that it still is today. Checking a receipt against the
+current clock would expire the whole archive on a date nobody chose.
+
+**What is deliberately not here.** No store and no transport: where anchors are retained and
+what submits them is bc-3muu.3's, and which authorities and which logs an install trusts is a
+configuration question that arrives with the submitter. There is no ambient trust store and
+no fetch anywhere in these files — a checkpoint verified against whatever key the checkpoint
+itself points at is a checkpoint verified against nothing, and the receipt is supposed to
+mean the same thing to an auditor holding only the files. Consistency proofs are implemented
+and checked (`verifyConsistency`) but nothing yet holds an earlier checkpoint to check
+against; that is the submitter's to keep, and it is what turns the log's promise from polite
+into enforceable.
+
 ### Who operates it — `lib/operator.js`, `test/operator.mjs`
 
 The section above settles what may leave the Mac. This one settles where it goes and whose
