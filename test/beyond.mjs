@@ -43,6 +43,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -60,8 +61,6 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 delete process.env.BEADCAUSE_OBSERVE;
 delete process.env.BEADCAUSE_READONLY;
 
-// foundation.js first, deliberately: it and agents.js import each other, and the module
-// entered first is the one whose constants initialise.
 const foundation = await import(LIB('foundation.js'));
 const amendment = await import(LIB('amendment.js'));
 const { parseProposal, proposalBody } = await import(LIB('proposal.js'));
@@ -442,7 +441,7 @@ await test('the prompt told it where a non-amendable change belongs', () => {
   assert.match(prompt, /protocolOwner/);
 });
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n${failures} failed` : '\nbeyond the amendable set: all good');
 process.exit(failures ? 1 : 0);

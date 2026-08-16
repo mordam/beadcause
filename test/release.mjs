@@ -33,6 +33,12 @@
  *    build has no event that would settle one, so none is filed there.
  * 6. **Shipping an empty queue.** Pressing Ship on a repo where everything merged is
  *    already live would, on this Mac, restart the daemon you are holding for nothing.
+ * 7. **A bead filed where nobody will read it.** bc-arj0.5: the parent was knowable at
+ *    filing time and was not being used, so these arrived flat and were swept into the
+ *    unsorted backlog — 40% of the pile that exists for work nothing has decided a home
+ *    for, made of beads that decide themselves. Both halves are asserted, and the second
+ *    is the one a "simplification" would drop: the P0 above the merge's own bead where
+ *    there is one, and **no parent at all** where there is not, rather than the backlog.
  *
  * The last third of the file is the endpoint, over real HTTP, against a real `createApp`
  * with a real git repo, a fake `gh` and a "deploy" that writes a file. Nothing here
@@ -46,6 +52,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -105,9 +112,12 @@ const {
   shipMarker,
   shipReason,
   shippedState,
+  SHIPPED_LABEL,
   sweepReleases,
 } = await import(LIB('release.js'));
 const { UNENDORSED } = await import(LIB('endorse.js'));
+const { UNSORTED_LABEL } = await import(LIB('homing.js'));
+const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 
 const ago = (mins) => new Date(Date.now() - mins * 60000).toISOString();
 
@@ -247,6 +257,8 @@ function tracker(rows = []) {
     beads: [...rows],
     created: [],
     closed: [],
+    labelled: [],
+    failUpdates: false,
     n: 0,
     listLabel: async (ws, label) => t.beads.filter((b) => (b.labels || []).includes(label) && b.workspace === ws.name),
     create: async (ws, spec) => {
@@ -259,6 +271,13 @@ function tracker(rows = []) {
     close: async (ws, id, reason) => {
       t.closed.push({ ws: ws.name, id, reason });
       t.beads = t.beads.filter((b) => b.id !== id);
+    },
+    // Every `--add-label` this sweep asks for, in order and with duplicates kept — the
+    // only way to tell "labelled once" from "labelled again on every tick", which is the
+    // difference the ledger gate exists to make.
+    update: async (ws, id, { addLabels = [] } = {}) => {
+      if (t.failUpdates) throw new Error('tracker is mid-write');
+      for (const label of addLabels) t.labelled.push({ ws: ws.name, id, label });
     },
   };
   return t;
@@ -381,6 +400,247 @@ forget();
   const busySweep = await sweepReleases(bd, CFG, board, { deploys: [] });
   await check(() => assert.equal(bd.created.length, 0), 'a workspace mid-write files nothing this tick');
   await check(() => assert.match(busySweep.skipped[0] || '', /could not read its ship beads/), 'and says which one, rather than throwing');
+}
+
+/* ========================================================= where the bead is filed */
+
+console.log('\nunder the P0 the merge came from — bc-arj0.5\n');
+
+/**
+ * The graph the sweep reads to answer "which P0 is this merge's work under". A themed P0
+ * with a task under it, the unsorted backlog, and a bead nothing has decided.
+ */
+const gRow = (id, extra = {}) =>
+  JSON.stringify({ id, title: `bead ${id}`, status: 'open', priority: 2, labels: [], dependencies: [], ...extra });
+const GRAPH = indexFrom(
+  [
+    gRow('zz-epic', { priority: 0 }),
+    gRow('zz-epic.1', { dependencies: [{ issue_id: 'zz-epic.1', depends_on_id: 'zz-epic', type: PARENT_EDGE }] }),
+    gRow('zz-pile', { priority: 0, labels: [UNSORTED_LABEL] }),
+    gRow('zz-loose'),
+  ].join('\n')
+);
+
+/** The tracker above, plus the shape the sweep reads — counting how often it is asked. */
+const homing = (rows = []) => {
+  const t = tracker(rows);
+  t.exports = 0;
+  t.graph = async () => {
+    t.exports += 1;
+    return GRAPH;
+  };
+  return t;
+};
+
+/** A merged row that lib/prboard.js resolved to `id` — the field `beadsFor` fills in. */
+const forBead = (number, id) =>
+  row({ number, mergedAt: new Date().toISOString(), beads: id ? [{ id, title: `bead ${id}`, status: 'closed' }] : [] });
+
+forget();
+{
+  const bd = homing();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const out = await sweepReleases(bd, CFG, { repos: [card({ prs: [forBead(20, 'zz-epic.1')] })] }, { deploys: [] });
+
+  await check(
+    () => assert.equal(bd.created[0]?.spec.parent, 'zz-epic'),
+    'THE SHIP BEAD IS FILED UNDER THE P0 OF THE BEAD ITS PULL REQUEST WAS FOR'
+  );
+  await check(
+    () => assert.notEqual(bd.created[0]?.spec.parent, 'zz-epic.1'),
+    'and never under the bead itself — that task closes, and its open child is then held forever'
+  );
+  await check(() => assert.equal(out.filed[0]?.parent, 'zz-epic'), 'the result says where it went, which is what the log line prints');
+}
+
+forget();
+{
+  const bd = homing();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const out = await sweepReleases(
+    bd,
+    CFG,
+    { repos: [card({ prs: [forBead(21, ''), forBead(22, 'zz-loose')] })] },
+    { deploys: [] }
+  );
+
+  // The half of bc-arj0.5 that is *not* "find the parent": the unsorted backlog is the
+  // pile of work nobody has decided a home for, and a bead that closes itself when a
+  // deploy lands is not asking that question. Thirty a week of them buries the ones that
+  // are. So an unknowable P0 files the parentless bead this always filed.
+  await check(
+    () => assert.deepEqual(bd.created.map((c) => c.spec.parent || ''), ['', '']),
+    'A PULL REQUEST WITH NO KNOWABLE P0 IS FILED FLAT — NEVER INTO THE UNSORTED BACKLOG'
+  );
+  await check(
+    () => assert.ok(!bd.created.some((c) => c.spec.parent === 'zz-pile')),
+    'not even when a backlog P0 is right there, labelled and open'
+  );
+  await check(() => assert.deepEqual(out.filed.map((f) => f.parent), [null, null]), 'and the result says so rather than naming a home');
+}
+
+forget();
+{
+  // `Bd.create` drops the cached shape whenever it is given a parent — a bead born under
+  // a P0 is one the cache has never heard of, and lib/underp0.js would draw a pill on it
+  // for the rest of the minute. So each filing invalidates what the next one wants, and
+  // without the sweep's own memo a tick filing four beads pays for four `bd export`s.
+  const bd = homing();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const many = [30, 31, 32, 33].map((n) => forBead(n, 'zz-epic.1'));
+  await sweepReleases(bd, CFG, { repos: [card({ prs: many })] }, { deploys: [] });
+
+  await check(() => assert.equal(bd.created.length, 4), 'four merges, four beads');
+  await check(() => assert.equal(bd.exports, 1), 'ONE SHAPE PER WORKSPACE PER TICK, HOWEVER MANY BEADS IT FILES');
+  await check(
+    () => assert.deepEqual(new Set(bd.created.map((c) => c.spec.parent)), new Set(['zz-epic'])),
+    'and every one of them lands under the P0 anyway'
+  );
+}
+
+forget();
+{
+  // bd's hierarchy rules are bd's — a P0 that is a `bug` rather than an epic refuses a
+  // child — and the record that a merge is sitting unshipped is worth more than the
+  // parent nothing here chose. Same trade as lib/filing.js, one seam along.
+  const bd = homing();
+  const real = bd.create;
+  bd.create = async (ws, spec) => {
+    if (spec.parent) throw new Error('Error: bugs cannot have children');
+    return real(ws, spec);
+  };
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const out = await sweepReleases(bd, CFG, { repos: [card({ prs: [forBead(23, 'zz-epic.1')] })] }, { deploys: [] });
+
+  await check(() => assert.equal(bd.created.length, 1), 'A PARENT BD REFUSES COSTS THE PARENT, NEVER THE BEAD');
+  await check(() => assert.equal(bd.created[0]?.spec.parent, ''), 'it is filed flat on the second try');
+  await check(() => assert.equal(out.filed[0]?.parent, null), 'and does not claim a home it did not get');
+  await check(() => assert.match(out.skipped.join('\n'), /would not go under zz-epic/), 'the sweep says which parent was refused');
+}
+
+forget();
+{
+  // The tracker every existing caller has: no `graph`, so `homeIn` answers `''` without
+  // asking anything. The bead is exactly what it was before this existed.
+  const bd = tracker();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [forBead(24, 'zz-epic.1')] })] }, { deploys: [] });
+  await check(() => assert.equal(bd.created.length, 1), 'a tracker that cannot answer the question still files the bead');
+  await check(() => assert.equal(bd.created[0]?.spec.parent || '', ''), 'with no parent, which is what it always did');
+}
+
+/* ================================================ the work bead wears `shipped` */
+
+console.log('\nthe work bead behind the merge — bc-68ou.6\n');
+
+/** The same merged row, now live in the running build. */
+const live = (number, id) => ({ ...forBead(number, id), deployed: true });
+
+forget();
+{
+  const bd = tracker();
+  const seen = { repos: [card({ prs: [] })] };
+  await sweepReleases(bd, CFG, seen, { deploys: [] });
+
+  const merged = { repos: [card({ prs: [forBead(40, 'zz-work.1')] })] };
+  await sweepReleases(bd, CFG, merged, { deploys: [] });
+  await check(() => assert.equal(bd.labelled.length, 0), 'a merge that is not live yet labels nothing — merged is not shipped');
+
+  const shipped = { repos: [card({ prs: [live(40, 'zz-work.1')] })] };
+  const out = await sweepReleases(bd, CFG, shipped, { deploys: [] });
+  await check(
+    () => assert.deepEqual(bd.labelled, [{ ws: 'demo', id: 'zz-work.1', label: SHIPPED_LABEL }]),
+    `and a merge that is live labels the bead it was for \`${SHIPPED_LABEL}\``
+  );
+  await check(() => assert.deepEqual(out.marked[0]?.beads, ['zz-work.1']), 'the sweep reports which bead it marked');
+  await check(() => assert.equal(out.marked[0]?.number, 40), 'and which merge made it live');
+
+  await sweepReleases(bd, CFG, shipped, { deploys: [] });
+  await sweepReleases(bd, CFG, shipped, { deploys: [] });
+  await check(() => assert.equal(bd.labelled.length, 1), 're-running the sweep over the same deploy writes nothing at all');
+
+  await check(() => assert.equal(bd.closed.length, 1), 'the ship bead closed, and it is the only thing that closed');
+  await check(
+    () => assert.equal(bd.beads.filter((b) => b.status === 'open' && (b.labels || []).includes(SHIPPED_LABEL)).length, 0),
+    'nothing here ever changed a work bead’s status — lib/landed.js closes it at the merge'
+  );
+}
+
+/* Several beads before the colon is one merge that shipped both. */
+forget();
+{
+  const bd = tracker();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const two = row({
+    number: 41,
+    mergedAt: new Date().toISOString(),
+    deployed: true,
+    title: 'zz-work.2, zz-work.3: two beads, one merge',
+    beads: [
+      { id: 'zz-work.2', title: 'first', status: 'closed' },
+      { id: 'zz-work.3', title: 'second', status: 'closed' },
+    ],
+  });
+  const out = await sweepReleases(bd, CFG, { repos: [card({ prs: [two] })] }, { deploys: [] });
+  await check(
+    () => assert.deepEqual(bd.labelled.map((l) => l.id), ['zz-work.2', 'zz-work.3']),
+    'every bead the merge was for is labelled, not just the first — `beadOf` takes one home, a label is a fact about each'
+  );
+  await check(() => assert.deepEqual(out.marked[0]?.beads, ['zz-work.2', 'zz-work.3']), 'and both are reported on one line');
+}
+
+/* A pull request nobody tied to a bead labels nothing, and says nothing. */
+forget();
+{
+  const bd = tracker();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const out = await sweepReleases(bd, CFG, { repos: [card({ prs: [live(42, null)] })] }, { deploys: [] });
+  await check(() => assert.equal(bd.labelled.length, 0), 'a merge that resolved to no bead labels nothing rather than guessing');
+  await check(() => assert.equal(out.marked.length, 0), 'and reports nothing, because nothing happened');
+}
+
+/* Three weeks of history at first sight is not news here either. */
+forget();
+{
+  const bd = tracker();
+  const old = { ...forBead(43, 'zz-work.4'), mergedAt: ago(60 * 24 * 21), deployed: true };
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [old] })] }, { deploys: [] });
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [old] })] }, { deploys: [] });
+  await check(() => assert.equal(bd.labelled.length, 0), 'a merge that predates the watermark is never labelled — forward-only, no backfill');
+}
+
+/* A label the tracker refused is retried, and costs the merge nothing permanently. */
+forget();
+{
+  const bd = tracker();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const shipped = { repos: [card({ prs: [live(44, 'zz-work.5')] })] };
+
+  bd.failUpdates = true;
+  const failed = await sweepReleases(bd, CFG, shipped, { deploys: [] });
+  await check(() => assert.match(failed.skipped.join('\n'), /could not label the work behind #44/), 'a tracker mid-write is reported, not swallowed');
+  await check(() => assert.equal(loadLedger().demo.handled['44']?.shippedAt || null, null), 'and nothing is stamped, so the merge is still unsettled');
+
+  bd.failUpdates = false;
+  await sweepReleases(bd, CFG, shipped, { deploys: [] });
+  await check(() => assert.equal(bd.labelled.length, 1), 'the next tick asks again and the label lands');
+  await check(() => assert.ok(loadLedger().demo.handled['44']?.shippedAt), 'and only then does the ledger record it settled');
+}
+
+/* Merged and deployed between two sweeps: no ship bead was ever filed for it. */
+forget();
+{
+  const bd = tracker();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const shipped = { repos: [card({ prs: [live(45, 'zz-work.6')] })] };
+  await sweepReleases(bd, CFG, shipped, { deploys: [] });
+  await check(() => assert.equal(bd.created.length, 0), 'a merge already live when first seen files no ship bead, as it always did');
+  await check(() => assert.equal(bd.labelled.length, 1), 'but the work bead is still labelled — that is the fact the label is about');
+
+  await sweepReleases(bd, CFG, shipped, { deploys: [] });
+  await sweepReleases(bd, CFG, shipped, { deploys: [] });
+  await check(() => assert.equal(bd.labelled.length, 1), 'and it is recorded, so it does not pay for the label again on every tick');
+  await check(() => assert.equal(loadLedger().demo.handled['45']?.filedAt || null, null), 'the record says outright that no bead was ever filed');
 }
 
 /* ================================================================== the endpoint */
@@ -596,5 +856,5 @@ for (const s of servers) s.close(s.front ? () => s.front.close() : undefined);
 app.close?.();
 
 console.log(`\n${failures ? `\x1b[31m${failures} of ${ran} failed\x1b[0m` : `\x1b[32mall ${ran} passed\x1b[0m`}\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);

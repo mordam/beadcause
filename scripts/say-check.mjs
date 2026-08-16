@@ -58,19 +58,29 @@
 // to the request is here; what happens after it is `messageSession`, and test/session.mjs
 // covers the rules it follows.
 //
+// And the smallest promise of the lot, which is the one this page breaks most easily:
+// **the composer keeps what you had picked out when it redraws itself.** It redraws on
+// its own — a poll that finds the status changed, a send starting and answering, the
+// line-break hint appearing — and each of those replaces the textarea, so the selection
+// is carried across by hand. Both ends of it, and the direction: carrying only
+// `selectionStart` gives every selection back as a caret at its left edge (bc-nh19), and
+// a backward one restored as forward grows out of the wrong side on the next Shift-arrow.
+//
 // `--baseline` serves HEAD's copies of session.js and style.css instead of the working
-// ones, which is how you prove a failure here is real. On baseline every case below
-// fails, because there was no box.
-import { execFileSync, spawn } from 'node:child_process';
+// ones, which is how you prove a failure here is real: the cases the branch in hand is
+// about must fail there and pass on the working copy, and nothing else should move. This
+// header used to promise that every case below fails on baseline, because there was no
+// box at all — that stopped being true the day the box landed, and a claim like it is
+// worth re-reading rather than inheriting.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'say-check-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -239,78 +249,6 @@ function serve() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9700 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-say-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 const evalJs = async (s, expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
   if (r.exceptionDetails)
@@ -429,7 +367,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-say-');
 
 /** Load one session's page with the token already in localStorage, as a paired phone has. */
 async function openSession(pid) {
@@ -735,6 +673,70 @@ try {
     'and the transcript still has room to read once the box is above it',
     fit.preH >= 160 && fit.bottom <= fit.vh + 40,
     `${fit.preH}px tall, bottom at ${fit.bottom} of ${fit.vh}`
+  );
+
+  /* ---- a repaint of the composer keeps the selection in it, not just its caret ---- */
+
+  // Last, and on a page opened fresh above, because it is the only case that leaves a
+  // draft behind it. The composer is redrawn on its own several times a session — a poll
+  // that finds the reach or the status changed, a send starting, a send answering, and
+  // the hint under the box appearing the moment the message gains a line break — and
+  // each of those repaints replaces the textarea, so where you were in it is carried
+  // across by hand. It used to be carried by `selectionStart` alone (bc-nh19), and a
+  // selection whose two ends are handed back as one is a caret at its left edge: pick out
+  // the sentence you are about to type over, and the next poll leaves you in front of it.
+  //
+  // The hint flip is what drives the repaint here, because it is the one this check can
+  // ask for on demand: the draft goes from having no newline to having one, inside a
+  // single `input`, with the selection already set on the box the listener will read.
+  const SEL = [4, 12];
+  await evalJs(s, type('the sentence I meant to type over'));
+  await sleep(150);
+  await evalJs(
+    s,
+    `(() => {
+      const box = document.querySelector('.session-say textarea');
+      if (!box) return false;
+      box.focus();
+      box.value = 'the sentence I meant to type over\\nand a second line';
+      box.setSelectionRange(${SEL[0]}, ${SEL[1]}, 'backward');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`
+  );
+  await sleep(200);
+  // Re-queried, never held: the repaint replaced the textarea, so a reference from before
+  // it answers about a detached node and measures nothing.
+  const kept = await evalJs(
+    s,
+    `(() => {
+      const box = document.querySelector('.session-say textarea');
+      if (!box) return null;
+      return {
+        focused: box === document.activeElement,
+        value: box.value,
+        start: box.selectionStart,
+        end: box.selectionEnd,
+        dir: box.selectionDirection,
+      };
+    })()`
+  );
+  check(
+    'the composer is redrawn when the line-break hint appears',
+    kept?.value === 'the sentence I meant to type over\nand a second line',
+    JSON.stringify(kept?.value ?? null)
+  );
+  check(
+    'and a selection in it survives that repaint, both ends — not a caret at its left edge',
+    kept?.focused === true && kept?.start === SEL[0] && kept?.end === SEL[1],
+    JSON.stringify(kept)
+  );
+  /* Split out, because a lost direction is a smaller thing than a lost selection and the
+     two should not be reported as one failure. */
+  check(
+    'and which end the next Shift-arrow extends from',
+    kept?.dir === 'backward',
+    `selectionDirection is ${JSON.stringify(kept?.dir ?? null)}`
   );
 } finally {
   if (!KEEP) close();

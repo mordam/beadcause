@@ -143,9 +143,19 @@ check(
   () => assert.match(mirror, /d\.device !== window\.beadcause\?\.presence\?\.device/),
   'the pane still drops its own device from the list it follows'
 );
+/* The second half moved when the chip row grew a third pane (bc-d4d5): mirror.js no
+   longer owns the swap, so the report is public/montabs.js's, and *which* view each chip
+   reports is declared on the chip itself in monitor.html. The claim is unchanged and is
+   now two facts — the Mirror chip names no view, and the row publishes whatever the chip
+   names. Asserting only the second would pass a Mirror chip that had quietly been given
+   one, which is exactly the regression this pair exists to catch. */
 check(
-  () => assert.match(mirror, /presence\?\.report\(\{ view: state\.active \? null : 'sessions' \}\)/),
-  'and still reports no view at all while it is the pane showing'
+  () => assert.match(monitor, /data-tab="mirror"[^>]*data-view=""/),
+  'and the Mirror chip still claims no view of its own'
+);
+check(
+  () => assert.match(decomment(read('montabs.js')), /presence\?\.report\(\{ view: viewOf\.get\(which\) \|\| null \}\)/),
+  'and the row that swaps the panes is what publishes it'
 );
 
 console.log(failures ? `\n${failures}/${ran} failed\n` : `\n${ran}/${ran} passed\n`);

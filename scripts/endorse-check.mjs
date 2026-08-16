@@ -16,21 +16,31 @@
 //   - **A destructive button that acts on the first press.** Revoke closes a bead.
 //     It arms, and the assertion that matters is the negative one: after the first
 //     press, *nothing has been written*.
+//   - **A queue that has quietly stopped being true.** This page came off its 45-second
+//     refetch and onto the daemon's event log (bc-bsgn), which is faster and very much
+//     cheaper and has one new way to be wrong: a wake that arrives while you are typing
+//     must not repaint over your thumb, and must not be dropped either. The fixture keeps
+//     a log and counts sweeps, so both halves — and the cost of an idle queue, which is
+//     zero — are assertions rather than impressions.
+//   - **Endorse all reaching past the picker.** The one tap that releases the whole
+//     page must act on exactly the rows drawn under the current filter — so it is
+//     driven twice, once wide open and once narrowed to a single repo, and the
+//     assertion in the narrowed run is about the bead in the space you were *not*
+//     looking at still being there afterwards. It arms too, for the same negative
+//     assertion Revoke gets.
 //
-// Same shape as scripts/shade-check.mjs and its siblings: the real public/*.js in a
+// Same shape as scripts/launcher-check.mjs and its siblings: the real public/*.js in a
 // headless Chrome the size of a phone, against a fixture server in this process. No
 // daemon, no bd, no bead is touched. The fixture records every write, so "which
 // endpoint, with what body" is an assertion rather than something you read in a log.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'endorse-check-token';
 const OUT = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
@@ -67,11 +77,26 @@ const bead = (workspace, id, at, from) => ({
   from: from ? { id: from, title: 'the work it came out of', status: 'open', kind: 'discovered' } : null,
 });
 
-let BEADS = [
+/* A function rather than a literal, because the Endorse all section needs a *list* to
+   act on and the sections before it have spent most of one. Re-seeding and pressing the
+   page's own ⟳ is how it gets one back without a second Chrome. */
+const seed = () => [
   bead('alpha', 'aa-new', '2026-08-09T10:00:00Z', 'aa-src'),
   bead('beta', 'bb-mid', '2026-08-05T10:00:00Z', null),
   bead('alpha', 'aa-old', '2026-08-01T10:00:00Z', 'aa-src'),
 ];
+
+let BEADS = seed();
+
+/**
+ * The one bead `bd` will refuse, when a section wants a partial failure.
+ *
+ * A group of six where the fifth lost a Dolt write lock is a 200 carrying a row per
+ * bead, and the failure this fixture exists to catch is the client folding that into a
+ * flat "done" — so one id answers `ok: false` and stays on the queue, exactly as the
+ * real `applyVerdict` leaves it.
+ */
+let FAILING = null;
 
 const SPACES = [
   { name: 'Work', workspaces: ['alpha'], quiet: false, muted: false, count: 2 },
@@ -94,28 +119,80 @@ const payload = () => ({
 /** Every write the page attempted, so "one request or six" is an assertion. */
 const writes = [];
 
+/**
+ * The daemon's event log, as much of it as this page can tell apart.
+ *
+ * The real one is an ordered counter every view parks on (`/api/poll`, lib/server.js).
+ * What matters here is only its shape — a sequence, the events past it, and a request
+ * that *waits* rather than answering empty — because the page's whole refresh rule is
+ * written against it: park, wake, decide whether this event could have changed the
+ * queue, and sweep only then.
+ */
+let SEQ = 0;
+const LOG = [];
+const WAITERS = [];
+
+/** Push an event the way the daemon does, and answer everybody parked on the log. */
+function emit(type) {
+  SEQ += 1;
+  LOG.push({ type, seq: SEQ });
+  for (const answer of WAITERS.splice(0)) answer();
+}
+
+/**
+ * How many times the page has gone and swept.
+ *
+ * The assertion this whole section is for. `/api/unendorsed` is a `bd list` per
+ * workspace and then a `bd show` per row, so "did it refetch" is not a detail of the
+ * implementation here — it is the cost the delta stream exists to stop paying, and the
+ * only way to see it from outside is to count.
+ */
+let sweeps = 0;
+
+/**
+ * How long the sweep is held before it answers, in ms.
+ *
+ * The queue is the most expensive boot in the app — every workspace listed, then a
+ * `bd show` per row — so the wait in front of it is the thing a person actually
+ * experiences on arriving. Holding the response is the only way to ask, from outside,
+ * whether the page drew anything while it waited.
+ */
+let SLOW = 0;
+
 /** What has been said about each bead, by id — the discussion's half of the fixture. */
 const THREADS = {};
 
 /** What each verdict route answers — the same shape lib/verdict.js builds. */
 function verdict(name, body) {
   const ids = body.ids || [body.id];
-  const results = ids.map((id) => ({
-    id,
-    verdict: name,
-    ok: true,
-    title: id,
-    ...(name === 'endorse' ? { endorsed: true } : {}),
-    ...(name === 'revoke' ? { revoked: true, already: false } : {}),
-    ...(name === 'adjust' ? { changed: Object.keys(body.edits || {}), endorsed: Boolean(body.endorse) } : {}),
-    ...(name === 'changes' ? { noted: true } : {}),
-  }));
+  const results = ids.map((id) =>
+    id === FAILING
+      ? { id, verdict: name, ok: false, status: 500, error: 'bd lost the write lock' }
+      : {
+          id,
+          verdict: name,
+          ok: true,
+          title: id,
+          ...(name === 'endorse' ? { endorsed: true } : {}),
+          ...(name === 'revoke' ? { revoked: true, already: false } : {}),
+          ...(name === 'adjust' ? { changed: Object.keys(body.edits || {}), endorsed: Boolean(body.endorse) } : {}),
+          ...(name === 'changes' ? { noted: true } : {}),
+        }
+  );
+  const landed = results.filter((r) => r.ok).map((r) => r.id);
   // Endorsing and revoking take the bead off the queue, which is what makes the next
-  // fetch the only real evidence the tap worked.
+  // fetch the only real evidence the tap worked — and a bead that did *not* go through
+  // stays on it, which is what makes the partial failure visible on the next sweep.
   if (name === 'endorse' || name === 'revoke' || (name === 'adjust' && body.endorse)) {
-    BEADS = BEADS.filter((b) => !ids.includes(b.id));
+    BEADS = BEADS.filter((b) => !landed.includes(b.id));
   }
-  return { ok: true, verdict: name, results, applied: ids, failed: [] };
+  return {
+    ok: results.every((r) => r.ok),
+    verdict: name,
+    results,
+    applied: landed,
+    failed: results.filter((r) => !r.ok),
+  };
 }
 
 function serve() {
@@ -131,10 +208,39 @@ function serve() {
       req.on('end', () => fn(JSON.parse(body || '{}')));
     };
 
-    if (p === '/api/unendorsed') return json(payload());
+    if (p === '/api/unendorsed') {
+      sweeps += 1;
+      const body = payload();
+      if (SLOW) return void setTimeout(() => json(body), SLOW);
+      return json(body);
+    }
+
+    /**
+     * The log the page parks on.
+     *
+     * A request with no `since` is a client asking where in the log it is: answered at
+     * once, which is what `cold: true` is for. One that names a place either gets what
+     * has happened since or is held — held, not answered empty, because a poll that
+     * answered immediately would turn the page's loop into a busy one and this fixture
+     * would be the thing that made it look fine.
+     */
+    if (p === '/api/poll') {
+      const since = new URL(req.url, 'http://x').searchParams.get('since');
+      if (since === null) return json({ seq: SEQ, events: [] });
+      const from = Number(since);
+      const answer = () => json({ seq: SEQ, events: LOG.filter((e) => e.seq > from) });
+      if (SEQ > from) return answer();
+      WAITERS.push(answer);
+      // A page that navigated away or a socket the browser dropped: forget the waiter
+      // rather than answering into a closed response later.
+      return void req.on('close', () => {
+        const at = WAITERS.indexOf(answer);
+        if (at >= 0) WAITERS.splice(at, 1);
+      });
+    }
     // The picker draws itself from this on a page that has not swept the tracker.
     if (p === '/api/spaces') {
-      return json({ spaces: SPACES, workspaces: ['alpha', 'beta'], counts: { alpha: 2, beta: 1 }, filter: { space: 'all', workspace: 'all' }, waiting: 0 });
+      return json({ spaces: SPACES, workspaces: ['alpha', 'beta'], filter: { space: 'all', workspace: 'all' } });
     }
     // Who you can put a question to. Four chips, as the daemon's own roster hands them
     // over — the page draws them and sends the id of whichever is pressed.
@@ -198,78 +304,6 @@ function serve() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const q = msg.id != null && pending.get(msg.id);
-      if (!q) return;
-      pending.delete(msg.id);
-      msg.error ? q.reject(new Error(msg.error.message)) : q.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9800 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-endorse-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 /* -------------------------------------------------------------------- run */
 
 const results = [];
@@ -280,7 +314,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-endorse-');
 
 const evalJs = async (expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
@@ -468,6 +502,12 @@ try {
   await press('[data-act="talk"]');
   const panel = await waitFor(`document.querySelector('[data-talk]') !== null`);
   check('Discuss opens a thread on the row', panel);
+  // The chips arrive a paint after the box does, and that is deliberate on the page's
+  // side: `openTalk` renders the panel first and *then* awaits `loadAgents()`, so a
+  // roster that will not load never stops you asking. Waiting on `[data-talk]` and
+  // reading the chips in the same breath is therefore a race, and it is one this check
+  // lost about one run in four — a red that reads as the roster having broken.
+  await waitFor(`document.querySelectorAll('[data-act="agent"]').length > 0`);
   const chips = await evalJs(`[...document.querySelectorAll('[data-act="agent"]')].map((c) => c.dataset.agent)`);
   check('with the roster to choose from', JSON.stringify(chips) === JSON.stringify(['answerer', 'critic']), String(chips));
 
@@ -502,6 +542,187 @@ try {
   const counted = await waitFor(`/💬/.test(document.getElementById('eq').textContent)`);
   check('and the folded row says a thread exists', counted, (await text()).slice(0, 80));
   await shot('counted');
+
+  /* ---- Endorse all: no ticking at all, and it arms ---- */
+
+  // A whole queue again. The sections above have spent most of the fixture, and every
+  // assertion below is a count — so the list is re-seeded and the page's own ⟳ pressed,
+  // which is the same fetch the 45-second poll makes.
+  BEADS = seed();
+  await press('#eq-refresh');
+  check('the queue reloads on ⟳', await waitFor(`document.querySelectorAll('.eq-bead').length === 3`));
+
+  check('nothing is ticked, so there is no group bar', await evalJs(`document.querySelector('.eq-bar') === null`));
+  const allSeen = await text();
+  check('but Endorse all is on the header, naming the count', /Endorse all 3/.test(allSeen), allSeen.slice(0, 60));
+
+  writes.length = 0;
+  await press('.eq-all');
+  await sleep(400);
+  check('the first tap of Endorse all writes nothing at all', writes.length === 0, JSON.stringify(writes));
+  const allArmed = await text();
+  check('and the button says what the second tap will do', /Endorse all 3 — sure\?/.test(allArmed));
+  // The bead this control could most easily get wrong is one in a repo you were not
+  // thinking about, so the count is broken down by tracker before it acts.
+  check(
+    'naming every repo the tap covers',
+    /2 in alpha/.test(allArmed) && /1 in beta/.test(allArmed),
+    allArmed.slice(0, 220)
+  );
+  await shot('all-armed');
+
+  await press('.eq-all');
+  await sleep(1400);
+  const allPosts = writes.filter((w) => w.path === '/api/bead/endorse');
+  check('the second tap is one request per workspace, not one per bead', allPosts.length === 2, JSON.stringify(allPosts));
+  check(
+    'and each carries every drawn bead in its own tracker',
+    allPosts.some((w) => w.workspace === 'alpha' && JSON.stringify([...w.ids].sort()) === '["aa-new","aa-old"]') &&
+      allPosts.some((w) => w.workspace === 'beta' && JSON.stringify(w.ids) === '["bb-mid"]'),
+    JSON.stringify(allPosts)
+  );
+  check('the queue empties', await waitFor(`document.querySelectorAll('.eq-bead').length === 0`));
+  check('and says so where the rows used to be', /Endorsed 3 beads/.test(await text()), (await text()).slice(0, 80));
+  await shot('all-endorsed');
+
+  /* ---- and it acts on what is drawn, never on what merely exists ---- */
+
+  BEADS = seed();
+  await evalJs(`window.beadcause.space.set({ space: 'all', workspace: 'alpha' })`);
+  await press('#eq-refresh');
+  check('narrowed to one repo, the queue draws only its beads', await waitFor(`document.querySelectorAll('.eq-bead').length === 2`));
+  const narrowed = await text();
+  check('and Endorse all counts what is drawn, not what exists', /Endorse all 2/.test(narrowed), narrowed.slice(0, 60));
+
+  writes.length = 0;
+  await press('.eq-all');
+  await sleep(400);
+  const narrowArmed = await text();
+  check(
+    'the armed hint says what the picker is holding back',
+    /1 bead in another space stays held/.test(narrowArmed),
+    narrowArmed.slice(0, 260)
+  );
+  await press('.eq-all');
+  await sleep(1400);
+  const scoped = writes.filter((w) => w.path === '/api/bead/endorse');
+  check(
+    'it endorses the drawn workspace and only that one',
+    scoped.length === 1 && scoped[0].workspace === 'alpha',
+    JSON.stringify(scoped)
+  );
+  // The assertion the whole control turns on: a tap made while looking at one space
+  // must not have reached into another one's queue.
+  check(
+    'the bead in the space you were not looking at is untouched',
+    BEADS.length === 1 && BEADS[0].id === 'bb-mid',
+    JSON.stringify(BEADS.map((b) => b.id))
+  );
+  await shot('all-scoped');
+
+  /* ---- a group where one bead did not go through says which ---- */
+
+  await evalJs(`window.beadcause.space.set({ space: 'all', workspace: 'all' })`);
+  BEADS = seed();
+  FAILING = 'aa-old';
+  await press('#eq-refresh');
+  await waitFor(`document.querySelectorAll('.eq-bead').length === 3`);
+  await press('.eq-all');
+  await sleep(400);
+  await press('.eq-all');
+  await sleep(1600);
+  const partial = await text();
+  check('a bead that did not go through is named rather than swallowed', /aa-old did not/.test(partial), partial.slice(0, 200));
+  check('and it is still sitting on the queue afterwards', await waitFor(`document.querySelectorAll('.eq-bead').length === 1`));
+  await shot('all-partial');
+  FAILING = null;
+
+  /* ---- following the log instead of a clock ---- */
+
+  BEADS = seed();
+  await press('#eq-refresh');
+  await waitFor(`document.querySelectorAll('.eq-bead').length === 3`);
+  // The ⟳ above is the last thing that asks on purpose. Everything below is about what
+  // the page does when *nothing* is pressed, which used to be: sweep every workspace
+  // every forty-five seconds, filed bead or not.
+  await sleep(400);
+
+  let swept = sweeps;
+  emit('presence');
+  await sleep(700);
+  check(
+    'a thumb moving on somebody else\'s phone does not sweep every workspace',
+    sweeps === swept,
+    `${sweeps - swept} sweeps`
+  );
+
+  swept = sweeps;
+  BEADS = [bead('alpha', 'aa-fresh', '2026-08-11T10:00:00Z', 'aa-src'), ...BEADS];
+  emit('created');
+  const landed = await waitFor(`document.body.textContent.includes('aa-fresh')`, 5000);
+  // The point of the whole change: a bead filed by a worker in the next room is on the
+  // phone in the moment it was filed, rather than up to forty-five seconds later.
+  check('a bead filed while you are looking lands on the screen', landed);
+  check('and it cost exactly one sweep', sweeps === swept + 1, `${sweeps - swept} sweeps`);
+
+  // A wake that arrives mid-sentence. The old timer skipped these ticks outright; this
+  // has to skip the repaint and still not lose the news.
+  await press('[data-row="alpha/aa-fresh"]');
+  await waitFor(`document.querySelector('[data-act="talk"]') !== null`);
+  await press('[data-act="talk"]');
+  await waitFor(`document.querySelector('[data-talk]') !== null`);
+  await evalJs(`(() => {
+    const el = document.querySelector('[data-talk]');
+    el.value = 'Half a question, still being typed';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  swept = sweeps;
+  BEADS = [bead('beta', 'bb-later', '2026-08-12T10:00:00Z', null), ...BEADS];
+  emit('endorsement');
+  await sleep(800);
+  check('a wake mid-sentence does not sweep', sweeps === swept, `${sweeps - swept} sweeps`);
+  check(
+    'and the half-typed question is still in the box',
+    (await evalJs(`document.querySelector('[data-talk]')?.value`)) === 'Half a question, still being typed'
+  );
+  check('so the news has not been drawn yet', !(await text()).includes('bb-later'));
+
+  // Emptying the box is what releases it — and nothing else on this page repaints for a
+  // keystroke, so if the wake were not taken here it would wait for the next tap.
+  await evalJs(`(() => {
+    const el = document.querySelector('[data-talk]');
+    el.value = '';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  check(
+    'the moment the box is empty, the wake it deferred is taken',
+    await waitFor(`document.body.textContent.includes('bb-later')`, 5000),
+    `${sweeps - swept} sweeps`
+  );
+  await shot('streamed');
+
+  /* ---- and arriving on the page at all ---- */
+
+  // A second visit in the same tab, with the sweep held for two and a half seconds.
+  // This is the half of the complaint the stream does not answer: the log keeps a page
+  // you are already looking at true, and does nothing whatever for the wait in front of
+  // one you have just opened. The warm layer is what draws the queue you were last
+  // shown while the request is still in the air.
+  BEADS = seed();
+  SLOW = 2500;
+  swept = sweeps;
+  await s.send('Page.navigate', { url: `${BASE}/endorse` });
+  const instant = await waitFor(`document.querySelectorAll('.eq-bead').length > 0`, 1500);
+  check('a queue is on screen before the sweep has answered', instant);
+  check('and it was drawn without a second sweep', sweeps === swept + 1, `${sweeps - swept} sweeps`);
+  await shot('warm');
+  SLOW = 0;
+  // The held sweep still lands, and what it says wins — a warm frame is the last true
+  // thing this device saw, never an answer to the question being asked now.
+  check(
+    'then the real answer replaces it',
+    await waitFor(`document.querySelectorAll('.eq-bead').length === 3`, 6000)
+  );
 } finally {
   close();
   server.close();

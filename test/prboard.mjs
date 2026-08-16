@@ -20,10 +20,14 @@
  *    behind the tip. `Deployed` is the weaker claim beside it — a deploy of this repo that
  *    ran after the merge — and the two are asserted apart, because collapsing them is how
  *    "a deploy ran" would come to be drawn as "this is what is running".
- * 3. **`landLocally` touching a dirty checkout.** Adam edits inside these repos while
- *    sessions run. A fast-forward over uncommitted work, triggered from a phone in
- *    another room, is the most destructive thing this file could do — so the test
- *    dirties the tree and asserts that nothing moved.
+ * 3. **`landLocally` touching a checkout with edited work in it.** Adam edits inside
+ *    these repos while sessions run. A fast-forward over uncommitted work, triggered
+ *    from a phone in another room, is the most destructive thing this file could do —
+ *    so the test dirties the tree and asserts that nothing moved. Untracked residue is
+ *    the deliberate exception (bc-45g8) and is asserted from both sides: a `.DS_Store`
+ *    does *not* stop the fast-forward, and an untracked file the incoming commit would
+ *    have written does — because git refuses it, which is the second lock that makes
+ *    the exception safe rather than a hole in the first one.
  *
  * Real git, in a temp directory, with a real `origin` it can fetch from — the ancestry
  * plumbing is the thing under test, and a fake git would only prove the fake works.
@@ -522,10 +526,65 @@ const heldOff = await landParent(WT, 'main');
 check('a main checkout with uncommitted work in it is left alone', heldOff.advanced === false, JSON.stringify(heldOff));
 check('  — and the note says why, so the bead can carry it', /uncommitted/.test(heldOff.note), heldOff.note);
 check(
+  '  — and it names the path, so nobody has to work out whose mess it is',
+  /file\.txt/.test(heldOff.note),
+  heldOff.note
+);
+check(
   '  — with the edit untouched',
   fs.readFileSync(path.join(REPO, 'file.txt'), 'utf8') === 'adam is mid-edit again\n'
 );
+
+// The boundary, and the half of bc-45g8 that is a promise rather than a relaxation:
+// residue *beside* an open file changes nothing. It is one edited path that stops this,
+// not a majority of them.
+fs.writeFileSync(path.join(REPO, '.DS_Store'), 'finder\n');
+const mixed = await landParent(WT, 'main');
+check('one edited file still stops it however much untracked residue sits beside it', mixed.advanced === false, JSON.stringify(mixed));
+check('  — and the note names the edited one', /file\.txt/.test(mixed.note), mixed.note);
+fs.rmSync(path.join(REPO, '.DS_Store'), { force: true });
 git(REPO, 'checkout', '--quiet', '--', 'file.txt');
+
+// bc-s7fs found this and bc-45g8 decided it: residue a tool left behind is not an edit
+// at all, and it used to hold the fast-forward exactly as hard as one — which is how a
+// single `.beads/` stopped every delivery in this repo for a day and 114 commits. The
+// checkout is shared, so the cost was never one session's. Untracked-only dirt is now
+// stepped past, and the tree is asserted to still have the residue in it afterwards:
+// stepping past is not tidying up after anybody.
+fs.mkdirSync(path.join(REPO, '.beads'), { recursive: true });
+fs.writeFileSync(path.join(REPO, '.beads', 'metadata.json'), '{}\n');
+const strayOnly = await landParent(WT, 'main');
+check('a stray untracked directory does not hold the fast-forward', strayOnly.advanced === true, JSON.stringify(strayOnly));
+check('  — main has what origin has', git(REPO, 'rev-parse', 'main') === git(REPO, 'rev-parse', 'origin/main'));
+check('  — the note says it stepped past residue rather than finding none', /untracked/.test(strayOnly.note), strayOnly.note);
+check('  — and names it', /\.beads/.test(strayOnly.note), strayOnly.note);
+check(
+  '  — with the residue still there, because this is a fast-forward and not a tidy-up',
+  fs.existsSync(path.join(REPO, '.beads', 'metadata.json'))
+);
+fs.rmSync(path.join(REPO, '.beads'), { recursive: true, force: true });
+
+// The second lock, and the reason relaxing the first one is safe: git will not clobber
+// an untracked file that an incoming commit writes. So the one case where residue could
+// have cost something is refused by git rather than by the guard — and reported, with
+// the paths, rather than swallowed as "already up to date".
+fs.writeFileSync(path.join(other, 'newthing.txt'), 'the version that merged\n');
+git(other, 'add', 'newthing.txt');
+git(other, 'commit', '--quiet', '-m', 'a commit that adds a file');
+git(other, 'push', '--quiet', 'origin', 'main');
+fs.writeFileSync(path.join(REPO, 'newthing.txt'), 'the version nobody committed\n');
+const wasAt = git(REPO, 'rev-parse', 'main');
+const clobber = await landParent(WT, 'main');
+check('git itself refuses when the incoming commit would write over untracked work', clobber.advanced === false, JSON.stringify(clobber));
+check('  — the note carries git’s reason', /untracked/.test(clobber.note), clobber.note);
+check('  — and names the file, which is the thing to move out of the way', /newthing\.txt/.test(clobber.note), clobber.note);
+check(
+  '  — the untracked file is exactly as it was',
+  fs.readFileSync(path.join(REPO, 'newthing.txt'), 'utf8') === 'the version nobody committed\n'
+);
+check('  — and main did not move', git(REPO, 'rev-parse', 'main') === wasAt);
+fs.rmSync(path.join(REPO, 'newthing.txt'), { force: true });
+
 git(REPO, 'worktree', 'remove', '--force', WT);
 
 /* ------------------------------------------------------------------ the build */

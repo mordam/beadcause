@@ -54,6 +54,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DELIVER = path.join(HERE, '..', 'bin', 'deliver.js');
@@ -209,6 +210,10 @@ const flag = (n) => { const i = args.indexOf(n); return i === -1 ? null : args[i
 const find = (ref) => Object.values(s.prs).find((p) => p.headRefName === ref || String(p.number) === String(ref));
 
 if (args[0] === 'auth') out('Logged in to github.com\\n');
+// Which repo this checkout is, which \`bin/deliver.js\` now asks before it pushes: a
+// checkout no account can see on GitHub has nowhere to open a pull request, and finding
+// that out from a failed \`gh pr create\` names the remote rather than the repo.
+if (args[0] === 'repo' && args[1] === 'view') out(JSON.stringify({ nameWithOwner: 'acme/widgets' }));
 if (args[0] === 'pr') {
   if (args[1] === 'create') {
     const head = flag('--head');
@@ -234,9 +239,26 @@ if (args[0] === 'pr') {
     save();
     out(s.prs[head].url + '\\n');
   }
+  // \`gh pr list\`, which here means one question only: which pull requests exist for this
+  // head ref? A \`deleted\` pull request still answers — GitHub keeps \`headRefName\` on the
+  // record long after the branch itself is gone, which is the whole reason the fallback
+  // asks this way. \`--limit\` is honoured against a NEWEST-FIRST list, so a fixture with
+  // forty newer merges in it reproduces the cap this used to have.
+  if (args[1] === 'list') {
+    const head = flag('--head');
+    const want = String(flag('--state') || 'all').toUpperCase();
+    const rows = Object.values(s.prs)
+      .filter((p) => (head ? p.headRefName === head : true))
+      .filter((p) => (want === 'ALL' ? true : p.state === want))
+      .sort((a, b) => b.number - a.number)
+      .slice(0, Number(flag('--limit') || 30));
+    out(JSON.stringify(rows));
+  }
   const pr = find(args[2]);
   if (args[1] === 'view') {
-    if (!pr) fail('no pull requests found for branch ' + args[2]);
+    // A merge from a card deletes the branch (\`deleteBranch: true\`), and \`gh pr view\`
+    // resolves a *ref*: once it is gone this is the failure a delivery meets first.
+    if (!pr || pr.deleted) fail('no pull requests found for branch ' + args[2]);
     out(JSON.stringify(pr));
   }
   if (args[1] === 'comment') out('commented\\n');
@@ -421,32 +443,50 @@ console.log('\nre-delivering the same branch\n');
   commit('four');
   const out = deliver();
 
-  check('it reports a merge, not a question', out.startsWith('landed #'), out);
+  // bc-r941: this used to be "and then the worker merges it after all". The worker does
+  // not merge any more, so the delivery that follows an unanswered card is the one that
+  // puts the work on the queue — and the thing being pinned is unchanged and is the whole
+  // point of the file: **the card it replaces must close.** An open card is a blocker on
+  // the work bead, and the queue's close of that bead will be refused by it.
+  check('it reports a queue entry, not a question', out.startsWith('queued #'), out);
   check(
     'the card left over from the earlier delivery is closed',
     openCards().map((c) => c.id).join(',') === 'zz-other',
     openCards().map((c) => c.id).join(',')
   );
-  check('the work bead closed with the merge', world().issues['zz-work'].status === 'closed', world().issues['zz-work'].status);
+  check('the work bead is open — it closes when the queue merges, not when it queues', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
   check(
-    'and its close reason names the pull request',
-    /#25/.test(world().issues['zz-work'].close_reason || ''),
-    world().issues['zz-work'].close_reason
+    'and it is blocked by exactly one thing: the merge-bead',
+    blockers('zz-work').length === 1 && blockers('zz-work')[0].id === out.split(' ').pop(),
+    JSON.stringify(blockers('zz-work'))
   );
   check(
-    'nothing is owed once the close went through',
+    'nothing is owed — nothing has merged, so no close has been refused',
     !fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json')) ||
       Object.keys(JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8'))).length === 0,
     fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json')) ? fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8') : ''
   );
 }
 
-/* ------------------------------------- a close refused is a close written down */
+/* ------------- a close refused is a close written down — moved with the merge */
+
+// This scenario drove `bin/deliver.js` into the one case lib/owed.js exists for:
+// something *else* blocks the work bead, so the merge lands and the close cannot. It had
+// to be reported as refused and written down for the daemon to retry, never reported as
+// done — bc-ec6 stayed open over a merged pull request with two comments claiming
+// otherwise, and what made it hard to see is that everything upstream said it had worked.
+//
+// bc-r941 moved the merge and the close to the daemon, so `bin/deliver.js` can no longer
+// reach this state at all: it closes nothing. The handling moved with it, verbatim —
+// `finish` in lib/mergequeue.js catches the refused close, calls `oweClose`, and says so
+// on the bead in bd's own words — and it is asserted there, in test/mergequeue.mjs,
+// against a tracker that can refuse.
+//
+// What is still worth pinning *here* is that the delivery leaves the bead in a state the
+// queue can act on when something else is already blocking it: the merge-bead is filed
+// and parked beside the other blocker rather than instead of it.
 
 {
-  // The one case the sweep exists for: something *else* blocks the work bead, so the
-  // merge lands and the close cannot. It must be reported as refused and recorded for
-  // the daemon to retry — never reported as done.
   writeConfig({ pr: { autoMerge: true, base: 'main', mergeMethod: 'merge' } });
   reset();
   const w = world();
@@ -458,20 +498,19 @@ console.log('\nre-delivering the same branch\n');
   git(repo, 'checkout', '--quiet', '-b', 'work-two');
   commit('five');
   const out = deliver();
+  const queued = out.split(' ').pop();
 
-  check('it still lands', out.startsWith('landed #'), out);
-  check('the work bead stays open, because bd said no', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check('it still queues over a bead something else is blocking', out.startsWith('queued #'), out);
+  check('the work bead stays open', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
   check(
-    'and the bead is told so in bd’s own words',
-    (world().issues['zz-work'].comments || []).some((c) => /did \*\*not\*\* close/.test(c) && /blocked by open issues/.test(c)),
-    JSON.stringify(world().issues['zz-work'].comments)
+    'and is now blocked by both — the merge-bead is filed beside the other, not instead of it',
+    blockers('zz-work').some((b) => b.id === 'zz-blocker') && blockers('zz-work').some((b) => b.id === queued),
+    JSON.stringify(blockers('zz-work'))
   );
-  const owed = JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8'));
-  check('the close is written down to be retried', Boolean(owed['demo/zz-work']), JSON.stringify(owed));
   check(
-    'with the reason it should carry when it finally goes through',
-    /#26/.test(owed['demo/zz-work']?.reason || ''),
-    owed['demo/zz-work']?.reason
+    'nothing is owed — a delivery that merges nothing has no close to have refused',
+    !fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json')),
+    fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json')) ? fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8') : ''
   );
 }
 
@@ -543,6 +582,90 @@ console.log('\nre-delivering the same branch\n');
   check('and nothing was asked to merge', !/"merge"/.test(calls), calls.split('\n').filter(Boolean).join(' | '));
 }
 
-fs.rmSync(tmp, { recursive: true, force: true });
+/* ------------------- a branch merged from a card, under a day of other merges */
+
+{
+  /**
+   * bc-kbr6, and it is the case above with the one detail that used to break it: the
+   * merge came from a **card**, so GitHub deleted the branch, so `gh pr view <branch>`
+   * has no ref to resolve and fails. That is what the fallback is for — and the fallback
+   * asked for the forty most recent merges and matched the head ref in this process.
+   * Forty merges is under a day on this repo (152 in two days, measured), so a branch
+   * merged the day before yesterday fell off the end of the list and the delivery died
+   * with `<branch> has no commits that origin/main does not` and exit 2, over work that
+   * had landed. Forty-one newer merges below, which is a fixture the old code cannot
+   * pass and the new one does not care about: `--head` puts the match in the query.
+   */
+  writeConfig({ pr: { autoMerge: true, base: 'main', mergeMethod: 'merge' } });
+  reset();
+  fs.rmSync(path.join(CONFIG_DIR, 'owed-closes.json'), { force: true });
+
+  git(repo, 'checkout', '--quiet', '-b', 'work-carded');
+  commit('seven');
+  git(repo, 'push', '--quiet', '-u', 'origin', 'work-carded');
+  git(repo, 'checkout', '--quiet', 'main');
+  git(repo, 'merge', '--quiet', '--no-ff', '-m', 'Merge pull request #78', 'work-carded');
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  git(repo, 'checkout', '--quiet', 'work-carded');
+  const cardedSha = git(repo, 'rev-parse', 'HEAD');
+  // The branch GitHub deleted on the merge. Locally it is still checked out, which is
+  // exactly where a worker stands when it runs this.
+  git(repo, 'push', '--quiet', 'origin', '--delete', 'work-carded');
+
+  const s = ghState();
+  s.prs['work-carded'] = {
+    number: 78,
+    title: 'zz-work: the work',
+    url: 'https://github.com/acme/widgets/pull/78',
+    state: 'MERGED',
+    isDraft: false,
+    mergeable: 'MERGEABLE',
+    mergeStateStatus: 'CLEAN',
+    headRefName: 'work-carded',
+    baseRefName: 'main',
+    additions: 1,
+    deletions: 0,
+    changedFiles: 1,
+    statusCheckRollup: [],
+    reviewDecision: null,
+    mergedAt: '2026-08-10T12:00:00Z',
+    mergeCommit: { oid: cardedSha },
+    deleted: true,
+  };
+  // A day's worth of other merges on top of it, newer by number and by date.
+  for (let n = 0; n < 41; n += 1) {
+    s.prs[`someone-else-${n}`] = {
+      number: 100 + n,
+      title: `zz-other-${n}: something else`,
+      url: `https://github.com/acme/widgets/pull/${100 + n}`,
+      state: 'MERGED',
+      isDraft: false,
+      mergeable: 'MERGEABLE',
+      mergeStateStatus: 'CLEAN',
+      headRefName: `someone-else-${n}`,
+      baseRefName: 'main',
+      additions: 1,
+      deletions: 0,
+      changedFiles: 1,
+      statusCheckRollup: [],
+      reviewDecision: null,
+      mergedAt: '2026-08-11T12:00:00Z',
+      mergeCommit: { oid: 'f'.repeat(16) },
+      deleted: true,
+    };
+  }
+  fs.writeFileSync(GH_STATE, JSON.stringify(s, null, 2));
+
+  const out = deliver();
+  const bead = world().issues['zz-work'];
+  const calls = fs.readFileSync(GH_LOG, 'utf8');
+
+  check('a branch merged from a card, under 41 newer merges, still reports its landing', out.startsWith('landed #78'), out);
+  check('the work bead is closed over it', bead.status === 'closed', `${bead.status} — ${bead.close_reason || ''}`);
+  check('the fallback asked GitHub about the branch rather than for the newest N', /"--head","work-carded"/.test(calls), calls.split('\n').filter(Boolean).slice(-3).join(' | '));
+  check('and the deleted branch was not recreated on origin', !git(repo, 'ls-remote', '--heads', 'origin', 'work-carded').trim(), git(repo, 'ls-remote', '--heads', 'origin', 'work-carded'));
+}
+
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} of ${ran} failed\n` : `\nall ${ran} passed\n`);
 process.exit(failures ? 1 : 0);

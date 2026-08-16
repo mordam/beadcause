@@ -40,6 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -55,7 +56,7 @@ const SESSIONS = path.join(tmp, 'claude-sessions');
 fs.mkdirSync(SESSIONS, { recursive: true });
 
 const { createAdvocates } = await import(LIB('advocate.js'));
-const { decide, closingFor, namesBead, beadInName, saidDone, sweepCandidate, REAP_DEFAULTS } = await import(
+const { decide, closingFor, namesBead, beadInName, saidDone, saidFinished, sweepCandidate, REAP_DEFAULTS } = await import(
   LIB('reap.js')
 );
 
@@ -526,6 +527,22 @@ await check('only a window that called itself finished is a candidate', () => {
   assert.equal(sweepCandidate(idle({ name: 'Alpha - al-1 a bead' })), null);
 });
 
+await check('AND `QUEUED-` COUNTS AS FINISHED, WHICH IS WHAT THE WORKER ACTUALLY WRITES', () => {
+  // Since bc-r941 a worker cannot honestly say `DONE-`: it hands its branch to the merge
+  // queue and the merge happens in another process, minutes or hours later. So it writes
+  // `QUEUED-` and lib/retitle.js upgrades the window when the branch lands. A sweep still
+  // keyed on `DONE-` alone would have quietly stopped reaping anything — the windows
+  // would sit open with their beads closed, which is the pile this module was written for.
+  assert.ok(saidFinished('QUEUED-Alpha - al-1 a bead'));
+  assert.ok(saidFinished('DONE-Alpha - al-1 a bead'), 'and the merged spelling still counts');
+  assert.ok(!saidFinished('Alpha - al-1 a bead'));
+  // `saidDone` stays narrow on purpose: it is the question lib/retitle.js asks so that it
+  // never writes the prefix twice.
+  assert.ok(!saidDone('QUEUED-Alpha - al-1 a bead'), 'queued is not merged');
+  const cand = sweepCandidate(idle({ name: 'QUEUED-Alpha - al-1 a bead' }));
+  assert.equal(cand?.id, 'al-1', 'a delivered window whose bead closed is still reapable');
+});
+
 await check('the bead id comes out of the name, or nothing does', () => {
   assert.equal(beadInName('DONE-Alpha - al-1 a bead'), 'al-1');
   assert.equal(beadInName('DONE-Beadcause - bc-t6je no deploys entry'), 'bc-t6je');
@@ -646,5 +663,5 @@ await check('the sweep does not queue a window the closing list already has', as
 /* ---------------------------------------------------------------------- out */
 
 console.log(`\n${ran - failures}/${ran} passed\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);

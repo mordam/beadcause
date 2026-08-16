@@ -99,13 +99,82 @@
     (events || []).some((e) => !QUIET_TYPES.has(e?.type) && !(e?.type === 'advocate' && ROSTER_ONLY.has(e?.action)));
 
   /**
+   * The events that can have changed a lamp or a button on the PR board.
+   *
+   * It lived in public/prs.js, which was the only page that had an opinion about it —
+   * and then the inbox grew one too, because it holds `/api/prs` warm for that page and
+   * has to know whether what it is holding is still true. Two lists would be one list
+   * that drifts, and the drift is invisible: an inbox that thought a merge was nothing
+   * would keep restamping a board with the wrong lamps on it, and the lamps' whole claim
+   * is that they are true. So this is the one copy, for the same reason `workMoved` is
+   * one function and not two.
+   */
+  const BOARD_EVENTS = ['merged', 'changes', 'pr-declined', 'deploy', 'advocate'];
+
+  /** Did anything here change something behind `/api/prs`? */
+  const boardMoved = (events) => touched(events, BOARD_EVENTS);
+
+  /**
+   * The events that can change what is waiting for endorsement.
+   *
+   * A bead filed while you were asleep (`created`), a verdict landing from the other
+   * device (`endorsement`), an agent amending one it was asked to change (`amended`),
+   * and both halves of a discussion — the dispatch (`discussion`) and the reply that
+   * comes back as a comment (`commented`), because the folded row draws a 💬 count and
+   * a bead you asked three questions about last night must not read as one nobody has
+   * opened.
+   *
+   * Here rather than in public/endorse.js for the reason BOARD_EVENTS is here: two
+   * pages ask this question. The queue asks it to decide whether to sweep, and the
+   * inbox asks it to decide whether the copy it is holding *for* that page is still
+   * true — and the two answers have to be the same one, or the inbox hands the queue a
+   * warm payload missing exactly the bead that was filed while you were reading.
+   */
+  const QUEUE_EVENTS = ['created', 'endorsement', 'amended', 'commented', 'discussion'];
+
+  /** Did anything here change something behind `/api/unendorsed`? */
+  const queueMoved = (events) => touched(events, QUEUE_EVENTS);
+
+  /**
+   * Everything on the page that wants the events without owning a poll.
+   *
+   * One park per page is the rule this file exists to keep — public/montabs.js stands a
+   * hidden pane's poll *down* for the same reason, and a shared script that opened its
+   * own would put a second parked request behind every page in the app, on every device,
+   * for one boolean. public/update.js is that script: it needs to know a deploy settled
+   * and nothing else, and the page it is loaded onto is already being told.
+   *
+   * So a listener registered here is handed the same `events` array the view's own
+   * `onWake` gets, from whichever `follow()` on the page answered — and a page with no
+   * stream at all (the login screen, a doc in the reader) simply never calls it, which
+   * is why every listener must also have a way of asking cold. A throw in one listener
+   * is contained: it is somebody else's screen, not the poll's.
+   */
+  const listeners = new Set();
+
+  function listen(fn) {
+    if (typeof fn !== 'function') return () => {};
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }
+
+  function tell(events) {
+    for (const fn of listeners) {
+      try {
+        fn(events);
+      } catch (err) {
+        console.error('[stream] listener failed', err);
+      }
+    }
+  }
+
+  /**
    * Park on the log and keep parking.
    *
    * @param {object} o
    * @param {function} o.api        the page's own fetch wrapper — `(path, {signal}) => Promise<data>`
    * @param {number} [o.seq]        where in the log the screen is; 0 means "we do not know"
    * @param {string} [o.want]       `'presence'` to park without asking the daemon to sweep `bd`
-   * @param {boolean} [o.shade]     claim the notification shade (the Android shell, and only it)
    * @param {number} [o.wait]       seconds to let the daemon hold each request
    * @param {boolean} [o.cold]      may the first request omit `since` to learn a sequence?
    * @param {number} [o.retryMs]    how long after a broken poll to try again; 0 to stop instead
@@ -119,7 +188,6 @@
     api,
     seq = 0,
     want = null,
-    shade = false,
     wait = WAIT_S,
     cold = false,
     retryMs = 5000,
@@ -174,7 +242,6 @@
         q.set('wait', String(wait));
       }
       if (want) q.set('want', want);
-      if (shade) q.set('shade', '1');
       return `/api/poll?${q.toString()}`;
     }
 
@@ -206,6 +273,14 @@
           // log at all: an old daemon, a proxy, a stub. There is nothing to follow, and
           // asking again would be a request at full speed for as long as the page is
           // open, which is worse than the timer this replaced by any measure.
+          // Something answered — which is the only fact public/freshness.js needs, and it
+          // is deliberately stamped here rather than in the view's `onWake`: a poll that
+          // answers with no events at all is a daemon that is perfectly alive and a view
+          // that will not repaint, and that is precisely the case a staleness banner must
+          // not fire on. The payload rides along because the daemon's own sweep age is on
+          // it. Optional at every call: a page served before that file existed has no
+          // `window.beadcause.fresh` and this is a no-op.
+          window.beadcause?.fresh?.heard?.(data);
           const told = data && data.seq !== undefined && data.seq !== null && Number.isFinite(Number(data.seq));
           if (told) at = Number(data.seq);
           // Something answered, so whatever was wrong is over.
@@ -216,6 +291,8 @@
           // empty and true by accident, and the only honest move is a full refetch —
           // which is the view's, because only it knows what "everything" is here.
           onWake?.({ data, events, resync: Boolean(data.resync) });
+          // …and anything else on the page that wants the same events. See `listen`.
+          tell(events);
           // Nothing that keeps a log answered, so there is nothing to follow: the
           // caller's fallback — a timer, or the ⟳ — is the refresh from here.
           if (!told) break;
@@ -241,6 +318,10 @@
           clearTimeout(retryTimer);
           retryTimer = setTimeout(start, backoff);
           backoff = Math.min(backoff * 2, MAX_RETRY_MS);
+          // Not a second clock — the banner draws on ours either way. This only lets it
+          // say *retrying* rather than leaving the reader to wonder whether anything is
+          // still trying at all, which is the difference between a warning and an alarm.
+          window.beadcause?.fresh?.trying?.(true);
         }
       }
     }
@@ -271,7 +352,7 @@
       });
     }
 
-    return {
+    const api_ = {
       start,
       stop,
       get seq() {
@@ -292,8 +373,52 @@
         return following;
       },
     };
+    mounted.add(api_);
+    return api_;
+  }
+
+  /**
+   * Every stream mounted on this page, so something that is not a view can wake them.
+   *
+   * The banner in public/freshness.js is the caller: its **Retry now** must not wait out
+   * a backoff that may be up to a minute long, and it has no reference to whatever the
+   * page passed to `follow`. Registered here rather than handed around because a page can
+   * mount more than one (the monitor's mirror follows presence beside the view's own
+   * poll), and waking one of two is a button that half works.
+   */
+  const mounted = new Set();
+
+  /**
+   * Start every stopped stream again, now. Answers how many it nudged, so a caller can
+   * tell "I woke something" from "there is nothing here to wake" and fall back.
+   */
+  function wake() {
+    let woke = 0;
+    for (const s of mounted) {
+      try {
+        s.start();
+        woke += 1;
+      } catch {
+        /* one stream that will not start must not stop the next */
+      }
+    }
+    return woke;
   }
 
   window.beadcause = window.beadcause || {};
-  window.beadcause.stream = { follow, moved, touched, workMoved, QUIET_TYPES, ROSTER_ONLY, WAIT_S };
+  window.beadcause.stream = {
+    follow,
+    listen,
+    wake,
+    moved,
+    touched,
+    workMoved,
+    boardMoved,
+    queueMoved,
+    QUIET_TYPES,
+    ROSTER_ONLY,
+    BOARD_EVENTS,
+    QUEUE_EVENTS,
+    WAIT_S,
+  };
 })();

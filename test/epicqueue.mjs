@@ -35,6 +35,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { quiesce, removeTree } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -69,7 +70,14 @@ async function tick({ ready = [], children = {}, listLabel = [], show = null, wo
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // A clean slate per case: state, the activity file the launch stamps, and the
   // worker markers. Otherwise case N's worker is still in case N+1's queue.
-  for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+  //
+  // Quiesce first, and not only at the end of the suite: this runs between *every* case,
+  // so the previous case's write of advocates.json has a commit scheduled 2000ms out that
+  // would otherwise `git init` into `dir` while this loop is walking it. That is as many
+  // chances to lose the race as there are cases, and the case that loses one keeps going
+  // and then fails for a second, unrelated-looking reason.
+  await quiesce();
+  for (const f of fs.readdirSync(dir)) await removeTree(path.join(dir, f));
   if (workers.length) {
     fs.writeFileSync(path.join(dir, 'advocates.json'), JSON.stringify({ alpha: { workers, attempts: {} } }));
   }
@@ -94,6 +102,12 @@ async function tick({ ready = [], children = {}, listLabel = [], show = null, wo
       sessionLog: false,
       tidyWorktrees: false,
       respectQuietHours: false,
+      // Since bc-jk4m an epic that would be batched is *planned* instead: the same
+      // candidate test, a different brief, and one window per group afterwards rather than
+      // one window for the lot. Batching did not go away — it is what happens when there
+      // is no plan and no planner — so this suite turns planning off and asserts the
+      // fallback, exactly as it was written. test/epicplan.mjs owns the branch above it.
+      planEpics: false,
       ...overrides,
     },
   };
@@ -115,16 +129,29 @@ async function tick({ ready = [], children = {}, listLabel = [], show = null, wo
     },
   };
 
+  // The batch is recorded beside the id, because "which window opened" is only half of
+  // what batching changes — the other half is what that window was told it was holding,
+  // and a batch that dispatches the right epic with an empty brief is the round-robin
+  // with extra steps.
+  const briefed = [];
   const advocates = createAdvocates(cfg, {
     bd,
     bus: { emit() {} },
     open: async (_cfg, _ws, b) => {
       opened.push(b.id);
+      briefed.push({ id: b.id, batch: (b.batch || []).map((k) => k.id) });
       return { dir: REPO, mode: 'test', term: null };
+    },
+    // Injected for the reason `open` is, and it matters more: the default is the real
+    // `openPlanSession`, which drives iTerm. With planning off nothing should reach it, and
+    // "should" is not what a suite asserts on.
+    openPlan: async () => {
+      throw new Error('openPlan must not be reached with planEpics off');
     },
   });
   await advocates.tick();
-  return { opened, calls, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
+  const card = advocates.snapshot().find((a) => a.workspace === 'alpha');
+  return { opened, briefed, calls, card, advocates };
 }
 
 const heldIds = (card) => card.heldByChildren.map((h) => h.id);
@@ -151,6 +178,12 @@ async function check(name, fn) {
  * The bug, in the smallest queue that can hold it: an epic and its own first child,
  * both ready, both past the settle window. Two windows before; one now, and it is the
  * one with the work in it.
+ *
+ * Untouched by batching (bc-bhp9), and that is deliberate. One ready child is not a
+ * round-robin — the suppression already spends one window on it, briefed on exactly the
+ * bead it is doing. Batching a lone child would claim the epic, hand over a brief about
+ * choosing phases when there is only one, and leave an epic to be handed back, all to do
+ * the same single bead. `minBatchBeads` is the floor that keeps this case as it was.
  */
 await check('one window for a parent and its child, and it is the child', async () => {
   const { opened, card, calls } = await tick({
@@ -163,6 +196,244 @@ await check('one window for a parent and its child, and it is the child', async 
   assert.deepEqual(heldIds(card), ['x-1'], 'held rather than vanished');
   assert.match(card.heldByChildren[0].why, /x-1\.1 is ready under it/, `got: ${card.heldByChildren[0].why}`);
   assert.deepEqual(calls.children, [], 'the child was in the queue — that answer was free, and cost no bd call');
+});
+
+/**
+ * And the case batching is actually for: two ready siblings, which before bc-bhp9 went to
+ * two windows on two ticks, each briefed on its own bead and neither in a position to see
+ * that the two belonged in one change. Now one window gets both, and the epic — whose
+ * intent is the thing that makes the pair make sense — is what it is opened on.
+ */
+await check('two ready siblings go to one window, on the epic that explains them', async () => {
+  const { opened, briefed, card, calls } = await tick({
+    ready: [epic('x-1', { priority: 1 }), bead('x-1.1'), bead('x-1.2')],
+    children: { 'x-1': [bead('x-1.1', { status: 'open' }), bead('x-1.2', { status: 'open' })] },
+    overrides: { maxWorkers: 4 },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'one session, on the epic — the only thing that can see the whole subtree');
+  assert.deepEqual(briefed, [{ id: 'x-1', batch: ['x-1.1', 'x-1.2'] }], 'and it was told both children are its work');
+  assert.equal(card.queue, 1, 'both children are out of the queue, not merely unpicked');
+  assert.deepEqual(heldIds(card).sort(), ['x-1.1', 'x-1.2'], 'folded rather than vanished');
+  assert.match(card.heldByChildren[0].why, /batched under x-1/, `got: ${card.heldByChildren[0].why}`);
+  assert.deepEqual(calls.children, ['x-1'], 'one call, to prove no open child is hiding outside this queue');
+});
+
+// A batch must not span checkouts either, but `placeFor` is gated on `multiRepo` and this
+// suite is deliberately single-repo — every bead here resolves to `repo: null`, so the
+// guard cannot be reached from this fixture. That case lives in test/repoqueue.mjs, which
+// already has the approved-repo block and the real resolver behind it.
+
+/** The floor itself, asserted from the other side: turn it off and the lone child batches. */
+await check('minBatchBeads 1 batches a lone child too', async () => {
+  const { opened, briefed } = await tick({
+    ready: [epic('x-1', { priority: 1 }), bead('x-1.1')],
+    children: { 'x-1': [bead('x-1.1', { status: 'open' })] },
+    overrides: { minBatchBeads: 1 },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'the epic, carrying its one child');
+  assert.deepEqual(briefed, [{ id: 'x-1', batch: ['x-1.1'] }]);
+});
+
+/**
+ * The cap, and the thing it must not do. Four ready children against a cap of two: two go
+ * in the brief, and the other two do *not* get windows of their own — a batch beside its
+ * own leftover siblings is the bc-3zo9 incident again with extra steps. They wait for a
+ * later tick, and the card distinguishes the two reasons so a queue three shorter than
+ * `bd ready` still explains itself.
+ */
+await check('the batch is capped, and the overflow waits rather than racing its siblings', async () => {
+  const kids = ['x-1.1', 'x-1.2', 'x-1.3', 'x-1.4'];
+  const { opened, briefed, card } = await tick({
+    ready: [epic('x-1'), ...kids.map((k) => bead(k))],
+    children: { 'x-1': kids.map((k) => bead(k, { status: 'open' })) },
+    overrides: { maxBatchBeads: 2, maxWorkers: 5 },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'one window for the subtree, whatever the cap is');
+  assert.deepEqual(briefed[0].batch, ['x-1.1', 'x-1.2'], 'two in the brief, in pick order');
+  assert.deepEqual(heldIds(card).sort(), kids, 'all four children are off the queue, not just the briefed two');
+  const why = Object.fromEntries(card.heldByChildren.map((h) => [h.id, h.why]));
+  assert.match(why['x-1.1'], /batched under x-1/, `got: ${why['x-1.1']}`);
+  assert.match(why['x-1.3'], /waiting for room in x-1's batch/, `got: ${why['x-1.3']}`);
+});
+
+/**
+ * The suppression that must survive batching. A window already open on a child means this
+ * subtree is somebody's — and the batch head is exactly as forbidden as a second child
+ * would be. This is `heldByChildren`'s second check still doing its job, and it is the one
+ * rule batching may never relax: two windows must never hold one subtree.
+ */
+await check('a live session on a child blocks the batch, and the tick behaves as it did before', async () => {
+  const fixture = {
+    ready: [epic('x-1'), bead('x-1.1'), bead('x-1.2')],
+    workers: [{ id: 'x-1.1', title: 'the child', at: new Date().toISOString(), attempt: 1 }],
+    show: () => ({ id: 'x-1.1', status: 'in_progress' }),
+    children: { 'x-1': [bead('x-1.1', { status: 'in_progress' }), bead('x-1.2', { status: 'open' })] },
+  };
+  const now = await tick(fixture);
+
+  assert.ok(!now.opened.includes('x-1'), 'the epic gets no batch over a subtree a window is already sitting in');
+  assert.ok(
+    now.briefed.every((b) => !b.batch.length),
+    'and nothing that did open is carrying a batch'
+  );
+  assert.ok(heldIds(now.card).includes('x-1'), 'the epic is held the old way instead');
+  assert.deepEqual(now.calls.children, [], 'the batch never got as far as costing a bd call');
+
+  // The control, and the reason this case does not simply assert an empty list. `x-1.2` is
+  // a *sibling* of the worked bead, not an ancestor or a descendant of it, so no rule here
+  // has ever held it back — it took its own window before batching existed and it still
+  // does. Asserting `[]` would have been asserting a stricter rule than either design has.
+  const before = await tick({ ...fixture, overrides: { batchEpicChildren: false } });
+  assert.deepEqual(now.opened, before.opened, 'a blocked batch falls back to exactly the old behaviour');
+});
+
+/**
+ * The switch back. Batching is a judgement about how work is best handed over, and if a
+ * batch ever briefs badly the fix has to be reachable without an editor — so `false`
+ * restores `heldByChildren`'s suppression exactly, child window and all.
+ */
+await check('batchEpicChildren false is the old suppression, unchanged', async () => {
+  const { opened, briefed, card } = await tick({
+    ready: [epic('x-1', { priority: 1 }), bead('x-1.1')],
+    children: { 'x-1': [bead('x-1.1', { status: 'open' })] },
+    overrides: { batchEpicChildren: false },
+  });
+
+  assert.deepEqual(opened, ['x-1.1'], 'the child again, on its own');
+  assert.deepEqual(briefed, [{ id: 'x-1.1', batch: [] }], 'and with no batch on it');
+  assert.deepEqual(heldIds(card), ['x-1'], 'the epic held, exactly as before');
+});
+
+/**
+ * Nesting. Pick order can reach an inner epic first, and if it claimed the batch the outer
+ * one would be held by `heldByChildren` — a subtree split across two ticks for no reason
+ * but sort order. Shallowest first makes the answer a property of the tree instead.
+ */
+await check('the outermost epic in a nest carries the subtree', async () => {
+  const { opened, briefed, card } = await tick({
+    ready: [bead('x-1.1.1'), epic('x-1.1', { priority: 1 }), epic('x-1')],
+    children: {
+      'x-1': [epic('x-1.1', { status: 'open' }), bead('x-1.1.1', { status: 'open' })],
+      'x-1.1': [bead('x-1.1.1', { status: 'open' })],
+    },
+    overrides: { maxWorkers: 4 },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'one window, on the outermost epic');
+  assert.deepEqual(briefed[0].batch.sort(), ['x-1.1', 'x-1.1.1'], 'carrying the whole subtree under it');
+  assert.deepEqual(heldIds(card).sort(), ['x-1.1', 'x-1.1.1'], 'and the inner epic is folded in, not a head of its own');
+});
+
+/**
+ * The mirror of the suppression, and the hole batching opens in it.
+ *
+ * Before bc-bhp9 a live worker held a *leaf*, so "is a session working something under
+ * this bead" was the only direction worth asking. A batch head holds an epic and claims
+ * it, which takes the epic out of `bd ready` — and its children are still ready. Nothing
+ * asked whether a session was working something *above* a bead, so the batch's own
+ * siblings came back round as individually launchable the very next tick: a batch window
+ * writing the subtree, and up to N more windows opened underneath it. That is bc-3zo9
+ * again, caused by the fix for it.
+ *
+ * `isDescendantOf(bead.id, w.id)` is the whole check — the same helper, arguments swapped.
+ */
+await check('a session holding an ancestor holds the beads underneath it', async () => {
+  const { opened, card } = await tick({
+    ready: [bead('x-1.1'), bead('x-1.2')],
+    workers: [{ id: 'x-1', title: 'the epic', at: new Date().toISOString(), attempt: 1, batch: ['x-1.1', 'x-1.2'] }],
+    show: () => ({ id: 'x-1', status: 'in_progress' }),
+  });
+
+  assert.deepEqual(opened, [], 'no window underneath a batch already working this subtree');
+  assert.deepEqual(heldIds(card).sort(), ['x-1.1', 'x-1.2'], 'both held');
+  assert.match(card.heldByChildren[0].why, /working x-1 above it/, `got: ${card.heldByChildren[0].why}`);
+
+  // And the same shape with a worker that is **not** a batch head, which since bc-zgfo
+  // holds the subtree too. This assertion used to run the other way: `batch` was the whole
+  // difference, on the argument that a session handed one bead speaks for one bead and
+  // holding its children behind it leaves nobody doing either.
+  //
+  // What that missed is that a hold behind a *live* window is a wait and not a stall — the
+  // worker ends, `reconcile` drops it, and the child launches on the next tick. The two
+  // cases it left open are both reachable without a batch ever existing: a non-epic parent
+  // whose only child was blocked at launch and unblocks an hour later, and an epic that
+  // launched with no open children (`heldByChildren` says outright that such an epic is
+  // workable) and gains one while its window runs — which is what an agent filing a bead
+  // under the epic it is working does. Either way it is bc-3zo9 with the order reversed:
+  // two windows in one subtree, the parent's brief a superset of the child's.
+  const plain = await tick({
+    ready: [bead('x-1.1'), bead('x-1.2')],
+    workers: [{ id: 'x-1', title: 'a plain parent', at: new Date().toISOString(), attempt: 1 }],
+    show: () => ({ id: 'x-1', status: 'in_progress' }),
+    overrides: { maxWorkers: 4 },
+  });
+  assert.deepEqual(plain.opened, [], 'a plain parent holds the beads underneath it too, since bc-zgfo');
+  assert.deepEqual(heldIds(plain.card).sort(), ['x-1.1', 'x-1.2'], 'both held on the strength of the session above them');
+  assert.match(plain.card.heldByChildren[0].why, /working x-1 above it/, `got: ${plain.card.heldByChildren[0].why}`);
+
+  // The floor underneath it, and the reason the unqualified check is not simply "hold
+  // everything": a worker on a bead that is *not* an ancestor of anything in the queue
+  // matches nothing, so an ordinary busy advocate is untouched. `x-2` is a sibling, not a
+  // parent, and `isDescendantOf` is prefix matching on the id — `x-1.1` does not start
+  // with `x-2.`, and it does not start with `x-11.` either, which is the off-by-one a
+  // bare `startsWith` without the dot would have.
+  const sibling = await tick({
+    ready: [bead('x-1.1'), bead('x-1.2')],
+    workers: [{ id: 'x-2', title: 'somewhere else entirely', at: new Date().toISOString(), attempt: 1 }],
+    show: () => ({ id: 'x-2', status: 'in_progress' }),
+    overrides: { maxWorkers: 4 },
+  });
+  assert.deepEqual(sibling.opened.sort(), ['x-1.1', 'x-1.2'], 'a session outside the subtree holds nothing in it');
+  assert.deepEqual(heldIds(sibling.card), [], 'and nothing was held');
+});
+
+/**
+ * The same hole one level in, and the reason the ancestor check cannot live only in
+ * `heldByChildren`. A batch head is pushed straight onto the workable list — that is what
+ * makes it a batch head — so it never reaches the suppression at all. An inner epic under
+ * a live batch would therefore become a batch head of its own: two windows, both briefed
+ * on overlapping subtrees, which is the incident with the fix applied twice.
+ *
+ * So `batchesFor` has to ask the ancestor question itself, on the same terms.
+ */
+await check('no batch forms underneath a live batch head', async () => {
+  // Two grandchildren, not one, so the inner epic clears `minBatchBeads` and this case
+  // actually reaches the guard it is about. With one it would pass on the floor instead,
+  // which is a test that goes green for a reason unrelated to the bug it documents.
+  const inner = { ready: [epic('x-1.1'), bead('x-1.1.1'), bead('x-1.1.2')], children: { 'x-1.1': [bead('x-1.1.1', { status: 'open' }), bead('x-1.1.2', { status: 'open' })] }, overrides: { maxWorkers: 4 } };
+
+  const armed = await tick(inner);
+  assert.deepEqual(armed.opened, ['x-1.1'], 'the control: with no worker above it, this epic does batch');
+
+  const { opened, card } = await tick({
+    ...inner,
+    workers: [{ id: 'x-1', title: 'the outer batch', at: new Date().toISOString(), attempt: 1, batch: ['x-1.1'] }],
+    show: () => ({ id: 'x-1', status: 'in_progress' }),
+  });
+
+  assert.deepEqual(opened, [], 'the whole subtree belongs to the window already in it');
+  assert.deepEqual(heldIds(card).sort(), ['x-1.1', 'x-1.1.1', 'x-1.1.2'], 'all held, none promoted to a batch head');
+});
+
+/**
+ * The worker record. `id` staying the epic is what lets every single-id thing downstream
+ * — the done marker, the check-in, the attempt count, `reclaim`, and the `isDescendantOf`
+ * suppression itself — keep working without knowing batches exist. If `id` ever became
+ * the batch, all five would need to learn about it at once.
+ */
+await check('the worker record keys on the epic and carries the batch beside it', async () => {
+  const { advocates } = await tick({
+    ready: [epic('x-1'), bead('x-1.1'), bead('x-1.2')],
+    children: { 'x-1': [bead('x-1.1', { status: 'open' }), bead('x-1.2', { status: 'open' })] },
+  });
+
+  const card = advocates.snapshot().find((a) => a.workspace === 'alpha');
+  assert.equal(card.workers.length, 1, 'one worker for the batch, so one slot');
+  assert.equal(card.workers[0].id, 'x-1', 'keyed on the epic');
+  assert.deepEqual(card.workers[0].batch, ['x-1.1', 'x-1.2'], 'with the batch alongside it');
 });
 
 /**

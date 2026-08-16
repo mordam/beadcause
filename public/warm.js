@@ -15,12 +15,14 @@
 
   **Filled once is not the same as kept warm.** That background fill happens once per
   document and the TTL below then ages what it fetched out — which is fine for a page
-  you pass through and wrong for the inbox, which is a page you sit on for hours. So the
-  heaviest tab's payload is *maintained* rather than merely stored: the inbox is parked
-  on the delta stream anyway, every wake carries the advocate roster whatever woke it,
-  and `refresh()` folds that in and resets the entry's clock for no request at all. An
-  entry only goes cold now when something has actually changed that the log cannot
-  carry, and then it is re-asked once. See `warmWork` in public/app.js.
+  you pass through and wrong for the inbox, which is a page you sit on for hours. So a
+  warmed payload is *maintained* rather than merely stored: the inbox is parked on the
+  delta stream anyway, and an entry the log has not contradicted is as true as it was
+  when it was fetched, however old it is — `refresh()` says so and resets its clock for
+  no request at all. What an entry that *has* been contradicted costs is then decided
+  per path, on what the request costs the daemon, and `/api/prs` is deliberately never
+  re-asked here because it is a `gh` call per repo. See `MAINTAINED` in public/app.js
+  for the table and the argument behind each row.
 
   **Within a document.** A list that is rebuilt with `innerHTML` on every refresh
   throws away every card, including the twenty that did not change — and with them
@@ -92,7 +94,7 @@
     // The heaviest of the three tabs and the one this order is for: `/api/work` is two
     // `bd` calls per workspace, so it is the tab that most needs to be warm — and the
     // one whose entry the inbox goes on to *maintain* off the stream rather than merely
-    // fill once. See `refresh` below and `warmWork` in public/app.js.
+    // fill once. See `refresh` below and `MAINTAINED` in public/app.js.
     { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
     // `/api/work` was under /admin too, because /admin fetched it — for the single
     // `observing` boolean, which the delta stream now carries on every wake (bc-rk2o).
@@ -100,11 +102,39 @@
     // view does not warm for the others, and leaving it here would have left /monitor
     // cold every time you arrived from /admin. /admin still *reads* a held `/api/work`
     // for its first frame; it is simply no longer the page that fills it.
+    //
+    // The ledger (bc-nib3.2) is here in tab order and is the one view that warms
+    // **nothing** — a recorded decision rather than a gap, because a tab missing from
+    // this list is a tab that stays cold and nobody notices until they are on a phone
+    // wondering why one is slower than the others.
+    //
+    // Every path above is a constant, which is the whole mechanism: the list is fetched
+    // from whatever page you are on, for the pages you are not. History has no constant
+    // to offer. Its boot request carries the space picker's current selection —
+    // `workspace=`, or `space=`, or neither — so any path written here would be the
+    // right ledger only for whoever happened to have the picker set the way this file
+    // guessed, and warming every selection is a sweep of the whole tracker to fill a
+    // cache for a page that may not be opened.
+    //
+    // It is also the view that needs it least: the one screen in the app explicitly
+    // about what has already happened, where an instant first frame of slightly stale
+    // rows buys less than it does anywhere else.
+    { id: 'history', paths: [] },
     { id: 'admin', paths: ['/api/admin'] },
     // Below the bar: both are reached from a row on the inbox rather than from a tab,
     // so they are warmed after the tabs are — and `/api/prs` last of all, because it is
     // a `gh` call per repo and the slowest thing on this list.
     { id: 'console', paths: ['/api/consoles'] },
+    // The endorsement queue, and the same kind of view as the two either side of it: no
+    // tab, reached in one tap from the 🗳 in the inbox's top bar or from the advocate
+    // console's `N held for endorsement` pill. It is second to last because it is the
+    // second most expensive thing on this list — `/api/unendorsed` is a `bd` sweep of
+    // every workspace and then a `bd show` per row for the provenance line
+    // (lib/endorsequeue.js) — and not last only because `/api/prs` shells out to `gh`
+    // once per repo. Warming it is the whole of why arriving at that page is instant:
+    // it is the one screen in the app whose rows are the full bead, so the wait in
+    // front of it was the longest of any view here.
+    { id: 'endorse', paths: ['/api/unendorsed'] },
     { id: 'prs', paths: ['/api/prs'] },
   ];
 

@@ -33,6 +33,7 @@
  *   - title: Cache-bust site.js
  *     type: task
  *     priority: 2
+ *     complexity: low          # low | medium | high, or leave it off
  *     description: |
  *       No ?v= on the script tag, so a shipped header change looks absent.
  *     acceptance: A deploy changes the URL.
@@ -48,6 +49,9 @@ import { loadConfig } from '../lib/config.js';
 import { parseProposal, proposalBody, proposalTitle, dupeNote } from '../lib/proposal.js';
 import { annotateDuplicates, liveCandidates } from '../lib/dupe.js';
 import { parseJson } from '../lib/bd.js';
+import { beadType, park, questionType } from '../lib/park.js';
+import { ownAddresseeLabels } from '../lib/addressee.js';
+import { bylineFor } from '../lib/byline.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -111,8 +115,13 @@ const INTRO = {
   }.`,
 };
 
-const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: cfg.actor };
-const bd = (args) => execFileSync(cfg.bdBin, args, { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+// The byline this machine files under, on the argv as well as in the environment — a
+// workspace `config.yaml` with an `actor:` in it beats `BEADS_ACTOR` and the flag beats
+// both, which is why `Bd.run` has always appended it. See bin/ask.js and lib/byline.js.
+const byline = bylineFor(cfg);
+const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: byline };
+const bd = (args) =>
+  execFileSync(cfg.bdBin, [...args, '--actor', byline], { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 
 /**
  * Is any of this already filed?
@@ -147,12 +156,22 @@ const body = proposalBody(ws.name, flagged, {
   context: from ? `_Filed from a session working ${from}, while the reason for it was still on screen._` : '',
 });
 
+/**
+ * A conflict's question is typed after the bead it is about to park.
+ *
+ * bd will only let an epic be blocked by another epic (lib/park.js), and a conflict
+ * is exactly the thing an epic gets raised on — the session is stopped, so an edge
+ * that does not go in hands the epic straight back to the next advocate tick. A
+ * discovery parks nothing, so it stays an ordinary task.
+ */
+const type = kind === 'conflict' && from ? questionType(beadType(bd, from)) : 'task';
+
 const out = bd([
   'create',
   '--title',
   proposalTitle(ws.name, parsed.beads),
   '--type',
-  'task',
+  type,
   '--priority',
   String(kind === 'conflict' ? 1 : priority),
   '--label',
@@ -164,6 +183,9 @@ const out = bd([
   'advocate-proposal',
   '--label',
   `proposed-${kind === 'conflict' ? 'conflict' : 'discovery'}`,
+  // Whose decision this is, when a tracker is shared. Nothing at all on a single-person
+  // install — see lib/addressee.js.
+  ...ownAddresseeLabels(cfg).flatMap((l) => ['--label', l]),
   '--description',
   body,
   '--json',
@@ -176,11 +198,8 @@ const id = created.id || created.issue?.id;
 // open a second session onto the same wall. A discovery blocks nothing — the work
 // that found it carries on.
 if (kind === 'conflict' && from) {
-  try {
-    bd(['dep', 'add', from, id]);
-  } catch (err) {
-    console.error(`beadcause-propose: filed ${id}, but could not park ${from} behind it — ${String(err.message).split('\n')[0]}`);
-  }
+  const { parked, note } = park(bd, from, id);
+  if (!parked) console.error(`beadcause-propose: ${note}`);
 }
 
 console.log(id);

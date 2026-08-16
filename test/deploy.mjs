@@ -29,6 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-deploy-'));
 // Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
@@ -258,6 +259,84 @@ await check('every step it ran is on the record, with its exit code', () => {
   assert.ok(rec.steps.length >= 4, `only ${rec.steps.length} steps recorded`);
   assert.deepEqual(new Set(rec.steps.map((s) => s.code)), new Set([0]));
   assert.equal(rec.steps.at(-1).name, 'deploy');
+});
+
+/* ------------------------------------------------------------- a pinned deploy */
+
+console.log('\nthe commit that was asked for');
+
+/**
+ * Why a pin exists at all: the release queue's settle window closes over a batch of
+ * merges and the runner fetches a grace period later. Everything that landed in between
+ * would ride along on a deploy that never considered it — stamped by nothing, recorded
+ * nowhere. So the sweep captures a hash and this is what honours it. See lib/release.js.
+ *
+ * Asserted through a real fast-forward, because "deployed the older commit" and "deployed
+ * the newer one" differ only in the tree the command afterwards is looking at.
+ */
+const pinned = repo('pinned');
+const pinMarker = path.join(tmp, 'pinned-deployed');
+const pinCfg = (over = {}) =>
+  config(
+    {
+      pinned: {
+        command: node(`require('fs').writeFileSync(${JSON.stringify(pinMarker)}, require('fs').readFileSync('lib/thing.js','utf8'))`),
+        graceMs: 0,
+        ...over,
+      },
+    },
+    { pinned: pinned.checkout }
+  );
+
+advance(pinned, { 'lib/thing.js': 'export const x = 1;\n' });
+const atWindowClose = git(pinned.work, ['rev-parse', 'HEAD']).trim();
+advance(pinned, { 'lib/thing.js': 'export const x = 2;\n' }, 'the merge that arrived after the window closed');
+
+await check('a pinned deploy stops at the commit it was given, however far the branch has moved', async () => {
+  const rec = await settled(startDeploy(pinCfg(), 'pinned', { pin: atWindowClose }).id);
+  assert.equal(rec.status, 'ok', rec.error || '');
+  assert.equal(rec.to, atWindowClose, 'the checkout is at the pinned commit, not at origin/main');
+  assert.equal(rec.pin, atWindowClose, 'and the record says which commit was asked for');
+  // The tree the command ran against, which is the only thing that actually shipped.
+  assert.equal(fs.readFileSync(pinMarker, 'utf8'), 'export const x = 1;\n');
+});
+
+await check('and an unpinned one still takes the branch, which is what pressing Ship means', async () => {
+  const rec = await settled(startDeploy(pinCfg(), 'pinned', {}).id);
+  assert.equal(rec.status, 'ok', rec.error || '');
+  assert.equal(rec.pin, null);
+  assert.equal(fs.readFileSync(pinMarker, 'utf8'), 'export const x = 2;\n', 'the later merge goes out on the next deploy, unpinned');
+});
+
+await check('a pin that is not a commit hash refuses before a record exists, rather than deploying the branch', () => {
+  const before = listDeploys().length;
+  // A symbolic ref is refused as hard as a typo: `origin/main` resolved at deploy time is
+  // exactly the moving target the pin exists to hold still against.
+  assert.throws(() => startDeploy(pinCfg(), 'pinned', { pin: 'origin/main' }), /not a commit hash/);
+  assert.throws(() => startDeploy(pinCfg(), 'pinned', { pin: atWindowClose.slice(0, 8) }), /not a commit hash/);
+  assert.equal(listDeploys().length, before, 'nothing was written down, because nothing started');
+});
+
+await check('a well-formed pin that is not on the branch fails the deploy instead of guessing', async () => {
+  const absent = 'f'.repeat(40);
+  const rec = await settled(startDeploy(pinCfg(), 'pinned', { pin: absent }).id);
+  assert.equal(rec.status, 'failed');
+  assert.match(rec.error, /not on origin\/main/);
+  assert.equal(rec.steps.some((s) => s.name === 'deploy'), false, 'and stops before the deploy command, like every other refusal here');
+});
+
+await check('a commit on some other branch of the same origin is not on this one either', async () => {
+  git(pinned.work, ['checkout', '--quiet', '-b', 'sideshow']);
+  fs.writeFileSync(path.join(pinned.work, 'lib', 'thing.js'), 'export const x = 99;\n');
+  git(pinned.work, ['add', '-A']);
+  git(pinned.work, ['commit', '--quiet', '-m', 'not for main']);
+  const elsewhere = git(pinned.work, ['rev-parse', 'HEAD']).trim();
+  git(pinned.work, ['push', '--quiet', 'origin', 'sideshow']);
+  git(pinned.work, ['checkout', '--quiet', 'main']);
+  const rec = await settled(startDeploy(pinCfg(), 'pinned', { pin: elsewhere }).id);
+  assert.equal(rec.status, 'failed');
+  assert.match(rec.error, /not on origin\/main/);
+  assert.equal(fs.readFileSync(pinMarker, 'utf8'), 'export const x = 2;\n', 'and nothing new was deployed');
 });
 
 /* ------------------------------------------------------------------- rebuilding */
@@ -532,6 +611,6 @@ await check('a deploy still running is not announced', async () => {
 
 /* --------------------------------------------------------------------- exit */
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(`\n${ran - failures}/${ran} passed`);
 process.exit(failures ? 1 : 0);

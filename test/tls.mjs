@@ -34,8 +34,9 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -44,8 +45,18 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-tls-'));
 // Before lib/config.js is imported: CONFIG_DIR resolves once, at module load.
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 
-const { MIN_VERSION, certificate, certificateName, closeServer, isSecure, publicBaseUrl, tailnetServer, serverOptions } =
-  await import(LIB('tls.js'));
+const {
+  APP_CLEARTEXT_HOSTS,
+  MIN_VERSION,
+  certificate,
+  certificateName,
+  cleartextWarning,
+  closeServer,
+  isSecure,
+  publicBaseUrl,
+  tailnetServer,
+  serverOptions,
+} = await import(LIB('tls.js'));
 const { reconcileBaseUrl } = await import(LIB('config.js'));
 
 /* ------------------------------------------------------------------- harness */
@@ -67,7 +78,7 @@ function skip(name) {
   console.log(`  skip ${name}`);
 }
 const done = (code) => {
-  fs.rmSync(tmp, { recursive: true, force: true });
+  removeTreeSync(tmp);
   console.log(failures ? `\n${failures} of ${ran} failed` : `\n${ran} passed`);
   process.exit(code ?? (failures ? 1 : 0));
 };
@@ -491,6 +502,83 @@ await check('reconciling persists nothing unless it is asked to', () => {
   const cfg = { ...CFG, baseUrl: 'http://100.96.105.106:4318' };
   quietly(() => reconcileBaseUrl(cfg));
   assert.equal(fs.existsSync(written), false, 'a CLI that only wanted to print a URL must not rewrite the config');
+});
+
+/* ------------------------------------- what the Mac says about the link it prints */
+
+// bc-affn. The http fallback above is right for a browser and unusable by the APK — it
+// has had cleartext off since bc-14s — so the moment a link is printed is the moment to
+// say so, while the person is still standing at the Mac that can fix it.
+
+await check('an http link is called out as one the Android app will refuse', () => {
+  const said = cleartextWarning('http://100.96.105.106:4318');
+  assert.ok(said, 'the address the QR falls back to is exactly the one the app cannot pair with');
+  const all = said.join(' ');
+  assert.match(all, /Android app will refuse/i, 'it has to name what refuses it');
+  assert.match(all, /login\.tailscale\.com\/admin\/dns/, 'and where the fix is, which is not on this Mac');
+});
+
+await check('and an https link says nothing at all', () => {
+  // Silence is the load-bearing half: a line printed on every run is a line nobody reads
+  // on the run that matters.
+  for (const url of [`https://${NAME}:4318`, 'https://beads.example.com', 'https://beads.example.com:8443']) {
+    assert.equal(cleartextWarning(url), null, `${url} is pairable and must be silent`);
+  }
+});
+
+await check('nor does loopback, which the app still permits and an emulator lives on', () => {
+  for (const host of APP_CLEARTEXT_HOSTS) {
+    assert.equal(cleartextWarning(`http://${host}:4318`), null, `${host} is in the APK's cleartext exceptions`);
+  }
+});
+
+await check('an http address that is not the tailnet is warned about too', () => {
+  // A LAN address or a bare hostname set by hand: the app refuses those for the same
+  // reason and with the same sentence, so the rule is the scheme rather than the shape.
+  for (const url of ['http://192.168.1.10:4318', 'http://mac.local:4318', 'http://beads.example.com']) {
+    assert.ok(cleartextWarning(url), `${url} is cleartext and the app will not send its token to it`);
+  }
+});
+
+await check('and a URL that is not a URL is not a warning', () => {
+  for (const junk of ['', null, undefined, 'not a url', '100.96.105.106:4318']) {
+    assert.equal(cleartextWarning(junk), null, `${JSON.stringify(junk)} must not throw or invent a warning`);
+  }
+});
+
+/** `bin/beadcause.js <flag>` against a config of our own, as a real process. */
+function cli(flag, baseUrl) {
+  const dir = fs.mkdtempSync(path.join(tmp, 'cli-'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ baseUrl, token: 'tok' }));
+  const run = spawnSync(process.execPath, [path.join(HERE, '..', 'bin', 'beadcause.js'), flag], {
+    encoding: 'utf8',
+    env: { ...process.env, BEADCAUSE_CONFIG_DIR: dir },
+  });
+  return { out: run.stdout, err: run.stderr, code: run.status };
+}
+
+await check('`--url` keeps the warning off stdout, because scripts pipe that', () => {
+  // The acceptance criterion, as the thing it protects: `beadcause --url` is read into
+  // shell variables, and a sentence in there is an address nothing can dial.
+  const r = cli('--url', 'http://192.168.1.10:4318');
+  assert.equal(r.code, 0);
+  assert.equal(r.out.trim(), 'http://192.168.1.10:4318/?t=tok', 'stdout is the URL and nothing else');
+  assert.match(r.err, /Android app will refuse/, 'and the warning still gets said, on stderr');
+});
+
+await check('and says nothing on either stream when the link is already https', () => {
+  const r = cli('--url', 'https://beads.example.com');
+  assert.equal(r.code, 0);
+  assert.equal(r.out.trim(), 'https://beads.example.com/?t=tok');
+  assert.equal(r.err.trim(), '', 'a pairable link is not worth a word');
+});
+
+await check('`--qr` still prints its code, with the warning last on stderr', () => {
+  const r = cli('--qr', 'http://192.168.1.10:4318');
+  assert.equal(r.code, 0);
+  assert.match(r.out, /Pair the app/, 'the QR itself is untouched');
+  assert.match(r.out, /http:\/\/192\.168\.1\.10:4318\/\?t=tok/);
+  assert.match(r.err, /login\.tailscale\.com\/admin\/dns/);
 });
 
 // The one thing on the bead that no test on this machine can answer: whether a phone

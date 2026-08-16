@@ -20,19 +20,18 @@
 // answers "did my uncommitted change break this", not "did this branch". Against a
 // main that has no delivery card at all, every case in the first four groups fails
 // at once, which is what it should look like.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
 import { deliveryBody, deliveryTitle } from '../lib/delivery.js';
 import { proposalBody, proposalTitle } from '../lib/proposal.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'delivery-check-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -263,76 +262,6 @@ function serve() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9700 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-delivery-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 const evalJs = async (s, expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
   if (r.exceptionDetails)
@@ -411,7 +340,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-delivery-');
 
 try {
   await s.send('Page.enable');
@@ -752,7 +681,7 @@ try {
     await sleep(200);
     if (await evalJs(s, `!!${CARD(PROP_KEY)}`)) break;
   }
-  await evalJs(s, `${CARD(PROP_KEY)}.querySelector('[data-act="toggle"]').click()`);
+  await evalJs(s, `${CARD(PROP_KEY)}.click()`);
   await sleep(500);
 
   let r1 = await evalJs(s, ROW_VIEW(1));

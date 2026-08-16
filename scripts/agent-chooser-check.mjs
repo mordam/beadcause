@@ -28,18 +28,17 @@
 // rule: `--baseline` serves the committed app.js and style.css, so a failure can be
 // told apart from a flake — baseline must fail the placement cases, the working
 // copy must pass all of them.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
 import { publicRoster } from '../lib/agents.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'agent-chooser-check-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -204,78 +203,6 @@ function serve() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9700 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-chooser-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 const evalJs = async (s, expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
   if (r.exceptionDetails)
@@ -299,12 +226,19 @@ const BOX = `(() => {
   const ta = document.querySelector('.freeform textarea[data-role="answer"]');
   const dots = document.querySelector('.agent-dots');
   const bar = document.querySelector('.reply-bar');
-  const thread = [...document.querySelectorAll('.comments .comment')].pop();
+  // The composer as a whole, and the brief above it. On a phone these are two
+  // consecutive rows of the card, and the brief is its own scroller — so the thread
+  // inside it has no fixed position to measure against, and the brief's own bottom
+  // edge is what stands in for "where the reading stops". The last .comment used to
+  // be read here; see the placement checks below for why it no longer can be. (No
+  // backticks in this comment: it lives inside a template literal.)
+  const freeform = document.querySelector('.freeform');
+  const brief = document.querySelector('.card.open > .brief');
   const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect();
     return { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(b.right), h: Math.round(b.height) }; };
   const shown = (e) => !!e && !!e.offsetParent;
   return {
-    ta: r(ta), dots: r(dots), bar: r(bar), thread: r(thread),
+    ta: r(ta), dots: r(dots), bar: r(bar), freeform: r(freeform), brief: r(brief),
     // A chooser is "in the way" if any of it is on screen with the panel shut.
     loudChips: [...document.querySelectorAll('.agent-chip')].filter(shown).length,
     loudDesc: [...document.querySelectorAll('.agent-desc')].filter(shown).length,
@@ -355,7 +289,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-chooser-');
 
 try {
   await s.send('Page.enable');
@@ -389,7 +323,7 @@ try {
   }
   if (!(await evalJs(s, `!!document.querySelector('.card[data-key]')`))) throw new Error('the list never rendered');
 
-  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}][data-act="toggle"]').click()`);
   await sleep(600);
   if (!(await evalJs(s, `!!document.querySelector('.freeform textarea[data-role="answer"]')`)))
     throw new Error(`the answer box never rendered — page error: ${await evalJs(s, `window.__err`)}`);
@@ -401,16 +335,37 @@ try {
 
   /* 1. the thread runs into the box, with no chooser in between */
   const shut = await evalJs(s, BOX);
-  const gap = shut.thread && shut.ta ? shut.ta.top - shut.thread.bottom : null;
+  // What the chooser costs the brief: everything the composer puts above the place
+  // you type. The reply strip, and the padding over it. Nothing else may live here.
+  //
+  // This used to be measured from the bottom of the last comment, and that was right
+  // for exactly 74 minutes: the fold (124b55f) and the pinned composer (23a0fa3)
+  // landed the same afternoon from different branches. Before the pin, the brief and
+  // the box were consecutive blocks in one scroller and the last comment really did
+  // sit a strip above the box. After it, the brief is its own scroller with the
+  // composer pinned under it — so that distance became "where the brief happens to be
+  // scrolled to", which the fixture's own content decides. It read 134px against a
+  // 110px bar with nothing wrong, and stayed red on main for two days.
+  const strip = shut.freeform && shut.ta ? shut.ta.top - shut.freeform.top : null;
+  const seam = shut.brief && shut.freeform ? shut.freeform.top - shut.brief.bottom : null;
   check(
     'no agent block between the thread and the answer box',
     shut.loudChips === 0 && shut.loudDesc === 0 && shut.loudAllow === 0,
     `${shut.loudChips} chip(s), ${shut.loudDesc} foundation(s), ${shut.loudAllow} tools box(es) on screen`
   );
   check(
-    'the thread ends within a strip of the box',
-    gap != null && gap <= 110,
-    gap == null ? 'no thread or no box' : `${gap}px from the last comment to the textarea`
+    'the chooser costs the box a strip, not a block',
+    strip != null && strip <= 110,
+    strip == null ? 'no box' : `${strip}px above the textarea`
+  );
+  check(
+    // The other half, and the one the old measurement was really reaching for: the
+    // brief runs right up to the composer, so nothing has been slipped in between.
+    // Scroll-position-proof, because it is two card rows meeting, not two pieces of
+    // content — and it still fails if a block is inserted there.
+    'and the thread runs right up to it, with nothing in between',
+    seam != null && seam <= 2,
+    seam == null ? 'no brief or no box' : `${seam}px between the brief and the composer`
   );
 
   /* 2. the ⋯ is the box's own top-right corner */

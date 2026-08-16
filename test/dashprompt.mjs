@@ -56,6 +56,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -64,7 +65,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-dashprompt-'));
 // Before lib/ is imported: CONFIG_DIR resolves once, at module load.
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
-process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }));
+process.on('exit', () => removeTreeSync(tmp));
 
 let failures = 0;
 let ran = 0;

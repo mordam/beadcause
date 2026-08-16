@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-owndeploy-'));
 // Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
@@ -178,7 +179,7 @@ check('the entry lands in the stored file, and in the config the caller is holdi
   const cfg = config({ workspaces: [{ name: 'beadcause', dir: path.join(tmp, 'beads') }], sessionDirs: { beadcause: root } });
   const notice = declareOwnDeploy(cfg, { root, home: home('live', path.join(root, 'bin', 'router.js')) });
 
-  assert.match(notice, /deploys\.beadcause declared/);
+  assert.match(notice, /deploys\["beadcause"\] declared/);
   assert.deepEqual(stored().deploys.beadcause.command, ['launchctl', 'kickstart', '-k', `gui/{uid}/${LABEL}`]);
   assert.equal(stored().deploys.beadcause.restarts, true);
   assert.deepEqual(cfg.deploys.beadcause, stored().deploys.beadcause);
@@ -241,5 +242,5 @@ check('and with no service installed there is no declaration at all', () => {
 /* ------------------------------------------------------------------------ end */
 
 console.log(`\n${ran - failures}/${ran} passed`);
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);

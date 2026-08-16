@@ -58,6 +58,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -291,10 +292,10 @@ await check('a repeated key bails to a whole-list rebuild rather than guessing',
 });
 
 await check('the panes that are not beads have keys a bead can never collide with', () => {
-  // `@shade`, `@requests`, `@empty` against `workspace/id`. One `@` is what keeps the
-  // two namespaces apart, so it is asserted rather than left to a comment.
+  // `@requests`, `@empty` against `workspace/id`. One `@` is what keeps the two
+  // namespaces apart, so it is asserted rather than left to a comment.
   const app = read('public/app.js');
-  for (const key of ['@shade', '@requests', '@empty']) {
+  for (const key of ['@requests', '@empty']) {
     assert.ok(app.includes(`key: '${key}'`), `${key} is no longer the key the inbox uses`);
   }
 });
@@ -323,7 +324,7 @@ await check('it warms the other views and never the one it is on', async () => {
   // Tabs first, and `/api/work` at the head of them: the advocates board is the
   // heaviest payload and the only other tab a thumb can reach from here, and this is a
   // sequential loop, so its place in the queue is how long that tab stays cold.
-  assert.deepEqual(t.asked, ['/api/work', '/api/admin', '/api/consoles', '/api/prs']);
+  assert.deepEqual(t.asked, ['/api/work', '/api/admin', '/api/consoles', '/api/unendorsed', '/api/prs']);
 });
 
 await check('a path two views share is fetched once, not twice', async () => {
@@ -333,7 +334,13 @@ await check('a path two views share is fetched once, not twice', async () => {
   // (inbox and advocates) are wanted by more than one view.
   warm.prewarm({ here: 'prs', api: t.api, delay: 0 });
   await tick(20);
-  assert.deepEqual(t.asked, ['/api/questions?scope=human', '/api/work', '/api/admin', '/api/consoles']);
+  assert.deepEqual(t.asked, [
+    '/api/questions?scope=human',
+    '/api/work',
+    '/api/admin',
+    '/api/consoles',
+    '/api/unendorsed',
+  ]);
   assert.equal(new Set(t.asked).size, t.asked.length, 'a `bd` sweep must not be paid for twice');
 });
 
@@ -372,7 +379,7 @@ await check('it runs once per document — a page open all afternoon does not re
   warm.forget();
   warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
   await tick(20);
-  assert.equal(t.asked.length, 4, 'a tab switch is a new document, and that is what re-warms');
+  assert.equal(t.asked.length, 5, 'a tab switch is a new document, and that is what re-warms');
 });
 
 await check('a screen that has gone dark stops it — a phone in a pocket warms nothing', async () => {
@@ -489,7 +496,7 @@ await check('past its TTL there is nothing to refresh — an entry that old is g
 /* -------------------------------------------------------------- the wiring */
 
 await check('every standing page loads the file, or that page is the one cold tab', () => {
-  for (const page of ['index.html', 'console.html', 'prs.html', 'monitor.html', 'admin.html']) {
+  for (const page of ['index.html', 'console.html', 'monitor.html', 'admin.html', 'endorse.html']) {
     assert.ok(read(`public/${page}`).includes('/warm.js'), `${page} does not load warm.js`);
   }
 });
@@ -498,9 +505,13 @@ await check('and it is loaded before the page script that asks it for a list', (
   for (const [page, script] of [
     ['index.html', '/app.js'],
     ['console.html', '/console.js'],
-    ['prs.html', '/prs.js'],
     ['monitor.html', '/monitor.js'],
+    // The board is a pane on that same page now (bc-d4d5), and it reads the warm layer
+    // for its own payload — so it is the second script on the page here rather than a
+    // page of its own, exactly as mirror.js is in test/stream.mjs.
+    ['monitor.html', '/prs.js'],
     ['admin.html', '/admin.js'],
+    ['endorse.html', '/endorse.js'],
   ]) {
     const html = read(`public/${page}`);
     assert.ok(html.indexOf('/warm.js') < html.indexOf(script), `${page} loads ${script} first`);
@@ -528,10 +539,13 @@ await check('every tab the bar draws has a view — and two views are deliberate
   for (const tab of ids) assert.ok(views.includes(tab), `${tab} is a tab with no view — it stays cold`);
   // The other direction stopped being an equality when the bar lost two tabs: the PR board
   // (bc-l8jp.6) and the chat session (bc-l8jp.5) are both still standing pages, reached
-  // from a PR card, a chat row or the ＋, so both are still warmed. They are the *only*
-  // two allowed to be views without tabs — anything else here would be a payload warmed
-  // for a page nobody can get to.
-  assert.deepEqual(views.filter((v) => !ids.includes(v)), ['console', 'prs']);
+  // from a PR card, a chat row or the ＋, so both are still warmed. The endorsement queue
+  // is the third of exactly that kind and was simply missed (bc-bsgn) — it has never had
+  // a tab either (its doors are the 🗳 in the inbox's top bar and the advocate console's
+  // `N held for endorsement` pill), and it is the most expensive boot of the three. These
+  // are the *only* views allowed to have no tab — anything else here would be a payload
+  // warmed for a page nobody can get to.
+  assert.deepEqual(views.filter((v) => !ids.includes(v)), ['console', 'endorse', 'prs']);
   // And the tabs' own order still follows the bar, so the warm fills them in thumb order.
   assert.deepEqual(views.filter((v) => ids.includes(v)), ids);
   // Every tab before every page that is not one (bc-xxzz). The background warm is
@@ -544,6 +558,15 @@ await check('every tab the bar draws has a view — and two views are deliberate
     firstOther === -1 || firstOther > lastTab,
     `${views[firstOther]} is warmed before a tab is — the tabs come first, and this list is the warm order`
   );
+  // A view may warm nothing, and exactly one does. `paths: []` satisfies the loop above
+  // without prefetching a byte, so it is the obvious way to *silence* this check rather
+  // than answer it — and the answer is only defensible for History, whose boot request
+  // carries the space picker's current selection and is therefore not a constant this
+  // file could hold. Any other pathless view is a tab that stays cold behind an entry
+  // claiming it does not, which is worse than the missing entry this check was written
+  // to catch.
+  const empty = plain(warm.VIEWS).filter((v) => !plain(v.paths).length).map((v) => v.id);
+  assert.deepEqual(empty, ['history'], `a view that warms nothing has to be a decision: ${empty.join(', ')}`);
 });
 
 await check('the inbox draws its list through the reconciler, not through innerHTML', () => {
@@ -634,14 +657,13 @@ const cold = await get('/api/poll');
 await check('/api/poll answers with the same screen /api/questions does', () => {
   // The whole reason the inbox can refresh itself from the poll. A field on one and
   // not the other is a refresh that draws a subtly different inbox from a reload —
-  // no counts on the chrome, or a filter it does not obey — and nothing would say so.
+  // no badges on the tabs, or a filter it does not obey — and nothing would say so.
   const missing = Object.keys(questions.body)
     .filter((k) => k !== 'scope' && k !== 'seq')
     .filter((k) => !(k in cold.body));
   assert.deepEqual(missing, [], `the poll is missing ${missing.join(', ')}`);
   assert.deepEqual(cold.body.filter, questions.body.filter);
   assert.deepEqual(cold.body.summary, questions.body.summary);
-  assert.ok('dismissAsk' in cold.body, 'the notification prompt has to survive a poll-driven refresh');
 });
 
 await check('and both build it from one function, so they cannot drift apart quietly', () => {
@@ -677,7 +699,7 @@ await check('a sequence from the future is a resync carrying the whole screen, n
 /* ------------------------------------------------------------------------- done */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} ok\n`);
 process.exit(failures ? 1 : 0);

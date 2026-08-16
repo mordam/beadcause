@@ -35,21 +35,35 @@
 //      floor. The TTL itself is fifteen minutes and no check can sit out a quarter of
 //      an hour — what is measurable, and what actually broke, is whether the entry's
 //      clock advances at all while nothing is being fetched.
+//   6. And so are the board and the switches — every *other* warmed path, which bc-xxzz
+//      left with the same hole (bc-27er). Same shape of claim and same unit: three
+//      stamps move across the idle window for no request at all; an event that moved
+//      one of them stops its restamp rather than papering over it; and then the two
+//      that are in-memory reads on the daemon — `/api/admin`, `/api/consoles` — are
+//      re-asked once each, while `/api/prs` is never re-asked on any wake, because it
+//      is a `gh` call per repo. That last one is a decision rather than a gap: see
+//      `MAINTAINED` in public/app.js. To measure it at all the inbox's kind filter is
+//      set to `Questions` partway through, because an inbox drawing PR cards sweeps
+//      `/api/prs` on its own minute and every count here would be unattributable.
 //
 // `--baseline` serves the committed public/app.js and public/warm.js instead of the
-// working copies, which is how you check that a failure here is a real one: baseline
-// must fail 2, 3, 4 and 5 and pass 1.
-import { execFileSync, spawn } from 'node:child_process';
+// working copies, which is how you check that a failure here is a real one. What
+// baseline fails is only ever the claims the working copy adds: on the branch that wrote
+// 2, 3, 4 and 5 it failed those, and on the one that wrote 6 it failed three of that
+// claim's five lines — the two it still passes are the ones that say a *moved* entry is
+// left alone, which a baseline that maintains nothing satisfies by doing nothing. They
+// are guards against the next change, not evidence for this one. A baseline that fails
+// nothing at all is a stale comparison rather than a pass, and the run says so.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'warm-check-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -103,7 +117,7 @@ function bump(event = { type: 'commented' }) {
   parked.clear();
 }
 
-const counts = { questions: 0, poll: 0, pollSweeps: 0, work: 0 };
+const counts = { questions: 0, poll: 0, pollSweeps: 0, work: 0, admin: 0, consoles: 0, prs: 0 };
 
 /** What `/api/work` answers — the shape lib/server.js sends, cut to what is read here. */
 const work = () => ({
@@ -117,6 +131,39 @@ const work = () => ({
   seq,
 });
 
+/**
+ * The other three payloads the inbox holds for pages you have not opened yet.
+ *
+ * Each is cut to what the page reading it actually looks at — an `Array` in the field the
+ * warm layer checks before it will keep the entry, because a payload it cannot recognise
+ * is one it re-fetches rather than half-patches. Every one of them answers instantly:
+ * claim 6 is about *how many* requests each path costs, never how long one takes, and
+ * charging the board a sweep here would only make the run longer.
+ */
+const adminStatus = () => ({
+  reopenIsFresh: false,
+  at: 0,
+  scopes: [
+    {
+      id: 'all',
+      label: 'Everything',
+      workspaces: ['demo'],
+      advocates: {
+        total: roster.length,
+        pausedCount: roster.filter((a) => a.paused).length,
+        ours: 0,
+        workers: 0,
+      },
+      terminals: { live: 0, closed: 0 },
+    },
+  ],
+  closed: [],
+});
+
+const consoles = () => ({ consoles: [], workspaces: ['demo'] });
+
+const board = () => ({ repos: [{ workspace: 'demo', prs: [] }], observing: false, unavailable: null });
+
 /** The screen both endpoints answer with — the same shape lib/server.js sends. */
 const screen = () => ({
   questions,
@@ -124,8 +171,7 @@ const screen = () => ({
   workspaces: ['demo'],
   spaces: [],
   filter: { space: 'all', workspace: 'all' },
-  dismissAsk: null,
-  summary: { sessions: 0, proposals: 0, questions: questions.length },
+  summary: { sessions: 0, proposals: 0 },
   seq,
 });
 
@@ -225,8 +271,25 @@ function serve() {
       return json({ ok: true, seq });
     }
 
-    // Everything else the app pokes at on boot — agents, prs, consoles. An empty body
-    // is a valid answer to all of them and keeps the fixture to the point.
+    /* The three paths this page holds warm for views nobody has tapped. Counted rather
+       than delayed: the whole of claim 6 is which of them a wake is allowed to *ask for*
+       again, and on the daemon two of them are in-memory reads while `/api/prs` is a `gh`
+       call per repo — which is why one of the three is never asked for here at all. */
+    if (p === '/api/admin') {
+      counts.admin += 1;
+      return json(adminStatus());
+    }
+    if (p === '/api/consoles') {
+      counts.consoles += 1;
+      return json(consoles());
+    }
+    if (p === '/api/prs') {
+      counts.prs += 1;
+      return json(board());
+    }
+
+    // Everything else the app pokes at on boot — agents, deploys, foundations. An empty
+    // body is a valid answer to all of them and keeps the fixture to the point.
     if (p.startsWith('/api/')) return json({});
 
     if (BASELINE && (p === '/app.js' || p === '/warm.js')) {
@@ -252,80 +315,6 @@ function serve() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
-}
-
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9600 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-warm-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      // Without these the renderer runs at about a frame a second while offscreen,
-      // and every measurement below measures the throttling instead of the page.
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -357,7 +346,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-warm-');
 
 try {
   await s.send('Page.enable');
@@ -392,6 +381,15 @@ try {
   const kept = await evalJs(s, `Object.keys(sessionStorage).filter((k) => k.startsWith('beadcause.warm:'))`);
   check('and it keeps what it drew, for the next document', (kept || []).length > 0, JSON.stringify(kept));
 
+  /* Take pull requests out of the inbox's kind filter, for the rest of the run.
+     The inbox draws PR cards of its own when the filter wants them, and then it sweeps
+     `/api/prs` on its own minute — which is the *other* thing that keeps that entry warm
+     and would make every `/api/prs` count below unattributable. With `PRs` deselected the
+     board is exactly what claim 6 is about: a payload held for a page reached from a row,
+     which this document is not itself drawing and must therefore never go and re-ask for.
+     Every fixture question is a plain bead, so `Questions` keeps all five cards. */
+  await evalJs(s, `localStorage.setItem('beadcause.kinds', '["question"]')`);
+
   /* 2. away and back — the tab tap */
   await s.send('Page.navigate', { url: `${BASE}/prs?t=${TOKEN}` });
   await sleep(800);
@@ -424,6 +422,16 @@ try {
     JSON.parse((await evalJs(s, `sessionStorage.getItem('beadcause.warm:/api/work')`)) || 'null');
   const workBefore = await heldWork();
   const workAsksAtRest = counts.work;
+  // And the same reading for the other three, which is the whole of claim 6: a stamp that
+  // moves while the request count does not is an entry the log alone kept alive.
+  const stampOf = async (path) =>
+    Number(JSON.parse((await evalJs(s, `sessionStorage.getItem('beadcause.warm:${path}')`)) || 'null')?.at) || 0;
+  const restStamps = {
+    admin: await stampOf('/api/admin'),
+    consoles: await stampOf('/api/consoles'),
+    prs: await stampOf('/api/prs'),
+  };
+  const restAsks = { admin: counts.admin, consoles: counts.consoles, prs: counts.prs };
   await sleep(27000);
   check(
     'the inbox follows the event log — 27 idle seconds cost no sweep at all',
@@ -502,6 +510,26 @@ try {
     `${counts.work} /api/work so far, ${Math.round((Date.now() - loadedAt) / 1000)}s into a 60s floor`
   );
 
+  /* 6. the board and the switches — the other three warmed paths, same hole */
+
+  const idleStamps = {
+    admin: await stampOf('/api/admin'),
+    consoles: await stampOf('/api/consoles'),
+    prs: await stampOf('/api/prs'),
+  };
+  check(
+    '/admin, the chats and the board are kept young by the log alone — three new stamps, no requests',
+    idleStamps.admin > restStamps.admin &&
+      idleStamps.consoles > restStamps.consoles &&
+      idleStamps.prs > restStamps.prs &&
+      counts.admin === restAsks.admin &&
+      counts.consoles === restAsks.consoles &&
+      counts.prs === restAsks.prs,
+    `+${idleStamps.admin - restStamps.admin}/${idleStamps.consoles - restStamps.consoles}/${
+      idleStamps.prs - restStamps.prs
+    }ms, ${counts.admin - restAsks.admin + (counts.consoles - restAsks.consoles) + (counts.prs - restAsks.prs)} requests`
+  );
+
   /* An advocate pausing: on the poll already, so it must land in the held payload for
      nothing at all. This is the half of the advocates board that costs no request. */
   await fetch(`${BASE}/fixture/pause`);
@@ -511,6 +539,26 @@ try {
     'an advocate pausing lands in the held payload off the poll, with no request at all',
     paused?.data?.advocates?.[0]?.paused === true && counts.work === workAsksAtRest,
     `paused ${String(paused?.data?.advocates?.[0]?.paused)}, ${counts.work - workAsksAtRest} extra sweeps`
+  );
+  /* And the same event seen from the board's side. An advocate is one of the five things
+     that can move a lamp on it (`BOARD_EVENTS` in public/stream.js), so the held board is
+     one the log has just contradicted — and a stamp put forward here would be a fresh
+     clock over a payload we know to be wrong. It keeps its own age and the TTL takes it,
+     which is exactly where the board started. */
+  const movedStamps = { admin: await stampOf('/api/admin'), prs: await stampOf('/api/prs') };
+  check(
+    'an event that moved them stops the restamp rather than being papered over',
+    movedStamps.prs === idleStamps.prs && movedStamps.admin === idleStamps.admin,
+    `board ${movedStamps.prs === idleStamps.prs ? 'held' : 'restamped'}, /admin ${
+      movedStamps.admin === idleStamps.admin ? 'held' : 'restamped'
+    } — only /api/work folds a snapshot of now and may keep its clock`
+  );
+  check(
+    'and an event inside the floor costs no request on any of the cheap paths either',
+    counts.admin === restAsks.admin && counts.consoles === restAsks.consoles && counts.prs === restAsks.prs,
+    `${counts.admin - restAsks.admin} admin, ${counts.consoles - restAsks.consoles} consoles, ${
+      counts.prs - restAsks.prs
+    } prs, ${Math.round((Date.now() - loadedAt) / 1000)}s into a 60s floor`
   );
 
   /* And the `bd` half, which no event carries. Outside the floor this time, because
@@ -528,6 +576,27 @@ try {
     'and a claimed bead — which no event carries — is re-asked once, so the board is not an hour old',
     counts.work === workAsksAtRest + 1 && claimedHeld?.data?.workspaces?.[0]?.claimed?.[0]?.id === 'wm-9',
     `${counts.work - workAsksAtRest} sweep(s), holding ${claimedHeld?.data?.workspaces?.[0]?.claimed?.[0]?.id}`
+  );
+  /* The same wake, from the other three paths' point of view. It is outside the floor and
+     it moved something, so the two that are in-memory reads on the daemon go and ask —
+     once each, which is what stops /admin and the chat launcher being blank on arrival at
+     the end of a long afternoon. */
+  check(
+    'the same wake re-asks /admin and the chats once each — cheap on the daemon, and the tab is not blank',
+    counts.admin === restAsks.admin + 1 && counts.consoles === restAsks.consoles + 1,
+    `${counts.admin - restAsks.admin} admin, ${counts.consoles - restAsks.consoles} consoles`
+  );
+  /* And the board, which is a `gh` call per repo: never, on any wake, for the whole run.
+     This is the decision the bead was filed to make rather than a limitation — the inbox
+     sweeps the board on its own minute when the kind filter wants pull requests, and when
+     it does not, nobody pays a sweep per minute for a page that may never be opened. */
+  const prsHeld = await stampOf('/api/prs');
+  check(
+    'and the board is never re-asked for at all — a `gh` sweep is not spent on a page nobody opened',
+    counts.prs === restAsks.prs && prsHeld > movedStamps.prs,
+    `${counts.prs - restAsks.prs} /api/prs since the idle window, and the entry is ${
+      prsHeld > movedStamps.prs ? 'young again off the log' : 'still ageing'
+    }`
   );
 } finally {
   close();

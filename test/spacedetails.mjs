@@ -5,21 +5,23 @@
  *     npm test
  *     node test/spacedetails.mjs
  *
- * Eight settings moved from "open config.json in an editor on the Mac" to a card on a
+ * Ten settings moved from "open config.json in an editor on the Mac" to a card on a
  * phone. What makes that worth a suite is not the controls, it is what sits behind
  * them: every one of these fields is read by something that decides whether your phone
  * rings, whether an agent answers a comment unasked, whether a bead an agent filed may be
- * worked before you have read it, or whether a worker merges its own pull request into
- * main. The failure modes are all silent, and all of the same shape — the screen says one
- * thing and the daemon does another.
+ * worked before you have read it, whether a worker merges its own pull request into
+ * main, or which Slack channel other people read the question in. The failure modes are
+ * all silent, and all of the same shape — the screen says one thing and the daemon does
+ * another.
  *
  * The `autoEndorse` half of that is its own suite (test/autoendorse.mjs), because what it
  * switches off is a safety property rather than a preference; what belongs here is that
  * it is a setting like the others, three-state and writable from the card.
  *
- * Five claims, and each is one nobody can make by reading the diff:
+ * Six claims, and each is one nobody can make by reading the diff:
  *
- * 1. **`null` means inherit, and it is not the same as `false`.** `prPolicyFor` is
+ * 1. **`null` means inherit, and it is not the same as `false`** — nor, on the Slack
+ *    channel, the same as `""`. `prPolicyFor` is
  *    explicit that a space may override the global in either direction, so "off" and
  *    "following a default that is off" have to be distinguishable — and stay
  *    distinguishable when the default moves. A screen that collapsed them would look
@@ -42,7 +44,16 @@
  *    `ntfy.minimalWorkspaces` and `autoDispatchExclude` are per-workspace and beat a
  *    space's own answer, so a space set to `full` can contain a repo that pushes
  *    minimally. Showing the space's setting alone would be wrong about precisely the
- *    repo somebody had singled out.
+ *    repo somebody had singled out. One of those rows is now also a *control* —
+ *    `autoEndorse` has a per-repo override of its own — so the same endpoint takes a
+ *    `workspace`, and what it must not do is let a card drawn for one space write the
+ *    answer for a repo that space does not contain.
+ *
+ * 6. **A row is a workspace, and that is no longer always one repo.** Since lib/repos.js a
+ *    workspace can be forty checkouts of an org sharing one tracker. These answers stay
+ *    per space — bc-l853.7, argued above `autoDispatchAllowed` — so the card has to say
+ *    how many checkouts each single answer governs, or it understates the reach of every
+ *    setting on it by the size of the org.
  *
  * The server half runs against `createApp`, not a fake: the whole point of the endpoint
  * is that it mutates the live config object the rest of the process is holding, and a
@@ -56,6 +67,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -83,7 +95,9 @@ function check(name, fn) {
 
 console.log('\nspace details');
 
-const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet } = await import(LIB('spaces.js'));
+const spacesMod = await import(LIB('spaces.js'));
+const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor, autoEndorseAllowed, autoShipAllowed } =
+  spacesMod;
 
 /* ==================================================== 1. what a field can say */
 
@@ -94,6 +108,8 @@ check('a space that says nothing says null everywhere, not false', () => {
     quietHours: null,
     quietDays: null,
     ntfyDetail: null,
+    slackChannel: null,
+    slackDetail: null,
     autoDispatch: null,
     autoEndorse: null,
     autoMerge: null,
@@ -111,13 +127,37 @@ check('and `off` survives the global default it is overriding moving under it', 
   assert.equal(readSettings(cfg.spaces[0]).autoMerge, false, 'the screen has to be able to draw it as off, not as unset');
 });
 
+check('the Slack channel has three answers, and two of them are not the same nothing', () => {
+  // The claim the whole control is shaped around: no key follows `slack.channel`, and a
+  // key set to nothing means this space never posts however the global is set. A screen
+  // that collapsed them would take away the only way to say "not this space" — and it
+  // would take it away silently, the day somebody set a global channel.
+  const cfg = { slack: { enabled: true, channel: 'C-GLOBAL' }, spaces: [], workspaces: [{ name: 'a' }] };
+  cfg.spaces = [{ name: 'Inherits', workspaces: ['a'] }];
+  assert.equal(readSettings(cfg.spaces[0]).slackChannel, null);
+  assert.equal(slackChannelFor(cfg, 'a'), 'C-GLOBAL', 'no key at all follows the global');
+
+  cfg.spaces = [{ name: 'Never', workspaces: ['a'], slackChannel: '' }];
+  assert.equal(readSettings(cfg.spaces[0]).slackChannel, '', 'not null — the card draws these two differently');
+  assert.equal(slackChannelFor(cfg, 'a'), null, 'and it posts nowhere with a global channel set');
+
+  cfg.spaces = [{ name: 'Own', workspaces: ['a'], slackChannel: ' C-OWN ' }];
+  assert.equal(readSettings(cfg.spaces[0]).slackChannel, 'C-OWN');
+});
+
 check('a field the readers would ignore reads as unset, so the screen cannot promise it', () => {
   // "18:0" is what `minutesOfDay` refuses, which means the daemon is quiet at no time
   // at all. A card saying "quiet 18:0 → 09:00" over that would be worse than one saying
   // there are no quiet hours.
-  const s = readSettings({ name: 'P', quietHours: { from: '18:0', to: '09:00' }, ntfyDetail: 'loud' });
+  const s = readSettings({
+    name: 'P',
+    quietHours: { from: '18:0', to: '09:00' },
+    ntfyDetail: 'loud',
+    slackDetail: 'loud',
+  });
   assert.equal(s.quietHours, null);
   assert.equal(s.ntfyDetail, null);
+  assert.equal(s.slackDetail, null);
 });
 
 check('and what is stored is normalised, so two spellings of one answer are one answer', () => {
@@ -151,6 +191,16 @@ check('and an empty day list clears it too — "quiet on no days" is not a secon
   assert.ok(!('quietDays' in space));
 });
 
+check('setting the channel to nothing keeps the key, and clearing it removes the key', () => {
+  const space = { name: 'P', slackChannel: 'C-OWN', slackDetail: 'minimal' };
+  applySettings(space, { slackChannel: '' });
+  assert.equal(space.slackChannel, '', 'Never stores the empty string rather than deleting it');
+  applySettings(space, { slackChannel: null });
+  assert.ok(!('slackChannel' in space), 'Inherit is the only thing that takes the key away');
+  applySettings(space, { slackDetail: null });
+  assert.deepEqual(space, { name: 'P' });
+});
+
 check('what changed is what actually moved, not what was sent', () => {
   const space = { name: 'P', autoMerge: false };
   assert.deepEqual(applySettings(space, { autoMerge: false }), [], 'setting it to what it already was');
@@ -167,6 +217,9 @@ for (const [what, patch] of [
   ['the workspace list', { workspaces: ['a', 'b'] }],
   ['a string where a boolean goes', { autoMerge: 'false' }],
   ['a detail level nothing reads', { ntfyDetail: 'loud' }],
+  ['the same on the Slack side', { slackDetail: 'loud' }],
+  ['a channel that is not a string', { slackChannel: 42 }],
+  ['a channel sent as a boolean, which is what a three-state button would send', { slackChannel: false }],
   ['half a quiet-hours window', { quietHours: { from: '18:00' } }],
   ['a day nobody has', { quietDays: ['sat', 'funday'] }],
   ['a patch that is not an object', ['muted']],
@@ -193,6 +246,7 @@ const RESOLVE = {
   ntfy: { detail: 'full', minimalWorkspaces: ['beta'] },
   autoDispatchExclude: ['alpha'],
   pr: { autoMerge: false },
+  slack: { enabled: true, channel: 'C-GLOBAL', excludeWorkspaces: ['alpha'] },
 };
 
 check('the per-repo panel is the answer the daemon gives, not the space`s own setting', () => {
@@ -206,6 +260,12 @@ check('the per-repo panel is the answer the daemon gives, not the space`s own se
   assert.equal(byName.beta.autoDispatch, true);
   // And the space beating the global, which is the direction the PR policy needed.
   assert.equal(byName.alpha.autoMerge, true);
+  // Slack has the same shape of per-repo veto, and the panel is the only place it shows:
+  // the space says nothing, so beta follows the global channel, and alpha is on
+  // `slack.excludeWorkspaces` and reaches no channel at all.
+  assert.equal(byName.beta.slackChannel, 'C-GLOBAL');
+  assert.equal(byName.alpha.slackChannel, null);
+  assert.equal(byName.beta.slackDetail, 'full');
 });
 
 check('a repo the space names and the daemon does not have is called out, not silently dropped', () => {
@@ -220,11 +280,86 @@ check('the defaults travel, so an Inherit button can say what it would inherit t
   assert.equal(d.defaults.autoMerge, false);
   assert.equal(d.defaults.ntfyDetail, 'full');
   assert.equal(d.defaults.autoDispatch, true);
+  // What Inherit resolves to on the Slack row — `null` where nothing is configured, so
+  // the button can read "Inherit (none)" rather than promising a channel.
+  assert.equal(d.defaults.slackChannel, 'C-GLOBAL');
+  assert.equal(d.defaults.slackDetail, 'full');
+  assert.equal(spaceDetail({ ...RESOLVE, slack: {} }, 'Work').defaults.slackChannel, null);
+  // Not a setting and not editable here, but the card needs it: a channel set on a space
+  // while Slack is globally off is a control that changes nothing, and the row says so.
+  assert.equal(d.effective.slack, true);
+  assert.equal(spaceDetail({ ...RESOLVE, slack: {} }, 'Work').effective.slack, false);
 });
 
 check('and `Other` is not a space — it is a group the picker offers, with nothing to set', () => {
   assert.equal(spaceDetail(RESOLVE, 'Other'), null);
   assert.equal(spaceDetail(RESOLVE, 'nope'), null);
+});
+
+/* ================================ 6. a workspace that is many repos, one answer */
+
+/* `lib/repos.js` made a workspace able to be forty checkouts of one org sharing a single
+   tracker, and bc-l853.7 asked whether these five answers should then differ per repo
+   inside it. The decision is that they should not — the argument is the block above
+   `autoDispatchAllowed`, and the tracker being the trust boundary is the short version.
+   What that decision *obliges* is here: one row labelled `climative`, in a panel titled
+   "what each repo resolves to", counted as one repo while the answer beside it governed
+   forty. The reach of every setting on the card was understated fortyfold on the one
+   screen where you decide whether a worker merges its own diff. */
+
+const ORG = path.join(tmp, 'org.dev');
+function checkout(name, token) {
+  const dir = path.join(ORG, name);
+  fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'config', 'config.yaml'), token === null ? `serviceName: ${name}\n` : `serviceToken: ${token}\n`);
+  return dir;
+}
+checkout('architecture', 'architecture');
+checkout('athena-service', 'as');
+// Cloned, approved, and it names no service — so no bead can reach it, and it is not a
+// checkout this answer governs.
+checkout('nameless', null);
+
+const MANY = {
+  workspaces: [{ name: 'org' }, { name: 'solo' }],
+  spaces: [{ name: 'Work', workspaces: ['org', 'solo'], autoMerge: false }],
+  repos: { org: { root: ORG, default: 'architecture', approved: ['architecture', 'athena-service', 'nameless'] } },
+};
+
+check('a row says how many checkouts its single answer governs', () => {
+  const byName = Object.fromEntries(spaceDetail(MANY, 'Work').repos.map((r) => [r.name, r]));
+  assert.equal(byName.org.checkouts, 2, 'two resolved; the one declaring no token can hold no bead and is not counted');
+  assert.equal(byName.org.autoMerge, false, 'and the answer itself is the space`s, for all of them at once');
+});
+
+check('and a workspace that is one repo says nothing new, so an old client reads what it always did', () => {
+  const solo = spaceDetail(MANY, 'Work').repos.find((r) => r.name === 'solo');
+  assert.ok(!('checkouts' in solo), 'absent, not 1 — the same payload every install has ever been sent');
+});
+
+check('an approved list that resolved to nothing says 0 rather than falling silent', () => {
+  const none = {
+    workspaces: [{ name: 'org' }],
+    spaces: [{ name: 'Work', workspaces: ['org'] }],
+    repos: { org: { root: ORG, approved: ['nameless'] } },
+  };
+  assert.equal(spaceDetail(none, 'Work').repos[0].checkouts, 0, 'a list where nothing resolved holds no work, and that is worth seeing');
+});
+
+check('the five policy answers still take a workspace and nothing finer — the decision, where it can be broken', () => {
+  // Not a style rule: an argument added here is a per-repo policy answer, and the moment
+  // one exists this panel, the README section and the space details card are all wrong
+  // about the unit. Whoever adds it should have to come through this line.
+  const { autoDispatchAllowed, autoEndorseAllowed, autoShipAllowed } = spacesMod;
+  for (const fn of [autoDispatchAllowed, autoEndorseAllowed, autoShipAllowed, prPolicyFor]) {
+    assert.equal(fn.length, 2, `${fn.name} takes (cfg, workspaceName)`);
+  }
+});
+
+check('and the card draws the count rather than leaving it in the payload', () => {
+  const js = read('public/monitor.js');
+  assert.match(js, /checkout\$\{r\.checkouts === 1 \? '' : 's'\}, one answer/, 'the row never says what it stands for');
+  assert.match(js, /'What each repo resolves to', String\(total\)/, 'the panel still counts one per row');
 });
 
 /* ================================================================ the wiring */
@@ -236,6 +371,13 @@ check('the page carries the settings card and the gear to admin', () => {
   const js = read('public/monitor.js');
   assert.ok(js.includes('/api/space?space='), 'the page never reads a space');
   assert.ok(js.includes("data-space-set"), 'nothing on the page writes one');
+  // The channel is the one control here that is typed rather than pressed, so it has a
+  // press of its own that reads the field — and a draft in `state`, because this page
+  // repaints off a stream event and a half-typed id in the DOM is one a poll can take.
+  assert.ok(js.includes('data-space-channel'), 'no way to send a typed channel');
+  assert.ok(js.includes('slackDraft'), 'the typed channel is not held against a repaint');
+  const css = read('public/style.css');
+  assert.ok(css.includes('.space-channel input'), 'the channel field has no box');
 });
 
 check('and the service worker version moved, or a cached phone gets the gear without the card', () => {
@@ -365,6 +507,115 @@ check('and the picker`s cached summary is refreshed, so the 🔕 is not a poll b
   assert.deepEqual(row.workspaces, ['alpha', 'beta']);
 });
 
+const never = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { slackChannel: '' } } });
+check('pressing Never writes a channel of "" — the one answer a missing key cannot give', () => {
+  assert.deepEqual(never.body.changed, ['slackChannel']);
+  assert.equal(never.body.settings.slackChannel, '', 'and comes back as "" rather than as null');
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.equal(onDisk.spaces.find((s) => s.name === 'Work').slackChannel, '', 'the key is on disk, empty');
+});
+
+const channel = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { slackChannel: ' C-TYPED ' } } });
+check('and a typed channel reaches the running daemon through the resolver, trimmed', () => {
+  assert.equal(channel.status, 200);
+  // `slack.enabled` is not set on this config, so the resolver still answers null — which
+  // is the point: the setting is stored and it is the global switch that gates it.
+  assert.equal(live.spaces.find((s) => s.name === 'Work').slackChannel, 'C-TYPED');
+  live.slack = { enabled: true, channel: 'C-GLOBAL' };
+  assert.equal(slackChannelFor(live, 'alpha'), 'C-TYPED', 'the space beats the global');
+  delete live.slack;
+});
+
+const badChannel = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { slackChannel: true } } });
+check('a channel that is not a string is a 400 rather than a `true` in the config file', () => {
+  assert.equal(badChannel.status, 400);
+  assert.equal(live.spaces.find((s) => s.name === 'Work').slackChannel, 'C-TYPED', 'unchanged');
+});
+
+/* --------------------------------------------- and the same route, one level down */
+
+const repoOn = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoEndorse: true } },
+});
+check('a `workspace` in the body writes that repo`s own answer, not the space`s', () => {
+  assert.equal(repoOn.status, 200);
+  assert.deepEqual(repoOn.body.changed, ['autoEndorse']);
+  assert.equal(live.autoEndorsePerWorkspace.alpha, true, 'on the object the running daemon holds');
+  // The claim through the one resolver every caller uses — bin/file.js and lib/session.js
+  // included — rather than through the map it was written into.
+  assert.equal(autoEndorseAllowed(live, 'alpha'), true);
+  assert.equal(autoEndorseAllowed(live, 'beta'), false, 'and the repo beside it in the same space is untouched');
+  assert.ok(!('autoEndorse' in live.spaces.find((s) => s.name === 'Work')), 'the space itself said nothing');
+});
+
+check('the reply is the whole card, so the row that was pressed redraws with the rest', () => {
+  const byName = Object.fromEntries(repoOn.body.repos.map((r) => [r.name, r]));
+  assert.equal(byName.alpha.own.autoEndorse, true);
+  assert.equal(byName.alpha.autoEndorse, true);
+  assert.equal(byName.beta.own.autoEndorse, null, 'and Inherit is still the lit button on the other');
+  assert.equal(byName.beta.inherits.autoEndorse, false);
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.equal(onDisk.autoEndorsePerWorkspace.alpha, true, 'and it survives a restart');
+});
+
+const repoClear = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoEndorse: null } },
+});
+check('clearing a repo puts it back to following the space rather than to off', () => {
+  assert.deepEqual(repoClear.body.changed, ['autoEndorse']);
+  assert.ok(!('alpha' in live.autoEndorsePerWorkspace), 'the key is gone');
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.ok(!('alpha' in (onDisk.autoEndorsePerWorkspace || {})), 'from the file too');
+});
+
+const foreign = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Personal', workspace: 'alpha', settings: { autoEndorse: true } },
+});
+check('a repo that is not in the space named is a 400, not a write nobody could see', () => {
+  // The card in front of one space would otherwise be able to change the answer for a
+  // repo it does not draw, and there would be nowhere the change showed up.
+  assert.equal(foreign.status, 400);
+  assert.match(foreign.body.error, /not a repo in Personal/);
+  assert.ok(!('alpha' in (live.autoEndorsePerWorkspace || {})));
+});
+
+/**
+ * The three that joined `autoEndorse` in the per-repo layer, through the route the card
+ * presses and then through the resolvers `bin/deliver.js` and `lib/release.js` call.
+ *
+ * Sent as one body because the card can press one at a time and the wire has to survive
+ * both; `changed` comes back in `WORKSPACE_SETTINGS` order rather than the order they
+ * arrived in, which is what the screen lists under the control.
+ */
+const repoShip = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoShip: true, autoMerge: false } },
+});
+check('the answers about landing and shipping write per repo too, and only for that repo', () => {
+  assert.equal(repoShip.status, 200);
+  assert.deepEqual(repoShip.body.changed, ['autoMerge', 'autoShip']);
+  assert.equal(autoShipAllowed(live, 'alpha'), true, 'on the object the running daemon holds');
+  assert.equal(prPolicyFor(live, 'alpha').autoMerge, false);
+  assert.equal(autoShipAllowed(live, 'beta'), false, 'and the repo beside it in the same space is untouched');
+  assert.equal(prPolicyFor(live, 'beta').autoMerge, true);
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.equal(onDisk.autoShipPerWorkspace.alpha, true, 'and it survives a restart');
+  assert.equal(onDisk.autoMergePerWorkspace.alpha, false);
+});
+
+const repoRefused = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { quietHours: null } },
+});
+check('and a setting that does not resolve per repo is refused rather than stored somewhere odd', () => {
+  assert.equal(repoRefused.status, 400);
+  assert.match(repoRefused.body.error, /not a per-repo setting/);
+  assert.ok(!live.quietHoursPerWorkspace, 'nothing was invented to hold it');
+});
+
 const refused = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { name: 'Renamed' } } });
 check('a field that is not a setting is a 400 with the reason, and changes nothing', () => {
   assert.equal(refused.status, 400);
@@ -379,7 +630,7 @@ check('and a space nobody has is a 404 rather than a space quietly created', () 
 });
 
 servers.forEach((s) => s.close());
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
 process.exit(failures ? 1 : 0);

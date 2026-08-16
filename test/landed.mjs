@@ -42,12 +42,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-landed-'));
-process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }));
+process.on('exit', () => removeTreeSync(tmp));
 
 // Before the first import that reaches lib/config.js, which fixes CONFIG_DIR at module
 // load: the advocate state file below must land in the temp directory and not in the
@@ -58,26 +59,68 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const BIN = path.join(tmp, 'bin');
 const REPO = path.join(tmp, 'repo');
 const PRS = path.join(tmp, 'prs.json');
+const ASKED = path.join(tmp, 'asked.log');
 for (const d of [BIN, REPO]) fs.mkdirSync(d, { recursive: true });
 
 fs.writeFileSync(PRS, '[]');
+fs.writeFileSync(ASKED, '');
+/**
+ * A `gh` that honours `--search merged:A..B` and `--limit`, and answers in **creation**
+ * order rather than merge order.
+ *
+ * That last detail is the reason lib/pr.js bisects the window instead of walking it
+ * backwards a page at a time, so a fake that answered newest-merged-first would pass a
+ * paging bug the real GitHub fails. Verified against this repo on 2026-08-11: sixty rows
+ * came back with `mergedAt` non-monotonic.
+ *
+ * Every `--search` it is given is appended to a log, because "did the sweep ask for a
+ * fortnight or for forty rows?" is the whole bead and is otherwise unobservable.
+ */
 fs.writeFileSync(
   path.join(BIN, 'gh'),
-  `#!/bin/sh
-case "$1 $2" in
-  "auth status") exit 0 ;;
-  "repo view") echo '{"nameWithOwner":"mordam/widgets"}' ; exit 0 ;;
-  "pr list") cat ${JSON.stringify(PRS)} ; exit 0 ;;
-esac
-echo "unexpected gh: $*" >&2
-exit 1
+  `#!/usr/bin/env node
+const fs = require('fs');
+const a = process.argv.slice(2);
+const arg = (f) => { const i = a.indexOf(f); return i === -1 ? null : a[i + 1]; };
+if (a[0] === 'auth' && a[1] === 'status') process.exit(0);
+if (a[0] === 'repo' && a[1] === 'view') { console.log('{"nameWithOwner":"mordam/widgets"}'); process.exit(0); }
+if (a[0] === 'pr' && a[1] === 'list') {
+  const rows = JSON.parse(fs.readFileSync(${JSON.stringify(PRS)}, 'utf8'));
+  const search = arg('--search') || '';
+  fs.appendFileSync(${JSON.stringify(ASKED)}, search + '\\n');
+  const range = /merged:(\\S+?)\\.\\.(\\S+)/.exec(search);
+  let out = rows;
+  if (range) {
+    const lo = Date.parse(range[1]);
+    const hi = Date.parse(range[2]);
+    out = rows.filter((r) => r.mergedAt && Date.parse(r.mergedAt) >= lo && Date.parse(r.mergedAt) <= hi);
+  }
+  out = out.slice().sort((x, y) => y.number - x.number).slice(0, Number(arg('--limit') || 30));
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}
+console.error('unexpected gh: ' + a.join(' '));
+process.exit(1);
 `,
   { mode: 0o755 }
 );
+const asked = () => fs.readFileSync(ASKED, 'utf8').split('\n').filter(Boolean);
+const forgetAsked = () => fs.writeFileSync(ASKED, '');
 process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
 
-const { reconcileLanded, landedReason, describeLanded, describeTruncation } = await import(LIB('landed.js'));
+const { reconcileLanded, landedReason, describeLanded, describeTruncation, windowDays } = await import(LIB('landed.js'));
 const { forgetPrefixes } = await import(LIB('beadref.js'));
+// The real predicate, so the fixture's gate below refuses exactly what the daemon's does.
+const { isMergeReason } = await import(LIB('bd.js'));
+const prlib = await import(LIB('pr.js'));
+
+/** Does `merged:A..B` span roughly `days`? Roughly, because both ends round to a second. */
+function spans(search, days) {
+  const m = /merged:(\S+?)\.\.(\S+)/.exec(search);
+  if (!m) return false;
+  const width = (Date.parse(m[2]) - Date.parse(m[1])) / 86400000;
+  return Math.abs(width - days) < 0.01;
+}
 
 /* ------------------------------------------------------------------ harness */
 
@@ -138,13 +181,15 @@ const asListed = (row) => ({
  * asked for, which is how the ordering claim (question before work bead) is checked
  * without a real bd to refuse it.
  */
-function fakeBd(beads, { gate = () => null, comments = () => [], questions = [] } = {}) {
+function fakeBd(beads, { gate = () => null, comments = () => [], questions = [], live = null } = {}) {
   const rows = new Map(beads.map((b) => [b.id, { status: 'open', title: '', ...b }]));
   const writes = [];
   // Counted, because "how many times did it ask" is itself an assertion below: the card
   // list is the same list every sweep and asking per merged pull request made the cost
-  // of a sweep a function of how busy the fortnight had been.
-  const calls = { listLabel: 0 };
+  // of a sweep a function of how busy the fortnight had been. `show` is counted for the
+  // same reason and it is the one that decides whether a fortnight is affordable — it
+  // is what `beadsFor` spends per candidate id on every row it is handed.
+  const calls = { listLabel: 0, listLive: 0, show: 0 };
   return {
     writes,
     rows,
@@ -154,7 +199,15 @@ function fakeBd(beads, { gate = () => null, comments = () => [], questions = [] 
       if (args[0] === 'list') return [{ id: 'wg-1' }];
       return [];
     },
+    async listLive() {
+      calls.listLive += 1;
+      // `live: false` is a tracker that will not answer, which must switch the gate off
+      // rather than read as "nothing is open" — see `liveBeads` in lib/landed.js.
+      if (live === false) throw new Error('database is locked');
+      return live || [...rows.values()].filter((r) => r.status !== 'closed').map((r) => ({ id: r.id }));
+    },
     async show(_ws, id) {
+      calls.show += 1;
       return rows.get(id) || null;
     },
     async comments(_ws, id) {
@@ -164,8 +217,12 @@ function fakeBd(beads, { gate = () => null, comments = () => [], questions = [] 
       calls.listLabel += 1;
       return questions;
     },
-    async closeGate(_ws, id) {
-      return gate(id);
+    // `opts` carries the reason the close would use, which one gate is entirely about —
+    // an epic does not close on a merge (lib/bd.js). Handed to the fixture's `gate` so a
+    // case can assert both that the rule bites and that the sweep passes it its own
+    // sentence rather than something it made up.
+    async closeGate(_ws, id, opts) {
+      return gate(id, opts);
     },
     async comment(_ws, id, text) {
       writes.push({ kind: 'comment', id, text });
@@ -207,6 +264,36 @@ console.log('\nreconcileLanded');
   check('and a comment says so on the bead', /Landed as \[#42\]/.test(said?.text || ''), said?.text);
   check('the result names what it closed', result.closed.length === 1 && result.closed[0].id === 'wg-aaa', JSON.stringify(result));
   check('the sweep reports itself as having run', result.ok === true && result.checked === 1, JSON.stringify(result));
+}
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const renamed = [];
+  await reconcileLanded(bd, ws('one-b'), REPO, {
+    rows: [asListed(mergedRow())],
+    markMerged: (id) => renamed.push({ id, closedYet: bd.writes.some((w) => w.kind === 'close') }),
+  });
+  // A pull request merged on github.com never passes the merge queue, so this sweep is
+  // the only thing that can tell the window its branch landed — see lib/retitle.js. It
+  // has to happen *before* the close: closing the work bead is what makes the window
+  // reapable, and a rename after that races the signal that closes it.
+  check('a merge nobody here made still renames the window', renamed.length === 1 && renamed[0].id === 'wg-aaa', JSON.stringify(renamed));
+  check('and it is told before the bead closes, not after', renamed[0]?.closedYet === false, JSON.stringify(renamed));
+}
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa' }]);
+  await reconcileLanded(bd, ws('one-c'), REPO, {
+    rows: [asListed(mergedRow())],
+    markMerged: () => {
+      throw new Error('no ~/.claude here');
+    },
+  });
+  // Cosmetic against structural: a window wearing a stale name must never stop a bead
+  // closing over work that is already in `main`.
+  check('a rename that throws does not stop the close', bd.writes.some((w) => w.kind === 'close'), JSON.stringify(bd.writes));
 }
 
 {
@@ -265,6 +352,46 @@ console.log('\nreconcileLanded');
   const result = await reconcileLanded(bd, ws('seven'), REPO, { rows: [asListed(mergedRow())] });
   check('a close bd would refuse writes nothing at all', bd.writes.length === 0, JSON.stringify(bd.writes));
   check('and the refusal travels back in bd’s own words', result.skipped.some((s) => /blocked by/.test(s.why)), JSON.stringify(result));
+}
+
+{
+  forgetPrefixes();
+  // The shape `Bd.closeGate` actually answers with, which is not a string: it is
+  // `{ kind, blockers, reason }`, and lib/server.js and lib/owed.js both read `.reason`.
+  // This file interpolated the object, so the one line the advocate prints about a bead
+  // it could not close said `left bc-goo open — [object Object]`. A dry run over the real
+  // fortnight hit it twelve times in a single tick.
+  const bd = fakeBd([{ id: 'wg-aaa' }], {
+    gate: (id) => (id === 'wg-aaa' ? { kind: 'epic', blockers: [{ id: 'wg-kid' }], reason: 'an epic with 1 open child issue' } : null),
+  });
+  const result = await reconcileLanded(bd, ws('seven-b'), REPO, { rows: [asListed(mergedRow())] });
+  check(
+    'and an object refusal is read for its sentence, not stringified',
+    result.skipped.some((s) => s.why === 'an epic with 1 open child issue'),
+    JSON.stringify(result.skipped)
+  );
+}
+
+{
+  forgetPrefixes();
+  // **This sweep is what closed bc-ka5y** — an epic naming twenty-three adoptees, closed
+  // as "Merged #212 as 72789c0b into main on GitHub" with twenty-one of them still open,
+  // because bd sees an epic with no children and an `Adopts:` line is prose. So the gate
+  // is now asked about the *reason*, and this asserts both halves: that the sentence
+  // reaching it is the one this close would carry, and that the epic survives.
+  let asked = null;
+  const bd = fakeBd([{ id: 'wg-aaa', issue_type: 'epic' }], {
+    gate: (id, opts) => {
+      asked = opts;
+      return isMergeReason(opts?.reason)
+        ? { kind: 'merge-reason', blockers: [], reason: 'an epic does not close on a merge — a pull request is no evidence about the theme' }
+        : null;
+    },
+  });
+  const result = await reconcileLanded(bd, ws('seven-c'), REPO, { rows: [asListed(mergedRow())] });
+  check('the gate is told the reason this close would carry', /Merged #42 as abc1234/.test(asked?.reason || ''), JSON.stringify(asked));
+  check('an epic is left open rather than closed on a merge', bd.writes.length === 0, JSON.stringify(bd.writes));
+  check('and the sweep reports it as a skip', result.skipped.some((s) => /no evidence about the theme/.test(s.why)), JSON.stringify(result.skipped));
 }
 
 {
@@ -402,6 +529,276 @@ const deliveryCard = (over = {}) => ({
   check('a sweep that closed something mentions the cap in its summary', /query cap/.test(describeLanded(result)), describeLanded(result));
   check('and a sweep that closed nothing stays quiet in the summary', describeLanded({ ok: true, closed: [], cards: [], truncated: result.truncated }) === '', 'expected an empty summary');
 }
+
+/* ------------------------------------------------- and this Mac's own main */
+
+/**
+ * bc-6sqs. A worker's delivery brings the main checkout up after its merge, and so does
+ * the tap on the pull request board — which left exactly one door into `main` that did
+ * not: a pull request merged on github.com itself, which is the door this whole file
+ * exists for. The bead closed, the board drew merged, and local `main` stayed behind
+ * until something else happened to fetch, so every worktree cut afterwards branched from
+ * before the merge.
+ *
+ * `landLocally` is injected here rather than run: what is being asserted is *when* the
+ * sweep asks for the fast-forward and what it does with the answer. That it refuses a
+ * dirty checkout is lib/prboard.js's claim and test/prboard.mjs's to make.
+ */
+console.log('\nbringing this Mac up');
+
+const spyLand = (answer = { fetched: true, advanced: true, note: 'fast-forwarded main to origin/main' }) => {
+  const calls = [];
+  const land = async (dir, base) => {
+    calls.push({ dir, base });
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  return { calls, land };
+};
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const spy = spyLand();
+  const result = await reconcileLanded(bd, ws('land-one'), REPO, { rows: [asListed(mergedRow())], land: spy.land });
+  check('a sweep that closed a bead fast-forwards the checkout it swept', spy.calls.length === 1, JSON.stringify(spy.calls));
+  check('the checkout and the base are the sweep’s own', spy.calls[0]?.dir === REPO && spy.calls[0]?.base === 'main', JSON.stringify(spy.calls[0]));
+  check('and what happened travels back for the log', /fast-forwarded/.test(result.landed?.note || ''), JSON.stringify(result.landed));
+}
+
+{
+  forgetPrefixes();
+  // The ordinary tick: a fortnight of merges whose beads are all closed already. Asking
+  // git anything here is a fetch per repo per interval — forty of them on a workspace
+  // like climative — for an answer that is nearly always "nothing to do".
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }], { live: [] });
+  const spy = spyLand();
+  const result = await reconcileLanded(bd, ws('land-two'), REPO, { rows: [asListed(mergedRow())], land: spy.land });
+  check('a sweep that closed nothing does not touch the checkout at all', spy.calls.length === 0, JSON.stringify(spy.calls));
+  check('and says nothing about it', result.landed === null, JSON.stringify(result.landed));
+}
+
+{
+  forgetPrefixes();
+  // A stale delivery card closing is still this daemon noticing a merge it did not
+  // perform, which is the whole trigger — the bead behind it having been closed by hand
+  // does not put the checkout any less far behind.
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }], { questions: [deliveryCard()], live: [] });
+  const spy = spyLand();
+  await reconcileLanded(bd, ws('land-three'), REPO, { rows: [asListed(mergedRow())], land: spy.land });
+  check('closing only a stale card is still enough to bring main up', spy.calls.length === 1, JSON.stringify(spy.calls));
+}
+
+/*
+ * And the other thing a merge nothing here performed leaves behind — bc-9d37.4, rule 5.
+ *
+ * The same gate as the fast-forward above and for a reason one sentence along from it: a
+ * merge does not only leave this laptop behind, it leaves every branch still open on that
+ * base measured against a base it has never seen. Three of the four doors into `main`
+ * know the moment they merge; this is the one where the trigger arrives late and still
+ * has to fire once. `requestSweep` is injected because the sweep itself belongs to the
+ * daemon and nothing in this repo's tests may open an iTerm window — lib/mergesweep.js
+ * and test/mergesweep.mjs are where what it asks for is acted on.
+ */
+const spySweep = () => {
+  const calls = [];
+  return { calls, request: (rec) => (calls.push(rec), rec) };
+};
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const spy = spyLand();
+  const swept = spySweep();
+  const result = await reconcileLanded(bd, ws('sweep-one'), REPO, {
+    rows: [asListed(mergedRow())],
+    key: 'sweep-one',
+    land: spy.land,
+    request: swept.request,
+  });
+  check('a sweep that closed a bead asks for the conflict sweep too', swept.calls.length === 1, JSON.stringify(swept.calls));
+  check('for the repo it swept, keyed the way resolvers are', swept.calls[0]?.key === 'sweep-one' && swept.calls[0]?.workspace === 'sweep-one');
+  check('naming the merge it just found out about', swept.calls[0]?.number === mergedRow().number, JSON.stringify(swept.calls[0]));
+  check('and the request travels back on the result', result.swept?.key === 'sweep-one', JSON.stringify(result.swept));
+}
+
+{
+  forgetPrefixes();
+  // The ordinary tick again, and the same argument as the fetch above: a `gh pr list` per
+  // repo per interval, on a workspace of forty checkouts, for an answer that is nearly
+  // always "nothing conflicts".
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }], { live: [] });
+  const swept = spySweep();
+  const result = await reconcileLanded(bd, ws('sweep-two'), REPO, { rows: [asListed(mergedRow())], land: spyLand().land, request: swept.request });
+  check('a sweep that closed nothing asks for nothing', swept.calls.length === 0, JSON.stringify(swept.calls));
+  check('and says so', result.swept === null, JSON.stringify(result.swept));
+}
+
+{
+  forgetPrefixes();
+  // No key from the caller. Right for every single-repo workspace and refused rather than
+  // resolved for the others, which is `unitFor`'s job and not this file's.
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const swept = spySweep();
+  await reconcileLanded(bd, ws('sweep-three'), REPO, { rows: [asListed(mergedRow())], land: spyLand().land, request: swept.request });
+  check('a caller that names no repo gets the workspace name', swept.calls[0]?.key === 'sweep-three', JSON.stringify(swept.calls[0]));
+}
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const spy = spyLand(new Error('fatal: could not read from remote repository'));
+  const result = await reconcileLanded(bd, ws('land-four'), REPO, { rows: [asListed(mergedRow())], land: spy.land });
+  check('a git that will not answer does not cost the bead its close', bd.writes.some((w) => w.kind === 'close'), JSON.stringify(bd.writes));
+  check('and the failure is a sentence rather than a throw', /could not bring local main up/.test(result.landed?.note || ''), JSON.stringify(result.landed));
+}
+
+/* ------------------------------------------ the window, and what it costs to reach */
+
+/**
+ * bc-fwfz. The fourteen days above were decoration: the sweep asked for the forty most
+ * recent merges and then filtered *those* to a fortnight, and forty merges is under a day
+ * on this repo. A bead past the fortieth row did not fall out for a fortnight, it fell out
+ * for good — the next sweep asked the same question of a window that had moved further
+ * forward, so nothing ever looked again. bc-8ug and bc-jin were closed by hand.
+ *
+ * The reason it was a cap and not a window is the cost, and that is what these assert.
+ * `beadsFor` spends a `bd show` per candidate id on every row it is handed, so widening
+ * the window used to multiply subprocesses by how busy the fortnight had been. It no
+ * longer does, and the counter on the fake tracker is the proof.
+ */
+console.log('\nthe window it says it has');
+
+{
+  forgetPrefixes();
+  forgetAsked();
+  // A fortnight of merges, all of them for beads that are already closed — the ordinary
+  // state of a busy repo, and the one the old cap was protecting against.
+  const bd = fakeBd([...Array(60)].map((_, i) => ({ id: `wg-c${i}`, status: 'closed' })));
+  const rows = [...Array(60)].map((_, i) =>
+    asListed(mergedRow({ number: 100 + i, title: `wg-c${i}: something`, body: `Closes wg-c${i}.`, headRefName: `worktree-thing-c${i}` }))
+  );
+  const result = await reconcileLanded(bd, ws('window-cheap'), REPO, { rows });
+  check('every row in the window is considered', result.checked === 60, `checked ${result.checked}`);
+  check(
+    'but a row whose beads are all closed costs no bd show at all',
+    bd.calls.show === 0,
+    `${bd.calls.show} bd show call(s) for 60 merged pull requests`
+  );
+  check('and the live list is asked for once, not once per row', bd.calls.listLive === 1, `listLive called ${bd.calls.listLive}×`);
+}
+
+{
+  forgetPrefixes();
+  // The control, and the point: the gate must not be able to skip the one row that
+  // matters. Fifty-nine settled merges and one that is still open behind it.
+  const beads = [...Array(59)].map((_, i) => ({ id: `wg-c${i}`, status: 'closed' }));
+  beads.push({ id: 'wg-live', title: 'still open' });
+  const bd = fakeBd(beads);
+  const rows = [...Array(59)].map((_, i) =>
+    asListed(mergedRow({ number: 100 + i, title: `wg-c${i}: something`, body: `Closes wg-c${i}.`, headRefName: `worktree-thing-c${i}` }))
+  );
+  rows.push(asListed(mergedRow({ number: 999, title: 'wg-live: still open', body: 'Closes wg-live.', headRefName: 'worktree-still-open-live' })));
+  const result = await reconcileLanded(bd, ws('window-finds'), REPO, { rows });
+  check(
+    'the one row with a live bead behind it is still closed, sixty merges deep',
+    result.closed.length === 1 && result.closed[0].id === 'wg-live',
+    JSON.stringify(result.closed)
+  );
+}
+
+{
+  forgetPrefixes();
+  // A tracker that will not answer must switch the gate off, not read as "nothing is
+  // open". The permissive direction is the only safe one: the worst a disabled gate
+  // costs is one expensive sweep, and the worst an empty one costs is every close.
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }], { live: false });
+  const result = await reconcileLanded(bd, ws('window-blind'), REPO, { rows: [asListed(mergedRow())] });
+  check('an unreadable live list gates nothing out', result.closed.length === 1 && result.closed[0].id === 'wg-aaa', JSON.stringify(result));
+}
+
+{
+  forgetPrefixes();
+  // And a bead the live list does not know about is still not skipped on the strength of
+  // a *stale* list: the gate reads open beads, so an id it has never heard of falls
+  // through to `beadsFor` exactly as before.
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }], { live: [{ id: 'wg-aaa' }, { id: 'wg-other' }] });
+  const result = await reconcileLanded(bd, ws('window-stale'), REPO, { rows: [asListed(mergedRow())] });
+  check('a live list naming the bead lets the row through', result.closed.length === 1, JSON.stringify(result.closed));
+}
+
+{
+  forgetPrefixes();
+  forgetAsked();
+  // Through the real fetch, which is where the bead actually lives: the sweep must ask
+  // GitHub for a span of *time*. Nothing here filters to forty rows.
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  fs.writeFileSync(PRS, JSON.stringify([mergedRow()]));
+  const result = await reconcileLanded(bd, ws('window-query'), REPO);
+  const q = asked();
+  check('the sweep asks GitHub for a date range, not for the N most recent', q.length === 1 && /^merged:\d{4}-\d\d-\d\dT/.test(q[0]), JSON.stringify(q));
+  check('and the range it asks for is the fourteen days the file advertises', /\.\./.test(q[0]) && spans(q[0], windowDays()), q[0]);
+  check('the row inside it still closes its bead', result.closed.length === 1 && result.closed[0].id === 'wg-aaa', JSON.stringify(result.closed));
+  check('and nothing is reported as out of reach', result.truncated === null, JSON.stringify(result.truncated));
+}
+
+/* --------------------------------------------------- and the paging underneath it */
+
+/**
+ * `pr.listMergedSince` on its own, because the paging is the part with a wrong answer
+ * available to it.
+ *
+ * The obvious loop — take the oldest row you got, ask again for everything older — is
+ * what this deliberately is not. `gh pr list --search` answers in *creation* order, so a
+ * full page is an arbitrary subset with respect to `mergedAt`, and moving the bound to
+ * its minimum steps straight over every row that merged in between and was not on that
+ * page. The fake `gh` above reproduces that ordering on purpose; a fake that answered
+ * newest-merged-first would let the broken version pass.
+ */
+console.log('\nlistMergedSince');
+
+{
+  forgetAsked();
+  // Sixty merges, one a second, against a per-query limit of twenty. Only halving the
+  // interval covers this, and the assertion is that every one of the sixty came back.
+  const base = Date.parse('2026-06-01T12:00:00Z');
+  fs.writeFileSync(
+    PRS,
+    JSON.stringify([...Array(60)].map((_, i) => mergedRow({ number: 300 + i, mergedAt: new Date(base + i * 1000).toISOString() })))
+  );
+  const got = await prlib.listMergedSince(REPO, { since: base - 5000, until: base + 65000, limit: 20 });
+  check('every merge in the window comes back, however many queries that takes', got.rows.length === 60, `${got.rows.length} of 60 in ${asked().length} queries`);
+  check('and it says so', got.complete === true && got.cap === null, JSON.stringify({ complete: got.complete, cap: got.cap }));
+  check('newest first, whatever order GitHub answered in', got.rows[0].number === 359 && got.rows.at(-1).number === 300, `${got.rows[0].number}…${got.rows.at(-1).number}`);
+  check('the rows are folded the way the sweep reads them', got.rows[0].mergeCommit === 'abc1234def5678' && got.rows[0].branch === 'worktree-fix-the-thing-aaa', JSON.stringify(got.rows[0]).slice(0, 160));
+  // Both ends, and the upper one is the point. Halving is correct at any cost and a
+  // sweep runs every ten minutes, so a paging change that quietly triples the round
+  // trips is a regression even while every row still comes back. Three rounds cover
+  // this fixture; twelve is room to be a little worse without being silent about it.
+  check('at a query count that pays for itself', asked().length > 1 && asked().length <= 12, `${asked().length} queries`);
+}
+
+{
+  forgetAsked();
+  // The one thing halving cannot solve: more merges inside a single second than a query
+  // will answer with. There is nothing left to split, so it says it fell short and names
+  // the number that stopped it, rather than reporting a covered window.
+  const base = Date.parse('2026-06-02T12:00:00Z');
+  fs.writeFileSync(PRS, JSON.stringify([...Array(5)].map((_, i) => mergedRow({ number: 400 + i, mergedAt: new Date(base).toISOString() }))));
+  const got = await prlib.listMergedSince(REPO, { since: base - 4000, until: base + 4000, limit: 2 });
+  check('a second with more merges in it than a query can answer is reported, not hidden', got.complete === false, JSON.stringify(got.cap));
+  check('and the cap it names is the one that bit', got.cap === 2, String(got.cap));
+}
+
+{
+  forgetAsked();
+  // A window with nothing in it is one query and an empty answer, not an error and not
+  // a bisection: the sweep runs every ten minutes on repos that merged nothing.
+  const got = await prlib.listMergedSince(REPO, { since: Date.parse('2020-01-01T00:00:00Z'), until: Date.parse('2020-01-02T00:00:00Z'), limit: 10 });
+  check('an empty window costs exactly one query', got.rows.length === 0 && got.complete === true && asked().length === 1, `${asked().length} queries`);
+}
+
+fs.writeFileSync(PRS, '[]');
 
 check(
   'landedReason is one sentence naming the PR, the commit and the base',

@@ -25,21 +25,30 @@
 //     think about that; it is what the `gen` guard in mirror.js exists for, because
 //     the phone can leave a session and come back while the old poll is still out.
 //
+// And the fourth, which is about what a repaint costs rather than what causes one: the
+// composer lives *inside* the pane render() rebuilds, so each streamed token is a chance
+// to lose what is in it. The caret has always been carried across; a *selection* was not
+// (bc-c3ve), because only `selectionStart` was, which collapses it to a caret at its left
+// edge — you select the sentence you were about to type over and end up typing in front
+// of it instead.
+//
 // Real public/*.js in a headless Chrome against fixtures served from this process, so
 // nothing here touches a real bead or needs the daemon. `--baseline` serves the
 // committed copy of mirror.js instead of the working one, which is how you check a
-// failure here is a real one — on `--baseline` the parking cases fail, because HEAD's
-// mirror never asks `/api/console/poll` anything at all.
-import { execFileSync, spawn } from 'node:child_process';
+// failure here is a real one: whatever your branch fixes must fail there and pass on the
+// working copy. It fails whichever cases the *branch in hand* is about, and no others —
+// the parking cases failed on baseline only while bc-0ia was in flight and pass there
+// now that it has landed, and the selection case is the one that fails on a tree
+// predating bc-c3ve.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const WIDE = { width: 1200, height: 900, dpr: 1 };
 const TOKEN = 'mirror-check-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -64,6 +73,7 @@ const ID = 'con-mirror';
 const SAID = 'MARKER-WHAT-I-ASKED';
 const FIRST = 'MARKER-FIRST-WORDS';
 const STREAMED = 'MARKER-STREAMED-LATER';
+const WHILE_TYPING = 'MARKER-WHILE-A-SENTENCE-IS-SELECTED';
 const WHILE_AWAY = 'MARKER-WHILE-LOOKING-ELSEWHERE';
 
 const CONSOLE = {
@@ -220,80 +230,6 @@ function serve() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9800 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-mirror-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      // Every count below is a count of what happened over a few real seconds, and a
-      // backgrounded renderer's timers run at about one a second.
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 const evalJs = async (s, expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true });
   if (r.exceptionDetails)
@@ -337,7 +273,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-mirror-');
 
 try {
   await s.send('Page.enable');
@@ -390,6 +326,75 @@ try {
     'and the loop parks again on the sequence it was just handed',
     await until(() => hits.poll === 2),
     `${hits.poll} poll(s)`
+  );
+
+  /* ---- and a selection in the composer survives the repaint it brings ---- */
+
+  // Typed through the real `input` listener, because that is what puts the words in
+  // `state.drafts` — the pane is rebuilt from that map, and a value only ever set on the
+  // DOM node is gone by the first repaint for a reason that has nothing to do with the
+  // selection. Going from empty to non-empty flips the Send button, which repaints the
+  // pane there and then, so the box selected below has to be re-queried after it.
+  const TYPED = 'the sentence I was about to type over';
+  await evalJs(
+    s,
+    `(() => {
+      const box = document.querySelector('#mirror [data-draft]');
+      box.value = ${JSON.stringify(TYPED)};
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`
+  );
+  // Backward, so the direction is a claim about the selection and not the default a
+  // collapsed caret would answer with anyway.
+  const AT = [4, TYPED.length];
+  const selected = await evalJs(
+    s,
+    `(() => {
+      const box = document.querySelector('#mirror [data-draft]');
+      if (!box || box.value !== ${JSON.stringify(TYPED)}) return null;
+      box.focus();
+      box.setSelectionRange(${AT[0]}, ${AT[1]}, 'backward');
+      return { start: box.selectionStart, end: box.selectionEnd, dir: box.selectionDirection };
+    })()`
+  );
+  check(
+    'the composer holds a draft and a selection over part of it',
+    selected?.start === AT[0] && selected?.end === AT[1],
+    selected ? `${selected.start}–${selected.end} ${selected.dir}` : 'the draft never reached the pane'
+  );
+
+  stream(WHILE_TYPING);
+  const painted = await waitFor(s, shows(WHILE_TYPING), 40);
+  const kept = await evalJs(
+    s,
+    `(() => {
+      const box = document.querySelector('#mirror [data-draft]');
+      if (!box) return null;
+      return {
+        start: box.selectionStart,
+        end: box.selectionEnd,
+        dir: box.selectionDirection,
+        focused: document.activeElement === box,
+        value: box.value,
+      };
+    })()`
+  );
+  check(
+    'and a selection in it survives the repaint a streamed turn brings',
+    painted && kept?.focused && kept.value === TYPED && kept.start === AT[0] && kept.end === AT[1],
+    !painted
+      ? 'the streamed words never appeared, so nothing repainted'
+      : kept
+        ? `${kept.start}–${kept.end}${kept.focused ? '' : ', and the box lost focus'}`
+        : 'the composer is gone'
+  );
+  // Split out, because a lost direction is a smaller thing than a lost selection and
+  // should not be able to masquerade as one in the line above.
+  check(
+    'including which end of it the next Shift-arrow extends',
+    kept?.dir === 'backward',
+    `selectionDirection is ${JSON.stringify(kept?.dir ?? null)}`
   );
 
   /* ---- the phone leaves: the loop stands down ---- */

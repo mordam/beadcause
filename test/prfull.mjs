@@ -551,21 +551,128 @@ console.log('\none pull request, full screen\n');
   check('a conflicting pull request reaches the launch', res.status === 403, `HTTP ${res.status} ${JSON.stringify(res.json)}`);
   check('and stops there, because windows are off here', /openSessions/.test(res.json.error || ''), res.json.error);
 
-  // What the session would be asked to do. The four things it must say are the four an
+  // What the session would be asked to do. The five things it must say are the five an
   // unattended session gets wrong when a brief is vague: which way the merge goes, where to
-  // stand, that the repo's own gate runs afterwards, and that it stops at a push.
-  const brief = conflictPromptFor(
-    'demo',
-    { number: 8, title: 'the conflicting one', repo: 'acme/widgets', branch: 'bead/zz-work', base: 'main', beads: [{ id: 'zz-work' }] },
-    'Adam'
-  );
+  // stand, that it says so in the lock while it stands there, that the repo's own gate runs
+  // afterwards, and that it stops at a push.
+  const row = { number: 8, title: 'the conflicting one', repo: 'acme/widgets', branch: 'bead/zz-work', base: 'main', beads: [{ id: 'zz-work' }] };
+  const brief = conflictPromptFor('demo', row, 'Adam');
   check('the brief names the branch and the base', /bead\/zz-work/.test(brief) && /origin\/main/.test(brief), brief.slice(0, 300));
   check('and the bead it carries', /zz-work/.test(brief), brief.slice(0, 300));
   check('it says the branch is what is behind, not main', /branch is what is behind/.test(brief), brief.slice(0, 400));
   check('it sends the session to a worktree rather than the shared checkout', /git worktree list/.test(brief), brief.slice(0, 700));
+  // The second layer under lib/resolvers.js, for the two resolvers that are already up
+  // rather than the second one that must not be opened. bc-utyr: a `git merge --abort`
+  // between another session's resolution and its commit is what wrote conflict markers
+  // into a commit with two parents and an ordinary merge shape.
+  check('it stands down on a merge somebody else started', /already mid-merge, stop/.test(brief), brief.slice(0, 900));
+  check('and names the abort it must not run', /do \*\*not\*\* run `git merge --abort`/.test(brief), brief.slice(0, 900));
   check('it runs the repo’s own gate afterwards', /CLAUDE\.md/.test(brief), brief);
-  check('and it stops at a push — the merge stays a tap', /Push the branch\. Then stop\./.test(brief), brief.slice(-500));
+  check('and it stops at a push — the merge stays a tap', /Push the branch\. Then \*\*release the lock\*\*/.test(brief), brief.slice(-900));
+  // bc-7uie. The two checks above are only reachable if "somebody is in here" is visible at
+  // all, and it was not: a resolver reusing an existing worktree entered it by path, and
+  // `EnterWorktree` locks the trees it creates and only those — so `git worktree list` and
+  // the SessionStart hook showed an occupied tree exactly as they show an idle one.
+  check(
+    'it takes the lock on the tree it works in',
+    /git worktree lock \. --reason "resolver pid <that pid> #8"/.test(brief),
+    brief.slice(0, 1600)
+  );
+  check(
+    'and the reason carries a pid, which is what a reader resolves against ps',
+    /worktree-guard\.sh/.test(brief) && /resolves the pid in a lock\n?\s*reason against `ps`/.test(brief),
+    brief.slice(0, 2400)
+  );
+  // A worktree-isolated session's own Bash calls refuse `$$`, `$PPID` and shell loops as
+  // "too complex to verify that it stays inside the worktree", so the walk up to the
+  // `claude` process is unrunnable unwrapped — and a brief that hands an unattended session
+  // a command it will be refused has told it nothing.
+  check(
+    'the pid walk is wrapped so an isolated session can actually run it',
+    /zsh -c 'pid=\$\$;/.test(brief) && /grep -q claude/.test(brief),
+    brief.slice(0, 1600)
+  );
+  // The refusal `git worktree lock` gives on an already-locked tree is the occupancy check —
+  // there is no window between reading and taking for a second resolver to arrive in.
+  check(
+    'a lock a live pid holds sends it away rather than in',
+    /pid `ps` still knows\.\*\* Somebody is working in there/.test(brief),
+    brief.slice(0, 2400)
+  );
+  check(
+    'and a lock no live pid holds is taken over, not stood down for',
+    /pid `ps` does not know\.\*\* A session crashed/.test(brief),
+    brief.slice(0, 2400)
+  );
+  check(
+    'the lock the harness took on a tree it created is left alone',
+    /naming your own pid\.\*\* That is the lock the harness took/.test(brief),
+    brief.slice(0, 2400)
+  );
+  check(
+    'and the lock is released whichever way the session stops',
+    /git worktree unlock \./.test(brief) && /Release it whichever way you stop/.test(brief),
+    brief.slice(-900)
+  );
   check('nothing in it merges into the base', !/merge .*into \\?`main/.test(brief.replace(/branch is what is behind[^\n]*\n/, '')), brief);
+  check('a brief nobody asked for a sweep about still names the press', /Adam pressed \*\*Resolve conflicts\*\*/.test(brief), brief.slice(0, 300));
+
+  /* ------------------------------------------------ and the same brief, opened by a sweep */
+
+  // bc-9d37.2. The reason line is the first thing an unattended session reads, and for a
+  // window the sweep opened "Adam pressed **Resolve conflicts**" is simply false — an agent
+  // given a wrong reason for its own existence reasons the rest out to match, and what it
+  // reasons out is that somebody is at the Mac waiting. So the swept variant says what
+  // actually happened, and says it as the mechanism rather than as a fact about a person.
+  const swept = conflictPromptFor('demo', row, 'Adam', { sweptAfter: 204 });
+  check('a swept brief does not claim anybody pressed anything', !/pressed \*\*Resolve conflicts\*\*/.test(swept), swept.slice(0, 400));
+  check('it names the merge that caused the sweep', /#204 merged into\n?\s*`main`/.test(swept), swept.slice(0, 400));
+  check(
+    'and says why that conflicts a branch nobody touched',
+    /measured against a base it has\n?\s*never seen/.test(swept),
+    swept.slice(0, 400)
+  );
+
+  // The point of one parameter rather than a second brief: the two cannot drift. Everything
+  // an unattended resolver is actually told to *do* — the six steps, the lock protocol, the
+  // ending that says to stand down rather than pick a winner — is the same string in both,
+  // and this asserts that by exhaustion rather than by naming the parts twice.
+  const tapParas = brief.split('\n\n');
+  const sweptParas = swept.split('\n\n');
+  const differ = tapParas.map((para, i) => (para === sweptParas[i] ? -1 : i)).filter((i) => i >= 0);
+  check('the two briefs are the same length in paragraphs', tapParas.length === sweptParas.length, `${tapParas.length} vs ${sweptParas.length}`);
+  check('and differ in exactly one of them', differ.length === 1, JSON.stringify(differ));
+  check('which is the reason line, right under the title', differ[0] === 1, `${differ[0]}: ${sweptParas[differ[0]]}`);
+
+  // A sweep that cannot name the merge is still a sweep, and the fallback must not invent a
+  // number for it: `Number(true)` is 1, so the obvious coercion would open a session on
+  // "#1 merged into main" — the same confident falsehood in a different sentence.
+  const anon = conflictPromptFor('demo', row, 'Adam', { sweptAfter: true });
+  check('a sweep with no number to give does not invent one', !/#1 merged/.test(anon), anon.slice(0, 400));
+  check('and still gets the swept reason rather than the press', /A pull request merged into/.test(anon) && !/pressed \*\*Resolve/.test(anon), anon.slice(0, 400));
+
+  /* ------------------------------------ and the third reason: he answered the card */
+
+  // bc-9d37.8. A resolver stopped saying only Adam could pick a winner, the sweep card said
+  // so, and he answered it. The sentence he typed is the decision this window exists to
+  // apply — so it replaces the same paragraph, above the steps, where a session reads the
+  // reason for its own existence before it reads anything else.
+  const told = conflictPromptFor('demo', row, 'Adam', {
+    sweptAfter: 204,
+    instruction: 'take main’s renderRow\nand keep our tests',
+  });
+  check('an answered brief carries his sentence verbatim', /take main’s renderRow/.test(told) && /and keep our tests/.test(told), told.slice(0, 600));
+  // Every line of it, or a blockquote that stops half way reads as the brief resuming in
+  // his voice — which over an instruction is the worst place for that to happen.
+  check('every line of it is quoted', /> take main’s renderRow\n> and keep our tests/.test(told), told.slice(0, 600));
+  check('it says to treat it as the decision rather than a suggestion', /not as a suggestion/.test(told), told.slice(0, 600));
+  check('and it still claims nobody pressed Resolve conflicts', !/pressed \*\*Resolve conflicts\*\*/.test(told), told.slice(0, 400));
+  // What an answer is *not*: permission to skip the gate, or to merge into the base. Those
+  // live in the paragraphs this parameter does not touch, and this is what says so.
+  const toldParas = told.split('\n\n');
+  check('the steps are untouched by it', tapParas.slice(2).every((p) => toldParas.includes(p)), 'an instruction changed more than the reason line');
+  check('including the one that says the base is not yours to merge into', /Nothing here merges into/.test(told));
+  check('and the one that sends it back unmergeable rather than guessed at', /much better outcome than a resolution nobody can check/.test(told));
 }
 
 {

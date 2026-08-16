@@ -47,6 +47,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -73,6 +74,7 @@ const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail))
 
 const { deliveryBody } = await import(LIB('delivery.js'));
 const { readOwed, OWED_PATH } = await import(LIB('owed.js'));
+const { readSweepRequests, MERGE_SWEEPS_PATH } = await import(LIB('mergesweep.js'));
 
 /* -------------------------------------------------------------------- the repo */
 
@@ -201,6 +203,13 @@ if (args[0] === 'list') {
   const label = flag('--label');
   let rows = Object.values(w.issues);
   if (label) rows = rows.filter((i) => (i.labels || []).includes(label));
+  // \`--parent\` has to be honoured or a *children* question is answered with the whole
+  // workspace. Nothing asked one until bd 1.2.1 made the close gate apply to every
+  // parent rather than only to epics (bc-xl7n.39), at which point \`Bd.gateFor\` started
+  // asking on every close this file drives and each one came back gated by beads that
+  // are not its children.
+  const parent = flag('--parent');
+  if (parent) rows = rows.filter((i) => i.parent === parent);
   // \`--limit 1\` with no label is \`prefixFor\` asking what ids look like here.
   if (flag('--limit') === '1') rows = rows.slice(0, 1);
   process.stdout.write(JSON.stringify(rows.filter(live).map(hydrate)));
@@ -285,6 +294,7 @@ const cardIssue = (id, d) => ({
  * which is the one thing here that can genuinely refuse a close.
  */
 const reset = ({ sibling = false, blocker = false } = {}) => {
+  fs.rmSync(MERGE_SWEEPS_PATH, { force: true });
   const issues = {
     'zz-pr': cardIssue('zz-pr', delivery()),
     // Case 2: a different pull request, in the same repo, for a different bead.
@@ -404,6 +414,14 @@ console.log('\nmerging on the PR board\n');
   const res = await post('/api/pr/merge', { workspace: 'demo', number: 7 });
   check('the merge is taken', res.status === 200, JSON.stringify(res.json));
   check('and the pull request really merged', JSON.parse(fs.readFileSync(PR_STATE, 'utf8'))[0].state === 'MERGED');
+
+  // bc-9d37.4. #8 is still open against the same base and is now measured against a base
+  // it has never seen. Recorded rather than swept here — the sweep opens resolver windows
+  // and the registry that caps them is the daemon's, reached from the poll cycle — so
+  // this endpoint answers when the merge is done and not when a window has opened.
+  const asked = readSweepRequests();
+  check('the conflict sweep is asked for', Object.keys(asked).length === 1, JSON.stringify(asked));
+  check('naming the repo and the merge that set it off', asked.demo?.key === 'demo' && asked.demo?.number === 7, JSON.stringify(asked.demo));
 
   check('the card for that pull request is closed', world().issues['zz-pr'].status === 'closed', world().issues['zz-pr'].status);
   check(
@@ -555,6 +573,6 @@ console.log('\nwhen the work bead cannot close\n');
 
 for (const s of servers) s.close?.();
 if (servers[0]?.front) servers[0].front.close?.();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} of ${ran} failed\n` : `\nall ${ran} passed\n`);
 process.exit(failures ? 1 : 0);

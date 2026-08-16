@@ -24,7 +24,19 @@
 //     to prevent;
 //   * the bar **plus the tab bar** stays inside a **170px** budget on a 640px screen.
 //     159px is what it costs today. A third row is +43px and fails this on the spot,
-//     which is the whole point of the number being written down.
+//     which is the whole point of the number being written down;
+//   * the page **fits the screen at all** — that one is not about the bar, but this
+//     is the file that noticed. A page laying out wider than the viewport is shrink-
+//     fitted by the browser, so every measurement above it is in a different unit from
+//     the width it is being judged at. /monitor was 376px at a 360px screen until
+//     bc-3ui6, and the symptom is not a horizontal scrollbar — it is the whole console
+//     drawn at 96% and draggable sideways, which reads as a font being slightly off;
+//   * and **nothing else sticks underneath it**. The bar is sticky at z-index 20, so a
+//     second sticky box on the same page that pins at `top: 0` pins itself out of
+//     sight: /monitor's Advocates/PRs/Mirror strip did exactly that, and the pane swap
+//     was gone from the first scroll until you scrolled back to the top (bc-ugd4). The
+//     page is made scrollable and scrolled before this one is asked, because a page
+//     with nothing in it cannot show you the bug.
 //
 // It also prints the arithmetic that made the decision, per page, and says so when the
 // premise has expired: if *every* page's first row grows enough room to hold the picker
@@ -37,16 +49,14 @@
 // Not part of `npm test`: it wants Chrome. Run it when you have touched the top bar, the
 // picker, or the icon buttons on any page that has one. `--out=DIR` writes a picture per
 // page per width, which is the one thing a column of numbers cannot tell you.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const outDir = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -64,8 +74,8 @@ if (!fs.existsSync(CHROME)) {
 
 /* Six repos in two spaces, because the bar hides itself under two (`el.hidden` in
    public/spacebar.js) and because the widest row in the dropdown is what has to fit,
-   not the shortest. `climative` and `beadcause` carry the counts, so the `· N` tails
-   the labels are measured with are the ones that ship. */
+   not the shortest. The rows carry no numbers at all since bc-ka5y.1 — a repo name is
+   the whole of a label now — so what is measured here is what ships. */
 const WORKSPACES = ['beadcause', 'climative', 'adam.life', 'deluvia', 'ehatt', 'sophab'];
 const SPACES = [
   { name: 'Personal', workspaces: ['beadcause', 'adam.life', 'deluvia', 'ehatt', 'sophab'], count: 3, quiet: false },
@@ -74,8 +84,6 @@ const SPACES = [
 const SPACEPAY = {
   spaces: SPACES,
   workspaces: WORKSPACES,
-  counts: { beadcause: 3, climative: 2 },
-  trouble: [],
   filter: { space: 'all', workspace: 'all' },
 };
 
@@ -96,11 +104,11 @@ function serve() {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(b));
     };
-    /* Every page's own payload carries the picker's four fields, because a page that
+    /* Every page's own payload carries the picker's three fields, because a page that
        has a sweep of its own feeds the bar from it rather than fetching twice. */
     if (p === '/api/spaces') return json(SPACEPAY);
     if (p === '/api/questions')
-      return json({ questions: [], consoles: [], ...SPACEPAY, scope: 'human', summary: { sessions: 0, proposals: 0, questions: 3 } });
+      return json({ questions: [], consoles: [], ...SPACEPAY, scope: 'human', summary: { sessions: 0, proposals: 0 } });
     if (p === '/api/work') return json({ workspaces: [], advocates: [], elsewhere: [], ...SPACEPAY });
     if (p === '/api/prs') return json({ unavailable: null, build: null, counts: {}, repos: [], ...SPACEPAY });
     if (p === '/api/consoles') return json({ consoles: [], ...SPACEPAY });
@@ -119,7 +127,8 @@ function serve() {
     if (p.startsWith('/api/')) return json({});
     let rel = p;
     if (rel === '/console') rel = '/console.html';
-    if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
+    // The board is a pane on the advocates page now (bc-d4d5), so these land there.
+    if (rel === '/prs' || rel === '/pulls' || rel === '/prs.html') rel = '/monitor.html';
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/endorse') rel = '/endorse.html';
     if (rel === '/foundations') rel = '/foundations.html';
@@ -132,76 +141,6 @@ function serve() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
-}
-
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const pr = msg.id != null && pending.get(msg.id);
-      if (!pr) return;
-      pending.delete(msg.id);
-      msg.error ? pr.reject(new Error(msg.error.message)) : pr.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9640 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-topbar-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -270,10 +209,8 @@ const PROBE = `(() => {
 
   const brand = document.querySelector('.brand');
   const acts = document.querySelector('.sheet-actions');
-  const countEl = document.querySelector('#space-count');
   const brandW = brand ? Math.round(brand.getBoundingClientRect().width) : 0;
   const actsW = acts && acts.getBoundingClientRect().width ? Math.round(acts.getBoundingClientRect().width) : 0;
-  const countW = countEl && !countEl.hidden ? Math.round(countEl.getBoundingClientRect().width) + gap : 0;
   const tab = document.querySelector('.tabbar');
 
   return {
@@ -294,7 +231,7 @@ const PROBE = `(() => {
        browser has scaled (see \`content\`). The trailing gap is the one a picker joining
        this row would need in front of it. */
     spare: Math.round(bar.clientWidth - pad - brandW - (actsW ? actsW + gap : 0) - gap),
-    need: label ? label.widest + Math.round(parseFloat(getComputedStyle(sel).paddingLeft) + parseFloat(getComputedStyle(sel).paddingRight)) + countW : null,
+    need: label ? label.widest + Math.round(parseFloat(getComputedStyle(sel).paddingLeft) + parseFloat(getComputedStyle(sel).paddingRight)) : null,
     brandW,
     actsW,
     tabH: tab ? Math.round(tab.getBoundingClientRect().height) : 0,
@@ -302,9 +239,66 @@ const PROBE = `(() => {
   };
 })()`;
 
+/*
+  What is still on screen once the page has been scrolled.
+
+  `position: sticky` pins a box at *its own* `top`, and on a page whose scroll container
+  is the viewport, `top: 0` is the top of the window — which is behind the bar, not below
+  it. Nothing about that is visible until there is enough content to scroll, which is why
+  it survived every measurement above: the fixture's payloads are empty, so the pages are
+  a screen tall and `scrollTo` does nothing. A spacer is appended before this runs, so
+  what is being measured is the geometry rather than the fixture.
+
+  Only boxes that are actually **pinned** count — `rect.top` equal to their resolved
+  `top`, within a pixel. A sticky box being carried out of view by the end of its
+  containing block passes through the bar's band on its way, and that is content
+  scrolling under a translucent bar, which is what the bar is for. It also means a strip
+  sticky inside some *other* scroll container is skipped rather than mis-flagged, because
+  its `top` is measured from that container's box and not from the window's.
+
+  What comes back per box is one signed number: how far the bar's bottom edge is past
+  its top. Zero is right. Positive is the bug bc-ugd4 was filed for — that much of it is
+  underneath the bar. Negative is the bug you get from *fixing* that one with a constant:
+  `top: 104px` read off a screenshot leaves a 43px hole the day the space picker hides
+  itself and the bar is 61px. Both directions are failures, and asking for only the first
+  is how the second ships.
+*/
+const STUCK = `(() => {
+  const bar = document.querySelector('.topbar');
+  if (!bar) return { bar: false };
+  const br = bar.getBoundingClientRect();
+  const name = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') +
+    (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/).join('.') : '');
+  const pinned = [];
+  for (const el of document.querySelectorAll('*')) {
+    if (el === bar || bar.contains(el)) continue;
+    const cs = getComputedStyle(el);
+    if (cs.position !== 'sticky') continue;
+    const want = parseFloat(cs.top);
+    if (!Number.isFinite(want)) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    if (Math.abs(r.top - want) > 1) continue;
+    pinned.push({
+      sel: name(el),
+      top: Math.round(r.top),
+      h: Math.round(r.height),
+      /* Negative is a hole between the bar and it; positive is how much of it the bar
+         is sitting on top of. One number, because they are the two directions of the
+         same mistake. */
+      over: Math.round(Math.min(br.bottom, r.bottom) - r.top),
+    });
+  }
+  return { bar: true, scrollY: Math.round(scrollY), barBottom: Math.round(br.bottom), pinned };
+})()`;
+
 /* Every page with a picker. The admin page is deliberately not one (it acts on every
    repo at once) and the drawers — /graph, /doc, /session, /terminal — are not standing
    views, so neither carries a `.spacebar` to measure. */
+/* `/prs` is the advocates page with its board chip up (bc-d4d5) rather than a page of
+   its own, and it is still measured under its own path: the top bar is shared between
+   the three panes now, so what this check is really asking there is that arriving by the
+   board's URL does not change what the bar costs. */
 const PAGES = ['/', '/monitor', '/console', '/prs', '/endorse', '/foundations'];
 
 /* 360px is the cheap Android the app is for and the width the trade was argued at; 393
@@ -319,8 +313,22 @@ const SIZES = [
 
 let failures = 0;
 const notices = [];
+/* /monitor's bar with the picker's row on it, per width — what the shorter bar below is
+   compared against, so the message says how much of a row was actually lost. */
+const shownBarH = new Map();
 const room = [];
 const ok = (name) => console.log(`  \x1b[32m✓\x1b[0m ${name}`);
+/* Both directions in one sentence, because "43px behind it" and "43px below it" are
+   different bugs with the same fix and the number alone does not say which. */
+const misfits = (st, off) =>
+  `the bar ends at ${st.barBottom}px and ` +
+  off
+    .map((b) =>
+      b.over > 0
+        ? `${b.sel} is pinned at ${b.top}px, ${b.over} of its ${b.h}px behind the bar`
+        : `${b.sel} is pinned at ${b.top}px, ${-b.over}px below the bar with a hole between them`
+    )
+    .join('; ');
 const bad = (name, detail) => {
   failures += 1;
   console.log(`  \x1b[31m✗\x1b[0m ${name}`);
@@ -329,7 +337,7 @@ const bad = (name, detail) => {
 
 const server = await serve();
 const { port } = server.address();
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-topbar-');
 try {
   await s.send('Page.enable');
   await s.send('Runtime.enable');
@@ -347,12 +355,6 @@ try {
          these pages draw the bar from a payload this fixture also answers, and waiting
          on whichever path each one takes would be measuring the fixture. */
       await evalJs(s, `window.beadcause && window.beadcause.space && window.beadcause.space.adopt(${JSON.stringify(SPACEPAY)}), 1`);
-      /* The inbox's chip, with a real number in it. The first row's width is the whole
-         question and an empty inbox hides 75px of it. */
-      await evalJs(
-        s,
-        `(() => { const w = document.querySelector('.waiting'); if (w) { w.innerHTML = '3 <span class="word">waiting</span>'; w.hidden = false; } return 1; })()`
-      );
       await sleep(250);
       const m = await evalJs(s, PROBE);
       const at = `${page} @${size.width}`;
@@ -396,6 +398,7 @@ try {
 
       // One control, the same on every page — including how tall it is.
       pickerHeights.set(page, m.picker.h);
+      if (page === '/monitor') shownBarH.set(size.width, m.barH);
 
       // The budget. It is a phone: the list is what the screen is for.
       const chrome = m.barH + m.tabH;
@@ -407,18 +410,78 @@ try {
       room.push({ at, page, width: size.width, spare: m.spare, need: m.need, brandW: m.brandW, actsW: m.actsW });
 
       /* Does the page fit the screen at all? A page laying out wider than the viewport
-         has been shrink-fitted by the browser, so it is not the size it was designed
-         at. /monitor is 376px at a 360px screen today — bc-3ui6 — and this is a notice
-         rather than an assertion so that this file does not ship red. When that bead
-         lands, the notice goes quiet and this can become one. */
-      if (m.layoutW > size.width)
-        notices.push(
-          `\x1b[33m!\x1b[0m ${at}: the page lays out at ${m.layoutW}px on a ${size.width}px screen, so the browser has scaled it to ${Math.round((size.width / m.layoutW) * 100)}% — known, bc-3ui6.`
+         has been shrink-fitted by the browser, so nothing on it is the size it was
+         designed at and every other number in this file is in a different unit from the
+         screen it is being compared to. This was a notice while /monitor was 376px at a
+         360px screen (bc-3ui6 — one negative margin against an unpadded `<body>`); that
+         landed, so it is an assertion, which is the only form that stops the next one
+         arriving. It costs one declaration to fail it and nobody would see it: the
+         browser scales the page silently and it reads as a font being slightly wrong. */
+      if (m.layoutW <= size.width) ok(`${at}: the page fits the screen (lays out at ${m.layoutW}px, unscaled)`);
+      else
+        bad(
+          `${at}: the page fits the screen`,
+          `it lays out at ${m.layoutW}px on a ${size.width}px screen, so the browser has scaled it to ${Math.round((size.width / m.layoutW) * 100)}% — something on it is wider than the body`
         );
 
       if (outDir) {
         const { data } = await s.send('Page.captureScreenshot', { format: 'png' });
         fs.writeFileSync(path.join(outDir, `topbar-${page === '/' ? 'inbox' : page.slice(1)}-${size.width}.png`), Buffer.from(data, 'base64'));
+      }
+
+      /* Last, because it scrolls the page and hangs a spacer off the body. The spacer
+         goes on `<body>`, which is what these pages scroll — the two with a `.launcher`
+         of their own do not scroll at all here, and are reported as such rather than
+         passed silently, because "nothing was behind the bar" and "nothing moved" are
+         not the same answer. */
+      await evalJs(
+        s,
+        `(() => { const d = document.createElement('div'); d.style.cssText = 'height:1500px'; d.dataset.topbarCheck = '1'; document.body.append(d); scrollTo(0, 400); return 1; })()`
+      );
+      await sleep(250);
+      const st = await evalJs(s, STUCK);
+      const off = st.pinned ? st.pinned.filter((b) => Math.abs(b.over) > 1) : [];
+      if (!st.scrollY) ok(`${at}: nothing pins under the bar (the page does not scroll under it)`);
+      else if (!st.pinned.length) ok(`${at}: nothing else pins to the window at scrollY ${st.scrollY}`);
+      else if (!off.length)
+        ok(`${at}: what pins under the bar sits against it (${st.pinned.map((b) => `${b.sel} at ${b.top}px`).join(', ')})`);
+      else bad(`${at}: what pins under the bar sits against it`, `at scrollY ${st.scrollY}, ${misfits(st, off)}`);
+    }
+
+    /*
+      And the same thing again with the bar a row shorter, on the one page that has a
+      strip stuck to it.
+
+      `spacebar.js` hides the picker outright below two workspaces (`el.hidden`), which
+      takes the bar from 104px to 61px on the same build and the same page. That is the
+      whole reason the strip's offset is a variable and not a number: a `top: 104px`
+      hardcoded from a screenshot passes every assertion above and leaves a 43px hole
+      between the bar and the strip for anybody running one repo — who is, incidentally,
+      everybody on their first day. Measured here rather than reasoned about, because the
+      two heights are the two states this actually ships in.
+    */
+    {
+      const ONE = { ...SPACEPAY, workspaces: ['beadcause'], spaces: [{ name: 'Personal', workspaces: ['beadcause'], count: 3, quiet: false }] };
+      await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/monitor?t=topbar-check-one` });
+      await sleep(1100);
+      await evalJs(s, `window.beadcause && window.beadcause.space && window.beadcause.space.adopt(${JSON.stringify(ONE)}), 1`);
+      await sleep(250);
+      const m = await evalJs(s, PROBE);
+      const at = `/monitor @${size.width}, one workspace`;
+      if (m.picker) {
+        bad(`${at}: the picker hides itself`, `it is still drawn at ${m.picker.w}px — see el.hidden in public/spacebar.js`);
+      } else {
+        ok(`${at}: the picker hides itself, and the bar is ${m.barH}px rather than ${shownBarH.get(size.width) ?? '?'}px`);
+        await evalJs(
+          s,
+          `(() => { const d = document.createElement('div'); d.style.cssText = 'height:1500px'; d.dataset.topbarCheck = '1'; document.body.append(d); scrollTo(0, 400); return 1; })()`
+        );
+        await sleep(250);
+        const st = await evalJs(s, STUCK);
+        const off = st.pinned.filter((b) => Math.abs(b.over) > 1);
+        if (!off.length)
+          ok(`${at}: what pins under the shorter bar sits against it (${st.pinned.map((b) => `${b.sel} at ${b.top}px`).join(', ') || 'nothing pins'})`);
+        else bad(`${at}: what pins under the shorter bar sits against it`, misfits(st, off));
       }
     }
 
