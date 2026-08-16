@@ -125,7 +125,7 @@ export const SURFACES = [
         name: 'Tags & spark',
         subtitle: 'ok, warn, live, dim',
         viewport: { width: 460, height: 200 },
-        note: `The second grain inside a work row. A <b>.tag</b> says what state the row is in; <b>.spark</b> is the only animated one — a breathing dot rather than a dead grey circle, because the list it sits in is where you find the conversation that is actually moving.`,
+        note: `The second grain inside a work row. A <b>.tag</b> says what state the row is in. <b>.spark</b> is a plain grey dot on its own — it <i>breathes</i> only where something beside it is actually running (<code>.console-row</code>, <code>.session-row</code>, <code>.adv-worker</code>, <code>.activity.live</code>, <code>.chat-card</code> and three more), and turns accent-coloured at the same time. That is the whole trick: one element, dead by default, alive only in the contexts that have earned it.`,
         markup: `<div class="ds-stack">
   <div class="meta">
     <span class="tag ok">merged</span>
@@ -134,7 +134,10 @@ export const SURFACES = [
     <span class="tag dim">paused</span>
     <span class="tag">queued</span>
   </div>
-  <div class="meta"><span class="spark"></span><span class="dim">busy</span></div>
+  <p class="ds-label">.spark on its own — grey, still</p>
+  <div class="meta"><span class="spark"></span><span class="dim">idle</span></div>
+  <p class="ds-label">the same element inside a live row — accent, breathing</p>
+  <div class="console-row"><div class="meta"><span class="spark"></span><span class="dim">busy</span></div></div>
 </div>`,
       },
       {
@@ -248,15 +251,29 @@ export const SURFACES = [
         name: 'Release',
         subtitle: 'What went out, and what it said',
         viewport: { width: 500, height: 320 },
-        note: `A deploy, and the commits in it. The count is on the head rather than in the list, so a release that went out clean reads as one line — you open it only when you want to know what was in it.`,
-        markup: `<div class="release">
-  <div class="release-head"><span class="work-title">Deployed</span><span class="release-count">4</span><span class="tag ok">live</span></div>
-  <p class="release-say">Merged to main 6m ago, settled, swapped.</p>
-  <ul class="release-list">
-    <li>bc-r941 — MergeAdvocate stops merging its own work</li>
-    <li>bc-1kwl.3 — five route caches onto the shared layer</li>
-    <li class="release-more">and 2 more</li>
-  </ul>
+        note: `A deploy waiting to go, and the commits in it. <b>.release-count</b> sits <i>over the Ship button's corner</i> rather than inside its label — <code>position: absolute</code> against the button — so it stays legible when the armed state rewrites the words underneath it, and the button is the same size before and after a merge lands on the queue. Same ring as the tab badge, because the strip is tinted and a badge with no ring reads as part of the button's fill.`,
+        markup: `<div class="ds-stack">
+  <div class="release">
+    <div class="release-head">
+      <span class="work-title">beadcause</span>
+      <span class="tag ok">ready</span>
+      <button class="board-btn ship release-ship">Ship<span class="release-count" aria-hidden="true">4</span></button>
+    </div>
+    <p class="release-say">Merged to main 6m ago, settled, swapped.</p>
+    <ul class="release-list">
+      <li>bc-r941 — MergeAdvocate stops merging its own work</li>
+      <li>bc-1kwl.3 — five route caches onto the shared layer</li>
+      <li class="release-more">…and 2 more</li>
+    </ul>
+  </div>
+
+  <p class="ds-label">armed — the label grows, the badge does not move</p>
+  <div class="release">
+    <div class="release-head">
+      <span class="work-title">beadcause</span>
+      <button class="board-btn ship release-ship armed">Ship all 4 — sure?<span class="release-count" aria-hidden="true">4</span></button>
+    </div>
+  </div>
 </div>`,
       },
       {
@@ -1008,16 +1025,17 @@ export const SURFACES = [
         path: 'overlays/drawer.html',
         name: 'Drawer',
         subtitle: 'A graph or a doc, over the page',
-        viewport: { width: 460, height: 400 },
-        note: `Graph and doc links open <b>over</b> the tab you are on rather than navigating away from it — you came from a card, and going back to a rebuilt list with your scroll position gone is a worse answer than a panel. The edge is the grab handle; the backdrop is the way out.`,
-        markup: `<div class="ds-stack">
-  <aside class="drawer">
+        viewport: { width: 400, height: 700 },
+        note: `Graph and doc links open <b>over</b> the tab you are on rather than navigating away from it — you came from a card, and going back to a rebuilt list with your scroll position gone is a worse answer than a panel. The edge is the grab handle; the backdrop is the way out. Shown in its <b>.drawer-wrap</b>, which is the <code>position: fixed; inset: 0</code> layer everything inside is absolutely positioned against — without it the panel measures itself against the page and spills.`,
+        markup: `<div class="drawer-wrap open">
+  <div class="drawer-backdrop"></div>
+  <aside class="drawer" role="dialog" aria-modal="true">
     <header class="drawer-head">
       <h2 class="drawer-title">bc-z665 — the graph</h2>
       <button class="icon-btn">✕</button>
     </header>
     <div class="md"><p>Two blocks, three children, one discovered-from edge.</p></div>
-    <div class="drawer-edge"></div>
+    <div class="drawer-edge" aria-hidden="true"></div>
   </aside>
 </div>`,
       },

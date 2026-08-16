@@ -73,3 +73,6 @@ android/.idea/
 # public/style.css and scripts/design/manifest.mjs, so the generator is the source and
 # this is the output. Rebuild it with `node scripts/design/build.mjs`.
 design-bundle
+
+# Screenshots from scripts/design/shots.mjs — 154 PNGs, regenerated on demand.
+design-shots
