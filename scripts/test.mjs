@@ -47,6 +47,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { NO_LAUNCH } from '../lib/launchguard.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -98,6 +99,11 @@ for (const [i, suite] of suites.entries()) {
   const run = spawnSync(process.execPath, [path.join(ROOT, suite)], {
     cwd: ROOT,
     stdio: 'inherit',
+    // Layer 2 of the launch guard, and the half that reaches where `argv[1]` cannot: two
+    // of the suites below start a real daemon, and a daemon is running `bin/router.js` —
+    // nothing about that process looks like a test. Inherited by every child of every
+    // child, which is exactly the reach that is wanted. lib/launchguard.js says why.
+    env: { ...process.env, [NO_LAUNCH]: '1' },
   });
   if (run.error) {
     console.log(`\n\x1b[31m${suite} could not be started — ${run.error.message}\x1b[0m\n`);

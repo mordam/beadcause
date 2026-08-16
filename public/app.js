@@ -6204,6 +6204,13 @@
                 // rather than off which button was pressed.
                 res?.handedBack
                 ? `Answered ${q.id} — handed back as work`
+                : // The card did not go anywhere, and that is the one outcome a toast
+                // has to explain rather than confirm: everywhere else the card
+                // vanishing is the feedback. One of these options starts work, and a
+                // typed sentence cannot say which — so the words are saved and the
+                // question is still yours.
+                res?.needsChoice
+                ? `Saved on ${q.id} — pick an option to commit it`
                 : `Answered ${q.id}`
           );
           render(true);
