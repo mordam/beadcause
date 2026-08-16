@@ -11,6 +11,15 @@
   --accent-ink: #06231f;
   --warn: #fbbf24;
   --danger: #f87171;
+  /* What is legible *on* --danger, and it has to flip with the scheme where
+     --accent-ink does not. The dark scheme's danger is a light red, so white on it is
+     2.77:1 — below AA, on the two controls that most need reading: "Decline & close",
+     and the ✕ that declines a proposed bead. Measured by scripts/design/contrast.mjs. */
+  --danger-ink: #2b0d0d;
+  /* Same bargain on the amber, and it flips the other way: this scheme's --warn is a
+     bright #fbbf24, so the ink is near-black. In the light scheme it is a dark #92600a
+     and near-black on it is 3.45:1 — the "File N beads" button in edit mode. */
+  --warn-ink: #131313;
   /* The two colours an answer flies in — see public/absorb.js. Deliberately not
      --accent: the bead you answered and the beads your decision created have to be
      told apart from each other at a glance, and both have to be told apart from the
@@ -35,6 +44,9 @@
     --accent-ink: #ffffff;
     --warn: #92600a;
     --danger: #b91c1c;
+    /* Dark red here, so the ink goes back to white. */
+    --danger-ink: #ffffff;
+    --warn-ink: #ffffff;
     /* A step darker, because these are drawn on a near-white page rather than on
        #0b0f14 — the dark scheme's values wash out against it. */
     --bead-answered: #2563eb;
@@ -1539,7 +1551,7 @@ body {
   font-size: 16px; line-height: 1; cursor: pointer;
 }
 .prop-btn.yes[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-.prop-btn.no[aria-pressed="true"] { background: var(--danger); color: #fff; border-color: transparent; }
+.prop-btn.no[aria-pressed="true"] { background: var(--danger); color: var(--danger-ink); border-color: transparent; }
 /* Approved and declined have to be readable at a glance from the row itself, not
    only from the button — you decide these three at a time. */
 .prop-row.pick-yes { border-left: 3px solid var(--accent); padding-left: 8px; }
@@ -1653,7 +1665,7 @@ body {
 .decline-why { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--prose); }
 .decline-why code { font-size: 11.5px; }
 .pr-decline .pr-actions { padding-top: 4px; }
-.primary.danger { background: var(--danger); color: #fff; }
+.primary.danger { background: var(--danger); color: var(--danger-ink); }
 /* The box you type the direction into belongs to the decline while that is what is
    happening, so it is framed as part of it rather than as a general answer box. */
 .freeform.declining textarea { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
@@ -6394,7 +6406,7 @@ body.editing::after {
   border: 0;
   border-radius: 999px;
   background: var(--warn);
-  color: #131313;
+  color: var(--warn-ink);
   font: inherit; font-size: 14px; font-weight: 700;
   cursor: pointer;
 }

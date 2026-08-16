@@ -904,11 +904,11 @@ export const SURFACES = [
         name: 'Requirement rows',
         subtitle: 'Covered vs observed',
         viewport: { width: 480, height: 320 },
-        note: `The two numbers a requirement carries and the difference between them: <b>covered</b> is what a test claims, <b>observed</b> is what actually ran. A requirement can be fully covered and never observed, which is exactly the state the bar is there to make visible.`,
+        note: `The two numbers a requirement carries and the difference between them: <b>covered</b> is what a test claims, <b>observed</b> is what a merge proved. A requirement can be fully covered and never observed, which is exactly the state the bar exists to make visible. Both fills are <b>empty spans with an inline width</b> — 6px of bar and no text at all — and the numbers reach a reader through the <code>aria-label</code> on the track. Covered sits <i>under</i> observed at 35% opacity, so the darker proved length reads as a subset rather than as a second, competing measurement.`,
         markup: `<div class="ds-stack">
-  <div class="reqbar">
-    <span class="reqbar-covered">41 covered</span>
-    <span class="reqbar-observed">37 observed</span>
+  <div class="reqbar" role="img" aria-label="41 of 52 covered, 37 proved by a merge">
+    <span class="reqbar-covered" style="width:79%"></span>
+    <span class="reqbar-observed" style="width:71%"></span>
   </div>
   <div class="req-list">
     <button class="req-row">
@@ -960,10 +960,10 @@ export const SURFACES = [
         name: 'Pairing',
         subtitle: 'The QR that gets the phone on',
         viewport: { width: 420, height: 340 },
-        note: `How a phone joins: a QR over Tailscale, with the token already in the link. The foot names the certificate, because the one failure mode that looks like a bug is a phone refusing a self-signed cert it has not been shown yet.`,
+        note: `How a phone joins: a QR over Tailscale, with the token already in the link. The code is an <b>SVG</b> on a white plate that stays white in both schemes — a QR inverted by a dark theme is a QR a camera will not read — so it is one of the few places in the app that does not take its ground from a token. The foot names the certificate, because the one failure mode that looks like a bug is a phone refusing a self-signed cert it has not been shown yet.`,
         markup: `<section class="card admin-card tls-pairing">
   <div class="admin-head"><span class="work-title">Pair a phone</span></div>
-  <div class="tls-qr">▚▚▞▚▞▞▚<br>▞▚▞▚▚▞▚<br>▚▞▚▞▞▚▞</div>
+  <div class="tls-qr"><svg viewBox="0 0 21 21" shape-rendering="crispEdges" role="img" aria-label="Pairing QR code"><rect width="21" height="21" fill="#fff"/><path fill="#000" d="M0 0h7v7H0zM2 2h3v3H2zM14 0h7v7h-7zM16 2h3v3h-3zM0 14h7v7H0zM2 16h3v3H2zM9 0h1v1H9zM11 1h1v1h-1zM9 2h2v1H9zM12 3h1v1h-1zM9 4h1v2H9zM11 5h2v1h-2zM8 8h1v1H8zM10 8h2v1h-2zM13 8h1v1h-1zM9 9h1v1H9zM11 10h1v1h-1zM8 11h2v1H8zM12 11h2v1h-2zM9 12h1v1H9zM11 13h3v1h-3zM15 9h1v1h-1zM17 10h2v1h-2zM16 12h1v1h-1zM19 13h1v1h-1zM9 15h1v1H9zM11 16h2v1h-2zM9 17h1v2H9zM12 18h1v1h-1zM10 19h3v1h-3zM15 15h2v1h-2zM18 16h1v2h-1zM15 18h1v1h-1zM17 19h3v1h-3z"/></svg></div>
   <p class="admin-detail">Scan on the phone. The link carries the token, so nothing needs typing.</p>
   <p class="admin-detail tls-foot">beadcause.tail9c2.ts.net · self-signed</p>
   <div class="admin-btns"><a class="secondary tls-link" href="#">Copy the link</a></div>

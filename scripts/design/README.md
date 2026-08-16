@@ -135,3 +135,61 @@ DesignSync write_files   → localPath, so contents never enter the model contex
 sheet stays the source of truth and this project is a reference surface — it drifts
 unless somebody rebuilds and pushes. `check.mjs` catches a card that no longer matches
 the sheet's *classes*, but not one whose values have moved on.
+
+## The contrast audit
+
+```sh
+node scripts/design/contrast.mjs        # every text run, both themes, WCAG AA
+node scripts/design/contrast.mjs --all  # including the passes, for the ratios
+```
+
+It has to run in a browser. Almost nothing in `public/style.css` states a contrast pair
+outright: colours arrive through `var(--muted)`, through
+`color-mix(in srgb, var(--accent) 60%, transparent)`, through an `rgba()` over a surface
+that is itself tinted — and the background a piece of text sits on is usually painted by
+an ancestor three levels up. Only the computed style knows, and only after the cascade
+has run in both schemes.
+
+Three things it must get right, each a way the naive version lies:
+
+- **Alpha.** `color` is frequently `rgba(…, .72)` here, because `color-mix(…, transparent)`
+  computes to exactly that. Text at 72% alpha does not have the contrast of its own
+  colour; it is composited over what is behind it first.
+- **The real background.** `backgroundColor` is `rgba(0, 0, 0, 0)` on most elements. The
+  ground is whichever ancestor last painted, composited down the chain.
+- **What is actually text.** An element with no own text node contributes nothing.
+  Measuring containers double-counts and reports one string under a dozen selectors.
+
+Findings group by rule, not by card: one rule is wrong everywhere it is drawn, and fifty
+rows saying `.subtitle` is thin is one finding.
+
+## The regression baseline
+
+```sh
+node scripts/design/baseline.mjs --save   # record
+node scripts/design/baseline.mjs          # compare
+```
+
+**It fingerprints computed styles, not pixels**, and that was not the first design.
+Hashing the PNG is the obvious build and it does not work: `captureBeyondViewport` at
+`deviceScaleFactor: 2` is not byte-stable, and a save-then-compare with nothing changed
+moved between one and fifteen cards per run, never the same ones. Disabling every
+animation and waiting two frames for layout did not fix it. A screenshot is the right
+artifact for a person and the wrong one for a machine.
+
+Reading the cascade back out of the page is deterministic — two consecutive runs of an
+unchanged tree agree exactly — and it diffs far better. Pixels can only say a card moved;
+this says which rule, in which theme, from what to what:
+
+```
+button.primary.danger · color · rgb(255, 255, 255) → rgb(43, 13, 13)
+    3 render(s) — decisions/answer-box-variants.html:dark, overlays/dialog.html:dark, …
+```
+
+One residual needed `freeze()` in the harness: `.spark`'s opacity, read mid-breath.
+`shots.mjs` deliberately does **not** freeze — its probe asserts that a live row's spark
+really is running, which a frozen page cannot show.
+
+The baseline lives in `design-shots/`, which is gitignored, so it is per-machine and a
+fresh clone has none. That is the honest default: a baseline recorded on someone else's
+machine is a claim about their fonts.
