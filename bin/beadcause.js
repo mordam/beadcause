@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadConfig, reconcileBaseUrl, CONFIG_PATH, OBSERVING } from '../lib/config.js';
+import { loadConfig, reconcileBaseUrl, workspaceRoots, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit, globalWorkerCap } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
@@ -8,6 +8,7 @@ import { declareOwnDeploy, ownWorkspace } from '../lib/deploy.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
 import { cleartextWarning, closeServer, startRenewal } from '../lib/tls.js';
+import { describeTailnet, tailnetState } from '../lib/tailnet.js';
 import { pushCertificate } from '../lib/notify.js';
 import { startSlack, slackStatusLine, slackTokenWarnings } from '../lib/slack.js';
 import { repoStatusLine, repoWarnings } from '../lib/repos.js';
@@ -102,7 +103,13 @@ if (process.argv.includes('--qr')) {
 }
 
 if (!cfg.workspaces.length) {
-  console.error('[beadcause] no beads workspaces found under ~/beads — nothing to serve.');
+  // The roots by name, because "under ~/beads" was a lie on any install that had been
+  // pointed somewhere else, and the one thing this message has to get right is where to
+  // go and look.
+  console.error(
+    `[beadcause] no beads workspaces found under ${workspaceRoots(cfg).join(', ')} — nothing to serve.`
+  );
+  console.error('[beadcause] add a root to workspaceRoots in ' + CONFIG_PATH + ', or run npm run configure.');
   process.exit(1);
 }
 
@@ -245,6 +252,29 @@ const handler = (req, res) => {
   return app.handler(req, res);
 };
 
+/**
+ * `BEADCAUSE_START_DELAY_MS` — wait this long before binding. Test-only, and the mirror
+ * image of `healthTimeoutMs` in bin/router.js, which exists "for one reason that is not
+ * tuning — a test needs a window it can guarantee will expire".
+ *
+ * It turns out the window was only half of that guarantee. `test/outagepush.mjs` set the
+ * window to 250ms on the reasoning that nothing starts in a quarter of a second, and on
+ * this laptop, with several real beads workspaces to open, nothing does. A CI runner with
+ * one empty workspace came up well inside it (bc-rcrt), the router never saw an outage,
+ * and a suite about what the phone is told when nothing is being served asserted nothing
+ * at all. A missed window needs a slow *start* as well as a short window, and only one of
+ * those was under the test's control.
+ *
+ * Named on the environment rather than in config.json because it is the backend the
+ * router spawns — it inherits this, and a knob in the config file would be one more line
+ * for a person reading their own settings to wonder about.
+ */
+const startDelayMs = Number(process.env.BEADCAUSE_START_DELAY_MS) || 0;
+if (startDelayMs > 0) {
+  console.error(`[beadcause] holding the bind for ${startDelayMs}ms — BEADCAUSE_START_DELAY_MS`);
+  await new Promise((resolve) => setTimeout(resolve, startDelayMs));
+}
+
 const servers = listen(
   // Behind the router this binds loopback only. The tailnet reaches the router; an
   // internal backend that also bound the tailnet IP would be answerable directly,
@@ -372,6 +402,15 @@ console.log(`[beadcause] slack       ${slackStatusLine(cfg)}`);
 // is not readable by every account on this Mac. `console.warn` so it is not read as part
 // of the tidy startup block above it.
 for (const w of slackTokenWarnings(cfg)) console.warn(`[slack] ${w}`);
+// Whether the address in that URL is on this Mac at all — said in the startup block
+// and in `--status`, next to the URL it decides the fate of, because it is the one fact
+// neither of them used to carry. A phone that cannot load the app is indistinguishable,
+// from up here, from a daemon that is perfectly healthy; this is the line that tells
+// them apart. `console.warn` when it is a problem, so it does not read as part of the
+// tidy block. bc-b4fs, and lib/tailnet.js says what the states mean.
+const tailnet = internalPort ? null : tailnetState(cfg.host);
+if (!tailnet) console.log('[beadcause] tailnet     behind the router — it holds the tailnet address, this process binds loopback');
+else (tailnet.ok ? console.log : console.warn)(`[beadcause] tailnet     ${describeTailnet(tailnet)}`);
 console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
 console.log(`[beadcause] build       ${build} (${role}${internalPort ? `, internal :${internalPort}` : ', standalone'})`);
 

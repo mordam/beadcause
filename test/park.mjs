@@ -76,6 +76,14 @@ const FAKE_BD = path.join(tmp, 'bd');
  * the nouns swapped, and every other pair — bug→task, feature→task, chore→decision —
  * goes in. So the rule is epic-ness matching and nothing else.
  *
+ * **The real bd stopped doing that in 1.2.1, and this fake deliberately still does.**
+ * Cross-type blocking is allowed from 1.2.1 on (bc-xl7n.39), so nothing on a current
+ * binary can trigger the refusal below any more — which is exactly why it is worth
+ * keeping here. What these cases exercise is `park`'s *handling* of a refused edge, and
+ * that path is still live for the `LOCKED` reason underneath. Read this file as "what
+ * park does when bd says no", not as a claim about which pairs bd rejects; the file that
+ * makes that claim, against the real binary, is test/epicedgereal.mjs.
+ *
  * `LOCKED` is the second way an edge fails, and the reason `park` still has a fallback
  * now that types are handled: embedded Dolt is single-writer, and around twenty agent
  * sessions share these workspaces.
@@ -200,8 +208,31 @@ fs.writeFileSync(
   JSON.stringify({ bdBin: FAKE_BD, actor: 'beadcause-test', workspaces: [{ name: 'demo', dir: wsDir }] }, null, 2)
 );
 
+/**
+ * Prose, then the `decision` block last with one option recommended — what the brief tells
+ * a worker to write, and what `bin/ask.js` now refuses to file without. Parking is the
+ * subject of this file, so the body has to be a valid one or every case here fails on the
+ * gate instead of on what it is testing.
+ */
+const ASK_BODY = [
+  'Which of these two did you mean?',
+  '',
+  '```decision',
+  'question: Gross or net?',
+  'options:',
+  '  - id: gross',
+  '    label: Gross',
+  '    response: Gross - the fee comes off the full charge.',
+  '    recommended: true',
+  '  - id: net',
+  '    label: Net',
+  '    response: Net - the fee comes off after processing costs.',
+  '```',
+  '',
+].join('\n');
+
 /** `bin/ask.js`, run the way the brief tells a worker to run it: body on stdin, id on stdout. */
-const run = (script, args, input = 'Which of these two did you mean?\n') => {
+const run = (script, args, input = ASK_BODY) => {
   const res = spawnSync(process.execPath, [path.join(ROOT, 'bin', script), ...args], {
     input,
     encoding: 'utf8',

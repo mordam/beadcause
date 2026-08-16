@@ -69,6 +69,8 @@ const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail))
 const { cardsForDelivery, deliveryBody } = await import(LIB('delivery.js'));
 const { Bd } = await import(LIB('bd.js'));
 const { readOwed, oweClose, sweepOwed, OWED_PATH } = await import(LIB('owed.js'));
+const { isClaimGuard } = await import(LIB('bd.js'));
+const { readSweepRequests, MERGE_SWEEPS_PATH } = await import(LIB('mergesweep.js'));
 
 /* ------------------------------------------------------------ which card is which */
 
@@ -148,11 +150,21 @@ if (args[0] === 'comments') { process.stdout.write('[]'); process.exit(0); }
 if (args[0] === 'close') {
   const issue = w.issues[args[1]];
   if (!issue) die('Error: no issue found matching "' + args[1] + '"');
+  const forced = args.includes('--force') || args.includes('-f');
   const open = (issue.dependencies || [])
     .filter((d) => d.dependency_type === 'blocks')
     .filter((d) => ((w.issues[d.id] || {}).status || 'closed') !== 'closed')
     .map((d) => d.id);
-  if (open.length) die('cannot close ' + issue.id + ': blocked by open issues [' + open.join(' ') + '] (use --force to override)');
+  if (open.length && !forced) die('cannot close ' + issue.id + ': blocked by open issues [' + open.join(' ') + '] (use --force to override)');
+  // bd 1.2.1's claim guard, quoted from the real binary (bc-9d37.13). It is here rather
+  // than in the assertions because it is the *binary's* behaviour, and the point of the
+  // cases below is that beadcause's own code copes with it. --force lifts it, which was
+  // measured against bd 1.2.1 rather than read out of --help, where it is undocumented.
+  const assignee = issue.assignee || '';
+  const actor = flag('--actor') || '';
+  if (assignee && actor && assignee !== actor && !forced) {
+    die('cannot close ' + issue.id + ': assignee is "' + assignee + '", actor is "' + actor + '"; reclaim or use --force to override');
+  }
   issue.status = 'closed';
   issue.close_reason = flag('--reason') || '';
   save();
@@ -238,6 +250,28 @@ process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
 const wsDir = path.join(tmp, 'ws');
 fs.mkdirSync(path.join(wsDir, '.beads'), { recursive: true });
 
+const SESSIONS = path.join(tmp, 'claude', 'sessions');
+const PROJECTS = path.join(tmp, 'claude', 'projects', '-demo-widgets');
+fs.mkdirSync(SESSIONS, { recursive: true });
+fs.mkdirSync(PROJECTS, { recursive: true });
+
+/** The window a worker left behind: idle, named `QUEUED-`, waiting to hear it landed. */
+const queuedWindow = () => {
+  fs.writeFileSync(
+    path.join(SESSIONS, `${process.pid}.json`),
+    JSON.stringify({
+      pid: process.pid,
+      sessionId: 'sess-mergeclose',
+      name: 'QUEUED-Demo - zz-work the work',
+      cwd: '/demo/widgets',
+      status: 'idle',
+      statusUpdatedAt: Date.now(),
+    })
+  );
+  fs.writeFileSync(path.join(PROJECTS, 'sess-mergeclose.jsonl'), '{"type":"user"}\n');
+};
+const windowName = () => JSON.parse(fs.readFileSync(path.join(SESSIONS, `${process.pid}.json`), 'utf8')).name;
+
 const cfgBase = {
   host: '127.0.0.1',
   baseUrl: 'http://127.0.0.1',
@@ -248,7 +282,10 @@ const cfgBase = {
   sessionDirs: { demo: wsDir },
   openSessions: false,
   autoDispatch: false,
-  claudeSessions: false,
+  // A scratch `~/.claude` rather than `claudeSessions: false`, because one of the things
+  // the tap owes is a rename of the window that delivered this — lib/retitle.js. Pointed
+  // at the tmp tree so it can never reach a real window on this Mac.
+  claudeSessionsDir: SESSIONS,
   pollSeconds: 3600,
   terminal: false,
   ntfy: { enabled: false },
@@ -303,6 +340,7 @@ const DELIVERY = {
 
 /** The tracker as a delivery leaves it: a card, a work bead, and the edge between them. */
 const reset = ({ sibling = false } = {}) => {
+  fs.rmSync(MERGE_SWEEPS_PATH, { force: true });
   const issues = {
     'zz-pr': {
       id: 'zz-pr',
@@ -351,6 +389,7 @@ console.log('\nmerging from the phone\n');
 
 {
   reset();
+  queuedWindow();
   const res = await post('/api/respond', { workspace: 'demo', id: 'zz-pr', response: MERGE });
   check('the answer is taken', res.status === 200, JSON.stringify(res.json));
   check(
@@ -370,6 +409,18 @@ console.log('\nmerging from the phone\n');
     JSON.stringify(world().issues['zz-pr'].comments)
   );
   check('nothing is left owing', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
+  // bc-9d37.4. A merge leaves every other open branch on this base measured against a
+  // base it has never seen, and the tap is one of four doors that has to say so. Recorded
+  // rather than swept, because the resolver registry that stops two windows opening on
+  // one branch lives in the daemon's memory and the poll cycle is what reaches it — so
+  // this returns when the merge is done, not when a window has opened.
+  const asked = readSweepRequests();
+  check('and the conflict sweep is asked for', Object.keys(asked).length === 1, JSON.stringify(asked));
+  check('naming the repo and the merge', asked.demo?.key === 'demo' && asked.demo?.number === 7, JSON.stringify(asked.demo));
+  // A `--review` delivery files no merge-bead, so lib/mergequeue.js never sees this pull
+  // request and would never rename its window. This tap is the only door that can, and a
+  // window left saying `QUEUED-` claims to be waiting on a queue that will not touch it.
+  check('THE WINDOW THAT DELIVERED IT IS RENAMED DONE-', windowName() === 'DONE-Demo - zz-work the work', windowName());
 }
 
 /* ------------------------------------------ the sibling card, which is the bug */
@@ -411,6 +462,69 @@ console.log('\nmerging from the phone\n');
     world().issues['zz-work'].close_reason
   );
   check('and the record is gone', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
+}
+
+/* ------------------------------------ an epic, which a merge does not close (bc-arj0.3) */
+
+{
+  // The bead behind the card is an epic. bc-ka5y closed exactly this way — on the merge
+  // of a branch that shared its name, with twenty-one adoptees still open — and bd had
+  // no objection, because an `Adopts:` line is prose and the epic had no children.
+  reset();
+  const w = world();
+  w.issues['zz-work'].issue_type = 'epic';
+  writeWorld(w);
+
+  const res = await post('/api/respond', { workspace: 'demo', id: 'zz-pr', response: MERGE });
+  check('the answer is still taken — the merge is not in doubt', res.status === 200, JSON.stringify(res.json));
+  check('and the pull request merged', JSON.parse(fs.readFileSync(PR_STATE, 'utf8')).state === 'MERGED');
+  check('the epic stays open', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check(
+    'and it is told why, on the epic itself',
+    (world().issues['zz-work'].comments || []).some((c) => /stays open/.test(c)),
+    JSON.stringify(world().issues['zz-work'].comments)
+  );
+  check(
+    'nothing is owed, because no retry would ever make a merge the right evidence',
+    Object.keys(readOwed()).length === 0,
+    JSON.stringify(readOwed())
+  );
+  check('and the card does not claim it closed it', !(world().issues['zz-pr'].comments || []).some((c) => /— closed zz-work/.test(c)), JSON.stringify(world().issues['zz-pr'].comments));
+}
+
+{
+  // And the backstop, for a record written before this rule existed — or by anything
+  // that owes a close without asking. The retry has nothing in hand but the stored
+  // sentence, so it is the sentence the gate is asked about.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].issue_type = 'epic';
+  w.issues['zz-work'].dependencies = [];
+  writeWorld(w);
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'Merged #7 as c5004cce into main on GitHub', why: 'blocked by zz-sib' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  check('the retry refuses a merge-reason close on an epic', swept[0]?.status === 'refused', JSON.stringify(swept));
+  check('the epic is still open after it', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check('and the record is dropped rather than retried forever', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
+}
+
+{
+  // The same epic, owed a close somebody decided on. Nothing here holds an epic open
+  // against a reason that is *about the theme* — that is what closing an epic is for.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].issue_type = 'epic';
+  w.issues['zz-work'].dependencies = [];
+  writeWorld(w);
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'The theme is finished — every piece of it shipped.', why: 'the lock' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  check('an epic owed a close on its theme still closes', swept[0]?.status === 'closed', JSON.stringify(swept));
+  check('and it really is closed', world().issues['zz-work'].status === 'closed', world().issues['zz-work'].status);
+  fs.rmSync(OWED_PATH, { force: true });
 }
 
 /* ------------------------------------------------- what the sweep must not do */
@@ -465,6 +579,86 @@ console.log('\nthe retry, unattended\n');
 
 for (const s of servers) s.close?.();
 if (servers[0]?.front) servers[0].front.close?.();
+
+/* -------------------------------------------- bc-9d37.13: the 1.2.1 claim guard */
+
+console.log('\na delivery closing the bead its own worker claimed\n');
+
+{
+  // The bug, in the state every delivered bead is actually in: the worker claimed it, so
+  // the assignee is a git identity, and everything beadcause runs carries the `beadcause
+  // (…)` byline. bd 1.2.1 refuses that close. Before the fix this was `failed`, kept, and
+  // retried with the identical command every poll cycle forever — three real records were
+  // stuck in exactly that loop when this was filed.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause (neadamthal@gmail.com)' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].assignee = 'neadamthal@gmail.com';
+  w.issues['zz-work'].dependencies = [];
+  writeWorld(w);
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'Merged #7 as c5004cce into main', why: 'the claim guard' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  check('the retry closes it over the claim guard', swept[0]?.status === 'closed', JSON.stringify(swept));
+  check('and it really is closed', world().issues['zz-work'].status === 'closed', world().issues['zz-work'].status);
+  // The whole reason --force was chosen over reclaim-then-close: the tracker keeps saying
+  // who did the work. `bd update --assignee <actor>` would also have cleared the refusal,
+  // and would have overwritten this with the daemon's byline on every delivered bead.
+  check('the worker keeps the credit', world().issues['zz-work'].assignee === 'neadamthal@gmail.com', String(world().issues['zz-work'].assignee));
+  check('and nothing is left owing it', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
+}
+
+{
+  // The half that must NOT be forced. `--force` lifts the blocker refusal too, so a close
+  // that was refused for a *live blocker* has to stay refused — otherwise this fix would
+  // quietly close gated beads, which is a much worse bug than the one it repairs.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause (neadamthal@gmail.com)' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].assignee = 'neadamthal@gmail.com';
+  writeWorld(w);
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'Merged #7', why: 'blocked by zz-pr' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  check('a blocked bead is still blocked, claim guard or not', swept[0]?.status === 'blocked', JSON.stringify(swept));
+  check('it is not closed', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check('and the record is kept, because that one really does clear on its own', Object.keys(readOwed()).length === 1, JSON.stringify(readOwed()));
+  fs.rmSync(OWED_PATH, { force: true });
+}
+
+{
+  // An assignee that matches the actor was never the problem, and must not start paying
+  // for one: the plain close still goes through on the first attempt, with no --force
+  // anywhere near it. Asserted on the calls rather than on the outcome, because both
+  // paths end with a closed bead and only one of them steps over a guard.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'neadamthal@gmail.com' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].assignee = 'neadamthal@gmail.com';
+  w.issues['zz-work'].dependencies = [];
+  writeWorld(w);
+  fs.writeFileSync(BD_LOG, '');
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'Merged #7', why: 'the lock' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  const calls = fs.readFileSync(BD_LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  check('a matching assignee closes on the first try', swept[0]?.status === 'closed', JSON.stringify(swept));
+  check('and nothing was forced', !calls.some((c) => c.includes('--force')), JSON.stringify(calls.filter((c) => c[0] === 'close')));
+  fs.rmSync(OWED_PATH, { force: true });
+}
+
+{
+  // isClaimGuard is what decides whether --force is reached for at all, so it is worth
+  // asserting directly against the three refusals bd 1.2.1 actually emits — two of which
+  // also end in "use --force to override" and must not match.
+  check('the claim guard is recognised', isClaimGuard(new Error('cannot close bc-x: assignee is "a", actor is "b"; reclaim or use --force to override')));
+  check('a blocked close is not', !isClaimGuard(new Error('cannot close blocked issue: cg-0yq is blocked by [cg-aed] (use --force to override)')));
+  check('nor is an open child', !isClaimGuard(new Error('cannot close cg-pvg: 1 open child issue(s); close children first or use --force to override')));
+  check('and it reads stderr, not only the message', isClaimGuard({ message: 'Command failed', stderr: 'cannot close bc-x: assignee is "a", actor is "b"; reclaim' }));
+  check('nothing at all is not a claim guard', !isClaimGuard(null) && !isClaimGuard(undefined));
+}
+
 await cleanupTmp(tmp);
+
 console.log(failures ? `\n${failures} of ${ran} failed\n` : `\nall ${ran} passed\n`);
 process.exit(failures ? 1 : 0);

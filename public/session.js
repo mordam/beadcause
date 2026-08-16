@@ -485,7 +485,17 @@
     const box = block.querySelector('[data-say-text]');
     // Only worth restoring if it was the focused element — putting the caret back into
     // a box you were not typing in would open the keyboard over the transcript.
-    const at = box && box === document.activeElement ? box.selectionStart : null;
+    const live = box && box === document.activeElement ? box : null;
+    // Both ends, and the direction with them. A caret is the case where the two ends are
+    // equal, so carrying only `selectionStart` — which this did until bc-nh19 — hands back
+    // a caret at the left edge of whatever you had picked out, and the direction is the
+    // end the next Shift-arrow extends from. This box is repainted by a poll, which lands
+    // by definition at the moment you are mid-sentence in it, so the words you selected to
+    // type over are gone before you have typed anything. Same three fields as
+    // public/mirror.js's composer (bc-c3ve).
+    const at = live ? live.selectionStart : null;
+    const to = live ? live.selectionEnd : null;
+    const way = live ? live.selectionDirection || 'none' : 'none';
 
     block.innerHTML = sayHtml(state.session);
     wireSay();
@@ -493,7 +503,7 @@
     const fresh = block.querySelector('[data-say-text]');
     if (fresh && at !== null) {
       fresh.focus();
-      fresh.setSelectionRange(at, at);
+      fresh.setSelectionRange(at, to ?? at, way);
     }
   }
 

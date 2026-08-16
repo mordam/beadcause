@@ -112,6 +112,9 @@ fs.writeFileSync(path.join(store, 'android-keystore.properties'), 'storePassword
 fs.writeFileSync(path.join(store, 'loupe-sophab.png'), 'PRETEND PNG');
 fs.writeFileSync(path.join(store, 'status.json'), '{}');
 fs.writeFileSync(path.join(store, 'restart.json'), '{"at":"2026-08-11T00:00:00.000Z"}');
+fs.writeFileSync(path.join(store, 'merge-sweeps.json'), '{"beadcause":{"workspace":"beadcause","key":"beadcause","number":9}}');
+fs.writeFileSync(path.join(store, 'sweep-cards.json'), '{"bc-1":{"card":"bc-1","workspace":"beadcause","prs":[]}}');
+fs.writeFileSync(path.join(store, 'coverage.json'), '{"commit":"abc","files":[]}');
 fs.mkdirSync(path.join(store, 'logs'), { recursive: true });
 fs.writeFileSync(path.join(store, 'logs', 'run.log'), 'noise');
 fs.writeFileSync(path.join(store, 'config.json'), JSON.stringify({ token: 'abc' }, null, 2) + '\n');
@@ -127,6 +130,16 @@ check('status.json churn is not tracked', !tracked.includes('status.json'), trac
 // The same argument, one file along: the router rewrites restart.json on every handover
 // and it means nothing thirty seconds later, so its history is noise (bc-kttd).
 check('restart.json churn is not tracked', !tracked.includes('restart.json'), tracked.join(' '));
+// And once more for the sweep a merge asks for: written by whichever process merged,
+// emptied by the next poll cycle, and a history of it would be one commit per merge
+// saying something the pull request already says (bc-9d37.4).
+check('merge-sweeps.json churn is not tracked', !tracked.includes('merge-sweeps.json'), tracked.join(' '));
+// And its follow-up half: the rows of the card a sweep filed, deleted the moment the last
+// resolver stops. The history worth keeping is the bead it is about (bc-9d37.5).
+check('sweep-cards.json churn is not tracked', !tracked.includes('sweep-cards.json'), tracked.join(' '));
+// And the coverage report (lib/coverage.js): a few hundred kilobytes rewritten whole by
+// every `npm run coverage`, and true only of the commit stamped inside it (bc-vriu.2).
+check('coverage.json churn is not tracked', !tracked.includes('coverage.json'), tracked.join(' '));
 check('logs/ is not tracked', !tracked.some((f) => f.startsWith('logs/')), tracked.join(' '));
 
 check('an unchanged directory produces no commit', (await commit('nothing')) === null);
@@ -311,8 +324,17 @@ check(
 );
 check(
   'and stdout is only the value — the provenance note is on stderr, so a $( ) capture is unchanged',
-  theirs.stdout === 'evidence first, and name the file\n' && /notes to itself/.test(theirs.stderr),
+  theirs.stdout === 'evidence first, and name the file\n' && /never a reason on its own/.test(theirs.stderr),
   JSON.stringify({ out: theirs.stdout, err: theirs.stderr })
+);
+// bc-pud4: the note says what the memory is *worth*, not that it was private. The
+// rejected design was a curated readable subset, and "they never chose to publish
+// this" was the sentence that pointed at it — so a regression to a privacy framing
+// is a regression to a decision that was made and closed.
+check(
+  'and the note is about scrutiny, not about privacy',
+  /must face scrutiny/.test(theirs.stderr) && !/not published to you|never chose to publish/.test(theirs.stderr),
+  theirs.stderr
 );
 
 const listed = await zsh('beadcause-memory recall --of=advocate');
@@ -325,7 +347,7 @@ check(
 const ownRecall = await zsh('beadcause-memory recall shape');
 check(
   'reading your own carries no such note — it is nobody else\'s to warn about',
-  !/notes to itself/.test(ownRecall.stderr),
+  !/never a reason on its own/.test(ownRecall.stderr),
   ownRecall.stderr
 );
 
@@ -594,9 +616,16 @@ check(
   otherAgent.stdout.trim() === `${LAYOUT}, and scripts/ is neither`,
   otherAgent.stdout
 );
+// The same provenance line the `recall --of` read gets, and it is the same line by
+// construction — one `provenance()` serves both verbs. It says what the note is *worth*
+// rather than whose it is: the privacy framing this replaced (bc-pud4) pointed at a fix
+// that was rejected, because there is no unpublished half to protect.
 check(
-  'and still says whose notes they are, on stderr only',
-  otherAgent.stdout === `${LAYOUT}, and scripts/ is neither\n` && /notes to itself/.test(otherAgent.stderr),
+  'and still says what the note is worth, on stderr only',
+  otherAgent.stdout === `${LAYOUT}, and scripts/ is neither\n` &&
+    /never a reason on its own/.test(otherAgent.stderr) &&
+    /must face scrutiny/.test(otherAgent.stderr) &&
+    !/notes to itself|not published to you|never chose to publish/.test(otherAgent.stderr),
   JSON.stringify({ out: otherAgent.stdout, err: otherAgent.stderr })
 );
 
@@ -1025,6 +1054,22 @@ check(
 );
 
 process.chdir(path.join(HERE, '..'));
+
+// bc-pud4, the decision that closed the curated-subset question. Neither half of it
+// is enforceable in code — one is what an agent expects of its readers, the other is
+// what it does with what it reads — so the brief saying them *is* the mechanism, and
+// these two checks are the only thing standing between the ruling and a silent
+// revert. Both directions matter: the write half is why no second store was built.
+check(
+  'and the write half: expect to be read, because there is no private half',
+  /Expect every other agent to read what you write/.test(brief) && /no private half/.test(brief),
+  brief
+);
+check(
+  'and the read half: never a reason on its own, and it faces scrutiny',
+  /can never\s+be your reason/.test(brief) && /scrutiny/.test(brief),
+  brief
+);
 
 /* ------------------------------------------------- six writers, one topic */
 

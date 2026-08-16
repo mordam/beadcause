@@ -218,7 +218,7 @@ try {
   await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
   if (!(await waitFor(s, `!!document.querySelector('.card[data-key]')`))) throw new Error('the list never rendered');
 
-  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}][data-act="toggle"]').click()`);
   if (!(await waitFor(s, `!!document.querySelector('.card .brief .md p')`))) throw new Error('the brief never rendered');
 
   const brief = await evalJs(s, READ(`.card[data-key=${JSON.stringify(KEY)}] .brief`));

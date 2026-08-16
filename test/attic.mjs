@@ -16,7 +16,7 @@
  * `expireRetired` is a question about refs — is this branch contained in that one, is
  * this directory still a registration — and a fake git would only prove the fake works.
  *
- * Five failures are worth the file:
+ * Six failures are worth the file:
  *
  * 1. **The attic never empties.** The whole bug. An old, merged, clean, unlocked entry
  *    must actually stop existing, and its registration must go with it.
@@ -35,6 +35,12 @@
  * 5. **`rm -rf`.** Removal goes through `git worktree remove`, so the branch outlives
  *    the directory. A retired worktree's ref is the only human-readable label left on
  *    those commits, and losing it is the one thing here that cannot be undone.
+ * 6. **Squash-merged work stranded forever.** A workspace on `pr.mergeMethod:
+ *    "squash"` delivers through a commit the branch is not an ancestor of, so the
+ *    ancestry gate is false for every entry it will ever hold. The sweep asks GitHub
+ *    instead, and the last section of this file proves both halves: that the entry
+ *    expires once it is asked, and that the two local tests suggested in place of
+ *    asking — `git diff main...branch`, `git cherry` — cannot see a squash at all.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -105,7 +111,14 @@ const daysAgo = (d) => new Date(Date.now() - d * 86400000).toISOString();
  *
  * `merged` decides whether the branch's commit is folded back into main before the
  * worktree moves — which is the difference between "already in main, safe to remove"
- * and "this directory is the only copy".
+ * and "this directory is the only copy". Three values, not two:
+ *
+ * - `true` — a merge commit, so the branch is an ancestor of main;
+ * - `false` — nothing landed, and this directory is the only copy;
+ * - `'squash'` — GitHub's squash merge: main gains **one new commit** carrying the
+ *   branch's whole tree, and the branch's own commits are in nobody's history. Two
+ *   commits on the branch, deliberately, because a one-commit branch squashes to a
+ *   patch-identical commit and would make `git cherry` look like it works.
  */
 function retire(name, { age = 5, merged = true, land = 'both' } = {}) {
   const branch = `worktree-${name}`;
@@ -114,7 +127,14 @@ function retire(name, { age = 5, merged = true, land = 'both' } = {}) {
   fs.writeFileSync(path.join(live, `${name}.txt`), `${name}\n`);
   git(live, 'add', '-A');
   git(live, 'commit', '--quiet', '-m', name);
-  if (merged) {
+  if (merged === 'squash') {
+    fs.writeFileSync(path.join(live, `${name}-again.txt`), `${name} again\n`);
+    git(live, 'add', '-A');
+    git(live, 'commit', '--quiet', '-m', `${name} again`);
+    git(main, 'merge', '--squash', '--quiet', branch);
+    git(main, 'commit', '--quiet', '-m', `${name} (squashed)`);
+    git(main, 'push', '--quiet', 'origin', 'main');
+  } else if (merged) {
     // A merge commit, so the branch really is contained — and pushed or not
     // according to `land`, which is how the stale-local-`main` case is built.
     git(main, 'merge', '--quiet', '--no-ff', '-m', `merge ${name}`, branch);
@@ -148,6 +168,11 @@ const occupied = retire('someone-in-it', { age: 5 });
 const claimed = retire('handed-off', { age: 5 });
 const unstamped = retire('no-note', { age: 5 });
 fs.rmSync(path.join(RETIRED, 'no-note.note'));
+// The delivered-by-pull-request pair. Both are squash-merged in git's eyes — one
+// landed, one has a PR still open — and only GitHub can tell them apart; see the
+// squash section at the bottom.
+const squashed = retire('squash-landed', { age: 5, merged: 'squash' });
+const squashOpen = retire('squash-open', { age: 5, merged: 'squash' });
 // Last, and it has to be: `land: 'remote'` rewinds local `main` to leave it behind
 // `origin/main` for good, so anything retired after it could not push.
 const remoteOnly = retire('merged-on-origin', { age: 5, land: 'remote' });
@@ -264,6 +289,119 @@ await check(async () => {
   assert.deepEqual(none.kept, []);
   fs.rmSync(empty, { recursive: true, force: true });
 }, 'a repo with no attic at all is a no-op, not a crash');
+
+/* ------------------------------------------------------------ the squash case */
+
+/**
+ * A squash-merged branch is delivered work whose commits are in nobody's history,
+ * and the attic is where that used to be permanent.
+ *
+ * `pr.mergeMethod: "squash"` is a legitimate setting, and under it *every* delivered
+ * worktree failed the ancestry gate forever — kept, and described as "removing it
+ * destroys its only copy" about work that shipped last week. The fix is that the
+ * sweep asks GitHub, and the two local tests that get suggested instead of asking
+ * are proven here not to work, so nobody re-suggests them from a comment alone.
+ *
+ * `gh` here is a fake on PATH answering three questions, because the claim is about
+ * which branches the sweep asks about and what it does with the answer — not about
+ * gh's own JSON. It logs every call, so "did it ask, and about what" is assertable.
+ */
+const GHBIN = path.join(tmp, 'bin');
+const GHLOG = path.join(tmp, 'gh.log');
+fs.mkdirSync(GHBIN, { recursive: true });
+fs.writeFileSync(
+  path.join(GHBIN, 'gh'),
+  `#!/bin/sh
+echo "$*" >> ${JSON.stringify(GHLOG)}
+case "$1 $2" in
+  "auth status") exit 0 ;;
+  "repo view") echo '{"nameWithOwner":"test/repo"}' ; exit 0 ;;
+  "pr view")
+    case "$3" in
+      ${squashed.branch}) echo '{"number":20,"state":"MERGED","headRefName":"${squashed.branch}","url":"https://example.invalid/20","title":"landed"}' ; exit 0 ;;
+      ${squashOpen.branch}) echo '{"number":21,"state":"OPEN","headRefName":"${squashOpen.branch}","url":"https://example.invalid/21","title":"still open"}' ; exit 0 ;;
+    esac
+    echo 'no pull requests found for branch' >&2
+    exit 1 ;;
+esac
+echo "unexpected gh: $*" >&2
+exit 1
+`,
+  { mode: 0o755 }
+);
+process.env.PATH = `${GHBIN}${path.delimiter}${process.env.PATH}`;
+
+await check(async () => {
+  const local = git(main, 'branch', '--contains', squashed.branch, '--format=%(refname:short)').split('\n');
+  const remote = git(main, 'branch', '-r', '--contains', squashed.branch, '--format=%(refname:short)').split('\n');
+  assert.ok(!local.includes('main'), 'a squashed branch is an ancestor of nothing');
+  assert.ok(!remote.includes('origin/main'), 'on the remote either');
+  // Its work is on main all the same — that is what makes the directory removable,
+  // and what the ancestry gate above cannot see.
+  const tree = git(main, 'ls-tree', '--name-only', 'origin/main').split('\n');
+  assert.ok(tree.includes('squash-landed.txt'), `main should carry its files: ${tree.join(', ')}`);
+  assert.ok(tree.includes('squash-landed-again.txt'), `both commits' worth: ${tree.join(', ')}`);
+}, 'the fixture really is squash-merged: landed on main, ancestor of nothing');
+
+await check(async () => {
+  // bc-5lcc, kept executable. These are the two tests that get proposed as a local
+  // substitute for asking GitHub, and this is why the sweep does not use them.
+  const diff = git(main, 'diff', '--name-only', `origin/main...${squashed.branch}`);
+  assert.ok(diff.length > 0, `a three-dot diff is taken from the merge base, so it is not empty: ${diff}`);
+  const cherry = git(main, 'cherry', '-v', 'origin/main', squashed.branch)
+    .split('\n')
+    .filter(Boolean);
+  assert.ok(cherry.length >= 2, `two commits, so no squash can be patch-identical: ${cherry.join(' / ')}`);
+  assert.ok(
+    cherry.every((line) => line.startsWith('+')),
+    `git cherry calls every one of them not-upstream: ${cherry.join(' / ')}`
+  );
+}, 'neither `git diff main...branch` nor `git cherry` can see that the squash landed');
+
+await check(async () => {
+  // From the default sweep at the top of this file — prMerges off, as `expireRetired`
+  // defaults and as `--no-pr` asks for.
+  assert.ok(fs.existsSync(squashed.dest), 'still there');
+  assert.match(why(squashed.name), /not merged/, `reason was: ${why(squashed.name) || '(none)'}`);
+}, 'without the PR question a squash-merged entry is stranded — the bug, still reproducible');
+
+const prSwept = await expireRetired(main, { sessions, days: 2, prMerges: true });
+const prWhy = (name) => prSwept.kept.find((k) => k.name === name)?.why || '';
+
+await check(async () => {
+  assert.ok(!fs.existsSync(squashed.dest), `kept it: ${prWhy(squashed.name)}`);
+  assert.ok(!registered(squashed.dest), 'and its registration went with it');
+  assert.ok(
+    prSwept.removed.some((r) => r.name === squashed.name),
+    'and it should be reported'
+  );
+  assert.equal(git(main, 'rev-parse', '--verify', `${squashed.branch}^{commit}`).length, 40, 'branch kept');
+}, 'a squash-merged entry expires once GitHub is asked — and keeps its branch');
+
+await check(async () => {
+  assert.ok(fs.existsSync(squashOpen.dest), 'an open PR is not a merged one');
+  assert.match(prWhy(squashOpen.name), /not merged/, `reason was: ${prWhy(squashOpen.name) || '(none)'}`);
+}, 'a branch whose pull request is open is still the only copy');
+
+await check(async () => {
+  assert.ok(fs.existsSync(unmerged.dest), 'no PR at all, so nothing says it landed');
+  assert.match(prWhy(unmerged.name), /not merged/, `reason was: ${prWhy(unmerged.name) || '(none)'}`);
+}, 'a branch with no pull request is unaffected by asking — `gh` failing is an answer');
+
+await check(async () => {
+  // Read defensively: a sweep that asked nothing at all never creates the log, and
+  // "it did not ask" is the failure this check is for — not an ENOENT about a file.
+  const asked = (fs.existsSync(GHLOG) ? fs.readFileSync(GHLOG, 'utf8') : '')
+    .split('\n')
+    .filter((l) => l.startsWith('pr view '))
+    .map((l) => l.split(' ')[2]);
+  assert.ok(asked.includes(squashed.branch), `it has to ask about the squashed one: ${asked.join(', ')}`);
+  // The cheap local gates run first and settle most entries on their own. Asking
+  // GitHub about all of them would be one network round trip per attic entry, every
+  // fifteen minutes, for an answer git already had.
+  assert.ok(!asked.includes(locked.branch), `nothing to ask about a locked entry: ${asked.join(', ')}`);
+  assert.ok(!asked.includes(young.branch), `nor one inside the window: ${asked.join(', ')}`);
+}, 'GitHub is asked only about the entries the local gates could not settle');
 
 /* --------------------------------------------------------------------- report */
 

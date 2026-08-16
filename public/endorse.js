@@ -67,10 +67,18 @@
   const out = document.getElementById('eq');
   const pulse = document.getElementById('pulse');
 
-  /* A `bd list` per workspace plus a `bd show` per row behind this, and the queue is a
-     screen you read rather than watch. The daemon caches it for a few seconds anyway,
-     and every verdict drops that cache — so a stale row is at worst one poll old. */
-  const REFRESH_MS = 45000;
+  /* Which events matter to this screen is `QUEUE_EVENTS` in public/stream.js, next to
+     the board's own list and for the same reason: the inbox holds a copy of this queue
+     warm and has to ask the identical question about it. What that list cannot cover is
+     a `bd` write made outside the app — a held bead closed in a terminal emits nothing —
+     which was true of every view on the stream before this one, and is why the ⟳ is
+     still in the header. */
+
+  /** A sweep already in flight. Two of them can answer out of order — see `load`. */
+  let loading = false;
+
+  /** A wake that could not be acted on yet, because something of yours was open. */
+  let stale = false;
 
   /* How often an open discussion asks whether the agent has said anything yet, and how
      many times it will ask before giving up. Nothing pushes a reply on a held bead (see
@@ -626,6 +634,12 @@
   }
 
   function render() {
+    // A wake that arrived while something of yours was open is applied here instead —
+    // every path that closes one of those controls ends in a repaint, so this is the
+    // one place that sees all of them. Scheduled rather than called, because `load`
+    // sets the flags this reads and a repaint from inside its own `try` would find
+    // them mid-flight. See `catchUp`.
+    if (stale) setTimeout(catchUp, 0);
     if (!state.data && !state.error) return;
     const scrollY = window.scrollY;
     out.innerHTML = listHtml();
@@ -783,9 +797,17 @@
 
   /* ---------------------------------------------------------- driving a discussion */
 
-  /** The token'd GET every discussion read makes. Throws with the server's own words. */
-  async function get(path) {
-    const res = await fetch(path, { headers: { 'x-beadcause-token': token } });
+  /**
+   * The token'd GET every discussion read makes. Throws with the server's own words.
+   *
+   * `opts` is here for the one caller that is not a discussion: the shared stream hands
+   * its `AbortController` down, because a parked 25-second request that nothing can
+   * cancel is a request that outlives the screen it was asked for. It is also what the
+   * warm layer prewarms the other views through, which is why this is the page's fetch
+   * wrapper and not the discussion's.
+   */
+  async function get(path, opts = {}) {
+    const res = await fetch(path, { headers: { 'x-beadcause-token': token }, ...opts });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
@@ -1020,9 +1042,15 @@
     }
   });
 
-  /* Kept in `state` on every keystroke: the list repaints under you on its own timer,
+  /* Kept in `state` on every keystroke: the list repaints under you when the log moves,
      and a half-written objection — or a half-rewritten description — must survive it. */
   out.addEventListener('input', (ev) => {
+    // And this is the other end of that: whatever this keystroke does to the flags
+    // below, a wake that was deferred by them gets its chance immediately afterwards.
+    // Emptying the box is the case that needs it — nothing else on this page repaints
+    // for a keystroke, so without this the queue would sit on the news until your next
+    // tap. Scheduled, so the flags are already written when it reads them.
+    if (stale) setTimeout(catchUp, 0);
     const note = ev.target.closest('[data-note]');
     if (note) {
       state.note = note.value;
@@ -1045,7 +1073,60 @@
 
   /* ----------------------------------------------------------------- the fetch */
 
+  /**
+   * A row named in the query string — `?bead=<workspace>/<id>&talk=1`.
+   *
+   * This is where the **Discuss** button on a JIRA ticket row lands (bc-0i27.7). The
+   * ticket's epic is another held bead, discussing one is what this page already does,
+   * and the alternative was a second thread panel — poll timer, agent picker, bubbles —
+   * grafted onto an inbox row. So the row hands you here with the conversation already
+   * open on the right bead, which is the difference between reusing the discuss path
+   * and merely linking at the screen it lives on.
+   *
+   * Read once, acted on once, and deliberately not kept: coming back to this page later
+   * in the same tab should give you the queue, not re-open a discussion you closed.
+   */
+  const WANTED = (() => {
+    const q = new URLSearchParams(location.search);
+    const key = String(q.get('bead') || '').trim();
+    return key ? { key, talk: q.get('talk') === '1' } : null;
+  })();
+  let deepLinked = false;
+
+  /**
+   * Open the row the query named, once the queue holding it has arrived.
+   *
+   * A bead that is not in the queue is said out loud rather than silently ignored: the
+   * commonest reason is the honest one — it was endorsed or revoked between the ticket
+   * row being drawn and the link being followed — and a page that just showed the whole
+   * queue would leave you hunting for a bead that is not on it.
+   */
+  function followDeepLink() {
+    if (!WANTED || deepLinked) return;
+    deepLinked = true;
+    // `rows()` and not `state.data.beads`: the space picker is shared with the page the
+    // link came from, so a bead outside the current space is one this screen genuinely
+    // cannot show — and `openTalk` would return silently, leaving a row unfolded that is
+    // not drawn.
+    if (!rows().some((b) => b.key === WANTED.key)) {
+      state.error = `${WANTED.key} is not in this queue — it has been endorsed or revoked, or it is outside the space you are looking at.`;
+      return;
+    }
+    state.row = WANTED.key;
+    if (WANTED.talk) openTalk(WANTED.key);
+  }
+
   async function load({ refresh = false } = {}) {
+    // Two sweeps in flight can answer out of order, and the older one would paint over
+    // the newer list — which on this screen means a bead you have just endorsed coming
+    // back from the dead under your thumb. The one that lost is deferred rather than
+    // dropped: `stale` brings it round again the moment the first has landed.
+    if (loading) {
+      stale = true;
+      return;
+    }
+    stale = false;
+    loading = true;
     pulse.classList.add('busy');
     try {
       const res = await fetch(`/api/unendorsed${refresh ? '?refresh=1' : ''}`, {
@@ -1067,7 +1148,17 @@
       }
       if (state.first) state.first = false;
       state.error = null;
+      // After `state.error` is cleared, because a deep link that found nothing sets one.
+      followDeepLink();
       render();
+      // Held for the next document that opens this queue, and only ever from a request
+      // that came back. Arriving here from the inbox's 🗳 is the visit this pays for:
+      // the rows are the whole bead, so the wait in front of them was the longest of
+      // any view in the app. Then, once per document, the other views are filled in
+      // behind you — see public/warm.js.
+      const warm = window.beadcause?.warm;
+      warm?.write?.('/api/unendorsed', state.data);
+      warm?.prewarm?.({ here: 'endorse', api: get });
     } catch (err) {
       // Kept in state rather than written over the page: `listHtml` decides what a
       // failure looks like, and with a queue already on screen it is a line at the top
@@ -1075,6 +1166,7 @@
       state.error = err.message;
       render();
     } finally {
+      loading = false;
       pulse.classList.remove('busy');
     }
   }
@@ -1103,17 +1195,87 @@
 
   document.getElementById('eq-refresh').addEventListener('click', () => load({ refresh: true }));
 
-  setInterval(() => {
-    // Not while you are mid-sentence, mid-edit or holding an armed revoke: a repaint
-    // would throw the first two away and disarm the third under your thumb. A
-    // half-typed question is a mid-sentence too — and an open discussion is doing its
-    // own polling anyway, on a much shorter timer.
-    if (!state.busy && !state.armed && !state.edit && !state.note && !state.talk?.text) load();
-  }, REFRESH_MS);
+  /* ----------------------------------------------------------------- the stream */
+
+  /**
+   * May a wake repaint the list, or is something of yours in the way?
+   *
+   * A repaint throws away a half-typed adjustment or a half-typed question and disarms
+   * a revoke under your thumb — so the same four conditions the old 45-second timer
+   * checked, for the same reasons. `state.talk?.text` is the half-typed question; an
+   * open discussion with nothing typed in it is doing its own polling anyway, on a much
+   * shorter timer, and has no objection to the list behind it being correct.
+   */
+  const settled = () => !state.busy && !state.armed && !state.edit && !state.note && !state.talk?.text;
+
+  /**
+   * Take the wake we had to put off.
+   *
+   * The half of the guard above that stops it being a silent drop. A queue that ignored
+   * every event that arrived while you were typing would be a queue that is wrong for
+   * as long as you keep typing, and nothing on the screen would say so — the failure
+   * this page can least afford, because you are about to make decisions off it.
+   */
+  function catchUp() {
+    if (!stale || loading || !settled()) return;
+    load();
+  }
+
+  /**
+   * Follow the log instead of asking on a clock.
+   *
+   * This page was the last wall-clock refetch in the app: 45 seconds, and every one of
+   * them a `bd` sweep of every workspace plus a `bd show` per row, whether or not a
+   * single bead had been filed. `want: 'presence'` is what makes the park itself free —
+   * the daemon sweeps `bd` for a poll that asked for the inbox questions, and this page
+   * draws none of them; it wants to be *woken*, and then goes and asks for its own list.
+   * `cold: true` because `/api/unendorsed` carries no sequence, so a `since`-less first
+   * request is how this page learns where in the log it is.
+   *
+   * No timer is left behind it, which is the same bet the other five views make: a poll
+   * that breaks retries with a backoff, and a browser so old that `stream.js` never
+   * loaded is one whose cached shell predates the file — offline, where nothing was
+   * going to refresh anyway.
+   */
+  function followQueue() {
+    if (!window.beadcause?.stream) return;
+    const stream = window.beadcause.stream.follow({
+      api: get,
+      want: 'presence',
+      cold: true,
+      ready: () => Boolean(token),
+      onWake({ events, resync }) {
+        // `resync` is the log saying it rolled past where we were — a phone that was in
+        // a pocket for an hour — and then the only honest answer is the whole list.
+        // `!== false` rather than a plain call: a stream.js cached before `queueMoved`
+        // existed answers `undefined`, and "we cannot tell" has to fall on the side that
+        // goes and asks — a queue that quietly stopped updating is the one failure this
+        // page cannot have.
+        if (!resync && window.beadcause.stream.queueMoved?.(events) === false) return;
+        if (!settled()) {
+          stale = true;
+          return;
+        }
+        load();
+      },
+    });
+    stream.start();
+  }
 
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
   } else {
+    // The queue as another document left it, drawn before the request has left. Not
+    // `followDeepLink` — a link to a bead this frame happens not to hold would set an
+    // error about a queue that has not been asked for yet, and `load` does it properly
+    // a moment later.
+    const hit = window.beadcause?.warm?.read?.('/api/unendorsed');
+    if (Array.isArray(hit?.data?.beads)) {
+      state.data = hit.data;
+      state.first = false;
+      render();
+    }
     load();
+    followQueue();
   }
 })();

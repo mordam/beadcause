@@ -223,6 +223,8 @@ check('cat is a read, write is a write, path is neither', agentrepo.kindOf('cat'
 fs.rmSync(USAGE_LOG, { force: true });
 const say = (run, arm, verb, kind) =>
   agentrepo.record({ workspace: 'w', agent: 'advocate', run, arm, verb, kind, target: 'x' });
+const say2 = (run, arm, verb, kind) =>
+  agentrepo.record({ workspace: 'w', agent: 'worker', run, arm, verb, kind, target: 'x' });
 
 say('a', 'blind', 'session', 'meta');
 say('b', 'blind', 'session', 'meta');
@@ -232,13 +234,73 @@ say('c', 'index', 'session', 'meta');
 say('c', 'index', 'cat', 'read');
 say('c', 'index', 'write', 'write');
 
-const s = agentrepo.summary();
+const all = agentrepo.summaryByAgent();
+const s = all.advocate;
 check('a run that ignored the repo is still a run', s.blind.runs === 2, JSON.stringify(s.blind));
 check('…and is not counted as having touched it', s.blind.touched === 1);
 check('wrote without reading is counted as a write and not a read', s.blind.wrote === 1 && s.blind.read === 0);
 check('readFirst is zero for the blind arm here', s.blind.readFirst === 0);
 check('the index arm read before it wrote', s.index.runs === 1 && s.index.readFirst === 1);
 check('and is counted in both columns', s.index.read === 1 && s.index.wrote === 1);
+check('the numbers are keyed by agent, not pooled across them', Object.keys(all).join() === 'advocate');
+
+// bc-goo.12: the defect that mattered the moment a second agent kind started recording.
+// Two runs of the worker on top of the advocate's three, in the same arm — a pooled
+// `blind.runs` would read 4 and belong to neither of them.
+say2('w1', 'blind', 'session', 'meta');
+say2('w1', 'blind', 'write', 'write');
+say2('w2', 'index', 'session', 'meta');
+const two = agentrepo.summaryByAgent();
+check('a second agent kind gets its own bucket', two.worker.blind.runs === 1 && two.worker.index.runs === 1);
+check('…and the first agent\'s numbers are untouched by it', two.advocate.blind.runs === 2 && two.advocate.index.runs === 1);
+check('an unknown agent id never invents a bucket of its own', !Object.keys(two).includes(''));
+check('an agent that never ran is still named when it is expected', 'epic-advocate' in agentrepo.summaryByAgent({ expect: ['epic-advocate'] }));
+
+/* ---------------------------------------------- saying it out loud */
+
+// The whole of bc-goo.12: `readFirst 0` is the result the prediction expects AND what an
+// arm that has never run says, so an arm with no runs must never print a number.
+const text = agentrepo.report(two, { expect: ['advocate', 'worker', 'epic-advocate'] });
+check('an agent that owns a repo and has never run is named anyway', /epic-advocate\n\s+NOTHING HAS EVER RUN/.test(text));
+check('an arm with runs prints its numbers', /blind\s+runs 2\s+touched 1/.test(text));
+check('the report says which comparisons cannot be computed', /cannot be computed for: epic-advocate/.test(text));
+
+const both = {
+  worker: { blind: { runs: 2, touched: 1, read: 1, wrote: 1, readFirst: 1, commands: 3 }, index: { runs: 2, touched: 2, read: 2, wrote: 1, readFirst: 2, commands: 5 } },
+};
+const full = agentrepo.report(both, { expect: ['worker'] });
+check('an arm with no data never prints a zero', !/NO DATA/.test(full));
+check('…and a computable comparison says so', /computable for all of them/.test(full));
+
+const empty = agentrepo.report({}, { expect: ['worker'] });
+check('an empty log is a sentence rather than a table of zeroes', /NOTHING HAS EVER RUN/.test(empty) && !/runs 0/.test(empty));
+
+// bc-goo.6, the first time this report was read for its answer: both arms full, and the
+// comparison still empty. Nothing had ever been written, so `index` had only ever had
+// "It is empty" to list — the arms differed by one sentence and by no information, and
+// `readFirst 0` under `index` is then a treatment that was never applied.
+const untouched = {
+  worker: { blind: { runs: 14, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 }, index: { runs: 13, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 } },
+};
+const flat = agentrepo.report(untouched, { expect: ['worker'] });
+check('both arms full and never written to is not a comparison', /have not yet differed for: worker/.test(flat));
+check('…and it must not be reported as computable', !/computable for all of them/.test(flat));
+check('…and the numbers are still printed, because the runs are real', /blind\s+runs 14/.test(flat) && /index\s+runs 13/.test(flat));
+
+// One write in either arm is enough: it is content in the repo, so the next `index` run
+// has a listing to be shown. `blind` is the arm that puts it there as often as not.
+const wroteBlind = {
+  worker: { blind: { runs: 3, touched: 1, read: 0, wrote: 1, readFirst: 0, commands: 1 }, index: { runs: 3, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 } },
+};
+check('a write in the blind arm alone still differentiates them', !/have not yet differed/.test(agentrepo.report(wroteBlind, { expect: ['worker'] })));
+
+// An arm with no runs is the louder problem and already says so; naming the same agent
+// twice would be two sentences that disagree about which half of it is missing.
+const oneArm = {
+  advocate: { blind: { runs: 1, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 }, index: { runs: 0, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 } },
+};
+const half = agentrepo.report(oneArm, { expect: ['advocate'] });
+check('a starved agent is not also reported as undifferentiated', /cannot be computed for: advocate/.test(half) && !/have not yet differed/.test(half));
 
 check('the usage log is owner-only', (fs.statSync(USAGE_LOG).mode & 0o077) === 0);
 check('the log lives beside the repos, never inside one', !USAGE_LOG.startsWith(`${dir}${path.sep}`));
@@ -246,7 +308,7 @@ check('the log lives beside the repos, never inside one', !USAGE_LOG.startsWith(
 // A torn line must not take the report down with it — this file is appended to by every
 // wrapper invocation and read by a screen.
 fs.appendFileSync(USAGE_LOG, '{"run":"d","ar\n');
-check('a torn append is dropped, not thrown', agentrepo.summary().blind.runs === 2);
+check('a torn append is dropped, not thrown', agentrepo.summary({ agent: 'advocate' }).blind.runs === 2);
 
 /* -------------------------------------------------------------- the arms */
 
@@ -282,16 +344,32 @@ console.log('\nthe wiring');
 const foundation = await import('../lib/foundation.js');
 check('ownsRepo may never be amended', foundation.PROTECTED.includes('ownsRepo'));
 check('…and is not in the amendable set', !foundation.AMENDABLE.includes('ownsRepo'));
-check('the advocate is the one agent that owns a repo', foundation.baseline('advocate').ownsRepo === true);
-for (const other of ['console', 'dispatch', 'worker']) {
-  check(`${other} does not`, foundation.baseline(other).ownsRepo === false);
+// bc-goo.12: three agents, not one. The advocate alone was a survey behind a twelve-hour
+// cooldown and an unanswered-proposal gate — one recorded run in four days, all of it in
+// one arm, and a comparison that could not be computed.
+for (const owns of ['advocate', 'epic-advocate', 'worker']) {
+  check(`${owns} owns a repo`, foundation.baseline(owns).ownsRepo === true);
+}
+for (const other of ['console', 'dispatch']) {
+  check(`${other} does not — it answers one turn and has nothing to keep`, foundation.baseline(other).ownsRepo === false);
 }
 
 const grant = agentrepo.grantsFor(foundation.baseline('advocate'), 'beadcause', { arm: 'index', run: 'zz' });
 check('the grant is one allowlist entry', grant.allowedTools.length === 1 && grant.allowedTools[0] === 'Bash(beadcause-agentrepo:*)');
 check('and it points at this agent\'s own directory', grant.env.BEADCAUSE_AGENT_REPO === dir);
 check('the arm and the run ride in the environment', grant.env.BEADCAUSE_AGENT_REPO_ARM === 'index' && grant.env.BEADCAUSE_AGENT_REPO_RUN === 'zz');
-check('an agent without ownsRepo gets nothing', agentrepo.grantsFor(foundation.baseline('worker'), 'beadcause') === null);
+check('an agent without ownsRepo gets nothing', agentrepo.grantsFor(foundation.baseline('console'), 'beadcause') === null);
+check('…and neither does it get a run', (await agentrepo.startRun(foundation.baseline('console'), 'beadcause')) === null);
+check('nor does any agent when the setting is off', (await agentrepo.startRun(foundation.baseline('worker'), 'beadcause', { setting: 'off' })) === null);
+
+// `startRun` is the one composer all three doors go through, and the order inside it is
+// what the denominator depends on: the run is recorded at spawn, before the agent has had
+// a chance to touch anything.
+const before = agentrepo.summary({ agent: 'worker' }).index.runs;
+const started = await agentrepo.startRun(foundation.baseline('worker'), 'beadcause', { setting: 'index', owner: 'Adam' });
+check('a started run carries its arm, its grant and its brief', started.arm === 'index' && /beadcause-agentrepo write/.test(started.brief));
+check('the grant points at this agent\'s own directory', started.grant.env.BEADCAUSE_AGENT_REPO === agentrepo.repoDir('beadcause', 'worker'));
+check('and the run is in the denominator before the agent does anything', agentrepo.summary({ agent: 'worker' }).index.runs === before + 1);
 
 // `agentEnv` spreads `extra` after `foundation.env`, which is what stops an amended env
 // repointing the wrapper. Worth an assertion rather than a comment: the ordering is one
@@ -302,6 +380,27 @@ check(
   'an amended env cannot repoint the wrapper',
   foundation.agentEnv(f, grant.env).BEADCAUSE_AGENT_REPO === dir
 );
+
+// The other half of bc-goo.12: the grant has to reach a window, not just exist. Both
+// session doors go through `launch`, which is not exported — what is exported is the line
+// it hands AppleScript, and that line is where an env that did not survive the hop shows
+// up. iTerm starts a fresh login shell that inherits nothing from the daemon, so an
+// environment that is not in this string does not exist for the agent.
+const { sessionCommand } = await import('../lib/session.js');
+const workerRun = await agentrepo.startRun(foundation.baseline('worker'), 'beadcause', { setting: 'blind' });
+const workerF = foundation.baseline('worker');
+workerF.allowedTools = [...(workerF.allowedTools || []), ...workerRun.grant.allowedTools];
+const line = sessionCommand(workerF, {
+  dir: CONFIG,
+  promptFile: '/tmp/p.md',
+  systemFile: '/tmp/s.md',
+  mode: 'auto',
+  env: workerRun.grant.env,
+});
+check('the worker window exports the repo it owns', line.includes(`export BEADCAUSE_AGENT_REPO='${workerRun.grant.dir}'`));
+check('…and the arm and run it is being measured under', /BEADCAUSE_AGENT_REPO_ARM='blind'/.test(line) && /BEADCAUSE_AGENT_REPO_RUN=/.test(line));
+check('…and may run the wrapper without being asked', /--allowedTools .*beadcause-agentrepo/.test(line));
+check('a session with no grant exports none of it', !/BEADCAUSE_AGENT_REPO/.test(sessionCommand(foundation.baseline('worker'), { dir: CONFIG, promptFile: '/tmp/p.md' })));
 
 const commonrepo = await import('../lib/commonrepo.js');
 // The regression that matters is the *existing* install: the ignore file is written once,

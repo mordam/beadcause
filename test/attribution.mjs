@@ -313,10 +313,33 @@ const up = async (port) => {
 };
 await up(onPort);
 
-/** What a browser holds after the dance in test/auth.mjs — nothing more than this. */
+/**
+ * What a browser holds after the dance in test/auth.mjs — nothing more than this.
+ *
+ * `sid` and the row beside it are what bc-nim4 added: a session is a name in the
+ * device list now, so that one device can be revoked without ending the rest, and the
+ * gate refuses a cookie whose row is not there. Minting one here therefore means
+ * writing the row too — which is exactly what the callback does.
+ */
+const SID = 'attribution-test-session';
+fs.writeFileSync(
+  path.join(process.env.BEADCAUSE_CONFIG_DIR, 'state.json'),
+  JSON.stringify({
+    devices: {
+      [SID]: {
+        email: SIGNED_IN,
+        label: 'the test',
+        first: new Date().toISOString(),
+        last: new Date().toISOString(),
+        exp: Math.floor(Date.now() / 1000) + 86400,
+      },
+    },
+  })
+);
+
 const sessionCookie = (email, { seconds = 3600 } = {}) =>
   `beadcause_session=${sign(
-    { sub: 'sub-1', email, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + seconds },
+    { sub: 'sub-1', email, sid: SID, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + seconds },
     process.env.BEADCAUSE_SESSION_KEY
   )}`;
 

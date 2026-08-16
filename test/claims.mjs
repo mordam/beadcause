@@ -132,6 +132,25 @@ check('told once, then it is yours — the second attempt claims it', () => {
   assert.equal(collisions(T0 + MIN, live).length, 1, 'which is exactly what a collision is');
 });
 
+check('and it stays yours — the edit after that one is not refused all over again', () => {
+  // bc-n1qq. The only route to `held` used to run through `told`, so the edit *after* the
+  // one that insisted saw `held`, failed the promotion test and fell back to `told` — a
+  // second refusal, and a third, alternating for as long as both sessions were on the
+  // file. It made the sentence the refusal ends with ("you will only be told once") false,
+  // which is the way a guard stops being read without anybody turning it off.
+  ask('s1', 'lib/foo.js');
+  ask('s2', 'lib/foo.js');
+  ask('s2', 'lib/foo.js', { now: T0 + MIN });
+
+  const third = ask('s2', 'lib/foo.js', { now: T0 + 2 * MIN });
+  assert.equal(third.decision, 'held', 'holding is not something you re-earn every edit');
+  assert.equal(third.insisted, false, 'and a renewal is not an insist — the log fires once, not per edit');
+
+  const fourth = ask('s2', 'lib/foo.js', { now: T0 + 3 * MIN });
+  assert.equal(fourth.decision, 'held');
+  assert.equal(collisions(T0 + 3 * MIN, live).length, 1, 'both are still on the file, which is still a collision');
+});
+
 check('a session that was told and never came back is not a collision', () => {
   ask('s1', 'lib/foo.js');
   ask('s2', 'lib/foo.js');
@@ -346,10 +365,16 @@ verify('POST /api/claims answers held, then conflict', () => {
   assert.equal(b.body.decision, 'conflict');
   assert.equal(b.body.holders[0].branch, 'worktree-a-aaa1');
   assert.match(b.body.reason, /bc-aaa1/, 'the refusal the hook prints names the holder’s bead');
+  // Two directories that are not repositories, which is the fail-open path in the shape a
+  // shipped worktree leaves behind: no line ranges to be had, and a refusal that still
+  // says everything it said before lib/regions.js existed.
+  assert.equal(b.body.regions, null, 'no git, no regions');
+  assert.match(b.body.reason, /resolve it at downmerge/);
 });
 
 const insist = await post({ session: 'http-b', repo: tmp, file: 'lib/foo.js', dir: treeB, branch: 'worktree-b-bbb2' });
 const listed = await call('/api/claims');
+const detailed = await call('/api/claims?regions=1');
 
 verify('a second POST from the refused session claims it, and GET shows the collision', () => {
   assert.equal(insist.body.decision, 'held');
@@ -358,6 +383,8 @@ verify('a second POST from the refused session claims it, and GET shows the coll
   assert.equal(listed.body.collisions.length, 1);
   assert.equal(listed.body.collisions[0].file, 'lib/foo.js');
   assert.equal(listed.body.collisions[0].sameTree, false);
+  assert.equal('regions' in listed.body.collisions[0], false, 'and no git is spawned for a reader that did not ask');
+  assert.equal(detailed.body.collisions[0].regions, null, 'asking gets the field, whether or not git can fill it');
 });
 
 const bad = await post({ session: 'http-c', repo: tmp });
@@ -404,6 +431,19 @@ const REPO_DIR = path.join(HERE, '..'); // this worktree — a real git tree, wh
 const MAIN_CHECKOUT = path.dirname(
   execFileSync('git', ['-C', REPO_DIR, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim()
 );
+
+/**
+ * How the refusal will name the tree the holder is holding from — derived, not assumed.
+ *
+ * `refusalFor` says "on <branch>", falling back to the directory's own name when git has
+ * no branch to give. This used to be asserted as the literal `worktree-`, which is true of
+ * every checkout on Adam's Mac and of nothing else: bc-rcrt ran the suite on a CI runner,
+ * where the tree is a detached-HEAD clone in `/Users/runner/work/...`, and the assertion
+ * failed over a refusal that had named the holder perfectly well. The promise is that the
+ * reason says *where*, so ask git the same question the hook asks and look for that.
+ */
+const BRANCH = execFileSync('git', ['-C', REPO_DIR, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim();
+const WHERE_RE = new RegExp(`on ${(BRANCH || path.basename(REPO_DIR)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
 
 // The config the hook reads to find the daemon. Same CONFIG_DIR the server is using.
 fs.writeFileSync(path.join(process.env.BEADCAUSE_CONFIG_DIR, 'config.json'), JSON.stringify({ token: cfg.token, port }));
@@ -463,7 +503,7 @@ verify('a second session editing that file is denied once, with the holder named
   assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse');
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(out.hookSpecificOutput.permissionDecisionReason, /lib\/hooked\.js/);
-  assert.match(out.hookSpecificOutput.permissionDecisionReason, /worktree-/, 'where the holder is');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, WHERE_RE, 'where the holder is');
 });
 
 const insistedEdit = await hook(edit('hook-b'));

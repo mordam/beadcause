@@ -28,6 +28,11 @@
  * The `bd` binary is never run: `run()` is replaced with a log-and-reply stub, so
  * the module is exercised without a tracker, a workspace, or a lock to lose.
  *
+ * **Two of the gates here are not bd's**, and are marked as such where they appear: an
+ * epic with an unapplied `Adopts:` entry, and an epic closing on a merge reason. Both
+ * are beadcause refusing something the binary permits — bc-arj0.3, filed after six epics
+ * closed on their own pull request merge with sixty adoptees still open between them.
+ *
  * Which is also the one thing this file cannot do. A stub answers with what the code
  * already believes, so failure 2 above — inventing a gate — is invisible here by
  * construction, and bc-5864 was filed believing it had happened. **test/closegatereal.mjs
@@ -163,22 +168,115 @@ console.log('\nclose gate\n');
 }
 
 {
-  // Children are only ever asked about for an epic — one extra `bd` call per answer
-  // on every other bead in the tracker is not worth a gate that cannot apply.
+  // Children are asked about for **every** type since bd 1.2.1 (bc-xl7n.39). This used
+  // to assert the opposite — one extra `bd` call per answer on every non-epic in the
+  // tracker was not worth a gate that could not apply — and the trade changed when the
+  // gate started applying: 1.2.1 refuses any close over an open child whatever the
+  // parent's type, so not asking meant offering a close bd would refuse. The call is
+  // the price; see the note in `gateFor` for why there is no cheap way to skip it.
   const bd = fakeBd({ show: [issue({ issue_type: 'task' })], list: [{ id: 'dm-1.1', status: 'open' }] });
   await bd.closeGate(WS, 'dm-1');
-  check('children are not asked about for anything but an epic', !bd.calls.some((c) => c.includes('list')), bd.calls.join(' | '));
+  check('children are asked about for a task too, not only an epic', bd.calls.some((c) => c.includes('list')), bd.calls.join(' | '));
 }
 
 {
-  // And the answer that follows from it, said out loud because it is the one somebody
-  // will read as a bug: bd's parent gate is on the word `epic`, so a **feature** with
-  // open children closes without complaint and this must not hold it. bc-5864 was
-  // filed on bc-rk2o — a feature, closed by a delivery over an open child — read as bd
-  // and this file disagreeing. test/closegatereal.mjs asks bd itself.
+  // And the answer that follows from it. This is the one somebody will read as a bug in
+  // the other direction now: bc-5864 was filed on bc-rk2o — a **feature**, closed by a
+  // delivery over an open child — read as bd and this file disagreeing, on a binary
+  // where bd's parent gate really was the word `epic` and both were right. On 1.2.1 the
+  // same close is refused, so the gate holds it. test/closegatereal.mjs asks bd itself.
   const bd = fakeBd({ show: [issue({ issue_type: 'feature' })], list: [{ id: 'dm-1.1', status: 'open' }] });
   const gate = await bd.closeGate(WS, 'dm-1');
-  check('a feature with open children is not gated — only an epic is', gate === null, JSON.stringify(gate));
+  check('a feature with open children is gated too', gate?.kind === 'epic', JSON.stringify(gate));
+  check('and the sentence says parent rather than epic', /a parent with 1 open child/.test(gate?.reason || ''), JSON.stringify(gate));
+}
+
+/* ------------------------------- and two gates bd has no idea about (bc-arj0.3) */
+
+// Everything above models a refusal the binary would make anyway. These two are
+// beadcause's own, and test/closegatereal.mjs is where they are asserted *against* bd —
+// as the one pair of cases there that assert the gate and the binary deliberately
+// disagree, because bd has no pre-close hook and cannot be taught either rule.
+
+{
+  // bc-ka5y: an epic that named 23 beads in prose, reparented none of them, and so
+  // presented to bd as an epic with no children at all.
+  const bd = fakeBd({
+    show: [issue({ issue_type: 'epic', description: 'Adopts: dm-2, dm-3, dm-4.\n' })],
+    list: [{ id: 'dm-2', status: 'closed' }],
+  });
+  const gate = await bd.closeGate(WS, 'dm-1');
+  check('an epic with an unapplied Adopts: entry is refused', gate?.kind === 'adopts', JSON.stringify(gate));
+  check('naming the entries nothing applied', gate?.blockers.map((b) => b.id).join(',') === 'dm-3,dm-4', JSON.stringify(gate?.blockers));
+  check('and saying what to do about it', /adopt them or drop them/.test(gate?.reason || ''), gate?.reason);
+}
+
+{
+  // The same list, applied. A named bead that *is* a child is held by the epic, which
+  // is the whole point — and a closed one is finished, so nothing is left to refuse.
+  const bd = fakeBd({
+    show: [issue({ issue_type: 'epic', description: 'Adopts: dm-2, dm-3.' })],
+    list: [
+      { id: 'dm-2', status: 'closed' },
+      { id: 'dm-3', status: 'closed' },
+    ],
+  });
+  check('an epic whose Adopts: list was applied is not gated', (await bd.closeGate(WS, 'dm-1')) === null);
+}
+
+{
+  // An applied adoption that is still open is bd's own gate, reported in bd's words
+  // rather than as an adoption problem — there is nothing left to apply.
+  const bd = fakeBd({
+    show: [issue({ issue_type: 'epic', description: 'Adopts: dm-2.' })],
+    list: [{ id: 'dm-2', status: 'open' }],
+  });
+  const gate = await bd.closeGate(WS, 'dm-1');
+  check('an open adoptee reads as an open child, which it now is', gate?.kind === 'epic', JSON.stringify(gate));
+}
+
+{
+  // Only an epic adopts. A task writing the word is describing something else.
+  const bd = fakeBd({ show: [issue({ issue_type: 'task', description: 'Adopts: dm-2, dm-3.' })] });
+  check('a task with an Adopts: line is not gated', (await bd.closeGate(WS, 'dm-1')) === null);
+}
+
+{
+  // The one that took the classification with it: bc-ka5y closed as "Merged #212 as
+  // 72789c0b into main". Refused whatever the children say, and refused without asking
+  // them — the sentence is enough on its own.
+  const bd = fakeBd({ show: [issue({ issue_type: 'epic' })], list: [] });
+  const gate = await bd.closeGate(WS, 'dm-1', { reason: 'Merged #212 as 72789c0b into main on GitHub' });
+  check('an epic closing on a merge reason is refused', gate?.kind === 'merge-reason', JSON.stringify(gate));
+  check('and costs no child lookup to refuse', !bd.calls.some((c) => c.includes('list')), bd.calls.join(' | '));
+}
+
+{
+  const bd = fakeBd({ show: [issue({ issue_type: 'epic' })], list: [] });
+  const gate = await bd.closeGate(WS, 'dm-1', { reason: 'Landed as #42 — still owed: deploy' });
+  check("the worker's own wording is the same merge", gate?.kind === 'merge-reason', JSON.stringify(gate));
+}
+
+{
+  // A theme somebody decided is finished. That is what closing an epic is for.
+  const bd = fakeBd({ show: [issue({ issue_type: 'epic' })], list: [] });
+  const gate = await bd.closeGate(WS, 'dm-1', { reason: 'The whole theme is done — every piece of it shipped.' });
+  check('an epic closing on any other reason is not gated', gate === null, JSON.stringify(gate));
+}
+
+{
+  // The ordinary case, and the one this must not break: a work bead closes *because*
+  // its pull request merged.
+  const bd = fakeBd({ show: [issue({ issue_type: 'task' })] });
+  const gate = await bd.closeGate(WS, 'dm-1', { reason: 'Landed as #42' });
+  check('a work bead closing on a merge is exactly right', gate === null, JSON.stringify(gate));
+}
+
+{
+  // A caller with no reason in hand — the hold, the phone drawing a card — gets the
+  // answer it always did.
+  const bd = fakeBd({ show: [issue({ issue_type: 'epic' })], list: [] });
+  check('no reason means no merge-reason gate', (await bd.closeGate(WS, 'dm-1')) === null);
 }
 
 /* ------------------------------------------------------------ it fails open */

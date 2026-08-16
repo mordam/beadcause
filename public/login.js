@@ -32,6 +32,10 @@
     nocode: 'Google came back without an authorization code. Try again.',
     exchange: 'Google refused the exchange — the client secret on this Mac may be wrong or rotated. The daemon log has the reason.',
     claims: 'The identity Google returned could not be accepted. The daemon log has the reason.',
+    // A session is a row in ~/.config/beadcause/state.json now, so that it can be
+    // revoked one device at a time — and a cookie that could not be written down is
+    // one the very next request would refuse, so it is not handed out at all.
+    nodevice: 'The device list on this Mac could not be written, so no session was issued. The daemon log has the reason.',
     failed: 'Sign-in failed on this Mac. The daemon log has the reason.',
   };
 

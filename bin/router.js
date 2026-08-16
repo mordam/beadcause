@@ -51,7 +51,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
-import { hotSwapProblem, LOADED_ENV } from '../lib/service.js';
+import { hotSwapProblem, LABEL, LOADED_ENV } from '../lib/service.js';
 import {
   certificate,
   certificateLine,
@@ -63,6 +63,7 @@ import {
   tlsEnabled,
   MIN_VERSION,
 } from '../lib/tls.js';
+import { tailnetLine, watchForAddress } from '../lib/tailnet.js';
 import {
   HEALTH_ATTEMPTS,
   HEALTH_BASE_MS,
@@ -710,7 +711,7 @@ function watchSelf() {
     if (told || routerStamp() === routerBuildAtStart) return;
     told = true;
     warn("the router's own source changed — it cannot replace itself while holding the port.");
-    warn(`restart it: launchctl kickstart -k gui/${process.getuid()}/m4m.beadcause`);
+    warn(`restart it: ${RESTART_COMMAND}`);
   }, WATCH_MS).unref();
 }
 
@@ -814,6 +815,11 @@ function snapshot() {
       port: cfg.port,
       build: routerBuildAtStart,
       sourceChanged: routerStamp() !== routerBuildAtStart,
+      // The fix for that, since only this process can name it — the uid is its own and
+      // the label is the one it was installed under. Carried on every snapshot rather
+      // than only when it is needed, because a field that appears and disappears is one
+      // a reader has to test twice; see `explain`, which uses it as the verdict's `fix`.
+      restart: RESTART_COMMAND,
     },
     disk,
     stale: Boolean(active && active.build !== disk),
@@ -1145,55 +1151,128 @@ const onUpgrade = (req, socket, head) => {
  * could be fetched — `tailnetServer` says why. With one, that is an HTTPS server behind
  * the sniffing front. Without, it is plain HTTP behind the same front, and `startRenewal`
  * keeps asking until there is one; either way the port is bound once and never again.
+ *
+ * **Except when the address is not on this Mac yet.** A tailnet address that fails with
+ * `EADDRNOTAVAIL` is deferred rather than lost — see `deferTailnet` and lib/tailnet.js.
  */
+function bindHost(host, { onBound, onError }) {
+  const onTailnet = host !== '127.0.0.1';
+  // Asked per address rather than once per `listen`, because a deferred tailnet address
+  // binds minutes later: by then `startRenewal` may have fetched the very certificate
+  // this socket should come up carrying, and a `material` captured at startup would put
+  // it on plain http until the next restart. Loopback never asks — it is never TLS.
+  const material = onTailnet ? certificate(cfg) : null;
+  // Wanting a certificate is not the same as having one, and the difference is the whole
+  // of what that bead was about: a fetch that failed used to mean plain http with nothing
+  // watching. `tls.enabled: false` is the one case where it is not wanted at all.
+  const wanted = onTailnet && tlsEnabled(cfg);
+
+  const { server, front, plain } =
+    wanted ? tailnetServer(material, handler) : { server: http.createServer(handler), front: null, plain: null };
+  // The terminal rides the upgrade path, and a server with no `upgrade` listener
+  // quietly treats one as an ordinary request — which is how the terminal came to
+  // 404. In the installed configuration this is the only listener there is: the
+  // backends bind loopback, so the one lib/termsocket.js attaches to *their* servers
+  // can never be reached from the tailnet. Both handles get it, because which of them
+  // the front is routing to changes the moment a certificate is adopted.
+  for (const s of [server, plain].filter(Boolean)) s.on('upgrade', onUpgrade);
+  // The front owns the port when there is one: it binds, it fails, it closes.
+  const listener = front || server;
+  listener.on('error', (err) => {
+    warn(`listen ${host}:${cfg.port} — ${err.message}`);
+    onError(err);
+  });
+  listener.listen(cfg.port, host, () => {
+    onBound();
+    if (material && onTailnet) log(`listening on https://${material.name}:${cfg.port} (${host}, ${MIN_VERSION} floor)`);
+    else if (plain) log(`listening on http://${host}:${cfg.port} — no certificate yet; this socket becomes https without a restart`);
+    else log(`listening on http://${host}:${cfg.port}`);
+  });
+  // The request-serving servers, not the front — those are what carry the certificate a
+  // renewal has to replace, and each knows the front as `.front` for closing. One
+  // object per host, except a tailnet address still waiting for a certificate, which
+  // hands back the plain server it is answering with as well.
+  return [server, plain].filter(Boolean);
+}
+
+/**
+ * What to do when the deferred address turns up. Assigned after `startRenewal`, because
+ * binding the address is only half of what has to happen then — the certificate loop
+ * snapshots the sockets it was given and has to be re-armed around the new one.
+ *
+ * Which means the watcher can beat it: `listen()` runs first, and everything between it
+ * and the assignment — `armCrashHandlers`, a `reconcileBaseUrl` that writes a file — is
+ * ordinary startup that can outlast a 5s tick on a loaded Mac. So the arrival is
+ * *remembered* rather than dropped, and `armLateBind` runs it if it already happened.
+ * Getting this wrong would be the original bug with extra steps: an address that came
+ * back, a daemon that noticed, and still nothing bound.
+ */
+let bindTailnetLate = null;
+let tailnetArrived = false;
+
+const armLateBind = (fn) => {
+  bindTailnetLate = fn;
+  if (!tailnetArrived) return;
+  tailnetArrived = false;
+  fn();
+};
+
+/** Whether a deferral is already outstanding, so two failures start one watcher. */
+let tailnetDeferred = false;
+
+/**
+ * The tailnet address is not on this Mac. Say so in a sentence that names the cause and
+ * the cure, then wait for it rather than giving up on it.
+ *
+ * This is the whole of bc-b4fs. The old code logged `EADDRNOTAVAIL`, saw that loopback
+ * had bound, and carried on: a daemon that reported itself healthy while the phone could
+ * not reach it at all, curable only by noticing and running `launchctl kickstart` after
+ * starting Tailscale. Neither half of that is acceptable — the log has to say it, and
+ * the daemon has to fix itself once Tailscale is up, because the common way in is
+ * launchd starting this at login a few seconds before Tailscale finishes connecting.
+ */
+function deferTailnet() {
+  if (tailnetDeferred) return;
+  tailnetDeferred = true;
+  warn(`tailnet ${tailnetLine(cfg.host)}`);
+  watchForAddress(cfg.host, () => {
+    tailnetDeferred = false;
+    log(`tailnet ${cfg.host} is on this Mac now — binding it without a restart`);
+    if (bindTailnetLate) bindTailnetLate();
+    else tailnetArrived = true;
+  });
+}
+
 function listen() {
   const hosts = ['127.0.0.1'];
   if (cfg.host && cfg.host !== '127.0.0.1') hosts.push(cfg.host);
 
-  const material = hosts.length > 1 ? certificate(cfg) : null;
-  // Wanting a certificate is not the same as having one, and the difference is the whole
-  // of what this bead was about: a fetch that failed used to mean plain http with nothing
-  // watching. `tls.enabled: false` is the one case where it is not wanted at all.
-  const wanted = hosts.length > 1 && tlsEnabled(cfg);
-
   let bound = 0;
   let failed = 0;
-  return hosts.flatMap((host) => {
-    const onTailnet = host !== '127.0.0.1';
-    const { server, front, plain } =
-      onTailnet && wanted ? tailnetServer(material, handler) : { server: http.createServer(handler), front: null, plain: null };
-    // The terminal rides the upgrade path, and a server with no `upgrade` listener
-    // quietly treats one as an ordinary request — which is how the terminal came to
-    // 404. In the installed configuration this is the only listener there is: the
-    // backends bind loopback, so the one lib/termsocket.js attaches to *their* servers
-    // can never be reached from the tailnet. Both handles get it, because which of them
-    // the front is routing to changes the moment a certificate is adopted.
-    for (const s of [server, plain].filter(Boolean)) s.on('upgrade', onUpgrade);
-    // The front owns the port when there is one: it binds, it fails, it closes.
-    const listener = front || server;
-    listener.on('error', (err) => {
-      warn(`listen ${host}:${cfg.port} — ${err.message}`);
-      // The same code lib/server.js uses, and for the same reason it uses it: a router
-      // that could not have the port is a different event from a router that is broken,
-      // and a parent — a suite, in practice, since launchd reads no code at all — can
-      // only tell them apart if the number says so.
-      if (++failed === hosts.length && bound === 0) {
-        warn('no address could be bound — exiting');
-        process.exit(PORT_TAKEN_EXIT);
-      }
-    });
-    listener.listen(cfg.port, host, () => {
-      bound++;
-      if (material && onTailnet) log(`listening on https://${material.name}:${cfg.port} (${host}, ${MIN_VERSION} floor)`);
-      else if (plain) log(`listening on http://${host}:${cfg.port} — no certificate yet; this socket becomes https without a restart`);
-      else log(`listening on http://${host}:${cfg.port}`);
-    });
-    // The request-serving servers, not the front — those are what carry the certificate a
-    // renewal has to replace, and each knows the front as `.front` for closing. One
-    // object per host, except a tailnet address still waiting for a certificate, which
-    // hands back the plain server it is answering with as well.
-    return [server, plain].filter(Boolean);
-  });
+  return hosts.flatMap((host) =>
+    bindHost(host, {
+      onBound: () => {
+        bound++;
+      },
+      onError: (err) => {
+        // Counted whatever the cause, because the exit below turns on `bound === 0` —
+        // nothing being served — and a deferred tailnet address plus a loopback the
+        // port was taken from is still nothing being served.
+        failed++;
+        // The same code lib/server.js uses, and for the same reason it uses it: a router
+        // that could not have the port is a different event from a router that is broken,
+        // and a parent — a suite, in practice, since launchd reads no code at all — can
+        // only tell them apart if the number says so.
+        if (failed === hosts.length && bound === 0) {
+          warn('no address could be bound — exiting');
+          process.exit(PORT_TAKEN_EXIT);
+        }
+        // Not a port that was taken: an address that is not here. Nothing to exit over
+        // — loopback is serving — and everything to wait for.
+        if (host !== '127.0.0.1' && err.code === 'EADDRNOTAVAIL') deferTailnet();
+      },
+    })
+  );
 }
 
 /**
@@ -1361,6 +1440,20 @@ async function armCrashHandlers() {
 const routerBuildAtStart = routerStamp();
 
 /**
+ * The one command that clears a stale router, written once and read in three places.
+ *
+ * The log line `watchSelf` prints, the verdict `explain` builds, and — through that
+ * verdict — the health line on the advocate console. It is built here rather than in
+ * lib/startup.js because that module imports nothing on purpose (a policy that could
+ * fail to load is a policy that costs the port), so the uid and the LaunchAgent label
+ * are this program's to know; the snapshot carries it out to the rest.
+ *
+ * `-k` because the job is running: kickstart without it is a no-op against a live
+ * label, which is the failure mode of a fix line that looks right and does nothing.
+ */
+const RESTART_COMMAND = `launchctl kickstart -k gui/${process.getuid()}/${LABEL}`;
+
+/**
  * Put the port down and stop the backends, once.
  *
  * Declared above the socket it closes because it has to be *registered* the moment the
@@ -1417,11 +1510,40 @@ await armCrashHandlers();
 // and what has to *get* one when `listen()` came up without: `onAcquired` is the same
 // call as the one above, made again at the moment the socket stops being plain http, so
 // the URL a phone is handed follows the certificate rather than waiting for a restart.
-startRenewal(cfg, servers, {
+let renewal = startRenewal(cfg, servers, {
   notify: notifyCertificate,
   onAcquired: () => reconcileBaseUrl(cfg, { persist: true }),
   log,
   warn,
+});
+// And the other half of `deferTailnet`: bind the address now that it is here, and put
+// the renewal loop back around the sockets — `startRenewal` filters the array it is
+// handed *once*, at call time, and returns null when none of them are TLS. A router
+// that came up loopback-only therefore has no renewal at all, so the late bind is the
+// first moment there is anything to renew. Clearing the old timer first keeps that
+// idempotent if Tailscale goes down and comes back more than once.
+armLateBind(() => {
+  const late = bindHost(cfg.host, {
+    onBound: () => {},
+    // Nothing to exit over here whatever happens: loopback is already serving, and an
+    // address that has gone away again is simply deferred a second time.
+    onError: (err) => {
+      if (err.code === 'EADDRNOTAVAIL') deferTailnet();
+    },
+  });
+  // Pushed into the same array `shutdown` closes and `startRenewal` reads, so the late
+  // socket is closed on SIGTERM like any other.
+  servers.push(...late);
+  if (renewal) clearInterval(renewal);
+  renewal = startRenewal(cfg, servers, {
+    notify: notifyCertificate,
+    onAcquired: () => reconcileBaseUrl(cfg, { persist: true }),
+    log,
+    warn,
+  });
+  // The URL a phone is handed names the address, not the certificate, until there is
+  // one — so it moves when the address does.
+  reconcileBaseUrl(cfg, { persist: true });
 });
 log(`supervising ${BACKEND}`);
 await bringUp('first start').catch((err) => {

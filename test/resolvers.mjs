@@ -20,7 +20,14 @@
  *     press, two requests, a moment apart. This is the case a check-then-launch passes;
  *   - **"I cannot ask" is never "it is gone"** — a handle-less record and a macOS refusal
  *     both hold, because treating either as absence is what opens the second window. The
- *     same distinction `reclaim` keeps in lib/advocate.js.
+ *     same distinction `reclaim` keeps in lib/advocate.js;
+ *   - **and a restart is not absence either** — the fifth claim, and the one the first four
+ *     could not see, because every one of them is an assertion about a single process.
+ *     bc-9d37.11: the daemon restarts whenever the build moves, a merge landing is what
+ *     moves it, and the sweep runs on the far side of that restart. So the cap held inside
+ *     any one lifetime and failed thirteen times in seven hours across them, over a green
+ *     suite. `restart()` is what a boot does — drop the handles, re-read the keys — and the
+ *     cases at the end are the only ones here that call it.
  *
  *     node test/resolvers.mjs
  *
@@ -43,7 +50,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-resolvers-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { resolveFor, find, remember, forget, list, reset, nudgeMessage } = await import(LIB('resolvers.js'));
+const { resolveFor, find, remember, forget, list, pending, reset, restart, nudgeMessage, RESOLVERS_PATH } = await import(LIB('resolvers.js'));
 
 /* ------------------------------------------------------------------- harness */
 
@@ -66,7 +73,7 @@ const T0 = Date.parse('2026-08-11T13:45:00Z');
 const MIN = 60000;
 
 /** A press. `launch` records that a window would have opened and hands back a handle. */
-function press(state, { number = 115, workspace = 'beadcause', now = T0, term = 'iterm-1', say, fail = null } = {}) {
+function press(state, { number = 115, workspace = 'beadcause', now = T0, term = 'iterm-1', say, fail = null, sweptAfter = null, instruction = '' } = {}) {
   return resolveFor(
     workspace,
     number,
@@ -79,6 +86,8 @@ function press(state, { number = 115, workspace = 'beadcause', now = T0, term = 
       branch: 'worktree-chat-tabs-dmt',
       owner: 'Adam',
       now,
+      sweptAfter,
+      instruction,
       say:
         say ||
         (async (handle, text) => {
@@ -271,6 +280,171 @@ await check('the nudge says a press happened and that nothing new is being opene
   assert.match(text, /no second session is being opened/, text);
   assert.match(text, /starting a second merge in this tree/, text);
   assert.equal(text.includes('\n'), false, 'one line — it lands in a window somebody is working in');
+});
+
+/**
+ * bc-9d37.6. The sweep is now the *common* caller of this line, and until it carried a
+ * reason the window was told a person had pressed a button — which is the falsehood
+ * bc-9d37.2 removed from the brief one file over, arriving by the other door.
+ */
+await check('a swept nudge names the merge and never claims a press', async () => {
+  const text = nudgeMessage(115, 'Adam', { sweptAfter: 204 });
+  assert.match(text, /^\*\* BEADCAUSE \*\*/, text);
+  assert.match(text, /Nobody pressed anything/, text);
+  assert.match(text, /#204 merged/, text);
+  assert.doesNotMatch(text, /pressed Resolve conflicts/, text);
+  assert.match(text, /no second session is being opened/, text);
+  assert.equal(text.includes('\n'), false, 'one line');
+});
+
+await check('a swept nudge that cannot name the merge invents no number', async () => {
+  // `Number(true)` is 1, and "#1 merged" is the confident falsehood the guard is for.
+  const text = nudgeMessage(115, 'Adam', { sweptAfter: true });
+  assert.match(text, /Nobody pressed anything/, text);
+  assert.match(text, /A pull request merged/, text);
+  assert.doesNotMatch(text, /#1 merged/, text);
+});
+
+/**
+ * The third case, and the one the two beads in this group share: Adam answered the sweep
+ * card about a pull request that already has a live resolver. That *is* new work, so it
+ * must not fall through to "there is nothing new to do".
+ */
+await check('an answered nudge carries the instruction and does not say there is nothing to do', async () => {
+  const text = nudgeMessage(115, 'Adam', { sweptAfter: 204, instruction: 'take main’s renderRow\nand keep our tests' });
+  assert.match(text, /answered the sweep card about #115/, text);
+  assert.match(text, /take main’s renderRow and keep our tests/, text, 'newlines folded — this lands in a window');
+  assert.doesNotMatch(text, /nothing new to do/, text);
+  assert.doesNotMatch(text, /pressed Resolve conflicts/, text);
+  assert.equal(text.includes('\n'), false, 'one line');
+});
+
+await check('resolveFor hands the reason it was given to the session that already has it', async () => {
+  const state = { opened: [], said: [] };
+  await press(state);
+  const out = await press(state, { now: T0 + 5 * MIN, sweptAfter: 204 });
+  assert.ok(out.reused, JSON.stringify(out));
+  assert.match(state.said[0].text, /Nobody pressed anything/, state.said[0].text);
+  assert.match(out.note, /told it the sweep found this one again/, out.note);
+
+  const answered = await press(state, { now: T0 + 6 * MIN, instruction: 'take main’s renderRow' });
+  assert.ok(answered.reused, JSON.stringify(answered));
+  assert.match(state.said[1].text, /take main’s renderRow/, state.said[1].text);
+  assert.match(answered.note, /gave it your answer/, answered.note);
+});
+
+/* ------------------------------------------------- bc-9d37.11: across a restart */
+
+/**
+ * The bug, in the smallest form it takes: a sweep, a daemon restart, the next sweep.
+ *
+ * This is the case that could not be written before the registry had a disk, and it is
+ * why the bug survived a suite that already asserted the cap four ways. `restart()` is
+ * exactly what a boot does and nothing more — the handles are dropped, the keys are read
+ * back — so a failure here is a failure the real daemon has.
+ */
+await check('a sweep after a restart opens nothing for a branch that already has a window', async () => {
+  const state = fresh();
+  await press(state, { number: 243, sweptAfter: 290 });
+  assert.equal(state.opened.length, 1, 'the first sweep opened one');
+
+  const restored = restart();
+  assert.equal(restored, 1, 'the record came back from disk');
+
+  const out = await press(state, { number: 243, now: T0 + 4 * MIN, sweptAfter: 292 });
+
+  assert.equal(state.opened.length, 1, 'still one window — this is bc-9d37.11');
+  assert.ok(out.error, `expected a refusal, got ${JSON.stringify(out)}`);
+  assert.equal(out.status, 409);
+  assert.ok(out.held, 'the refusal carries what holds it, so the sweep can tell this from a failure');
+  assert.equal(out.held.branch, 'worktree-chat-tabs-dmt', 'and it still knows where the window is');
+  assert.match(out.error, /restarted/, out.error);
+  assert.deepEqual(state.said, [], 'nothing was typed — there is no handle to type into');
+});
+
+/**
+ * And it lets go by itself. A restored record is state 3, so `BLIND_MS` ages it out; if it
+ * did not, one crashed resolver would strand its branch until the daemon was restarted by
+ * hand — which is worse than the second window, because nothing would ever say so.
+ */
+await check('a restored record ages out at BLIND_MS and the branch can be opened again', async () => {
+  const state = fresh();
+  await press(state, { number: 243 });
+  restart();
+
+  assert.ok(find('beadcause', 243, T0 + 29 * MIN), 'believed at 29 minutes');
+  assert.equal(find('beadcause', 243, T0 + 31 * MIN), null, 'and let go at 31');
+
+  const out = await press(state, { number: 243, now: T0 + 31 * MIN });
+  assert.equal(state.opened.length, 2, 'a window opens once nothing believes in the old one');
+  assert.ok(out.opened);
+});
+
+/**
+ * The half that is not about opening windows: a restart must not resurrect a resolver that
+ * had already finished. `forget` is the evidence path — a session that answered `missing` —
+ * and if that only reached memory, the next boot would read the corpse back and refuse to
+ * open a window for a branch with nothing on it, for half an hour, every merge.
+ */
+await check('a session proven gone is not read back by the next daemon', async () => {
+  const state = fresh();
+  await press(state, { number: 243 });
+  await press(state, { number: 243, now: T0 + MIN, say: async () => 'missing' });
+  assert.equal(state.opened.length, 2, 'proven gone, so that press opened a real window');
+
+  forget('beadcause', 243);
+  assert.equal(restart(), 0, 'nothing came back — the disk learned it too');
+});
+
+/**
+ * The queue is deliberately not persisted, and this asserts it on purpose rather than by
+ * omission — see the header of lib/resolvers.js. A queued entry carries closures that
+ * cannot be written down, and the next sweep re-derives it from GitHub anyway.
+ */
+await check('the queue does not survive a restart, and that is the design', async () => {
+  const state = fresh();
+  await press(state, { number: 1 });
+  await press(state, { number: 2 });
+  const queued = await press(state, { number: 3 });
+  assert.ok(queued.queued, `expected #3 to queue behind the cap, got ${JSON.stringify(queued)}`);
+
+  restart();
+  assert.deepEqual(pending(), [], 'the queue is empty after a boot');
+  assert.equal(list(T0).length, 2, 'but the two live windows are still known about');
+});
+
+/**
+ * Nothing that cannot be trusted comes back. A record decides whether a window opens, so
+ * half of one is not evidence — and an unreadable file must read as "nothing was running",
+ * which is what every reader in this repo treats unparseable as.
+ */
+await check('a corrupt or truncated registry reads as an empty one', async () => {
+  fs.writeFileSync(RESOLVERS_PATH, '[{"workspace":"beadcause"},{"number":7},{"junk":1},nonsense');
+  assert.equal(restart(), 0, 'nothing believable in it');
+
+  fs.writeFileSync(RESOLVERS_PATH, JSON.stringify([{ workspace: 'beadcause', number: 243, at: 'not a date' }]));
+  assert.equal(restart(), 0, 'a record with no usable timestamp cannot be aged, so it is not kept');
+
+  const state = fresh();
+  const out = await press(state, { number: 243 });
+  assert.ok(out.opened, 'and the branch is openable, which is where we already were');
+});
+
+/**
+ * The handle is the one field that must never reach the disk. Writing one down would be
+ * inventing an address: `JSON.stringify` turns an iTerm object into something that still
+ * looks like a handle, and `resolveFor` would then try to type into it.
+ */
+await check('no handle is ever written to disk', async () => {
+  const state = fresh();
+  await press(state, { number: 243, term: 'iterm-1' });
+
+  const raw = fs.readFileSync(RESOLVERS_PATH, 'utf8');
+  assert.doesNotMatch(raw, /iterm-1/, 'the handle stayed in memory');
+  assert.match(raw, /243/, 'the key did not');
+
+  restart();
+  assert.equal(find('beadcause', 243, T0).term, null, 'and it comes back with none');
 });
 
 await cleanupTmp(tmp);

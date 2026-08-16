@@ -20,9 +20,15 @@
  * injecting a `notify` callback: that seam exists for renewal and does not exist for this,
  * and inventing one would test the seam rather than the push.
  *
- * The outage is produced the way test/slowstart.mjs produces it — `healthTimeoutMs: 250`,
- * a window no node process can start inside, so the first bring-ups must time out on a
- * machine of any speed. Then nothing is touched: the router retries on its own clock, and
+ * The outage is produced by a narrow window and a slow start together — `healthTimeoutMs:
+ * 250` and `BEADCAUSE_START_DELAY_MS=1200`. The window alone was the original arrangement
+ * and it was not a guarantee: it rested on "nothing starts in a quarter of a second",
+ * which is true of this laptop opening several real beads workspaces and false of a CI
+ * runner opening one empty one (bc-rcrt). The runner came up first time, the router never
+ * saw an outage, and a suite about what the phone is told when nothing is being served
+ * timed out having asserted none of it. A start held for 1200ms cannot fit in a 250ms
+ * window on any machine, and the window doubles per bring-up until it can — so the outage
+ * is guaranteed and so is the recovery, on hardware nobody has to reason about. Then nothing is touched: the router retries on its own clock, and
  * both pushes have to arrive on their own.
  *
  * Three claims, and the middle one is the one a phone cares about most:
@@ -144,8 +150,9 @@ fs.writeFileSync(
       token: TOKEN,
       bdBin: stubBd,
       actor: 'beadcause-test',
-      // Same window, and the same reason, as test/slowstart.mjs: nothing starts in a
-      // quarter of a second, so the outage is guaranteed rather than hoped for.
+      // Half of the guarantee: a window this narrow is missed by any start slower than
+      // it. The other half is `BEADCAUSE_START_DELAY_MS` below, which is what makes the
+      // start slower than it on a machine of any speed — see the header.
       healthTimeoutMs: 250,
       openSessions: false,
       autoDispatch: false,
@@ -164,7 +171,7 @@ fs.writeFileSync(
 // An observing instance skips every push by design (lib/notify.js), so a stray
 // BEADCAUSE_OBSERVE in the environment running `npm test` would turn this suite green
 // by silencing the thing it exists to check.
-const env = { ...process.env, BEADCAUSE_CONFIG_DIR: dir };
+const env = { ...process.env, BEADCAUSE_CONFIG_DIR: dir, BEADCAUSE_START_DELAY_MS: '1200' };
 delete env.BEADCAUSE_OBSERVE;
 delete env.BEADCAUSE_READONLY;
 

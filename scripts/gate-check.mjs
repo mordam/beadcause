@@ -188,7 +188,7 @@ const answerIt = async (id, text) => {
   // Open it the way a thumb does — the details toggle — rather than by reaching
   // into the module. Already-open is fine; the toggle is checked first.
   if (!(await evalJs(s, `${card}.querySelector('[data-role="answer"]') !== null`))) {
-    await evalJs(s, `${card}.querySelector('[data-act="toggle"]').click()`);
+    await evalJs(s, `${card}.click()`);
     await sleep(700);
   }
   await evalJs(
@@ -327,7 +327,7 @@ try {
   // Saving the comment collapsed the card, so the dismiss button is not in the DOM
   // until it is open again.
   if (!(await evalJs(s, `${gatedCard}?.querySelector('[data-act="dismiss"]') !== null`))) {
-    await evalJs(s, `${gatedCard}.querySelector('[data-act="toggle"]').click()`);
+    await evalJs(s, `${gatedCard}.click()`);
     await sleep(700);
   }
   const armedLabel = await evalJs(

@@ -137,6 +137,15 @@
         if (a.amended?.length) marks.push(`<span class="pill">${a.amended.length} amended</span>`);
         if (a.declined) marks.push(`<span class="pill">${a.declined} declined</span>`);
         marks.push(a.writes ? '<span class="pill">writes</span>' : '<span class="pill">read-only</span>');
+        // What it has *learned*, on the row rather than three taps in. The finding the
+        // persistence work produced is an asymmetry between agents — one with hundreds
+        // of notes about this repo, another running continuously in the same repo with
+        // none — and an asymmetry is something you see by putting the rows side by side.
+        // An agent that has written nothing says so rather than going quiet.
+        if (a.notes || a.memories) {
+          if (a.notes) marks.push(`<span class="pill">${a.notes} notes here</span>`);
+          if (a.memories) marks.push(`<span class="pill">${a.memories} remembered</span>`);
+        } else marks.push('<span class="pill p0">nothing learned</span>');
         return `
         <article class="card agent-card" data-open="${esc(a.id)}" role="button" tabindex="0">
           <div class="card-head">
@@ -202,6 +211,7 @@
     renderFoundation();
     renderHistory();
     renderActivity();
+    renderMemory();
     if (state.tab === 'chat') openChat();
   }
 
@@ -428,6 +438,172 @@
       ${live || '<div class="empty">Nothing running.</div>'}
       <h2 class="section-label">Recent</h2>
       ${runs || `<div class="empty">${esc(a.runsNote || 'Nothing recorded yet.')}</div>`}`;
+  }
+
+  /* ----------------------------------------------------------------- memory */
+
+  /**
+   * Whether this agent is actually carrying anything between runs — the one tab here
+   * that is a *result* rather than a status.
+   *
+   * The epic that built the three memory tiers had no screen answering that, and
+   * reading it meant `git for-each-ref`, `git log | wc -l` and a subtraction, per repo,
+   * per agent. What that four minutes of plumbing said was an **asymmetry** — one agent
+   * with hundreds of notes about this repo and another, running continuously in the
+   * same repo, with none — so the numbers are drawn per store and never added up.
+   *
+   * **Written and read are not the same kind of number and the tab says so.** A write is
+   * a commit on a ref and is true for the whole history; a read is a line in a log that
+   * only started being written when this landed, so "no reads recorded" means nobody has
+   * opened it *since then* and not "nobody ever has". Printing the second as the first
+   * would be the instrument answering the question instead of the agents.
+   */
+  const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+  /** What a store's numbers add up to, in a sentence. The whole point of the tab. */
+  function verdict(s) {
+    if (!s.writes) return 'Nothing written here yet — nothing to carry, and nothing to read back.';
+    const bits = [`Last written ${relTime(s.lastWriteAt)}.`];
+    if (!s.reads) {
+      bits.push(`Not opened once since reads began being recorded — a write-only diary, so far.`);
+    } else {
+      bits.push(
+        `Opened ${plural(s.reads, 'time')}, last ${relTime(s.lastReadAt)} — ` +
+          `${plural(s.listings, 'whole-store listing')} and ${s.opened} of ${plural(s.keys, 'key')} asked for by name.`
+      );
+      if (s.unread) bits.push(`${plural(s.unread, 'key has', 'keys have')} never been asked for by name.`);
+      if (s.sessions) bits.push(`Read from ${plural(s.sessions, 'session')}.`);
+    }
+    return bits.join(' ');
+  }
+
+  /** One store, as one card. */
+  function storeCard(title, where, s, hint) {
+    const marks = [
+      `<span class="pill id">${esc(where)}</span>`,
+      `<span class="pill">${esc(plural(s.keys, 'key'))}</span>`,
+      `<span class="pill">${esc(plural(s.writes, 'write'))}</span>`,
+    ];
+    if (s.reads) marks.push(`<span class="pill st-in_progress">${esc(plural(s.reads, 'read'))}</span>`);
+    else if (s.writes) marks.push('<span class="pill p0">no reads recorded</span>');
+    return `
+      <article class="card">
+        <div class="card-head">
+          <div class="meta">${marks.join('')}${s.lastWriteAt ? `<time>${esc(relTime(s.lastWriteAt))}</time>` : ''}</div>
+          <p class="q">${esc(title)}</p>
+          <p class="subtitle">${esc(verdict(s))}</p>
+          <p class="f-hint">${esc(hint)}</p>
+        </div>
+      </article>`;
+  }
+
+  /**
+   * Tier 3, per arm, and never pooled.
+   *
+   * A total of one run reads as a live experiment; one-versus-zero is the shape that
+   * says the comparison cannot be computed yet, and that is the honest thing to draw.
+   * So both arms are always shown, including the empty one, and the line underneath
+   * says outright when there is nothing to compare.
+   */
+  function armsCard(own) {
+    // Whether anything has ever been written, in either arm — which is what decides
+    // whether `index` was a different treatment at all. An agent that has never written
+    // has been told "it is empty" on every index run, so the two arms carried the same
+    // information and the numbers underneath them are not a comparison yet. See the note
+    // on `report` in lib/agentrepo.js; this is the same sentence, drawn.
+    const wroteEver = own.arms.some((arm) => own.summary[arm]?.wrote);
+    const arms = own.arms.map((arm) => {
+      const a = own.summary[arm] || {};
+      return `
+        <article class="card">
+          <div class="card-head">
+            <div class="meta">
+              <span class="pill id">${esc(arm)}</span>
+              <span class="pill">${esc(plural(a.runs || 0, 'run'))}</span>
+              <span class="pill">${a.touched || 0} touched</span>
+              <span class="pill">${a.read || 0} read</span>
+              <span class="pill">${a.wrote || 0} wrote</span>
+              <span class="pill">${a.readFirst || 0} read first</span>
+            </div>
+            <p class="subtitle">${
+              arm === 'blind'
+                ? 'Told it has a repo and nothing about what is in it.'
+                : wroteEver
+                  ? 'Told what is in it, at the top of the run.'
+                  : 'Told what is in it — which has so far only ever been "it is empty".'
+            }</p>
+          </div>
+        </article>`;
+    });
+    const across =
+      '<p class="f-hint">Every workspace this agent runs in, because an arm is assigned per ' +
+      'workspace — a repo with one run has only ever been in one of them.</p>';
+    const empty = own.arms.filter((arm) => !(own.summary[arm]?.runs));
+    const note = empty.length
+      ? `<p class="f-hint">${esc(
+          `No runs yet in ${empty.join(' or ')} — the comparison this experiment exists for cannot be computed until both arms have run.`
+        )}</p>`
+      : wroteEver
+        ? ''
+        : `<p class="f-hint">${esc(
+            'Both arms have run and neither has ever been written to, so every index brief said "it is ' +
+              'empty" — the arms have not differed in anything but one sentence, and read-first of zero ' +
+              'here is a treatment that was never applied rather than a result.'
+          )}</p>`;
+    return across + arms.join('') + note;
+  }
+
+  function renderMemory() {
+    const m = state.agent.memory;
+    const el = $('#tab-memory');
+    if (!m) {
+      el.innerHTML = '<div class="empty">Nothing recorded for this agent.</div>';
+      return;
+    }
+    const bus = m.bus.reads
+      ? `${plural(m.bus.reads, 'read')} across ${plural(m.bus.topics, 'topic')}, last ${relTime(m.bus.lastReadAt)}.`
+      : 'Never collected. A message nobody reads is a message nobody was told.';
+    el.innerHTML = `
+      <p class="lede">Whether this agent is carrying anything between runs. Writes are commits
+        on a ref and go back to the first one ever made; reads are counted only from when the
+        agent ran <code>beadcause-memory</code> itself — a note quoted into a session's prompt
+        is not a read, because the daemon does that unasked.</p>
+
+      <h2 class="section-label">What it has learned</h2>
+      ${storeCard(
+        `Notes about ${m.workspace || 'this repo'}`,
+        'tier 1',
+        m.notes,
+        `On ${m.notes.ref} in ${m.repo || 'this repo'} — knowledge about one codebase, worth nothing in another.`
+      )}
+      ${storeCard(
+        'Memory that follows it everywhere',
+        'tier 2',
+        m.memory,
+        'On refs/beadcause/memory in ~/.config/beadcause — what this agent kind knows in any repo.'
+      )}
+
+      <h2 class="section-label">What it has collected</h2>
+      <article class="card">
+        <div class="card-head">
+          <div class="meta">
+            <span class="pill id">blackboard</span>
+            <span class="pill">${m.bus.reads} read</span>
+            <span class="pill">${m.debriefs.reads} debrief read</span>
+            ${m.readByOthers ? `<span class="pill">${m.readByOthers} read of its own by others</span>` : ''}
+          </div>
+          <p class="subtitle">${esc(bus)}</p>
+          <p class="f-hint">The bus is a pull, not a delivery — nothing here is a notification, so a topic
+            with messages and no reads means they were published into silence.</p>
+        </div>
+      </article>
+
+      <h2 class="section-label">A repo of its own</h2>
+      ${
+        m.own
+          ? armsCard(m.own)
+          : '<div class="empty">This agent owns no repo. Tier 3 gives exactly one agent a directory nobody designed the contents of, and this is not it.</div>'
+      }`;
   }
 
   /* ------------------------------------------------------------------- chat */

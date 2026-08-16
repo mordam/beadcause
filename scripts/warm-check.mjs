@@ -171,8 +171,7 @@ const screen = () => ({
   workspaces: ['demo'],
   spaces: [],
   filter: { space: 'all', workspace: 'all' },
-  dismissAsk: null,
-  summary: { sessions: 0, proposals: 0, questions: questions.length },
+  summary: { sessions: 0, proposals: 0 },
   seq,
 });
 

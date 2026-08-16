@@ -15,12 +15,27 @@
  * bc-5864 was filed believing that had happened, on evidence that looked conclusive:
  * bc-rk2o closed by bin/deliver.js at a moment its child bc-rk2o.1 was still open, so
  * bd had apparently permitted a close the gate would have refused. It had not. bc-rk2o
- * is a **feature**, and bd's parent gate is on the word `epic` alone — a feature, task,
- * bug or chore closes over as many open children as it likes. The gate agrees, because
- * `gateFor` asks about children only for `issue_type === 'epic'`. Both were right and
- * the evidence was misread, which is a thing a fixture cannot tell you and this file
- * can. Hence: same shapes, real workspace, and every case asserts the gate's answer
- * **and** what the binary then does with the same close.
+ * is a **feature**, and on bd 1.1.x the parent gate was the word `epic` alone — a
+ * feature, task, bug or chore closed over as many open children as it liked. The gate
+ * agreed, because `gateFor` asked about children only for `issue_type === 'epic'`. Both
+ * were right and the evidence was misread, which is a thing a fixture cannot tell you
+ * and this file can. Hence: same shapes, real workspace, and every case asserts the
+ * gate's answer **and** what the binary then does with the same close.
+ *
+ * **And then it caught the other failure it was built for.** bd 1.2.1 widened the rule
+ * to every parent — `N open child issue(s); close children first or use --force` — and
+ * this file went red on the bump with `gateFor` still stopping at the word `epic`,
+ * which is *under*-gating: the phone would have offered a close bd then refuses, having
+ * already written the comment it cannot take back. Both were fixed together in
+ * bc-xl7n.39. The two non-epic-parent cases below still carry the shape they had when
+ * they read the other way, because what makes them worth having is that they are the
+ * assertion that noticed.
+ *
+ * **Two cases at the bottom assert the opposite**, and they are the reason `agree` can
+ * stay strict: beadcause refuses an epic with an unapplied `Adopts:` entry and an epic
+ * closing on a merge reason, and bd closes both without complaint. Those refusals are
+ * deliberately not modelled on the binary — bd has no pre-close hook to be taught with —
+ * so `diverge` pins the disagreement rather than letting it look like drift.
  *
  * It is the slow one of the pair — a `bd init` and ~30 invocations of a real tracker,
  * against embedded Dolt — and that is the price of asking rather than assuming. Nothing
@@ -39,7 +54,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const { Bd } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
+const { Bd, CLAIM_GUARD_RE } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
 
 let failures = 0;
 let ran = 0;
@@ -160,23 +175,29 @@ async function agree(name, id, refused, { reason = null } = {}) {
   await agree('an epic with no children at all', epic, false);
 }
 
-/* ------------------------------------- a parent that is not an epic, which is not */
+/* ---------------------------- a parent that is not an epic, which since 1.2.1 also is */
 
 {
-  // **The bc-5864 case.** bc-rk2o was a feature with five children and bin/deliver.js
-  // closed it over an open one; that read as bd contradicting the gate, and it is bd
-  // being consistent with it. Both stop at the word `epic`. If bd ever widens the rule
-  // to any parent, this is the assertion that says so — and the day it fails, `gateFor`
-  // is under-gating and answers from the phone start throwing again.
+  // **bd widened the rule, and this is the assertion that said so.** It used to read
+  // `false` on both cases below with a comment predicting exactly this: "if bd ever
+  // widens the rule to any parent, this is the assertion that says so — and the day it
+  // fails, `gateFor` is under-gating and answers from the phone start throwing again."
+  // bd 1.2.1 widened it (`N open child issue(s); close children first or use --force`),
+  // this file went red on the bump, and `gateFor` was widened to match (bc-xl7n.39). The
+  // history is worth keeping because it is also **the bc-5864 case**: bc-rk2o was a
+  // feature with five children that bin/deliver.js closed over an open one, read as bd
+  // contradicting the gate and really bd agreeing with it, on a binary where both
+  // stopped at the word `epic`. On 1.2.1 that close is refused. Same shapes, opposite
+  // answer, and the only thing that moved is the tracker.
   const feature = await make({ type: 'feature', title: 'a feature with a child still open' });
   await make({ type: 'task', parent: feature, title: 'the open child of a feature' });
-  await agree('a feature with an open child', feature, false);
+  await agree('a feature with an open child', feature, true, { reason: /open child/i });
 }
 
 {
   const parent = await make({ type: 'task', title: 'a task with a subtask still open' });
   await make({ type: 'task', parent, title: 'the open subtask' });
-  await agree('a task with an open subtask', parent, false);
+  await agree('a task with an open subtask', parent, true, { reason: /open child/i });
 }
 
 /* -------------------------------------------------------- blockers, which are gated */
@@ -185,7 +206,7 @@ async function agree(name, id, refused, { reason = null } = {}) {
   const blocked = await make({ title: 'a bead behind an open blocker' });
   const blocker = await make({ title: 'the blocker' });
   await bd.addDep(ws, blocked, blocker);
-  await agree('a bead blocked by an open issue', blocked, true, { reason: /blocked by open issues/i });
+  await agree('a bead blocked by an open issue', blocked, true, { reason: /blocked by/i });
 }
 
 {
@@ -194,7 +215,7 @@ async function agree(name, id, refused, { reason = null } = {}) {
   const blocker = await make({ title: 'the deferred blocker' });
   await bd.addDep(ws, blocked, blocker);
   await bd.run(ws, ['defer', blocker, '--until=2099-01-01']);
-  await agree('a bead blocked by a deferred issue', blocked, true, { reason: /blocked by open issues/i });
+  await agree('a bead blocked by a deferred issue', blocked, true, { reason: /blocked by/i });
 }
 
 {
@@ -226,6 +247,114 @@ async function agree(name, id, refused, { reason = null } = {}) {
   const blocker = await make({ title: 'a blocker being closed first' });
   await bd.addDep(ws, blocked, blocker);
   await agree('a blocker closing while what it blocks stays open', blocker, false);
+}
+
+/* -------------------------- and the two rules bd cannot hold, which it must not (bc-arj0.3) */
+
+/**
+ * One case where the gate and the binary are *meant* to disagree.
+ *
+ * Every `agree` above asserts they answer alike, and the whole value of that is that a
+ * gate inventing a refusal is caught. These two refusals are invented on purpose, so the
+ * same file has to be able to say "beadcause refuses this and bd does not" — otherwise
+ * either the rules could not be pinned here at all, or `agree` would have to be loosened
+ * and stop catching the thing it exists for.
+ *
+ * Both are things bd has no way to know. `Adopts:` is a line in a description, and a
+ * close reason is a string it stores. bd has no pre-close hook to be taught with —
+ * `bd hooks` installs git hooks and nothing else, measured on bd 1.1.2 — which is why
+ * the rule lives on every path beadcause closes through instead.
+ */
+async function diverge(name, id, { reason = 'asking bd', gate: expected } = {}) {
+  const gate = await bd.closeGate(ws, id, { reason });
+  const closed = bdRun(['close', id, '--reason', reason]);
+  const said = `${closed.stderr || ''}${closed.stdout || ''}`.trim().split('\n')[0];
+  check(() => assert.equal(gate?.kind, expected, `gate: ${JSON.stringify(gate)}`), `${name} — beadcause refuses it (${expected})`);
+  check(() => assert.equal(closed.status, 0, `bd said: ${said}`), `${name} — and bd would have closed it happily`);
+}
+
+{
+  // bc-ka5y, in miniature: an epic that names beads in prose and has no children, which
+  // is exactly what it looked like to bd on the day it closed over twenty-three of them.
+  const adoptee = await make({ title: 'a bead named but never adopted' });
+  const epic = await make({
+    type: 'epic',
+    title: 'an epic whose adoption list was never applied',
+    body: `The theme.\n\nAdopts: ${adoptee}.\n`,
+  });
+  await diverge('an epic with an unapplied Adopts: entry', epic, { gate: 'adopts' });
+}
+
+{
+  const epic = await make({ type: 'epic', title: 'an epic closed on its own PR merge' });
+  await diverge('an epic closing on a merge reason', epic, {
+    reason: 'Merged #212 as 72789c0b into main on GitHub',
+    gate: 'merge-reason',
+  });
+}
+
+{
+  // And the half that must keep working, asked of both: a work bead closes because its
+  // pull request merged, and neither of them has any objection. `agree` cannot ask this
+  // one — its `reason` is the regex it matches bd's *refusal* against, and there is no
+  // refusal here — so the close is driven directly.
+  const work = await make({ title: 'a work bead whose PR merged' });
+  const landed = 'Landed as #42';
+  const gate = await bd.closeGate(ws, work, { reason: landed });
+  const closed = bdRun(['close', work, '--reason', landed]);
+  check(() => assert.equal(gate, null, `gate: ${JSON.stringify(gate)}`), 'a work bead closing on a merge reason — the gate permits it');
+  check(() => assert.equal(closed.status, 0, `bd said: ${(closed.stderr || closed.stdout || '').split('\n')[0]}`), 'a work bead closing on a merge reason — and so does bd');
+}
+
+/* ------------------------------------- the claim, which is a refusal and not a gate */
+
+{
+  // **bc-ko7n, against the binary.** bd refuses a close whose actor is not the bead's
+  // assignee, and beadcause can never satisfy it: the actor is the byline `beadcause
+  // (<address>)` and the assignee is the bare git address a claim writes. Three
+  // assertions, and the middle one is the point of the file:
+  //
+  //   1. bd really does refuse it — driven raw, so the wording `CLAIM_GUARD_RE` matches
+  //      is read off the binary rather than off a fixture that agrees with itself. That
+  //      regex is bc-9d37.13's, shared with the delivery paths and with bin/deliver.js.
+  //   2. **The gate says nothing.** Modelling this in `gateFor` was the tempting fix and
+  //      it would have been the "inventing a gate" failure this whole file exists to
+  //      catch: the gate is what the phone draws a card from and what lib/landed.js
+  //      skips on, so a branch there would make every bead a session ever claimed read
+  //      as unclosable.
+  //   3. `Bd.closeAnswered` closes it anyway, by dropping the claim first. Which is why
+  //      (2) is correct rather than merely convenient — there is no refusal left to
+  //      report. The delivery half of the same guard forces instead and keeps the
+  //      assignee; test/mergeclose.mjs is where that one is asked.
+  const claimed = await make({ title: 'a question a worker session claimed' });
+  await bd.run(ws, ['update', claimed, '--assignee', 'neadamthal@gmail.com'], { actor: 'neadamthal@gmail.com' });
+  const raw = bdRun(['close', claimed, '--reason', 'Answered via Beadcause', '--actor', 'beadcause (neadamthal@gmail.com)']);
+  const said = `${raw.stderr || ''}${raw.stdout || ''}`.trim().split('\n')[0];
+  check(() => assert.equal(raw.status !== 0, true, `bd said: ${said}`), 'a claimed bead — bd refuses a close from another actor');
+  check(() => assert.match(said, CLAIM_GUARD_RE), 'a claimed bead — in the words lib/bd.js matches on');
+
+  const gate = await bd.closeGate(ws, claimed);
+  check(() => assert.equal(gate, null, `gate: ${JSON.stringify(gate)}`), 'a claimed bead — the gate invents nothing about it');
+
+  await bd.closeAnswered(ws, claimed, 'Answered via Beadcause', { actor: 'beadcause (neadamthal@gmail.com)' });
+  const after = await bd.show(ws, claimed);
+  check(() => assert.equal(after?.status, 'closed'), 'a claimed bead — and beadcause closes it, having reclaimed it');
+  check(() => assert.ok(!String(after?.assignee || '').trim()), 'a claimed bead — the claim it dropped to do so is gone');
+}
+
+{
+  // The other half of bc-ko7n, and the two facts about bd it rests on. `answerOnce`
+  // skips a comment that is already the newest thing on the thread, so it needs the
+  // field the text is under and the direction the rows come back in. Both are silent if
+  // they drift — the dedupe simply stops matching, the duplicate answers come back, and
+  // nothing anywhere fails — which is why they are asked of the binary rather than
+  // assumed. test/answerclose.mjs proves the behaviour on a fake that answers this shape.
+  const thread = await make({ title: 'a bead with something said on it' });
+  await bd.run(ws, ['comment', thread, 'the older thing']);
+  await bd.run(ws, ['comment', thread, 'the newer thing']);
+  const said = await bd.comments(ws, thread);
+  check(() => assert.equal(said.length, 2, JSON.stringify(said)), 'a thread — comes back with both comments on it');
+  check(() => assert.equal(said[said.length - 1]?.text, 'the newer thing'), 'a thread — oldest first, so the last row is the newest');
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

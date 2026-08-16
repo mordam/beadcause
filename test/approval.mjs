@@ -12,6 +12,15 @@
  * the diff before it is in `main`. Spaces are already the unit for that kind of
  * policy, so both answers now resolve through `prPolicyFor` in lib/spaces.js.
  *
+ * **bc-r941 moved half of this file's subject one process along.** A worker no longer
+ * merges, so it no longer consults `requireApproval` at all: it queues, and the merge
+ * queue is what stops at a missing approval and files the card. The `requireApproval`
+ * decision is therefore pinned as a pure function in test/mergegate.mjs — every one of
+ * GitHub's `reviewDecision` values, including that a missing approval is a *wait* rather
+ * than a refusal — where it can be asserted without a git server and a fake gh. What
+ * stayed here is the half that is still `bin/deliver.js`'s: which of the two endings a
+ * delivery takes.
+ *
  * Four things are worth a test, and only the first is arithmetic:
  *
  * 1. **The resolution itself**, in both directions. A space must be able to turn
@@ -19,15 +28,15 @@
  *    that is the whole difference between this and `autoDispatchAllowed`, whose
  *    global `false` is a safety veto no space may argue with. A setup that can only
  *    subtract cannot express "off everywhere except the side project".
- * 2. **A green, unapproved pull request in a require-approval space must not merge.**
- *    The assertion that matters is negative and it is the point of the feature:
- *    `gh pr merge` must not appear in the call log at all. Checks green, branch
- *    clean, and it stops anyway.
- * 3. **The card has to say *which* of those it is waiting on.** A card that says
- *    "auto-merge is off" over a green PR in a space where auto-merge is emphatically
- *    on sends you hunting for a switch that is already set the way you want it. So
- *    the approval opening is asserted to be its own sentence, and to name the review.
- * 4. **The two readers must agree.** `bin/deliver.js` decides whether to merge and
+ * 2. **A delivery must never merge, in any space.** The assertion that matters is
+ *    negative and it is the point of the feature: `gh pr merge` must not appear in the
+ *    call log at all. Checks green, branch clean, approval on the pull request, and it
+ *    still hands over.
+ * 3. **`autoMerge` picks the ending, and only that.** On, and the work goes on the queue
+ *    with no card in the inbox. Off, and it is the ask-first card it always was — with
+ *    no merge-bead beside it, because two blockers on one work bead is the pile bc-ec6
+ *    was about.
+ * 4. **The two readers must agree.** `bin/deliver.js` decides which ending and
  *    `lib/session.js` writes the brief promising what that command will do; a brief
  *    promising a merge to a session whose delivery then files a question is how you
  *    get a window reporting work as landed over a bead that says otherwise. Both go
@@ -384,6 +393,28 @@ const cardOf = (id) => world().issues[id]?.description || '';
 
 console.log('\ngreen checks, no approving review, in a space that requires one\n');
 
+/*
+ * bc-r941 moved this decision one process along, and these scenarios move with it.
+ *
+ * `requireApproval` used to be read by `bin/deliver.js`: the worker waited for the
+ * checks, found them green, found no approving review, and filed the card itself. It no
+ * longer waits for anything and no longer merges, so what it does with an approval-gated
+ * space is exactly what it does with any other — it queues, and the *queue* stops at the
+ * approval and files the card.
+ *
+ * That is a genuine loss of coverage in this file and a genuine gain elsewhere, so it is
+ * worth naming rather than quietly rewriting. The decision itself is pinned as a pure
+ * function in test/mergegate.mjs — `gateVerdict` with `requireApproval` and each of
+ * GitHub's four `reviewDecision` values, including that a missing approval is a *wait*
+ * and not a refusal — which is the assertion these scenarios were really making, and it
+ * can be made there without a git server, a fake gh and a tracker.
+ *
+ * What is still worth asserting here is the half that is about `autoMerge`: which of the
+ * two endings a delivery takes. That is still `bin/deliver.js`'s call, it is still
+ * resolved per space, and it is still the setting whose two directions an exclude list
+ * cannot express.
+ */
+
 {
   writeConfig({
     pr: { base: 'main', mergeMethod: 'merge', autoMerge: true, mergeWaitMs: 1000 },
@@ -394,40 +425,25 @@ console.log('\ngreen checks, no approving review, in a space that requires one\n
   branchOff('work-a');
 
   const last = deliver('zz-a');
-  const card = last.split(' ')[0];
+  const queued = last.split(' ').pop();
 
   check('it does not merge — the assertion the whole feature is', !merged(), ghCalls().map((c) => c.join(' ')).join(' | '));
-  check('it hands over instead, printing a question id rather than `landed`', /^zz-/.test(card) && !/^landed/.test(last), last);
+  check('it queues instead, printing the merge-bead rather than `landed`', /^queued #\d+ /.test(last), last);
   check('the work bead is still open, because nothing has landed', world().issues['zz-a'].status !== 'closed');
   check(
-    'and it is parked behind the card, so the advocate does not open a second session on it',
-    (world().issues['zz-a'].dependencies || []).some((d) => d.id === card)
+    'and it is parked behind the merge-bead, so the advocate does not open a second session on it',
+    (world().issues['zz-a'].dependencies || []).some((d) => d.id === queued),
+    JSON.stringify(world().issues['zz-a'].dependencies)
   );
   check(
-    'the card says it is waiting on an approving review',
-    /waiting on an approving review/.test(cardOf(card)),
-    cardOf(card).split('\n')[0]
+    'NO CARD IS FILED HERE — the approval is the queue’s wall to hit, not the worker’s',
+    !Object.values(world().issues).some((i) => (i.labels || []).includes('pr-delivery')),
+    JSON.stringify(Object.entries(world().issues).filter(([, i]) => (i.labels || []).includes('pr-delivery')).map(([k]) => k))
   );
   check(
-    'and never that auto-merge is off, which is a fact about a switch that is on',
-    !/Nothing is merged until you say so/.test(cardOf(card)),
-    cardOf(card).split('\n')[0]
-  );
-  check(
-    'nor that it tried to merge and could not — it never asked',
-    !/tried to merge/.test(cardOf(card)),
-    cardOf(card).split('\n')[0]
-  );
-  check('it still offers the same three answers', /id: merge/.test(cardOf(card)) && /id: changes/.test(cardOf(card)) && /id: decline/.test(cardOf(card)));
-  check(
-    'the bead says which of the two it is waiting on, so the thread is not a mystery either',
-    (world().issues['zz-a'].comments || []).some((c) => /approving review/.test(c)),
-    JSON.stringify(world().issues['zz-a'].comments)
-  );
-  check(
-    'and so does the pull request, where whoever opens the diff is standing',
-    ghCalls().some((c) => c[0] === 'pr' && c[1] === 'comment' && /approving review/.test(c.join(' '))),
-    ghCalls().filter((c) => c[1] === 'comment').map((c) => c.join(' ')).join(' | ')
+    'and the queue entry carries the pull request the approval will be about',
+    /number: \d+/.test(world().issues[queued]?.description || ''),
+    (world().issues[queued]?.description || '').split('\n').slice(-8).join(' | ')
   );
 }
 
@@ -442,24 +458,14 @@ console.log('\nthe same space, with the approval on it\n');
 
   const last = deliver('zz-b');
 
-  check('an approved pull request merges itself, exactly as it would with no policy at all', merged());
-  check('and says so', /^landed #\d+/.test(last), last);
-  check('the bead closes, because the merge is what made it true', world().issues['zz-b'].status === 'closed');
+  // Identical, and that is the point of the scenario now: an approving review changes
+  // nothing about what a *worker* does, because the worker no longer consults it. Two
+  // deliveries that differ only in `reviewDecision` must produce the same handover, or
+  // the policy is being read in two places again.
+  check('an approved pull request queues exactly like an unapproved one', /^queued #\d+ /.test(last), last);
+  check('and still merges nothing here', !merged(), ghCalls().map((c) => c.join(' ')).join(' | '));
+  check('the bead is open — it closes when the queue merges it, not before', world().issues['zz-b'].status !== 'closed');
   check('and no card is filed at all', !Object.values(world().issues).some((i) => (i.labels || []).includes('pr-delivery')));
-}
-
-/* ---------------------------- CHANGES_REQUESTED is not an approval, and says so */
-
-console.log('\nchanges requested is not an approval\n');
-
-{
-  reset('zz-c');
-  setReview('CHANGES_REQUESTED');
-  branchOff('work-c');
-
-  const last = deliver('zz-c');
-  check('a review asking for changes stops the merge as firmly as no review at all', !merged());
-  check('and the card is the same one, because it is the same thing missing', /waiting on an approving review/.test(cardOf(last.split(' ')[0])));
 }
 
 /* ------------------------------- a space that switches auto-merge off on its own */
@@ -479,10 +485,17 @@ console.log('\na space that turns auto-merge off while the global leaves it on\n
   const card = last.split(' ')[0];
 
   check('the space wins over a global that says merge it', !merged());
+  check('and the delivery asks rather than queuing', !/^queued /.test(last), last);
   check(
-    'and the card is the original ask-first sentence, not the approval one',
-    /Nothing is merged until you say so/.test(cardOf(card)) && !/waiting on an approving review/.test(cardOf(card)),
+    'the card is the original ask-first sentence',
+    /Nothing is merged until you say so/.test(cardOf(card)),
     cardOf(card).split('\n')[0]
+  );
+  check('and it offers the same answers it always did', /id: merge/.test(cardOf(card)) && /id: changes/.test(cardOf(card)) && /id: decline/.test(cardOf(card)));
+  check(
+    'no merge-bead was filed beside it — one blocker on the work bead, not two',
+    !Object.values(world().issues).some((i) => (i.labels || []).includes('merge-queue')),
+    JSON.stringify(Object.entries(world().issues).filter(([, i]) => (i.labels || []).includes('merge-queue')).map(([k]) => k))
   );
 }
 
@@ -500,8 +513,8 @@ console.log('\nand a space that turns it on where the global says off\n');
   branchOff('work-e');
 
   const last = deliver('zz-e');
-  check('a space may add as well as subtract — the setup an exclude list cannot express', merged(), last);
-  check('and it lands', /^landed #\d+/.test(last), last);
+  check('a space may add as well as subtract — the setup an exclude list cannot express', /^queued #\d+ /.test(last), last);
+  check('and it goes on the queue rather than into the inbox', !Object.values(world().issues).some((i) => (i.labels || []).includes('pr-delivery')));
 }
 
 /* ----------------------------- the brief and the command reading the same answer */
@@ -532,8 +545,9 @@ console.log('\nthe brief and the command, reading one answer\n');
     (workPromptFor('demo', bead, 1, work, 'Adam').match(/.*approving review.*/) || [])[0]
   );
   check(
-    'and that an unapproved pull request is one of the reasons it will not merge',
-    /nobody has approved it yet/.test(workPromptFor('demo', bead, 1, work, 'Adam'))
+    'and that the wait is not its to chase — since bc-r941 it is the queue that stops there',
+    /not yours to chase/.test(workPromptFor('demo', bead, 1, work, 'Adam')),
+    (workPromptFor('demo', bead, 1, work, 'Adam').match(/.*chase.*/) || [])[0]
   );
   check(
     'a session anywhere else gets exactly the brief it got before, with no mention of approval',
@@ -547,6 +561,34 @@ console.log('\nthe brief and the command, reading one answer\n');
     'a space that switches auto-merge off cannot also be asking for an approval — there is nothing left to gate',
     (await prMode({ ...cfg, spaces: [{ name: 'Work', workspaces: ['demo'], autoMerge: false, requireApproval: true }] }, repo, 'demo'))
       .requireApproval === false
+  );
+
+  /* -------------------------------------------- and what happens after the merge */
+
+  // Per repo rather than per space, which is the level `autoShipPerWorkspace` exists for
+  // — and the point of checking it here is that the brief reads the *same resolver* the
+  // release queue does, so a session is never told its merge ships itself in a repo where
+  // it does not.
+  const ships = await prMode({ ...cfg, autoShipPerWorkspace: { demo: true } }, repo, 'demo');
+  check('the brief knows whether the merge ships itself, per repo', ships.autoShip === true && work.autoShip === false);
+  check(
+    'and says so, so a session does not declare a deploy owed that nobody has to run',
+    /merge ships itself here/.test(workPromptFor('demo', bead, 1, ships, 'Adam')) &&
+      /drop the flag rather than declaring a deploy/.test(workPromptFor('demo', bead, 1, ships, 'Adam'))
+  );
+  check(
+    'a repo that waits for Ship gets exactly the brief it got before',
+    !/ships itself/.test(workPromptFor('demo', bead, 1, work, 'Adam'))
+  );
+  check(
+    'and a repo whose workers do not merge at all is never told its merge ships — there is no merge to ship',
+    (
+      await prMode(
+        { ...cfg, autoShipPerWorkspace: { demo: true }, autoMergePerWorkspace: { demo: false } },
+        repo,
+        'demo'
+      )
+    ).autoShip === false
   );
 }
 

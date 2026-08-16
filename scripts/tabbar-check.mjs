@@ -716,8 +716,8 @@ try {
             // markup before, and a probe that throws takes the whole run with it —
             // every page after this one goes unchecked, which is how a broken bar
             // on /admin could hide behind a stale selector on /.
-            const toggle = document.querySelector('.card [data-act="toggle"]');
-            if (!toggle) return { open: false, why: 'no .card [data-act="toggle"] on the page' };
+            const toggle = document.querySelector('.card[data-act="toggle"]');
+            if (!toggle) return { open: false, why: 'no .card[data-act="toggle"] on the page' };
             toggle.click();
             const open = document.querySelector('.card.open');
             if (!open) return { open: false, why: 'clicking the toggle did not open a card' };

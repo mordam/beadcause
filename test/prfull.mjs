@@ -555,11 +555,8 @@ console.log('\none pull request, full screen\n');
   // unattended session gets wrong when a brief is vague: which way the merge goes, where to
   // stand, that it says so in the lock while it stands there, that the repo's own gate runs
   // afterwards, and that it stops at a push.
-  const brief = conflictPromptFor(
-    'demo',
-    { number: 8, title: 'the conflicting one', repo: 'acme/widgets', branch: 'bead/zz-work', base: 'main', beads: [{ id: 'zz-work' }] },
-    'Adam'
-  );
+  const row = { number: 8, title: 'the conflicting one', repo: 'acme/widgets', branch: 'bead/zz-work', base: 'main', beads: [{ id: 'zz-work' }] };
+  const brief = conflictPromptFor('demo', row, 'Adam');
   check('the brief names the branch and the base', /bead\/zz-work/.test(brief) && /origin\/main/.test(brief), brief.slice(0, 300));
   check('and the bead it carries', /zz-work/.test(brief), brief.slice(0, 300));
   check('it says the branch is what is behind, not main', /branch is what is behind/.test(brief), brief.slice(0, 400));
@@ -618,6 +615,64 @@ console.log('\none pull request, full screen\n');
     brief.slice(-900)
   );
   check('nothing in it merges into the base', !/merge .*into \\?`main/.test(brief.replace(/branch is what is behind[^\n]*\n/, '')), brief);
+  check('a brief nobody asked for a sweep about still names the press', /Adam pressed \*\*Resolve conflicts\*\*/.test(brief), brief.slice(0, 300));
+
+  /* ------------------------------------------------ and the same brief, opened by a sweep */
+
+  // bc-9d37.2. The reason line is the first thing an unattended session reads, and for a
+  // window the sweep opened "Adam pressed **Resolve conflicts**" is simply false — an agent
+  // given a wrong reason for its own existence reasons the rest out to match, and what it
+  // reasons out is that somebody is at the Mac waiting. So the swept variant says what
+  // actually happened, and says it as the mechanism rather than as a fact about a person.
+  const swept = conflictPromptFor('demo', row, 'Adam', { sweptAfter: 204 });
+  check('a swept brief does not claim anybody pressed anything', !/pressed \*\*Resolve conflicts\*\*/.test(swept), swept.slice(0, 400));
+  check('it names the merge that caused the sweep', /#204 merged into\n?\s*`main`/.test(swept), swept.slice(0, 400));
+  check(
+    'and says why that conflicts a branch nobody touched',
+    /measured against a base it has\n?\s*never seen/.test(swept),
+    swept.slice(0, 400)
+  );
+
+  // The point of one parameter rather than a second brief: the two cannot drift. Everything
+  // an unattended resolver is actually told to *do* — the six steps, the lock protocol, the
+  // ending that says to stand down rather than pick a winner — is the same string in both,
+  // and this asserts that by exhaustion rather than by naming the parts twice.
+  const tapParas = brief.split('\n\n');
+  const sweptParas = swept.split('\n\n');
+  const differ = tapParas.map((para, i) => (para === sweptParas[i] ? -1 : i)).filter((i) => i >= 0);
+  check('the two briefs are the same length in paragraphs', tapParas.length === sweptParas.length, `${tapParas.length} vs ${sweptParas.length}`);
+  check('and differ in exactly one of them', differ.length === 1, JSON.stringify(differ));
+  check('which is the reason line, right under the title', differ[0] === 1, `${differ[0]}: ${sweptParas[differ[0]]}`);
+
+  // A sweep that cannot name the merge is still a sweep, and the fallback must not invent a
+  // number for it: `Number(true)` is 1, so the obvious coercion would open a session on
+  // "#1 merged into main" — the same confident falsehood in a different sentence.
+  const anon = conflictPromptFor('demo', row, 'Adam', { sweptAfter: true });
+  check('a sweep with no number to give does not invent one', !/#1 merged/.test(anon), anon.slice(0, 400));
+  check('and still gets the swept reason rather than the press', /A pull request merged into/.test(anon) && !/pressed \*\*Resolve/.test(anon), anon.slice(0, 400));
+
+  /* ------------------------------------ and the third reason: he answered the card */
+
+  // bc-9d37.8. A resolver stopped saying only Adam could pick a winner, the sweep card said
+  // so, and he answered it. The sentence he typed is the decision this window exists to
+  // apply — so it replaces the same paragraph, above the steps, where a session reads the
+  // reason for its own existence before it reads anything else.
+  const told = conflictPromptFor('demo', row, 'Adam', {
+    sweptAfter: 204,
+    instruction: 'take main’s renderRow\nand keep our tests',
+  });
+  check('an answered brief carries his sentence verbatim', /take main’s renderRow/.test(told) && /and keep our tests/.test(told), told.slice(0, 600));
+  // Every line of it, or a blockquote that stops half way reads as the brief resuming in
+  // his voice — which over an instruction is the worst place for that to happen.
+  check('every line of it is quoted', /> take main’s renderRow\n> and keep our tests/.test(told), told.slice(0, 600));
+  check('it says to treat it as the decision rather than a suggestion', /not as a suggestion/.test(told), told.slice(0, 600));
+  check('and it still claims nobody pressed Resolve conflicts', !/pressed \*\*Resolve conflicts\*\*/.test(told), told.slice(0, 400));
+  // What an answer is *not*: permission to skip the gate, or to merge into the base. Those
+  // live in the paragraphs this parameter does not touch, and this is what says so.
+  const toldParas = told.split('\n\n');
+  check('the steps are untouched by it', tapParas.slice(2).every((p) => toldParas.includes(p)), 'an instruction changed more than the reason line');
+  check('including the one that says the base is not yours to merge into', /Nothing here merges into/.test(told));
+  check('and the one that sends it back unmergeable rather than guessed at', /much better outcome than a resolution nobody can check/.test(told));
 }
 
 {

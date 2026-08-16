@@ -134,6 +134,17 @@
        other script, because it can only catch what loads after it — and it is purely
        additive, so a page that fails to load it behaves exactly as it did before. -->
   <script src="/report.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       Before stream.js, which stamps it on every answer. See public/freshness.js. -->
+  <script src="/freshness.js"></script>
+  <!-- The account switcher in the top bar — which of your lives every screen is about,
+       and the menu the page's own top-right buttons live in. Before the page's own
+       script, because it *moves* those buttons rather than copying them: a page that
+       wires one by id afterwards is still wiring the element the thumb lands on. See
+       public/accountbar.js. -->
+  <script src="/accountbar.js"></script>
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
   <!-- What this page already has, from the last time you were on it: the payload it
@@ -149,6 +160,12 @@
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
+  <!-- The app keeping itself in step with what was just deployed: reloads the page when
+       a deploy moved public/, and drives the Android shell's own update when one
+       rebuilt the APK. On every standing view, because the "Update app" button belongs to
+       the app rather than to a screen — and after stream.js, whose events it listens on
+       rather than opening a second parked poll of its own. -->
+  <script src="/update.js"></script>
   <!-- Which repo the launcher lists, and where ＋ starts. Before console.js, which
        registers its repaint on it — and which no longer keeps a repo of its own. -->
   <script src="/spacebar.js"></script>

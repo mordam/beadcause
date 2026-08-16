@@ -33,6 +33,7 @@
  *   - title: Cache-bust site.js
  *     type: task
  *     priority: 2
+ *     complexity: low          # low | medium | high, or leave it off
  *     description: |
  *       No ?v= on the script tag, so a shipped header change looks absent.
  *     acceptance: A deploy changes the URL.
@@ -50,6 +51,7 @@ import { annotateDuplicates, liveCandidates } from '../lib/dupe.js';
 import { parseJson } from '../lib/bd.js';
 import { beadType, park, questionType } from '../lib/park.js';
 import { ownAddresseeLabels } from '../lib/addressee.js';
+import { bylineFor } from '../lib/byline.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -113,8 +115,13 @@ const INTRO = {
   }.`,
 };
 
-const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: cfg.actor };
-const bd = (args) => execFileSync(cfg.bdBin, args, { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+// The byline this machine files under, on the argv as well as in the environment — a
+// workspace `config.yaml` with an `actor:` in it beats `BEADS_ACTOR` and the flag beats
+// both, which is why `Bd.run` has always appended it. See bin/ask.js and lib/byline.js.
+const byline = bylineFor(cfg);
+const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: byline };
+const bd = (args) =>
+  execFileSync(cfg.bdBin, [...args, '--actor', byline], { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 
 /**
  * Is any of this already filed?
