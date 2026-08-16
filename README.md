@@ -9638,7 +9638,9 @@ poll tick ──► bd ready (minus human, minus P4)
 ```
 
 Turn them on by naming repos — the list is empty out of the box, because something
-that opens Claude sessions on your Mac unprompted should never be a surprise:
+that opens Claude sessions on your Mac unprompted should never be a surprise. This is
+the setting; there is [a switch for it on the console](#which-repos-have-one-from-the-console)
+that writes the same list without a restart:
 
 ```json
 "advocates": {
@@ -9649,6 +9651,58 @@ that opens Claude sessions on your Mac unprompted should never be a surprise:
   "perWorkspace": { "sophab": { "maxWorkers": 2 } }
 }
 ```
+
+### Which repos have one, from the console
+
+That list is also a switch on every card in the advocate console, which is where you
+will actually want it: the moment you know a repo should have an advocate is the moment
+you are looking at what it is not doing, on a phone, and the alternative used to be
+`~/.config/beadcause/config.json` on the Mac followed by a restart — because
+`bin/beadcause.js` reads the list once, at boot. Giving climative one took a `node`
+script plus `npm run swap`, and nothing on the console said the setting existed.
+
+A repo with no advocate has always been drawn as a plain card saying `no advocate`, and
+that card now carries **Turn on**; an advocate's own card carries **Turn off**, last in
+the row of controls. Both write `advocates.workspaces` *and* reconcile the running
+daemon, so the advocate starts ticking on the next poll and is still there after a
+`launchctl kickstart` — the two halves that can each be wrong on their own.
+
+**Turning one off drains it rather than killing it.** An advocate is the only record of
+the iTerm windows it opened: which bead each is on, when to ask it to check in, when its
+bead has closed and the window may be signalled. So the setting goes off immediately —
+nothing new is launched, and it stops surveying the queue at all — while the sessions it
+already opened keep being reaped, archived and asked about by the advocate that opened
+them. Its card says `switched off · 2 sessions still finishing`, and the card goes on the
+first tick that finds nothing left. Turning it back on mid-drain takes the drain off and
+hands it back the sessions it never let go of.
+
+The drain is a *live* state and is deliberately not written down: `advocates.json` would
+then hold a second copy of "this repo has no advocate" that can disagree with the config,
+and a daemon restarted mid-drain would resurrect an advocate for a repo the config says is
+off. So a restart mid-drain leaves those windows exactly where a repo with no advocate
+leaves them — running, and nobody's to reap, since [the finished-window sweep](#the-windows-nobody-is-holding)
+runs per advocate over its own repo. That is the same bargain the switch makes anyway; it
+is only worth knowing that the restart brings it forward.
+
+**Where the switch would be a lie, there is a sentence instead.** Three settings can make
+a repo un-switchable, and none of them is visible from the console, so the daemon says
+which it is and the button is not drawn at all:
+
+| What is set | What the card says instead |
+|---|---|
+| `advocates.enabled: false` | every advocate is off, whatever the list says |
+| `advocates.workspaces: "*"` | every configured repo already has one, and there is no list to take this out of |
+| a space's `advocate: false` | that space vetoes every workspace in it — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
+
+The `"*"` case is the one worth an argument. Expanding the star into a frozen list would
+make one Off button work and silently stop every repo added afterwards from getting an
+advocate, which is precisely the thing the star was chosen to say. The space veto is the
+same judgement in the other direction: it is a setting on a *group*, deliberately above
+the per-repo switch, so a repo written into the list under one still gets nothing.
+
+An observer instance refuses both, with a 403 — its `cfg` is the live daemon's config
+file, so a press there would hand the *other* process a repo to open windows on, which
+is the one kind of press an instance that never acts must not make.
 
 ### It has no clock
 
@@ -16567,7 +16621,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/foundation/decline` | `{id, workspace?, bead?, request, reason}` | records a refusal against that agent, so `git log refs/beadcause/foundations` carries the no as well as the yes |
 | GET | `/api/foundation/log` | `?id=&ws=&bead=` | `{key, log}` — that agent's transcript. `{key: null}` and a sentence when the kind keeps no log file |
 | GET | `/api/flowchart` | `?workspace=` | `{title, kinds[], flows[], agents[], counts, effective, workspace}` — [the map](#the-map--which-steps-are-code-and-which-are-an-agent): every step of every flow, each one `code` · `agent` · `human` · `device` · `external` · `store`, with its detail and the files it happens in, plus each flow's mermaid source. `agents[]` is read out of lib/foundation.js with this Mac's approved amendments applied, which `effective: true` is saying. **Reads no tracker**, so it answers on a Mac whose `bd` is broken |
-| POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) · `limit`/`globalLimit` (a number in `value`) · **`epicPause`/`epicResume`** (a **bead id** in `value`, not a number — [pausing one epic](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo)): writes the `advocate-paused` label, holds the whole subtree out of the queue, and messages every window under the epic to ask for a debrief before it exits. Both blocked under `OBSERVING`, unlike `pause`/`resume` above them — those are a local decision about a loop that is not running here anyway, and these two write to the shared tracker and type into windows this instance did not open |
+| POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) · `limit`/`globalLimit` (a number in `value`) · `enable`/`disable` (whether this repo has an advocate at all) · **`epicPause`/`epicResume`** (a **bead id** in `value`, not a number — [pausing one epic](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo)): writes the `advocate-paused` label, holds the whole subtree out of the queue, and messages every window under the epic to ask for a debrief before it exits. Both blocked under `OBSERVING`, as `enable`/`disable` is, and unlike `pause`/`resume` — those are a local decision about a loop that is not running here anyway, and these two write to the shared tracker and type into windows this instance did not open |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json`, `memory.md` or `transcript.jsonl` |
@@ -17384,7 +17438,7 @@ to be one.
 | `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 15 min — the suite takes about five on a runner). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
-| `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
+| `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one. Also [a switch on the console](#which-repos-have-one-from-the-console), which writes this list and reconciles the running daemon — but not while it is `"*"`, which has no list to take a repo out of |
 | `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |
 | `advocates.maxWorkersLimit` | the ceiling that clamps it (default 3). A larger `maxWorkers` is clamped **and logged**, never silently applied |
 | `advocates.globalMaxWorkers` | across every advocate (default 20, hard ceiling 36), so six repos can't open eighteen windows. A stepper at the top of the advocates console, so this one needs no restart; a stored 10 from an older install is moved to 20 once |
