@@ -511,6 +511,45 @@ body {
 }
 
 /*
+  "What you are looking at is out of date" — public/freshness.js.
+
+  Directly under the top bar and above everything else, because the one thing it has to
+  beat is the list it is warning you about. Amber rather than red: the screen is behind,
+  which is a thing to know, not a thing that has gone wrong — red is what a refusal and a
+  conflict already use, and a page that cries in the same colour for a slow tailnet is a
+  page whose red stops meaning anything.
+
+  It is *sticky under a sticky bar*, which needs the bar's own height to sit against: the
+  bar is `position: sticky; top: 0` at z-index 20, so this pins below it at a lower layer
+  and never over it. On a page whose bar wraps to two rows the two simply stack, which is
+  why `top` is not a number here — `position: sticky` with no `top` at all would scroll
+  away, and a warning that scrolls away is one you can be halfway down a list without.
+*/
+.stale {
+  position: sticky;
+  top: 0;
+  z-index: 19;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--warn) 16%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  color: var(--text);
+  font-size: 13px; line-height: 1.35;
+}
+.stale[hidden] { display: none; }
+.stale-what { flex: 1 1 auto; min-width: 0; }
+/* A real target, because it is pressed in exactly the situation where a thumb is already
+   irritated — and it is the one control that puts the screen right. */
+.stale-retry {
+  flex: 0 0 auto;
+  min-height: 34px; padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: 10px;
+  background: var(--surface); color: var(--text);
+  font: 650 13px/1 inherit; cursor: pointer;
+}
+
+/*
   The account switcher — the address at the right-hand end of the bar, and the menu the
   page's own top-right buttons now live in. See public/accountbar.js.
 
@@ -1013,6 +1052,22 @@ body {
   edges, and you are looking at the draft, not for it.
 */
 .card.has-draft:not(.open) { box-shadow: inset 3px 0 0 var(--warn); }
+/*
+  And the same edge in the bad colour, for a card whose write did not go through.
+
+  The convention above is the reason this is three pixels of inset shadow rather than
+  anything new: one shape down the left edge means "this row is not finished with",
+  and a second shape for a second flavour of that would make the first one stop
+  reading as a category. What differs is only the colour, which is the whole of the
+  difference in meaning — --warn is you not having finished, --danger is the tracker
+  not having taken it.
+
+  After the draft rule and at identical specificity, so a card that is both — which is
+  the ordinary case, since a refused write hands the draft back with it — shows red.
+  A failure outranks an unfinished sentence: one of them needs a decision from you and
+  the other only needs your thumb.
+*/
+.card.has-failed:not(.open) { box-shadow: inset 3px 0 0 var(--danger); }
 
 .card-head { padding: 14px 15px 0; }
 
@@ -1782,6 +1837,32 @@ body {
 .gate-note p { margin: 0 0 8px; color: var(--muted); }
 .gate-blockers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
 .gate-note .row { display: flex; gap: 8px; }
+
+/*
+  The write itself did not land — deliberately the same shape as the gate note above,
+  in the one colour this app otherwise keeps off a card.
+
+  Red rather than amber, and that inversion is the point of having two. The gate note
+  is the tracker declining on purpose: nothing failed, something is incomplete, and
+  red there would read as the answer having been lost, which is the one conclusion it
+  exists to prevent. This is the opposite case — the request genuinely did not go
+  through — and amber here would file a broken write under "waiting on you".
+
+  Same border/tint/radius arithmetic as .gate-note rather than its own, so the two
+  read as one family seen twice. Only the token changes.
+*/
+.failed-note {
+  padding: 11px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  font-size: 13.5px;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.failed-note strong { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 4px; }
+.failed-note p { margin: 0 0 8px; color: var(--muted); }
+.failed-note .row { display: flex; gap: 8px; }
 
 /*
   The same fact, said before you type instead of after you press — so it is drawn
@@ -5730,6 +5811,15 @@ a.pill { text-decoration: none; }
   letter-spacing: 0; font-size: 11.5px; font-weight: 600;
   color: var(--muted);
 }
+/* The status filter over every tree on the board (bc-rfnr.9.6) — `p0StatusHtml`.
+
+   Drawn as the segmented switch the inbox's scope row is, because it is the same kind of
+   control: one of three, never none, and it changes what every list below it contains.
+   `.chip-row.scopes` above does the banding, including the `nowrap` that keeps the switch
+   one object rather than three chips with the last on a line of its own. What is left
+   here is where it sits: hard against the cards it filters and away from the heading
+   above, so it reads as belonging to the board rather than to the section label. */
+.p0-status { flex-wrap: nowrap; margin: 0 0 2px; }
 /* A card, not a row: these are the four or five things the week is about and they are
    worth the vertical space the rest of the list is rationed out of. Bordered on the
    leading edge in the warn colour the P0 pill already uses, so the section reads as
@@ -5823,10 +5913,20 @@ a.pill { text-decoration: none; }
   background: color-mix(in srgb, var(--warn) 20%, transparent);
   color: var(--warn);
 }
-/* Closed work stays on the board — it is what an epic has *done*, and a tree that hid it
-   would read as smaller than it is — but it recedes. bc-rfnr.9.6 gives it a filter. */
+/* Closed work recedes where it is drawn — it is what an epic has *done*, so it stays
+   legible rather than being deleted from the tree. Whether it is drawn at all is the
+   board's status filter since bc-rfnr.9.6, and the default is not to: an epic reading as
+   twice the size it is was the complaint, and this rule is what the other two options
+   look like. */
 .p0-row.done { opacity: 0.55; }
 .p0-row.done .p0-row-title { text-decoration: line-through; }
+/* A row the filter excluded, kept because something under it was included (`p0Visible`).
+   It is scaffolding rather than an answer, and it has to *look* it — otherwise a `Closed`
+   filter draws open beads with nothing saying why, which reads as the filter not working.
+   A dashed leading edge rather than more transparency: `.done` already owns dimming, and
+   a closed row that is also context would fade to unreadable if the two stacked. */
+.p0-row.via { border-left-style: dashed; }
+.p0-row.via .p0-row-id, .p0-row.via .p0-row-title { opacity: 0.65; }
 /* A P0 with nothing under it. Said in a sentence rather than left as a gap, because an
    empty expansion is indistinguishable from one that failed to arrive. */
 .p0-none {

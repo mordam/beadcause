@@ -39,6 +39,11 @@
   </main>
 
   <script src="/report.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       Before stream.js, which stamps it on every answer. See public/freshness.js. -->
+  <script src="/freshness.js"></script>
   <script src="/tabbar.js"></script>
   <script src="/requirements.js"></script>
 </body>
