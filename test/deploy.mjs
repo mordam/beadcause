@@ -493,6 +493,13 @@ await check('a kickstart of a label whose plist is nowhere is refused, not run',
   assert.match(rec.error, /refusing to restart/);
   assert.ok(rec.error.includes(label), `the refusal never named the label: ${rec.error}`);
   assert.equal(rec.launchAgent?.code, 'not-installed');
+  // The record is the only thing the deploy strip and the ntfy push ever see, so the
+  // verdict has to arrive on it as fields and not just as prose inside `error`. Which
+  // fields, and what they must not lie about, is test/launchagentcard.mjs; that they
+  // survive the runner's write at all is this.
+  assert.equal(rec.launchAgent.label, label);
+  assert.ok(rec.launchAgent.plist?.endsWith(`${label}.plist`), `no plist path on the record: ${rec.launchAgent.plist}`);
+  assert.ok(rec.launchAgent.fix, 'the record says what went wrong and not what to do about it');
   assert.equal(fs.existsSync(kickstarted), false, 'it kickstarted the label anyway');
   assert.equal(rec.steps.some((s) => s.name === 'deploy'), false);
   assert.equal(fs.existsSync(rebuilt), true, 'the check ran before the rebuilds, so an installer step could never fix anything');

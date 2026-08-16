@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · the map</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="pulse"></span>
+      <h1>The map</h1>
+      <!-- No space picker and no `⦿ observing` chip, for history.html's reason and one
+           more of its own: this page is about the *shape* of the system rather than
+           about anything in any workspace, so there is nothing here a picker could
+           narrow and no button that could reach the wrong Mac. It reads one endpoint,
+           and that endpoint reads no tracker. -->
+    </div>
+  </header>
+
+  <main class="work">
+    <!-- Everything, drawn by flow.js. The empty state says what is being waited for,
+         because the payload includes the effective foundations and so costs a read of
+         refs/beadcause/foundations — which on a cold checkout is not instant. -->
+    <div id="flow">
+      <div class="empty">Reading what each agent is…</div>
+    </div>
+  </main>
+
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead. Ahead of every
+       other script, because it can only catch what loads after it. -->
+  <script src="/report.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       See public/freshness.js. -->
+  <script src="/freshness.js"></script>
+  <!-- The diagrams. The same vendored copy public/app.js loads on demand to draw the
+       mermaid an agent puts inside a bead body — and, like it, deliberately *not* in the
+       service worker's SHELL: 3.5MB of precache is a real cost on a phone, and this page
+       is one you read when you are new to the system or arguing about it, not one you
+       open because something needs stopping now. If it is missing — a slow link, a
+       checkout with no `npm install` — flow.js leaves the mermaid source in a <pre>,
+       which is the diagram in text and perfectly readable. -->
+  <script src="/vendor/mermaid.js"></script>
+  <script src="/tabbar.js"></script>
+  <script src="/flow.js"></script>
+</body>
+</html>
