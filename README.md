@@ -3436,6 +3436,102 @@ all: `allowedTools` is `null` there, so the moment the script existed they could
 it. And `.claude/shots/` is gitignored, because every PNG is a picture of real
 beads.
 
+## The map — which steps are code, and which are an agent
+
+Everything above describes one feature at a time, in the order they were built. What that
+leaves unanswerable at a glance is the question anybody meeting this system asks first,
+and the one you need to be able to answer before you can trust it with a Mac overnight:
+**where does the code stop and an agent start?**
+
+It is not a rhetorical distinction. A `bd ready` filter and an unattended `claude -p` sit
+two lines apart in lib/advocate.js and read almost the same in prose. One is a decision
+this repo makes deterministically, can be tested, and can be reviewed in a diff; the
+other is a decision handed to a model with a tool allowlist and a timeout. The advocate
+flow is the case in point — the eleven-filter narrowing chain is *entirely* procedural,
+and an agent is spawned only at its two ends.
+
+    node scripts/flowchart.mjs            # write docs/flowchart.html and say where
+    node scripts/flowchart.mjs --list     # the flows, the agents and the counts, in the terminal
+    node scripts/flowchart.mjs --check    # is the map still true of the tree?
+    open /flow                            # the same map on the phone, live
+
+Eleven flows, a hundred and twenty-odd steps, and every step is one of six kinds:
+
+| | | |
+|---|---|---|
+| **procedural** | a function in this repo | same input, same output — reviewable in a diff |
+| **agentic** | a Claude Code process with a foundation | what it does next is not decided here |
+| **you** | a tap or a keystroke | the decisions nothing may make for you |
+| **on the phone** | the PWA, the Android shell, the service worker | code, but not on this Mac |
+| **off this Mac** | GitHub, JIRA, Confluence, ntfy, Slack, another laptop | can be slow, absent or wrong |
+| **state** | the tracker, a git ref, a file under `~/.config/beadcause` | where a restart is survived |
+
+Each kind has a shape as well as a colour, because a boundary you can only see on a good
+screen is not one.
+
+**One diagram, one card.** Tap a shape and it fills the detail card — beside the drawing
+on a laptop, directly under it on a phone — with what that step actually does and the
+modules it happens in. The first version listed all sixteen steps as cards below the
+diagram, which is two documents about one subject and made the drawing a picture you
+scroll past. Under the diagram there is now an index of numbered chips instead: how you
+reach a step you cannot find in the drawing, small enough not to compete with it.
+
+Selection is shown in four ways at once, and that is not decoration — the whole gesture is
+tapping a small shape in a chart that scrolls. Everything else dims, the chosen shape takes
+the accent as its outline and a halo, it flashes once, and its chip and card say so too. On
+a phone the card is below the fold of the diagram, so the shape is often the only part of
+the answer you can see.
+
+### The agent halves are read, never written down
+
+The five agent kinds on that page — what each may run, whether it may write to the
+tracker, its timeout, its model, and the whole of its role prompt — come out of
+lib/foundation.js at render time. Nothing about an agent is restated in the model, and
+that is the point rather than an economy: a diagram carrying its own copy of an
+allowlist would be a second definition of an agent, which is exactly what
+[lib/foundation.js exists to prevent](#what-an-agent-is--and-how-it-asks-to-be-different).
+
+Which is also the one difference between the two places you can read this. `/flow` in the
+app hands the renderer the **effective** foundations — the baselines with every amendment
+you have approved on this Mac applied, and it says which fields moved. `docs/flowchart.html`
+draws the **baselines**, because a file rendered from one Mac's approved amendments is not
+a document about this repo.
+
+That file is **generated and gitignored**, not committed. It takes a second to write and
+it would otherwise change whenever any agent's foundation did, putting a
+regenerate-and-resolve on every branch that touched lib/foundation.js for its own
+reasons — and a checked-in copy has no way to say it has gone stale. `docs/architecture.html`
+is the cautionary case: it is hand-written, it is good, and it still describes four agent
+kinds.
+
+### What stops it going stale, and what does not
+
+A hand-written map goes stale; the only question is whether it says so. Every step names
+the modules it happens in, and `node test/flowchart.mjs` — in `npm test` — asserts they
+are still in the tree, that every edge lands on a node, that no node is orphaned, and
+that every agent kind in `BASELINES` is drawn somewhere. A sixth kind added the way the
+fifth was fails the suite rather than being quietly left out of the picture.
+
+What none of that catches is a step that moved *inside* a file it still names, and it is
+worth saying out loud rather than implying otherwise. Nothing short of writing the code
+twice would catch it, and the second copy is always the one that rots. The map is a
+judgement with a machine-checked index: the judgement is the part a person has to keep,
+and the index is what stops the judgement's *references* going quietly wrong.
+
+`node scripts/flow-check.mjs` is the browser half — that mermaid actually drew rather than
+leaving its source in a `<pre>`, that a tap lands on the right card, and that the diagram
+follows the colour scheme rather than being frozen light. That last one is why the model
+emits a bare `class` per node and no `classDef`: mermaid writes a `classDef` out as an
+inline `style`, which beats a stylesheet, and the failure only shows up on a phone in the
+dark. Like every other `*-check.mjs` it needs a headless Chrome, so it is not in
+`npm test`.
+
+**It is not a tab, and `/flow` is not on the bottom bar.** By [that bar's own
+rule](#getting-around--the-tab-bar) a tab is a claim that a page is somewhere you go
+repeatedly, and this is a page you read when you are new to the system or arguing about
+it — not one you check. `/map` is the same page, because both are what somebody types.
+
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.
@@ -8245,9 +8341,29 @@ than before them. It is the right shape for the repo that wants it and the wrong
 for everyone: rewriting a LaunchAgent from inside an unattended deploy at three in the
 morning is a big hammer for a failure a sentence names perfectly well.
 
+**The refusal above is also four fields, and that is what you actually read it as.** The
+paragraph is the log's shape; a phone's is a list. So the verdict lands on the deploy
+record as `launchAgent`, carrying `label`, `program`, `plist`, `fix` and `fixCommand`
+beside the prose, and both readers take the fields:
+
+- On the deploy strip the unfolded row draws them as a bordered block — the label, the
+  program launchd would have restarted, the plist that says so, and the command in
+  `<code>` under a heading that says **Fix** — with the reasoning as a quiet line under
+  it and the `error` paragraph not repeated beside them.
+- The ntfy push sends three short lines: `refused: <label> is stale`, `launchd would
+  restart <program>`, `fix: <command>`. It used to send `error.slice(0, 300)`, and since
+  the message leads with the refusal and *ends* with the command, the truncation ate the
+  fix — a push telling you a deploy was refused and unable to say what to type.
+
+`fixCommand` is null wherever there is no honest one: how a label this repo did not
+install gets reinstalled is not ours to know, so those verdicts carry the action as a
+phrase and offer no command to stand behind.
+
 `node test/launchagent.mjs` covers the verdicts against plists it writes in a temp home,
 so it never reads the real `~/Library/LaunchAgents`; `node test/deploy.mjs` covers the
-runner acting on one — the command never runs, the rebuild before it did.
+runner acting on one — the command never runs, the rebuild before it did;
+`node test/launchagentcard.mjs` covers the fields reaching the record, the push and the
+screen, including the arithmetic that the old 300-character slice cut the fix off.
 
 #### A deploy is a fact about a repo, and a workspace may be forty of them
 
@@ -14763,6 +14879,29 @@ and may only *write* if that is still the current one. It still finishes, and st
 whoever was waiting on it — a ⟳ that raced a drop asked a real question and gets a real
 answer; what it may not do is become the value the next reader sees.
 
+## Wireframes you can move — `design/`
+
+There has never been a way to re-lay-out a screen here except by editing `style.css`
+and looking at what happened. `design/inbox.excalidraw` is the inbox — the list, and a
+card open — as boxes you can drag at <https://excalidraw.com>, save back over the same
+file, and hand to a session as `git diff design/`.
+
+Excalidraw and not Figma, and the reason is the round trip rather than the drawing.
+Figma can be imported *into*: `html.to.design` will pull a live URL in as real layers
+and it starts from a prettier picture than this does. What it cannot do is give the
+file back — Figma's REST API is read-only for document content, so nothing an agent
+writes becomes a `.fig`, and reading hand-edits out means walking node geometry and
+re-deriving what somebody meant. That is a re-implementation, not a diff. An
+`.excalidraw` is JSON in the repo: some fidelity given up for a loop that closes.
+
+`design/wireframe.mjs` seeds a screen from the real numbers off `public/style.css` —
+the topbar's 10/16/10, `--tabbar-h`, `--radius`, `.card-head`'s 14/15/0, the 12px list
+gap, the 52px compose — because a wireframe that lies about spacing gets believed.
+**It seeds once.** `--write` over a screen somebody has edited destroys exactly what
+the directory exists to collect; `--check` is the safe verb and never exits non-zero,
+because drift is the point. Nothing in `npm test` gates on it. Full loop, and the two
+details that are load-bearing — bound labels, derived seeds — in `design/README.md`.
+
 ## The monitor — what it is doing right now
 
 The daemon works invisibly: polling five workspaces, deciding whether a space is
@@ -16356,6 +16495,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/foundation/amend` | `{id, workspace?, set, bead?, justification}` | edits one agent's foundation, recorded exactly like an amendment the agent asked for — same history, same justification. `400` naming the field if `set` carries a protected one, rather than dropping it silently |
 | POST | `/api/foundation/decline` | `{id, workspace?, bead?, request, reason}` | records a refusal against that agent, so `git log refs/beadcause/foundations` carries the no as well as the yes |
 | GET | `/api/foundation/log` | `?id=&ws=&bead=` | `{key, log}` — that agent's transcript. `{key: null}` and a sentence when the kind keeps no log file |
+| GET | `/api/flowchart` | `?workspace=` | `{title, kinds[], flows[], agents[], counts, effective, workspace}` — [the map](#the-map--which-steps-are-code-and-which-are-an-agent): every step of every flow, each one `code` · `agent` · `human` · `device` · `external` · `store`, with its detail and the files it happens in, plus each flow's mermaid source. `agents[]` is read out of lib/foundation.js with this Mac's approved amendments applied, which `effective: true` is saying. **Reads no tracker**, so it answers on a Mac whose `bd` is broken |
 | POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
