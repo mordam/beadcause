@@ -10272,6 +10272,87 @@ screen full" — and never while observing. `closeFinishedSessions: false` switc
 along with everything else in this section: an off switch that only delayed the signal by
 twenty minutes would not be one.
 
+##### Parking — a window waiting on you closes, and your answer brings it back
+
+Both sweeps above close a window that **finished**. Neither can touch the one there are
+thirteen of: a window that **stopped**. A resolver that pushed its rebase, a MergeAdvocate
+waiting on a review, a P0 advocate that wrote its waiting-on sentence and had nothing left
+to say — each has an open bead and a name that says nothing about being finished, so both
+sweeps look straight past them, correctly, and they sit there until somebody opens them one
+at a time. That was the state of this Mac on 2026-08-16: fifteen live Claude sessions,
+thirteen idle, none of them on any advocate's slot list.
+
+They were left open for a good reason. Closing a window destroys the only copy of what that
+agent worked out, and an hour of context is worth more than a rectangle — which is why the
+sweeps above only ever close windows whose work is provably *elsewhere*, in a closed bead or
+a merged pull request.
+
+**`claude --resume <id>` is what removes that reason.** The id is minted by the launcher
+before the window exists (`--session-id` on the first turn, the same trick the chat session
+and the in-app terminals have always used), so a window whose id has been written down is
+not destroyed when it closes. It is **parked**: the conversation, the directory it ran in,
+and one sentence about what it is waiting for, in `state.json`. When the thing it was
+waiting on arrives, the advocate opens that conversation again instead of briefing a
+stranger.
+
+So the order is the whole safety property, and it is asserted in `test/parked.mjs`: **write
+the record, verify it reached the disk, then close the window.** Never the close without the
+record — one `saveAppState` per park rather than one batched write at the end of the sweep,
+because a batch means the first nine windows are signalled on the strength of a record that
+only lands after the tenth. A failed write is a window left open, which is exactly the state
+that existed before any of this.
+
+| before a window is parked | why |
+|---|---|
+| this daemon **opened** it, and said so at the time | the register in `state.json` is keyed by **session id**, written by `launch` itself. Every earlier attempt to match a window to what opened it matched on the *name*, and a name is something the session writes about itself and can change; the id is chosen by the launcher and reported straight back off Claude Code's own live-session record, so the join is exact. A window you opened yourself is not in the register and cannot be reached |
+| it is not **busy** | the guard that is not about time at all. A window mid-turn is never closed, whatever else is true |
+| it has been **idle** for `parkIdleMinutes` (default 10) | minutes, not the 90 seconds a finished worker gets, because here the ending is *inferred from silence* rather than proved by a closed bead. Ten and not sixty: an hour's grace means the screen is full for an hour before anything helps, which is the state of affairs already |
+| its conversation is **written down** | an id that is really an id, and the directory it ran in. `--resume <id>` finds the conversation from anywhere — measured on Claude Code 2.1.x — so the directory is not what locates it; it is what supplies everything the transcript cannot, which is the branch, the uncommitted edits and the files every path in that agent's context points at. Resuming in the wrong tree gives an agent a perfect memory of files that are not there, and it will act on it |
+
+Two windows are exempt by their own door rather than by a guard: **Open a session** and a
+**handoff**. Both mean *open me a window to work in*, and a window somebody is sitting in is
+not a window waiting on somebody.
+
+A worker that reaches one of its documented endings is parked by `finish` instead, which
+knows which ending it was and can say so: **handed back** — it asked a question, and
+answering the bead brings the session back — or **delivered** — a pull request is waiting on
+a tap, and the merge does. The other five endings park nothing, and the test is not "did
+this window stop" but *does a conversation with this agent still have somewhere to go*: a
+closed bead has nothing to answer, a stood-down window belongs to another Mac, and a session
+that timed out or went silent is not one to hand an answer to.
+
+**The resume happens at the dispatch seam, not at `/api/respond`.** Opening the window from
+the answer handler is tempting — the answer is right there — and it is wrong twice. Every
+gate that decides whether a window may open lives on the advocate's tick: attempts, claims,
+cross-machine leases, the endorsement door, quiet hours, the worker limit, `OBSERVING`. A
+launch from the answer handler is a launch past all of them, and the first time two Macs
+answered one question there would be two windows on one bead. And the answer does not only
+arrive from the phone: it arrives from Slack, from the laptop, from `bd` on the command line,
+and from a bead somebody unblocked by hand. The tracker is the one place all of those meet.
+
+So the flow is the flow that already existed, with one lookup added — the answer unblocks the
+bead, the bead goes ready, the advocate surveys it, and at the moment it would open a window
+it asks *is there a conversation parked on this bead?* What that conversation wakes up to is
+deliberately short: who answered, what they said, and that time has passed so `main` may have
+moved. Not the brief — it already has the brief, and handing it a second copy is a strong
+signal to start over, re-read the files, re-derive the conclusion and ask the same question
+again.
+
+A **retired worktree comes back out of the attic** to be resumed in, with `git worktree
+move` and never a rename. That is the ordinary life of a parked window — deliver, park, the
+branch merges, the worktree retires, and only then do you answer — and the attic exists
+precisely so a retired tree stays resumable for two days. Where the tree is genuinely gone,
+or no transcript survives, the dispatch opens a **fresh** session and says so in the log: a
+fresh session that reads as a resume is the one outcome worth guarding against, because it
+looks identical on the console and the agent has no idea it was supposed to know anything.
+
+Parked conversations are drawn on the advocate's card under **Parked — waiting on you**,
+above *Up next*, because everything below that line happens on its own and this is the only
+section blocked on you. Each row says what it was, what it is waiting for, and how many
+times it has already been round the loop. There is deliberately no *resume now* button: the
+resume is not something you do to a conversation, it is what happens when the thing it is
+waiting on arrives, and a button there would be a second door into a launch.
+
 #### Reclaiming a slot, by asking
 
 The inference above is what the daemon can work out on its own. **Reclaim sessions** is
@@ -17481,6 +17562,8 @@ to be one.
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
 | `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `QUEUED-`/`DONE-`, only a closed bead; `false` leaves your own windows where you put them |
 | `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
+| `advocates.parkIdleWindows` | [park a window this daemon opened once it goes quiet](#parking--a-window-waiting-on-you-closes-and-your-answer-brings-it-back) — write its conversation down by session id, then close it, so an answer resumes the same agent rather than briefing a new one (default `true`). This is the one sweep that closes a window whose work is not provably anywhere else, so it has its own switch; `false` leaves them open and the resume never happens. `closeFinishedSessions: false` switches it off too |
+| `advocates.parkIdleMinutes` | how long quiet is long enough (default 10). Minutes rather than the 90 seconds a *finished* worker gets, because here the ending is inferred from silence rather than proved by a closed bead |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
