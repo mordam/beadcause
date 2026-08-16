@@ -2752,12 +2752,22 @@
         // writes `label.textContent`: a badge nested in there would survive until
         // the first tap and then silently vanish.
         const picked = chosen?.id === o.id;
-        return `<button class="option${o.recommended ? ' rec' : ''}${
-          picked ? ' picked' : ''
+        // Armed here as well as in paintArmed(), for the arm's own reason: the poll
+        // rebuilds this list every 25 seconds, and a card redrawn under a hot button
+        // would come back saying "Yes, close it" over a tap that answers.
+        //
+        // Never on an open card, whatever the arm says. Only the shut card's tap
+        // sends, so a hot button on an open one would be promising an answer that the
+        // next tap is going to spend on filling the box — and a card can be opened
+        // out from under a live arm by something that is not this handler (a
+        // notification, a deep link, the P0 fold).
+        const armed = !open && state.armed === `${q.key}|opt-${o.id}`;
+        return `<button class="option${o.recommended ? ' rec' : ''}${picked ? ' picked' : ''}${
+          armed ? ' confirm' : ''
         }" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(o.id)}" data-label="${esc(
           o.label
         )}" aria-pressed="${picked}">
-          <span class="label">${esc(o.label)}</span>
+          <span class="label">${esc(optionLabel(q, o, armed))}</span>
           ${o.recommended ? '<span class="rec-tag">★ recommended</span>' : ''}
           ${
             // Worth saying before the tap rather than only in the toast after it:
@@ -2768,6 +2778,32 @@
         </button>`;
       })
       .join('');
+
+    /**
+     * The third button, and the only one of them that is not a choice: it opens the card.
+     *
+     * Shut, an option *is* the answer now — arm, tap again, gone (see the `option`
+     * handler). That is the point of the change, and it takes away the only way the
+     * old shape had of saying "this one, but…", because qualifying a choice means
+     * typing in the box, the box lives on the open card, and opening the card was
+     * what the tap used to do. So the way in is its own control, standing under the
+     * choices it is the alternative to, and inside the open card an option tap fills
+     * the box exactly as it always has.
+     *
+     * Drawn only while shut, and only where there are choices for it to be an
+     * alternative to: on an open card you are already in the discussion, and a
+     * button offering to take you there would do nothing. It carries `data-discuss`
+     * rather than a reserved option id, so it can never be confused with a choice
+     * the agent wrote — the handler branches on the attribute before it looks
+     * anything up, and nothing it does reaches /api/respond.
+     */
+    const discuss =
+      options && !open
+        ? `<button class="option discuss" data-act="option" data-discuss="1" data-key="${esc(q.key)}">
+          <span class="label">💬 Discuss</span>
+          <span class="hint">Open it, read the brief, answer in your own words</span>
+        </button>`
+        : '';
 
     const brief = open ? briefHtml(q) : '';
     const draft = getDraft(q.key);
@@ -2813,7 +2849,7 @@
       ${answeredBeforeHtml(q)}
       ${proposalHtml(q)}
       ${deliveryHtml(q)}
-      ${options ? `<div class="options">${options}</div>` : ''}
+      ${options ? `<div class="options">${options}${discuss}</div>` : ''}
       ${
         // The foot is down to one thing, and it is a body of content rather than a
         // control: the details toggle is in the top bar and the log is the only
@@ -2917,9 +2953,10 @@
    * the moment the box holds a **commission** — an option the agent marked
    * `closes: false`, which puts the answer on the thread, takes the `human` label
    * off and hands the bead back as work rather than finishing it (lib/decision.js).
-   * That used to be a property of the button you pressed; now that the buttons only
-   * fill the box, the last thing between the pick and the write is this label, so
-   * this is the only place left that can say it.
+   * That used to be a property of the button you pressed; on an open card the
+   * buttons only fill the box, so the last thing between the pick and the write is
+   * this label and this is the only place left that can say it. (Shut, the button
+   * *is* the write again — optionLabel below is where the same sentence gets said.)
    *
    * Plain text, not HTML — it goes through `esc()` when the card is drawn and
    * through `textContent` when paintPicked() repaints it.
@@ -2927,6 +2964,23 @@
   function answerLabel(chosen) {
     return chosen?.closes === false ? 'Answer & commission' : 'Answer & close';
   }
+
+  /**
+   * What one option button says, armed and unarmed.
+   *
+   * Unarmed it is the agent's own words and nothing else — the choice, as written on
+   * the bead. Armed, it stops describing the choice and describes the tap, because on
+   * a shut card that tap sends: it names the bead, so a button hot in a list of eight
+   * says which one of them is about to be answered, and it distinguishes the two
+   * endings for answerLabel's reason — an option marked `closes: false` hands the
+   * bead back as work instead of finishing it, and that is not a difference to find
+   * out about from the toast afterwards.
+   *
+   * Plain text like answerLabel, and for the same two consumers: `esc()` at render,
+   * `textContent` in paintArmed() and paintPicked().
+   */
+  const optionLabel = (q, o, armed) =>
+    !armed ? o.label : o.closes === false ? `Tap again — commissions ${q.id}` : `Tap again — answers ${q.id}`;
 
   /**
    * Why this card has no *Answer & close* — said before you type, not after.
@@ -3507,11 +3561,23 @@
     if (!q || !buttons.length) return;
     const chosen = pickedOption(q);
     for (const btn of buttons) {
+      // The third button is not a choice and never lights: it opens the card. It is
+      // in this list only because it is drawn as one of them, and writing its label
+      // back from `dataset.label` — which it has none of — would blank it.
+      if (btn.dataset.discuss) continue;
       const picked = chosen?.id === btn.dataset.opt;
       btn.classList.toggle('picked', picked);
       btn.setAttribute('aria-pressed', String(picked));
       const label = btn.querySelector('.label');
-      if (label) label.textContent = btn.dataset.label;
+      // Through optionLabel, not straight off `dataset.label`: an armed button is
+      // saying what the next tap does, and this repaint must not talk it back down
+      // to the option's own words while the arm is still live. Shut only, as
+      // everywhere else — this function runs on the open card too, and there the
+      // buttons fill the box.
+      const opt = (q.decision?.options || []).find((o) => o.id === btn.dataset.opt);
+      const hot = !state.open.has(key) && state.armed === `${key}|opt-${btn.dataset.opt}`;
+      if (label && opt) label.textContent = optionLabel(q, opt, hot);
+      else if (label) label.textContent = btn.dataset.label;
     }
     const primary = card?.querySelector('.freeform .primary[data-act="answer"]');
     if (primary) primary.textContent = answerLabel(chosen);
@@ -3532,6 +3598,21 @@
       const armed = state.armed === `${btn.dataset.key}|dismiss`;
       btn.classList.toggle('confirm', armed);
       btn.textContent = dismissLabel(btn.dataset.key, btn.dataset.id, armed);
+    }
+    // The choices, which on a shut card send. Every one of them, not only the one
+    // tapped, for this function's whole reason: arming one disarms the rest, and a
+    // sibling left reading "Tap again — answers bc-aaa1" would be an offer to answer
+    // the same bead a second way with one thumb.
+    for (const btn of listEl.querySelectorAll('.option[data-opt]')) {
+      const key = btn.dataset.key;
+      const opt = (byKey(key)?.decision?.options || []).find((o) => o.id === btn.dataset.opt);
+      if (!opt) continue;
+      // Shut only, as in cardHtml and for the same reason: on an open card the next
+      // tap fills the box, so nothing there may offer to answer.
+      const armed = !state.open.has(key) && state.armed === `${key}|opt-${opt.id}`;
+      btn.classList.toggle('confirm', armed);
+      const label = btn.querySelector('.label');
+      if (label) label.textContent = optionLabel(byKey(key), opt, armed);
     }
     // A proposal's two bulk buttons are armable the same way, and they are the only
     // armed control in the app that also *creates* something — a stale "Tap again"
@@ -7364,22 +7445,35 @@
     }
 
     /**
-     * A choice, tapped: put its words in the box. It does not answer.
+     * A choice, tapped. What it does depends on which state the card is in, and that
+     * is the whole design rather than an inconsistency.
      *
-     * These buttons used to answer and close on two taps, the second one confirming
-     * the first. What that shape could not do is the commonest thing anyone wants to
-     * do with a multiple-choice question — pick one *and say something about it*.
-     * The answer went on the thread as the agent's own sentence and nothing else, so
-     * qualifying it meant ignoring the buttons and typing the whole choice out with a
-     * thumb. Now the tap writes the sentence for you and you send it, which is the
-     * same two gestures with the useful half in the middle.
+     * **Shut, the option is the answer.** Two taps — the first arms it for six
+     * seconds and the button says what the second one will do, the same arm dismiss
+     * and the delivery card use — and then /api/respond goes with the option's own
+     * words and its id, the card flies to the mark, and the list closes over it. That
+     * is the commonest thing anyone does with a multiple-choice question: pick one,
+     * say nothing. It used to cost an expand, a scroll past the brief and a tap on a
+     * different button at the bottom of a full-screen sheet.
+     *
+     * **Open, the option fills the box and answers nothing** — as it has since
+     * bc-l8jp.9, and for the reason that change was made: the other common thing is
+     * picking one *and saying something about it*, and the answer that carries a
+     * caveat has to be a sentence you can edit before it is sent. *Answer & close* is
+     * the confirmation there, in a different place, naming what it will do.
+     *
+     * So the two shapes are both here, and the way from the first to the second is
+     * the 💬 Discuss button under the choices (see cardHtml). Which leaves one case
+     * that is neither: a shut card **holding a draft**. Something is half-written on
+     * it, an answer sent from out here would throw those words away without ever
+     * showing them to you, and this app does not do that — so a draft sends the tap
+     * down the opening path instead, where the words are on screen and the pick is
+     * appended to them.
      *
      * The pick outlives the words: `state.picked` remembers which button was pressed
      * even after you have rewritten what it typed, because only the id can say
      * whether this answer commissions work rather than settling it — see submit()
-     * and lib/decision.js. That is also why the confirm tap is gone rather than
-     * moved: *Answer & close* is now the confirmation, it is a different button in a
-     * different place, and it names what it will do.
+     * and lib/decision.js.
      *
      * Three rules about text already in the box, and they are the suggested chips'
      * rules for the same reasons (see the `suggest` handler): another option's words
@@ -7391,28 +7485,76 @@
      */
     if (act === 'option') {
       const q = byKey(key);
+
+      // The third button, which is not a choice: it opens the card so the box can be
+      // typed in. Branched on the attribute before anything is looked up, so it can
+      // never be resolved against a decision option or reach a write.
+      if (btn.dataset.discuss) {
+        disarm();
+        await expand(key);
+        paintArmed();
+        return;
+      }
+
       const opts = q?.decision?.options || [];
       const opt = opts.find((o) => o.id === btn.dataset.opt);
       if (!opt) return;
 
+      /**
+       * Shut, with nothing half-written: this tap answers, on the second one.
+       *
+       * The armed token is repainted rather than rendered for paintArmed()'s usual
+       * reason, and it names the option — two choices on one card each arm
+       * separately, and arming the second is what takes the first one's offer back.
+       *
+       * The send is the open card's send, on purpose: same endpoint, same option id,
+       * same optimistic flight, the same server-side reading of `closes: false` that
+       * decides whether the bead is finished or handed back as work. The only thing
+       * that differs is that the sentence is the agent's own, unedited — which is
+       * exactly what "answer without opening it" means.
+       */
+      if (!state.open.has(key) && !getDraft(key).trim()) {
+        const token = `${key}|opt-${opt.id}`;
+        if (state.armed !== token) {
+          disarm();
+          state.armed = token;
+          state.armedTimer = setTimeout(() => {
+            disarm();
+            paintArmed();
+          }, 6000);
+          paintArmed();
+          return;
+        }
+        disarm();
+        paintArmed();
+        // Kept before it is sent, and this is not bookkeeping: /api/respond can refuse
+        // to close the bead — an epic with open children, a blocker nobody has shut —
+        // and the list row cannot know that in advance, because `gate` is asked when a
+        // card opens and deliberately not on every 25-second poll (lib/server.js). A
+        // refusal hands the card back open, carrying the note; without these two the
+        // box under it would be empty and the pick unlit, and the choice you made
+        // would have to be made again. On success submit() clears the draft itself.
+        setDraft(key, opt.response);
+        state.picked.set(key, opt.id);
+        submit(key, opt.response, { close: true, option: opt.id });
+        return;
+      }
+
       // Whatever else on the list was armed, this tap is not its confirming tap —
       // arming any control disarms the others, which is the rule paintArmed() exists
-      // to keep on screen. It reads as belt-and-braces here because an option arms
-      // nothing itself any more, and that is exactly how it went missing: this handler
-      // used to arm and then answer on the second tap, and when bc-l8jp.9 turned it
-      // into "fill the box", the unconditional disarm() went with the answering path
-      // and only the one guarding expand() survived. So on a card already open — the
-      // common case, because you have to see the options to tap one — the dismiss
-      // under it stayed armed and went on saying "Tap again — hides dm-1" while you
-      // picked. The next tap then means two things at once, and the two write to
-      // different endpoints: /api/answer and /api/dismiss.
+      // to keep on screen. On a card already open — where the branch above cannot
+      // fire — the thing this catches is the dismiss underneath: it stayed armed and
+      // went on saying "Tap again — hides dm-1" while you picked, so the next tap
+      // meant two things at once, and the two write to different endpoints
+      // (bc-z4o4). It went missing once already, when bc-l8jp.9 turned this handler
+      // from "arm, then answer" into "fill the box" and the unconditional disarm()
+      // went with the answering path.
       disarm();
 
-      // A closed card has no box to fill, so the tap opens it — the same move
-      // `pr-changes` makes, and for the same reason: what happens next is typing.
-      // Through expand() rather than openOnly(), so the brief and the thread arrive
-      // with it: you are about to write an answer, and the card you write it on
-      // should be the whole card.
+      // Still shut, so there is a draft on it and no box to put this pick in: open
+      // the card, which is where those words are. Through expand() rather than
+      // openOnly(), so the brief and the thread arrive with it — you are about to
+      // write an answer, and the card you write it on should be the whole card.
       if (!state.open.has(key)) {
         await expand(key);
       }

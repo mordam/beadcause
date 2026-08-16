@@ -333,14 +333,19 @@ images:
 ```
 ````
 
-- **A choice writes the answer; it does not send it.** Tapping an option opens the
-  card if it was closed and puts that option's `response` in the answer box, where
-  it is yours to edit, qualify or take back — *Answer & close* under the box is what
-  commits it. The commonest thing anyone wants to do with a multiple-choice question
-  is pick one *and say something about it*, and a button that answered outright had
-  nowhere to put the second half. Tapping a second choice replaces the first; tapping
-  the one you already picked empties the box again; and a choice tapped after you have
-  typed something appends to it, because words you wrote are never thrown away.
+- **A choice on a shut card sends; a choice on an open card writes.** Tapped in the
+  list, an option is the answer: the first tap arms it and the button says what the
+  second one will do — *Tap again — answers bc-7qo* — and the second sends that
+  option's `response` and closes the bead. Tapped on an open card it puts the same
+  `response` in the answer box instead, where it is yours to edit, qualify or take
+  back, and *Answer & close* under the box is what commits it. Two things people do
+  with a multiple-choice question, and the card is in a different state for each:
+  pick one and say nothing, or pick one *and say something about it*. **💬 Discuss**,
+  under the choices, is the way from the first to the second. In the box, tapping a
+  second choice replaces the first; tapping the one you already picked empties the box
+  again; and a choice tapped after you have typed something appends to it, because
+  words you wrote are never thrown away — which is also why a shut card **holding a
+  draft** opens rather than sending, instead of answering over words it never showed you.
 - `options[].response` is the exact text recorded as the answer — write it so a
   future agent can act on it without re-reading the question. It is what lands in the
   box, so write it as a sentence rather than as a button label.
@@ -412,7 +417,8 @@ Suggested — read out of the design            tap to fill the box
 [ ★ Restore at promotion ]  [ Restore at startup ]
 ```
 
-**A chip fills the box, exactly as a written option does.** Tapping a second chip
+**A chip fills the box, exactly as a written option does on an open card** — the
+chips live on the box's own top edge, so there is no shut-card half to them. Tapping a second chip
 swaps your pick; tapping one after you have typed something appends, because the
 words you wrote are never thrown away. Two differences from the buttons above
 survive, and both come from where the words came from. A chip **lets go the moment
@@ -1172,12 +1178,17 @@ set.
   and another at the foot of the brief, where you land after a diagram and a thread.
   Collapsing scrolls you back onto the card you were reading rather than leaving you
   wherever the shrinking list happened to put you.
-- **An option fills the box.** Tapping a choice opens the card and writes that
-  choice's own sentence into the answer box, still editable and unsent; the button
-  under the box commits it. It replaced a two-tap arm-then-confirm, which was safe
-  against a pocket tap but had nowhere to put the qualifying sentence that usually
-  comes with a choice. The pocket is still covered: nothing leaves the phone until
-  you press the button under the words you are looking at.
+- **An option answers from the list, in two taps.** A choice tapped on a collapsed
+  card arms for six seconds and says so — *Tap again — answers bc-7qo*, or
+  *commissions* it where the option hands the bead back as work — and the second tap
+  sends that choice's own sentence and closes the bead, without the card ever opening.
+  The pocket is covered by the arm, which is the same two-tap shape everything else
+  that makes a card disappear uses. **On an open card the same button fills the box
+  instead**, still editable and unsent, and the button under the box commits it —
+  that is the path for a choice you want to qualify, and **💬 Discuss** under the
+  options is how you get to it. A collapsed card carrying a draft takes that path
+  too: there are words on it you have not seen since you wrote them, and an answer
+  sent from the list would throw them away.
 - **Free text**, with *Answer & close* or *Comment only* if you want the question
   to stay open. **Drafts are saved on every keystroke** to localStorage, so
   collapsing the card, opening a doc, a background refresh, or the phone killing
@@ -1566,10 +1577,17 @@ still drawn on a gated card, falling back to the `409` note when pressed — hid
 would leave a proposal with no visible way to approve it. And a **delivery** keeps its
 three buttons, because those are about a pull request rather than about the bead.
 
-A **decision block's option buttons** used to be on that list and no longer are:
-tapping one writes into the answer box and closes nothing, so on a gated card it
-fills a box whose only button is *Comment*. The choice reaches the thread, the bead
-stays open because it was always going to, and nothing has to be refused to say so.
+A **decision block's option buttons** are on that list again, but only on the half of
+them that sends. Tapped on an **open** card they still write into the answer box and
+close nothing, so on a gated card a choice fills a box whose only button is *Comment*
+— the choice reaches the thread, the bead stays open because it was always going to,
+and nothing has to be refused to say so. Tapped on a **shut** card they answer and
+close, and there the gate is simply not known: it is asked when a card opens and
+deliberately never on the list poll, so this is the one path that finds out from the
+`409`. It is built to survive that. The option's words go into the draft *before* the
+write leaves, so the refusal hands the card back open with the note above the box, the
+sentence still in it and the choice still lit — the same place the open card would
+have started from, reached the long way round.
 
 ### What is gated, and what is deliberately not
 
