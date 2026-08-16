@@ -11,6 +11,15 @@
   --accent-ink: #06231f;
   --warn: #fbbf24;
   --danger: #f87171;
+  /* What is legible *on* --danger, and it has to flip with the scheme where
+     --accent-ink does not. The dark scheme's danger is a light red, so white on it is
+     2.77:1 — below AA, on the two controls that most need reading: "Decline & close",
+     and the ✕ that declines a proposed bead. Measured by scripts/design/contrast.mjs. */
+  --danger-ink: #2b0d0d;
+  /* Same bargain on the amber, and it flips the other way: this scheme's --warn is a
+     bright #fbbf24, so the ink is near-black. In the light scheme it is a dark #92600a
+     and near-black on it is 3.45:1 — the "File N beads" button in edit mode. */
+  --warn-ink: #131313;
   /* The two colours an answer flies in — see public/absorb.js. Deliberately not
      --accent: the bead you answered and the beads your decision created have to be
      told apart from each other at a glance, and both have to be told apart from the
@@ -35,6 +44,9 @@
     --accent-ink: #ffffff;
     --warn: #92600a;
     --danger: #b91c1c;
+    /* Dark red here, so the ink goes back to white. */
+    --danger-ink: #ffffff;
+    --warn-ink: #ffffff;
     /* A step darker, because these are drawn on a near-white page rather than on
        #0b0f14 — the dark scheme's values wash out against it. */
     --bead-answered: #2563eb;
@@ -1247,6 +1259,29 @@ body {
 }
 .option.picked .hand-tag { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
+/* Armed: on a shut card the next tap on this button sends the answer. Amber, which
+   is this app's one word for "the next tap does it" — the same fill the delivery
+   card's merge and the board's ship wear, so a second-tap control looks like every
+   other second-tap control and never like `picked`, which is a claim about the box. */
+.option.confirm,
+.option.picked.confirm { background: var(--warn); color: var(--accent-ink); border-color: transparent; }
+.option.confirm .hint,
+.option.confirm .rec-tag,
+.option.confirm .hand-tag { color: color-mix(in srgb, var(--accent-ink) 78%, transparent); }
+
+/* The way in rather than a way to answer: it opens the card. Drawn as one of the
+   options because it stands with them and is reached with the same thumb, but with
+   no fill and a dimmer edge — the choices are the answer, and a button that is not
+   one of them must not compete with them for the first look. */
+.option.discuss {
+  background: transparent;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--line) 80%, transparent);
+  font-weight: 520;
+  color: var(--muted);
+}
+.option.discuss .label { color: var(--text); }
+
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
 .note-line {
@@ -1539,7 +1574,7 @@ body {
   font-size: 16px; line-height: 1; cursor: pointer;
 }
 .prop-btn.yes[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-.prop-btn.no[aria-pressed="true"] { background: var(--danger); color: #fff; border-color: transparent; }
+.prop-btn.no[aria-pressed="true"] { background: var(--danger); color: var(--danger-ink); border-color: transparent; }
 /* Approved and declined have to be readable at a glance from the row itself, not
    only from the button — you decide these three at a time. */
 .prop-row.pick-yes { border-left: 3px solid var(--accent); padding-left: 8px; }
@@ -1653,7 +1688,7 @@ body {
 .decline-why { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--prose); }
 .decline-why code { font-size: 11.5px; }
 .pr-decline .pr-actions { padding-top: 4px; }
-.primary.danger { background: var(--danger); color: #fff; }
+.primary.danger { background: var(--danger); color: var(--danger-ink); }
 /* The box you type the direction into belongs to the decline while that is what is
    happening, so it is framed as part of it rather than as a general answer box. */
 .freeform.declining textarea { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
@@ -2442,7 +2477,12 @@ button.work-row {
    a report of what already has. */
 .adv .session-label { margin-top: 4px; }
 .adv .session-label span.bad { color: var(--danger); }
-.adv-actions { margin-left: auto; display: flex; gap: 6px; }
+/* The row of controls on a card's head. `flex-wrap` because the row grew: a card that
+   is not draining now carries a stepper, Pause, Reclaim, Forget and the on/off switch,
+   which is wider than a phone at 393px — and `.card` is `overflow: hidden`, so without
+   this the last control is not merely cramped, it is clipped away. A switch you cannot
+   see is a switch this repo does not have on the surface it is for. */
+.adv-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
 .adv-btn {
   min-height: 32px;
   padding: 4px 12px;
@@ -2469,6 +2509,12 @@ button.work-row {
 .adv-limit .adv-step { border: 0; padding: 4px 8px; min-width: 30px; font-size: 15px; line-height: 1; }
 .adv-limit.held { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .adv-limit.held > b { color: var(--warn); }
+/* Why this repo's advocate cannot be switched on or off from here — the sentence that
+   takes the switch's place where one of the three settings above it is in force. Muted
+   and not a button, because it is the reason there is no button; it wraps rather than
+   ellipsing, since half of "the halifax space has advocate: false" is worse than none
+   of it, and it is the last thing in the row so a wrap costs nothing beside it. */
+.adv-why { font-size: 11.5px; color: var(--muted); align-self: center; text-align: right; max-width: 22em; }
 /* Dialled up but not sent. The accent border and the accented number are the whole
    signal that this number is *yours* and not the daemon's yet — the Apply segment
    beside it is the other half, and it only exists in this state. `held` keeps its
@@ -2678,6 +2724,12 @@ button.work-row {
 
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+/* The right-hand end of an epic section's foot: its Pause button beside the link out to
+   the graph. A flex row rather than the bare link the foot used to end in, because the
+   two belong together — one says what this epic is, the other says whether it is running
+   — and `justify-content: space-between` above would otherwise push them to opposite
+   ends of the card with the meta line stranded in the middle. Wraps on a phone. */
+.adv-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .work-graph {
   flex: none; min-height: 36px; display: inline-flex; align-items: center;
   padding: 6px 12px;
@@ -6484,7 +6536,7 @@ body.editing::after {
   border: 0;
   border-radius: 999px;
   background: var(--warn);
-  color: #131313;
+  color: var(--warn-ink);
   font: inherit; font-size: 14px; font-weight: 700;
   cursor: pointer;
 }

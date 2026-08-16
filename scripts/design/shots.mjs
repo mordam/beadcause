@@ -14,13 +14,10 @@
 //   3. the component's own rules fired       — targeted computed-style probes, per class
 //
 // Run: node scripts/design/shots.mjs [pathFragment]
-import { createServer } from 'node:http';
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { launchChrome } from '../helpers/chrome.mjs';
-import { GROUPS } from './manifest.mjs';
+import { serveBundle, openPage, cardList } from './harness.mjs';
 
-const ROOT = 'design-bundle';
 const OUT = 'design-shots';
 const PORT = 4578;
 
@@ -69,58 +66,16 @@ const PROBES = [
   ['.md', 'color', (v, t) => v !== THEMES[t].bg, 'prose is not the page'],
 ];
 
-// ---------------------------------------------------------------- the fixture server
-
-const server = createServer((req, res) => {
-  const p = decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '');
-  // Read before answering: writeHead(200) followed by a throwing read leaves the 404
-  // path trying to set headers that already went out.
-  let body;
-  try {
-    body = readFileSync(join(ROOT, p));
-  } catch {
-    res.writeHead(404);
-    return res.end('not in the bundle');
-  }
-  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(body);
-});
-await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
-
 // ---------------------------------------------------------------------------- drive
 
 const only = process.argv[2];
-const cards = GROUPS.flatMap((g) => g.cards.map((c) => ({ ...c, group: g.group })))
-  .filter((c) => !only || c.path.includes(only));
+const server = await serveBundle(PORT);
+const page = await openPage('beadcause-designshots-');
+const cards = await cardList(only);
 
 rmSync(OUT, { recursive: true, force: true });
 
-const chrome = await launchChrome('beadcause-designshots-');
-const { s } = chrome;
-await s.send('Page.enable');
-await s.send('Runtime.enable');
-
-/** Console errors, per navigation. Reset before each load. */
-let logged = [];
-s.on((method, params) => {
-  if (method === 'Runtime.exceptionThrown') logged.push(params.exceptionDetails?.text || 'exception');
-  if (method === 'Runtime.consoleAPICalled' && params.type === 'error') {
-    logged.push((params.args || []).map((a) => a.value ?? a.description ?? '?').join(' '));
-  }
-});
-
-const loaded = () =>
-  new Promise((resolve) => {
-    const off = s.on((m) => m === 'Page.loadEventFired' && resolve());
-    setTimeout(resolve, 4000); // a card is static; this is a floor, not a wait
-    void off;
-  });
-
-async function evaluate(expression) {
-  const r = await s.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
-  if (r.exceptionDetails) throw new Error(r.exceptionDetails.text);
-  return r.result.value;
-}
+const evaluate = (expression) => page.evaluate(expression);
 
 const probeSrc = (theme) => `(() => {
   const out = { probes: [], overflow: null, height: null, bodyBg: null };
@@ -142,18 +97,13 @@ for (const card of cards) {
   const row = { path: card.path, group: card.group, problems: [], shots: {} };
   const w = card.viewport?.width || 440;
   const h = card.viewport?.height || 400;
-  await s.send('Emulation.setDeviceMetricsOverride', {
-    width: w, height: h, deviceScaleFactor: 2, mobile: false,
-  });
+  await page.size(w, h);
 
   const paint = {};
   for (const theme of ['dark', 'light']) {
-    await s.send('Emulation.setEmulatedMedia', {
-      features: [{ name: 'prefers-color-scheme', value: theme }],
-    });
-    logged = [];
-    await s.send('Page.navigate', { url: `http://127.0.0.1:${PORT}/${card.path}` });
-    await loaded();
+    await page.theme(theme);
+    page.drainErrors();
+    await page.go(`http://127.0.0.1:${PORT}/${card.path}`);
 
     const probe = await evaluate(probeSrc(theme));
 
@@ -168,9 +118,10 @@ for (const card of cards) {
         row.problems.push(`${theme}: ${p.sel} ${p.prop} is ${p.value} — expected ${p.why}`);
       }
     }
+    const logged = page.drainErrors();
     if (logged.length) row.problems.push(`${theme}: console — ${logged.slice(0, 2).join(' | ')}`);
 
-    const shot = await s.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    const shot = await page.s.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     const file = join(OUT, card.path.replace(/\.html$/, `.${theme}.png`));
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, Buffer.from(shot.data, 'base64'));
@@ -186,7 +137,7 @@ for (const card of cards) {
   process.stdout.write(row.problems.length ? '✗' : '·');
 }
 
-chrome.close();
+page.close();
 server.close();
 
 writeFileSync(join(OUT, 'report.json'), JSON.stringify(results, null, 2));

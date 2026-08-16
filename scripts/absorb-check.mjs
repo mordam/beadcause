@@ -489,11 +489,13 @@ try {
   write.mostInAir = 0;
   const began = Date.now();
   for (const key of RUN_KEYS) {
-    // The option button opens the card and writes the answer into the box; the button
-    // under it is what sends. Two gestures, exactly as a thumb would.
-    await tap(s, `#list .card[data-key=${JSON.stringify(key)}] [data-act="option"][data-opt="net"]`);
-    await waitFor(s, `!!document.querySelector('#list .card[data-key=${JSON.stringify(key)}] [data-act="answer"]')`);
-    await tap(s, `#list .card[data-key=${JSON.stringify(key)}] [data-act="answer"]`);
+    // The option answers from the shut card (bc-5ldc): the first tap arms it, the
+    // second sends. Two gestures, exactly as a thumb would — and no card ever opens,
+    // which is the point of tapping the same button twice here.
+    const opt = `#list .card[data-key=${JSON.stringify(key)}] [data-act="option"][data-opt="net"]`;
+    await tap(s, opt);
+    await waitFor(s, `!!document.querySelector(${JSON.stringify(`${opt}.confirm`)})`);
+    await tap(s, opt);
     // The claim: the card is out of the list *now*, without waiting for anything.
     await waitFor(s, `!${CARD(key)}`, 14, 60);
   }
@@ -688,13 +690,14 @@ try {
   });
   write.delay = 900;
   await boot();
-  // A choice no longer answers on its own — it opens the card and writes itself into
-  // the box, and the button under it is what sends. Two gestures either way; what
-  // this section needs is only that an answer completes with the motion turned off.
-  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="option"][data-opt="net"]`);
-  await waitFor(s, `!!document.querySelector('#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="answer"]')`);
+  // A choice answers from the shut card, on the second tap (bc-5ldc). Two gestures
+  // either way; what this section needs is only that an answer completes with the
+  // motion turned off.
+  const plainOpt = `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="option"][data-opt="net"]`;
+  await tap(s, plainOpt);
+  await waitFor(s, `!!document.querySelector(${JSON.stringify(`${plainOpt}.confirm`)})`);
   await sleep(120);
-  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="answer"]`);
+  await tap(s, plainOpt);
 
   let anyBead = 0;
   for (let i = 0; i < 16; i++) {

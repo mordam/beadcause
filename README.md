@@ -333,14 +333,19 @@ images:
 ```
 ````
 
-- **A choice writes the answer; it does not send it.** Tapping an option opens the
-  card if it was closed and puts that option's `response` in the answer box, where
-  it is yours to edit, qualify or take back — *Answer & close* under the box is what
-  commits it. The commonest thing anyone wants to do with a multiple-choice question
-  is pick one *and say something about it*, and a button that answered outright had
-  nowhere to put the second half. Tapping a second choice replaces the first; tapping
-  the one you already picked empties the box again; and a choice tapped after you have
-  typed something appends to it, because words you wrote are never thrown away.
+- **A choice on a shut card sends; a choice on an open card writes.** Tapped in the
+  list, an option is the answer: the first tap arms it and the button says what the
+  second one will do — *Tap again — answers bc-7qo* — and the second sends that
+  option's `response` and closes the bead. Tapped on an open card it puts the same
+  `response` in the answer box instead, where it is yours to edit, qualify or take
+  back, and *Answer & close* under the box is what commits it. Two things people do
+  with a multiple-choice question, and the card is in a different state for each:
+  pick one and say nothing, or pick one *and say something about it*. **💬 Discuss**,
+  under the choices, is the way from the first to the second. In the box, tapping a
+  second choice replaces the first; tapping the one you already picked empties the box
+  again; and a choice tapped after you have typed something appends to it, because
+  words you wrote are never thrown away — which is also why a shut card **holding a
+  draft** opens rather than sending, instead of answering over words it never showed you.
 - `options[].response` is the exact text recorded as the answer — write it so a
   future agent can act on it without re-reading the question. It is what lands in the
   box, so write it as a sentence rather than as a button label.
@@ -412,7 +417,8 @@ Suggested — read out of the design            tap to fill the box
 [ ★ Restore at promotion ]  [ Restore at startup ]
 ```
 
-**A chip fills the box, exactly as a written option does.** Tapping a second chip
+**A chip fills the box, exactly as a written option does on an open card** — the
+chips live on the box's own top edge, so there is no shut-card half to them. Tapping a second chip
 swaps your pick; tapping one after you have typed something appends, because the
 words you wrote are never thrown away. Two differences from the buttons above
 survive, and both come from where the words came from. A chip **lets go the moment
@@ -1172,12 +1178,17 @@ set.
   and another at the foot of the brief, where you land after a diagram and a thread.
   Collapsing scrolls you back onto the card you were reading rather than leaving you
   wherever the shrinking list happened to put you.
-- **An option fills the box.** Tapping a choice opens the card and writes that
-  choice's own sentence into the answer box, still editable and unsent; the button
-  under the box commits it. It replaced a two-tap arm-then-confirm, which was safe
-  against a pocket tap but had nowhere to put the qualifying sentence that usually
-  comes with a choice. The pocket is still covered: nothing leaves the phone until
-  you press the button under the words you are looking at.
+- **An option answers from the list, in two taps.** A choice tapped on a collapsed
+  card arms for six seconds and says so — *Tap again — answers bc-7qo*, or
+  *commissions* it where the option hands the bead back as work — and the second tap
+  sends that choice's own sentence and closes the bead, without the card ever opening.
+  The pocket is covered by the arm, which is the same two-tap shape everything else
+  that makes a card disappear uses. **On an open card the same button fills the box
+  instead**, still editable and unsent, and the button under the box commits it —
+  that is the path for a choice you want to qualify, and **💬 Discuss** under the
+  options is how you get to it. A collapsed card carrying a draft takes that path
+  too: there are words on it you have not seen since you wrote them, and an answer
+  sent from the list would throw them away.
 - **Free text**, with *Answer & close* or *Comment only* if you want the question
   to stay open. **Drafts are saved on every keystroke** to localStorage, so
   collapsing the card, opening a doc, a background refresh, or the phone killing
@@ -1566,10 +1577,17 @@ still drawn on a gated card, falling back to the `409` note when pressed — hid
 would leave a proposal with no visible way to approve it. And a **delivery** keeps its
 three buttons, because those are about a pull request rather than about the bead.
 
-A **decision block's option buttons** used to be on that list and no longer are:
-tapping one writes into the answer box and closes nothing, so on a gated card it
-fills a box whose only button is *Comment*. The choice reaches the thread, the bead
-stays open because it was always going to, and nothing has to be refused to say so.
+A **decision block's option buttons** are on that list again, but only on the half of
+them that sends. Tapped on an **open** card they still write into the answer box and
+close nothing, so on a gated card a choice fills a box whose only button is *Comment*
+— the choice reaches the thread, the bead stays open because it was always going to,
+and nothing has to be refused to say so. Tapped on a **shut** card they answer and
+close, and there the gate is simply not known: it is asked when a card opens and
+deliberately never on the list poll, so this is the one path that finds out from the
+`409`. It is built to survive that. The option's words go into the draft *before* the
+write leaves, so the refusal hands the card back open with the note above the box, the
+sentence still in it and the choice still lit — the same place the open card would
+have started from, reached the long way round.
 
 ### What is gated, and what is deliberately not
 
@@ -3436,6 +3454,102 @@ all: `allowedTools` is `null` there, so the moment the script existed they could
 it. And `.claude/shots/` is gitignored, because every PNG is a picture of real
 beads.
 
+## The map — which steps are code, and which are an agent
+
+Everything above describes one feature at a time, in the order they were built. What that
+leaves unanswerable at a glance is the question anybody meeting this system asks first,
+and the one you need to be able to answer before you can trust it with a Mac overnight:
+**where does the code stop and an agent start?**
+
+It is not a rhetorical distinction. A `bd ready` filter and an unattended `claude -p` sit
+two lines apart in lib/advocate.js and read almost the same in prose. One is a decision
+this repo makes deterministically, can be tested, and can be reviewed in a diff; the
+other is a decision handed to a model with a tool allowlist and a timeout. The advocate
+flow is the case in point — the eleven-filter narrowing chain is *entirely* procedural,
+and an agent is spawned only at its two ends.
+
+    node scripts/flowchart.mjs            # write docs/flowchart.html and say where
+    node scripts/flowchart.mjs --list     # the flows, the agents and the counts, in the terminal
+    node scripts/flowchart.mjs --check    # is the map still true of the tree?
+    open /flow                            # the same map on the phone, live
+
+Eleven flows, a hundred and twenty-odd steps, and every step is one of six kinds:
+
+| | | |
+|---|---|---|
+| **procedural** | a function in this repo | same input, same output — reviewable in a diff |
+| **agentic** | a Claude Code process with a foundation | what it does next is not decided here |
+| **you** | a tap or a keystroke | the decisions nothing may make for you |
+| **on the phone** | the PWA, the Android shell, the service worker | code, but not on this Mac |
+| **off this Mac** | GitHub, JIRA, Confluence, ntfy, Slack, another laptop | can be slow, absent or wrong |
+| **state** | the tracker, a git ref, a file under `~/.config/beadcause` | where a restart is survived |
+
+Each kind has a shape as well as a colour, because a boundary you can only see on a good
+screen is not one.
+
+**One diagram, one card.** Tap a shape and it fills the detail card — beside the drawing
+on a laptop, directly under it on a phone — with what that step actually does and the
+modules it happens in. The first version listed all sixteen steps as cards below the
+diagram, which is two documents about one subject and made the drawing a picture you
+scroll past. Under the diagram there is now an index of numbered chips instead: how you
+reach a step you cannot find in the drawing, small enough not to compete with it.
+
+Selection is shown in four ways at once, and that is not decoration — the whole gesture is
+tapping a small shape in a chart that scrolls. Everything else dims, the chosen shape takes
+the accent as its outline and a halo, it flashes once, and its chip and card say so too. On
+a phone the card is below the fold of the diagram, so the shape is often the only part of
+the answer you can see.
+
+### The agent halves are read, never written down
+
+The five agent kinds on that page — what each may run, whether it may write to the
+tracker, its timeout, its model, and the whole of its role prompt — come out of
+lib/foundation.js at render time. Nothing about an agent is restated in the model, and
+that is the point rather than an economy: a diagram carrying its own copy of an
+allowlist would be a second definition of an agent, which is exactly what
+[lib/foundation.js exists to prevent](#what-an-agent-is--and-how-it-asks-to-be-different).
+
+Which is also the one difference between the two places you can read this. `/flow` in the
+app hands the renderer the **effective** foundations — the baselines with every amendment
+you have approved on this Mac applied, and it says which fields moved. `docs/flowchart.html`
+draws the **baselines**, because a file rendered from one Mac's approved amendments is not
+a document about this repo.
+
+That file is **generated and gitignored**, not committed. It takes a second to write and
+it would otherwise change whenever any agent's foundation did, putting a
+regenerate-and-resolve on every branch that touched lib/foundation.js for its own
+reasons — and a checked-in copy has no way to say it has gone stale. `docs/architecture.html`
+is the cautionary case: it is hand-written, it is good, and it still describes four agent
+kinds.
+
+### What stops it going stale, and what does not
+
+A hand-written map goes stale; the only question is whether it says so. Every step names
+the modules it happens in, and `node test/flowchart.mjs` — in `npm test` — asserts they
+are still in the tree, that every edge lands on a node, that no node is orphaned, and
+that every agent kind in `BASELINES` is drawn somewhere. A sixth kind added the way the
+fifth was fails the suite rather than being quietly left out of the picture.
+
+What none of that catches is a step that moved *inside* a file it still names, and it is
+worth saying out loud rather than implying otherwise. Nothing short of writing the code
+twice would catch it, and the second copy is always the one that rots. The map is a
+judgement with a machine-checked index: the judgement is the part a person has to keep,
+and the index is what stops the judgement's *references* going quietly wrong.
+
+`node scripts/flow-check.mjs` is the browser half — that mermaid actually drew rather than
+leaving its source in a `<pre>`, that a tap lands on the right card, and that the diagram
+follows the colour scheme rather than being frozen light. That last one is why the model
+emits a bare `class` per node and no `classDef`: mermaid writes a `classDef` out as an
+inline `style`, which beats a stylesheet, and the failure only shows up on a phone in the
+dark. Like every other `*-check.mjs` it needs a headless Chrome, so it is not in
+`npm test`.
+
+**It is not a tab, and `/flow` is not on the bottom bar.** By [that bar's own
+rule](#getting-around--the-tab-bar) a tab is a claim that a page is somewhere you go
+repeatedly, and this is a page you read when you are new to the system or arguing about
+it — not one you check. `/map` is the same page, because both are what somebody types.
+
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.
@@ -4142,6 +4256,59 @@ is `false` to switch the whole thing off and be back to a button. `node test/ree
 holds all of it: the first sight that must be silent, each event, the stall's two sweeps,
 every bound, and — as a source read, because a behaviour test cannot see it cheaply — that
 the sweep is still below the three lines that stop the tick.
+
+### Pausing one epic — the button that stops dispatch under a P0 without stopping the repo
+
+Everything above holds an epic back for **contention**: a twin already being worked, a
+branch in an open pull request, a lease on another Mac, a file somebody has their hands
+on. None of those is a decision, and every one of them clears itself the moment the other
+thing finishes. So until bc-lco2 there was no way to say *stop* to one epic. You could
+close it, or you could pause the whole repo — which stops the four other epics that were
+fine.
+
+**Pause is a per-P0 control on its section of `/monitor`, and the fact lives on the bead**
+as an `advocate-paused` label. A label rather than a marked block in `notes`, which is the
+opposite of the choice the waiting-on sentence makes one file over, and the two facts are
+why: a waiting-on sentence is prose only the advocate writes, so it needs a field that can
+hold a clause; a pause is a boolean somebody toggles from a phone, and `bd label add` is
+one atomic operation where writing into `notes` is a read, a concatenate and a write with
+the advocate's own rewrite landing in the middle of it. A toggle that occasionally erased
+the waiting-on block would **un-enrol the epic as a side effect of pausing it**, which is
+the one failure this feature must not have. On the bead rather than in `advocates.json` for
+the reasons enrolment is: it survives a restart and losing the state file, it is readable
+from the phone and from another Mac, and the button and the sweep cannot disagree about it
+because neither of them holds it.
+
+**Three things stop, and one deliberately does not:**
+
+| | what happens |
+|---|---|
+| the re-entry sweep | opens no advocate window on that P0. The snapshot of what moved is **kept**, not pruned, so the window opened after the resume is briefed on everything that happened while it was paused — dropping the record would make the resume a *first sight*, which is silent by design |
+| the queue | `withoutPausedEpics` takes every ready bead in the subtree out of the survey — the P0 itself included, since a leaf P0 is workable in its own right — and says so as `heldByPause`, a pill on the card and a line in the note. It runs **innermost of the seven filters**: a bead under a paused epic reported as "another Mac has claimed it" would be true and would be the wrong sentence, sending you to look at a machine when what holds it is a button on this screen |
+| the launch door | `openEpicAdvocateSession` refuses with a 409 naming the pause, so the 🧭 button cannot get round a pause the sweep respects |
+| **the windows already open** | **nothing.** They keep their slots, keep their claims, and finish on their own briefs. A pause that killed them would lose exactly the half-finished work it was pressed to protect |
+
+**But they are told, and the message is the second half of the feature rather than a
+courtesy.** A session ordinarily hands its unfinished thinking to the next window on the
+bead half an hour later; a pause is a promise that there will not be one, so it is the
+exact moment the cost of an unwritten debrief comes due. Each window under the epic gets a
+line saying the epic is paused, that this is *not* a check-in and nothing is being taken,
+and asking for `beadcause-memory debrief` before it exits — which is what `debriefBrief`
+hands to whatever opens after the resume. A window that cannot be reached (iTerm refusing
+the Apple event, or one that has already gone) does **not** undo the pause: the label is
+written first, the queue is already holding, and the honest report is "paused, and I could
+not reach two of the windows".
+
+Resume takes the label off and dispatch comes back on the next tick. Nothing is typed into
+a window on a resume — the sessions that were told were told there would be no next one,
+and a "resumed" line arriving in one that has since wound down is noise in a window
+somebody is reading.
+
+The button writes into the daemon's in-memory set as well as onto the bead, and that is
+not belt-and-braces: `bd.graph` is cached for a minute, so a pause that waited for the
+roster to re-derive it would be a button you press twice. The label stays the fact — the
+set is re-read from the graph before **every** survey, which is what lets a resume from
+another Mac, or from `bd` on the command line, land within a tick.
 
 ### A question under nothing is still drawn
 
@@ -9546,7 +9713,9 @@ poll tick ──► bd ready (minus human, minus P4)
 ```
 
 Turn them on by naming repos — the list is empty out of the box, because something
-that opens Claude sessions on your Mac unprompted should never be a surprise:
+that opens Claude sessions on your Mac unprompted should never be a surprise. This is
+the setting; there is [a switch for it on the console](#which-repos-have-one-from-the-console)
+that writes the same list without a restart:
 
 ```json
 "advocates": {
@@ -9557,6 +9726,58 @@ that opens Claude sessions on your Mac unprompted should never be a surprise:
   "perWorkspace": { "sophab": { "maxWorkers": 2 } }
 }
 ```
+
+### Which repos have one, from the console
+
+That list is also a switch on every card in the advocate console, which is where you
+will actually want it: the moment you know a repo should have an advocate is the moment
+you are looking at what it is not doing, on a phone, and the alternative used to be
+`~/.config/beadcause/config.json` on the Mac followed by a restart — because
+`bin/beadcause.js` reads the list once, at boot. Giving climative one took a `node`
+script plus `npm run swap`, and nothing on the console said the setting existed.
+
+A repo with no advocate has always been drawn as a plain card saying `no advocate`, and
+that card now carries **Turn on**; an advocate's own card carries **Turn off**, last in
+the row of controls. Both write `advocates.workspaces` *and* reconcile the running
+daemon, so the advocate starts ticking on the next poll and is still there after a
+`launchctl kickstart` — the two halves that can each be wrong on their own.
+
+**Turning one off drains it rather than killing it.** An advocate is the only record of
+the iTerm windows it opened: which bead each is on, when to ask it to check in, when its
+bead has closed and the window may be signalled. So the setting goes off immediately —
+nothing new is launched, and it stops surveying the queue at all — while the sessions it
+already opened keep being reaped, archived and asked about by the advocate that opened
+them. Its card says `switched off · 2 sessions still finishing`, and the card goes on the
+first tick that finds nothing left. Turning it back on mid-drain takes the drain off and
+hands it back the sessions it never let go of.
+
+The drain is a *live* state and is deliberately not written down: `advocates.json` would
+then hold a second copy of "this repo has no advocate" that can disagree with the config,
+and a daemon restarted mid-drain would resurrect an advocate for a repo the config says is
+off. So a restart mid-drain leaves those windows exactly where a repo with no advocate
+leaves them — running, and nobody's to reap, since [the finished-window sweep](#the-windows-nobody-is-holding)
+runs per advocate over its own repo. That is the same bargain the switch makes anyway; it
+is only worth knowing that the restart brings it forward.
+
+**Where the switch would be a lie, there is a sentence instead.** Three settings can make
+a repo un-switchable, and none of them is visible from the console, so the daemon says
+which it is and the button is not drawn at all:
+
+| What is set | What the card says instead |
+|---|---|
+| `advocates.enabled: false` | every advocate is off, whatever the list says |
+| `advocates.workspaces: "*"` | every configured repo already has one, and there is no list to take this out of |
+| a space's `advocate: false` | that space vetoes every workspace in it — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
+
+The `"*"` case is the one worth an argument. Expanding the star into a frozen list would
+make one Off button work and silently stop every repo added afterwards from getting an
+advocate, which is precisely the thing the star was chosen to say. The space veto is the
+same judgement in the other direction: it is a setting on a *group*, deliberately above
+the per-repo switch, so a repo written into the list under one still gets nothing.
+
+An observer instance refuses both, with a 403 — its `cfg` is the live daemon's config
+file, so a press there would hand the *other* process a repo to open windows on, which
+is the one kind of press an instance that never acts must not make.
 
 ### It has no clock
 
@@ -16474,7 +16695,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/foundation/amend` | `{id, workspace?, set, bead?, justification}` | edits one agent's foundation, recorded exactly like an amendment the agent asked for — same history, same justification. `400` naming the field if `set` carries a protected one, rather than dropping it silently |
 | POST | `/api/foundation/decline` | `{id, workspace?, bead?, request, reason}` | records a refusal against that agent, so `git log refs/beadcause/foundations` carries the no as well as the yes |
 | GET | `/api/foundation/log` | `?id=&ws=&bead=` | `{key, log}` — that agent's transcript. `{key: null}` and a sentence when the kind keeps no log file |
-| POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
+| GET | `/api/flowchart` | `?workspace=` | `{title, kinds[], flows[], agents[], counts, effective, workspace}` — [the map](#the-map--which-steps-are-code-and-which-are-an-agent): every step of every flow, each one `code` · `agent` · `human` · `device` · `external` · `store`, with its detail and the files it happens in, plus each flow's mermaid source. `agents[]` is read out of lib/foundation.js with this Mac's approved amendments applied, which `effective: true` is saying. **Reads no tracker**, so it answers on a Mac whose `bd` is broken |
+| POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) · `limit`/`globalLimit` (a number in `value`) · `enable`/`disable` (whether this repo has an advocate at all) · **`epicPause`/`epicResume`** (a **bead id** in `value`, not a number — [pausing one epic](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo)): writes the `advocate-paused` label, holds the whole subtree out of the queue, and messages every window under the epic to ask for a debrief before it exits. Both blocked under `OBSERVING`, as `enable`/`disable` is, and unlike `pause`/`resume` — those are a local decision about a loop that is not running here anyway, and these two write to the shared tracker and type into windows this instance did not open |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json`, `memory.md` or `transcript.jsonl` |
@@ -17101,6 +17323,133 @@ bookkeeping rather than arriving on your phone as an answer. `node test/byline.m
 the real poller over three comments that differ only in their author — this Mac's byline,
 another Mac's, and an agent's — and asserts that exactly one of them rings.
 
+## The management system — off by default, and turning it on is a record
+
+Beadcause is growing a compliance layer: a control corpus, edges from a control to the
+evidence that exercises it, gates that refuse work producing none, and the reads an
+auditor asks for. None of that is on here, and none of it is on anywhere unless somebody
+turned it on and said why.
+
+That is not a courtesy. Most installs have no architecture checkout, no JIRA, no
+requirements corpus and no interest in an attestation — sophab, deluvia and ehatt are all
+three of them — and a compliance layer that warns, throws or blocks work on those installs
+makes the platform worse for every user who is not pursuing one. The compliance layer is a
+feature of the platform, not a tax on it. So the shape is the one
+[the requirements corpus](#which-requirement-a-change-was-for--refsbeadcauserequirements)
+already takes when the architecture checkout is not on disk: **absent configuration is an
+answer, not a failure.** `loadCorpus` hands back `{}` and every caller degrades to knowing
+no requirements; `management.state()` hands back off and every caller degrades to knowing
+no controls. The feature is off, byte for byte, rather than broken.
+
+### Nothing runs when it is off, and that is enforced by where the door is
+
+`lib/management.js` exports one gate:
+
+```js
+const controls = await whenOn(async () => (await import('./controls.js')).build());
+```
+
+The loader is not called at all when the layer is off, so the module behind it is never
+parsed, never constructed and never given the chance to throw on an install that has none
+of what it needs. `null` is what an off install gets back, and `whenOn(fn, { fallback })`
+is there for a caller that wants to name its own empty answer instead. A compliance route,
+when there is one, is therefore a 200 with a null body rather than a 500 — the same
+contract `/api/requirements` already keeps for `{corpus: null}`.
+
+`node test/management.mjs` runs every read against a directory that has no ref, no state
+file and no git repo in it, and asserts that not one of them so much as `git init`s the
+config directory. Off has to cost nothing, and that includes costing no store.
+
+### Why it is a commit and not a config key
+
+Here is the tension the whole design turns on: **a gate that can be silently switched off
+is not a control.** If the enforcement gates could be disabled by editing `config.json`, an
+auditor asking "how do you know these operated for the whole observation window" would have
+no answer — the key is one line in a file with no history, no author and no reason, and the
+report built on it would be worth nothing.
+
+So on is not a value read at startup. It is a **transition**, appended as a commit to
+`refs/beadcause/management` in `~/.config/beadcause`, exactly as
+[an approved amendment](#what-an-agent-is--and-how-it-asks-to-be-different) is a commit on
+`refs/beadcause/foundations`. The on/off history *is* the evidence, in the same store, with
+the same compare-and-swap, and readable months later by a person with git and no beadcause
+running at all:
+
+```sh
+git -C ~/.config/beadcause log --format='%aI %s' refs/beadcause/management
+git -C ~/.config/beadcause cat-file -p refs/beadcause/management:management.json
+```
+
+Two consequences fall out of that and both are deliberate. **Nothing in
+`lib/management.js` reads the config** — `CONFIG_DIR` is a path and is the only thing taken
+from that module — because the moment a settings file can influence the answer, the chain
+stops recording what was true and starts recording what somebody last typed. The suite pins
+it as a static read of the source. And **the daemon does not import the writers at all**:
+the only thing that can flip this is a person at a terminal, which is the point of a switch
+whose whole job is to be hard to flip quietly.
+
+**A reason is mandatory in both directions.** An enable with no reason opens a window with
+no scope statement — nobody months later can say what the layer was turned on *for* — and a
+disable with no reason is precisely the silent gap the mechanism exists to prevent. What
+you type becomes the commit message, which is what an auditor reads.
+
+A redundant call writes nothing and says so. Enabling an install that is already on is not
+a transition, and a record padded with non-events is one nobody can read.
+
+### A disabled period is a period, not an absence
+
+Off again, from on, is the transition an auditor actually reads. A window with an
+unexplained gap in it is a finding; a window with a gap nobody recorded is a report that
+cannot be relied on. So the record is read back as **periods** rather than as events:
+
+```
+$ beadcause-management windows
+OFF  never → 2026-08-15 09:12Z  (default — never enabled)
+ON   2026-08-15 09:12Z → 2026-09-02 14:40Z  Adam: SOC 2 Type II observation window opens
+OFF  2026-09-02 14:40Z → 2026-09-02 18:05Z  Adam: the gate blocked the release and we needed the release
+ON   2026-09-02 18:05Z → now  Adam: gate fixed, window resumes
+```
+
+The stretch before the layer was ever enabled is in there too, marked as the implicit one,
+because "never enabled before this date" is a fact about the window somebody is looking at
+and leaving it out would make the timeline start in the middle.
+
+`beadcause-management coverage --from <iso> --to <iso>` is the question a Type II report is
+built on, answered from the record rather than from anybody's memory: it hands back every
+gap in that window with the reason recorded at the time and the person who recorded it, so
+a finding arrives with its explanation already attached. `complete` is a boolean on purpose
+— 99.4% of an observation window is not a passing grade, it is a finding with a number
+beside it — and the command exits non-zero when there is a gap, so a scheduled check can be
+one line.
+
+`beadcause-management verify` is the integrity read. Every transition carries a dense `seq`
+and sits in a commit whose parent is the one before, so removing a transition from the
+middle means rewriting every commit after it and leaves a hole the check reports, and a
+payload edited without the history shows up as a commit count that no longer matches the
+transitions in it. **What it does not defend against is a truncation at the tip** by
+somebody with write access to `~/.config/beadcause`: nothing outside that repo records its
+head, which is the same honest limit the config repo's own history has — it answers "what
+did this say before", not "was this altered". Anchoring the head somewhere an operator
+cannot reach is real work and belongs with the enforcement gates, not here.
+
+Note what this makes the enable/disable history: a control in its own right, alongside the
+change management it governs — SOC 2 CC8.1 and ISO 27001 A.8.32.
+
+### The commands
+
+```
+beadcause-management status                          is it on, since when, who said so
+beadcause-management on  --reason "…" [--bead <id>]  turn it on, recorded
+beadcause-management off --reason "…" [--bead <id>]  turn it off, recorded as a gap
+beadcause-management history [<n>]                   the transitions, newest first
+beadcause-management windows                         the same record as periods
+beadcause-management coverage --from <iso> --to <iso>  was it on for the whole window
+beadcause-management verify                          does the chain hold together
+```
+
+There is no config key and no HTTP route that writes any of this, and there is not meant
+to be one.
+
 ## Config — `~/.config/beadcause/config.json`
 
 | key | meaning |
@@ -17164,7 +17513,7 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 15 min — the suite takes about five on a runner). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
-| `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
+| `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one. Also [a switch on the console](#which-repos-have-one-from-the-console), which writes this list and reconciles the running daemon — but not while it is `"*"`, which has no list to take a repo out of |
 | `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |
 | `advocates.maxWorkersLimit` | the ceiling that clamps it (default 3). A larger `maxWorkers` is clamped **and logged**, never silently applied |
 | `advocates.globalMaxWorkers` | across every advocate (default 20, hard ceiling 36), so six repos can't open eighteen windows. A stepper at the top of the advocates console, so this one needs no restart; a stored 10 from an older install is moved to 20 once |
@@ -19308,6 +19657,135 @@ could ever fail — the same lesson `entryProblems` learned one section up. So t
 it at a table minting `notes`, at one claiming a type that is not a shape, and at one
 colliding with the envelope, and asserts each is refused by name.
 
+### Anchoring the head where nobody involved can rewrite it — `lib/anchor.js`, `lib/timestamp.js`, `lib/translog.js`
+
+The section above ends with a service that holds a second copy of every chain head. That is
+corroboration and it is worth building, but it is not independence: beadcause writes the
+daemon, beadcause writes the service, and one operator administers both. An auditor who
+wants to be difficult says *you could have rewritten both copies*, and they are right —
+nothing in a system you run end to end can answer that.
+
+**So the thin slice that is genuinely third-party is not built at all.** Independence is not
+a feature; it is the property of somebody else holding the record. What is built here is the
+client: what is sent (a hash, and nothing else), what comes back (two receipts), and — the
+part that actually matters — how either receipt is checked years later by somebody holding
+only the files.
+
+**Two tiers, doing different jobs.** The control-daemon is continuous and high-resolution:
+every transition, seconds after it happens, first-party and cheap. The anchor is rare and
+coarse: one head an interval, timestamped outside our administration. It cannot say what
+happened *between* anchors and it is not meant to. What it says is that everything before
+this point existed by then and has not been rewritten since — the one claim no amount of
+first-party record keeping can make. Conflating the two would let the weaker fact be quoted
+as the stronger one, which is the same discipline `linkProblems` keeps one section up.
+
+**Both receipts, every time, because they fail differently.** That was settled on bc-3muu.10
+and it is the reason the pair is worth the extra hundred lines:
+
+| | `lib/timestamp.js` — RFC 3161 | `lib/translog.js` — a transparency log |
+|---|---|---|
+| What it is | one signature from a named certificate authority over your digest and its own clock | an inclusion proof against a signed, public, append-only Merkle tree |
+| Its strength | verifies **offline, forever**, from the token and a certificate — no network, no service that has to still exist | **no single party can rewrite it unseen**; the tree is published, witnessed and gossiped |
+| Its weakness | it is one party, and a compromised or defunct CA takes its assurance with it | checking it *well* means checking the log stayed consistent over time |
+
+An auditor who distrusts one is unlikely to distrust the other for the same reason. So
+`verifyAnchor` returns the two verdicts **separately** and counts how many stood up on their
+own, because the claim being made is that a rewrite is detectable by *either* receipt alone —
+and a verifier that collapses both into one boolean cannot support it. `ok` stays strict at
+both, because degrading to one silently is how a pair becomes a single point of failure that
+nobody announced.
+
+**Nothing but a hash ever leaves, and this is where that boundary is really tested.** What is
+anchored is the digest of the `chain-head` record above, so the argument made for a service
+you host survives out to a party you have no agreement with at all: the third party learns a
+32-byte number and the time it saw it, and could not say which repository, which bead, or
+even which product it came from. `submission()` is the one funnel that builds both requests,
+and the suite rebuilds the timestamp request **byte for byte** rather than asserting the
+digest is in it — "the digest is present" is not the claim, "nothing else is" is, and only
+byte equality says that. It is also why the anchor cannot double as a backup, which was asked
+and settled: a hash is not a copy, and off-site recovery of the evidence is an availability
+control over the service rather than a job for a witness.
+
+**A receipt separated from what it anchors proves nothing**, so an anchor is one record
+carrying the ref, the head, the digest and both receipts — and one carrying a single receipt
+is refused rather than accepted as a weaker anchor. A half-anchored head that renders as
+anchored is worse than a gap, because somebody would have to notice the difference later and
+nobody ever does.
+
+```js
+const sub = submission(record);                    // → { digest, timestampRequest, entry }
+const verdict = verifyAnchor(anchor, { ca, keys });
+verdict.independent;                               // 2 — both stood up on their own
+verifyAnchor(anchor, { keys }).inclusion.ok;       // true — the log proof needs nobody's CA
+verifyAnchor(anchor, { ca }).timestamp.ok;         // true — the token needs no network at all
+
+const v = await verifyRef(cwd, ref, withAnchor(anchor));
+rewriteProblems(anchor, v);                        // [] — or the sentence naming the rewrite
+```
+
+**And this is the field `verifyRef` has been waiting for since it was written.** `anchored`
+is the only one of its three answers that can catch a deliberate rewrite, and it has been
+null for every caller because nothing recorded a head to pass it — that was bc-hzu4.
+`withAnchor` is that head. `test/anchor.mjs` ends by doing it end to end against a real
+repository: verify a chain, publish its head, anchor the record, keep the receipts, then
+rewrite the middle of the history and watch the result come back **`intact: true`** and
+`anchored: false`. A forged history is perfectly self-consistent; only the receipts say it is
+not the history that was there in March.
+
+**A missed anchor renders as an unanchored interval rather than as silence**, which is the
+other half of the criterion and the half that is easy to skip. An interval nobody wrote down
+cannot be *missed* — without a stated period there is no such thing as a late anchor, so a
+daemon that quietly stopped anchoring in April renders as an unbroken run of green. So
+`coverage()` states the interval, labels every span across the window, and adds the gaps up:
+
+```
+Anchored every 24h; 3 anchor(s) in the window.
+  anchored  2026-08-01T00:00:00.000Z → 2026-08-02T00:00:00.000Z (24h) at 8f2c1ab09e7d
+  anchored  2026-08-02T00:00:00.000Z → 2026-08-03T12:00:00.000Z (36h) at 8f2c1ab09e7d
+  UNANCHORED 2026-08-03T12:00:00.000Z → 2026-08-06T00:00:00.000Z (60h) — 96h between anchors, and one was due every 24h
+  anchored  2026-08-06T00:00:00.000Z → 2026-08-07T00:00:00.000Z (24h) at 8f2c1ab09e7d
+60h are witnessed by nobody outside this machine.
+```
+
+**The verifiers are written out rather than depended on, and that is a deliberate cost.** A
+timestamp token is CMS and there is no reading one without ASN.1; Node ships no decoder. So
+`lib/der.js` is ~200 lines of tags and lengths, strict on the way in — indefinite lengths,
+non-minimal lengths, padded integers and trailing bytes are all refused, because BER's
+several spellings of one value are several byte strings and *a signature covers bytes*. It
+keeps offsets rather than re-encoding, for the same reason: hashing a decoder's idea of the
+signed attributes is how a verifier ends up right about a document nobody sent. The code that
+decides whether a compliance receipt is genuine is code an auditor may reasonably want to
+read end to end, and a general-purpose ASN.1 library is not readable in an afternoon.
+
+**Both suites are cross-checks rather than fixtures, because a fixture cannot be made wrong
+on demand.** `test/helpers/tsa.mjs` mints a certificate authority out of the same DER writer,
+so the RFC 3161 checks watch every refusal fire one at a time — a token for another digest, a
+lifted signature, attributes that do not cover the content, a signer with no timestamping
+usage, a signer chaining to somebody else, a stamp from outside its own certificate's
+validity, SHA-1, a replayed nonce. Each of those reads as a perfectly valid token to a
+verifier missing that one check. `test/helpers/translog.mjs` implements RFC 6962's
+*recursive* definitions while `lib/translog.js` verifies with the iterative decomposition
+production logs use, and the suite runs every leaf of every tree up to 40 entries and every
+earlier size for consistency: two independent implementations agreeing across ~1600 cases,
+where a helper mirroring the verifier's own arithmetic would agree with it about the bugs
+too. It also pins the one mistake that makes a whole log meaningless — an odd node is
+promoted, never paired with a copy of itself, which is CVE-2012-2459.
+
+**One policy assertion is worth reading twice: a token outlives the certificate that signed
+it.** That is the entire point of a timestamp, so the validity check is that the authority was
+authorised *at `genTime`* rather than that it still is today. Checking a receipt against the
+current clock would expire the whole archive on a date nobody chose.
+
+**What is deliberately not here.** No store and no transport: where anchors are retained and
+what submits them is bc-3muu.3's, and which authorities and which logs an install trusts is a
+configuration question that arrives with the submitter. There is no ambient trust store and
+no fetch anywhere in these files — a checkpoint verified against whatever key the checkpoint
+itself points at is a checkpoint verified against nothing, and the receipt is supposed to
+mean the same thing to an auditor holding only the files. Consistency proofs are implemented
+and checked (`verifyConsistency`) but nothing yet holds an earlier checkpoint to check
+against; that is the submitter's to keep, and it is what turns the log's promise from polite
+into enforceable.
+
 ### Who operates it — `lib/operator.js`, `test/operator.mjs`
 
 The section above settles what may leave the Mac. This one settles where it goes and whose
@@ -19555,6 +20033,111 @@ are. A surveyor that could author is a surveyor that could answer its own questi
 wires it into a daemon yet, and what it does *not* answer is whether a period an instance was
 publishing across can be claimed — linked is not continuous, that is bc-3muu.4, and rounding
 the two together would let the weaker fact be quoted as the stronger one.
+
+### Every document has an owner and a review date — `lib/documents.js`, `test/documents.mjs`
+
+The documentation here is unusually good and was entirely uncontrolled. This file is about
+nineteen thousand lines and is the specification for the whole system; `docs/` holds a few
+more; two of the registers this programme has already produced are source files. Not one of
+them carried a version, an owner, an approval or a date somebody last looked at it. **An
+auditor does not read a document for accuracy.** They ask who approved it, which version is
+current, and when it was last reviewed — and there was no answer to any of the three,
+however good the prose was.
+
+**The answer is not to turn this file into a compliance manual.** Its density is the reason
+the whole programme is tractable, and a document rewritten for an auditor is a document the
+people who need it stop reading. So what landed is a control *layer* over documents left
+exactly as they are: an owner and a review period per document, an approval that names
+somebody, and a check that fails the repo when a review is overdue. The change history is
+already in git, and `history()` reads it rather than transcribing it into a table nobody
+maintains — the one thing a hand-kept revision table reliably records is the revisions
+somebody remembered to write down.
+
+**An entry is a document, not a file.** `path` plus an optional `section`, because this file
+is several documents in one and the ones that matter here are sections of it. Naming the
+section makes the ownership real — rename the heading and the check says so, by name —
+without splitting a file whose density is its whole value. It is also what lets the register
+carry a document that is not about code at all: the AI policy, the scope statement, the
+interested-parties register and the roles table are four more entries in the same shape, and
+none of them is a source file.
+
+**This check will one day fail with no diff behind it, and that is the control operating.**
+[A check that has silently not passed for a month](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot)
+is worse than no check, and an overdue document review is that same failure with a longer
+fuse — worse in one specific way, because *nothing about a stale document looks stale*. It
+reads exactly as well on the day it stops being true as it did the day it was approved. Only
+a date and something willing to fail on it can find one. Two things make that failure
+something to act on rather than route around: it warns for a month before it insists, and
+the message says what a review is — read it, change what is no longer true, bump the
+version, *then* move the date. In that order, because moving the date alone passes the check
+and is the one way to make the register lie.
+
+**Approvals name people, and the register refuses to invent one.** Today the owner and the
+approver are the same person, because this install has one operator. That is a fact about
+beadcause rather than a claim about segregation of duties, and the formal roles arrive with
+the legal entity and the top-management appointment. What the file will not do in the
+meantime is write down an approval nobody gave, which is worse than an approval nobody has
+recorded.
+
+`test/documents.mjs` proves the rules rather than running them: pointed at a clock two years
+on, every entry reports overdue with its owner named; pointed at a deliberately broken entry,
+every field rule fires. A rule only ever run against a register that passes is a rule nobody
+has seen fail.
+
+### Every third party is named, and a sweep fails on one that is not — `lib/suppliers.js`, `test/suppliers.mjs`
+
+The auditable question about a supplier is always the same four: **what is sent, why, under
+what terms, and when was that last looked at.** Before this, the only way to answer any of
+them was to read `lib/notify.js`, `lib/confluence.js`, `lib/atlassian.js`, `lib/auth.js`,
+`lib/slack.js` and `lib/team.js` and add it up — and what you got was a snapshot of the day
+you did it, with no way to tell whether an eighth supplier had arrived since.
+
+**The register is the boring half. The enforcement is the point.**
+[`npm run secrets`](#where-the-two-secrets-live-and-how-to-rotate-them) is the precedent and
+it makes the argument: a guard is a promise about the future, and the honest question is the
+one asked of what is already there. So the sweep reads `lib/` and `bin/` for outbound hosts
+and for the commands that are actually executed, and fails the repo on one no supplier
+claims. A new integration cannot ship without its supplier entry, which is the control
+operating rather than being described.
+
+**Anthropic is not a host, and that finding is what shaped the file.** A sweep for `https://`
+finds Google, GitHub, Tailscale, ntfy, Slack and Atlassian, and does not find Anthropic —
+because nothing here ever calls an Anthropic URL. Every agent is a `claude -p` subprocess. So
+the largest egress in the system by a wide margin is a *command*, and a URL-only sweep would
+have reported a clean tree while prompt text, bead content, whole source files and the
+occasional screenshot left the machine. Hence two axes. And hence commands matched by
+execution shape rather than by word: this repo writes prose inside template literals, so a
+sweep for the bare token `claude` finds fifteen files that are mostly just explaining what a
+session is.
+
+**What it deliberately cannot see** is a binary resolved through a variable — `lib/bd.js` and
+`lib/tailnet.js` execute a path they computed, so there is no literal to find. Both are
+registered by hand, which is why a *declared* command need not appear in the source while an
+*executed* one must be declared: the enforcement runs in the direction that catches a new
+supplier, and the direction that would catch a supplier that has gone is left to the review
+date. Interpolated hosts are dropped for the same reason an interpolated selector is, and
+suppliers reached at a hostname the operator configures are registered as a suffix pattern
+instead. `test/` and `scripts/` are out of the sweep: both are full of fixture hostnames, and
+sweeping them in would mean either registering `evil.example` as a supplier or an exemption
+list longer than the register.
+
+**Every entry says its terms are unconfirmed, and that is the register working rather than
+failing.** What each entry states from the code — what is sent, by which module, and why — is
+verifiable here and is most of what an auditor wants. What the code cannot state is the
+retention and training terms *in force*, which depend on which account and which plan the
+traffic runs under and change without telling anybody. So each entry carries a gap naming the
+bead that will read the agreements and transcribe them, and a register that guessed instead
+would read identically and be worse than nothing. Anthropic's entry is the one that matters
+most and is reviewed twice as often as the rest for that reason alone.
+
+Two exemptions, each closed rather than left as a hole. The operating system's own binaries
+are exempt structurally — `/bin/zsh` runs a shell, `/usr/bin/osascript` drives iTerm, and
+naming them one at a time would be a list of sentences all saying "macOS" — but a binary
+whose *name* is one that reaches the network is egress wherever it was found, because
+`/usr/bin/curl` lives in exactly the same directory as `/usr/bin/id`. And the register itself
+is kept out of its own sweep, since every link to a supplier's terms is a host it would
+otherwise report; that exemption is safe only while the file stays data, so its import list
+is pinned by the suite. Anything that could make a request has to come through there first.
 
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
