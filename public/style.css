@@ -1247,6 +1247,29 @@ body {
 }
 .option.picked .hand-tag { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
+/* Armed: on a shut card the next tap on this button sends the answer. Amber, which
+   is this app's one word for "the next tap does it" — the same fill the delivery
+   card's merge and the board's ship wear, so a second-tap control looks like every
+   other second-tap control and never like `picked`, which is a claim about the box. */
+.option.confirm,
+.option.picked.confirm { background: var(--warn); color: var(--accent-ink); border-color: transparent; }
+.option.confirm .hint,
+.option.confirm .rec-tag,
+.option.confirm .hand-tag { color: color-mix(in srgb, var(--accent-ink) 78%, transparent); }
+
+/* The way in rather than a way to answer: it opens the card. Drawn as one of the
+   options because it stands with them and is reached with the same thumb, but with
+   no fill and a dimmer edge — the choices are the answer, and a button that is not
+   one of them must not compete with them for the first look. */
+.option.discuss {
+  background: transparent;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--line) 80%, transparent);
+  font-weight: 520;
+  color: var(--muted);
+}
+.option.discuss .label { color: var(--text); }
+
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
 .note-line {
