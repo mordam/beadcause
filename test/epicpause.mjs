@@ -492,7 +492,10 @@ await check('and the worker door is what hands them over', () => {
   const from = src.indexOf('export async function openWorkSession');
   assert.ok(from > 0, 'openWorkSession has been renamed — re-point this check');
   const body = src.slice(from, src.indexOf('\n}\n', from));
-  assert.match(body, /debriefs: await debriefsFor\(dir, bead\)/, 'a resumed worker is briefed without what the paused ones wrote');
+  // The *field*, not the variable it is handed: what matters is that the worker's brief
+  // carries a `debriefs` section read from the store, and the local name for the bead row
+  // has already changed once under this check.
+  assert.match(body, /debriefs: await debriefsFor\(dir, \w+\)/, 'a resumed worker is briefed without what the paused ones wrote');
 });
 
 /* -------------------------------------------------------------------- the wiring */
