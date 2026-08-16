@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v62';
+const CACHE = 'beadcause-v65';
 const SHELL = [
   '/',
   '/index.html',
@@ -49,6 +49,11 @@ const SHELL = [
   // because it is loaded on the tap that answers a question — the one moment the
   // link is least likely to be there and most likely to be slow.
   '/absorb.js',
+  // And the queue those writes go on. The strongest shell argument of any file here:
+  // the one moment it is wanted is the moment the link is bad, because a link good
+  // enough to fetch it is a link the write would have gone straight out over. A page
+  // cached without it answers questions one blocking round trip at a time.
+  '/submitqueue.js',
   // The mic on the answer box. In the shell rather than network-first because the one
   // moment it is wanted is the moment a notification was opened on a phone that has
   // just woken up — the same argument as absorb.js above.

@@ -190,6 +190,12 @@ function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map()
     p0beadopen: new Set(beadopen),
     p0beaddetail: detail,
     p0shut: false,
+    // `all`, so bc-rfnr.9.6's status filter narrows nothing here. This suite is about what
+    // a row expands *into*, and its fixture tree is deliberately a mix of open and closed
+    // beads; under the board's own default those closed rows would simply be absent and
+    // half of these checks would pass by drawing nothing. What the filter does is
+    // test/p0card.mjs's, over a fixture built for it.
+    p0status: 'all',
     space: 'all',
     workspace: 'all',
     spaces: [],
@@ -234,7 +240,14 @@ function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map()
       lift(APP, 'function threadHtml(q)'),
       lift(APP, 'const P0_INDENT_CAP = '),
       lift(APP, 'const P0_SECTION_LABEL = '),
-      lift(APP, 'function p0HintText(on, total)'),
+      // bc-rfnr.9.6's filter, lifted whole because `p0TreeHtml` narrows through
+      // `p0Visible` and `p0SectionHtml` draws the chips — half of it is a `ReferenceError`
+      // that reads as this bead's expansion being broken.
+      lift(APP, 'const P0_STATUS_FILTERS = '),
+      lift(APP, 'function p0StatusFilter()'),
+      lift(APP, 'function p0Visible(rows)'),
+      lift(APP, 'function p0StatusHtml(cards)'),
+      lift(APP, 'function p0HintText(on, shown, total)'),
       lift(APP, 'const p0RowKey = ('),
       lift(APP, 'const p0Step = ('),
       lift(APP, 'function p0RowHtml(card, row)'),
