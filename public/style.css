@@ -2678,6 +2678,12 @@ button.work-row {
 
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+/* The right-hand end of an epic section's foot: its Pause button beside the link out to
+   the graph. A flex row rather than the bare link the foot used to end in, because the
+   two belong together — one says what this epic is, the other says whether it is running
+   — and `justify-content: space-between` above would otherwise push them to opposite
+   ends of the card with the meta line stranded in the middle. Wraps on a phone. */
+.adv-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .work-graph {
   flex: none; min-height: 36px; display: inline-flex; align-items: center;
   padding: 6px 12px;
