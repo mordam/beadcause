@@ -293,12 +293,59 @@ await check('a conflicted branch opens a resolver rather than being retried', as
   assert.equal(queueState({ notes: written.notes }).attempts, 0, 'opening a resolver spent an attempt');
 });
 
-await check('and one already being resolved is left alone entirely', async () => {
+await check('and one already being resolved is left alone while it still conflicts', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
   const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 1, resolving: true }) })] });
-  const prApi = fakePr(openPr());
-  const out = await run(bd, prApi);
+  const prApi = fakePr(dirty);
+  const out = await run(bd, prApi, { openResolver: async () => true });
   assert.equal(out.queued, 0);
   assert.equal(prApi.calls.merges.length, 0);
+  // And no second window: the flag is what lib/resolvers.js's one-per-pull-request rule
+  // looks like from in here, and a resolver still in that tree is bc-utyr waiting to happen.
+  assert.deepEqual(out.reclaimed, []);
+});
+
+/**
+ * bc-91ft, and the assertion that fails against the version that shipped.
+ *
+ * `resolving` was written when the window opened and nothing anywhere wrote it back, so a
+ * branch the resolver had *fixed* — pushed, green, MERGEABLE — stayed invisible to the
+ * queue until Adam approved it a second time. This is that exact state: flagged bead,
+ * clean pull request. It has to merge.
+ */
+await check('A BRANCH ITS RESOLVER FIXED COMES BACK ON ITS OWN, WITH NO SECOND APPROVAL', async () => {
+  const bd = fakeBd({
+    rows: [bead({ notes: withQueueBlock('', { attempts: 1, resolving: true, refused: 'the branch conflicts with its base' }) })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(openPr());
+  const out = await run(bd, prApi);
+  assert.deepEqual(out.reclaimed, ['zz-merge']);
+  assert.equal(out.queued, 1);
+  assert.equal(prApi.calls.merges.length, 1, 'the queue still could not see a branch its resolver had fixed');
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  const state = queueState({ notes: written.notes });
+  assert.equal(state.resolving, false);
+  // The sentence went with the state it was about — `admittedState`'s reasoning, and the
+  // reason a reclaimed bead does not read as one that is still refusing to merge.
+  assert.equal(state.refused, null);
+  // The budget is untouched: reclaiming is not an attempt, and a bead that came back with
+  // one attempt already spent must not arrive looking like a fresh one either.
+  assert.equal(state.attempts, 1);
+});
+
+await check('and an unreadable pull request leaves the flag exactly where it is', async () => {
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 1, resolving: true }) })] });
+  const prApi = fakePr(openPr());
+  prApi.view = async () => {
+    throw new Error('gh: API rate limit exceeded');
+  };
+  const out = await run(bd, prApi);
+  // Unknown is not "the resolver finished". A rate limit costs a tick; the other direction
+  // merges a branch somebody may still be mid-merge in.
+  assert.deepEqual(out.reclaimed, []);
+  assert.equal(prApi.calls.merges.length, 0);
+  assert.equal(bd.calls.updates.length, 0, 'it rewrote the state block over an answer it never got');
 });
 
 await check('a conflict with nowhere to open a window is a refusal that says so', async () => {
@@ -496,6 +543,11 @@ await check('a tick merges at most MERGES_PER_TICK, and says what it left', asyn
 await check('the line it hands the card says what happened, or nothing at all', async () => {
   assert.equal(describeMergeQueue({ ok: true, merged: [], updated: [], refused: [], raised: [], waiting: [] }), '');
   assert.match(describeMergeQueue({ ok: true, merged: ['a'], updated: [], refused: ['b'], raised: [], waiting: [] }), /merged 1/);
+  // A tick whose only news is a branch coming back from its resolver still has news.
+  assert.match(
+    describeMergeQueue({ ok: true, merged: [], updated: [], refused: [], raised: [], waiting: [], reclaimed: ['a'] }),
+    /back from a resolver/
+  );
   assert.match(describeMergeQueue({ ok: false, reason: 'bd list failed' }), /bd list failed/);
 });
 
