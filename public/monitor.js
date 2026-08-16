@@ -274,8 +274,20 @@
    * The order matters and mirrors `tickOne`: an error beats everything because a
    * tracker it cannot read makes every other field stale; paused beats quiet because
    * you set it; quiet beats the queue because it explains a queue that isn't moving.
+   *
+   * `draining` goes above the error for the one reason nothing else does: this card is
+   * about to stop existing, and a repo switched off is not a repo with a problem. It
+   * would also be the last thing the tick wrote before it stopped surveying, so a
+   * tracker error from three minutes ago would sit on a switched-off card forever.
    */
   function stateOf(a) {
+    if (a.draining)
+      return {
+        text: a.workers.length
+          ? `switched off · ${plural(a.workers.length, 'session')} still finishing`
+          : 'switched off',
+        tone: 'held',
+      };
     if (a.error) return { text: `cannot read the tracker — ${a.error}`, tone: 'bad' };
     if (a.paused) return { text: `paused · ${plural(a.queue, 'bead')} ready`, tone: 'held' };
     if (a.quiet) return { text: `quiet hours · watching, not launching`, tone: 'held' };
@@ -381,6 +393,36 @@
   function limitErrorHtml(key) {
     const said = state.limitErrors.get(key);
     return said ? `<div class="adv-note bad">${esc(said)}</div>` : '';
+  }
+
+  /**
+   * Whether this repo has an advocate at all — the one setting on this page that used
+   * to mean editing `~/.config/beadcause/config.json` and restarting the daemon.
+   *
+   * A single button rather than an On/Off pair, because there are two states and the
+   * press is always "make it the other one" — and because the label has to carry what
+   * it costs either way. Switching one on is not a preference: an advocate opens Claude
+   * sessions on this Mac without being asked, which is exactly why `advocates.workspaces`
+   * ships empty, so the button says so before you press rather than after.
+   *
+   * `r` is this repo's roster row, and its `can` is the whole reason the roster travels.
+   * Three settings make a switch here a lie — the master `advocates.enabled`, a
+   * `workspaces: "*"` that has already let every repo in, and a space's `advocate: false`
+   * — and none of them is visible from this page. Where one of them is in force the
+   * button is not drawn at all and the reason is, because a control that writes a
+   * setting and changes nothing is worse than no control: you would come back an hour
+   * later to a repo that is switched on and has never ticked.
+   */
+  function advocateSwitch(r, on) {
+    if (!r) return ''; // An older daemon behind a newer page: no roster, so no claim either way.
+    if (!r.can) return `<span class="adv-why" title="${esc(r.why)}">${esc(r.why)}</span>`;
+    return `<button class="adv-btn${on ? '' : ' primary'}" data-adv="${on ? 'disable' : 'enable'}" data-ws="${esc(
+      r.workspace
+    )}" title="${esc(
+      on
+        ? 'Take this advocate away. Nothing new is launched; the sessions it has already opened are left to finish, and it goes when the last one has.'
+        : 'Give this repo an advocate: it watches the ready queue and opens a Claude session on this Mac for each bead it picks up, without asking.'
+    )}">${on ? 'Turn off' : 'Turn on'}</button>`;
   }
 
   /**
@@ -1116,7 +1158,7 @@
 
   /* -------------------------------------------------------------------- cards */
 
-  function advocateCard(w, a, proposals) {
+  function advocateCard(w, a, proposals, r) {
     const st = stateOf(a);
     const key = a.workspace;
     const sessions = w?.sessions || [];
@@ -1126,23 +1168,35 @@
     const mine = new Set(a.workers.map((x) => x.id));
     const others = (w?.working || []).filter((x) => !mine.has(x.id));
 
-    const controls = [
-      limitStepper(a),
-      `<button class="adv-btn" data-adv="${a.paused ? 'resume' : 'pause'}" data-ws="${esc(key)}">${
-        a.paused ? 'Resume' : 'Pause'
-      }</button>`,
-      // Not "free slots" any more, because it no longer just frees them: it asks each
-      // open session whether it is still working and takes back only the slots whose
-      // window has gone. The label is the promise — a button called "free slots" that
-      // sometimes keeps them all would be worse than either behaviour.
-      a.workers.length
-        ? `<button class="adv-btn" data-adv="reclaim" data-ws="${esc(key)}" title="Ask each open session whether it is still working. Windows that have gone give their slots back; the rest keep them and are asked to check in or finish.">Reclaim sessions</button>`
-        : '',
-      // Clears the attempt counters, so beads it gave up on are eligible again. Only
-      // offered when it has actually given up on something — otherwise it is a button
-      // that does nothing and reads as though it might.
-      `<button class="adv-btn" data-adv="forget" data-ws="${esc(key)}" title="Clear attempt counters so beads it gave up on are eligible again">Forget attempts</button>`,
-    ]
+    // A draining advocate gets one control and it is the way back. Every other one here
+    // says something about work it is about to pick up, and it is not going to pick any
+    // up — Pause over a switched-off advocate being the clearest of those: two words for
+    // the same thing, one of which is already true and neither of which reads as the
+    // other. Reclaim is the near miss, and it goes for a different reason: what it takes
+    // back is slots, and slots are what a repo with no advocate does not have.
+    const controls = (
+      a.draining
+        ? [advocateSwitch(r, false)]
+        : [
+            limitStepper(a),
+            `<button class="adv-btn" data-adv="${a.paused ? 'resume' : 'pause'}" data-ws="${esc(key)}">${
+              a.paused ? 'Resume' : 'Pause'
+            }</button>`,
+            // Not "free slots" any more, because it no longer just frees them: it asks
+            // each open session whether it is still working and takes back only the slots
+            // whose window has gone. The label is the promise — a button called "free
+            // slots" that sometimes keeps them all would be worse than either behaviour.
+            a.workers.length
+              ? `<button class="adv-btn" data-adv="reclaim" data-ws="${esc(key)}" title="Ask each open session whether it is still working. Windows that have gone give their slots back; the rest keep them and are asked to check in or finish.">Reclaim sessions</button>`
+              : '',
+            // Clears the attempt counters, so beads it gave up on are eligible again.
+            `<button class="adv-btn" data-adv="forget" data-ws="${esc(key)}" title="Clear attempt counters so beads it gave up on are eligible again">Forget attempts</button>`,
+            // Last, and after the rest rather than before them: taking an advocate away
+            // is the one press on this card that ends the card, and a button that does
+            // that where Pause was a moment ago is one you hit by muscle memory.
+            advocateSwitch(r, true),
+          ]
+    )
       .filter(Boolean)
       .join('');
 
@@ -1290,16 +1344,23 @@
    * A workspace with no advocate at all.
    *
    * Drawn, and drawn plainly, because "this repo has nobody arguing for it" is a
-   * fact about the domain and not an absence of one. `advocatedWorkspaces` filters on
-   * config and on the space's own `advocate: false`, and neither is visible from here
-   * — so the card says what is true and stops short of guessing which it was.
+   * fact about the domain and not an absence of one.
+   *
+   * It used to stop there, because `advocatedWorkspaces` filters on three settings and
+   * none of them was visible from here — so the card said what was true and guessed at
+   * nothing. The roster is those three settings answered by the daemon that reads them:
+   * where switching one on would work, this is where the switch is, and where it would
+   * not, this is where the reason is. Which is the whole of this bead — the console
+   * gave no hint the setting existed, and giving climative an advocate meant a node
+   * script and a swap.
    */
-  function plainCard(w) {
+  function plainCard(w, r) {
     const sessions = w.sessions || [];
     return `<article class="card work-card mon-card plain">
       <div class="work-head">
         <h2>${esc(w.name)}</h2>
         <span class="mon-state dim">no advocate</span>
+        <span class="adv-actions">${advocateSwitch(r, false)}</span>
       </div>
       ${domainHtml(w, null)}
       ${w.error ? `<div class="adv-note bad">⚠ ${esc(w.error)}</div>` : ''}
@@ -1984,10 +2045,17 @@
     // showing — it is held in the daemon's memory, not in bd.
     const orphans = [...advocates.keys()].filter((n) => !spaces.some((w) => w.name === n));
 
+    // Whether each repo's advocate may be switched on or off, and why not where it may
+    // not — see `advocateSwitch`. Not filtered by space: it is keyed, and a card only
+    // ever asks it for its own name.
+    const roster = new Map((data.roster || []).map((r) => [r.workspace, r]));
+
     const cards =
-      withAdv.map((w) => advocateCard(w, advocates.get(w.name), state.proposals.get(w.name) || [])).join('') +
-      orphans.map((n) => advocateCard(null, advocates.get(n), state.proposals.get(n) || [])).join('') +
-      without.map(plainCard).join('') +
+      withAdv
+        .map((w) => advocateCard(w, advocates.get(w.name), state.proposals.get(w.name) || [], roster.get(w.name)))
+        .join('') +
+      orphans.map((n) => advocateCard(null, advocates.get(n), state.proposals.get(n) || [], roster.get(n))).join('') +
+      without.map((w) => plainCard(w, roster.get(w.name))).join('') +
       elsewhereHtml(data.elsewhere || []);
 
     // Above every card, including the "nothing configured" case: a daemon serving the
@@ -2020,9 +2088,12 @@
     // observer's config file *is* the live daemon's, so stepping it here would change
     // how many windows the other process opens after its next restart, which is the
     // one kind of press an instance that "never acts" must not make.
+    // And the advocate switch is the strongest case of all three: it writes
+    // `advocates.workspaces`, so a press here would hand the *other* daemon a repo to
+    // open sessions on — an instance that never acts, arranging for one that does to.
     if (data.observing) {
       for (const el of out.querySelectorAll(
-        '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"]'
+        '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"],[data-adv="enable"],[data-adv="disable"]'
       )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
@@ -2248,13 +2319,16 @@
   /* ------------------------------------------------------------------ actions */
 
   /**
-   * Pause, resume, free the slots, or forget the attempt counters.
+   * Pause, resume, free the slots, forget the attempt counters, or give this repo an
+   * advocate at all.
    *
    * `ws` is undefined for exactly one action: `globalLimit` is a total across every
    * advocate, so it belongs to no repo and `JSON.stringify` drops the key rather than
    * naming one. The server reads the action before it looks for a workspace. Nothing
    * reaches here with that action any more — the global cap is applied by `applyLimit`
-   * — but the shape is the endpoint's, not this button row's, so it stays.
+   * — but the shape is the endpoint's, not this button row's, so it stays, and it is
+   * what `enable` needs too: that one names a repo which has no advocate to find, so it
+   * has to be read before the lookup for the same reason the cap was.
    */
   async function control(ws, action, btn, value) {
     const was = btn.textContent;
