@@ -41,6 +41,8 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { removeTreeSync } from './helpers/tmp.mjs';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
 
@@ -48,7 +50,9 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-lacard-'));
 // Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
-process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }));
+// Not a bare `fs.rmSync`: an `exit` handler cannot await, and a scratch tree the code
+// under test may still be writing into is what test/helpers/tmp.mjs exists for.
+process.on('exit', () => removeTreeSync(tmp));
 
 const { LABEL } = await import('../lib/service.js');
 const { launchAgentProblem } = await import('../lib/launchagent.js');
