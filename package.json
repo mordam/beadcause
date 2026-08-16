@@ -26,7 +26,8 @@
     "beadcause-requirements": "bin/requirements.js",
     "beadcause-incidents": "bin/incidents.js",
     "beadcause-boundary": "bin/boundary.js",
-    "beadcause-management": "bin/management.js"
+    "beadcause-management": "bin/management.js",
+    "beadcause-attest": "bin/attest.js"
   },
   "scripts": {
     "start": "node bin/router.js",
