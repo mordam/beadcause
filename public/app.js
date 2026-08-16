@@ -189,6 +189,22 @@
      * frame is already the shape you left it in.
      */
     p0shut: localStorage.getItem('beadcause.p0shut') === '1',
+    /**
+     * Which statuses the board's trees draw — one filter over every card. bc-rfnr.9.6.
+     *
+     * **One, and above the board rather than one per card.** Every tree on the screen is
+     * answering the same question at the same time ("what is left under my epics", or
+     * "what have they delivered"), and a control per card would mean setting it four
+     * times to ask it once — and then reading four trees that could each be showing
+     * something different, with the only record of which on the cards themselves.
+     *
+     * **Stored by id rather than as a set of statuses**, so an unknown value — a newer
+     * page's option, a hand-edited key — falls back to the default in `p0StatusFilter`
+     * instead of drawing an empty board. Persisted like `p0shut` and unlike `p0open`:
+     * whether you are reading what is left or what has landed is a standing preference,
+     * where which epic is unfolded is where you happen to be looking.
+     */
+    p0status: localStorage.getItem('beadcause.p0status') || 'live',
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -378,6 +394,11 @@
       throw new Error('token rejected');
     }
     const data = await res.json().catch(() => ({}));
+    // The daemon answered, so the screen is not stale — whatever the status says. A 409
+    // is a daemon that is very much alive, and a banner claiming otherwise over one would
+    // be the staleness warning crying wolf about the one thing it can actually see. See
+    // public/freshness.js; the optional chain is for a page served before it existed.
+    window.beadcause?.fresh?.heard?.(data);
     // The body travels with the error: a 428 asking for an acknowledgement carries
     // the whole warning to show, and a message string alone would throw it away.
     if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, body: data });
@@ -1772,7 +1793,7 @@
     const note = (box?.value || '').trim();
     state.prDecline.delete(key);
     disarm();
-    await submit(key, note ? `DECLINE: ${note}` : `DECLINE: close #${d.number} — this approach is not the one.`, {
+    submit(key, note ? `DECLINE: ${note}` : `DECLINE: close #${d.number} — this approach is not the one.`, {
       close: true,
     });
   }
@@ -2766,8 +2787,10 @@
     // while shut, because an open card's way out is `↑ Collapse` and a body that also
     // collapsed would close the sheet under the first tap on a paragraph.
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
-      q.awaitingAgent ? ' replied' : ''
-    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}"${shutCardAct(open)}>
+      q.failed ? ' has-failed' : ''
+    }${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(q.key)}" data-key="${esc(
+      q.key
+    )}"${shutCardAct(open)}>
       ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
@@ -2866,6 +2889,7 @@
       : esc(answerLabel(pickedOption(q)));
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
+      ${failedNoteHtml(q)}
       ${gateNoteHtml(q)}
       ${gated ? gateWhyHtml(q, gated) : ''}
       ${declining ? '' : suggestedHtml(q)}
@@ -3081,6 +3105,42 @@
         <button class="${offer ? 'secondary' : 'primary'}" data-act="gate-dismiss" data-key="${esc(
       q.key
     )}">${offer ? 'Not now' : 'OK'}</button>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * The write did not happen, said on the card it belonged to.
+   *
+   * The sibling of gateNoteHtml above, and deliberately built out of the same parts —
+   * a sentence naming the bead and the reason, a paragraph saying what that leaves,
+   * a row with the way out. A refused close and a refused *write* are two versions of
+   * "nothing was recorded and here is why", and drawing them as two unrelated shapes
+   * would make the rarer one read as a new kind of trouble.
+   *
+   * Red where the gate note is amber, and that is the whole difference in tone. The
+   * gate note is the tracker declining on purpose — nothing went wrong, something is
+   * incomplete — which is why it is the same `--warn` as the unfinished-draft edge.
+   * This one is the write genuinely not landing: bd unreachable, the daemon restarted
+   * under you, a 500. --danger, and the one place on a card where this app uses it.
+   *
+   * **The reason it is on the card at all is the queue.** While the tap waited for the
+   * write, a toast was honest: you had not moved, and the thing that failed was in
+   * front of you. Submits queue now, so the refusal can arrive while you are three
+   * cards further on — and a toast that fades after five seconds over an unrelated
+   * question is indistinguishable from the answer having landed. The note stays until
+   * the card is answered again or you dismiss it.
+   */
+  function failedNoteHtml(q) {
+    const f = q.failed;
+    if (!f) return '';
+    const verb = f.from === 'dismiss' ? 'set aside' : f.from === 'comment' ? 'commented on' : 'answered';
+    return `<div class="failed-note">
+      <strong>${esc(q.id)} was not ${verb} — ${esc(f.reason)}</strong>
+      <p>Nothing was written and nothing was lost. What you typed is still in the box
+      below; press the button under it again when you are ready to try.</p>
+      <div class="row">
+        <button class="secondary" data-act="failed-dismiss" data-key="${esc(q.key)}">Dismiss this</button>
       </div>
     </div>`;
   }
@@ -5133,6 +5193,98 @@
   const P0_SECTION_LABEL = 'Epics assigned to you';
 
   /**
+   * The three things the status filter can be asking for. bc-rfnr.9.6.
+   *
+   * **Not one chip per status.** `open`, `in_progress` and `blocked` are three words for
+   * the same answer — this is still going — and a control offering them separately would
+   * be three taps to say the one thing anybody wants said, with four of the eight
+   * combinations meaning nothing. What the board is actually asked is which of two
+   * questions it is answering, plus the case where you want both at once.
+   *
+   * **`live` is the default and it is the whole point of the bead.** A tree that drew its
+   * closed beads by default is an epic reading as twice the size it is: bc-rfnr had 16
+   * descendants and 9 of them had landed. But closed work is not hidden either — a closed
+   * child is how you read what a P0 has *delivered*, which is the one thing the "N open"
+   * count on the card can never tell you — so it is one tap away rather than gone.
+   *
+   * `match` takes the status string and nothing else. Anything richer would be a
+   * predicate over a row, and a row-level rule is exactly what `p0Visible` cannot use:
+   * ancestors are kept for their children's sake and not for their own.
+   */
+  const P0_STATUS_FILTERS = [
+    { id: 'live', label: 'Not closed', match: (s) => s !== 'closed' },
+    { id: 'all', label: 'All', match: () => true },
+    { id: 'closed', label: 'Closed', match: (s) => s === 'closed' },
+  ];
+
+  /** The filter in force, with an unknown or absent id reading as the default. */
+  function p0StatusFilter() {
+    return P0_STATUS_FILTERS.find((f) => f.id === state.p0status) || P0_STATUS_FILTERS[0];
+  }
+
+  /**
+   * One card's tree, narrowed to the filter — **with the ancestors of everything kept**.
+   *
+   * That second half is the whole difficulty. The rows are flat and pre-order with a
+   * `depth` drawn as an indent (`p0RowHtml`), so a row's place in the tree is carried
+   * entirely by what is above it: drop an open parent while keeping its closed child and
+   * the child appears indented under whatever row happened to precede it, which is a
+   * different bead's child. So a row that the filter excludes is still drawn when
+   * something under it is included, marked `context` — it is there to hold the branch up,
+   * not because it matched, and the row draws itself dimmer to say so.
+   *
+   * Pre-order is what makes the walk cheap and correct: a parent is always seen before
+   * its children, so a parent that matched on its own is already `true` in the map by the
+   * time a child walks up to it, and the walk can stop at the first ancestor already
+   * marked — everything above that one is marked too.
+   */
+  function p0Visible(rows) {
+    const all = rows || [];
+    const { match } = p0StatusFilter();
+    const byId = new Map(all.map((r) => [r.id, r]));
+    // `id → matched on its own`. False means kept for a descendant's sake.
+    const keep = new Map();
+    for (const row of all) {
+      if (!match(String(row.status || 'open'))) continue;
+      keep.set(row.id, true);
+      // Up the parent chain until it leaves the tree — `parent` on a top-level row is the
+      // P0 itself, which is the card and never a row — or reaches one already kept.
+      let up = byId.get(row.parent);
+      while (up && !keep.has(up.id)) {
+        keep.set(up.id, false);
+        up = byId.get(up.parent);
+      }
+    }
+    return all.filter((r) => keep.has(r.id)).map((r) => ({ ...r, context: !keep.get(r.id) }));
+  }
+
+  /**
+   * The filter itself: one row of chips above the cards, drawn as the segmented switch
+   * the inbox's scope row already is (`.chip-row.scopes`), because it is the same kind of
+   * control — one of three, never none, and it changes what every list under it contains.
+   *
+   * **Each chip carries what it would leave you with**, counted over the cards actually on
+   * the board rather than over the payload, for the reason the kind chips carry theirs: a
+   * chip offering "Closed" on a board where nothing has landed is a control that sends you
+   * to an empty screen, and the count is what stops you tapping it to find out. Counted on
+   * the rows' own statuses and not through `p0Visible` — the ancestors it keeps are
+   * context, and counting them would have "Closed 12" over a tree with four closed beads
+   * in it.
+   */
+  function p0StatusHtml(cards) {
+    const on = p0StatusFilter().id;
+    const rows = cards.flatMap((c) => c.tree || []);
+    return `<div class="chip-row scopes p0-status" role="group" aria-label="Which beads the trees show">${P0_STATUS_FILTERS.map(
+      (f) => {
+        const n = rows.filter((r) => f.match(String(r.status || 'open'))).length;
+        return `<button type="button" class="chip" data-act="p0-status" data-status="${esc(f.id)}" aria-pressed="${
+          f.id === on
+        }">${esc(f.label)}<span class="chip-count">${n}</span></button>`;
+      }
+    ).join('')}</div>`;
+  }
+
+  /**
    * The line under the title saying what a tap does, and how much there is.
    *
    * It carries the *total* where the count above it carries what is open, which is the
@@ -5140,10 +5292,19 @@
    * epic is nine of ten or nine of sixty. And it is the honest place to say a P0 has
    * nothing under it at all — a card promising a tree and opening on one sentence is a
    * worse read than a card that said so with its mouth shut.
+   *
+   * **Two numbers since bc-rfnr.9.6**, because the filter put a wedge between them: `shown`
+   * is what the tap will actually give you and `total` is what is filed. Promising 16 and
+   * opening on 7 is the hint lying about the one thing it exists to say — and the two
+   * ways of having nothing are different sentences, since "nothing filed under it yet" over
+   * an epic with nine closed children under a `Not closed` filter is the control's doing
+   * and not the tracker's.
    */
-  function p0HintText(on, total) {
+  function p0HintText(on, shown, total) {
     if (on) return 'Tap to fold it up';
     if (!total) return 'Nothing filed under it yet';
+    if (!shown) return 'Nothing under it matches the filter';
+    if (shown < total) return `Tap for ${shown} of the ${total} beads under it`;
     return `Tap for ${total === 1 ? 'the one bead' : `all ${total} beads`} under it`;
   }
 
@@ -5161,6 +5322,12 @@
    *
    * Only a non-open status is drawn. There can be sixty rows here, and sixty pills all
    * saying `open` is the default restated sixty times.
+   *
+   * **`context` is bc-rfnr.9.6's**: this row did not match the status filter and is drawn
+   * only so the rows under it keep their place. A class and nothing more — no
+   * `aria-hidden`, no `tabindex` taken away — because it is still a real link to a real
+   * bead, and a screen reader that skipped it would read the tree with a level missing,
+   * which is the exact failure drawing the row at all is preventing.
    */
   function p0RowHtml(card, row) {
     const status = String(row.status || 'open');
@@ -5168,7 +5335,7 @@
     // `depth` arrives 1-based from `treeUnder` — a direct child is 1 — so the indent is
     // one step per level *below* the first, capped as above.
     const step = Math.min(Math.max(Number(row.depth) || 1, 1), P0_INDENT_CAP + 1) - 1;
-    return `<a class="p0-row${closed ? ' done' : ''}${row.pending ? ' asks' : ''}" style="--d:${step}" href="${esc(
+    return `<a class="p0-row${closed ? ' done' : ''}${row.context ? ' via' : ''}${row.pending ? ' asks' : ''}" style="--d:${step}" href="${esc(
       `${graphUrl({ workspace: card.workspace, id: row.id })}&open=1`
     )}">
       <span class="p0-row-id">${esc(row.id)}</span>
@@ -5197,7 +5364,17 @@
     if (!rows.length) {
       return `<div class="p0-none">Nothing under this one yet — no beads hang off ${esc(card.id)}.</div>`;
     }
-    return `<div class="p0-tree" id="p0tree-${cardId(card.key || `${card.workspace}/${card.id}`)}">${rows
+    // And an epic whose whole tree the filter excludes says *that* instead, in the same
+    // place and for the same reason: the two are different facts, and an epic with nine
+    // landed children reading as one nobody has broken down yet is the filter telling a
+    // lie about the tracker. Names the control, since the control is what to change.
+    const shown = p0Visible(rows);
+    if (!shown.length) {
+      return `<div class="p0-none">Nothing under ${esc(card.id)} matches the filter — all ${
+        rows.length === 1 ? 'one bead' : `${rows.length} beads`
+      } under it are the other side of it.</div>`;
+    }
+    return `<div class="p0-tree" id="p0tree-${cardId(card.key || `${card.workspace}/${card.id}`)}">${shown
       .map((row) => p0RowHtml(card, row))
       .join('')}</div>`;
   }
@@ -5232,6 +5409,14 @@
    * count stays on the shut line, and the fold is display only, so the list below is
    * narrowed to your epics' descendants exactly as it was. See `state.p0shut`, which is
    * stored shut-side-true so that every default there has ever been reads as open.
+   *
+   * **And one status filter over the lot of them (bc-rfnr.9.6).** It sits between the
+   * heading and the cards — above the board, not on it — because it is one question asked
+   * of every tree at once, and it goes away with the cards when the board is folded: a
+   * control over things that are not on screen is a control you set and cannot see the
+   * effect of. What it narrows is the *trees* and nothing else; the list under the board
+   * is `underOwnedP0s`'s business, and a bead you filtered out of a tree is still a
+   * question you are being asked.
    */
   /**
    * The one control on a P0 card, in its three states — and the point of bc-d6yk is that
@@ -5293,6 +5478,10 @@
         const key = c.key || `${c.workspace}/${c.id}`;
         const on = state.p0open.has(key);
         const tree = c.tree || [];
+        // What the tap will actually open, which since bc-rfnr.9.6 is not the same number
+        // as what is filed under the epic. Counted here rather than inside the hint so the
+        // hint stays a sentence about two numbers and nothing else.
+        const shown = p0Visible(tree).filter((r) => !r.context).length;
         return `<div class="p0-card${on ? ' on' : ''}" data-key="${esc(key)}">
           <button type="button" class="p0-tap" data-act="p0" data-p0="${esc(key)}" aria-expanded="${on}"${
             on ? ` aria-controls="p0tree-${cardId(key)}"` : ''
@@ -5304,7 +5493,7 @@
             }</span></span>
             <span class="p0-title">${esc(c.title || '')}</span>
             ${c.waitingOn ? `<span class="p0-waiting">${esc(c.waitingOn)}</span>` : ''}
-            <span class="p0-hint">${p0HintText(on, tree.length)}</span>
+            <span class="p0-hint">${p0HintText(on, shown, tree.length)}</span>
           </button>
           ${on ? p0TreeHtml(c) : ''}
           <div class="p0-acts">
@@ -5324,7 +5513,7 @@
         <span class="chev" aria-hidden="true">›</span>
         ${P0_SECTION_LABEL}
         <span class="p0-kind-n">${mine.length}</span>
-      </button>${shut ? '' : cards}</section>`;
+      </button>${shut ? '' : p0StatusHtml(mine) + cards}</section>`;
   }
 
   function render(force = false) {
@@ -5690,6 +5879,82 @@
   }
 
   /**
+   * Every write this page owes the tracker, drained one at a time behind the thumb.
+   *
+   * See public/submitqueue.js for what it is and why it is not the send queue the
+   * chat composers use. What matters here is what it changed about submit(): the tap
+   * no longer waits for the write. It puts a job on this and returns, so the list,
+   * the composer and the next card are live again in the same frame.
+   *
+   * Nothing draws it. The queue needs no chrome of its own because the flight already
+   * is that chrome: an answer whose write is still out is a bead visibly held at the
+   * mark being pulled in, and three of them queued is three beads in three lanes.
+   * A counter in the top bar would say the same thing again, in a bar that has no
+   * room for it.
+   *
+   * A page that dropped the file still answers questions — the fallback runs the job
+   * immediately instead of queueing it, which is the behaviour of every build before
+   * this one minus the serialisation. Same bargain as absorb.js and dictate.js: a
+   * missing script degrades the flourish, never the function.
+   */
+  const submits = window.beadcause?.submitQueue?.create() || {
+    add: (_key, run) => {
+      run().catch(() => {});
+      return null;
+    },
+    size: () => 0,
+    sending: () => false,
+    has: () => false,
+  };
+
+  /**
+   * Do not let the tab close over a write that has not gone.
+   *
+   * The queue lives in this page and nowhere else: a phone backgrounded and reaped
+   * mid-drain takes every answer still on it, and the acceptance for this whole
+   * change is that none is lost. The browser will not show our words — it has said
+   * for years that it will not — so this is the generic "leave site?" sheet, which is
+   * the entire vocabulary available. It is asked for only while something is
+   * genuinely owed, because a page that always asks is a page nobody reads.
+   */
+  window.addEventListener('beforeunload', (ev) => {
+    if (!submits.size()) return;
+    ev.preventDefault();
+    ev.returnValue = '';
+  });
+
+  /**
+   * Put the refusal in front of the reader, inside a card that may be taller than the
+   * screen.
+   *
+   * `.card.open` is `position: fixed; inset: 0`, so opening the card is most of
+   * "bring it into focus" — but on a bead with a real description the note sits below
+   * a brief you land at the top of, and a red edge you have to scroll to find is a
+   * red edge you find tomorrow. So this scrolls the card's own scroller to it, using
+   * the same two-scrollers-not-one machinery jumpToMine uses: an open card scrolls
+   * itself on some layouts and hands it to `.brief` on others, and asking which is
+   * cheaper than assuming.
+   *
+   * Twice, because the first call runs against a card that has only just been written
+   * into the DOM and may not be overflowing yet — the same reason jumpToMine asks
+   * again on the next frame.
+   */
+  function showNote(key) {
+    const go = () => {
+      const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+      const note = card?.querySelector('.failed-note, .gate-note');
+      if (!note) return;
+      const self = scrollerOf(card);
+      const scroller = self ? SCROLLER_IN[self](card) : null;
+      if (!scroller) return;
+      scroller.scrollTop += note.getBoundingClientRect().top - scroller.getBoundingClientRect().top - ANCHOR_SLOP;
+    };
+    releasePlace();
+    go();
+    requestAnimationFrame(go);
+  }
+
+  /**
    * Send an answer or a comment, and show it becoming a bead while it goes.
    *
    * The write is the slow part — `bd` can spend a second or three retrying against
@@ -5700,8 +5965,18 @@
    *   1. start the flight, off the card's geometry, *before* anything is sent
    *   2. take the card out of the list and repaint, so the list has already reflowed
    *      behind the bead by the time the bead exists
-   *   3. issue the write, and let the flight cover the round trip
-   *   4. absorb on success, recall on failure
+   *   3. **queue** the write, and return — the tap is finished here
+   *   4. absorb on success, recall and hand the card back in red on failure
+   *
+   * **Step 3 is why this function is no longer awaited by anybody.** It used to be:
+   * every caller awaited it, and it awaited the write and then the flight's absorb,
+   * on the argument that two flights must not overlap. Answering four cards in a row
+   * was therefore four round trips with the thumb waiting on each. The flights do
+   * overlap now — absorb.js gives each live one its own lane, so three answers read
+   * as three beads held at the mark, each swallowed as its own write returns — and
+   * the writes are kept in single file by the queue rather than by the animation.
+   * `bd` is a single Dolt writer, so serial is right on the wire; it is only the
+   * thumb that had no business being serialised with it.
    *
    * Which means every piece of state the card was built from has to be recoverable,
    * because step 4 can be "put it back". That is what `at`/`rAt`/`wasOpen` are for,
@@ -5718,7 +5993,7 @@
    * optimistic dance above — the flight, the removal, the restore on failure — is the
    * same code. All that differs is which route it goes to and what the toast says.
    */
-  async function submit(key, text, { close, dismiss = false, create = null, edits = null, option = null, onRestore = null }) {
+  function submit(key, text, { close, dismiss = false, create = null, edits = null, option = null, onRestore = null }) {
     const q = byKey(key);
     if (!q) return;
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
@@ -5747,6 +6022,11 @@
     // the flight needs was measured above; from here on it is drawing over a list
     // that no longer contains what it came out of.
     state.open.delete(key);
+    // A red card being answered again stops being red on the tap rather than when
+    // the write lands. The mark says "this one was refused and is waiting on you",
+    // and the moment you press it is not waiting on you any more — if the second
+    // attempt is refused too, the catch below puts it back with the new reason.
+    q.failed = null;
     if (close) {
       state.inFlight.add(key);
       if (at >= 0) state.questions.splice(at, 1);
@@ -5769,119 +6049,141 @@
       render(true);
     };
 
-    try {
-      const res = await api(dismiss ? '/api/dismiss' : close ? '/api/respond' : '/api/comment', {
-        method: 'POST',
-        body: JSON.stringify(
-          dismiss
-            ? // Whatever was in the box, if anything. Sent as `reason` rather than as
-              // `response` so it can never be mistaken for an answer by a route that
-              // reads markers out of one — a dismissal must not merge a pull request.
-              { workspace: q.workspace, id: q.id, reason: text }
-            : close
-            ? {
-                workspace: q.workspace,
-                id: q.id,
-                response: text,
-                // Explicit, rather than leaving the server to read the numbers back
-                // out of the sentence: the text is for you, the array is for it.
-                ...(create ? { create } : {}),
-                // Which button was pressed, for the one thing the sentence cannot
-                // say: whether this answer commissions work rather than settling it.
-                // Sent as the id and read back off the bead server-side — the card
-                // in front of you may be a poll old, and only the bead knows.
-                ...(option ? { option } : {}),
-                // And your rewrites, keyed by the same numbers. The server puts each
-                // one back through the parser's own normaliser before anything is
-                // created, so a priority you typed into the wrong box is clamped
-                // there rather than failing at `bd create` with half the proposal filed.
-                ...(edits ? { edits } : {}),
-              }
-            : // Which agent picks this up. Absent or unknown resolves to the
-              // default server-side, so an old phone still gets an answer.
-              { workspace: q.workspace, id: q.id, text, agent: state.agent || undefined }
-        ),
-      });
-      clearDraft(key);
-      if (close) {
-        // The card left the list on the tap; this is only the belt to that braces —
-        // a poll that landed mid-write could have merged it back in, and the suppress
-        // set comes off in the same breath.
-        state.inFlight.delete(key);
-        state.questions = state.questions.filter((x) => x.key !== key);
-        // And out of the other channel, on the same tap. An answered request that
-        // stayed in the pane would still be showing its approve button — for a bead
-        // that has already been closed on the answer you just gave.
-        state.requests = (state.requests || []).filter((x) => x.key !== key);
-        state.open.delete(key);
-        // Inside the Android shell, drop the notification for this question now.
-        // Otherwise it sits in the shade with buttons that would answer a bead that
-        // is already closed.
-        window.BeadcauseNative?.answered?.(key);
-        // The dismissal toast says when it comes back, because a card that vanishes
-        // with "Dismissed" on screen reads as gone for good — and it is not. The
-        // server names the condition it is waiting on; without one, a new comment
-        // is what brings it back.
-        toast(
-          dismiss
-            ? `${q.id} set aside — back when ${res?.until ? `${res.until} clears` : 'someone comments'}`
-            : // An approval the server would not act on, and the one outcome here that
-              // is genuinely unexpected: a proposed bead that already exists is not
-              // created, however the tap read. First, because "Answered" over a create
-              // that did not happen is the sort of quiet difference you find out about
-              // a fortnight later. The whole sentence is on the thread.
-              res?.skipped?.length
-              ? `Answered ${q.id} — ${res.skipped.length} already filed, not created again`
-              : // A commission leaves the inbox without being finished, and the card
-              // vanishing looks identical either way. This line is the only place
-              // the difference is visible, so it comes off what the server did
-              // rather than off which button was pressed.
-              res?.handedBack
-              ? `Answered ${q.id} — handed back as work`
-              : `Answered ${q.id}`
-        );
-        render(true);
-        // The tracker took it, so it may be swallowed. Awaited rather than fired and
-        // forgotten so a caller that answers two questions in a row cannot have the
-        // second flight start on top of the first one's.
-        await flight?.absorb();
-      } else {
-        toast(res?.elevated ? 'Comment added — running with tools, this once' : 'Comment added — an agent will be told');
-        // The server has spent the arm on this dispatch, so the box must come back
-        // off. Re-read rather than assume: if the dispatch was refused the arm is
-        // still there, and a tick that lied either way would be the worst outcome.
-        loadAgents();
-        // Reflect the awaiting-agent flag the server just set, without waiting
-        // for the next poll.
-        q.awaitingAgent = true;
-        // Collapsed on the tap already. You have said your piece; keeping the card
-        // open in front of you implies there is something left for you to do with it,
-        // when the next move belongs to the agent. It comes back up when it replies.
+    // Everything above ran on the tap. Everything below runs when the queue reaches
+    // it, which may be several answers later — so nothing in here may assume the card
+    // it is about is still the one on screen, and every path out of it ends by saying
+    // so on the row rather than only in a toast that has long since gone.
+    const job = async () => {
+      try {
+        const res = await api(dismiss ? '/api/dismiss' : close ? '/api/respond' : '/api/comment', {
+          method: 'POST',
+          body: JSON.stringify(
+            dismiss
+              ? // Whatever was in the box, if anything. Sent as `reason` rather than as
+                // `response` so it can never be mistaken for an answer by a route that
+                // reads markers out of one — a dismissal must not merge a pull request.
+                { workspace: q.workspace, id: q.id, reason: text }
+              : close
+              ? {
+                  workspace: q.workspace,
+                  id: q.id,
+                  response: text,
+                  // Explicit, rather than leaving the server to read the numbers back
+                  // out of the sentence: the text is for you, the array is for it.
+                  ...(create ? { create } : {}),
+                  // Which button was pressed, for the one thing the sentence cannot
+                  // say: whether this answer commissions work rather than settling it.
+                  // Sent as the id and read back off the bead server-side — the card
+                  // in front of you may be a poll old, and only the bead knows.
+                  ...(option ? { option } : {}),
+                  // And your rewrites, keyed by the same numbers. The server puts each
+                  // one back through the parser's own normaliser before anything is
+                  // created, so a priority you typed into the wrong box is clamped
+                  // there rather than failing at `bd create` with half the proposal filed.
+                  ...(edits ? { edits } : {}),
+                }
+              : // Which agent picks this up. Absent or unknown resolves to the
+                // default server-side, so an old phone still gets an answer.
+                { workspace: q.workspace, id: q.id, text, agent: state.agent || undefined }
+          ),
+        });
         clearDraft(key);
+        if (close) {
+          // The card left the list on the tap; this is only the belt to that braces —
+          // a poll that landed mid-write could have merged it back in, and the suppress
+          // set comes off in the same breath.
+          state.inFlight.delete(key);
+          state.questions = state.questions.filter((x) => x.key !== key);
+          // And out of the other channel, on the same tap. An answered request that
+          // stayed in the pane would still be showing its approve button — for a bead
+          // that has already been closed on the answer you just gave.
+          state.requests = (state.requests || []).filter((x) => x.key !== key);
+          state.open.delete(key);
+          // Inside the Android shell, drop the notification for this question now.
+          // Otherwise it sits in the shade with buttons that would answer a bead that
+          // is already closed.
+          window.BeadcauseNative?.answered?.(key);
+          // The dismissal toast says when it comes back, because a card that vanishes
+          // with "Dismissed" on screen reads as gone for good — and it is not. The
+          // server names the condition it is waiting on; without one, a new comment
+          // is what brings it back.
+          toast(
+            dismiss
+              ? `${q.id} set aside — back when ${res?.until ? `${res.until} clears` : 'someone comments'}`
+              : // An approval the server would not act on, and the one outcome here that
+                // is genuinely unexpected: a proposed bead that already exists is not
+                // created, however the tap read. First, because "Answered" over a create
+                // that did not happen is the sort of quiet difference you find out about
+                // a fortnight later. The whole sentence is on the thread.
+                res?.skipped?.length
+                ? `Answered ${q.id} — ${res.skipped.length} already filed, not created again`
+                : // A commission leaves the inbox without being finished, and the card
+                // vanishing looks identical either way. This line is the only place
+                // the difference is visible, so it comes off what the server did
+                // rather than off which button was pressed.
+                res?.handedBack
+                ? `Answered ${q.id} — handed back as work`
+                : `Answered ${q.id}`
+          );
+          render(true);
+          // The tracker took it, so it may be swallowed. Deliberately *not* awaited:
+          // this used to be, so that two flights could not overlap, and that await is
+          // exactly what made the next queued write wait out an animation it has
+          // nothing to do with. Overlapping is handled where it belongs now — each
+          // live flight holds its own lane at the mark (absorb.js) — so the swallow
+          // plays out at its own pace while the next answer is already on the wire.
+          flight?.absorb();
+        } else {
+          toast(res?.elevated ? 'Comment added — running with tools, this once' : 'Comment added — an agent will be told');
+          // The server has spent the arm on this dispatch, so the box must come back
+          // off. Re-read rather than assume: if the dispatch was refused the arm is
+          // still there, and a tick that lied either way would be the worst outcome.
+          loadAgents();
+          // Reflect the awaiting-agent flag the server just set, without waiting
+          // for the next poll.
+          q.awaitingAgent = true;
+          // Collapsed on the tap already. You have said your piece; keeping the card
+          // open in front of you implies there is something left for you to do with it,
+          // when the next move belongs to the agent. It comes back up when it replies.
+          clearDraft(key);
+          render(true);
+          // Not absorbed: this bead is still open, and the mark eating it would say it
+          // had been dealt with. It settles onto the row it just came back to. Not
+          // awaited, for the same reason the absorb above is not.
+          flight?.land();
+        }
+      } catch (err) {
+        // The tracker refusing to *close* the bead is not the answer failing, and it
+        // must not read like one. The server wrote nothing and said why, so the card
+        // comes back carrying the reason and the offer — and the draft stays in the
+        // box, because the failure mode this whole path exists to stop is you deciding
+        // the answer was lost and typing it in again.
+        // Which button was pressed rides along, because the note reads differently for
+        // the two: an answer is always worth keeping, a wordless dismissal is not.
+        const gate = err.status === 409 && err.body?.gate ? err.body.gate : null;
+        if (gate) q.closeGate = { ...gate, from: dismiss ? 'dismiss' : 'answer', canComment: err.body.canComment };
+        // Anything else: the write simply did not happen, and *the card is where that
+        // has to be said*. A toast was enough while the tap waited for the write —
+        // you were looking at the thing that failed. Now the failure can arrive three
+        // cards later, and a message that fades after five seconds over an unrelated
+        // question is indistinguishable from having been answered. So it goes on the
+        // row, in the close gate's own family (`failedNoteHtml`), and stays there
+        // until the card is answered again or you dismiss the note.
+        else q.failed = { reason: err.message || 'the write did not go through', from: dismiss ? 'dismiss' : close ? 'answer' : 'comment' };
+        // Reverse the travel first, then re-open the card underneath where the beads
+        // came down. A tracker that refused the answer must not be shown swallowing it.
+        await flight?.recall();
+        restoreCard();
+        // The card is rebuilt by restoreCard, so the note is on screen; put the caret
+        // back where it was rather than making you find the box again. Both refusals
+        // do this now and not just the gate: a queued write that failed while you were
+        // elsewhere has to interrupt, or the red edge is a thing you find tomorrow.
+        openOnly(key);
         render(true);
-        // Not absorbed: this bead is still open, and the mark eating it would say it
-        // had been dealt with. It settles onto the row it just came back to.
-        await flight?.land();
+        showNote(key);
       }
-    } catch (err) {
-      // The tracker refusing to *close* the bead is not the answer failing, and it
-      // must not read like one. The server wrote nothing and said why, so the card
-      // comes back carrying the reason and the offer — and the draft stays in the
-      // box, because the failure mode this whole path exists to stop is you deciding
-      // the answer was lost and typing it in again.
-      // Which button was pressed rides along, because the note reads differently for
-      // the two: an answer is always worth keeping, a wordless dismissal is not.
-      const gate = err.status === 409 && err.body?.gate ? err.body.gate : null;
-      if (gate) q.closeGate = { ...gate, from: dismiss ? 'dismiss' : 'answer', canComment: err.body.canComment };
-      else toast(err.message, true);
-      // Reverse the travel first, then re-open the card underneath where the beads
-      // came down. A tracker that refused the answer must not be shown swallowing it.
-      await flight?.recall();
-      restoreCard();
-      // The card is rebuilt by restoreCard, so the note is on screen; put the caret
-      // back where it was rather than making you find the box again.
-      if (gate) openOnly(key);
-    }
+    };
+    submits.add(key, job);
   }
 
   /**
@@ -6148,6 +6450,29 @@
     if (act === 'p0-fold') {
       state.p0shut = !state.p0shut;
       localStorage.setItem('beadcause.p0shut', state.p0shut ? '1' : '0');
+      render(true);
+      return;
+    }
+
+    /**
+     * Which statuses every tree on the board draws. bc-rfnr.9.6.
+     *
+     * The same shape as the fold above and for the same reasons: a state write, a
+     * `localStorage` write on the tap because the next thing that happens to this page is
+     * a poll and there is no later save, and a repaint. Nothing is poked in the DOM — the
+     * board is one reconcile chunk that is replaced whole every 25 seconds, so a filter
+     * applied by hiding nodes would come undone under your thumb, exactly as an open tree
+     * would (see `state.p0open`).
+     *
+     * An id this page does not know is ignored rather than stored: `p0StatusFilter` would
+     * fall back and draw the default, and writing it would leave the phone in a state
+     * whose control had no chip pressed.
+     */
+    if (act === 'p0-status') {
+      const pick = btn.dataset.status;
+      if (!P0_STATUS_FILTERS.some((f) => f.id === pick)) return;
+      state.p0status = pick;
+      localStorage.setItem('beadcause.p0status', pick);
       render(true);
       return;
     }
@@ -6764,7 +7089,7 @@
             beads.length === 1 ? '' : 's'
           }${declined ? `, declining ${declined}` : ''}${adjusted ? `, ${adjusted} adjusted` : ''}.`
         : `Not now — none of the ${beads.length} proposed beads.`;
-      await submit(key, text, {
+      submit(key, text, {
         close: true,
         create: approved.length ? approved : null,
         edits: adjusted ? edits : null,
@@ -6802,7 +7127,7 @@
       // Built here rather than read out of the decision block's option: the server
       // consents on the marker alone, and a card that has just re-read GitHub knows
       // more about this PR than the block written when the session ended.
-      await submit(key, `MERGE: ${d.method} and merge #${d.number}${d.bead ? `, then close ${d.bead}` : ''}.`, { close: true });
+      submit(key, `MERGE: ${d.method} and merge #${d.number}${d.bead ? `, then close ${d.bead}` : ''}.`, { close: true });
       return;
     }
 
@@ -6834,7 +7159,7 @@
         return;
       }
       disarm();
-      await submit(key, `SHIP: ${d.method} and merge #${d.number}, then deploy ${d.workspace || 'it'}.`, { close: true });
+      submit(key, `SHIP: ${d.method} and merge #${d.number}, then deploy ${d.workspace || 'it'}.`, { close: true });
       return;
     }
 
@@ -7230,7 +7555,7 @@
       }
       disarm();
       const box = btn.closest('.card')?.querySelector('[data-role="answer"]');
-      await submit(key, (box?.value || '').trim(), { close: true, dismiss: true });
+      submit(key, (box?.value || '').trim(), { close: true, dismiss: true });
       return;
     }
 
@@ -7250,7 +7575,7 @@
       const text = (box?.value || getDraft(key)).trim();
       if (!text) return toast('Write something first', 'refused');
       if (q) q.closeGate = null;
-      await submit(key, text, { close: false });
+      submit(key, text, { close: false });
       if (box) box.value = '';
       return;
     }
@@ -7261,6 +7586,18 @@
     if (act === 'gate-dismiss') {
       const q = byKey(key);
       if (q) q.closeGate = null;
+      render(true);
+      return;
+    }
+
+    // The same move on the red note, and the same bargain: the draft stays, only the
+    // marker goes. It has its own action rather than sharing gate-dismiss because the
+    // two notes can in principle both be on one card — a close the tracker gated, then
+    // a write that failed outright — and one button clearing both would take away a
+    // refusal you have not read.
+    if (act === 'failed-dismiss') {
+      const q = byKey(key);
+      if (q) q.failed = null;
       render(true);
       return;
     }
@@ -7284,7 +7621,7 @@
        */
       const q = byKey(key);
       const asChanges = act === 'answer' && q?.delivery;
-      await submit(key, asChanges ? `CHANGES: ${text}` : text, {
+      submit(key, asChanges ? `CHANGES: ${text}` : text, {
         close: act === 'answer',
         // Which choice this sentence is making, when it is making one. The words may
         // have been edited into a qualified version of it and the server never tries
