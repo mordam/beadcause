@@ -34,6 +34,11 @@
   <!-- Every error this page hits, sent back to the daemon as a P0 bead. Ahead of every
        other script, because it can only catch what loads after it. -->
   <script src="/report.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       See public/freshness.js. -->
+  <script src="/freshness.js"></script>
   <!-- The diagrams. The same vendored copy public/app.js loads on demand to draw the
        mermaid an agent puts inside a bead body — and, like it, deliberately *not* in the
        service worker's SHELL: 3.5MB of precache is a real cost on a phone, and this page
