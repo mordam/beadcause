@@ -54,6 +54,12 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 // the machine's own sessions come up on.
 process.env.BEADCAUSE_ITERM_PROFILE_DIR = path.join(tmp, 'iterm');
 fs.mkdirSync(process.env.BEADCAUSE_ITERM_PROFILE_DIR, { recursive: true });
+// The one suite that opts out of the launch guard, and the only one that has earned it:
+// `MIRROR` below puts a **stub AppleScript** where `launch` looks for the real one, which
+// is a narrower seam than the guard and a better one — it proves what the shell in that
+// window would have run rather than merely that no window opened. Every other suite is
+// refused at `launch`, on `argv[1]` alone if nobody set anything. See lib/launchguard.js.
+process.env.BEADCAUSE_ALLOW_LAUNCH = '1';
 
 const { MODEL_BY_TIER, FALLBACK_MODEL, TIERS, modelForTier, modelForBead } =
   await import(LIB('complexity.js'));

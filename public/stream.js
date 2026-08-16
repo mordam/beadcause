@@ -273,6 +273,14 @@
           // log at all: an old daemon, a proxy, a stub. There is nothing to follow, and
           // asking again would be a request at full speed for as long as the page is
           // open, which is worse than the timer this replaced by any measure.
+          // Something answered — which is the only fact public/freshness.js needs, and it
+          // is deliberately stamped here rather than in the view's `onWake`: a poll that
+          // answers with no events at all is a daemon that is perfectly alive and a view
+          // that will not repaint, and that is precisely the case a staleness banner must
+          // not fire on. The payload rides along because the daemon's own sweep age is on
+          // it. Optional at every call: a page served before that file existed has no
+          // `window.beadcause.fresh` and this is a no-op.
+          window.beadcause?.fresh?.heard?.(data);
           const told = data && data.seq !== undefined && data.seq !== null && Number.isFinite(Number(data.seq));
           if (told) at = Number(data.seq);
           // Something answered, so whatever was wrong is over.
@@ -310,6 +318,10 @@
           clearTimeout(retryTimer);
           retryTimer = setTimeout(start, backoff);
           backoff = Math.min(backoff * 2, MAX_RETRY_MS);
+          // Not a second clock — the banner draws on ours either way. This only lets it
+          // say *retrying* rather than leaving the reader to wonder whether anything is
+          // still trying at all, which is the difference between a warning and an alarm.
+          window.beadcause?.fresh?.trying?.(true);
         }
       }
     }
@@ -340,7 +352,7 @@
       });
     }
 
-    return {
+    const api_ = {
       start,
       stop,
       get seq() {
@@ -361,12 +373,43 @@
         return following;
       },
     };
+    mounted.add(api_);
+    return api_;
+  }
+
+  /**
+   * Every stream mounted on this page, so something that is not a view can wake them.
+   *
+   * The banner in public/freshness.js is the caller: its **Retry now** must not wait out
+   * a backoff that may be up to a minute long, and it has no reference to whatever the
+   * page passed to `follow`. Registered here rather than handed around because a page can
+   * mount more than one (the monitor's mirror follows presence beside the view's own
+   * poll), and waking one of two is a button that half works.
+   */
+  const mounted = new Set();
+
+  /**
+   * Start every stopped stream again, now. Answers how many it nudged, so a caller can
+   * tell "I woke something" from "there is nothing here to wake" and fall back.
+   */
+  function wake() {
+    let woke = 0;
+    for (const s of mounted) {
+      try {
+        s.start();
+        woke += 1;
+      } catch {
+        /* one stream that will not start must not stop the next */
+      }
+    }
+    return woke;
   }
 
   window.beadcause = window.beadcause || {};
   window.beadcause.stream = {
     follow,
     listen,
+    wake,
     moved,
     touched,
     workMoved,
