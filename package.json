@@ -19,11 +19,14 @@
     "beadcause-ask": "bin/ask.js",
     "beadcause-supersede": "bin/supersede.js",
     "beadcause-deliver": "bin/deliver.js",
+    "beadcause-merge": "bin/merge.js",
     "beadcause-checkin": "bin/checkin.js",
     "beadcause-plan": "bin/plan.js",
     "beadcause-attic": "bin/attic.js",
     "beadcause-requirements": "bin/requirements.js",
-    "beadcause-incidents": "bin/incidents.js"
+    "beadcause-incidents": "bin/incidents.js",
+    "beadcause-boundary": "bin/boundary.js",
+    "beadcause-management": "bin/management.js"
   },
   "scripts": {
     "start": "node bin/router.js",
