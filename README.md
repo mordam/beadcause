@@ -3875,6 +3875,59 @@ holds all of it: the first sight that must be silent, each event, the stall's tw
 every bound, and — as a source read, because a behaviour test cannot see it cheaply — that
 the sweep is still below the three lines that stop the tick.
 
+### Pausing one epic — the button that stops dispatch under a P0 without stopping the repo
+
+Everything above holds an epic back for **contention**: a twin already being worked, a
+branch in an open pull request, a lease on another Mac, a file somebody has their hands
+on. None of those is a decision, and every one of them clears itself the moment the other
+thing finishes. So until bc-lco2 there was no way to say *stop* to one epic. You could
+close it, or you could pause the whole repo — which stops the four other epics that were
+fine.
+
+**Pause is a per-P0 control on its section of `/monitor`, and the fact lives on the bead**
+as an `advocate-paused` label. A label rather than a marked block in `notes`, which is the
+opposite of the choice the waiting-on sentence makes one file over, and the two facts are
+why: a waiting-on sentence is prose only the advocate writes, so it needs a field that can
+hold a clause; a pause is a boolean somebody toggles from a phone, and `bd label add` is
+one atomic operation where writing into `notes` is a read, a concatenate and a write with
+the advocate's own rewrite landing in the middle of it. A toggle that occasionally erased
+the waiting-on block would **un-enrol the epic as a side effect of pausing it**, which is
+the one failure this feature must not have. On the bead rather than in `advocates.json` for
+the reasons enrolment is: it survives a restart and losing the state file, it is readable
+from the phone and from another Mac, and the button and the sweep cannot disagree about it
+because neither of them holds it.
+
+**Three things stop, and one deliberately does not:**
+
+| | what happens |
+|---|---|
+| the re-entry sweep | opens no advocate window on that P0. The snapshot of what moved is **kept**, not pruned, so the window opened after the resume is briefed on everything that happened while it was paused — dropping the record would make the resume a *first sight*, which is silent by design |
+| the queue | `withoutPausedEpics` takes every ready bead in the subtree out of the survey — the P0 itself included, since a leaf P0 is workable in its own right — and says so as `heldByPause`, a pill on the card and a line in the note. It runs **innermost of the seven filters**: a bead under a paused epic reported as "another Mac has claimed it" would be true and would be the wrong sentence, sending you to look at a machine when what holds it is a button on this screen |
+| the launch door | `openEpicAdvocateSession` refuses with a 409 naming the pause, so the 🧭 button cannot get round a pause the sweep respects |
+| **the windows already open** | **nothing.** They keep their slots, keep their claims, and finish on their own briefs. A pause that killed them would lose exactly the half-finished work it was pressed to protect |
+
+**But they are told, and the message is the second half of the feature rather than a
+courtesy.** A session ordinarily hands its unfinished thinking to the next window on the
+bead half an hour later; a pause is a promise that there will not be one, so it is the
+exact moment the cost of an unwritten debrief comes due. Each window under the epic gets a
+line saying the epic is paused, that this is *not* a check-in and nothing is being taken,
+and asking for `beadcause-memory debrief` before it exits — which is what `debriefBrief`
+hands to whatever opens after the resume. A window that cannot be reached (iTerm refusing
+the Apple event, or one that has already gone) does **not** undo the pause: the label is
+written first, the queue is already holding, and the honest report is "paused, and I could
+not reach two of the windows".
+
+Resume takes the label off and dispatch comes back on the next tick. Nothing is typed into
+a window on a resume — the sessions that were told were told there would be no next one,
+and a "resumed" line arriving in one that has since wound down is noise in a window
+somebody is reading.
+
+The button writes into the daemon's in-memory set as well as onto the bead, and that is
+not belt-and-braces: `bd.graph` is cached for a minute, so a pause that waited for the
+roster to re-derive it would be a button you press twice. The label stays the fact — the
+set is re-read from the graph before **every** survey, which is what lets a resume from
+another Mac, or from `bd` on the command line, land within a tick.
+
 ### A question under nothing is still drawn
 
 Narrowing the inbox to your P0s means a row that is in no P0's descendants is not drawn,
@@ -15408,7 +15461,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/foundation/amend` | `{id, workspace?, set, bead?, justification}` | edits one agent's foundation, recorded exactly like an amendment the agent asked for — same history, same justification. `400` naming the field if `set` carries a protected one, rather than dropping it silently |
 | POST | `/api/foundation/decline` | `{id, workspace?, bead?, request, reason}` | records a refusal against that agent, so `git log refs/beadcause/foundations` carries the no as well as the yes |
 | GET | `/api/foundation/log` | `?id=&ws=&bead=` | `{key, log}` — that agent's transcript. `{key: null}` and a sentence when the kind keeps no log file |
-| POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
+| POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) · `limit`/`globalLimit` (a number in `value`) · **`epicPause`/`epicResume`** (a **bead id** in `value`, not a number — [pausing one epic](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo)): writes the `advocate-paused` label, holds the whole subtree out of the queue, and messages every window under the epic to ask for a debrief before it exits. Both blocked under `OBSERVING`, unlike `pause`/`resume` above them — those are a local decision about a loop that is not running here anyway, and these two write to the shared tracker and type into windows this instance did not open |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json`, `memory.md` or `transcript.jsonl` |
