@@ -24,9 +24,11 @@
     "beadcause-plan": "bin/plan.js",
     "beadcause-attic": "bin/attic.js",
     "beadcause-requirements": "bin/requirements.js",
+    "beadcause-access": "bin/access.js",
     "beadcause-incidents": "bin/incidents.js",
     "beadcause-boundary": "bin/boundary.js",
     "beadcause-management": "bin/management.js",
+    "beadcause-attest": "bin/attest.js",
     "beadcause-capa": "bin/capa.js"
   },
   "scripts": {

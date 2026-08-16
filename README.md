@@ -10384,6 +10384,87 @@ screen full" — and never while observing. `closeFinishedSessions: false` switc
 along with everything else in this section: an off switch that only delayed the signal by
 twenty minutes would not be one.
 
+##### Parking — a window waiting on you closes, and your answer brings it back
+
+Both sweeps above close a window that **finished**. Neither can touch the one there are
+thirteen of: a window that **stopped**. A resolver that pushed its rebase, a MergeAdvocate
+waiting on a review, a P0 advocate that wrote its waiting-on sentence and had nothing left
+to say — each has an open bead and a name that says nothing about being finished, so both
+sweeps look straight past them, correctly, and they sit there until somebody opens them one
+at a time. That was the state of this Mac on 2026-08-16: fifteen live Claude sessions,
+thirteen idle, none of them on any advocate's slot list.
+
+They were left open for a good reason. Closing a window destroys the only copy of what that
+agent worked out, and an hour of context is worth more than a rectangle — which is why the
+sweeps above only ever close windows whose work is provably *elsewhere*, in a closed bead or
+a merged pull request.
+
+**`claude --resume <id>` is what removes that reason.** The id is minted by the launcher
+before the window exists (`--session-id` on the first turn, the same trick the chat session
+and the in-app terminals have always used), so a window whose id has been written down is
+not destroyed when it closes. It is **parked**: the conversation, the directory it ran in,
+and one sentence about what it is waiting for, in `state.json`. When the thing it was
+waiting on arrives, the advocate opens that conversation again instead of briefing a
+stranger.
+
+So the order is the whole safety property, and it is asserted in `test/parked.mjs`: **write
+the record, verify it reached the disk, then close the window.** Never the close without the
+record — one `saveAppState` per park rather than one batched write at the end of the sweep,
+because a batch means the first nine windows are signalled on the strength of a record that
+only lands after the tenth. A failed write is a window left open, which is exactly the state
+that existed before any of this.
+
+| before a window is parked | why |
+|---|---|
+| this daemon **opened** it, and said so at the time | the register in `state.json` is keyed by **session id**, written by `launch` itself. Every earlier attempt to match a window to what opened it matched on the *name*, and a name is something the session writes about itself and can change; the id is chosen by the launcher and reported straight back off Claude Code's own live-session record, so the join is exact. A window you opened yourself is not in the register and cannot be reached |
+| it is not **busy** | the guard that is not about time at all. A window mid-turn is never closed, whatever else is true |
+| it has been **idle** for `parkIdleMinutes` (default 10) | minutes, not the 90 seconds a finished worker gets, because here the ending is *inferred from silence* rather than proved by a closed bead. Ten and not sixty: an hour's grace means the screen is full for an hour before anything helps, which is the state of affairs already |
+| its conversation is **written down** | an id that is really an id, and the directory it ran in. `--resume <id>` finds the conversation from anywhere — measured on Claude Code 2.1.x — so the directory is not what locates it; it is what supplies everything the transcript cannot, which is the branch, the uncommitted edits and the files every path in that agent's context points at. Resuming in the wrong tree gives an agent a perfect memory of files that are not there, and it will act on it |
+
+Two windows are exempt by their own door rather than by a guard: **Open a session** and a
+**handoff**. Both mean *open me a window to work in*, and a window somebody is sitting in is
+not a window waiting on somebody.
+
+A worker that reaches one of its documented endings is parked by `finish` instead, which
+knows which ending it was and can say so: **handed back** — it asked a question, and
+answering the bead brings the session back — or **delivered** — a pull request is waiting on
+a tap, and the merge does. The other five endings park nothing, and the test is not "did
+this window stop" but *does a conversation with this agent still have somewhere to go*: a
+closed bead has nothing to answer, a stood-down window belongs to another Mac, and a session
+that timed out or went silent is not one to hand an answer to.
+
+**The resume happens at the dispatch seam, not at `/api/respond`.** Opening the window from
+the answer handler is tempting — the answer is right there — and it is wrong twice. Every
+gate that decides whether a window may open lives on the advocate's tick: attempts, claims,
+cross-machine leases, the endorsement door, quiet hours, the worker limit, `OBSERVING`. A
+launch from the answer handler is a launch past all of them, and the first time two Macs
+answered one question there would be two windows on one bead. And the answer does not only
+arrive from the phone: it arrives from Slack, from the laptop, from `bd` on the command line,
+and from a bead somebody unblocked by hand. The tracker is the one place all of those meet.
+
+So the flow is the flow that already existed, with one lookup added — the answer unblocks the
+bead, the bead goes ready, the advocate surveys it, and at the moment it would open a window
+it asks *is there a conversation parked on this bead?* What that conversation wakes up to is
+deliberately short: who answered, what they said, and that time has passed so `main` may have
+moved. Not the brief — it already has the brief, and handing it a second copy is a strong
+signal to start over, re-read the files, re-derive the conclusion and ask the same question
+again.
+
+A **retired worktree comes back out of the attic** to be resumed in, with `git worktree
+move` and never a rename. That is the ordinary life of a parked window — deliver, park, the
+branch merges, the worktree retires, and only then do you answer — and the attic exists
+precisely so a retired tree stays resumable for two days. Where the tree is genuinely gone,
+or no transcript survives, the dispatch opens a **fresh** session and says so in the log: a
+fresh session that reads as a resume is the one outcome worth guarding against, because it
+looks identical on the console and the agent has no idea it was supposed to know anything.
+
+Parked conversations are drawn on the advocate's card under **Parked — waiting on you**,
+above *Up next*, because everything below that line happens on its own and this is the only
+section blocked on you. Each row says what it was, what it is waiting for, and how many
+times it has already been round the loop. There is deliberately no *resume now* button: the
+resume is not something you do to a conversation, it is what happens when the thing it is
+waiting on arrives, and a button there would be a second door into a launch.
+
 #### Reclaiming a slot, by asking
 
 The inference above is what the daemon can work out on its own. **Reclaim sessions** is
@@ -16648,6 +16729,164 @@ row on a space's card, where a per-space control would quietly govern all of the
 fake Confluence, and the case it exists for is the third paragraph above: a page in a
 space that is not readable, behind a URL that says it is.
 
+## The access register — every principal, human and agent, and what revokes it
+
+Every control framework asks the same question in its own words: who can reach this, on
+whose authority, and what takes it away. The pieces of an answer have been here for a
+long time — a token, an allowlist, per-device sessions, a tailnet with no public
+listener, a foundation per agent kind, an endorsement gate no unattended session may
+cross — but they were **arrangements** rather than a stated control, and the difference
+shows the moment somebody asks for the list. An arrangement is answered by reading six
+files and reasoning. A control is answered by running one command:
+
+```
+beadcause-access            # the whole register, as prose
+beadcause-access --json     # the same thing for a script
+beadcause-access --review   # just the review line; exit 1 when it is overdue
+```
+
+`lib/access.js` is the register, `bin/access.js` prints it, `test/access.mjs` is what
+stops it going quietly stale.
+
+### An agent is not a user account, and modelling it as one is the trap
+
+The obvious shape is a table of accounts with a row per agent, and it is wrong in a way
+that would survive review by being ticked. **Nothing this daemon spawns holds a
+credential of its own.** All six agent kinds run as the single Claude subscription signed
+in on this Mac; there is no per-agent secret to rotate, nothing to disable one at a time,
+and a table implying otherwise describes six accounts that do not exist.
+
+So the register's rows are **grants, not accounts** — the thing that hands a principal
+its reach, chosen because it is the thing a review can actually revoke:
+
+| What grants it | Where it lives | What revokes it |
+|---|---|---|
+| A [foundation](#what-an-agent-is--and-how-it-asks-to-be-different) | `lib/foundation.js`, plus amendments on `refs/beadcause/foundations` | A commit, or an amendment — and never for a `PROTECTED` field |
+| An endorsement | The bead itself | Park it, or never endorse it — an unendorsed bead is worked by nobody |
+| A directory-scoped export | `~/.zshenv` | `unset`, which happens on its own the moment a session is rooted somewhere personal |
+| A network position | The tailnet | Remove the device from the tailnet admin console |
+| An allowlist entry | `auth.google.allowed` | Delete the line — then delete the device rows, because a live cookie outlives it |
+| A device row | `state.json` | The Devices screen |
+| Possession of the token | Whoever photographed the QR | Rotate it |
+
+The fourth row is the boundary, and it is the one an auditor should be told first: there
+is no public listener and [no inbound webhook](#https-on-the-tailnet-name) of any kind,
+so every credential below sits behind a network position an unenrolled device cannot
+take. The boundary is a register row of its own, and it carries the answer about data in
+transit — [HTTPS on the MagicDNS name](#https-on-the-tailnet-name), terminated by the
+router, with WireGuard underneath it either way. That last clause is the one worth having
+written down: an install with no certificate yet is a normal state here, and on that day
+the traffic is still encrypted and only the browser's lock is missing. The one plaintext
+hop is loopback, between the router and whichever backend it last swapped to.
+
+### Half of it is derived, and the other half refuses to be silent
+
+The roster of agent kinds is `AGENTS` in `lib/foundation.js`, read at call time. So a
+seventh kind cannot come into existence without the register having heard of it — but
+what *cannot* be derived is the sentence saying what that kind reaches and what takes it
+away, and a register whose answer to a new kind is silence is a register that reports
+completeness on the day it stopped being complete. `AGENT_ACCESS` must therefore cover
+`AGENTS` exactly, and a kind with no row **throws**: the same shape `MARKS` uses to stop
+a new agent shipping as a generic 🤖.
+
+The human half is the opposite — read from live config and live state on every call,
+never copied into the module. "Who can sign in" is a fact about a file, and a second copy
+of it is an answer that drifts and is believed anyway.
+
+And nothing in the register is **keyed** by a framework id — no exported value in
+`lib/access.js` contains one, and a couple of comments name a criterion only so a later
+reader knows what a paragraph was for. That is a seam, not an omission: one closed control
+corpus across SOC 2, ISO 27001 and 42001 is being built separately with the crosswalk
+edges on the control, and an id written into the data here first would be a second
+vocabulary — the "same control implemented three times" that a single corpus exists to
+prevent. This file is the *evidence*; the corpus cites it, in that direction. Which
+criteria it answers is said here, in prose, where nothing can join on it: identity and
+authentication, authorisation against a role, removal on termination, boundary
+protection, protection of data in transit, and controls over what may run.
+
+### What an agent may run, and the one kind that has no allowlist
+
+Every agent row also carries what that kind may *execute*, read off its foundation:
+twelve allowlisted patterns for the chat session, nineteen for the dispatcher,
+twenty-five and twenty-nine for the two advocates, twenty-four for the merge queue. The
+allowlist names `bd`'s read-only verbs one at a time rather than `bd *`, because `bd *`
+quietly included create, close, delete and label — which is the difference between an
+agent that answers a question and one that can file the bead the proposal flow exists to
+make you approve.
+
+And then the worker, which **has no allowlist at all**. That is deliberate and
+defensible: a session opened to do a bead needs whatever the bead needs, and its
+containment is the worktree it may write to rather than a list of verbs. It is also the
+single widest grant in this system, so the register says it in those words rather than
+letting it render as a number like the other five, and `test/access.mjs` pins the
+wording. A control document whose widest grant is the one you cannot find in it is worse
+than no document.
+
+### The credentials, and the three that are scoped by something other than a permission
+
+`CREDENTIALS` is closed and hand-written, because there is nothing to derive it from — a
+credential is a fact about a file or an environment variable. Ten of them: the API token,
+the session signing key, a device session, the Google client secret, the tailnet TLS key,
+both Slack tokens, the Atlassian token, the `gh` login, and the Claude subscription every
+agent runs as.
+
+Three are worth reading twice, because their scope is not enforced by a permission system
+at all:
+
+- **`JIRA_API_TOKEN` is scoped by a directory.** `~/.zshenv` exports it under work paths
+  and `unset`s it everywhere else, so a session rooted in a personal repo *physically
+  cannot* authenticate against the work JIRA. Nobody has to remember to remove it.
+- **The `gh` login is wider than beadcause**, and is registered saying so. It is the
+  credential every push, pull request and merge rides on, and it can see every repo that
+  GitHub account can.
+- **The API token carries no identity**, which is the fact worth registering rather than
+  the fact worth hiding. There is no list of who holds it and a photographed QR is a
+  grant, so its row names possession as the authority and rotation as the only revocation.
+
+Where each one lives and how it is rotated is [in the secrets
+section](#where-the-two-secrets-live-and-how-to-rotate-them); the register repeats the
+path and the revocation act rather than linking, because a list you have to follow links
+out of is a list nobody finishes on the day it matters.
+
+### Joiner, mover, leaver — written down for an org of one
+
+Every one of these paths has run zero times, and that is not a reason to leave them
+undocumented. The question is whether the path exists and is followed, and "we would have
+worked it out" is both the answer that fails and the answer that is *true* at the moment
+it matters most — a laptop lost, a contractor finished — which is exactly when nobody is
+in a state to work anything out.
+
+A **joiner** is an allowlist line, a tailnet enrolment, and the token only if they need a
+caller that is not a browser. A **mover** here is usually not a person at all: a role
+change is a change to what an agent may do, which is an amendment or a commit to
+`lib/foundation.js`. A **leaver** is twelve acts, and the twelfth is removing their
+tailnet device.
+
+The leaver path is where the register closes its own loop. Each step names the credential
+it ends, and `test/access.mjs` asserts that **every** id in `CREDENTIALS` appears in at
+least one of them. Add a credential without saying how it comes back and the suite fails
+— so the way out cannot quietly go stale behind the way in, which is the usual way a
+leaver checklist stops being true.
+
+### The quarterly review, and what happens when it is late
+
+`REVIEWS` in `lib/access.js` is append-only, and appending to it is a commit — so who
+performed a review and when is the git identity on that commit, in a history nobody here
+can rewrite. There is deliberately no field restating any of that; a field that can
+disagree with the history is worse than no field.
+
+Ninety days. `test/access.mjs` fails when the next one is past due, `beadcause-access`
+exits 1 on the same condition, and both read the same function so they cannot drift into
+two different controls. Performing a review is: run `beadcause-access`, read it, fix what
+is wrong, append one entry, commit.
+
+**One honest limit, said out loud because an auditor will find it otherwise.** The merge
+queue ignores checks `main` is already failing, so once this red lands on `main` it stops
+blocking other people's merges rather than halting the fleet. That is the right failure
+direction — an unreviewed register must not become a deadlock nobody can commit their way
+out of — but it means the teeth here are a visible red and a card, not a gate. Making it
+one belongs with the rest of the enforcement gates, not with the register.
+
 ## HTTP API
 
 Auth on everything under `/api/` except `/api/health`: header
@@ -17593,6 +17832,8 @@ to be one.
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
 | `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `QUEUED-`/`DONE-`, only a closed bead; `false` leaves your own windows where you put them |
 | `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
+| `advocates.parkIdleWindows` | [park a window this daemon opened once it goes quiet](#parking--a-window-waiting-on-you-closes-and-your-answer-brings-it-back) — write its conversation down by session id, then close it, so an answer resumes the same agent rather than briefing a new one (default `true`). This is the one sweep that closes a window whose work is not provably anywhere else, so it has its own switch; `false` leaves them open and the resume never happens. `closeFinishedSessions: false` switches it off too |
+| `advocates.parkIdleMinutes` | how long quiet is long enough (default 10). Minutes rather than the 90 seconds a *finished* worker gets, because here the ending is inferred from silence rather than proved by a closed bead |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
@@ -20070,6 +20311,95 @@ are. A surveyor that could author is a surveyor that could answer its own questi
 wires it into a daemon yet, and what it does *not* answer is whether a period an instance was
 publishing across can be claimed — linked is not continuous, that is bc-3muu.4, and rounding
 the two together would let the weaker fact be quoted as the stronger one.
+
+### A deployment says what it can back up — `lib/posture.js`, `bin/attest.js`
+
+[Who operates it](#who-operates-it--liboperatorjs-testoperatormjs), three sections up, puts
+the daemon that produces those chain heads on the customer's own hardware, and that one move
+changes who can get it wrong. While we host it, correct configuration is ours to guarantee and a misconfiguration
+is ours to notice. Hosted by somebody else, a deployment with **append-only enforced
+nowhere but in the application**, with **anchoring never configured**, with a **retention
+shorter than the window it is meant to support**, or running a **build nobody can
+identify**, produces evidence that looks exactly like good evidence. Nobody finds out until
+an auditor pulls the thread, and by then the period is over and cannot be re-observed.
+
+**Documentation cannot fix that, and this is the argument for building it instead of
+writing it down.** A runbook is read once, on the day of the install, by somebody who is
+not the person still running the box three years later. So the deployment says what it is
+continuously, in the record itself: a `posture` record, on the same chain as everything
+else, carrying six facts —
+
+| field | what it says | why it is a claim and not a note |
+|---|---|---|
+| `storage` | `storage` \| `application` \| `none` \| `unknown` | who could delete a row. `application` means the *code* refuses to rewrite and the operator running the code still can |
+| `anchoring` | whether an anchor is configured at all | without one, nothing witnesses a head anywhere the local operator does not administer |
+| `anchored` | when anchoring last succeeded, or `never` | an anchor witnesses the head it saw. One from March says nothing about June |
+| `retention` | months kept, or `permanent` | a report relied on for twelve months needs twenty-four |
+| `build` | the commit running, or `unknown` | a record whose producer cannot be identified |
+| `provenance` | `matched` \| `mismatched` \| `unknown` | `mismatched` is a tree somebody changed under the daemon — invisible to anything recording a version string |
+
+**Every one of them is observed, and there is deliberately no way to state one.** No
+`posture.json`, no config key, no argument that says "we are append-only, trust us":
+`observe` takes *places to look* — the checkout, the store, a witness for anchoring — and
+where it cannot look it writes `unknown` rather than an optimistic default. A deployment
+able to assert its own posture would have the runbook's failure mode one layer down and
+harder to see, and `test/posture.mjs` reads the signature of `observe` and fails the repo
+if any posture field ever becomes an argument to it.
+
+**The refusal is the whole point, and it is bc-3muu.4's rule pointed at configuration
+instead of connectivity.** A posture that cannot back a claim does not produce a smaller
+claim, a warning, or compliant-with-exceptions — the interval it covers reports
+`unverified`. That is not the same as failed, which is why `CRITERION_STATES` keeps
+`unverified` and `unmet` apart, and it never blocks anybody's work: a daemon whose
+anchoring was never configured goes on dispatching sessions and writing chains exactly as
+before. What it stops doing is claiming a period it cannot show.
+
+**A posture change renders rather than resolves.** `report` cuts the run of records into
+the intervals each posture covers, so a quarter with anchoring off for five weeks reads as
+five weeks with anchoring off — a scope note an auditor can price — instead of averaging
+into a clean quarter, which is what a posture held as current state rather than as history
+would produce. A `chain-head` published inside such a stretch is reported as unbacked,
+which is the acceptance in one line: a head published under a posture that cannot support a
+claim is a number, not a witness.
+
+```
+UNVERIFIED — 2026-01-01T00:00:00.000Z to 2026-03-31T00:00:00.000Z
+
+  ✓ 2026-01-01T00:00:00Z to 2026-02-01T00:00:00Z
+      storage=storage, anchoring=true, anchored=2026-01-01T00:00:00Z, …
+  ✗ 2026-02-01T00:00:00Z to 2026-03-08T00:00:00Z
+      changed: anchoring=false, anchored=never
+      · anchoring is not configured, so no head is witnessed anywhere the local
+        operator does not administer
+  ✓ 2026-03-08T00:00:00Z onwards
+      changed: anchoring=true, anchored=2026-03-08T00:00:00Z
+```
+
+**And an auditor can run it without us, because otherwise the verdict is the vendor's word
+about the vendor.** `report` takes published records and nothing else — no repository, no
+content, no network, no config directory — so `beadcause-attest verify` works against an
+export on a laptop that has never seen this install. It reads a JSON array or one record
+per line, because an export is written by whoever exports it and a verifier that only reads
+its own output is one nobody else can use, and it exits 0 when the interval may be claimed
+and 2 when it may not. The daemon and the auditor call the same function, which is the only
+way the two answers cannot quietly diverge.
+
+```bash
+beadcause-attest posture                  # what this deployment observes about itself
+beadcause-attest record --instance <tok>  # that posture, as a record for the chain
+beadcause-attest verify export.json --from 2026-01-01T00:00:00Z --to 2026-03-31T00:00:00Z
+```
+
+**Expect `unverified` from every install today, and that is the correct output rather than
+a threshold to relax.** Nothing anchors yet — that is bc-3muu.10 — and a git ref in a
+directory its operator owns is enforced by the application and not by the store, which is
+what bc-3muu.3 changes by putting a copy of the head somewhere else. The number that must
+never appear is a deployment reporting `verified` because nobody looked, and the one
+constant this file does not import is the retention floor: `OBSERVATION_MONTHS` is declared
+here rather than taken from `lib/evidence.js`, because a deployment that could lower the
+bar it is measured against by editing the file that declares the bar is doing the
+self-assessment this whole section refuses. If the two ever disagree, the disagreement is
+the finding.
 
 ### Every document has an owner and a review date — `lib/documents.js`, `test/documents.mjs`
 

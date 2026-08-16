@@ -86,7 +86,8 @@ import { park, questionType } from '../lib/park.js';
 import * as pr from '../lib/pr.js';
 import { baseFor } from '../lib/prbase.js';
 import { landParent } from '../lib/prboard.js';
-import { repoUnits } from '../lib/repos.js';
+import { bareRefs, diffstat, prBody as renderBody, prTitle } from '../lib/prtext.js';
+import { multiRepo, repoUnits } from '../lib/repos.js';
 import { prPolicyFor } from '../lib/spaces.js';
 
 function arg(...names) {
@@ -296,7 +297,17 @@ if (!bead) die(`no bead ${beadId} in the ${ws.name} workspace`);
 const summary = summaryFile ? fs.readFileSync(summaryFile, 'utf8') : fs.readFileSync(0, 'utf8').trim();
 if (!summary) die(`a summary is required — it is the whole of what ${owner} reads before merging`, 2);
 
-const title = titleArg || `${beadId}: ${bead.title || branch}`;
+/**
+ * The title, through `prTitle` whichever end it came from.
+ *
+ * `--title` is not trusted more than the bead is. The length discipline in lib/prtext.js
+ * is about the four narrow places a pull request title gets read — GitHub's list, an
+ * ntfy notification, the delivery card's heading, `Merge #<n>? …` at 160 characters —
+ * and none of them cares who wrote the string. A session that hand-writes a good short
+ * title is unchanged by this; one that pastes the bead's own 118-character sentence in
+ * gets the same clause taken off the front that the default would have got.
+ */
+const title = prTitle(beadId, titleArg || bead.title || branch);
 
 /* --------------------------------------------------------------------- github */
 
@@ -322,6 +333,30 @@ if (!slug) {
       `The work is committed on ${branch}; say so on ${beadId} and leave it there.`,
     4
   );
+}
+
+/**
+ * A `#123` written in a workspace of forty repos is a link to the wrong repo.
+ *
+ * GitHub resolves a bare `#N` against the repo the body is in, whatever the words around
+ * it say and whatever full URLs share the line — so in a workspace that is one checkout
+ * it means what it says, and in one that is forty it silently links a sentence about
+ * another service to an unrelated pull request in this one. That is the failure worth
+ * catching: it renders, so nobody looks at it.
+ *
+ * Said, and not refused. It is a mistake in prose; the branch is finished and correct,
+ * and dying over a hyperlink would strand real work. Said *here*, after the slug is
+ * resolved and before anything is pushed, so the line can name the repo the link would
+ * actually go to — which is the half that makes it obvious rather than pedantic.
+ */
+if (multiRepo(cfg, ws.name)) {
+  const bare = bareRefs(`${summary}\n${tests}\n${risk}\n${left}`);
+  if (bare.length) {
+    console.error(
+      `beadcause-deliver: ${bare.join(', ')} in the summary will link to ${slug}, not to the repo you meant — ` +
+        'a pull request in another repo needs its full https://github.com/<owner>/<repo>/pull/<n> url.'
+    );
+  }
 }
 
 /**
@@ -435,24 +470,40 @@ const autoMerge = policy.autoMerge && !review && !editHold;
 // question, and answering it *is* the approval.
 const requireApproval = policy.requireApproval;
 
-const prBody = [
-  `Closes ${beadId} once merged.`,
-  '',
+/**
+ * What the branch actually changed, asked of the branch rather than of the summary.
+ *
+ * The three-dot form is deliberate and is the whole point: `<upstream>...HEAD` diffs
+ * against the merge base, so a branch that merged main in last night reports what *it*
+ * did and not what main did while it was open. Two dots would put a fortnight of other
+ * people's work in this pull request's description.
+ *
+ * Best-effort. A diffstat is worth having and is worth nothing at all compared to the
+ * delivery: a git invocation that fails here — an object it cannot read, a base ref that
+ * has gone — must not be the reason a finished piece of work does not reach `origin`.
+ */
+let stat = null;
+try {
+  stat = diffstat(git(['diff', '--numstat', `${upstream}...HEAD`]));
+} catch (err) {
+  console.error(`beadcause-deliver: no diffstat for the body — ${first(err)}`);
+}
+
+const prBody = renderBody({
+  beadId,
+  beadTitle: bead.title || '',
+  title,
   summary,
-  tests ? `\n**Tests:** ${tests}` : '',
-  risk ? `\n**Worth knowing:** ${risk}` : '',
-  left ? `\n**Left undone:** ${left}` : '',
-  '',
-  '---',
-  autoMerge
-    ? `_Opened by a beadcause worker session on ${beadId}, which merges it itself once the checks report` +
-      `${requireApproval ? ' and it has an approving review' : ''}. If it is ` +
-      `still open, something stopped that — the reason is on ${beadId} and in ${owner}'s inbox._`
-    : `_Opened by a beadcause worker session on ${beadId}. It is not merged until ${owner} answers the question in their inbox.` +
-      `${editHold ? ` This one was typed into the running app with edit mode on, and an in-app edit is merged by the person who asked for it.` : ''}_`,
-]
-  .filter((l) => l !== '')
-  .join('\n');
+  tests,
+  risk,
+  left,
+  stat,
+  base,
+  owner,
+  autoMerge,
+  requireApproval,
+  editHold,
+});
 
 // The second delivery on a branch is the ordinary case, not the exception: changes
 // were requested, the session pushed more commits, and the PR is still open. Reusing
@@ -460,7 +511,40 @@ const prBody = [
 request = await pr.viewForBranch(dir, branch);
 if (request && request.state !== 'OPEN') request = null;
 if (request) {
-  await pr.comment(dir, request.number, `**Updated** — ${ahead} commit${ahead === 1 ? '' : 's'} on \`${branch}\`.\n\n${summary}`);
+  /**
+   * A redelivery says what changed *this time*, in a comment, and leaves the description
+   * where it is.
+   *
+   * That split is on purpose. The body is what the first reviewer read and what a review
+   * comment is anchored against; rewriting it under them turns "I asked about the second
+   * paragraph" into a sentence about a paragraph that is no longer there. A comment is
+   * additive and dated, and the thread is where a second round belongs.
+   *
+   * The **title** is the exception, and the one the skill in agent-context is explicit
+   * about: it must reflect the final diff, and a bead retitled mid-flight — which happens
+   * here, because a session that learns what the work really was says so on the bead —
+   * leaves the pull request advertising the wrong thing on a board Adam reads without
+   * opening anything. Nothing is lost by correcting it, so it is corrected, and it is not
+   * a reason to fail a delivery that has already pushed.
+   */
+  if (request.title && request.title !== title) {
+    try {
+      await pr.retitle(dir, request.number, title);
+      console.error(`beadcause-deliver: retitled #${request.number} — ${title}`);
+      request = { ...request, title };
+    } catch (err) {
+      console.error(`beadcause-deliver: could not retitle #${request.number} — ${first(err)}`);
+    }
+  }
+  const changed = stat?.files?.length
+    ? ` — ${stat.files.length} file${stat.files.length === 1 ? '' : 's'}, +${stat.added} −${stat.removed} against \`${base}\``
+    : '';
+  await pr.comment(
+    dir,
+    request.number,
+    `**Updated** — ${ahead} commit${ahead === 1 ? '' : 's'} on \`${branch}\`${changed}.\n\n${summary}` +
+      `${tests ? `\n\n**Tests:** ${tests}` : ''}${risk ? `\n\n**Worth knowing:** ${risk}` : ''}${left ? `\n\n**Left undone:** ${left}` : ''}`
+  );
 } else {
   try {
     request = await pr.create(dir, { base, head: branch, title, body: prBody });
