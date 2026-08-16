@@ -167,6 +167,12 @@
        repaint mid-write must not hand back an enabled control. */
     pendingLimits: new Map(), // step key → the number you have dialled up, not yet sent
     applyingLimits: new Set(), // step key → a write is in flight
+    /* What the last pause on an epic actually reached — `workspace/bead` → one sentence.
+       Here rather than in the markup for the same reason as the steppers above it, and
+       one more: `epicControl` calls `load()`, which repaints the whole section, so the
+       element the button was on has gone by the time the answer would be appended to it.
+       Cleared by the next press on the same epic. */
+    epicNotes: new Map(),
     limitErrors: new Map(), // step key → why the last apply was refused
     /* The pull request board, for the one thing this page wants off it: how many merges
        each repo is holding that are not live yet. `/api/prs`'s own payload, unaltered, so
@@ -479,6 +485,14 @@
    * are the holds that never clear on their own — and its tooltip names the beads,
    * because the fix is one tap into each sheet and there is nowhere else to start.
    *
+   * `heldByPause` is the tenth (bc-lco2), and the only one somebody *chose*. Every other
+   * pill on this row is a state the machine arrived at — two things wanting one bead, or
+   * a bead nobody put on the board — and this one is a button that was pressed. `muted`
+   * rather than `p1` for exactly that reason: `heldByRepo` and `heldByNoP0` are loud
+   * because nothing will ever clear them and nobody knows it, and this one is already
+   * known to whoever pressed it. The tooltip names the epic rather than only the bead,
+   * because the epic is where the button back is.
+   *
    * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
    * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
    * other half — a window *this* Mac gave up because the other machine's claim won the
@@ -499,6 +513,7 @@
     const busyFiles = (a && a.filesBusy) || [];
     const stood = (a && a.stoodDown) || [];
     const orphans = (a && a.heldByNoP0) || [];
+    const paused = (a && a.heldByPause) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -541,6 +556,11 @@
       // made from the sheet the id takes you to. See lib/underp0.js.
       orphans.length
         ? `<span class="pill p1" title="${esc(orphans.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${orphans.length} with no P0 above ${orphans.length === 1 ? 'it' : 'them'}</span>`
+        : '',
+      paused.length
+        ? `<span class="pill muted" title="${esc(
+            paused.map((h) => `${h.id} — ${h.why}`).join('\n')
+          )}">${paused.length} under a paused epic</span>`
         : '',
       twins.length
         ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
@@ -716,12 +736,18 @@
       .map((e) => {
         const w = e.window;
         const live = w && livePid(w.pid);
-        const tone = w ? (w.ended ? 'warn' : 'live') : '';
-        const badge = w
-          ? w.ended
-            ? '<span class="tag warn">the window has exited</span>'
-            : `<span class="tag live"><span class="spark"></span>planning</span>`
-          : `<span class="tag dim">${esc(e.why || 'no window')}</span>`;
+        const tone = e.paused ? 'warn' : w ? (w.ended ? 'warn' : 'live') : '';
+        // Paused wins the badge over everything, including a window that is still up:
+        // that combination is the normal first minute of a pause — the epic has stopped
+        // and the session in it is finishing — and a summary that said "planning" over it
+        // would describe the one thing about this epic that is no longer true.
+        const badge = e.paused
+          ? '<span class="tag warn">paused</span>'
+          : w
+            ? w.ended
+              ? '<span class="tag warn">the window has exited</span>'
+              : `<span class="tag live"><span class="spark"></span>planning</span>`
+            : `<span class="tag dim">${esc(e.why || 'no window')}</span>`;
         const body = `
           ${
             w
@@ -749,9 +775,30 @@
                 // section shows the badge and an open one is where you came to read why.
                 `<p class="subtitle">No window right now — ${esc(e.why || 'no reason recorded')}. The advocate stays assigned to this epic either way; it goes when the epic closes.</p>`
           }
+          ${
+            e.paused
+              ? `<p class="subtitle">Paused. Nothing new will be dispatched anywhere under ${esc(
+                  e.id
+                )} — no advocate window, and no session on any bead below it — until it is resumed. Windows that were already open were told, keep their slots, and were asked to write a debrief before they exit, so whatever opens after the resume starts from what they knew.</p>`
+              : ''
+          }
+          ${
+            state.epicNotes.get(`${a.workspace}/${e.id}`)
+              ? `<div class="adv-note">${esc(state.epicNotes.get(`${a.workspace}/${e.id}`))}</div>`
+              : ''
+          }
           <div class="work-foot">
             <div class="meta">${esc(e.type)} · ${esc(e.id)}</div>
-            <a class="work-graph" href="${esc(graphUrl(a.workspace, e.id))}">Open the epic →</a>
+            <div class="adv-controls">
+              <button class="adv-btn" data-epic="${e.paused ? 'epicResume' : 'epicPause'}" data-ws="${esc(
+                a.workspace
+              )}" data-id="${esc(e.id)}" title="${esc(
+                e.paused
+                  ? 'Start dispatching under this epic again'
+                  : 'Stop dispatching anything new under this epic. Windows already open keep their slots, finish their own work, and are asked to write a debrief first.'
+              )}">${e.paused ? 'Resume' : 'Pause'}</button>
+              <a class="work-graph" href="${esc(graphUrl(a.workspace, e.id))}">Open the epic →</a>
+            </div>
           </div>`;
         return section(`${key}:epic:${e.id}`, e.title, e.id, body, { tone, badge });
       })
@@ -2310,6 +2357,57 @@
   }
 
   /**
+   * Pause or resume one epic's advocate.
+   *
+   * Its own function rather than a fifth action through `control` for one concrete
+   * reason: `control` sends `Number(value)`, deliberately, because every value it has
+   * ever carried has been a session count. A bead id through that becomes `NaN` and the
+   * daemon is handed a pause with nothing to pause. So the id travels as a string, and
+   * the two paths stay honest about what they each send.
+   *
+   * The refusal is appended to **this section** rather than to the card. A card carrying
+   * fourteen epics would otherwise answer a press on the twelfth with a line at the
+   * bottom of the screen, which reads as a failure of something else entirely.
+   */
+  async function epicControl(ws, id, action, btn) {
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const out = await api('/api/advocate', {
+        method: 'POST',
+        body: JSON.stringify({ workspace: ws, action, value: id }),
+      });
+      // What the repaint cannot show: an unreachable window looks exactly like one that
+      // was told. Kept only when there is something to say — a pause with nothing open
+      // under it is the ordinary case and deserves no line at all — and remembered by
+      // epic id rather than held on this element, because `load()` repaints the section
+      // and the element this button is on is gone by the next frame.
+      const said = out?.outcome;
+      if (said && (said.told || said.unreachable)) {
+        state.epicNotes.set(`${ws}/${id}`, [
+          said.told ? `${said.told} ${said.told === 1 ? 'window was' : 'windows were'} asked to write a debrief before exiting` : '',
+          said.unreachable
+            ? `${said.unreachable} could not be reached — ${said.unreachable === 1 ? 'it keeps its slot and its claim' : 'they keep their slots and their claims'}`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' · '));
+      } else {
+        state.epicNotes.delete(`${ws}/${id}`);
+      }
+      await load();
+    } catch (err) {
+      btn.textContent = was;
+      btn.disabled = false;
+      (btn.closest('.mon-sec') || btn.closest('.mon-card'))?.insertAdjacentHTML(
+        'beforeend',
+        `<div class="adv-note bad">${esc(err.message)}</div>`
+      );
+    }
+  }
+
+  /**
    * Move a stepper without writing anything.
    *
    * A pending number equal to the live one is *deleted* rather than stored, so stepping
@@ -2654,6 +2752,16 @@
     if (app) {
       e.preventDefault();
       applyLimit(app.dataset.apply);
+      return;
+    }
+
+    const epic = e.target.closest('[data-epic]');
+    if (epic) {
+      e.preventDefault();
+      // Before `[data-adv]` and carrying no `data-adv` of its own: this one is about one
+      // epic and that one is about the whole repo, and a button that hit both would pause
+      // the workspace as a side effect of pausing an epic in it.
+      epicControl(epic.dataset.ws, epic.dataset.id, epic.dataset.epic, epic);
       return;
     }
 
