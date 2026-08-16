@@ -659,7 +659,13 @@
           method: 'POST',
           body: JSON.stringify({ workspace: t.workspace, id: t.id, response: text, ...(option ? { option } : {}) }),
         });
-        note(res?.handedBack ? 'Answered — left open and handed back as work.' : 'Answered — the card is closed.');
+        note(
+          res?.handedBack
+            ? 'Answered — left open and handed back as work.'
+            : res?.needsChoice
+              ? 'Saved — one of these options starts work, so pick one to commit it.'
+              : 'Answered — the card is closed.'
+        );
       } else {
         await api('/api/comment', { method: 'POST', body: JSON.stringify({ workspace: t.workspace, id: t.id, text }) });
         note('Commented — an agent has been sent to answer it.');
