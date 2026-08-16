@@ -1,79 +1,74 @@
 #!/usr/bin/env node
 /**
- * Land finished work: push it, open the pull request, merge it.
+ * Land finished work: push it, open the pull request, hand the merge over.
  *
  *   beadcause-deliver -w beadcause -b bc-7qo --tests "npm test — 42 passing" < summary.md
  *
- * This is how a session ends. It once ended by merging into main on this laptop and
- * closing its bead, which only worked while Adam was the only one who ever merged —
- * with several sessions a day they raced each other into main, and every conflict
- * landed on him anyway, in the worst possible form. So it became a pull request and a
- * question on his phone, and nothing merged until he tapped.
+ * This is how a session ends, and it has ended three different ways.
  *
- * That fixed the race and introduced a queue. Every finished piece of work waited for
- * him: a bead finished at three in the morning sat unmerged until breakfast, and the
- * next bead to touch the same file started from a `main` that did not have it. The
- * gate was doing far less reviewing than waiting.
+ * It once ended by merging into main on this laptop and closing its bead, which only
+ * worked while Adam was the only one who ever merged — with several sessions a day they
+ * raced each other into main, and every conflict landed on him anyway, in the worst
+ * possible form. So it became a pull request and a question on his phone, and nothing
+ * merged until he tapped.
  *
- * So this now does six things, in this order, and the fourth is the whole change:
+ * That fixed the race and introduced a queue of a different kind. Every finished piece of
+ * work waited for *him*: a bead finished at three in the morning sat unmerged until
+ * breakfast, and the next bead to touch the same file started from a `main` that did not
+ * have it. So the worker got its merge back — this time through `gh`, on the pull
+ * request, where GitHub serialises them.
+ *
+ * **bc-r941 is the third ending, and it is the second one done properly.** What was wrong
+ * with a worker merging was never the race, which the pull request had already fixed. It
+ * was position: the agent that wrote the code was also the one deciding it was done, and
+ * it decided from inside a single worktree. It could not know that three other branches
+ * were about to conflict with this one, or that the red check stopping it was red on
+ * `main` too (bc-y738, bc-f31f). Every judgement it could not make became a card in
+ * Adam's inbox; every judgement it could make it made alone, five times over in five
+ * separate processes.
+ *
+ * So the merge moved to the daemon, and this does five things:
  *
  * 1. Pushes the branch. **Only ever a branch** — this refuses to run on main, and
  *    nothing in beadcause can push to main at all.
  * 2. Opens the pull request, or finds the one already open for the branch, which is
  *    the ordinary case on the second delivery after changes were requested.
- * 3. Waits for that pull request's checks to report — see `settle` in lib/pr.js.
- * 4. Merges it, through `gh`, the same call and the same preflight as the button on
- *    the phone. GitHub serialises the merges, which is what keeps step 5 of five
- *    concurrent workers from being the race this was invented to stop, and it is why
- *    the merge happens *there* rather than in a `git merge` on local main. That
- *    preflight includes a second, shorter wait than step 3's — GitHub computes
- *    mergeability asynchronously and reports `UNKNOWN` for a few seconds after a push,
- *    which in a repo with no checks is exactly where step 3 leaves this standing. See
- *    `mergeability` in lib/pr.js; without it a delivery can report a conflict over a
- *    branch that merges perfectly well a moment later.
- * 5. Brings **this Mac's own `main`** up to the merge that just landed on `origin`.
- *    The merge is at GitHub, so the laptop's `main` is now a commit behind, and it
- *    stays behind until something happens to fetch it — a deploy, a board merge, a
- *    human. In between, every new worktree branches from before this delivery, which
- *    is half of what a "surprise downmerge" is made of. `landParent` in lib/prboard.js
- *    does it, in the main checkout rather than this worktree, and **will not touch a
- *    checkout with uncommitted work in it**.
- * 6. Closes the work bead, because the merge is what made it true, and pushes a
- *    notification with nothing to answer. **Unless the bead is an epic**, which this
- *    leaves open and says so: an umbrella epic is finished when its theme is, and a
- *    branch that shared its name merging is no evidence about that. See the close below.
+ * 3. Files a **merge-bead** (lib/mergebead.js) carrying that pull request, assigned to
+ *    the merge queue (lib/mergeadvocate.js).
+ * 4. **Parks the work bead behind it**, which is the half that makes the removal
+ *    structural rather than a sentence in a brief: the close gate refuses a bead with an
+ *    open blocker, so a worker cannot close its own work even if a future brief forgets
+ *    to tell it not to.
+ * 5. Says so, on the bead and on the pull request, and exits. It prints
+ *    `queued #<n> <url> <merge-bead>`.
  *
- * **One card per pull request, whichever ending this takes.** Both endings begin by
- * closing any merge card already open on this request — a re-delivery replaces the
- * question it asked, and a merge answers it outright. Without that, delivering twice
- * with nobody at the phone left two identical cards in the inbox, each one a blocker on
- * the work bead's close, and answering either was reported as having closed a bead that
- * neither could close. See `clearOpenCards` below.
+ * **What it no longer does is merge, or close the work bead.** Both are the queue's, and
+ * the queue closes them together when the merge actually lands — because the merge is
+ * what makes the work true.
  *
- * **The old ending is intact and it is the fallback.** Anything that stops the merge —
- * GitHub refusing it, a red check, checks that never reported, a space that asks for an
- * approving review the pull request has not got, auto-merge off for that space, or
- * `--review` because the session wants a human on this one — files exactly the
- * question it always filed, with the reason on it, and parks the bead behind it. That
- * is not a failure path bolted on the side; it is the same forty lines it always was,
- * reached less often.
+ * **The question card is intact and is still the other ending.** A space with auto-merge
+ * off, a session that asked for a human with `--review`, or a bead that came out of edit
+ * mode files exactly the card it always filed and parks the bead behind that instead.
+ * Those endings were never merges, so nothing about them changed.
  *
- * What it never does is deploy. The merge is on `origin`; whether that is *running* is
- * a separate act with a separate button (the PR board's Ship), because what a deploy
- * even is lives in each repo's CLAUDE.md and a worker being right about the merge does
- * not make it right about that.
+ * **And `landHere` survives, for one caller.** A branch that was *already merged on
+ * github.com* when this delivery started still closes the bead and the cards here. That
+ * is not a worker merging its own work; it is recording a merge somebody else already
+ * made, which is the claim `reconcileLanded` in lib/landed.js makes on its own sweep.
  *
- * Prints `landed #<n> <url> <sha>` when it merged, or `<question-id> <pr-url>` when it
- * handed it over. Exits non-zero, loudly, on every condition where carrying on would
- * produce a PR that misrepresents what is in the branch — a dirty tree, no commits, a
- * detached head, or a commit carrying an unresolved merge (see `inspectBranch` below).
- * A merge that did not happen is **not** one of those: the work is pushed, the PR is
- * open, the question is filed, and that is a good ending.
+ * What it never does is deploy. The merge is on `origin`; whether that is *running* is a
+ * separate act with a separate button (the PR board's Ship), because what a deploy even
+ * is lives in each repo's CLAUDE.md.
+ *
+ * Exits non-zero, loudly, on every condition where carrying on would produce a PR that
+ * misrepresents what is in the branch — a dirty tree, no commits, a detached head, or a
+ * commit carrying an unresolved merge (see `inspectBranch` below).
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ownAddresseeLabels } from '../lib/addressee.js';
+import { isClaimGuard } from '../lib/bd.js';
 import { bylineFor } from '../lib/byline.js';
 import { isMergeReason, parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
@@ -83,6 +78,7 @@ import { cardsForDelivery, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '.
 import { deployFor, deployHint } from '../lib/deploy.js';
 import { EDIT_HOLD, fromEditMode } from '../lib/editwork.js';
 import { landedReason } from '../lib/landed.js';
+import { MERGE_ASSIGNEE, MERGE_LABEL, mergeBeadBody, mergeBeadTitle, openMergeBeadFor } from '../lib/mergebead.js';
 import { requestSweep } from '../lib/mergesweep.js';
 import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
@@ -511,16 +507,32 @@ repoSlug = slug;
  * `bd list` is a reason to leave a stale card behind, not to fail a delivery.
  */
 function clearOpenCards(why) {
+  return clearOpen(DELIVERY_LABEL, cardsForDelivery, why);
+}
+
+/**
+ * And the same for the merge-bead, which needs it more.
+ *
+ * A delivery card left open twice was two questions in the inbox, each a blocker on the
+ * work bead's close — bad, and visible. A *merge-bead* left open twice is two entries in
+ * the queue for one pull request, each a blocker on the same work bead, and the queue
+ * would merge the first and then find the second unmergeable forever. So the same sweep,
+ * with the same matcher shape, over the label that marks a queue entry.
+ *
+ * One function taking the label and the matcher rather than two copies, because the two
+ * copies would drift on the day somebody fixes the matching in one of them.
+ */
+function clearOpen(label, find, why) {
   let rows;
   try {
-    rows = parseJson(bd(['list', '--label', DELIVERY_LABEL, '--status=open,in_progress,blocked', '--limit', '0', '--json'])) || [];
+    rows = parseJson(bd(['list', '--label', label, '--status=open,in_progress,blocked', '--limit', '0', '--json'])) || [];
   } catch (err) {
-    console.error(`beadcause-deliver: could not look for cards already open on ${beadId} — ${bdSaid(err)}`);
+    console.error(`beadcause-deliver: could not look for ${label} beads already open on ${beadId} — ${bdSaid(err)}`);
     return [];
   }
 
   const cleared = [];
-  for (const card of cardsForDelivery(rows, { repo: repoSlug, number: request.number, bead: beadId })) {
+  for (const card of find(rows, { repo: repoSlug, number: request.number, bead: beadId })) {
     // A card matched on the bead rather than on the number is about an older pull
     // request, and the reason has to say so or it reads as the wrong card being closed.
     const reason =
@@ -530,8 +542,30 @@ function clearOpenCards(why) {
     try {
       bd(['close', card.id, '--reason', reason]);
     } catch (err) {
-      console.error(`beadcause-deliver: ${card.id} is still open on ${beadId} — ${bdSaid(err)}`);
-      continue;
+      /**
+       * Over the claim guard, and only over the claim guard — bc-r941, and the same
+       * refusal bc-9d37.13 hit at the other close in this file.
+       *
+       * A merge-bead is *assigned*, to `merge-advocate`, because that is how the queue
+       * finds it. bd 1.2.1 refuses a close by anybody who is not the assignee, so a
+       * superseded merge-bead could not be closed by the delivery that superseded it —
+       * and the pile that leaves is not cosmetic: every one of them is an open blocker on
+       * the work bead, so a bead delivered three times can never be closed by anything.
+       *
+       * `isClaimGuard` rather than a blanket `--force`, because `--force` also lifts open
+       * children, live blockers and the epic gates. Anything else that refuses still
+       * travels out to the log below exactly as it did.
+       */
+      if (!isClaimGuard(err)) {
+        console.error(`beadcause-deliver: ${card.id} is still open on ${beadId} — ${bdSaid(err)}`);
+        continue;
+      }
+      try {
+        bd(['close', card.id, '--reason', reason, '--force']);
+      } catch (forced) {
+        console.error(`beadcause-deliver: ${card.id} is still open on ${beadId} — ${bdSaid(forced)}`);
+        continue;
+      }
     }
     cleared.push(card.id);
     // And the edge it parked the work bead behind. Closing the card is already
@@ -582,73 +616,36 @@ function unitKeyHere() {
   return mine ? mine.key : '';
 }
 
-/* -------------------------------------------------------------------- the merge */
+/* ------------------------------------------------------- the merge, handed over */
 
 /**
- * Merge it, or work out the sentence explaining why not.
+ * Nothing here merges any more — bc-r941, and the removal is the point of it.
  *
- * `refused` is the whole interface between this block and everything below it: empty
- * means it merged, anything else is prose that ends up on the card, in the pull
- * request's own thread, and on the bead. So each branch here writes a *complete
- * sentence*, in the vocabulary of the thing that refused rather than of this file —
- * GitHub's own words when GitHub is what said no, the names of the checks when they
- * are, the number of minutes when nothing reported at all. "Could not merge" is the
- * one thing none of them says, because that is the only part Adam can already see.
+ * What used to stand in this space was the whole of the worker's own merge: wait for the
+ * checks, compare them against nothing, ask GitHub to merge, then close the work bead. It
+ * was reached on every ordinary delivery, and it was the agent that wrote the code
+ * deciding that the code was done.
  *
- * The order is not interchangeable. Checks are consulted *before* `merge()` and can
- * refuse on their own, which is a deliberate difference from the button on the phone:
- * that one lets him merge over a red check on purpose, because a red check is
- * sometimes a flake and judging that is exactly what a human is for. A worker has no
- * business making that call at three in the morning, so failing checks stop it here
- * and become his decision on a card — the same decision, arriving in the one place it
- * can be made properly.
+ * The judgement it made was not *wrong*; it was made from the worst possible position. A
+ * worker sees one branch. It cannot know that three other branches are about to conflict
+ * with this one, that the red check stopping it is red on `main` too (bc-y738), or that
+ * the same conflict was resolved on a different branch an hour ago. Every judgement it
+ * could not make became a card in Adam's inbox, and every judgement it could make it made
+ * alone, at three in the morning, five times over in five separate processes.
+ *
+ * So the merge moved to the daemon, where there is one registry, one queue and one merge
+ * at a time per repo (lib/mergeadvocate.js). What a worker does now is hand it over: file
+ * a merge-bead carrying the pull request, park its own bead behind it, and stop. The
+ * `beadpr` block below is unchanged and is the same block the queue reads.
+ *
+ * **Two things deliberately did not move with it.** `landHere` is still here, and still
+ * closes the work bead, for the one caller that is left: a branch that was *already
+ * merged on github.com* when this delivery started. That is not a worker merging its own
+ * work — it is recording a merge somebody else already made, which is the same claim
+ * `reconcileLanded` in lib/landed.js makes on its own sweep. And the question card is
+ * still filed exactly as it was for every delivery that is not auto-merged: `--review`,
+ * an in-app edit, or a space with auto-merge off. Those endings were never merges.
  */
-let landed = null;
-let refused = '';
-// Set instead of `refused` when the checks are green and the only thing missing is a
-// human's approval. A separate flag rather than a fourth sentence in `refused`, because
-// the card's opening is built from *why it exists* and this one is not a refusal: it
-// never asked GitHub to merge anything, so there is no refusal to quote and "it tried
-// and could not" would be describing an attempt that was never made.
-let awaitingApproval = false;
-
-if (autoMerge) {
-  const waitMs = Math.max(0, Number(cfg.pr?.mergeWaitMs ?? 300000) || 0);
-  const { pr: settled, timedOut } = await pr.settle(dir, request.number, { timeoutMs: waitMs });
-
-  if (timedOut) {
-    const mins = Math.round(waitMs / 60000);
-    refused =
-      `${settled.checks.pending} of its ${settled.checks.total} checks were still running after ` +
-      `${mins} minute${mins === 1 ? '' : 's'}, so it stopped waiting rather than merge over an unknown.`;
-  } else if (settled.checks.state === 'failing') {
-    const named = settled.checks.failed.length ? ` (${settled.checks.failed.join(', ')})` : '';
-    refused =
-      `${settled.checks.failing} check${settled.checks.failing === 1 ? '' : 's'} failing${named}. ` +
-      `A worker will not merge over a red check — if it is a flake, that is your call to make.`;
-  } else if (requireApproval && settled.reviewDecision !== 'APPROVED') {
-    // After the checks and before the merge, and that order is the whole of it: a red
-    // check is the more useful thing to be told about, and asking for an approval on a
-    // pull request that is about to be rejected by its own CI wastes the tap. `gh` says
-    // `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or nothing at all when the
-    // repo requires no review; only the first is an approval, and the last three all
-    // mean the same thing here — nobody has said yes yet.
-    awaitingApproval = true;
-  } else {
-    try {
-      // `deleteBranch: false`, always, and not a preference: this runs in the worker's
-      // own worktree with that branch checked out. `gh` tidies the local branch after
-      // the remote one, cannot delete the branch it is standing on, and would turn a
-      // merge that worked into a command that failed. The worktree sweep retires the
-      // directory once GitHub says the PR landed (lib/tidy.js), and it finds that out
-      // by asking about the branch — so the branch outliving the merge is load-bearing.
-      landed = await pr.merge(dir, request.number, { method, deleteBranch: false });
-    } catch (err) {
-      const said = String(err.message || '').trim();
-      refused = /[.!?]$/.test(said) ? said : `${said}.`;
-    }
-  }
-}
 
 /**
  * The bead, the cards, the notification, and the exit — everything that follows a merge
@@ -790,8 +787,28 @@ async function landHere(landed, { external = false } = {}) {
       /* The comment above this block already says what landed; this one is why it is still open. */
     }
   } else {
+    /**
+     * Close the work bead, stepping over bd 1.2.1's claim guard but nothing else.
+     *
+     * This process runs `bd` with the `beadcause (…)` byline while the bead is assigned
+     * to the git identity that claimed it, so from 2026-08-14 every delivery was refused
+     * its own close — bc-9d37.13. `--force` lifts that, and it lifts open children, live
+     * blockers and the epic gates with it, so it is reached for **only** when the claim
+     * guard is what refused; anything else still travels out to `oweClose` below exactly
+     * as it did. `isClaimGuard` is imported from lib/bd.js rather than re-written here so
+     * the two processes cannot disagree about what that refusal looks like.
+     */
+    const closeWorkBead = () => {
+      try {
+        bd(['close', beadId, '--reason', closeReason]);
+      } catch (err) {
+        if (!isClaimGuard(err)) throw err;
+        console.error(`beadcause-deliver: closing ${beadId} over the claim guard — ${where} is merged`);
+        bd(['close', beadId, '--reason', closeReason, '--force']);
+      }
+    };
     try {
-      bd(['close', beadId, '--reason', closeReason]);
+      closeWorkBead();
     } catch (err) {
       // A refused close is a state, not a rumour: it is written down where the daemon
       // will retry it once whatever is blocking it clears (lib/owed.js), and said on the
@@ -831,14 +848,133 @@ async function landHere(landed, { external = false } = {}) {
   process.exit(0);
 }
 
-if (landed) await landHere(landed);
+// Everything from here down is one of two endings, and `autoMerge` picks between them.
+// With it on, the pull request goes on the merge queue and the worker is finished. With
+// it off — or with `--review`, or over an in-app edit — the delivery files the same
+// question card it always filed, and the merge is Adam's tap. Neither ending merges
+// anything here.
 
-// Everything from here down is the older ending, unchanged: it is what a delivery does
-// when the merge was refused, when the space asks for an approving review and there is
-// none, when `--review` asked for a human, or when `autoMerge` is off. `refused` is
-// empty in the last three, which is half of how the card knows which it was.
-if (refused) console.error(`beadcause-deliver: not merged — ${refused}`);
-if (awaitingApproval) console.error(`beadcause-deliver: not merged — #${request.number} is green but has no approving review.`);
+/**
+ * What was delivered, in the one shape both endings are written from.
+ *
+ * Above the fork rather than inside each branch, because the two endings differ in *who
+ * is asked* and in nothing else: a merge-bead and a question card carry the same `beadpr`
+ * block, written by the same serialiser in lib/delivery.js, and the queue's failure path
+ * turns the first into the second without re-deriving a field. Two literals here would be
+ * two field lists to drift, and the drift would surface as a card whose Merge button acts
+ * on a pull request the bead no longer names.
+ */
+const delivery = {
+  workspace: ws.name,
+  bead: beadId,
+  repo: repoSlug,
+  number: request.number,
+  url: request.url,
+  branch,
+  base,
+  method,
+  title: request.title,
+  summary,
+  tests,
+  risk,
+  left,
+};
+
+/* ------------------------------------------------------------- the merge-bead */
+
+/**
+ * The ordinary ending since bc-r941: hand the pull request to the merge queue and stop.
+ *
+ * Three writes, in an order chosen for what survives each one failing:
+ *
+ * 1. **Supersede** whatever is already open on this pull request — an older merge-bead
+ *    from a re-delivery nobody has got to, and any question card from a delivery made
+ *    back when this space had auto-merge off. Both are blockers on the work bead by
+ *    construction, and two of either is the pile `clearOpenCards` was written for. First,
+ *    so a create that fails after it leaves no queue entry rather than two.
+ * 2. **File the merge-bead.** Labelled, assigned, and carrying the block. Not `human`:
+ *    this is work for an agent, and a bead in Adam's inbox saying "a queue will get to
+ *    this" is a notification pretending to be a question.
+ * 3. **Park the work bead behind it.** This is the half that makes the removal
+ *    structural. The close gate refuses a bead with an open blocker, so from here the
+ *    worker *cannot* close its own work even if a future brief forgets to tell it not to
+ *    — which is the difference between a rule and a guarantee. `park` is the same call
+ *    the question card already used, with `label: false` for the same reason: the work
+ *    bead is about to be closed by the merge, and a `human` label nothing takes back off
+ *    would strand it in the inbox as a card with no question on it.
+ *
+ * It prints `queued #<n> <url> <merge-bead>` — deliberately not `landed`, because nothing
+ * has landed, and a session that reads one as the other reports work as shipped over a
+ * branch still sitting in a pull request.
+ */
+if (autoMerge) {
+  const supersededMerges = clearOpen(
+    MERGE_LABEL,
+    openMergeBeadFor,
+    `Superseded by a later delivery of #${request.number} — the newer merge-bead is the queue's.`
+  );
+  const supersededCards = clearOpenCards(
+    `Superseded by a later delivery of #${request.number}, which went on the merge queue instead.`
+  );
+  const replaced = [...supersededMerges, ...supersededCards];
+
+  const out = bd([
+    'create',
+    '--title',
+    mergeBeadTitle(delivery),
+    '--type',
+    'task',
+    // Above the work it gates, so a queue that is behind is visible on the board rather
+    // than buried under the beads waiting on it.
+    '--priority',
+    '1',
+    '--label',
+    MERGE_LABEL,
+    '--assignee',
+    MERGE_ASSIGNEE,
+    ...ownAddresseeLabels(cfg).flatMap((l) => ['--label', l]),
+    '--description',
+    mergeBeadBody(delivery, { tests }),
+    '--json',
+  ]);
+  const filed = JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1));
+  const mergeId = filed.id || filed.issue?.id;
+
+  const { parked, note } = park(bd, beadId, mergeId, { label: false });
+  if (!parked) {
+    // Loud, and not fatal. The pull request is open and the merge-bead is filed, so the
+    // work still lands — what is lost is the guarantee that this session cannot close its
+    // own bead, which is worth a line somebody will read in the log.
+    console.error(`beadcause-deliver: ${beadId} is NOT parked behind ${mergeId} — ${note}`);
+  }
+
+  try {
+    bd([
+      'comment',
+      beadId,
+      `Delivered as [#${request.number}](${request.url}) on \`${branch}\`. It is on the merge queue as ${mergeId}, ` +
+        `which brings \`${base}\` into the branch, checks what ${base} is not already failing, merges, and closes this bead.` +
+        (replaced.length
+          ? ` It replaces ${replaced.join(', ')}, which asked the same thing and ${replaced.length === 1 ? 'was' : 'were'} never answered.`
+          : '') +
+        (owed ? ` Still owed after the merge: ${owed}.` : ''),
+    ]);
+  } catch {
+    /* The comment is a courtesy; the dependency above is the part that matters. */
+  }
+
+  await pr
+    .comment(
+      dir,
+      request.number,
+      `A beadcause worker opened this and does not merge its own work. It is on the merge queue as ${mergeId}.`
+    )
+    .catch((err) => console.error(`beadcause-deliver: could not comment on #${request.number} — ${first(err)}`));
+
+  console.log(`queued #${request.number} ${request.url} ${mergeId}`);
+  process.exit(0);
+}
+
 
 /* ----------------------------------------------------------- the question bead */
 
@@ -888,22 +1024,6 @@ try {
 // open cards this is here to prevent.
 const superseded = clearOpenCards(`Superseded by a later delivery of #${request.number} — answer the newer card.`);
 
-const delivery = {
-  workspace: ws.name,
-  bead: beadId,
-  repo: repoSlug,
-  number: request.number,
-  url: request.url,
-  branch,
-  base,
-  method,
-  title: request.title,
-  summary,
-  tests,
-  risk,
-  left,
-};
-
 // Typed after the bead it is about to park, because bd will only let an epic be
 // blocked by another epic (lib/park.js) — and an epic is delivered like anything
 // else. Off the row `show` already returned rather than a second lookup. Nothing here
@@ -930,16 +1050,17 @@ const out = bd([
   '--description',
   deliveryBody(delivery, {
     context: `**${request.files ?? 0} file${request.files === 1 ? '' : 's'}**, +${request.additions ?? 0} −${request.deletions ?? 0}, ${ahead} commit${ahead === 1 ? '' : 's'}.`,
-    // Which of the three reasons this card exists. `asked` is deliberately narrower
-    // than `review` on its own: with auto-merge off for this space, every delivery is a question
-    // and `--review` asked for nothing that was not already going to happen, so a card
-    // claiming the worker chose this would be crediting it with a decision it never had.
-    refused,
-    // Whether this space asked for a review the pull request has not got. Second in the
-    // card's precedence, behind a refusal that actually happened and ahead of the
-    // worker's own `--review`, because it is the only one of the three whose sentence
-    // has to explain a *green* pull request sitting unmerged.
-    approval: awaitingApproval,
+    // `refused` and `approval` are deliberately not passed, and their absence is a fact
+    // about this file rather than an omission: since bc-r941 nothing here merges, so
+    // nothing here can be refused and nothing here waits on a review. Both parameters are
+    // still `deliveryBody`'s, and the merge queue fills them when it raises a card of its
+    // own (lib/mergeadvocate.js) — which is the same card, from the one place that now
+    // has an attempted merge to report.
+    //
+    // `asked` is deliberately narrower than `review` on its own: with auto-merge off for
+    // this space every delivery is a question, so `--review` asked for nothing that was
+    // not already going to happen, and a card claiming the worker chose this would be
+    // crediting it with a decision it never had.
     asked: review && policy.autoMerge && !editHold,
     // Ahead of `asked` in the card's precedence, and it has to be: with the hold on, a
     // worker's `--review` asked for nothing that was not already going to happen, and a
@@ -972,8 +1093,6 @@ try {
         ? ` It replaces ${superseded.join(', ')}, which asked the same question and ${superseded.length === 1 ? 'was' : 'were'} never answered.`
         : '') +
       (editHold ? ` It was not merged, and will not be by a worker: ${EDIT_HOLD}.` : '') +
-      (refused ? ` The worker tried to merge it and could not: ${refused}` : '') +
-      (awaitingApproval ? ` Its checks are green; it is waiting on an approving review, which is what answering ${questionId} gives it.` : '') +
       (owed ? ` Still owed after the merge: ${owed}.` : ''),
   ]);
 } catch {
@@ -982,17 +1101,14 @@ try {
 
 // And on the pull request itself, because that is where whoever opens the diff is
 // standing. A green PR sitting open for two days with nothing on it to say why is the
-// state this whole fallback exists to avoid being mysterious about.
-// The approval case is the one this matters most on, because there is nothing else on
-// the pull request to explain it: the checks are green, the branch is clean, and it is
-// sitting open anyway.
-const prNote = refused
-  ? `A beadcause worker tried to merge this and could not: ${refused}`
-  : awaitingApproval
-    ? `A beadcause worker opened this and stopped: its checks are green, but this space asks for an approving review before anything merges.`
-    : editHold
-      ? `A beadcause worker opened this and stopped on purpose: ${beadId} was typed into the running app with edit mode on, and an in-app edit is merged by the person who asked for it.`
-      : '';
+// state this whole fallback exists to avoid being mysterious about — and it is now
+// *always* green-and-open when this runs, since nothing here attempts a merge to have
+// failed at.
+const prNote = editHold
+  ? `A beadcause worker opened this and stopped on purpose: ${beadId} was typed into the running app with edit mode on, and an in-app edit is merged by the person who asked for it.`
+  : review
+    ? `A beadcause worker opened this and stopped on purpose: it asked for a human on this one rather than putting it on the merge queue.`
+    : `A beadcause worker opened this and stopped: auto-merge is off for this space, so every delivery here is ${owner}'s call.`;
 if (prNote) {
   await pr
     .comment(dir, request.number, `${prNote}\n\nIt is now ${owner}'s call — see ${questionId}.`)

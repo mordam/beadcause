@@ -235,13 +235,37 @@ const bdJson = (args) => {
  * throughout. Everything about the local fast-forward depends on that difference, so
  * it cannot be asserted from a scenario that runs in the main checkout itself.
  */
-function deliver(name, { checks = 'green', refuseMerge = null, extra = [], worktree = false, conflicted = false, type = 'task', body = 'Work for a land-check run.' } = {}) {
-  const created = bd(['create', '--title', name, '--description', body, '--type', type, '--json']);
-  const bead = JSON.parse(created.slice(created.indexOf('{'), created.lastIndexOf('}') + 1));
-  const id = bead.id || bead.issue?.id;
+function deliver(
+  name,
+  { checks = 'green', refuseMerge = null, extra = [], worktree = false, conflicted = false, type = 'task', body = 'Work for a land-check run.', existing = null } = {}
+) {
+  /**
+   * `existing` re-delivers a bead that has already been through here once — the same
+   * bead, the same branch, one more commit on it.
+   *
+   * A real re-delivery is the ordinary case after "request changes" and it is what
+   * bc-ec6 was about: two deliveries of one bead with nobody at the phone in between.
+   * Since bc-r941 the pile it would leave is a pile of *blockers* on the work bead, so
+   * the scenario matters more than it did and needs a way to be set up at all.
+   */
+  const id = existing ? existing.id : (() => {
+    const created = bd(['create', '--title', name, '--description', body, '--type', type, '--json']);
+    const bead = JSON.parse(created.slice(created.indexOf('{'), created.lastIndexOf('}') + 1));
+    return bead.id || bead.issue?.id;
+  })();
 
-  const branch = `bead/${id}-work`;
-  let at = REPO;
+  const branch = existing ? existing.branch : `bead/${id}-work`;
+  let at = existing ? existing.at : REPO;
+  if (existing) {
+    // The bead was closed to `in_progress` by nothing here; what it needs is another
+    // commit on the same branch, in the checkout it was delivered from.
+    fs.writeFileSync(path.join(at, `${id}-again.txt`), `more work for ${id}\n`);
+    git(['add', '-A'], at);
+    git(['commit', '-qm', `${id}: more`, '--no-verify'], at);
+    fs.writeFileSync(GH_LOG, '');
+    world({ checks, refuseMerge });
+    return finishDeliver(id, branch, at, extra);
+  }
   if (worktree) {
     at = path.join(tmp, `worktree-${id}`);
     git(['worktree', 'add', '--quiet', '-b', branch, at, 'main']);
@@ -266,12 +290,15 @@ function deliver(name, { checks = 'green', refuseMerge = null, extra = [], workt
 
   fs.writeFileSync(GH_LOG, '');
   world({ checks, refuseMerge });
+  return finishDeliver(id, branch, at, extra);
+}
 
+/** The run half, shared with the re-delivery path above. */
+function finishDeliver(id, branch, at, extra) {
   // spawnSync rather than the execFileSync above, for one reason: this is the only
   // call whose *stderr* is an assertion. execFileSync inherits the child's stderr
-  // unless it throws, so a deliver run that exits 0 with a refusal on stderr — which
-  // is exactly scenario 2 — would print the sentence to the terminal and hand the
-  // harness an empty string to test.
+  // unless it throws, so a deliver run that exits 0 with a refusal on stderr would
+  // print the sentence to the terminal and hand the harness an empty string to test.
   const ran = spawnSync(
     'node',
     [path.join(ROOT, 'bin', 'deliver.js'), '-w', 'landcheck', '-b', id, '--tests', 'npm test — fine', ...extra],
@@ -314,100 +341,130 @@ function deliver(name, { checks = 'green', refuseMerge = null, extra = [], workt
   };
 }
 
-/* ------------------------------------------------------- 1. it lands its own work */
+/* ---------------------------------------------------- 1. it queues its own work */
 
-console.log('\ngreen checks: it merges its own pull request');
+console.log('\ngreen checks: it queues its own pull request and stops');
 
-const landed = deliver('lands cleanly');
-check('deliver.js exits 0', landed.code === 0, `exit ${landed.code} — ${landed.stderr}`);
-check('and says what it did, with the number and the merge commit', /^landed #7 https:\/\/\S+ la11ded1/.test(landed.stdout), landed.stdout);
-check('it pushed the branch to origin for real', run('git', ['branch', '--list', landed.branch], { cwd: ORIGIN }).includes(landed.branch));
-check('it opened a pull request', landed.log.some((c) => c[0] === 'pr' && c[1] === 'create'));
-check('and merged it', landed.merges.length === 1, JSON.stringify(landed.log.map((c) => c.slice(0, 2))));
-// `--squash` because that is what this harness's config asks for, not because it is the
-// default — scenario 6 below is the one that pins the default and the override.
-check('with the configured method', landed.merges[0]?.includes('--squash'), JSON.stringify(landed.merges[0]));
+// bc-r941. This scenario used to be called "it merges its own pull request", and every
+// assertion in it was about a merge. The merge moved to the daemon — see
+// lib/mergequeue.js — and what is left here is the handover, which is the half that can
+// silently not happen: a `bin/deliver.js` that still merged while a queue also merged
+// would be two agents racing for one pull request, and both of them would look correct.
+//
+// So the negative assertions below are the point of the scenario rather than trimmings.
+// `gh pr merge` never being called, and the work bead never closing, are what say the
+// removal actually happened.
+const queued = deliver('lands cleanly');
+check('deliver.js exits 0', queued.code === 0, `exit ${queued.code} — ${queued.stderr}`);
 check(
-  'and never --delete-branch, which gh cannot do from the worktree that branch is checked out in',
-  !landed.merges[0]?.includes('--delete-branch'),
-  JSON.stringify(landed.merges[0])
+  'and says what it did — `queued`, with the pull request and the merge-bead',
+  /^queued #7 https:\/\/\S+ lc-\S+$/.test(queued.stdout),
+  queued.stdout
 );
-check('the work bead is closed', landed.issue.status === 'closed', landed.issue.status);
-check('with a reason naming what it landed as', /^Landed as #7 as la11ded1/.test(landed.issue.close_reason || ''), landed.issue.close_reason);
-check('and a comment on the bead recording the merge', (landed.issue.comment_count ?? 0) >= 1, String(landed.issue.comment_count));
-check('no delivery question was filed — there is nothing to ask', bdJson(['list', '--label', 'pr-delivery', '--json']).length === 0);
+check('it pushed the branch to origin for real', run('git', ['branch', '--list', queued.branch], { cwd: ORIGIN }).includes(queued.branch));
+check('it opened a pull request', queued.log.some((c) => c[0] === 'pr' && c[1] === 'create'));
+check('AND NEVER ASKED GH TO MERGE ANYTHING', queued.merges.length === 0, JSON.stringify(queued.log.map((c) => c.slice(0, 2))));
+check(
+  'and never waited for the checks either — waiting is the queue\'s, on its own clock',
+  queued.numberViews <= 1,
+  `it read the pull request by number ${queued.numberViews}×`
+);
+check('THE WORK BEAD IS STILL OPEN — nothing has merged, so nothing is finished', queued.issue.status !== 'closed', queued.issue.status);
 
-// bc-9d37.4. A merge leaves every other open branch on this base measured against a base
-// it has never seen, and a worker is one of the four doors that has to say so. It records
-// rather than sweeps, because the registry that stops two resolver windows opening on one
-// branch is in the daemon's memory and this is a process that merges and exits — so what
-// this asserts is the file the daemon's poll cycle drains, in the scratch config directory
-// this harness already isolates.
-const sweeps = JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'merge-sweeps.json'), 'utf8'));
-check('it asked the daemon to sweep the branches behind it', Object.keys(sweeps).join(',') === 'landcheck', JSON.stringify(sweeps));
-check('naming the merge that set it off', sweeps.landcheck?.number === 7, JSON.stringify(sweeps.landcheck));
+const mergeBead = bdJson(['list', '--label', 'merge-queue', '--json']).find((b) => b.id === queued.stdout.split(' ').pop());
+check('a merge-bead was filed, carrying that label', !!mergeBead, JSON.stringify(bdJson(['list', '--label', 'merge-queue', '--json']).map((b) => b.id)));
+check('assigned to the merge advocate, or nothing will ever pick it up', mergeBead?.assignee === 'merge-advocate', mergeBead?.assignee);
+check('and NOT in the inbox — a queue entry is work for an agent, not a question', !(mergeBead?.labels || []).includes('human'), JSON.stringify(mergeBead?.labels));
+check(
+  'it carries the beadpr block the queue reads, naming the pull request and the work bead',
+  /```beadpr/.test(mergeBead?.description || '') &&
+    new RegExp(`bead: ${queued.id}`).test(mergeBead?.description || '') &&
+    /number: 7/.test(mergeBead?.description || ''),
+  (mergeBead?.description || '').split('\n').slice(-12).join(' | ')
+);
+// `squash` because that is what this harness's config asks for. Scenario 6 below is what
+// pins the default and the override — and since bc-r941 the method is carried on the
+// bead rather than passed to `gh`, because the thing that will pass it to `gh` runs
+// later, in another process.
+check('and the merge method the config asked for, so the queue merges the way this repo does', /method: squash/.test(mergeBead?.description || ''), (mergeBead?.description || '').match(/method: \S+/)?.[0]);
+check(
+  'THE WORK BEAD IS PARKED BEHIND IT — which is what stops a worker closing its own work',
+  (queued.issue.dependency_count ?? 0) >= 1,
+  String(queued.issue.dependency_count)
+);
+check('and a comment on the bead saying where it went', (queued.issue.comment_count ?? 0) >= 1, String(queued.issue.comment_count));
+check('no delivery question was filed — nobody is being asked anything yet', bdJson(['list', '--label', 'pr-delivery', '--json']).length === 0);
+check('and it said so on the pull request, where whoever opens the diff is standing', queued.log.some((c) => c[0] === 'pr' && c[1] === 'comment'));
 
-/* ------------------------------------------------ 1b. an epic merges and stays open */
+// The sweep that used to be asked for here moved with the merge: a merge leaves every
+// other open branch measured against a base it has never seen, and the thing that has
+// merged is now the daemon. A delivery that merges nothing has nothing to sweep behind
+// it, so the absence is asserted rather than left to be inferred — a stray record here
+// would send a resolver window at branches nothing had disturbed.
+check(
+  'and asked for no conflict sweep, because it landed nothing to sweep behind',
+  !fs.existsSync(path.join(CONFIG_DIR, 'merge-sweeps.json')) ||
+    Object.keys(JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'merge-sweeps.json'), 'utf8'))).length === 0,
+  fs.existsSync(path.join(CONFIG_DIR, 'merge-sweeps.json')) ? fs.readFileSync(path.join(CONFIG_DIR, 'merge-sweeps.json'), 'utf8') : '(no file)'
+);
 
-console.log('\nan epic: the branch merges, the epic does not close');
+/* --------------------------------------------- 1b. a re-delivery does not pile up */
 
-// bc-arj0.3. bc-ka5y closed as "Merged #212 as 72789c0b into main" with twenty-one of its
-// twenty-three adoptees still open, and five more epics did the same thing the same day.
-// bd permits every one of those closes — an `Adopts:` line is prose, so the epic has no
-// children as far as it is concerned — which is why the refusal is here rather than only
-// in the gate. This is the scenario that presses the real bin/deliver.js against a real
-// tracker, so it is the one that would notice the rule being lost in a refactor.
+console.log('\na second delivery of the same bead: one merge-bead, not two');
+
+// `clearOpenCards` in bin/deliver.js exists because delivering twice left two identical
+// cards in the inbox, each one a blocker on the work bead's close, and answering either
+// was reported as having closed a bead that neither could close (bc-ec6). A merge-bead is
+// a blocker *by construction*, so the same pile in this shape is strictly worse: the
+// queue would merge the first and then find the second unmergeable for ever.
+const again = deliver('lands cleanly', { existing: { id: queued.id, branch: queued.branch, at: queued.at } });
+const openMerges = bdJson(['list', '--label', 'merge-queue', '--status', 'open', '--json']).filter((b) =>
+  new RegExp(`bead: ${queued.id}\\b`).test(b.description || '')
+);
+check('the re-delivery exits 0', again.code === 0, `exit ${again.code} — ${again.stderr}`);
+check('and exactly one merge-bead is open for that work', openMerges.length === 1, JSON.stringify(openMerges.map((b) => b.id)));
+check('the newer one', openMerges[0]?.id === again.stdout.split(' ').pop(), `${openMerges[0]?.id} vs ${again.stdout}`);
+
+/* --------------------------------------------------- 2. an epic is queued the same */
+
+console.log('\nan epic: it queues like anything else — the carve-out is the queue\'s');
+
+// bc-arj0.3 said an epic must not close on a branch that shares its name merging, and
+// that rule has not moved — it has changed owner. Nothing closes anything here any more,
+// so what this scenario can still pin is that an epic is *delivered* like any other bead
+// and reaches the queue intact. The carve-out itself is asserted where it now lives, in
+// `finish` in lib/mergequeue.js, by test/mergequeue.mjs.
 const epic = deliver('an umbrella epic', { type: 'epic', body: 'The theme.\n\nAdopts: lc-nobody.\n' });
-check('deliver.js exits 0 — the merge is not in doubt', epic.code === 0, `exit ${epic.code} — ${epic.stderr}`);
-check('and it still says `landed`, because it did land', /^landed #7 /.test(epic.stdout), epic.stdout);
-check('the pull request really merged', epic.merges.length === 1, JSON.stringify(epic.log.map((c) => c.slice(0, 2))));
-check('but the epic is still open', epic.issue.status !== 'closed', epic.issue.status);
+check('deliver.js exits 0', epic.code === 0, `exit ${epic.code} — ${epic.stderr}`);
+check('and it queues, like everything else', /^queued #7 /.test(epic.stdout), epic.stdout);
+check('the epic is still open, because nothing merged', epic.issue.status !== 'closed', epic.issue.status);
 check('with no close reason on it', !epic.issue.close_reason, epic.issue.close_reason || '(none)');
-check('the session log says why, in one line somebody can act on', /does not close on a merge/.test(epic.stderr), epic.stderr);
-check('and the epic carries the merge and the reason it survived it', (epic.issue.comment_count ?? 0) >= 2, String(epic.issue.comment_count));
-// Nothing to retry: a close refused for a reason no amount of waiting improves must not
-// be written into the ledger the poll drains, or it is attempted every thirty seconds
-// forever. See lib/owed.js.
-const epicOwed = fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json'))
-  ? JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8'))
-  : {};
-check('and no close is owed for it', !Object.keys(epicOwed).some((k) => k.endsWith(epic.id)), JSON.stringify(epicOwed));
+const epicOwedFile = path.join(CONFIG_DIR, 'owed-closes.json');
+const epicOwed = fs.existsSync(epicOwedFile) ? JSON.parse(fs.readFileSync(epicOwedFile, 'utf8')) : {};
+check('and no close is owed for it either', !Object.keys(epicOwed).some((k) => k.endsWith(epic.id)), JSON.stringify(epicOwed));
 
-/* ------------------------------------------------------- 2. GitHub refuses the merge */
+/* ------------------------------------------ 3. auto-merge off is the other ending */
 
-console.log('\nGitHub refuses: the old question, with its sentence on it');
+console.log('\nauto-merge off: the question card, exactly as it always was');
 
-const refused = deliver('cannot merge', { refuseMerge: 'Pull request is not mergeable: the base branch policy prohibits the merge.' });
-check('deliver.js still exits 0 — handing it over is a good ending', refused.code === 0, `exit ${refused.code} — ${refused.stderr}`);
-check('it prints a question id and the PR url instead of `landed`', /^lc-\S+ https:\/\/\S+\/pull\/7$/.test(refused.stdout), refused.stdout);
-check('it did try to merge', refused.merges.length === 1);
-check('the work bead is still open — nothing merged, so nothing is finished', refused.issue.status !== 'closed', refused.issue.status);
-const question = bdJson(['list', '--label', 'pr-delivery', '--json']).find((q) => q.id === refused.stdout.split(' ')[0]);
-check('a delivery question exists, labelled for the inbox', !!question && (question.labels || []).includes('human'), JSON.stringify(question?.labels));
-check(
-  "and carries GitHub's own refusal, so the card says why rather than that it failed",
-  /base branch policy prohibits/.test(question?.description || ''),
-  (question?.description || '').split('\n')[0]
-);
-check('the work bead is parked behind it', (refused.issue.dependency_count ?? 0) >= 1, String(refused.issue.dependency_count));
-check('and the refusal is on the pull request too, where the diff is', refused.log.some((c) => c[0] === 'pr' && c[1] === 'comment'));
-check('the stderr says it plainly, for whoever reads the session log', /not merged —/.test(refused.stderr), refused.stderr);
+// The one ending that did not change. A space with auto-merge off was never a merge, so
+// bc-r941 did nothing to it — and asserting that is worth as much as asserting what did
+// change, because the easiest way to break this feature is to route every delivery
+// through the queue and quietly lose the setting that says not to.
+const cfgFileOff = path.join(CONFIG_DIR, 'config.json');
+const savedOff = JSON.parse(fs.readFileSync(cfgFileOff, 'utf8'));
+fs.writeFileSync(cfgFileOff, JSON.stringify({ ...savedOff, pr: { ...savedOff.pr, autoMerge: false } }, null, 2));
+const handed = deliver('auto-merge is off here');
+fs.writeFileSync(cfgFileOff, JSON.stringify(savedOff, null, 2));
 
-/* ------------------------------------------------------------ 3. a red check stops it */
-
-console.log('\na red check: it does not merge, and it does not decide');
-
-const red = deliver('red build', { checks: 'red' });
-check('deliver.js exits 0', red.code === 0, `exit ${red.code} — ${red.stderr}`);
-check('it filed the question', /^lc-\S+ /.test(red.stdout), red.stdout);
-check('and never asked gh to merge at all', red.merges.length === 0, JSON.stringify(red.log.map((c) => c.slice(0, 2))));
-check('the bead is open', red.issue.status !== 'closed');
-const redQ = bdJson(['list', '--label', 'pr-delivery', '--json']).find((q) => q.id === red.stdout.split(' ')[0]);
-check('the card names the check that stopped it', /1 check failing \(build\)/.test(redQ?.description || ''), (redQ?.description || '').split('\n')[0]);
-check(
-  'and says the flake call is Adam’s, because that is the one judgement a worker should not make',
-  /that is your call to make/.test(redQ?.description || '')
-);
+check('deliver.js exits 0 — handing it over is a good ending', handed.code === 0, `exit ${handed.code} — ${handed.stderr}`);
+check('it prints a question id and the PR url, not `queued`', /^lc-\S+ https:\/\/\S+\/pull\/7$/.test(handed.stdout), handed.stdout);
+check('and asked gh to merge nothing', handed.merges.length === 0, JSON.stringify(handed.log.map((c) => c.slice(0, 2))));
+const handedQ = bdJson(['list', '--label', 'pr-delivery', '--json']).find((q) => q.id === handed.stdout.split(' ')[0]);
+check('a delivery question exists, labelled for the inbox', !!handedQ && (handedQ.labels || []).includes('human'), JSON.stringify(handedQ?.labels));
+check('and no merge-bead was filed beside it', !bdJson(['list', '--label', 'merge-queue', '--status', 'open', '--json']).some((b) => new RegExp(`bead: ${handed.id}\\b`).test(b.description || '')));
+check('the work bead is parked behind the card', (handed.issue.dependency_count ?? 0) >= 1, String(handed.issue.dependency_count));
+check('and the work bead is open — nothing merged, so nothing is finished', handed.issue.status !== 'closed', handed.issue.status);
 
 /* ---------------------------------------------------------------- 4. --review asks */
 
@@ -419,8 +476,8 @@ check('it filed the question', /^lc-\S+ /.test(asked.stdout), asked.stdout);
 check('and asked gh to merge nothing', asked.merges.length === 0, JSON.stringify(asked.log.map((c) => c.slice(0, 2))));
 check(
   'and never waited for the checks either — there was nothing to wait for',
-  asked.numberViews === 1 && landed.numberViews > 1,
-  `--review read the PR ${asked.numberViews}×, the landing one ${landed.numberViews}×`
+  asked.numberViews <= 1,
+  `--review read the PR ${asked.numberViews}×`
 );
 const askedQ = bdJson(['list', '--label', 'pr-delivery', '--json']).find((q) => q.id === asked.stdout.split(' ')[0]);
 check('the card says the worker chose this, so green checks do not read as a bug', /deliberately did not/.test(askedQ?.description || ''), (askedQ?.description || '').split('\n')[0]);
@@ -432,8 +489,15 @@ check('the bead is open', asked.issue.status !== 'closed');
 console.log('\n--owed: what is still outstanding after the merge');
 
 const owed = deliver('owes a deploy', { extra: ['--owed', 'deploy, rebuild'] });
-check('it landed', /^landed #7/.test(owed.stdout), owed.stdout);
-check('and the close reason carries what is still owed', /still owed: deploy, rebuild/.test(owed.issue.close_reason || ''), owed.issue.close_reason);
+check('it queued', /^queued #7/.test(owed.stdout), owed.stdout);
+// It used to end up in the close reason, because the delivery closed the bead. Nothing
+// here closes anything now, so the note goes where it will still be read when the queue
+// gets to it: the comment the delivery leaves on the work bead.
+check(
+  'and the note on the bead carries what is still owed after the merge',
+  /Still owed after the merge: deploy, rebuild/.test(bd(['comments', owed.id])),
+  String(bd(['comments', owed.id])).replace(/\s+/g, ' ').slice(-160)
+);
 
 /* ------------------------------------------------- 6. where the merge method comes from */
 
@@ -455,12 +519,23 @@ const saved = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
 const { mergeMethod: _asked, ...prNoMethod } = saved.pr;
 fs.writeFileSync(cfgFile, JSON.stringify({ ...saved, pr: prNoMethod }, null, 2));
 
+// Since bc-r941 the method is not passed to `gh` here — the process that will pass it to
+// `gh` runs later, in the daemon — so what this asserts is the value written onto the
+// merge-bead. That is the same setting travelling the same distance; it is read one hop
+// further along, which is exactly the hop that used to be missing when `pr.mergeMethod`
+// reached the brief and never the act.
+const methodOf = (out) => {
+  const id = out.stdout.split(' ').pop();
+  const row = bdJson(['show', id, '--json'])[0];
+  return (String(row?.description || '').match(/method: (\S+)/) || [])[1] || '';
+};
+
 const dflt = deliver('takes the default method');
-check('with nothing in the config it still lands', /^landed #7/.test(dflt.stdout), dflt.stdout);
+check('with nothing in the config it still queues', /^queued #7/.test(dflt.stdout), dflt.stdout);
 check(
-  'and merges with a merge commit, which keeps the branch an ancestor of main',
-  dflt.merges[0]?.includes('--merge'),
-  JSON.stringify(dflt.merges[0])
+  'and asks for a merge commit, which keeps the branch an ancestor of main',
+  methodOf(dflt) === 'merge',
+  methodOf(dflt)
 );
 
 // And the stored value that has to move for any of the above to matter on a machine
@@ -473,8 +548,8 @@ fs.writeFileSync(cfgFile, JSON.stringify(saved, null, 2));
 fs.writeFileSync(stateFile, JSON.stringify({}, null, 2));
 
 const migrated = deliver('an inherited squash moves');
-check('it landed', /^landed #7/.test(migrated.stdout), migrated.stdout);
-check('with a merge commit, not the squash the config still said', migrated.merges[0]?.includes('--merge'), JSON.stringify(migrated.merges[0]));
+check('it queued', /^queued #7/.test(migrated.stdout), migrated.stdout);
+check('with a merge commit, not the squash the config still said', methodOf(migrated) === 'merge', methodOf(migrated));
 check(
   'the config on disk was rewritten, so the daemon and every CLI agree from now on',
   JSON.parse(fs.readFileSync(cfgFile, 'utf8')).pr.mergeMethod === 'merge',
@@ -493,84 +568,26 @@ check('and it said so on stdout rather than moving a setting silently', /pr\.mer
 // `rebase` because it is neither the config's answer nor the built-in one, so a passing
 // check cannot be either of them leaking through.
 const forced = deliver('overrides the method', { extra: ['--method', 'rebase'] });
-check('--method on the command line wins over the config', forced.merges[0]?.includes('--rebase'), JSON.stringify(forced.merges[0]));
+check('--method on the command line wins over the config', methodOf(forced) === 'rebase', methodOf(forced));
 
-/* ------------------------------------- 7. and this Mac's own main follows the merge */
+/* --------------------- 7. this Mac's own main — moved with the merge, see below */
 
-console.log('\nthe main checkout: it ends up at what GitHub now has');
-
-// The merge is at GitHub, so `origin/main` has the commit the instant it lands and this
-// laptop's `main` does not — until something fetches. Nothing reliably did: the next
-// deploy, a merge from the board, or a person. In between, every `git worktree add`
-// here branched from before the delivery, and the session in that worktree paid for it
-// with a downmerge of work it had never heard of.
-// On `main` and clean, which is what the main checkout looks like on this Mac while
-// sessions work in worktrees beside it. The scenarios above leave it on the last branch
-// they made, and that would take the other path through `landLocally` — the one for a
-// checkout that is *not* on the base — which is not the case worth pinning here.
-git(['checkout', '-q', 'main']);
-const beforeFF = git(['rev-parse', 'main']);
-const followed = deliver('the laptop follows', { worktree: true });
-check('it landed', /^landed #7/.test(followed.stdout), followed.stdout);
-check(
-  "the main checkout's main is now exactly origin/main",
-  git(['rev-parse', 'main']) === run('git', ['--git-dir', ORIGIN, 'rev-parse', 'main']).trim(),
-  `${git(['rev-parse', 'main'])} vs ${run('git', ['--git-dir', ORIGIN, 'rev-parse', 'main']).trim()}`
-);
-check('  — which is a move, not the place it already was', git(['rev-parse', 'main']) !== beforeFF);
-check('  — and it is still on main, not on the worker’s branch', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'main');
-check('  — the session log says what it did to the checkout', /fast-forwarded main/.test(followed.stderr), followed.stderr);
-// Whitespace-flattened, because `bd comments` wraps to the terminal and a sentence
-// that happens to break across two lines is not a sentence that is missing.
-const flat = (s) => String(s).replace(/\s+/g, ' ');
-check(
-  '  — and so does the bead, which outlives the window',
-  /This Mac's checkout: fast-forwarded main/.test(flat(bd(['comments', followed.id]))),
-  flat(bd(['comments', followed.id])).slice(-160)
-);
-
-// And the refusal, end to end. The unit test in test/prboard.mjs pins `landLocally`'s
-// behaviour; this pins that a *delivery* inherits it, because a worker fast-forwarding
-// over Adam's open files at three in the morning is the one way this change could do
-// real damage.
-fs.writeFileSync(path.join(REPO, 'README.md'), '# land check\n\nadam is mid-edit\n');
-const dirtyMain = git(['rev-parse', 'main']);
-const heldOff = deliver('the laptop is busy', { worktree: true });
-check('a delivery still lands over a dirty main checkout', /^landed #7/.test(heldOff.stdout), heldOff.stdout);
-check('  — but main is left exactly where it was', git(['rev-parse', 'main']) === dirtyMain);
-check(
-  '  — with the uncommitted edit untouched',
-  fs.readFileSync(path.join(REPO, 'README.md'), 'utf8') === '# land check\n\nadam is mid-edit\n'
-);
-check(
-  '  — and the reason on the bead, where someone will see it',
-  /uncommitted work/.test(flat(bd(['comments', heldOff.id]))),
-  flat(bd(['comments', heldOff.id])).slice(-160)
-);
-git(['checkout', '--quiet', '--', 'README.md']);
-
-// And the exception to it, bc-45g8, end to end for the same reason: the refusal is
-// per-delivery but the checkout is *shared*, so before this a single `.DS_Store` left
-// every session's fast-forward on this Mac stuck at once. Untracked residue is not
-// anybody's unsaved work, so it is stepped past — and left exactly where it was, which
-// is the difference between this and tidying up after Adam.
-fs.writeFileSync(path.join(REPO, '.DS_Store'), 'finder\n');
-const strayMain = git(['rev-parse', 'main']);
-const pastStray = deliver('the laptop has residue on it', { worktree: true });
-check('a delivery lands over a checkout dirty only with untracked files', /^landed #7/.test(pastStray.stdout), pastStray.stdout);
-check(
-  '  — and main follows anyway, which one stray path used to stop for every session at once',
-  git(['rev-parse', 'main']) === run('git', ['--git-dir', ORIGIN, 'rev-parse', 'main']).trim() &&
-    git(['rev-parse', 'main']) !== strayMain,
-  `${git(['rev-parse', 'main'])} vs ${strayMain}`
-);
-check('  — the residue is still on disk, untouched', fs.existsSync(path.join(REPO, '.DS_Store')));
-check(
-  '  — and the bead says it stepped past it rather than claiming a clean tree',
-  /past untracked/.test(flat(bd(['comments', pastStray.id]))),
-  flat(bd(['comments', pastStray.id])).slice(-160)
-);
-fs.rmSync(path.join(REPO, '.DS_Store'), { force: true });
+// This scenario was the local fast-forward: the merge is at GitHub, so this laptop's
+// `main` is a commit behind until something fetches, and until then every new worktree
+// branches from before the delivery. It asserted three things end to end — that a
+// delivery fast-forwards the main checkout, that it refuses to over a checkout with
+// uncommitted work in it, and that it steps past untracked residue (bc-45g8).
+//
+// **It is not gone, it has changed owner.** `landParent` is unchanged and is still what
+// does all three; what moved is who calls it, because a delivery no longer merges and a
+// merge is the only thing that puts `main` behind. The call is now in the queue's
+// `afterMerge` (lib/server.js), and that it is made is asserted in test/mergequeue.mjs.
+// `landLocally`'s own behaviour — the refusal and the residue exception — is pinned by
+// test/prboard.mjs, as its comment here always said.
+//
+// Deleting the scenario rather than re-pointing it is deliberate: driving it from here
+// would mean this harness running a merge queue, and a harness that has to build the
+// daemon to test a CLI is a harness nobody will keep true.
 
 /* ------------------------------- 8. and it will not push an unresolved merge at all */
 
@@ -600,7 +617,7 @@ check('it says how to catch it a commit earlier', /--install-hook/.test(stillCon
 // And the same branch with the merge actually resolved goes straight through, so the
 // check above is about the markers rather than about anything else the scenario did.
 const resolved = deliver('resolves it before delivering');
-check('a resolved branch still lands normally', /^landed #7/.test(resolved.stdout), resolved.stdout || resolved.stderr);
+check('a resolved branch still queues normally', /^queued #7/.test(resolved.stdout), resolved.stdout || resolved.stderr);
 
 /* ------------------------------------------------------------------ verdict */
 

@@ -54,7 +54,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const { Bd } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
+const { Bd, CLAIM_GUARD_RE } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
 
 let failures = 0;
 let ran = 0;
@@ -304,6 +304,57 @@ async function diverge(name, id, { reason = 'asking bd', gate: expected } = {}) 
   const closed = bdRun(['close', work, '--reason', landed]);
   check(() => assert.equal(gate, null, `gate: ${JSON.stringify(gate)}`), 'a work bead closing on a merge reason — the gate permits it');
   check(() => assert.equal(closed.status, 0, `bd said: ${(closed.stderr || closed.stdout || '').split('\n')[0]}`), 'a work bead closing on a merge reason — and so does bd');
+}
+
+/* ------------------------------------- the claim, which is a refusal and not a gate */
+
+{
+  // **bc-ko7n, against the binary.** bd refuses a close whose actor is not the bead's
+  // assignee, and beadcause can never satisfy it: the actor is the byline `beadcause
+  // (<address>)` and the assignee is the bare git address a claim writes. Three
+  // assertions, and the middle one is the point of the file:
+  //
+  //   1. bd really does refuse it — driven raw, so the wording `CLAIM_GUARD_RE` matches
+  //      is read off the binary rather than off a fixture that agrees with itself. That
+  //      regex is bc-9d37.13's, shared with the delivery paths and with bin/deliver.js.
+  //   2. **The gate says nothing.** Modelling this in `gateFor` was the tempting fix and
+  //      it would have been the "inventing a gate" failure this whole file exists to
+  //      catch: the gate is what the phone draws a card from and what lib/landed.js
+  //      skips on, so a branch there would make every bead a session ever claimed read
+  //      as unclosable.
+  //   3. `Bd.closeAnswered` closes it anyway, by dropping the claim first. Which is why
+  //      (2) is correct rather than merely convenient — there is no refusal left to
+  //      report. The delivery half of the same guard forces instead and keeps the
+  //      assignee; test/mergeclose.mjs is where that one is asked.
+  const claimed = await make({ title: 'a question a worker session claimed' });
+  await bd.run(ws, ['update', claimed, '--assignee', 'neadamthal@gmail.com'], { actor: 'neadamthal@gmail.com' });
+  const raw = bdRun(['close', claimed, '--reason', 'Answered via Beadcause', '--actor', 'beadcause (neadamthal@gmail.com)']);
+  const said = `${raw.stderr || ''}${raw.stdout || ''}`.trim().split('\n')[0];
+  check(() => assert.equal(raw.status !== 0, true, `bd said: ${said}`), 'a claimed bead — bd refuses a close from another actor');
+  check(() => assert.match(said, CLAIM_GUARD_RE), 'a claimed bead — in the words lib/bd.js matches on');
+
+  const gate = await bd.closeGate(ws, claimed);
+  check(() => assert.equal(gate, null, `gate: ${JSON.stringify(gate)}`), 'a claimed bead — the gate invents nothing about it');
+
+  await bd.closeAnswered(ws, claimed, 'Answered via Beadcause', { actor: 'beadcause (neadamthal@gmail.com)' });
+  const after = await bd.show(ws, claimed);
+  check(() => assert.equal(after?.status, 'closed'), 'a claimed bead — and beadcause closes it, having reclaimed it');
+  check(() => assert.ok(!String(after?.assignee || '').trim()), 'a claimed bead — the claim it dropped to do so is gone');
+}
+
+{
+  // The other half of bc-ko7n, and the two facts about bd it rests on. `answerOnce`
+  // skips a comment that is already the newest thing on the thread, so it needs the
+  // field the text is under and the direction the rows come back in. Both are silent if
+  // they drift — the dedupe simply stops matching, the duplicate answers come back, and
+  // nothing anywhere fails — which is why they are asked of the binary rather than
+  // assumed. test/answerclose.mjs proves the behaviour on a fake that answers this shape.
+  const thread = await make({ title: 'a bead with something said on it' });
+  await bd.run(ws, ['comment', thread, 'the older thing']);
+  await bd.run(ws, ['comment', thread, 'the newer thing']);
+  const said = await bd.comments(ws, thread);
+  check(() => assert.equal(said.length, 2, JSON.stringify(said)), 'a thread — comes back with both comments on it');
+  check(() => assert.equal(said[said.length - 1]?.text, 'the newer thing'), 'a thread — oldest first, so the last row is the newest');
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

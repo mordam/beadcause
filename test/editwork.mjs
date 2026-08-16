@@ -241,8 +241,13 @@ console.log('\nthe brief this bead ends in\n');
   const brief = workPromptFor('demo', leaf, 1, MODE(), 'Adam', { edit: editBriefFor(leaf, { owner: 'Adam' }) });
   const ordinary = workPromptFor('demo', { id: 'zz-plain', title: 'A thing' }, 1, MODE(), 'Adam');
 
-  check('an ordinary bead in this space still lands its own work', /merges it with a merge commit into/.test(ordinary));
-  check('an in-app edit in the same space does not', !/merges it with a merge commit into/.test(brief) && /you do not merge it — you deliver it/.test(brief));
+  // bc-r941: an ordinary bead's brief no longer promises a merge, because the session no
+  // longer performs one — it promises the queue. What this scenario is really about is
+  // that an *edit* bead's brief is different from an ordinary one's in the same space, so
+  // what the ordinary one says has to be pinned to something, and this is the sentence
+  // that replaced the merge.
+  check('an ordinary bead in this space goes on the merge queue', /merge queue/i.test(ordinary), (ordinary.match(/.*merge queue.*/i) || [])[0]);
+  check('an in-app edit in the same space does not', !/merge queue/i.test(brief) && /you do not merge it — you deliver it/.test(brief));
   check('the command it is given carries --review', /--tests "<how you ran them and what happened>" --review <<'EOF'/.test(brief));
   check('the marker it is asked for is the review one, and only that', /\*\* BEAD WORK DONE \*\* CAN BE REVIEWED \*\*/.test(brief) && !/CAN BE DEPLOYED, REBUILT/.test(brief));
   check('it is told the delivery holds it either way, so the flag is not the guarantee', /holds it either way/.test(brief));
@@ -552,9 +557,18 @@ const cardOf = (id) => world().issues[id]?.description || '';
   reset('zz-plain', ['owner:adam']);
   branchOff('plain-one');
   const last = deliver('zz-plain');
-  check('an ordinary bead in the same space merges itself, exactly as it did before', merged(), last);
-  check('and says so', /^landed #\d+/.test(last), last);
-  check('closing the bead, because the merge is what made it true', world().issues['zz-plain'].status === 'closed');
+  // The contrast this scenario exists for is unchanged and is what matters: an in-app
+  // edit is held for a human where an ordinary bead is not. What an ordinary bead does
+  // instead of being held moved with bc-r941 — it queues rather than merging — so that
+  // is what is asserted, including the negative that nothing here merged.
+  check('an ordinary bead in the same space is not held — it goes to the queue', /^queued #\d+ /.test(last), last);
+  check('and nothing merged it here either', !merged(), ghCalls().map((c) => c.join(' ')).join(' | '));
+  check('the bead is open, and closes when the queue merges it', world().issues['zz-plain'].status !== 'closed');
+  check(
+    'and no card was filed, which is the difference from the in-app edit above',
+    !Object.values(world().issues).some((i) => (i.labels || []).includes('pr-delivery') && i.status !== 'closed'),
+    JSON.stringify(Object.entries(world().issues).filter(([, i]) => (i.labels || []).includes('pr-delivery')).map(([k]) => k))
+  );
 }
 
 {

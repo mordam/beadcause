@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v57';
+const CACHE = 'beadcause-v63';
 const SHELL = [
   '/',
   '/index.html',
@@ -49,6 +49,11 @@ const SHELL = [
   // because it is loaded on the tap that answers a question — the one moment the
   // link is least likely to be there and most likely to be slow.
   '/absorb.js',
+  // And the queue those writes go on. The strongest shell argument of any file here:
+  // the one moment it is wanted is the moment the link is bad, because a link good
+  // enough to fetch it is a link the write would have gone straight out over. A page
+  // cached without it answers questions one blocking round trip at a time.
+  '/submitqueue.js',
   // The mic on the answer box. In the shell rather than network-first because the one
   // moment it is wanted is the moment a notification was opened on a phone that has
   // just woken up — the same argument as absorb.js above.
@@ -67,6 +72,17 @@ const SHELL = [
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.
   '/spacebar.js',
+  // The account switcher beside it, and in the shell for a stronger version of the same
+  // reason: a page cached without this file has no way to change which *life* the app is
+  // about — and, because the menu is where the page's own top-right buttons now live, no
+  // refresh, no endorsement queue and no way out to a browser either.
+  '/accountbar.js',
+  // Whether the screen is current, and the banner that says when it is not. In the shell
+  // for the reason the other two are, taken one step further: the moment this file exists
+  // for is a phone that cannot reach the daemon, which is exactly the moment a file that
+  // is not cached cannot be fetched. A shell without it is an app that goes quiet about
+  // being out of date precisely when it is.
+  '/freshness.js',
   // The panel every filter bar in the app is drawn in — the collapsed line, the chips,
   // the hover-and-tap state machine. In the shell because two pages mount it and
   // neither has any control on it at all without it: the inbox loses the scope switch
@@ -179,11 +195,16 @@ const SHELL = [
   // *nothing* is cached, on every phone, for as long as this worker lives. It would look
   // like an app that had merely got slower.
   //
-  // What that costs is small and is not made worse by leaving them out: `/closed` with no
-  // signal falls through to the index page, which is exactly what `/history?status=closed`
-  // — the URL it redirects to, and the one a home-screen shortcut would actually hold —
-  // already does, because `fallback` matches on the full URL and no query string in this
-  // list has ever matched anything. That is one gap, in `fallback`, and not two here.
+  // What that costs is now smaller than it was when they were left out. `fallback` used
+  // to match on the full URL, so `/history?status=closed` — the URL those two redirect
+  // to, and the one a home-screen shortcut actually holds — missed the cache as cleanly
+  // as `/closed` does and landed on the index page too. That gap was the real one, it
+  // was one layer down from this list, and it is closed (bc-nib3.11): a filtered ledger
+  // URL is served the cached ledger offline, chips pressed. What is left is the bare
+  // `/closed` a person types, which offline still falls through to the index, because
+  // resolving it means knowing a redirect only the daemon holds — and the daemon is the
+  // thing that is not there.
+  //
   // Pause all / resume all. In the shell for the reason the terminal is: you open
   // it because something needs stopping now, and that is often the moment the link
   // is worst. The page is useless without the daemon — but it says so instantly
@@ -400,6 +421,27 @@ function fallback(request, url) {
   const missing = new Error(`nothing cached for ${url.pathname}`);
   return caches
     .match(request)
+    // Then the same path with its query string set aside (bc-nib3.11).
+    //
+    // `Cache.match` keys on the *whole* URL, and no path in SHELL has ever had a query
+    // string on it — so every URL in this app that carries its state in the query was a
+    // clean miss here and fell through to the index page below. That is the History
+    // tab's four filters (bc-nib3.3) and every shortcut built on them: a phone opening
+    // `/history?status=closed&priority=P0` with no signal got the inbox, silently, which
+    // is the one moment that page is most worth having.
+    //
+    // `ignoreSearch` compares the two sides on path alone, so the request resolves to
+    // the cached `/history.html` and the page reads its own filters off
+    // `location.search` exactly as it does online. The exact match above still goes
+    // first, because a cache holding both `/history` and `/history?status=closed` should
+    // answer the URL that was asked for rather than whichever went in first.
+    //
+    // It cannot serve the login page, for the reason that page is never in the cache at
+    // all: `fetchAndStore` refuses to store a redirected response or `/login` itself, so
+    // there is no entry here for a `/login?next=…` to widen onto. And `/api/*` never
+    // reaches this function — the fetch handler returns above it — so no answered
+    // question can be resurrected by dropping a query string.
+    .then((hit) => hit || caches.match(request, { ignoreSearch: true }))
     .then((hit) => hit || caches.match('/'))
     .then((hit) => {
       if (hit) return hit;

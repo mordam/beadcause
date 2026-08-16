@@ -278,10 +278,32 @@ const configure = (extra) => {
   );
 };
 
+/**
+ * A body the way the brief tells a worker to write one: prose, then the `decision` block
+ * last with one option recommended. `bin/ask.js` refuses anything else, so a body without
+ * it would fail this file's tests for a reason that has nothing to do with addressing.
+ */
+const ASK_BODY = [
+  'Which of these two did you mean?',
+  '',
+  '```decision',
+  'question: Gross or net?',
+  'options:',
+  '  - id: gross',
+  '    label: Gross',
+  '    response: Gross - the fee comes off the full charge.',
+  '    recommended: true',
+  '  - id: net',
+  '    label: Net',
+  '    response: Net - the fee comes off after processing costs.',
+  '```',
+  '',
+].join('\n');
+
 /** `bin/ask.js`, run the way the brief tells a worker to run it: body on stdin. */
 const ask = (args) => {
   const res = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'ask.js'), '-w', 'demo', '-t', 'Gross or net?', ...args], {
-    input: 'Which of these two did you mean?\n',
+    input: ASK_BODY,
     encoding: 'utf8',
     // HOME into the temp tree so discoverWorkspaces finds no ~/beads to reconcile onto
     // stdout, which is the stream the id comes back on.

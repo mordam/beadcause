@@ -80,6 +80,8 @@ process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 
 const { workPromptFor, prMode } = await import(LIB);
+// bc-r941: the merge-method wording moved from the brief to the card — see below.
+const { deliveryBody } = await import(path.join(HERE, '..', 'lib', 'delivery.js'));
 
 const BEAD = { id: 'bc-fmt', title: 'Workers land their own work when the bead is done' };
 const OWNER = 'Adam';
@@ -106,16 +108,43 @@ check(
   land.includes('node /opt/beadcause/bin/deliver.js -w beadcause -b bc-fmt'),
   (land.match(/.*deliver\.js.*/) || [])[0]
 );
-check('and says what the command actually does — including the merge', /squash-merges it into \\?`main\\?`/.test(land), (land.match(/.*merges it into.*/) || [])[0]);
+// bc-r941. The command no longer merges — it queues — so the brief has to say the word
+// the command actually prints. A session told to expect `landed` reads `queued` as
+// something having gone wrong and goes looking for a queue that is working.
+check('and says what the command actually does — it queues, and prints so', /prints \\?`queued/.test(land), (land.match(/.*queued.*/) || [])[0]);
 check(
-  'it downmerges main into the branch first, which is the only place a conflict can be fixed properly',
-  /git merge origin\/main/.test(land) && /re-run the tests afterwards/.test(land),
-  (land.match(/.*git merge.*/) || [])[0]
+  'and names the thing that does merge, so the session knows it is not it',
+  /merge queue/i.test(land) && /it is not you/.test(land),
+);
+// The hand-written downmerge is *gone*, and its absence is asserted rather than merely
+// no longer required: it asked for something unverifiable after the fact and stale again
+// by the time GitHub saw it. The queue downmerges against the base as it stands at the
+// moment of the merge, which is the only moment the answer is true.
+check(
+  'IT NO LONGER ASKS THE SESSION TO DOWNMERGE BY HAND — the queue does it, later, against a base that has stopped moving',
+  !/git merge origin\/main/.test(land),
+  (land.match(/.*git merge origin.*/) || [])[0]
 );
 check('it offers --owed, which is where a deploy still owed gets recorded', /--owed/.test(land));
 check('and --review, the one escalation a worker may make on its own judgement', /--review/.test(land));
-check('a refused merge is described as a finished session, not a failed one', /you are finished anyway/.test(land));
-check('and the session is told not to rebase or retry after one', /Do not rebase, do not re-run CI, do not try again/.test(land));
+check(
+  'a delivery that does not merge is described as a finished session, not a failed one',
+  /good ending/.test(land),
+  (land.match(/.*good ending.*/) || [])[0]
+);
+check(
+  'and the session is told not to wait, rebase or retry after one',
+  /do not re-run CI, do not rebase/.test(land),
+  (land.match(/.*do not re-run CI.*/) || [])[0]
+);
+// The half that is new in bc-r941, and the one a session gets wrong without it: the
+// close gate will refuse it, and a session that reads that refusal as an error spends a
+// turn routing around a guarantee.
+check(
+  'AND THAT IT CANNOT CLOSE ITS OWN BEAD — the refusal is the feature, not an error',
+  /close gate refuses a bead with an open blocker/.test(land),
+  (land.match(/.*close gate.*/) || [])[0]
+);
 check('the bead is not the session’s to close — the delivery closes it with the merge', /Do not close bc-fmt yourself/.test(land));
 
 // The one that must never come back.
@@ -131,7 +160,7 @@ check(
 );
 check(
   'and it says why, because a rule with no reason is one an agent talks itself out of',
-  /race each other/.test(land) && /GitHub does not race/.test(land)
+  /race each other/.test(land) && /The queue does not race/.test(land)
 );
 
 check('the marker names the two steps that can still be owed', /\*\* BEAD WORK DONE \*\* CAN BE DEPLOYED, REBUILT \*\*/.test(land));
@@ -392,7 +421,9 @@ check('an explicit false switches it off', modeOff && modeOff.autoMerge === fals
 check(
   'and that is the flag the brief follows, end to end',
   /you do not merge it — you deliver it/.test(workPromptFor('beadcause', BEAD, 1, modeOff, OWNER)) &&
-    /squash-merges it into/.test(workPromptFor('beadcause', BEAD, 1, modeOn, OWNER))
+    // bc-r941: with auto-merge on the brief no longer promises a merge method, because the
+    // session no longer performs the merge. What it promises is the queue.
+    /merge queue/i.test(workPromptFor('beadcause', BEAD, 1, modeOn, OWNER))
 );
 
 check('pr delivery switched off entirely is still null, and gets the old ending', (await prMode({ pr: { enabled: false } }, REPO)) === null);
@@ -406,13 +437,22 @@ check('an unset mergeMethod is a merge commit, not a squash', modeBare.method ==
 // And it has to read as English. "squash-merges it" is a phrase; "merge-merges it" is a
 // template showing through, and with `merge` the default it would be in nearly every
 // brief an unattended session is ever handed.
+// bc-r941 moved where that sentence is written. The worker's brief no longer names a
+// merge method — it does not merge — so the grammar this guards is now only ever produced
+// by the card, which is where `mergesIt` in lib/delivery.js actually lives. Asserted
+// there rather than deleted: the template showing through as "merge-merges it" is still a
+// real bug, it just cannot happen in a brief any more.
 const bareBrief = workPromptFor('beadcause', BEAD, 1, modeBare, OWNER);
-check(
-  'and the brief says so, in the sentence describing the command',
-  /merges it with a merge commit into \\?`main\\?`/.test(bareBrief),
-  (bareBrief.match(/.*merges it.*into.*/) || [])[0]
+const bareCard = deliveryBody(
+  { workspace: 'beadcause', bead: 'bc-fmt', repo: 'mordam/beadcause', number: 7, url: 'https://github.com/mordam/beadcause/pull/7', branch: 'b', base: 'main', method: modeBare.method },
+  { refused: 'a check went red.' }
 );
-check('and never says "merge-merges"', !/merge-merges/.test(bareBrief));
+check(
+  'and the card says so, in the sentence beside the button',
+  /merges it with a merge commit/.test(bareCard),
+  (bareCard.match(/.*merges it.*/) || [])[0]
+);
+check('and never says "merge-merges"', !/merge-merges/.test(bareCard) && !/merge-merges/.test(bareBrief));
 
 /* ---------------------------------- what the last session in this repo already learned */
 

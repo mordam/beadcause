@@ -13,6 +13,7 @@
     "beadcause-get": "bin/beadcause-get",
     "beadcause-browse": "bin/beadcause-browse",
     "beadcause-confluence": "bin/beadcause-confluence",
+    "beadcause-changes": "bin/changesample.js",
     "beadcause-file": "bin/file.js",
     "beadcause-propose": "bin/propose.js",
     "beadcause-ask": "bin/ask.js",
@@ -21,7 +22,9 @@
     "beadcause-checkin": "bin/checkin.js",
     "beadcause-plan": "bin/plan.js",
     "beadcause-attic": "bin/attic.js",
-    "beadcause-requirements": "bin/requirements.js"
+    "beadcause-requirements": "bin/requirements.js",
+    "beadcause-incidents": "bin/incidents.js",
+    "beadcause-boundary": "bin/boundary.js"
   },
   "scripts": {
     "start": "node bin/router.js",
