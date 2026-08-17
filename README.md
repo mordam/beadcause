@@ -3736,7 +3736,7 @@ the answer you can see.
 
 ### The agent halves are read, never written down
 
-The five agent kinds on that page — what each may run, whether it may write to the
+The seven agent kinds on that page — what each may run, whether it may write to the
 tracker, its timeout, its model, and the whole of its role prompt — come out of
 lib/foundation.js at render time. Nothing about an agent is restated in the model, and
 that is the point rather than an economy: a diagram carrying its own copy of an
@@ -12964,6 +12964,68 @@ this one — the two of those never reach the queue at all — or the bead was
 — the one kind of work a worker here may not merge, whatever the space says. It went from
 being every delivery to being the interesting ones.
 
+### The reviewer — a seventh agent kind, and the diff nobody reads
+
+Everything above judges a pull request by what *happened to it*: whether it conflicts,
+whether a check went red, whether the base was already red there. Nothing reads the diff.
+On a Mac where the author is an agent and the approver is a queue, the change itself is
+the one thing in the whole path that no second party has looked at.
+
+So there is a **ReviewAdvocate** — a seventh kind in `lib/foundation.js`, beside the merge
+queue rather than inside it. The difference between those two agents is their permissions
+and not their code path, which is what makes it a kind rather than a mode: the merge queue
+may push, may merge to `main`, and is the only thing here that closes a work bead. The
+reviewer may do none of that. It reads the diff, says what it thinks, and the one thing it
+may write is the comment its verdict goes in. A reviewer that could merge the branch it had
+just approved would be the same self-certification that was taken away from the worker,
+arrived at from the other end.
+
+**Its output is a verdict, and a verdict is a document.** The comments it raised, whether
+it approved, and — when it did not — why. `lib/reviewadvocate.js` owns that shape, which is
+what `protocolOwner` means and why the field points there. It is written the way an epic's
+plan is written: a fenced JSON block between `<!-- beadcause:verdict -->` markers, in a
+**comment** on the merge-bead, under a sentence a person can read. Comments are append-only,
+so a verdict cannot lose a race with the daemon rewriting `notes` in the same minute; the
+round before this one stays on the bead, which is the only record of what the reviewer
+objected to before the worker answered it; and every surface that draws a bead already draws
+comments, so a review is readable on the phone with no new screen at all.
+
+The markers are `beadcause:verdict` and deliberately **not** `beadcause:review` — that name
+belongs to the review *state* block on the merge-bead's `notes`, rewritten every round and
+outliving admission. Two documents under one marker is a parser that reads whichever field
+it happened to be handed.
+
+**Severity is a closed vocabulary, because the only reader that matters is a machine.**
+`blocking`, `suggestion`, `question`, and nothing else — an unrecognised one is refused
+rather than coerced, since defaulting it to `blocking` lets a typo hold a branch for ever
+and defaulting it to `suggestion` waves a real objection through. `blocking` is a promise:
+the reviewer will not approve while it stands, so it belongs to correctness, data loss, a
+security hole, a broken contract with a caller, or a test that does not test what it claims.
+Style and taste are suggestions, and something wrong in the code the change landed *next
+to* is a bead, not a review comment. The brief spends its longest paragraph on that, because
+an agent asked to review a diff will find something to say about every hunk of it, and a
+review that raises eleven comments costs a worker eleven answers and the pull request a
+round it cannot get back.
+
+Three shapes are refused outright, and each is a verdict something would act on *wrongly*
+rather than reject:
+
+- **Approved with a blocking comment on it.** The gate reads `approved` and the worker
+  reads the comments, so a verdict saying both merges the branch while telling its author it
+  must not. Which half to believe is not a default anything should pick.
+- **A refusal that never says why.** That is a round spent on a worker guessing.
+- **Two comments sharing an id.** The worker answers comments by id and the next round
+  matches its answers back, so one answer would silently resolve both — the failure that
+  looks exactly like agreement. A *missing* id is numbered instead, because bookkeeping is
+  not worth a round.
+
+**What exists today is the kind, its verdict format, and the brief it argues from.** Nothing
+opens a window on a delivered pull request yet, and the merge queue does not wait for a
+verdict — a merge-bead still goes straight to the queue, and the flow diagram draws the
+reviewer beside that path rather than in it. The wiring, the round cap, the worker's
+hand-back and the approving review on GitHub are the rest of the epic; what landed first is
+the thing all four of them have to agree about, which is what a verdict *is*.
+
 ### The notification with nothing to answer
 
 Every other push from beadcause is a decision arriving. This one is a decision that has
@@ -14305,7 +14367,7 @@ implication at all about whether an auditor testing CC8.1 will want records out 
 carved-out thing.
 
 So a carved-out component may name what it still `bearsOn`, and beadcause names change
-management. All six agent kinds are carved out individually rather than as one row saying
+management. All seven agent kinds are carved out individually rather than as one row saying
 "beadcause agents", because *what non-human identity can change an in-scope repository* is
 a question asked per identity, and a single row answers it for none of them.
 
@@ -17746,9 +17808,9 @@ stops it going quietly stale.
 
 The obvious shape is a table of accounts with a row per agent, and it is wrong in a way
 that would survive review by being ticked. **Nothing this daemon spawns holds a
-credential of its own.** All six agent kinds run as the single Claude subscription signed
+credential of its own.** All seven agent kinds run as the single Claude subscription signed
 in on this Mac; there is no per-agent secret to rotate, nothing to disable one at a time,
-and a table implying otherwise describes six accounts that do not exist.
+and a table implying otherwise describes seven accounts that do not exist.
 
 So the register's rows are **grants, not accounts** — the thing that hands a principal
 its reach, chosen because it is the thing a review can actually revoke:
