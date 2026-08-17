@@ -15630,6 +15630,55 @@ sends what you typed, and `node test/draftlabels.mjs` (in `npm test`) pins both 
 including the argv `bd` is actually spawned with, which is the only layer where the pair
 was ever visible.
 
+### A card may state a fact, but not one of the daemon's records
+
+The fix above had a side effect nobody asked for: once labels stopped being slugged,
+`unendorsed`, `held:<stamp>:<handle>` and `superseded-by:<id>` reached `bd create` intact
+too. A card carrying `superseded-by:bc-x` files a bead that is out of every queue from the
+moment it exists; one carrying `unendorsed` files work no advocate will ever pick up. Both
+silently, and neither is a thing the Labels field offers you to type.
+
+Meanwhile the sibling write — the ✎ on a bead that already exists — had run every label
+through `isProtectedLabel` since the day it was written. So the two ends of one tracker
+disagreed about who owns a label, and the disagreement was in nobody's head.
+
+`lib/proposedlabels.js` is the create side of that, and the line it draws is **not** the ✎'s
+list. A label is one of two things:
+
+| | | |
+|---|---|---|
+| **A record of something that already happened** | refused | `unendorsed`, `agent-filed`, `held:…`, `ran:…`, `superseded-by:…`, `ship` |
+| **A statement about the bead** | allowed | `owner:…`, `for:…`, `container`, and every ordinary label |
+
+A bead being created has no history, so every label in the first row is a claim about a
+past that does not exist — a lease held by a session that was never dispatched, a
+[record of what a finished session was billed to](#and-what-it-actually-ran-on--the-ran-label)
+before anything ran, the [endorsement hold](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time)
+on a card you are looking at as you press the button. The second row is the opposite: who
+is answerable, [whose decision it is](#who-a-question-is-for--me-and-the-for-label), whether
+this is [furniture rather than work](#a-standing-root-is-furniture-not-work). Saying one of
+those on the way in saves a second act, and there is nothing yet for it to overwrite.
+
+That last clause is the whole reason the two lists differ. `owner:` and `for:` are
+protected from the ✎ because [that control](#approve-adjust-decline) posts the label set
+the card is showing, and "remove what I no longer see" is how a removal is expressed there
+— so a label it does not offer is destroyed by omission. A create cannot destroy anything
+by omission. It goes the other way too: `held:`, `superseded-by:` and `ship` are refused
+here and are not on the ✎'s list at all, because a bead that already exists may legitimately
+be carrying them.
+
+Refused labels are **dropped rather than fatal** — the bead is filed, and a warning names
+the label and what it would have done. That is `lib/draft.js`'s rule, that a proposal is a
+conversation's output and four good beads are not thrown away to punish one bad label; and
+because a chat [stays open when a create warns](#a-chat-session-ends-when-the-beads-exist),
+the sentence is read on the screen that produced it. The same guard runs on the other
+proposal path — approving an advocate's block — where there is no screen to warn on, so
+what was dropped is commented on the question instead.
+
+`node test/proposedlabels.mjs` (in `npm test`) covers both refusals end to end, and its
+last section is a static read of `isProtectedLabel` itself: add a family there without
+deciding what a create should do with it, and this suite fails naming your label.
+
 ### A card that is already a bead says so — and still files
 
 **Create** is the only write in the whole chat session, and it was the only way into
