@@ -8096,7 +8096,9 @@ reacts to it hands all five here in the same tick. Every lock in the section abo
 comes out is five iTerm windows each running this repo's own gate, which is every suite
 in `test/` and a good twelve minutes of node, simultaneously, on one laptop.
 
-So there is a global cap of **two live resolvers**, and the ones that do not fit **queue**
+So there is a cap of **two live resolvers** — `advocates.maxResolvers`, and see the
+section below for why that number is not the whole of it — and the ones that do not fit
+**queue**
 rather than being refused. Refusing would hand the work back to whoever asked, and the
 sweep has nowhere to put it: it reacts to a merge that has already happened and does not
 come round again until the next one. Two rather than one because the common case is a
@@ -8135,6 +8137,51 @@ queue is in memory like the rest of the file, and more so — an entry carries t
 that opens its window, and there is no way to write that down. `node test/resolverqueue.mjs`
 asserts it: five handed over at once open two, the third opens only once one of the first
 two is gone, and one whose conflict cleared while it waited is dropped instead.
+
+#### And the Mac has one window budget, not two
+
+For a while there were two caps on unattended windows here and **neither could see the
+other**. `advocates.globalMaxWorkers` counted advocate workers across every repo; the
+resolver cap counted resolvers; and a resolver is the same kind of thing as a worker — a
+Claude Code session in an iTerm window running this repo's own gate for twelve minutes.
+So a busy morning was legitimately twenty-two of them, the number that actually matters
+to the laptop was the sum, and the sum was written down nowhere and enforced by nobody.
+The way you found out was the fans. That is bc-29b3, and it was filed by the session that
+added the resolver cap, at the moment it noticed the other one.
+
+They are one budget now. `globalMaxWorkers` is **every unattended window this daemon
+opens**, and `maxResolvers` is a sub-cap *inside* it rather than a second allowance
+beside it — the most of the budget a sweep may take, because five gate runs at once is
+its own problem whatever the total allows. Both halves yield, which is the part that took
+the wiring:
+
+- **An advocate's free slots subtract live resolvers.** `globalFree` is
+  `globalMaxWorkers - workers - resolvers`, so two resolvers on a Mac capped at twenty
+  leave eighteen coding windows and not twenty. When that is what stops a launch the
+  card says so out loud — *"held by globalMaxWorkers (20) · 2 of them are sessions
+  resolving pull requests"* — because the alternative is an advocate quoting a cap of 20
+  over eighteen live sessions, and whoever goes looking for the missing two will not find
+  them on any advocate's card. They are on the pull request board.
+- **A sweep yields to a full Mac.** The queue that already existed for the resolver cap
+  is the queue for this one: a conflict handed over while every window is spoken for
+  waits in line rather than being opened or refused, and the sentence the phone reads
+  back names *which* cap it is waiting on — *"#117 is 3rd in line — this Mac is at its
+  20-window limit, 18 sessions and 2 resolvers are already open"* is a different fact
+  about the wait from *"2 resolvers are already running"*, and they are cleared by
+  different windows closing.
+
+The direction of the wiring is the one thing to keep straight if you touch this.
+`lib/advocate.js` imports the resolver registry to subtract it; the registry cannot
+import back without a cycle, so it is handed a function by the daemon
+(`accountAgainst`, one line in `lib/server.js` beside `createAdvocates`). A registry
+nobody has told about the world outside it caps only what it can count, which is exactly
+what it did before, and is why every test and every non-daemon consumer needs no fixture
+for this. The console's global row adds them too — `20 of 20 sessions open across every
+advocate · 2 resolving pull requests` — for the same reason the advocate's note does.
+
+`node test/windowbudget.mjs` asserts all of it: the subtraction, the note, the yield in
+both directions, and that a Mac nobody has described still caps resolvers at
+`maxResolvers` on its own.
 
 #### One card for the whole sweep, amended as the windows close
 
@@ -19193,7 +19240,8 @@ to be one.
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one. Also [a switch on the console](#which-repos-have-one-from-the-console), which writes this list and reconciles the running daemon — but not while it is `"*"`, which has no list to take a repo out of |
 | `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |
 | `advocates.maxWorkersLimit` | the ceiling that clamps it (default 3). A larger `maxWorkers` is clamped **and logged**, never silently applied |
-| `advocates.globalMaxWorkers` | across every advocate (default 20, hard ceiling 36), so six repos can't open eighteen windows. A stepper at the top of the advocates console, so this one needs no restart; a stored 10 from an older install is moved to 20 once |
+| `advocates.globalMaxWorkers` | across every advocate (default 20, hard ceiling 36), so six repos can't open eighteen windows. A stepper at the top of the advocates console, so this one needs no restart; a stored 10 from an older install is moved to 20 once. Since bc-29b3 it is **every unattended window on this Mac**, not only the advocates' — a [conflict resolver](#and-the-mac-has-one-window-budget-not-two) comes out of the same number |
+| `advocates.maxResolvers` | how many [conflict resolvers](#and-the-mac-has-one-window-budget-not-two) the pull-request sweep may have open at once (default 2, hard ceiling 6). **Inside `globalMaxWorkers`, not beside it**: a resolver is the same kind of window as a worker, so the two come out of one budget and this is only the most of it a sweep may take. It was a constant nobody could turn down until bc-29b3 |
 | `advocates.maxEpicAdvocates` | how many [P0 advocate](#what-a-p0-advocate-is--its-foundation-and-what-one-visit-consists-of) windows one repo may have open at once (default 3, hard ceiling 9). **Its own budget, and deliberately not part of `maxWorkers` or `globalMaxWorkers`**: a planning window is cheap, short and does none of the work, so rationing it against coding windows made the two compete and the cheaper one lose on a busy repo. Stepping the session limit does not change this number, and the roster says so where it draws it |
 | `advocates.perWorkspace` | per-repo overrides, e.g. `{"sophab": {"maxWorkers": 2}}` |
 | `advocates.minPriority` | beads above this priority aren't work (default 3 — P4 is a backlog) |
