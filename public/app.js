@@ -240,6 +240,16 @@
      * where which epic is unfolded is where you happen to be looking.
      */
     p0status: localStorage.getItem('beadcause.p0status') || 'live',
+    /**
+     * Is the picker at the foot of the board open? bc-s8mc.
+     *
+     * Page state and not persisted, like `p0open` and unlike `p0shut`: it is a thing you
+     * are doing rather than a way you like the board, and a picker still hanging open the
+     * next morning would be the app remembering a decision you had already made. It is
+     * closed by a successful start for the same reason — the answer to "which one" has
+     * been given, and the card is on the way.
+     */
+    p0picker: false,
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -6010,19 +6020,82 @@
    * and it can only be right about that if it is looking at the same cards the section
    * drew. Two copies of this filter is how an inbox comes to say "nothing waiting" over a
    * board with four questions on it.
+   *
+   * `list` is the third reader, bc-s8mc's: the picker offers off `startable`, and it needs
+   * the same two filters over that different list, because a picker that offered an epic
+   * from a workspace this screen is not showing would put a card on a board you would then
+   * have to switch spaces to see. It is a parameter rather than a second predicate for the
+   * reason in the paragraph above — the copies are what go wrong, whichever list they are
+   * over. Not-owned still answers `[]` for either, which is what lets the caller decide
+   * what an empty board means.
    */
-  function p0Cards() {
+  function p0Cards(list) {
     const board = state.p0board;
     if (!board?.owned) return [];
-    return (board.p0s || []).filter(
+    return (list || board.p0s || []).filter(
       (c) => (state.space === 'all' || spaceForWorkspace(c.workspace) === state.space) &&
         (state.workspace === 'all' || c.workspace === state.workspace)
     );
   }
 
+  /**
+   * The foot of the board: one button, and the P0s a tap on it would offer. bc-s8mc.
+   *
+   * **`startable` is the server's list and this draws it whole.** Which P0s may be offered
+   * is a question about the tracker — endorsed, not superseded, not a crash this app filed
+   * at P0 itself, open rather than blocked — and every one of those is read off the graph
+   * the board is already built from (`offerable` in lib/server.js). A client-side rule over
+   * the cards it happens to have would be a second answer to that question, drawn from a
+   * payload that deliberately carries only the *started* ones.
+   *
+   * **The count is on every row**, because it is most of what the choice is made on: "the
+   * one with sixty children left" is how the board itself is ordered, and an id and a title
+   * alone put the decision back on your memory of the tracker.
+   *
+   * The tap that opens this grows the board, which is *above* the inbox list — see
+   * `keepTheScreenStill`, which the handler wraps the repaint in. Without it the list's own
+   * place-restore scrolls the page down by exactly the height of what just opened, and the
+   * control you tapped leaves the screen.
+   */
+  function p0PickerHtml(rows) {
+    const on = !!state.p0picker;
+    const head = `<button type="button" class="p0-pick" data-act="p0-pick" aria-expanded="${on}"${
+      on ? ' aria-controls="p0picker"' : ''
+    }>${on ? '\u2715 Never mind' : '\uff0b Start an epic'}</button>`;
+    if (!on) return head;
+    // Nothing to offer is a sentence rather than an empty box, and it says which of the two
+    // reasons it is: a tracker where every P0 of yours is already started reads exactly
+    // like a picker that failed to load its list.
+    if (!rows.length) {
+      return `${head}<div class="p0-picker" id="p0picker"><div class="p0-none">Nothing to start — every P0 you own is either on the board already or not open.</div></div>`;
+    }
+    return `${head}<div class="p0-picker" id="p0picker" role="group" aria-label="P0s you own that have not been started">${rows
+      .map(
+        (r) => `<button type="button" class="p0-cand" data-act="p0-start" data-ws="${esc(r.workspace)}" data-bead="${esc(
+          r.id
+        )}">
+          <span class="p0-cand-head"><span class="pill id">${esc(r.id)}</span><span class="p0-open">${
+            r.open === 1 ? '1 open' : `${r.open || 0} open`
+          }</span></span>
+          <span class="p0-cand-title">${esc(r.title || '')}</span>
+        </button>`
+      )
+      .join('')}</div>`;
+  }
+
   function p0SectionHtml() {
     const mine = p0Cards();
-    if (!mine.length) return '';
+    const canStart = p0Cards(state.p0board?.startable);
+    // Nothing started, and something that could be. The board is off — that is bc-6s96's
+    // rule and the list below is drawn flat, untouched — but the one control that would
+    // *end* that state has to be reachable, or the screen that says what the week is about
+    // is the one screen that cannot change it. Just the offer: no heading, no fold, no
+    // count of nothing.
+    if (!mine.length) {
+      return canStart.length
+        ? `<section class="p0-board bare" aria-label="${P0_SECTION_LABEL}">${p0PickerHtml(canStart)}</section>`
+        : '';
+    }
     const cards = mine
       .map((c) => {
         // The card's own key, with the same fallback the server's shape makes
@@ -6063,6 +6136,9 @@
           <div class="p0-acts">
             ${p0Control(c)}
             <a class="p0-graph" href="${esc(`${graphUrl(c)}&open=1`)}">🕸 Graph</a>
+            <button type="button" class="p0-off" data-act="p0-unstart" data-ws="${esc(c.workspace)}" data-bead="${esc(
+              c.id
+            )}">↩ Take it off the board</button>
           </div>
         </div>`;
       })
@@ -6084,7 +6160,7 @@
         ${P0_SECTION_LABEL}
         ${asks ? `<span class="p0-kind-asks">${asks === 1 ? '1 asks you' : `${asks} ask you`}</span>` : ''}
         <span class="p0-kind-n">${mine.length}</span>
-      </button>${shut ? '' : p0StatusHtml(mine) + cards}</section>`;
+      </button>${shut ? '' : p0StatusHtml(mine) + cards + p0PickerHtml(canStart)}</section>`;
   }
 
   function render(force = false) {
@@ -7013,6 +7089,68 @@
         // dead control saying nothing would be the wrong end of it.
         btn.disabled = false;
         btn.textContent = was;
+        toast(err.message, 'refused');
+      }
+      return;
+    }
+
+    /**
+     * Open the picker at the foot of the board, or shut it. bc-s8mc.
+     *
+     * `keepTheScreenStill` and not a plain `render(true)`, which is the whole of what makes
+     * this tap usable: the picker opens *above* the inbox list, `capturePlace` anchors the
+     * scroll on the first card in that list, and restoring it after a repaint that grew the
+     * board scrolls the page down by exactly the height of what just opened — the button
+     * you pressed leaving the screen, the list you were not looking at staying put. The
+     * offset is exact rather than approximate here, because everything inserted is below
+     * the anchor row and nothing above it changes height.
+     */
+    if (act === 'p0-pick') {
+      state.p0picker = !state.p0picker;
+      keepTheScreenStill(() => render(true));
+      return;
+    }
+
+    /**
+     * Start a P0 from the picker, or take one off the board. bc-s8mc.
+     *
+     * Both directions through one branch because they are one write in opposite
+     * directions, and both keyed on `data-bead` rather than `data-key` for the reason the
+     * advocate button above is: these are board controls, not inbox rows, and every branch
+     * below reads a bead key.
+     *
+     * **The refusal is the point.** The server answers 409 with a sentence for every state
+     * the picker's list — up to a poll old — could not have known about: the bead closed,
+     * somebody started it from the other device, it was superseded while you were reading.
+     * The acceptance criterion for this feature is that such a write is loud rather than a
+     * card that silently never appears, so the button comes back and the reason goes in a
+     * toast, exactly as the advocate launch does.
+     *
+     * **`load()` and not a hand-made card.** The daemon refreshed that workspace's graph
+     * inside the write, so the very next payload has the card with its tree and its counts
+     * on it — a card assembled here from the picker row would be a second renderer of the
+     * board's hardest shape, wrong in the counts until the real one landed. Every other
+     * device gets the same thing off its parked log request, woken by the `p0board` event.
+     */
+    if (act === 'p0-start' || act === 'p0-unstart') {
+      const on = act === 'p0-start';
+      const bead = btn.dataset.bead;
+      const was = btn.innerHTML;
+      btn.disabled = true;
+      btn.textContent = on ? 'Starting…' : 'Taking it off…';
+      try {
+        await api(on ? '/api/bead/start' : '/api/bead/unstart', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
+        });
+        // The question the picker asked has been answered; leaving it open would put the
+        // epic you just started back in front of you as something to start.
+        if (on) state.p0picker = false;
+        toast(on ? `${bead} is on the board` : `${bead} is off the board — ＋ Start an epic puts it back`);
+        await load();
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = was;
         toast(err.message, 'refused');
       }
       return;
