@@ -68,12 +68,6 @@
   })();
 
   const out = document.getElementById('mon');
-  /* The Config pane (bc-me2b). Its card is drawn by this file like everything in `out`
-     and pressed through the same delegated handlers — it is one section of this page's
-     output that happens to be shown under a different chip, not a second page. A build
-     served an older monitor.html finds nothing here, and every write below is guarded,
-     so such a page draws the roster and simply has no settings card. */
-  const cfg = document.getElementById('config');
   const pulse = document.getElementById('pulse');
   const tally = document.getElementById('tally');
   const observing = document.getElementById('observing');
@@ -155,16 +149,6 @@
     open: new Set(readOpen()),
     picks: new Map(), // question key → Map(1-based bead index → 'yes' | 'no')
     error: null,
-    /** The selected space's own configuration — see `/api/space` and spaceHtml. */
-    space: null,
-    spaceError: null,
-    /** What the last press changed, in the daemon's words rather than the label's. */
-    spaceSaid: null,
-    /* The Slack channel field, which is the one control on this card you *type* into.
-       Same reason as the steppers below: a stream event repaints this page under your
-       thumb, and a half-typed channel id living in the DOM would be thrown away by a
-       poll nobody asked for. `{ space, text }`, dropped the moment a press sends it. */
-    slackDraft: null,
     /* The three halves of a stepper that has been moved but not yet applied — see
        `limitControl`. All keyed the same way (`stepKey`), and all in `state` rather
        than in the markup for one reason: this page repaints off a poll every couple
@@ -1616,554 +1600,19 @@
     </div>`;
   }
 
-  /* ------------------------------------------------------- the space's own settings
-
-     What makes this page the details of a *space* rather than a list of advocates that
-     happens to be filtered.
-
-     Every one of these already existed and every one of them was a config hand-edit:
-     `quietHours`, `quietDays`, `ntfyDetail` and `autoDispatch` have been read out of
-     lib/spaces.js since spaces were invented, `autoMerge`/`requireApproval` joined them
-     with the per-space PR policy, `autoEndorse` — whether a bead an agent filed here
-     may be worked before you have read it — joined them after that, and `autoShip` joined
-     them with the release queue that deploys a merge without being tapped. Editing them
-     meant opening
-     `~/.beadcause/config.json` on the Mac — which is exactly the wrong place, because
-     the moment you know a setting is wrong is the moment you are looking at what it
-     did, on a phone, at the weekend.
-
-     Three shapes of control, and the difference between them is the shape of the
-     answer, not a style choice:
-
-     - **Muted** is two-state. There is no global "mute everything" behind it, so
-       "not set" and "off" are the same thing and a third button would be a lie.
-     - **The seven with a global behind them** are three-state — On, Off, *Inherit* —
-       because `prPolicyFor` is explicit that a space may override the global in either
-       direction, so "off" and "following the default, which is off" are different
-       answers that must survive the default changing under them. The Inherit button
-       says what it currently resolves to rather than the word alone. `autoEndorse` is
-       one of them and its global default is `off` rather than on, which is the whole
-       reason Inherit names what it resolves to instead of saying "Inherit".
-     - **Quiet hours and quiet days** are a pair of times and a row of days, each
-       clearable, because "no quiet hours" is a state you have to be able to get back
-       to and deleting the key is the only way there.
-     - **The Slack channel** is the only one you type, and it has three answers rather
-       than two: a channel id, *Never* — which stores an empty string and means this
-       space stays out of Slack however the global is set — and *Inherit*. Never and
-       Inherit look identical on the day you press them and come apart the day
-       `slack.channel` changes, which is the whole reason both buttons are there.
-  */
-
-  /** The name of the space this page is about, or null when nothing is narrowed to one. */
-  const spaceName = () => {
-    const f = window.beadcause?.space?.filter;
-    return f && f.space && f.space !== 'all' ? f.space : null;
-  };
-
-  /**
-   * The one repo the picker is pinned to, or null when the whole space is selected.
-   *
-   * The picker has two levels and the settings card only ever read the coarse one: pick
-   * `beadcause` and it stores `{space: 'Personal', workspace: 'beadcause'}`, the card
-   * asked `spaceName()` for the space, and what it drew was Personal — every setting of
-   * it, and a row each for beadcause, deluvia, ehatt and sophab. The settings are
-   * genuinely the space's and stay whole. The rows are not: you narrowed to one repo,
-   * and a panel headed "what each repo resolves to" listing three you did not pick is
-   * the console answering a question about somebody else's config (bc-me2b).
-   *
-   * Deliberately not `inSpace`, which is the *row* filter every other list on this page
-   * uses. That one resolves a name through `spaceOf`, and a name in `d.missing` is by
-   * definition not a configured workspace — so `spaceOf` calls it 'Other' and `inSpace`
-   * would drop the drift warning off a card that is narrowed to nothing but a space. The
-   * question here is only ever "is the picker pinned to a repo", so it is asked directly.
-   */
-  const onlyRepo = () => {
-    const f = window.beadcause?.space?.filter;
-    return f && f.workspace && f.workspace !== 'all' ? f.workspace : null;
-  };
-
-  const DAYS = [
-    ['mon', 'M'],
-    ['tue', 'T'],
-    ['wed', 'W'],
-    ['thu', 'T'],
-    ['fri', 'F'],
-    ['sat', 'S'],
-    ['sun', 'S'],
-  ];
-
-  /** `true` → "on". The word a control is set to, and the word Inherit resolves to. */
-  const onOff = (v) => (v ? 'on' : 'off');
-
-  /**
-   * One three-state row: On, Off, and Inherit — which names what it inherits *to*.
-   *
-   * `data-value` travels as a string because a data attribute is one; `saveSpace`
-   * turns `"null"` back into the JSON null that means "clear this key", which is the
-   * one value the server reads as "go back to the global".
-   */
-  function tri(field, label, help, value, inherited) {
-    const btn = (v, text, title) =>
-      `<button class="adv-btn${value === v ? ' on' : ''}" data-space-set="${esc(field)}" data-value="${esc(
-        String(v)
-      )}" title="${esc(title)}">${esc(text)}</button>`;
-    return `<div class="space-row">
-      <div class="space-row-head">
-        <span class="space-what">${esc(label)}</span>
-        <span class="space-state ${value === null ? 'dim' : value ? 'live' : 'held'}">${
-          value === null ? `inherited · ${esc(onOff(inherited))}` : esc(onOff(value))
-        }</span>
-      </div>
-      <p class="space-help">${esc(help)}</p>
-      <div class="space-btns">
-        ${btn(true, 'On', `${label} — on for this space, whatever the global says`)}
-        ${btn(false, 'Off', `${label} — off for this space, whatever the global says`)}
-        ${btn(null, `Inherit (${onOff(inherited)})`, `Follow the global default, which is currently ${onOff(inherited)}`)}
-      </div>
-    </div>`;
-  }
-
-  /**
-   * The four settings a repo row may answer for itself, in the order they happen to
-   * work: a filing arrives, a pull request merges, a review gates that merge, the merge
-   * deploys. Reading down a row is reading the life of one piece of work.
-   *
-   * `on`/`off` are the sentences the *buttons* promise, so each one says what pressing
-   * it does to this repo rather than naming the field again — a title reading
-   * "autoShip — on" tells you nothing you could not see.
-   *
-   * The keys are `WORKSPACE_SETTINGS` in lib/spaces.js and the server refuses anything
-   * else, so a typo here is a 400 rather than a setting silently written nowhere.
-   */
-  const REPO_SETTINGS = [
-    {
-      key: 'autoEndorse',
-      what: 'Beads agents file here',
-      on: 'files arrive endorsed, whatever the space says',
-      off: 'files stay held for a tap, whatever the space says',
-    },
-    {
-      key: 'autoMerge',
-      what: 'Workers merge their own work',
-      on: 'a worker merges its own pull request once the checks are green',
-      off: 'every delivery hands you the pull request instead',
-    },
-    {
-      key: 'requireApproval',
-      what: 'An approving review first',
-      // Only bites while the row above it is on: with auto-merge off every delivery is
-      // already a question, and answering it *is* the approval. Said on the row rather
-      // than hiding the buttons — the answer is still stored, and it is the one that
-      // applies the moment auto-merge goes back on.
-      moot: (r) => !r.autoMerge,
-      on: 'green checks are not enough — the pull request needs an approving review',
-      off: 'green checks are enough',
-    },
-    {
-      key: 'autoShip',
-      what: 'Merges ship themselves',
-      on: 'a merge runs this repo’s deploy without waiting for Ship',
-      off: 'a merge waits for the Ship button',
-    },
-  ];
-
-  /**
-   * The same three-state control as `tri`, one level down: this repo's own answer, which
-   * outranks its space's.
-   *
-   * Its own function rather than a fourth argument to `tri` because the two write to
-   * different things — `tri` posts `{ space, settings }` and this posts
-   * `{ space, workspace, settings }` — and the press handlers have to be able to tell
-   * them apart from the DOM alone. `data-repo-set` is that difference, and it also keeps
-   * these buttons out of the `[data-space-set]` handler, which would have sent a repo's
-   * press as the whole space's answer: the exact bug this feature exists to end.
-   *
-   * Inherit names what it resolves to *through the space*, not the global — `Inherit
-   * (on)` on a repo inside an endorsing space is the truth, and reading the global there
-   * would be a button promising the opposite of what pressing it does. `r.inherits`
-   * carries that per field; `r.own` is `null` for every field this repo leaves alone,
-   * which is what puts Inherit on.
-   *
-   * A row whose payload predates `own`/`inherits` draws nothing rather than four rows of
-   * buttons that would all read Inherit (off) and write the wrong answer on a press — the
-   * same reasoning the server side gives for treating an unreadable override as absent.
-   */
-  function repoTri(r) {
-    if (!r.own || !r.inherits) return '';
-    return REPO_SETTINGS.map((s) => {
-      const own = r.own[s.key] ?? null;
-      const inherited = Boolean(r.inherits[s.key]);
-      const btn = (v, text, title) =>
-        `<button class="adv-btn${own === v ? ' on' : ''}" data-repo-set="${esc(s.key)}" data-repo="${esc(
-          r.name
-        )}" data-value="${esc(String(v))}" title="${esc(title)}">${esc(text)}</button>`;
-      return `<div class="space-repo-set">
-      <span class="space-repo-what">${esc(s.what)}${s.moot?.(r) ? ' <span class="space-repo-moot">— moot; the merge is yours</span>' : ''}</span>
-      ${btn(true, 'On', `${r.name} — ${s.on}`)}
-      ${btn(false, 'Off', `${r.name} — ${s.off}`)}
-      ${btn(null, `Inherit (${onOff(inherited)})`, `Follow the space, which is currently ${onOff(inherited)}`)}
-    </div>`;
-    }).join('');
-  }
-
-  /**
-   * The whole settings card for the selected space.
-   *
-   * Drawn above the advocate cards because it is what the page is *about*, and because
-   * a setting you scrolled past six repos to find is a setting you edit on the Mac
-   * instead. Shut by default like every other section here — you arrive at this page
-   * to see what is running far more often than to change what a space is.
-   */
-  function spaceHtml() {
-    const name = spaceName();
-    if (!name) {
-      // Not an error and not worth a card: nothing is narrowed, so there is no one
-      // space whose settings these would be. The picker in the bar above is the fix,
-      // and saying so once is cheaper than drawing a card of controls that write nowhere.
-      return `<p class="subtitle space-none">Pick a space in the bar above to see and change its settings.</p>`;
-    }
-    if (state.spaceError) {
-      // The synthetic "Other" group lands here: it is a place the picker offers, not a
-      // thing with settings, and the server 404s it rather than inventing one.
-      return `<article class="card work-card mon-card plain space-card">
-        <div class="work-head"><h2>${esc(name)}</h2><span class="mon-state dim">no settings</span></div>
-        <p class="subtitle">${esc(state.spaceError)}${
-          name === 'Other'
-            ? ' — repos in no configured space follow the global defaults, and there is nothing here to set on them.'
-            : ''
-        }</p>
-      </article>`;
-    }
-    const d = state.space;
-    if (!d || d.space !== name) return '<p class="subtitle space-none">Reading this space…</p>';
-
-    const s = d.settings;
-    const g = d.defaults;
-    const quiet = d.effective;
-
-    const head = quiet.muted
-      ? { text: 'muted — questions still arrive, the phone stays dark', tone: 'held' }
-      : quiet.quiet
-        ? {
-            text: `quiet${quiet.quietUntil ? ` until ${new Date(quiet.quietUntil).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}`,
-            tone: 'held',
-          }
-        : { text: 'may reach you', tone: 'live' };
-
-    const days = s.quietDays || [];
-    // Only this space's — switching space while a channel is half-typed is a different
-    // answer to a different question, and carrying it across would be the card showing
-    // you one space's channel under another space's name.
-    const draft = state.slackDraft?.space === name ? state.slackDraft.text : null;
-    const rows = [
-      `<div class="space-row">
-        <div class="space-row-head">
-          <span class="space-what">Muted</span>
-          <span class="space-state ${s.muted ? 'held' : 'dim'}">${s.muted ? 'on' : 'off'}</span>
-        </div>
-        <p class="space-help">Never light the phone up for this space. Its questions still arrive, still list, still count — see lib/spaces.js.</p>
-        <div class="space-btns">
-          <button class="adv-btn${s.muted ? ' on' : ''}" data-space-set="muted" data-value="true">Mute</button>
-          <button class="adv-btn${s.muted ? '' : ' on'}" data-space-set="muted" data-value="null">Unmute</button>
-        </div>
-      </div>`,
-
-      `<div class="space-row">
-        <div class="space-row-head">
-          <span class="space-what">Quiet hours</span>
-          <span class="space-state ${s.quietHours ? 'held' : 'dim'}">${
-            s.quietHours ? `${esc(s.quietHours.from)} → ${esc(s.quietHours.to)}` : 'none'
-          }</span>
-        </div>
-        <p class="space-help">Local time, and a window that crosses midnight is the ordinary case: 18:00 → 09:00 is your evening and your night.</p>
-        <div class="space-btns space-hours">
-          <input type="time" id="qh-from" value="${esc(s.quietHours?.from || '18:00')}" aria-label="Quiet from">
-          <span class="space-arrow" aria-hidden="true">→</span>
-          <input type="time" id="qh-to" value="${esc(s.quietHours?.to || '09:00')}" aria-label="Quiet until">
-          <button class="adv-btn primary" data-space-hours="set">Set</button>
-          ${s.quietHours ? '<button class="adv-btn" data-space-hours="clear">Clear</button>' : ''}
-        </div>
-      </div>`,
-
-      `<div class="space-row">
-        <div class="space-row-head">
-          <span class="space-what">Quiet days</span>
-          <span class="space-state ${days.length ? 'held' : 'dim'}">${days.length ? esc(days.join(', ')) : 'none'}</span>
-        </div>
-        <p class="space-help">Whole days this space may not interrupt. Tap to toggle.</p>
-        <div class="space-btns space-days">
-          ${DAYS.map(
-            ([id, letter]) =>
-              `<button class="adv-btn space-day${days.includes(id) ? ' on' : ''}" data-space-day="${esc(
-                id
-              )}" aria-pressed="${days.includes(id)}" aria-label="${esc(id)}" title="${esc(id)}">${letter}</button>`
-          ).join('')}
-        </div>
-      </div>`,
-
-      `<div class="space-row">
-        <div class="space-row-head">
-          <span class="space-what">Push detail</span>
-          <span class="space-state ${s.ntfyDetail ? 'live' : 'dim'}">${
-            s.ntfyDetail ? esc(s.ntfyDetail) : `inherited · ${esc(g.ntfyDetail)}`
-          }</span>
-        </div>
-        <p class="space-help">What the notification itself says. <b>minimal</b> keeps the bead's words off the relay and sends you a bare "something is waiting".</p>
-        <div class="space-btns">
-          <button class="adv-btn${s.ntfyDetail === 'full' ? ' on' : ''}" data-space-set="ntfyDetail" data-value="full">Full</button>
-          <button class="adv-btn${s.ntfyDetail === 'minimal' ? ' on' : ''}" data-space-set="ntfyDetail" data-value="minimal">Minimal</button>
-          <button class="adv-btn${s.ntfyDetail === null ? ' on' : ''}" data-space-set="ntfyDetail" data-value="null">Inherit (${esc(g.ntfyDetail)})</button>
-        </div>
-      </div>`,
-
-      // The only field on this card that is a free-text id rather than a choice, and the
-      // only one whose two ways of saying "nothing" are different answers — see
-      // `slackChannelFor`. `Never` writes an empty string and keeps this space out of
-      // the channel however `slack.channel` is set; `Inherit` deletes the key. The
-      // input's value comes from the draft first, so a repaint mid-type cannot take it.
-      `<div class="space-row">
-        <div class="space-row-head">
-          <span class="space-what">Slack channel</span>
-          <span class="space-state ${s.slackChannel ? 'live' : s.slackChannel === '' ? 'held' : 'dim'}">${
-            s.slackChannel
-              ? esc(s.slackChannel)
-              : s.slackChannel === ''
-                ? 'never posts'
-                : `inherited · ${g.slackChannel ? esc(g.slackChannel) : 'none'}`
-          }</span>
-        </div>
-        <p class="space-help">Where this space's questions are posted, with a button per option — a channel id (<b>C…</b>) or a DM id (<b>D…</b>), not a #name.${
-          quiet.slack ? '' : ' <b>Slack is off</b> in the config, so nothing here posts anywhere until it is on.'
-        }</p>
-        <div class="space-btns space-channel">
-          <input type="text" id="slack-channel" value="${esc(draft ?? s.slackChannel ?? '')}" placeholder="${esc(
-            g.slackChannel || 'C0123456789'
-          )}" aria-label="Slack channel for this space" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
-          <button class="adv-btn primary" data-space-channel="set" title="Post this space&#39;s questions to the channel typed here">Set</button>
-          <button class="adv-btn${s.slackChannel === '' ? ' on' : ''}" data-space-set="slackChannel" data-value="" title="This space never posts to Slack, whatever the global channel is">Never</button>
-          <button class="adv-btn${s.slackChannel === null ? ' on' : ''}" data-space-set="slackChannel" data-value="null" title="Follow the global slack.channel, which is currently ${esc(g.slackChannel || 'unset')}">Inherit (${esc(g.slackChannel || 'none')})</button>
-        </div>
-      </div>`,
-
-      `<div class="space-row">
-        <div class="space-row-head">
-          <span class="space-what">Slack detail</span>
-          <span class="space-state ${s.slackDetail ? 'live' : 'dim'}">${
-            s.slackDetail ? esc(s.slackDetail) : `inherited · ${esc(g.slackDetail)}`
-          }</span>
-        </div>
-        <p class="space-help">How much of the question goes into the channel. <b>minimal</b> posts a nudge and a link with none of the words — the answer for a channel with people in it who should see that a decision is waiting without seeing what it is about.</p>
-        <div class="space-btns">
-          <button class="adv-btn${s.slackDetail === 'full' ? ' on' : ''}" data-space-set="slackDetail" data-value="full">Full</button>
-          <button class="adv-btn${s.slackDetail === 'minimal' ? ' on' : ''}" data-space-set="slackDetail" data-value="minimal">Minimal</button>
-          <button class="adv-btn${s.slackDetail === null ? ' on' : ''}" data-space-set="slackDetail" data-value="null">Inherit (${esc(g.slackDetail)})</button>
-        </div>
-      </div>`,
-
-      tri(
-        'autoDispatch',
-        'Agents may answer unasked',
-        'Whether an unattended agent may reply to comments in this space. The global switch is a veto: with it off, nothing here can turn it back on.',
-        s.autoDispatch,
-        g.autoDispatch
-      ),
-      tri(
-        'autoEndorse',
-        'Beads agents file arrive endorsed',
-        'On means a discovery an agent files here is ready work the moment it exists, and an advocate may open a session on it before you have read it. Off is the hold: nothing runs until you tap Endorse.',
-        s.autoEndorse,
-        g.autoEndorse
-      ),
-      tri(
-        'autoMerge',
-        'Workers merge their own pull requests',
-        'Off means every delivery hands you the pull request instead of landing it — which is what you want anywhere other people read the diff.',
-        s.autoMerge,
-        g.autoMerge
-      ),
-      tri(
-        'requireApproval',
-        'An approving review first',
-        'Only bites while auto-merge is on: with it off every delivery is already a question, and answering it is the approval.',
-        s.requireApproval,
-        g.requireApproval
-      ),
-      tri(
-        'autoShip',
-        'Merges ship themselves',
-        'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
-        s.autoShip,
-        g.autoShip
-      ),
-    ].join('');
-
-    // What each repo actually resolves to, which is not always what the space says:
-    // `ntfy.minimalWorkspaces`, `slack.excludeWorkspaces` and `autoDispatchExclude` are
-    // per-repo lists that outrank it. A screen that showed only the space's answer would
-    // be quietly wrong about exactly the repo that had been singled out.
-    //
-    // A row is a workspace, and since lib/repos.js that is not always one checkout: a
-    // `checkouts` count means this row's single answer governs that many repos of an org
-    // sharing one tracker. Saying so is the whole of what the space-is-the-unit decision
-    // asks of the screen — one row reading as one repo understated the reach of every
-    // setting above it by fortyfold. See the block above `autoDispatchAllowed` in
-    // lib/spaces.js.
-    //
-    // And one of these rows is a *control*. `autoEndorse` is the setting a space is the
-    // wrong unit for — the reason to stop holding is "nobody but me reads this tracker",
-    // which is a fact about one workspace's graph and not about the five beside it in the
-    // same space — so it has a per-workspace override, and this row is where it is set.
-    // A row being a workspace is what makes that sound: the override is the same grain as
-    // the row and the same grain as the tracker, which is the grain the block above
-    // `autoDispatchAllowed` says these answers vary at. It belongs here rather than as a
-    // twelfth row above for the reason the panel already exists: the row states the
-    // answer for this repo, and until now there was nothing to press on the one line that
-    // knew what was wrong. The tag stays beside the buttons and is not made redundant by
-    // them: it is the *resolved* answer, and the buttons say which of the three levels
-    // gave it.
-    //
-    // And only the repo you picked, when you picked one — see `onlyRepo`. The settings
-    // above stay the whole space's, because they are: pinning the picker to one repo
-    // does not make `quietHours` a property of that repo, and a card that redrew them as
-    // if it had would be promising a narrowing the config cannot express. What narrows
-    // is this panel, which is per-repo already.
-    const only = onlyRepo();
-    const shown = only ? d.repos.filter((r) => r.name === only) : d.repos;
-    const many = shown.filter((r) => typeof r.checkouts === 'number');
-    const total = shown.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
-    const repos = shown.length
-      ? `<div class="space-repos">${shown
-          .map(
-            (r) => `<div class="space-repo">
-              <div class="space-repo-tags">
-              <span class="pill id">${esc(r.name)}</span>
-              ${
-                typeof r.checkouts === 'number'
-                  ? `<span class="tag ${r.checkouts ? 'dim' : 'warn'}">${
-                      r.checkouts ? `${r.checkouts} checkout${r.checkouts === 1 ? '' : 's'}, one answer` : 'no checkout resolved'
-                    }</span>`
-                  : ''
-              }
-              <span class="tag${r.ntfyDetail === 'minimal' ? ' warn' : ' dim'}">${esc(r.ntfyDetail)} push</span>
-              <span class="tag ${r.autoDispatch ? 'ok' : 'dim'}">${r.autoDispatch ? 'agents may answer' : 'no agent replies'}</span>
-              <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
-              <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
-              ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
-              <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
-              ${
-                // Only where Slack is on at all: a "no slack" tag on every repo of every
-                // install that has never configured it would be a column of noise about a
-                // feature nobody here uses. Where it *is* on, this is the tag that catches
-                // `slack.excludeWorkspaces` — the per-repo veto that outranks the space,
-                // exactly like `ntfy.minimalWorkspaces` on the row above.
-                quiet.slack
-                  ? `<span class="tag ${r.slackChannel ? 'ok' : 'warn'}">${
-                      r.slackChannel
-                        ? `slack ${esc(r.slackChannel)}${r.slackDetail === 'minimal' ? ' · minimal' : ''}`
-                        : 'no slack'
-                    }</span>`
-                  : ''
-              }
-              </div>
-              ${repoTri(r)}
-            </div>`
-          )
-          .join('')}</div>${
-          many.length
-            ? `<p class="subtitle">${esc(
-                many.map((r) => r.name).join(', ')
-              )} holds many checkouts sharing one tracker, so the settings above are one answer for all of them — which repo a bead is about does not change them.</p>`
-            : ''
-        }`
-      : only
-        ? // The picker sets the space from the repo (`spaceOf` in public/spacebar.js), so
-          // a pinned repo its own space does not contain is config that moved under a
-          // selection rather than anything you can do from here. Said plainly all the
-          // same — "no configured repo is in this space" would be a lie about a space
-          // with five.
-          `<p class="subtitle">${esc(only)} is not one of this space's repos — pick the space itself above to see the ones that are.</p>`
-        : '<p class="subtitle">No configured repo is in this space.</p>';
-
-    const missing = d.missing.length
-      ? `<div class="adv-note warn">${esc(d.missing.join(', '))} ${
-          d.missing.length === 1 ? 'is named by this space and is not a configured workspace' : 'are named by this space and are not configured workspaces'
-        } — config drift, and nothing here reaches them.</div>`
-      : '';
-
-    // `work-card` is the padding, and this was the one card on the page without it —
-    // every setting in it sat on the card's left border, and the only thing holding the
-    // head off the top one was the margin an unstyled <h2> happens to bring. bc-8l74
-    // took that margin away to make the head a row, so the class it should always have
-    // had is here now. See `.space-card` in public/style.css.
-    return `<article class="card work-card mon-card space-card">
-      <div class="work-head">
-        <h2>${esc(d.space)}</h2>
-        <span class="mon-state ${head.tone}">${esc(head.text)}</span>
-      </div>
-      ${missing}
-      ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
-      ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
-      ${section(
-        `space:${d.space}:repos`,
-        // Narrowed to one repo, "each repo" is a heading over a panel with one row in
-        // it, and the reading it invites is that this space has one repo. The fold key
-        // is unchanged either way, so a panel you left open stays open across a change
-        // of picker.
-        only ? `What ${only} resolves to` : 'What each repo resolves to',
-        String(total),
-        repos
-      )}
-    </article>`;
-  }
 
   /* ------------------------------------------------------------------- render */
 
   /**
-   * The Config pane: the selected space's card, and nothing else.
+   * The roster, whole, on every paint.
    *
-   * Its own function, and called ahead of the `state.work` guard below, because the two
-   * panes are drawn from different payloads. The roster needs `/api/work`; this card
-   * needs `/api/space` and no more — so a Config chip tapped on a page that has never
-   * swept `bd` paints, and a press on it repaints, where a card folded into `render`'s
-   * body would have sat behind a guard about a roster nobody is looking at.
-   *
-   * Also where the observer's read-only treatment is applied to these controls, for the
-   * same reason it is applied to the roster's: this instance's `cfg` is the acting
-   * daemon's config file, so a press here would change what the *other* process does at
-   * its next restart and nothing about what it is doing now.
+   * There is no `polled` guard on it any more and no need of one. It existed for the two
+   * quiet-hours clocks — the only editable inputs this page ever had — where a repaint
+   * landing mid-edit would put back the time already stored; they went to /config with
+   * the rest of the settings card (bc-khoe.10), and every control left here is a button
+   * whose pending state is held in `state` rather than in the DOM.
    */
-  function renderConfig() {
-    if (!cfg) return;
-    cfg.innerHTML = spaceHtml();
-    if (!state.work?.observing) return;
-    for (const el of cfg.querySelectorAll(
-      '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel'
-    )) {
-      el.disabled = true;
-      el.title = 'This instance only watches — the settings belong to the daemon that acts.';
-    }
-  }
-
-  /**
-   * `polled` marks the twenty-second repaint, as opposed to one your press asked for.
-   *
-   * The distinction exists for exactly two fields: the quiet-hours clocks are the only
-   * editable inputs on this page, and a poll landing mid-edit would replace the one you
-   * were setting with the value already stored. A press is never skipped — you asked
-   * for it, and the answer has to appear — so the guard is on the poll alone, and the
-   * cost of it is one paint deferred by twenty seconds.
-   */
-  function render({ polled = false } = {}) {
-    // The two editable fields on this page are both in the Config pane now, so the guard
-    // asks that pane. `out` is still asked as well: a build served an older
-    // monitor.html has no Config section and draws the card at the top of the roster,
-    // and a poll taking the clock out from under that page's thumb is the same bug.
-    const typing =
-      document.activeElement?.type === 'time' &&
-      (cfg?.contains(document.activeElement) || out.contains(document.activeElement));
-    if (polled && typing) return;
-    renderConfig();
-
+  function render() {
     const data = state.work;
     if (!data) return;
 
@@ -2228,39 +1677,35 @@
       ? `<div class="empty">Nothing in ${esc(window.beadcause?.space?.label?.() || 'this space')}.</div>`
       : '<div class="empty">No workspaces configured.</div>';
     // The space's own settings used to sit here, under the two health lines and above
-    // the repos, on the argument that this page is the details *of* a space. They are
-    // under the Config chip now (bc-me2b): eleven controls and a row per repo is a
-    // screenful, and this pane is the one you open to see what is running — every
-    // advocate started below the fold, on a phone, to keep settings you touch monthly at
-    // the top. `spaceHtml` is unchanged and unmoved; only where its output is written is.
-    //
-    // The ternary is for a service worker serving a monitor.html from before the chip
-    // existed: with no Config section to draw into, the card goes back where it was
-    // rather than being written nowhere and lost.
+    // the repos, on the argument that this page is the details *of* a space. They were
+    // the Config chip for a day (bc-me2b) and they are a page of their own now
+    // (bc-khoe.10) — the first advocate is the first thing under the health lines, which
+    // is what somebody opening this screen came for. /config draws them; nothing here
+    // does, and the pill row above is the way to them.
     out.innerHTML =
       serviceHtml(data.service) +
       routerHtml(data.router) +
       globalHtml(data.globals, data.observing) +
-      (cfg ? '' : spaceHtml()) +
       (cards || nothing);
 
-    // An observer may read this space's settings and may not write them: its `cfg` is
-    // the real daemon's config file, so a press here would change what the *other*
-    // process does at its next restart and nothing at all about what it is doing now.
-    // The server refuses it either way (see POST /api/space); this is so the refusal is
-    // not something you find out by pressing. Same treatment the admin page gives its
-    // own buttons, and drawn rather than hidden — a control that vanished would read as
-    // a feature this build does not have.
-    // The global session cap is in the same sentence for the same reason — an
-    // observer's config file *is* the live daemon's, so stepping it here would change
-    // how many windows the other process opens after its next restart, which is the
-    // one kind of press an instance that "never acts" must not make.
-    // And the advocate switch is the strongest case of all three: it writes
+    // An observer may read what this page shows and may not press it: its `cfg` is the
+    // real daemon's config file, so a press here would change what the *other* process
+    // does at its next restart and nothing at all about what it is doing now. The server
+    // refuses it either way; this is so the refusal is not something you find out by
+    // pressing. Same treatment the admin page gives its own buttons, and drawn rather
+    // than hidden — a control that vanished would read as a feature this build does not
+    // have.
+    // The global session cap is one of the two, because an observer's config file *is*
+    // the live daemon's, so stepping it here would change how many windows the other
+    // process opens after its next restart — the one kind of press an instance that
+    // "never acts" must not make. The advocate switch is the stronger case: it writes
     // `advocates.workspaces`, so a press here would hand the *other* daemon a repo to
     // open sessions on — an instance that never acts, arranging for one that does to.
+    // The space settings were the third and are on /config now, which does this for
+    // itself off the same flag on its own payload.
     if (data.observing) {
       for (const el of out.querySelectorAll(
-        '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"],[data-adv="enable"],[data-adv="disable"]'
+        '[data-step="global"],[data-apply="global"],[data-adv="enable"],[data-adv="disable"]'
       )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
@@ -2341,7 +1786,7 @@
     }
   }
 
-  async function load({ polled = false } = {}) {
+  async function load() {
     pulse.classList.add('busy');
     try {
       // Two requests, in parallel and independent: the proposals are ordinary inbox
@@ -2361,12 +1806,7 @@
       if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
       adoptQuestions(questions);
       state.error = null;
-      // Before the paint rather than beside it: the settings card is drawn from this,
-      // and painting without it then painting again a moment later would flash "Reading
-      // this space…" over a card that was already correct. Cheap — /api/space is a read
-      // of `cfg`, no `bd` and no disk.
-      await loadSpace();
-      render({ polled });
+      render();
       // Not awaited and not gated on the paint above: the Ship strip is a late addition
       // to a card that is already correct without it, and a page that waited on a `gh`
       // sweep per repo before drawing an advocate would be a slower page for a number
@@ -2421,30 +1861,6 @@
   }
 
   /**
-   * The selected space's own configuration.
-   *
-   * Nothing to fetch while the picker is on All — there is no one space these would be
-   * the settings of — and the card says so instead. `Other` is a 404 by design and its
-   * message is drawn rather than swallowed: it is a group the picker offers, not a
-   * thing with settings, and "why are there no controls" deserves a sentence.
-   */
-  async function loadSpace() {
-    const name = spaceName();
-    if (!name) {
-      state.space = null;
-      state.spaceError = null;
-      return;
-    }
-    try {
-      state.space = await api(`/api/space?space=${encodeURIComponent(name)}`);
-      state.spaceError = null;
-    } catch (err) {
-      state.space = null;
-      state.spaceError = err.message;
-    }
-  }
-
-  /**
    * Fetch the transcript for every advocate whose panel is open, plus any that is
    * surveying right now.
    *
@@ -2474,9 +1890,7 @@
       })
     );
     if (changed) {
-      // A transcript arriving is a poll like any other — and this one is every two and
-      // a half seconds, so it is the paint most likely to land on a clock being set.
-      render({ polled: true });
+      render();
       // Pin the transcript to its foot, the way a terminal does: this is a live log,
       // and the newest line is the one you are here for.
       for (const el of out.querySelectorAll('.mon-log')) el.scrollTop = el.scrollHeight;
@@ -2633,73 +2047,6 @@
   }
 
   /**
-   * Change one of the selected space's settings.
-   *
-   * One field per press, never the whole object: the page repaints every twenty
-   * seconds off a payload assembled before your thumb landed, and a read-modify-write
-   * from that would put back whatever a *second* device changed in between. The server
-   * patches, so a press says only what it means.
-   *
-   * The reply is the new detail, and it is adopted rather than re-fetched — it is the
-   * one answer that is definitely post-write, where a poll racing the same moment
-   * might not be. `changed` is the daemon's own list of what actually moved, which is
-   * shorter than the label promises exactly when it matters: pressing Inherit on a
-   * field that was already inheriting changes nothing, and saying "nothing to change"
-   * is more honest than a tick.
-   */
-  async function saveSpace(patch, btn, workspace = null) {
-    const name = spaceName();
-    if (!name) return;
-    const was = btn?.textContent;
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = '…';
-    }
-    try {
-      const r = await api('/api/space', {
-        method: 'POST',
-        // `workspace` is what turns this into the repo row's write — one setting, this
-        // repo only, outranking the space. Omitted entirely rather than sent as `null`
-        // for the ordinary case, so a body that never mentions a repo cannot be read as
-        // one that named an unusable one.
-        body: JSON.stringify(workspace ? { space: name, workspace, settings: patch } : { space: name, settings: patch }),
-      });
-      state.space = r;
-      state.spaceError = null;
-      // Whatever was typed has either just been sent or has just been overruled by a
-      // press on Never or Inherit. Either way the field goes back to showing what the
-      // space now says, which is the only thing on this card that is true.
-      state.slackDraft = null;
-      state.spaceSaid = {
-        text: r.changed?.length ? `${r.changed.join(', ')} changed` : 'nothing to change — it was already set that way',
-      };
-      // The picker's 🔕 comes off the same config this just wrote, and the server has
-      // already refreshed its cached summary — but the bar in front of you is holding a
-      // copy from the last poll, so it is told directly rather than left to catch up.
-      window.beadcause?.space?.adopt({ spaces: await spaceRows() });
-      render();
-    } catch (err) {
-      state.spaceSaid = { text: err.message, bad: true };
-      if (btn) {
-        btn.textContent = was;
-        btn.disabled = false;
-      }
-      render();
-    }
-  }
-
-  /** The picker's rows, refetched after a write that can have changed one of its flags. */
-  async function spaceRows() {
-    try {
-      return (await api('/api/spaces')).spaces;
-    } catch {
-      // The bar keeps what it had. A stale 🔕 is a smaller wrong than a bar that
-      // emptied itself because one refresh failed.
-      return undefined;
-    }
-  }
-
-  /**
    * Answer a proposal: create the beads you picked, decline the rest.
    *
    * The sentence is for you and the array is for the server — the same split
@@ -2819,19 +2166,6 @@
 
   /* ------------------------------------------------------------------- events */
 
-  /* The three inputs this page has, wherever they are. They live in the settings card,
-     which is the Config pane on a current monitor.html and the top of the roster on one
-     served from an old cache — and the ids are unique either way, so asking the document
-     is the one lookup that is right in both places. It was `out.querySelector`, which on
-     a current page silently answers null: Set would then have sent `{from: undefined}`. */
-  const field = (id) => document.getElementById(id);
-
-  /* One handler, two panes — see the loop that registers it below. The settings card
-     moved to the Config section (bc-me2b) and its presses did not change at all: they are
-     the same delegated branches, matched on the same data attributes. So this file
-     listens on the other pane as well rather than growing a second copy of them. A branch
-     that never fires there costs nothing; a branch that lives in one of two copies is how
-     the next pane gets it wrong. */
   const onClick = (e) => {
     // Ship, first of all: it is the one control on this page that changes what is
     // running, and it carries its repo on itself rather than a workspace — so nothing
@@ -2840,74 +2174,6 @@
     if (shipBtn) {
       e.preventDefault();
       ship(shipBtn.dataset.ship);
-      return;
-    }
-
-    // The space's own settings, before the advocate controls: both draw `.adv-btn`,
-    // and these carry their field on themselves rather than a workspace.
-    const set = e.target.closest('[data-space-set]');
-    if (set) {
-      e.preventDefault();
-      const raw = set.dataset.value;
-      // `null` is the wire's "clear this key and follow the global", and a data
-      // attribute can only carry the word — so it is turned back into the value here,
-      // once, rather than being special-cased per field on the server.
-      const value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
-      saveSpace({ [set.dataset.spaceSet]: value }, set);
-      return;
-    }
-
-    // The same three buttons on a repo row, and they must be matched *before* nothing
-    // else claims them: they carry a workspace as well as a field, and the handler above
-    // would have written the whole space's answer from a press meant for one repo.
-    const repoSet = e.target.closest('[data-repo-set]');
-    if (repoSet) {
-      e.preventDefault();
-      const raw = repoSet.dataset.value;
-      const value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
-      saveSpace({ [repoSet.dataset.repoSet]: value }, repoSet, repoSet.dataset.repo);
-      return;
-    }
-
-    const day = e.target.closest('[data-space-day]');
-    if (day) {
-      e.preventDefault();
-      const days = state.space?.settings?.quietDays || [];
-      const id = day.dataset.spaceDay;
-      const next = days.includes(id) ? days.filter((d) => d !== id) : [...days, id];
-      // An empty list clears the key rather than storing "quiet on no days", which is
-      // the same thing to every reader and one more shape for the config to be in.
-      saveSpace({ quietDays: next.length ? next : null }, day);
-      return;
-    }
-
-    const hours = e.target.closest('[data-space-hours]');
-    if (hours) {
-      e.preventDefault();
-      if (hours.dataset.spaceHours === 'clear') {
-        saveSpace({ quietHours: null }, hours);
-        return;
-      }
-      const from = field('qh-from')?.value;
-      const to = field('qh-to')?.value;
-      saveSpace({ quietHours: { from, to } }, hours);
-      return;
-    }
-
-    const chan = e.target.closest('[data-space-channel]');
-    if (chan) {
-      e.preventDefault();
-      const typed = (field('slack-channel')?.value || '').trim();
-      // A blank field and a press on Set is the one gesture with no honest reading:
-      // `""` is what Never writes and it is a *different* answer from Inherit, so
-      // picking one of them here would be the card quietly deciding which. Both
-      // buttons are an inch away.
-      if (!typed) {
-        state.spaceSaid = { text: 'Type a channel id, or press Never or Inherit.', bad: true };
-        render();
-        return;
-      }
-      saveSpace({ slackChannel: typed }, chan);
       return;
     }
 
@@ -3000,36 +2266,16 @@
     }
   };
 
-  /* The one field on this page you type into, and this page repaints off a stream
-     event rather than off your thumb — so what has been typed is held in `state` and
-     drawn from there, the same treatment the limit steppers get and for the same
-     reason. Without it a poll landing between the first character and the press takes
-     the channel id away and the field silently goes back to what the space already
-     said. */
-  const onInput = (e) => {
-    if (!e.target.closest('#slack-channel')) return;
-    state.slackDraft = { space: spaceName(), text: e.target.value };
-  };
+  /* The roster only. This file drew a second pane until bc-khoe.10 and listened on both;
+     the settings card is /config now, with its own copy of exactly the branches it used
+     and none of the ones it never fired. */
+  out.addEventListener('click', onClick);
 
-  /* Both panes, and no dispatch between them: a click has one target and it is inside
-     exactly one section, so whichever listener fires is the one whose pane holds it. */
-  for (const pane of [cfg, out]) {
-    if (!pane) continue;
-    pane.addEventListener('click', onClick);
-    pane.addEventListener('input', onInput);
-  }
-
-  /* The ⟳ is the page's, and this page has four panes now — so it only means whichever
-     one is up. Without the guard, pressing it on the board would sweep `bd` for every
-     tracker on the Mac to refresh a roster nobody is looking at, which is the same bill
-     `ready` below exists to stop the stream running up. Config re-reads its own card and
-     stops there: it is one `/api/space` read of the daemon's config object, with no `bd`
-     and no `gh` behind it. */
+  /* The ⟳ is the page's, and this page has three panes — so it only means whichever one
+     is up. Without the guard, pressing it on the board would sweep `bd` for every tracker
+     on the Mac to refresh a roster nobody is looking at, which is the same bill `ready`
+     below exists to stop the stream running up. */
   document.getElementById('refresh').addEventListener('click', () => {
-    if (cfg && !cfg.hidden) {
-      loadSpace().then(renderConfig);
-      return;
-    }
     if (out.hidden) return;
     load();
     // The ⟳ means "ask everything again", and the Ship count is one of the things on this
@@ -3037,20 +2283,10 @@
     loadBoard({ force: true });
   });
   /* The space picker moved. Which repos are drawn is decided at paint time off the
-     /api/work payload already in hand — but *whose settings* the Config card shows has
-     changed, and that is a different space's config, so it is fetched. Painted first all
-     the same: the repos are correct immediately, and the card says it is reading rather
-     than sitting on the previous space's answers.
-
-     Both panes repaint from it, and the second one is not incidental: the picker's fine
-     level is what the settings card now narrows its repo panel by (`onlyRepo`), so
-     moving from a space to one of its repos changes what is drawn under the Config chip
-     with no fetch involved at all. */
-  window.beadcause?.space?.onChange(() => {
-    state.spaceSaid = null;
-    render();
-    loadSpace().then(render);
-  });
+     /api/work payload already in hand, so this is a repaint and not a fetch — the one
+     thing on this page that needed a request when the picker moved was the settings
+     card's payload, and that card is /config now. */
+  window.beadcause?.space?.onChange(() => render());
   /* ------------------------------------------------------------------- the stream */
 
   /**
@@ -3090,11 +2326,11 @@
           // `render` restarts the transcript tail, which matters here as much as on a
           // fold: an advocate that has just started surveying is one this page begins
           // tailing, and the snapshot above is how it finds out.
-          render({ polled: true });
+          render();
         }
         if (resync) {
           // We have lost our place in the log, so nothing on screen is provably current.
-          load({ polled: true });
+          load();
           return;
         }
         // A merge, a deploy, a declined review: the events behind the Ship strip's number,
@@ -3104,7 +2340,7 @@
         if (window.beadcause.stream.boardMoved(events)) loadBoard({ force: true });
         // Presence is a thumb moving on somebody's phone, and an advocate saying it is
         // still surveying is the roster above. Neither is a reason to sweep `bd`.
-        if (window.beadcause.stream.workMoved(events)) load({ polled: true });
+        if (window.beadcause.stream.workMoved(events)) load();
       },
     });
     stream.start();
@@ -3168,13 +2404,6 @@
     if (tabs)
       tabs.onChange((which) => {
         if (which === 'advocates') return void load();
-        /* The Config chip asks for its own payload and no more. `/api/space` is a read
-           of the config object the daemon is already holding — no `bd`, no disk — so
-           opening the settings costs one request, where routing it through `load` would
-           have swept every tracker on the Mac for a roster in a pane that is hidden.
-           Every visit, not only the first: the file can have been edited on the Mac, or
-           by the phone in your other hand, since you last looked. */
-        if (which === 'config') return void loadSpace().then(renderConfig);
       });
     else load();
   }

@@ -177,6 +177,14 @@
     // the stream rather than merely fill once. See `refresh` below and `MAINTAINED` in
     // public/app.js. It was second until bc-khoe.2 put five kind pills to its left.
     { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
+    // The last pill (bc-khoe.10), and the second view here that warms **nothing** — for
+    // History's reason, arrived at from the other end. Its boot request is
+    // `/api/space?space=<whichever the picker is on>`, so there is no constant this file
+    // could hold; warming every space would be a request per space to fill a cache for a
+    // page opened about once a month. It is also the one view that needs a warm least:
+    // `/api/space` is a read of the config object the daemon already has in memory — no
+    // `bd`, no `gh`, no disk — which is what a cold first frame here costs.
+    { id: 'config', paths: [] },
     // Below the row. None of these three is a pill, and all three are still reached in
     // one tap from somewhere else — the queue from the 🗳 in the inbox's top bar or the
     // advocate console's `N held for endorsement` pill, /admin from the ⚙ on /monitor

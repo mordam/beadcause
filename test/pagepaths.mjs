@@ -162,6 +162,12 @@ const PAGES = [
   // on the bottom bar since the day it existed, so the bar is the only thing that has
   // ever linked to it and there is no older name in anybody's home screen to keep alive.
   { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
+  // The selected space's settings (bc-khoe.10). Two paths for the same reason the queue
+  // has three: the screen has two honest names — it is the *config* of a space, which is
+  // the word the chip it used to be was labelled with, and it is where its *settings*
+  // are, which is what somebody types. Not `/space`: that reads as the picker rather than
+  // as the thing the picker selects.
+  { what: "the space's settings", marker: '/config.js', paths: ['/config', '/settings', '/config.html'] },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },

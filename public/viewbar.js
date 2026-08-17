@@ -24,10 +24,10 @@
   bar and this row are flex rows above the one element that scrolls, so nothing here is
   laid out against a viewport that moves, because no viewport moves.
 
-  It **scrolls horizontally and never wraps**. There are seven pills today — the six
-  kinds bc-khoe.2 promoted out of the inbox's filter panel, plus the advocate console —
-  and there will be roughly nine once bc-khoe.4 (Advocates, Mirror) and bc-khoe.7
-  (Releases) have landed. A row that wraps to two lines on a 360px phone is
+  It **scrolls horizontally and never wraps**. There are eight pills today — the six
+  kinds bc-khoe.2 promoted out of the inbox's filter panel, the advocate console, and the
+  selected space's own settings (bc-khoe.10) — and there will be roughly ten once
+  bc-khoe.4 (Advocates, Mirror) and bc-khoe.7 (Releases) have landed. A row that wraps to two lines on a 360px phone is
   the exact thing this epic exists to stop — it spends a second row of a screen that is
   mostly chrome already. So the row takes the width it needs and the current pill is
   scrolled into view on load, which is the one moment the offset can be wrong without
@@ -166,6 +166,15 @@
       label: 'Advocates',
       paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html', '/prs', '/pulls', '/prs.html'],
     },
+    // Last, and last on purpose: it is the one pill here you reach about once a month.
+    // The selected space's own settings (bc-khoe.10) — muted, quiet hours, who may
+    // endorse, what merges itself — which were a card at the top of the console and then
+    // a chip on it. A row you scroll sideways spends its rightmost place on what you
+    // want least often, and this is it.
+    // Knobs rather than a gear: the gear in this app is Admin — the machine's own screen,
+    // in the mark's menu — and two settings screens behind one glyph is the confusion the
+    // menu was built to end.
+    { id: 'config', href: '/config', paths: ['/config', '/settings', '/config.html'], icon: '🎛', label: 'Config' },
   ];
 
   const here = location.pathname.replace(/\/+$/, '') || '/';
