@@ -299,6 +299,12 @@ checks('the prompt says what already exists and what is already filed', () => {
   assert.match(text, /already ships/);
   assert.match(text, /do not file these again/);
   assert.match(text, new RegExp(`At most ${MAX_FINDINGS} findings`));
+  // Every heading has a blank line above it, or it is not a heading. The first draft
+  // filtered its own separators out and welded the whole brief into four paragraphs.
+  for (const m of text.matchAll(/\n(#+ .*)/g)) {
+    assert.ok(text.slice(0, m.index).endsWith('\n'), `no blank line above "${m[1]}"`);
+  }
+  assert.ok(!/\n\n\n/.test(text), 'and no gap where a section was not written');
 });
 
 /* ----------------------------------------------------------- 5. the whole run */
