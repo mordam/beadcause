@@ -374,6 +374,11 @@ const refusals = [
     { row: promotionBead({ status: 'in_progress', assignee: 'someone-else' }) },
     /held by someone-else/,
   ],
+  [
+    'a bead with somebody\'s name on it that is somehow still open — a handback clears the name',
+    { row: promotionBead({ status: 'open', assignee: 'someone-else' }) },
+    /held by someone-else/,
+  ],
   ['a bead whose title does not name its epic', { row: promotionBead({ title: 'Release the thing' }) }, /does not name the epic/],
   ['a bead naming no repo', { row: promotionBead({ description: 'no repos here' }) }, /names no repo/],
   [
