@@ -3292,6 +3292,22 @@ report into, so it stays staged and rides along with the *next* run at that bead
 with a time that is plainly older than the session it arrived with. The alternative was
 deleting an agent's writing to keep a record tidy, which nothing here does.
 
+**A staged report is readable while it is staged**, which for a while it was not — and the
+gap fell hardest on the windows that needed the store most. Every read went through
+`archivedBeads`, so a report was invisible for exactly as long as it was pending, and since
+a window nobody ever archives is pending for ever, a resolver, a question window or a
+crashed session wrote into a store nobody could open. The two halves disagreed out loud: the
+write said `debriefed <bead>`, and `debriefs <bead>` a second later said no run had left a
+report — a reader claiming the store is empty over a report that exists. `debriefBeads` in
+lib/sessionlog.js is the union of the archive and the staging refs, and it is the one place
+both callers take their candidate set from, because they had already drifted into the same
+bug once. `readDebriefs` reads staged entries first, since staged *is* the newest run at
+that bead, and marks them `staged`, which the command prints as `(pending archive)`. Being
+pending is a fact about the plumbing rather than about the report, so the two render
+identically and a brief quotes either without caring. `bc-864m`, found when a resolver sweep
+stood down on `#363` having been told no earlier run had left a report — over one that had
+named the exact conflict set and the convention for resolving it.
+
 **Silence is the expected answer for the other two and emphatically not for this one**,
 and the closing step in the work brief now says both things in two paragraphs that
 contradict each other on purpose. The "most runs should write nothing" bar is correct for
