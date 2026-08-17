@@ -214,8 +214,11 @@ await check('a row carries the space, or the picker makes it disappear', () => {
 
 await check('the monitor is not told a ticket is a question waiting on you', () => {
   // `publishView` is what the monitor draws as "N waiting", which is a claim about work
-  // asking you something. A ticket nobody has decided about yet is not one.
-  assert.match(APP, /publishView\(visible\.filter\(\(q\) => !q\.pr && !q\.session && !q\.jira\)\)/);
+  // asking you something. A ticket nobody has decided about yet is not one. Since
+  // bc-rfnr.9.7 the number is the list's beads *plus* the questions the board draws
+  // instead of the list — the exclusion this pins is the filter on the first half.
+  assert.match(APP, /const listBeads = visible\.filter\(\(q\) => !q\.pr && !q\.session && !q\.jira\)\.length/);
+  assert.match(APP, /publishView\(listBeads \+ \(beadPicked\(\) \? 0 : p0AsksN\(p0Cards\(\)\)\)\)/);
 });
 
 await check('and it is not sorted among the beads either', () => {

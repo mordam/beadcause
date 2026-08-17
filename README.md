@@ -4089,10 +4089,14 @@ up the parent chain can stop at the first ancestor already kept.
 
 Three smaller decisions, each of which had a wrong way that looked fine:
 
-- **It narrows the trees and nothing else.** The list under the board is
-  `underOwnedP0s`'s business — a bead you filtered out of a tree is still a question you
-  are being asked, and a status filter that reached the list would hide it with nothing on
-  screen saying where it went.
+- **It narrows the trees and nothing else, and it cannot hide a question.** The second half
+  is bc-rfnr.9.7's. This bullet used to say that a bead you filtered out of a tree was still
+  a question you were being asked — true, because there was a flat list underneath to be
+  asked it on. [There is not any more](#the-board-is-the-inbox-and-the-list-under-it-is-what-a-tree-cannot-hold),
+  so a pending row is kept whatever the filter says: `Closed` is one tap, and it would
+  otherwise take every open question in the tracker off the screen with it. The row is still
+  drawn as itself, so a question in a `Closed` tree reads as what it is rather than as the
+  filter having failed.
 - **The pick is page state, persisted** (`beadcause.p0status`), like the fold and unlike
   which cards are open. The board is one reconcile chunk replaced whole every 25 seconds,
   so a filter applied by hiding nodes would come undone under your thumb; and whether you
@@ -4132,13 +4136,16 @@ move one line of screen text.
 
 Three things keep the fold from being a way to lose the board:
 
-- **The count stays on the shut line.** A fold that hid the fact there was anything behind
-  it would leave a screen indistinguishable from one with no epics on it, which is the
-  single thing this section exists to prevent.
-- **It is display only.** `underOwnedP0s` narrows the inbox to your epics' descendants off
-  the board *data*, not off whether the board is drawn — so folding it changes nothing
-  about the list underneath. A control that quietly emptied the inbox would be worse than
-  no control.
+- **The count stays on the shut line — both counts, since bc-rfnr.9.7.** How many epics are
+  behind it, and how many beads under them are asking you something. A fold that hid the
+  fact there was anything behind it would leave a screen indistinguishable from one with no
+  epics on it, which is the single thing this section exists to prevent; and now that
+  [the trees are where a question is drawn](#the-board-is-the-inbox-and-the-list-under-it-is-what-a-tree-cannot-hold),
+  a shut board with no "*N* ask you" on it is a week of unanswered questions with nothing on
+  screen saying they exist.
+- **It is display only.** `underOwnedP0s` reads the board *data*, not whether the board is
+  drawn — so folding it changes nothing about the list underneath. A control that quietly
+  changed what was in the inbox would be worse than no control.
 - **It leaves `state.p0open` alone**, so the epic you had unfolded is still unfolded when
   the board comes back. Putting a drawer away is not closing what is in it.
 
@@ -4160,6 +4167,77 @@ tap. And that a reload comes back shut, which no renderer test can see: the writ
 page looking right all session. The chevron is read as a computed transform rather than as
 markup, so it fails on a stale stylesheet too — which is what [v59](docs/sw-cache/v59.md)
 is about.
+
+### The board is the inbox, and the list under it is what a tree cannot hold
+
+[bc-rfnr.2](#epics-assigned-to-you-and-the-tree-each-one-carries) narrowed the inbox to
+what descends from your epics. [bc-rfnr.9.1](#epics-assigned-to-you-and-the-tree-each-one-carries)
+put every one of those beads in its epic's own tree, on the card above the list. From that
+day the list was a second, flatter, parentless copy of the same beads, and the reason to
+scroll past the board was to read the board again with the tree taken out of it. So the
+copy goes: with epics owned, a bead the board draws is not drawn again underneath it.
+
+**What stays is what a tree cannot hold**, and each of the four is a row that no card on
+the board has:
+
+- **A chat.** It has no bead — and it is where a new P0 gets filed, so a screen that hid it
+  would make the board the one thing on this app you could not get out of.
+- **A pull request naming no bead.** One that names a bead is a row about a bead: yours,
+  drawn in its epic's tree, or somebody else's, which bc-rfnr.2 already hid. What that
+  trade costs is worth naming — the *ladder* a delivery is on (in review, waiting on a
+  deploy: `lib/prstage.js`) is not on a tree row, so it is now a thing the board does not
+  tell you. A delivery that actually needs you is a `human` bead and is still drawn, as a
+  question, in the tree.
+- **A JIRA ticket**, for the same reason as a chat: it has no bead at all until
+  `bd jira pull` files one.
+- **A question under nobody's P0** — [`unhomed`](#a-question-under-nothing-is-still-drawn),
+  and this is now most of what is in the list. No card on the board holds it, so removing it
+  with the rest would put it on no screen, which is the exact bug that map exists to fix.
+
+The three no-op cases still hold, unchanged: an install with no `cfg.me`, one that owns no
+P0s yet, and a payload from a server that predates the board all keep the flat inbox they
+have always had.
+
+#### The question has to survive the list
+
+The inbox exists for one thing — an agent waiting on an answer — and a board that swallowed
+those would be a redesign that lost the feature. Three things carry it instead, and none of
+them is optional:
+
+- **The row says so.** `pending` on a tree row draws an **asks you** pill and a solid
+  leading edge on the row.
+- **The card and the heading count them.** A collapsed card carries "*N* ask you" beside its
+  id, and the section heading carries the total for the whole board — which is what makes it
+  survive the [fold](#and-the-section-folds-under-a-heading-that-says-what-it-is). A
+  question four levels down a tree that is shut by default is not findable; a number on the
+  line above it is.
+- **The status filter cannot hide one.** A pending row is kept whatever
+  [the filter](#one-status-filter-over-the-whole-board) says. `Closed` is one tap, and
+  before the list went it merely narrowed the trees — now it would take every open question
+  in the tracker off the screen with it.
+
+#### And it is answerable from the bead it is on
+
+Tap the bead in the tree, and its expansion carries **✍ Answer it** above the graph link.
+That opens the inbox card the app already has — the full-screen sheet with the parsed
+options and their recommendation, the arm-then-confirm, the brief, the saved draft, the
+thread, the box and the dismissal. It is `expand(key)`, the same call the list's own toggle
+makes, and reimplementing any of that inside a tree row would be a second copy of the
+hardest screen in the app, drifting from the first from the day it landed.
+
+One line makes it possible: `underOwnedP0s` keeps a bead in the list for exactly as long as
+its card is open. `.card.open` is built out of an inbox row, so the row has to survive the
+filter or the sheet comes up empty; collapse it and the row drops back out, because the
+board is drawing it. The control is drawn only where there is a row to open —
+`/api/questions?scope=agent` sweeps no questions at all, so on that scope a pending bead is
+marked in the tree and has no button, which is the scope saying what it says rather than a
+button that does nothing.
+
+`node test/ownquestion.mjs` drives the real filter over a real payload — a bead the board
+draws, one under a colleague's P0, one under nobody's, a pull request each way, and the
+open-card exemption in both directions. `node test/p0card.mjs` and `node test/p0bead.mjs`
+have the renderers. `node scripts/p0board-check.mjs` is the half none of them can see: a
+real tap in headless Chrome at 393×852, ending on a card with a box in it.
 
 ### The advocate that comes back — what re-opens a P0 advocate, and what it costs
 
@@ -4332,6 +4410,11 @@ The client draws a row that is in either. The two questions are genuinely differ
 shared graph — "which of my P0s has this" and "has anybody's P0 got this" — and the whole
 bug was one map answering both. A row under somebody else's open P0 is in neither map and
 stays hidden, which is [bc-rfnr.2](#epics-assigned-to-you-and-the-tree-each-one-carries) still working.
+
+**Since bc-rfnr.9.7 `unhomed` is most of what the list holds.** A row in `under` is drawn
+on the board, in its epic's tree, and not a second time underneath it — so the flat list
+below the board is [what a tree cannot hold](#the-board-is-the-inbox-and-the-list-under-it-is-what-a-tree-cannot-hold),
+and this map is the half of it that is a bead.
 
 Three things land in `unhomed` and all three are the same fact:
 

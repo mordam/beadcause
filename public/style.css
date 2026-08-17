@@ -5894,6 +5894,17 @@ a.pill { text-decoration: none; }
   letter-spacing: 0; font-size: 11.5px; font-weight: 600;
   color: var(--muted);
 }
+/* How many agents are waiting on an answer, across the whole board (bc-rfnr.9.7). Beside
+   the label rather than out at the count, because it is not the same kind of number: one
+   of them is how big the section is and the other is whether you have to do something.
+   In `--warn`, the one colour on this screen that already means "a question", and left
+   un-tracked for the reason `.p0-kind-n` is. It survives the fold — that is the point of
+   it: with the flat list gone, a board shut on Monday is otherwise a week of questions
+   with nothing on screen saying they are there. */
+.p0-kind-asks {
+  letter-spacing: 0; font-size: 11.5px; font-weight: 600;
+  color: var(--warn);
+}
 /* The status filter over every tree on the board (bc-rfnr.9.6) — `p0StatusHtml`.
 
    Drawn as the segmented switch the inbox's scope row is, because it is the same kind of
@@ -5934,7 +5945,14 @@ a.pill { text-decoration: none; }
   cursor: pointer;
 }
 .p0-head { display: flex; align-items: center; gap: 8px; }
-.p0-head .pill.id { flex: none; }
+/* Every pill on the head line, not only the id: bc-rfnr.9.7 put a second one beside it
+   and a pill that flexed would stretch across the gap to the counts and read as a bar. */
+.p0-head .pill { flex: none; }
+/* An epic with a question under it (bc-rfnr.9.7). The card is already bordered in `--warn`
+   on its leading edge, so the mark is weight rather than another colour — a board of five
+   epics where two are asking you something has to be readable in one glance, and the pill
+   on the head line is what carries the number. */
+.p0-card.asks { border-left-width: 5px; }
 /* Pushed to the far end, and the two counts in a fixed order — how much is left is the
    number you scan for, so it sits where the eye lands last and stays put between polls. */
 .p0-open { margin-left: auto; font-size: 11.5px; color: var(--muted); }
@@ -6107,7 +6125,23 @@ button.p0-row {
 /* The way out to the graph, on the bead you tapped rather than on the card above it.
    It is where this row used to send you, and it stays reachable: the expansion is this
    bead, and the graph is everything around it. */
-.p0-bead-acts { display: flex; gap: 6px; margin-top: 8px; }
+.p0-bead-acts { display: flex; align-items: stretch; gap: 6px; margin-top: 8px; }
+/* The way in to answering, from the bead the question is on (bc-rfnr.9.7). It takes the
+   room the way `.p0-advocate` does one level up, and for the same reason: it is the thing
+   you can *do* here, and with the flat list gone it is the only route left to the box you
+   answer in. Filled in `--warn` rather than outlined like the graph beside it, because
+   these two are not a pair of equals — one of them is why the bead is on the screen. */
+.p0-answer {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  color: var(--warn);
+  font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
 
 /* The two ways out of a card, on one row under the tree: put an advocate on it, or go
    and look at the graph. The advocate takes the room because it is the thing you can

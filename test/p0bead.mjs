@@ -51,6 +51,14 @@
  *    reason are all text out of `bd`; the escaped form is asserted present, not merely
  *    the raw tag absent.
  *
+ * 8. **And the one bead that *is* a question is answerable from here** (bc-rfnr.9.7).
+ *    Point 1 above is still true and this is not a retraction of it: the expansion draws
+ *    a bead, and what it grew is one control that opens the inbox card the app already
+ *    has. Two ways that goes wrong quietly — a button offered over a bead the payload has
+ *    no row for, which is `expand` returning early and a tap that does nothing; and the
+ *    same button over a bead an *agent* has, which is "Answer it" promising a question
+ *    nobody asked.
+ *
  * No browser, no `bd`, no network. The renderers touch no DOM — they return a string —
  * so they are sliced out of public/app.js and run in a `node:vm`. `renderMarkdown` is
  * stubbed, as test/graphsheet.mjs stubs `md`: it needs `marked` and `DOMPurify` off the
@@ -183,7 +191,16 @@ const BEAD = {
 };
 
 /** The board, drawn for real, out of a page state you hand it. */
-function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map(), cards = [CARD] } = {}) {
+function board({
+  open = ['beadcause/bc-rfnr'],
+  beadopen = [],
+  detail = new Map(),
+  cards = [CARD],
+  // Which keys the inbox payload has a row for — what `byKey` answers. Empty is the
+  // honest default for this suite's fixture: `BEAD` is a closed feature nobody is being
+  // asked about, and the answer control is not offered over one. bc-rfnr.9.7.
+  asked = [],
+} = {}) {
   const state = {
     p0board: { owned: true, p0s: cards, under: {} },
     p0open: new Set(open),
@@ -218,6 +235,14 @@ function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map()
     // Stubbed, and visibly so: what the renderer hands to markdown is asserted, what
     // markdown makes of it is not this file's business. See the header.
     renderMarkdown: (t) => `<md>${String(t)}</md>`,
+    // The inbox row resolver, stubbed to a set of keys. The real one walks
+    // `state.requests`, `state.questions`, `prRows()` and `ticketRowFor` — none of which
+    // this suite has or wants; what `p0AnswerHtml` asks it is one question, "is there a
+    // row here I could open", and `agent: true` is the second thing it looks at.
+    byKey: (k) => {
+      const hit = asked.find((r) => (typeof r === 'string' ? r : r.key) === k);
+      return hit ? (typeof hit === 'string' ? { key: k } : hit) : null;
+    },
   });
   vm.runInContext(
     [
@@ -256,10 +281,18 @@ function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map()
       lift(APP, 'function p0RelGroupHtml(workspace, label, rows)'),
       lift(APP, 'function p0ClosedHtml(b)'),
       lift(APP, 'function p0BeadHtml(card, row)'),
+      // bc-rfnr.9.7's way in to answering, and the section's two counters. `byKey` is a
+      // stub in the context above rather than a lift: the real one reaches `prRows` and
+      // `ticketRowFor` and half the payload with them, and what this suite is asserting
+      // is that the control is offered for a row the inbox has and withheld for one it
+      // does not.
+      lift(APP, 'function p0AnswerHtml(workspace, b)'),
       lift(APP, 'function p0BeadBodyHtml(card, b)'),
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),
       lift(APP, 'function p0Control(c)'),
+      lift(APP, 'const p0AsksN = ('),
+      lift(APP, 'function p0Cards()'),
       lift(APP, 'function p0SectionHtml()'),
       'p0SectionHtml();',
     ].join('\n'),
@@ -269,10 +302,11 @@ function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map()
 }
 
 /** The board with one bead open and its details already in hand. */
-const opened = (bead = BEAD, id = 'bc-rfnr.9.2') =>
+const opened = (bead = BEAD, id = 'bc-rfnr.9.2', asked = []) =>
   board({
     beadopen: [`beadcause/${id}`],
     detail: new Map([[`beadcause/${id}`, { loading: false, bead }]]),
+    asked,
   });
 
 console.log('\na bead with no question, in full');
@@ -321,6 +355,53 @@ check('the graph is still one tap away — on the bead you opened, not the card 
   const html = opened();
   const block = html.slice(html.indexOf('class="p0-bead"'));
   assert.match(block, /class="p0-graph" href="\/graph\?ws=beadcause&amp;id=bc-rfnr\.9\.2&amp;open=1"/);
+});
+
+console.log('\nand a question is answerable from the bead it is on — bc-rfnr.9.7');
+
+check('a bead the inbox has a row for offers the way in to answering it', () => {
+  // The whole of bc-rfnr.9.7's second half. `expand(key)` is what the list's own toggle
+  // calls, and `.card.open` is a full-screen sheet — so the tap does not need the row to
+  // be on the screen underneath, only on the payload. What is asserted here is that the
+  // control is offered and carries the key `expand` will be handed.
+  const html = opened(BEAD, 'bc-rfnr.9.2', ['beadcause/bc-rfnr.9.2']);
+  const block = html.slice(html.indexOf('class="p0-bead"'));
+  assert.match(block, /<button type="button" class="p0-answer" data-act="p0-answer" data-key="beadcause\/bc-rfnr\.9\.2">/);
+  // Before the graph, which is the order of how much the two are worth.
+  assert.ok(
+    block.indexOf('p0-answer') < block.indexOf('p0-graph'),
+    'the way out to the graph is offered ahead of the way in to answering'
+  );
+});
+
+check('and a bead with no row on the payload offers nothing rather than a dead button', () => {
+  // `/api/questions?scope=agent` sweeps no questions at all, so a pending bead can be
+  // marked in the tree with nothing for `expand` to open. A button that did nothing is
+  // worse than no button — it reads as a tap that missed.
+  assert.ok(!opened().includes('p0-answer'), 'a bead the inbox has never heard of was offered an answer box');
+});
+
+check('nor does a bead an agent has, which is not a question anybody asked', () => {
+  const html = opened(BEAD, 'bc-rfnr.9.2', [{ key: 'beadcause/bc-rfnr.9.2', agent: true }]);
+  assert.ok(!html.includes('p0-answer'), '"Answer it" was offered over a bead an agent is working');
+});
+
+check('the tap is `expand` and nothing else — the inbox card is not rebuilt in the tree', () => {
+  const at = APP.indexOf("if (act === 'p0-answer') {");
+  assert.notEqual(at, -1, 'the answer handler is gone');
+  const branch = APP.slice(at, at + 400);
+  const body = branch.slice(0, branch.indexOf('\n    }'));
+  assert.match(body, /await expand\(btn\.dataset\.key\)/);
+  // No place-holding around it: `.card.open` covers the page, so where the page happens
+  // to be scrolled to underneath it is not something anybody can see.
+  assert.ok(!body.includes('keepTheScreenStill'), 'the tap is holding a page it is about to cover');
+});
+
+check('and the row it opens is kept in the list for exactly as long as the card is up', () => {
+  // The seam that makes the sheet possible at all: `underOwnedP0s` removes every bead the
+  // board draws, and would remove this one out from under `expand` a millisecond after it
+  // ran. test/ownquestion.mjs drives the filter itself; this is the line existing.
+  assert.match(APP, /if \(state\.open\?\.has\(q\.key\)\) return true;/);
 });
 
 console.log('\nthe children stay reachable');

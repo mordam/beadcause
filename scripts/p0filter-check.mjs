@@ -336,7 +336,10 @@ try {
   check('but a closed parent with an open child is held up, and marked', v.ids.includes('a-p0.1') && v.via.includes('a-p0.1'), `via: ${v.via.join(' ') || 'none'}`);
   check('an epic the filter empties says so rather than reading as unbroken-down', v.none.some((t) => /matches the filter/.test(t)), v.none.join(' | '));
   const listRows = v.listRows;
-  check('the question under the epic is in the list', listRows >= QUESTIONS.length, `${listRows} rows`);
+  // Since bc-rfnr.9.7 the question under the epic is a row in that epic's tree and is not
+  // drawn a second time underneath the board. What this still pins is the next line: the
+  // filter narrows the trees and does not reach the list, whatever is in it.
+  check('the board is the only place its own beads are drawn', listRows === 0, `${listRows} rows`);
   await shot('live');
 
   /* ---- closed: the delivered work, with its ancestors intact ---- */
