@@ -3516,14 +3516,16 @@
     state.scope === 'human' ? ' Tap <b>Both</b> above to include the work agents are on.' : '';
 
   /**
-   * The other way to empty the list: the kind filter, which is one collapsed line and
-   * therefore the easiest thing on the screen to forget you set. Says what it is set
-   * to, so the way out is a fact rather than a hunt.
+   * The other way to empty the list: the kind, which since bc-khoe.2 is a lit pill in
+   * the row across the top rather than a chip inside a collapsed panel. Still worth
+   * naming here — the pill is on screen, but an empty list under it is exactly the
+   * moment somebody looks at the list rather than at the chrome — and still worth
+   * naming *by its label*, so the way out is a fact rather than a hunt.
    */
   const kindNudge = () => {
     const f = window.beadcause?.inboxFilter;
     if (!f || !f.selected().length) return widenNudge();
-    return ` The filter above is showing only <b>${esc(f.label())}</b>.`;
+    return ` The row above is showing only <b>${esc(f.label())}</b>.`;
   };
 
   /**
@@ -4512,7 +4514,7 @@
    * what gets *fetched* — questions, or every live bead — while the picker decides
    * which repo any of it is about. Two axes, and only one of them belongs to the whole
    * app. What has changed is that it no longer costs a permanent row: it shares the
-   * hover-open panel with the kind chips (public/inboxfilter.js), because two
+   * hover-open panel the kinds left behind (public/inboxfilter.js), because two
    * collapsing controls side by side would be the three rows again with extra steps.
    */
   const scopeGroup = {
@@ -4723,14 +4725,17 @@
    * Which kinds this scope can contain at all.
    *
    * `human` sweeps the questions, `agent` sweeps the live beads nobody is asking you
-   * about, `both` does both — so a chip for the other side would be a control that
+   * about, `both` does both — so a pill for the other side would be a control that
    * cannot change anything. The filter drops any selection this leaves unreachable;
    * see `survey` in public/inboxfilter.js.
    *
-   * `any` is the exception and it is not a special case so much as the absence of
-   * one: a pull request comes off `gh`, a chat session off no sweep at all and a JIRA
-   * ticket off JIRA, so for none of them is there a scope that could have failed to
-   * fetch it, and none of them has a scope in which its chip would be dead.
+   * Since bc-khoe.2 folded ten kinds into six there is exactly **one** left with a
+   * side, `bead`. Everything else is `any`, which is not a special case so much as the
+   * absence of one: a pull request comes off `gh`, a chat session off no sweep at all,
+   * and Questions can be produced by either sweep — the human one asks them and the
+   * agent one returns the beads held for endorsement that fold into them. So for none
+   * of them is there a scope that could have failed to fetch one, and none of them has
+   * a scope in which its pill would be dead.
    */
   const kindsForScope = () =>
     (window.beadcause?.inboxFilter?.KINDS || [])
@@ -6232,7 +6237,7 @@
     // chips can carry counts of what they would leave you with, then applied.
     // And the fourth, which is not a chip and not yours to switch off: with epics owned,
     // the list below the board is their descendants and nothing else. Applied *before*
-    // `surveyKinds` so the kind chips count what you can actually get to — a chip
+    // `surveyKinds` so the kind counts count what you can actually get to — a count
     // offering six merges when the filter leaves you one is a control that lies.
     // A picked bead **replaces** the board's narrowing rather than stacking on it, and
     // that is not a shortcut. The board answers "what am I answerable for" and you did
@@ -8684,7 +8689,7 @@
     if (!SCOPES.includes(next) || next === state.scope) return;
     state.scope = next;
     localStorage.setItem('beadcause.scope', state.scope);
-    // Before the paint, because the scope decides which kind chips exist at all — and
+    // Before the paint, because the scope decides which kind pills exist at all — and
     // a selection the new scope cannot produce is dropped here rather than left to
     // hide every row the refetch is about to bring back. Counts go to zero with the
     // list; the fetch below is what fills them in again.
@@ -9559,9 +9564,11 @@
    *
    * Early on purpose: the line that says which slice you are looking at has to be on
    * screen while `bd` is still being asked, which is exactly when a wide scope makes
-   * the wait long enough to wonder. The kinds group is the control's own — see
-   * public/inboxfilter.js — and the scope group is handed over, so the two share one
-   * panel instead of stacking two rows.
+   * the wait long enough to wonder. The scope and the bead box are handed over; the two
+   * sub-filters are the control's own — see public/inboxfilter.js — so they share one
+   * panel instead of stacking two rows. **The kinds are not in here any more**: since
+   * bc-khoe.2 they are the pill row above, and what selecting one does still arrives
+   * back through `onChange` below, exactly as a chip's tap used to.
    *
    * A page served without the file still works: `renderFilters` and `inKind` both fall
    * back to doing nothing, which is the unfiltered list this page has always drawn.
@@ -9573,13 +9580,17 @@
       // The scope first, then the bead box: coarsest to narrowest, which is also the
       // order the panel reads top to bottom.
       groups: [scopeGroup, beadGroup],
-      // The kinds' own answer plus this page's. A picked bead hides most of the screen,
-      // and the summary pill has to go bold over it like it does for everything else.
+      // This page's half of "is the list narrowed". A picked bead hides most of the
+      // screen, and the summary pill has to go bold over it like it does for everything
+      // else. The kinds no longer contribute — the lit pill is where that is admitted
+      // to now; see `narrowed` in public/inboxfilter.js.
       narrowed: () => beadPicked(),
       // Forced, because a filter tap is a decision and must not be deferred behind a
       // half-written answer. Nothing is refetched for the kinds themselves — they are a
       // view over rows already in hand — but selecting `PRs` may be the first time this
-      // tab has wanted a board at all, and `loadBoard` is what goes and gets one.
+      // tab has wanted a board at all, and `loadBoard` is what goes and gets one. It
+      // fires for a pill tap too: public/viewbar.js routes those through `pick`, which
+      // is `set` underneath, which is this channel.
       onChange: () => {
         render(true);
         loadBoard();

@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v72';
+const CACHE = 'beadcause-v73';
 const SHELL = [
   '/',
   '/index.html',
@@ -88,7 +88,8 @@ const SHELL = [
   // neither has any control on it at all without it: the inbox loses the scope switch
   // and the kinds, the History tab loses all four of its filters.
   '/filtermenu.js',
-  // The inbox's own filter — the scope switch and the kind chips, in one collapsed
+  // The inbox's own filter — the kinds table behind the pill row, and the scope
+  // switch and the two sub-filters left in one collapsed
   // line. In the shell for the same reason the picker is: without it the inbox has no
   // control on it at all to say which slice of the tracker you are looking at.
   '/inboxfilter.js',
