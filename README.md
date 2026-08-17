@@ -11410,6 +11410,90 @@ times it has already been round the loop. There is deliberately no *resume now* 
 resume is not something you do to a conversation, it is what happens when the thing it is
 waiting on arrives, and a button there would be a second door into a launch.
 
+##### The nightly window — stop dispatching, empty the Mac, collect the store
+
+Every write to a beads workspace is a Dolt commit, and until this nothing ever collected
+them. Measured on this repo's own workspace on 2026-08-17: **9469 commits and 825MB behind
+1326 beads** — and the size is what every `bd` call pays for, because every `bd` is a fresh
+process that opens the store from cold.
+
+|  | uncollected (825MB) | after `bd gc` (299MB) |
+|---|---|---|
+| `bd show <id>` | 1560–2710ms | **158–169ms** |
+| `bd list --all --limit 0` | 1862–2236ms | **326ms** |
+| six of them at once | 11972ms | **864ms** |
+
+`bd version`, which opens nothing, is 130ms — so a collected store puts `bd` within 40ms of
+the floor and an uncollected one at ten times it. The daemon spends **381 seconds of `bd` in
+nine minutes** on an ordinary afternoon (`npm run timings`), and that is what a phone read
+queues behind. One command fixes it; the whole of this section is about when to run it.
+
+**The collection does not need the Mac empty, and it is worth being straight about that.**
+`bd gc` was measured with six concurrent readers against the same store: all six answered
+correctly, and it finished in 2.9 seconds. bd takes its own gate lock, so a collection
+serialises against other `bd` processes rather than racing them. Nothing here is protecting
+the database from the sessions. What the window is for is narrower:
+
+- **A store collected under load is re-bloated by morning.** The commits come from writes and
+  the writes come from sessions, so collecting once the writers have stopped is what makes
+  the small store last the night rather than an hour.
+- **Three seconds idle is not three seconds under twenty sessions**, where it is behind
+  however much of that 381s/9min is already queued — and every session's next `bd` waits
+  behind it in turn.
+- **The end of the night is the cheapest moment to stand a fleet down** anyway.
+
+So the sequence is: at `maintenanceAt` **dispatching ceases everywhere** — one window for the
+daemon, not one per advocate, because "empty the Mac" is not something one advocate can be
+responsible for. Every open window is asked to wrap up, once, through the same `reclaim` the
+card's button uses. `maintenanceDrainMinutes` later anything still running is **stood down**
+— `finish(…, 'stood-down')`, so the conversation is parked *before* anything is closed, and
+then `SIGTERM`/`SIGKILL` through the ordinary reaper. Once the last window has gone, every
+workspace's store is **collected**, and dispatching resumes the moment that returns — not at
+the end of the window. On a quiet night the whole thing costs the fleet about three seconds.
+
+**Four things it will not bend**, and they are the reason to trust it running unattended:
+
+1. **The decay phase is never run.** `bd gc` has three phases and the first one *deletes
+   closed beads older than ninety days*. This repo's own `CLAUDE.md` makes the Dolt commit
+   log the recovery path for beads that go missing, so a nightly job that quietly deletes
+   either is not maintenance. The collection is `--skip-decay`, hard-coded, with no config key
+   to turn it on. `bd flatten` — which the gc output helpfully suggests, and which would
+   squash all 9469 commits into one — is out for the same reason and more strongly: it is the
+   recovery net itself.
+2. **The window always ends.** A session that will not take a signal must not leave a fleet
+   that never dispatches again. `maintenanceMaxMinutes` is the outer bound on the whole
+   sequence, and past it dispatching resumes whatever state the night reached — loudly.
+3. **The collection gets reserved time inside that bound.** Five minutes before the ceiling
+   the sequence stops waiting for anything and collects, over the top of whatever is still
+   running. Derived rather than configured, because it is not a preference: it is the
+   difference between a stuck window costing tonight's drain and costing tonight's whole
+   point.
+4. **Identity guards are never waived.** The force skips the *busy* check and the grace
+   period — a window still working after a 45-minute notice had its notice. It does not skip
+   the check that the pid is still the session we launched, because a signal is the one act
+   here with no undo and pids get recycled.
+
+**Every configured workspace is collected, not just the advocated ones** — the inbox sweeps
+all of them on every poll, so all of their stores are on the path of a phone read, and
+collecting only the subset with advocates would leave most of this Mac exactly as slow as
+before. **Except a workspace with a Dolt remote**, which is skipped and *said to be skipped*:
+`bd gc`'s compact phase cannot be turned off, and a nightly job that might one day start
+rewriting a shared tracker's history is not a thing to leave running unattended. On this Mac
+that is one workspace — `architecture`, the tracker every Climative service checkout resolves
+to — and `maintenanceCollectShared` is how somebody says they have decided otherwise.
+
+It is **off by default** (`advocates.maintenance`), and that is deliberate: every other sweep
+in this part of the program reads something, and this one closes windows somebody may be
+typing into. One line in `config.json` turns it on:
+
+```json
+"advocates": { "maintenance": true, "maintenanceAt": "03:00" }
+```
+
+While it runs, every advocate's card says which phase it is in — `draining`, `closing`,
+`collecting` — beside the queue it is not picking up, because a board that has gone still
+without saying why is the thing this whole console exists to avoid.
+
 #### Reclaiming a slot, by asking
 
 The inference above is what the daemon can work out on its own. **Reclaim sessions** is
@@ -19067,6 +19151,12 @@ to be one.
 | `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
 | `advocates.parkIdleWindows` | [park a window this daemon opened once it goes quiet](#parking--a-window-waiting-on-you-closes-and-your-answer-brings-it-back) — write its conversation down by session id, then close it, so an answer resumes the same agent rather than briefing a new one (default `true`). This is the one sweep that closes a window whose work is not provably anywhere else, so it has its own switch; `false` leaves them open and the resume never happens. `closeFinishedSessions: false` switches it off too |
 | `advocates.parkIdleMinutes` | how long quiet is long enough (default 10). Minutes rather than the 90 seconds a *finished* worker gets, because here the ending is inferred from silence rather than proved by a closed bead |
+| `advocates.maintenance` | [the nightly maintenance window](#the-nightly-window--stop-dispatching-empty-the-mac-collect-the-store): stop dispatching everywhere, let the open windows finish, close whatever is left, collect every workspace's Dolt store, resume (default `false`). **Off by default because it is the one sweep here that closes a window somebody may be typing into** — everything else in this table reads something. One line turns it on |
+| `advocates.maintenanceAt` | when dispatching ceases, local wall clock (default `"03:00"`). A typo switches the window off and says so, rather than firing at midnight |
+| `advocates.maintenanceDrainMinutes` | how long a window that is still working gets to finish on its own before it is forced (default 45). Forty-five rather than ten because a worker that has just been asked to wrap up has a debrief to write and a branch to deliver, and a grace period shorter than doing what was asked wastes the asking |
+| `advocates.maintenanceMaxMinutes` | the outer bound on the whole sequence (default 120). Past it dispatching resumes whatever state the night reached — a session that will not take a signal must not leave a fleet that never dispatches again. The collection gets the last five minutes inside this bound reserved to it, so a Mac that never empties still gets collected |
+| `advocates.maintenanceForceClose` | whether the drain may escalate to a signal (default `true`). `false` makes the window ask-only: it still collects, at the reserve, over whatever is still running — which is safe, because `bd` serialises a collection against other `bd` processes rather than racing them |
+| `advocates.maintenanceCollectShared` | whether a workspace with a **Dolt remote** — a tracker shared with other people — is collected too (default `false`). The reason to stay out is that `bd gc`'s *compact* phase is not skippable: against bd 1.2.1 it is advisory and changes nothing, but if a later bd makes it squash for real, a nightly job would be rewriting a remote-backed database's history every night, which is the fork `bd migrate` refuses by default and calls "silent and unrecoverable". The skip is reported, never silent. On this Mac it is exactly one workspace — `architecture` |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
