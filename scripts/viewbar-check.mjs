@@ -257,6 +257,7 @@ const PAGES = [
   { url: '/flow', file: 'flow.html' },
   { url: '/requirements', file: 'requirements.html' },
   { url: '/admin', file: 'admin.html' },
+  { url: '/sounds', file: 'sounds.html' },
 ];
 
 /**
