@@ -16,7 +16,7 @@
  * days and all three escaped by reading the prose, which is exactly the protection
  * lib/superseded.js exists to replace.
  *
- * Seven properties, in the order they would break in:
+ * Eight properties, in the order they would break in:
  *
  * 1. **The marker is one string.** Read off `labels` with the same trim as every other
  *    marker in the family — three spellings is the same as no hold.
@@ -40,6 +40,14 @@
  *    criterion that says a container stays a valid parent and stays on the board. The board
  *    itself needs no change and gets none: `p0Board` is built from `bd.graph`, never from
  *    `bd.ready`, so the filter here cannot reach it.
+ * 8. **AND A BEAD FILED UNDER ONE IS NOT BORN CARRYING IT** — bc-xl7n.60, and the property
+ *    this file was green over while the tracker did the opposite. `bd create --parent`
+ *    hands the child its parent's labels, so property 7's child was asserted with a
+ *    hand-written `labels: []`: an input that cannot occur. Every bead the daemon filed
+ *    under bc-xl7n for three days arrived carrying `container` and `human`, out of every
+ *    queue after endorsement and refused 409 at both doors, and a hand stripped them. The
+ *    fixture below is filed through `Bd.create` against a bd that inherits the way the
+ *    real one does, so the check would have failed the day it was written.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -228,16 +236,87 @@ await check('A CONTAINER IS STILL A P0 ROOT, so its children are still workable'
   assert.equal(hasP0Above(INDEX, 'zz-root.1'), true, 'and its children stopped being workable');
 });
 
+/**
+ * What `bd create --parent` really hands the new bead — modelled, not assumed.
+ *
+ * Measured against bd 1.2.1 in a throwaway workspace, 2026-08-17: a child created under a
+ * parent labelled `container`, `human` and `held:…` comes back carrying all three *plus*
+ * what was asked for, and the same create with `--no-inherit-labels` comes back carrying
+ * exactly what was asked for and nothing else. `bd update <id> --parent` inherits nothing,
+ * which is why this is the only door modelled here.
+ */
+const asBdWould = (argv, parent) => {
+  const asked = argv.flatMap((a, i) => (a === '--label' ? [argv[i + 1]] : []));
+  const inherited = argv.includes('--no-inherit-labels') ? [] : parent.labels;
+  return [...asked, ...inherited].filter((l, i, all) => all.indexOf(l) === i);
+};
+
+/** A `Bd` with the spawn replaced, keeping the argv of every `create` it is asked for. */
+const filingWith = ({ refusesTheFlag = false } = {}) => {
+  const bd = new Bd({ bin: 'bd', actor: 'beadcause' });
+  const seen = [];
+  bd.run = async () => '';
+  // The duplicate check is a `bd export` this file has no business paying for, and an
+  // empty answer is the one thing it cannot draw a wrong conclusion from.
+  bd.liveTitles = async () => [];
+  bd.json = async (_ws, args) => {
+    if (args[0] !== 'create') return [];
+    seen.push(args);
+    // The older binary the fallback exists for: an unknown flag makes bd exit non-zero
+    // having filed nothing, and the sentence is bd's own, measured.
+    if (refusesTheFlag && args.includes('--no-inherit-labels')) {
+      throw new Error('bd create failed in zz: Error: unknown flag: --no-inherit-labels');
+    }
+    return { id: 'zz-root.1' };
+  };
+  return { bd, seen };
+};
+
 await check('and a bead filed under one is ordinary work — in the queue, and past this gate', async () => {
   // Deliberately not driven through `openWorkSession`: past the four refusals that door
   // runs, the next thing it does is resolve a checkout and hand an AppleScript to iTerm,
-  // and a suite that opens a real window is a suite nobody can run twice. The two things
-  // this file could get wrong about a child are both here — the queue filter matching too
-  // widely, and the gate refusing on ancestry rather than on the bead in front of it.
-  const kid = { id: 'zz-root.1', title: 'real work', status: 'open', labels: [] };
+  // and a suite that opens a real window is a suite nobody can run twice. Three things this
+  // file could get wrong about a child, and all three are here — the queue filter matching
+  // too widely, the gate refusing on ancestry rather than on the bead in front of it, and
+  // (bc-xl7n.60) what the child is born carrying, which is the one that was wrong.
+  const root = container('zz-root');
+  const { bd, seen } = filingWith();
+  const id = await bd.create(WS, { title: 'real work', priority: 2, labels: [UNENDORSED], parent: root.id });
+  assert.equal(id, 'zz-root.1');
+  // Read as it stands *after* Adam endorses it, which is the state this is really about:
+  // endorsement drops `unendorsed` and only `unendorsed`, so a child that came down the
+  // wire carrying `container` and `human` is still out of every queue and still refused at
+  // both doors once the tap has happened. The tap looks like it worked and changes nothing.
+  const kid = { id, title: 'real work', status: 'open', labels: asBdWould(seen[0], root).filter((l) => l !== UNENDORSED) };
+  assert.deepEqual(kid.labels, [], 'the child was born carrying the markers of its parent');
   assert.equal(assertNotContainer(kid).id, 'zz-root.1');
-  const { bd } = readyWith([container('zz-root'), kid]);
-  assert.deepEqual((await bd.ready(WS, { excludeLabels: QUEUE_EXCLUDED })).map((r) => r.id), ['zz-root.1']);
+  const { bd: queue } = readyWith([root, kid]);
+  assert.deepEqual((await queue.ready(WS, { excludeLabels: QUEUE_EXCLUDED })).map((r) => r.id), ['zz-root.1']);
+});
+
+await check('and an older bd that never heard of the flag still files the bead', async () => {
+  // Degrading rather than hard-failing: nothing in this repo pins a bd version, and a
+  // create that throws loses the bead outright where this loses only the fix — which is
+  // where the repo stood the day before. Asserted on the *second* argv, because the retry
+  // has to go out without the flag, and on the remembered answer, because paying that
+  // spawn on every filing would be the fallback costing what it was written to save.
+  const { bd, seen } = filingWith({ refusesTheFlag: true });
+  assert.equal(await bd.create(WS, { title: 'real work', labels: [UNENDORSED], parent: 'zz-root' }), 'zz-root.1');
+  assert.ok(seen[0].includes('--no-inherit-labels'), 'the flag was never offered');
+  assert.ok(!seen[1].includes('--no-inherit-labels'), 'and the retry carried the flag bd had just refused');
+  assert.equal(bd.inheritsLabelsRegardless, true);
+  await bd.create(WS, { title: 'more work', labels: [UNENDORSED], parent: 'zz-root' });
+  assert.equal(seen.length, 3, 'the refusal was not remembered — a wasted spawn on every filing after it');
+});
+
+await check('a filing with no parent is left alone entirely', async () => {
+  // The flag is meaningless without `--parent`, and pushing it anyway would put an
+  // unnecessary argument on every question this daemon files — the single most-travelled
+  // path through `Bd.create` — for a binary to reject one day.
+  const { bd, seen } = filingWith();
+  await bd.create(WS, { title: 'a question', labels: ['human'] });
+  assert.ok(!seen[0].includes('--no-inherit-labels'));
+  assert.ok(!seen[0].includes('--parent'));
 });
 
 /* ------------------------------------------------------------------------ done */
