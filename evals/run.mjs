@@ -160,7 +160,10 @@ async function main() {
   }
 
   if (opts.help) {
-    console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('*/')[0].replace(/^\/\*\*?|^ \* ?/gm, '').trim());
+    // The header comment of this file *is* the help, so there is one place to keep it
+    // right rather than two that drift apart.
+    const head = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('*/')[0];
+    console.log(head.replace(/^#!.*\n/, '').replace(/^\/\*\*?\n?|^ \* ?|^ \*$/gm, '').trim());
     return;
   }
 
