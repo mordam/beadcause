@@ -588,9 +588,12 @@ await check('a text group with no suggestions and no picks is still one input an
 
 console.log('\nthe page and the daemon');
 
-await check('app.js mounts the box in the same panel as the kinds', () => {
+await check('app.js mounts the box in the panel, which is the only group left in it', () => {
+  // It was `[scopeGroup, beadGroup]` until bc-khoe.24 took the scope out onto the chrome
+  // (public/filterpills.js). The box stayed: a typeahead with a dropdown under it is the
+  // one group that genuinely wants a panel, and bc-khoe.26 is where that is re-decided.
   const app = read('public/app.js');
-  assert.match(app, /groups: \[scopeGroup, beadGroup\]/, 'the box is not in the filter panel');
+  assert.match(app, /groups: \[beadGroup\]/, 'the box is not in the filter panel');
   assert.match(app, /narrowed: \(\) => beadPicked\(\)/, 'the summary pill would stay quiet over a narrowed list');
 });
 

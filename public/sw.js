@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v75';
+const CACHE = 'beadcause-v76';
 const SHELL = [
   '/',
   '/index.html',
@@ -85,13 +85,19 @@ const SHELL = [
   '/freshness.js',
   // The panel every filter bar in the app is drawn in — the collapsed line, the chips,
   // the hover-and-tap state machine. In the shell because two pages mount it and
-  // neither has any control on it at all without it: the inbox loses the scope switch
-  // and the kinds, the History tab loses all four of its filters.
+  // neither has its whole control without it: the inbox loses the bead search and both
+  // status sub-filters, the History tab loses all four of its filters.
   '/filtermenu.js',
-  // The inbox's own filter — the kinds table behind the pill row, and the scope
-  // switch and the two sub-filters left in one collapsed
-  // line. In the shell for the same reason the picker is: without it the inbox has no
-  // control on it at all to say which slice of the tracker you are looking at.
+  // The filters that are not behind a line — the scope switch on the inbox's chrome
+  // (bc-khoe.24). In the shell for the same reason as the panel beside it: a cached page
+  // without it draws the collapsed panel and no way at all to say whether you are looking
+  // at the questions or at the live beads, which is the one control this app has that
+  // decides what a screen is *able* to hold.
+  '/filterpills.js',
+  // The inbox's own filter — the kinds table behind the pill row, and the bead search
+  // and two sub-filters left in one collapsed line. In the shell for the same reason
+  // the picker is: without it the inbox draws every row it fetched, with nothing on
+  // screen able to narrow it.
   '/inboxfilter.js',
   // Edit mode: the freeze and the anchor. In the shell because the inbox now asks it on
   // every repaint whether it may paint at all — a cached page without it answers false

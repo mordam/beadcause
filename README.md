@@ -4193,10 +4193,69 @@ directions, and over every combination of the fields the payload can carry rathe
 only over the rows it writes), the row's copy of it, the scope rule, both sub-filters'
 defaults and the chrome on a pointer and a touchscreen.
 
+### The scope is a control you can see
+
+`Human`, `Both`, `Agent` — three words on the chrome, above the list and in front of
+everything else in the filter row. It is the coarsest control this page has, because it is
+the only one that changes what gets **fetched**: `human` sweeps the questions, `agent`
+sweeps the live beads nobody is asking you about, `both` does both. Every other filter on
+Home narrows rows already in hand; this one decides what Home is *able to contain*.
+
+It spent a while as the `Show` group inside the collapsing panel, on the argument that two
+collapsing controls side by side would be the three permanent rows of chips again with
+extra steps. That was the wrong trade and bc-khoe.24 undoes it. A control you have to open
+something to see is a control you forget is set, and the cost of forgetting this one is a
+screen that is empty for a reason that is off screen — which is the same complaint that
+promoted the ten kinds out to [the pill row](#one-list-six-kinds--and-the-two-sub-filters),
+and it has the same answer.
+
+**It is a segmented switch and not a pill that opens three chips.** Three options with
+exactly one always armed is the definition of a segmented control, three words fit across a
+360px phone, and a pill saying `Human ▾` would cost a tap to change and put the choice back
+behind something you have to open. The look did not change with the move — it is the same
+`.chip-row.scopes` banding it had inside the panel, in front of the panel instead of inside
+it — so somebody who used the old one finds the same control in a place they can see.
+
+**The mechanism is `public/filterpills.js`, and it is deliberately more general than one
+switch.** A group here is exactly the descriptor `public/filtermenu.js` takes —
+`{ id, legend, all?, multi?, options(), pick(id), hidden?() }` — so moving a filter between
+the panel and the row is editing which list it is handed to, rather than rewriting it. That
+is what bc-khoe.26 does with the bead search and the two status sub-filters. Two shapes are
+refused rather than half-drawn: a `text` group (the typeahead genuinely wants a dropdown
+under it, which is a panel's shape) and `said` (there is no summary line out here — the
+chips are the summary). A refused group is a `console.warn`, not a silent skip, because a
+filter the page believes it drew and has not is the worst of the three outcomes.
+
+Two properties are load-bearing and neither is visible by reading the file. `paint()`
+touches text and attributes only and rebuilds a group's chips only when the *set* of option
+ids changes, because the inbox repaints every 25 seconds and a row rebuilt on that clock
+drops the focus ring off a chip somebody is tabbing through. And **nothing in `.filters`
+may set `overflow`**: the panel beside the switch is absolutely positioned so it draws
+*over* the list, and a scroll container on either axis makes the other one `auto` too,
+which would clip that panel to the 34px line it hangs off. A narrow phone takes the width
+out of the summary line, which already ellipsises, and the switch never shrinks.
+
+**And the panel it now sits in front of opens leftwards.** That is the one thing the move
+broke and it is invisible outside a browser: the panel is 260px at its narrowest and hangs
+off `.filter-menu`, which the switch pushes to x=240 on a 360px phone — so left-anchored it
+ran 140px off the side of the screen. `#filters .filter-panel` is right-anchored, scoped to
+the inbox because it is only safe where the menu is the *last* thing on its row; the History
+tab's is the first, and the same rule there would push it off the other edge.
+
+What did **not** move is what the switch does. `chooseScope` in `public/app.js` is still
+the one place that stores the preference, drops selections the new scope cannot produce
+(`All Beads` under `Human` is a pill with nothing behind it), and refetches. And it is
+still this device's preference and nothing else's: `beadcause.scope` is read and written in
+`public/app.js` alone, so **changing scope cannot change what rings your phone** — that is
+the space picker's, stored on the server, where the push path can read it.
+`node test/filterpills.mjs` covers the switch, the repaint, the refusals and all four of
+those wirings; `node test/inboxkinds.mjs` still covers the panel it left.
+
 ### Finding one bead
 
 The chips answer "what *kind* of thing"; the box under them answers "which one". It sits
-in the same collapsed panel, below the scope switch, and it is a typeahead: type any part
+in the collapsed panel, behind the line the scope switch now sits in front of, and it is a
+typeahead: type any part
 of a bead id — or any part of a title — and the matches drop down, narrowing as you type.
 Click one and it becomes a pill with an × beside it, and the inbox is that bead and every
 bead under it. Take the × off and the list comes back. Several pills at once mean the
@@ -5101,6 +5160,59 @@ order.
 `node:vm`, the guard driven case by case over a fake tap, and a source read that no
 `<button>` anywhere in `public/app.js` answers to the act any more — a second emitter of
 it would be the old control grown back somewhere else in the file.
+
+### And the card says it heard you before the brief arrives
+
+Opening a card is a fetch. `expand()` asks `/api/question` — or `/api/bead`, for a read-only
+agent bead — and only *when that comes back* does it open the card and repaint. On a laptop
+beside the daemon that is invisible. On a phone on a train it is a card that sits there
+doing nothing for a second, and **a tap with nothing to show for itself is a tap people
+make again**: the press tint above lasts exactly as long as the finger is down, so the
+moment it lifts there is no evidence the app heard anything at all. The second tap then
+lands on the card as it opens, on whatever is now under the thumb.
+
+So the tap is answered at once, by the card itself. `.card.opening` is a ring around the
+card it was tapped on, put on inside the tap's own handler — before the request is even
+made — and taken off by the repaint that opens the card. Three things about it are the
+whole design:
+
+- **It cannot arrive late.** The class is written by `paintOpening()`, DOM surgery on the
+  one node, the same choice the ⋮ menu makes and for a sharper version of its reason: a
+  `render()` would rebuild the list to add one class, and the reconciler would then rebuild
+  that card a second time when the fetch landed. `state.opening` holds the key as well, so
+  a poll repainting the list mid-fetch paints the mark back rather than losing it with the
+  node it was written on — the division of labour `state.menu` already had.
+- **Nothing moves.** It is an outline at `outline-offset: -2px`, drawn inside the card's
+  own border box, so the box and the words on it are pixel-identical across the tap. The
+  [draft edge](#an-unsent-draft-outlives-the-page) is an inset shadow for the same reason,
+  and the difference in *shape* between the two is deliberate: an edge down the left is a
+  standing property of the row — you did not finish, the tracker refused — and a ring is
+  something happening to it right now. A card can wear both, which is the ordinary case
+  rather than a corner.
+- **A card that is already open in all but name never flashes it.** If the list row already
+  carries the thread, `expand()` fetches nothing — and with nothing to await, the mark is
+  set, cleared and the card redrawn inside the one event, which a browser cannot paint the
+  middle of. That is not a timing trick: it is why the clear lives in `expand()` immediately
+  before `openOnly()` rather than back at the tap.
+
+The mark is cleared **whether or not the fetch worked**, which is the failure this feature
+could newly introduce. `expand()` swallows both of its refusals and opens the card on what
+the list already knew, so a mark cleared only on success would sit lit on a card that had
+finished with it until the page was reloaded. Under `prefers-reduced-motion: reduce` the
+ring stays and its slow pulse stops — the animation starts *at* the full ring rather than
+fading up to it, so switching it off leaves exactly the first frame.
+
+It belongs to the two card kinds that actually wait: the question card and the read-only
+agent bead, which share the one `toggle` branch. A pull request row and a JIRA row answer
+to their own acts, and both of those already put the sheet up first and fetch underneath
+it — they never sat inert, so there is nothing to mark.
+
+`node test/cardpending.mjs` (part of `npm test`) holds the half a browser is not needed
+for: both renderers run for real, `paintOpening()` is driven over a hand-made list to prove
+a second tap *moves* the mark rather than adding one, and the style is read for anything
+that could shift a pixel. `node scripts/pending-check.mjs` is where the timing itself is
+proved, in a real Chrome against a deliberately slow fixture — the click is dispatched and
+the class counted inside one evaluation, so no frame can have gone by in between.
 
 ## What a question is blocking
 
@@ -11651,6 +11763,59 @@ The hand-back runs before the same tick's survey, so a bead freed this way is wo
 immediately rather than thirty seconds later — and where the dead window is still on
 screen, the live-session filter is what stops a second one opening over it.
 
+#### And then the tracker refused it — twenty beads, and four that never came back
+
+That last bullet was the bug rather than a caveat, and it took bd two minor versions and
+a month to show it. **bd 1.2.1 refuses to clear a claim from an actor that is not the
+holder:**
+
+    cannot reassign bc-xl7n.61: held by "neadamthal@gmail.com" (in_progress); coordinate
+      with the holder (bd mail neadamthal@gmail.com) — pass --force only if their claim is
+      abandoned (crashed agent, expired lease), or use bd reclaim
+
+On this path actor and assignee can never match, *by construction*. The window claimed
+the bead under the human's git identity — that is what the brief tells it to do, and what
+`bd ready` reads — and every write beadcause makes is stamped `beadcause`. So the write
+was not refused sometimes: it was refused every time, from the moment the version landed,
+and the three retries behind it could not help because nothing here is a race.
+
+Which turns "the next window tries again" into a sentence with nothing behind it. There
+**is** no next window: the bead is still `in_progress` and still assigned, so it is not in
+`bd ready`, so no advocate can see it, so the only thing that would ever have retried the
+hand-back was the hand-back that just failed. `grep "could not hand" ~/Library/Logs/`
+`beadcause.log` on 2026-08-17 found 20 distinct beads, against 39 windows that exited
+without closing one — roughly half of every dead window since the bump.
+
+**It partly self-heals, which is why nobody noticed.** Sixteen of the twenty closed anyway
+in the end, because a pull request landed or somebody reclaimed the bead by hand. Four did
+not: they sat `in_progress` under no window at all, one of them for two days, indexed
+nowhere and mentioned by nothing. A bead in that state is not *late* — it is gone, and the
+only trace of it is a line in a log.
+
+So the hand-back asks for `Bd.reopenAbandoned` rather than `Bd.reopen`, which is the same
+write with `--force` appended — but only after the plain one has come back refused, and
+only when *that* refusal is what came back. The flag is what the refusal itself prescribes
+for a claim that is abandoned, and this is the one caller that can be sure it is: it runs
+**because** the window is gone. `bin/plan.js`'s last act goes the same way, for the same
+reason and a shorter one — the claim it is releasing is its own.
+
+**Three things were deliberately left alone.** `Bd.reopen` still has no flag on it, because
+the review path in `lib/server.js` and `Bd.commission` reopen beads whose holder may still
+be typing, and there the guard is doing exactly the job it was added for; force belongs at
+the call site that has established otherwise, not in the shared write. The refusal is
+matched by its own regex (`REASSIGN_GUARD_RE`) rather than by widening the one that reads
+a refused *close*, because both hand `--force` to their caller and the two sentences share
+no wording — a regex that drifted across them would step over a live blocker or an epic's
+open children on the strength of a claim. And `--force` on `bd update` lifts the gates
+around moving an issue into a *done* status as well as this guard, so the argv it is
+attached to is pinned, whole, in `test/reassignguard.mjs` — the status it names can only
+ever be `open`.
+
+That suite asks the binary as well as the code: a stub can only confirm what `lib/bd.js`
+already believes, and *that the plain write is refused at all* is a claim about bd. Like
+`test/closegatereal.mjs` it runs against a fresh throwaway workspace, and skips loudly
+where `bd` is not installed.
+
 #### Closing the window — a session that has finished should not still be on screen
 
 The `exit` above only runs **when `claude` exits**, and a session that has finished its
@@ -12625,12 +12790,26 @@ different questions: "is the branch this bead asked for already in?" can be answ
 any branch the bead names, but "was this bead closed over work that never landed?" is a
 claim about its own delivery, and bc-5lcc's description names *another* bead's branch.
 
-Three facts have to hold before it says anything. The branch still **exists**; it has
-**commits the base does not**; and **GitHub has no pull request for it**, merged or open.
-That last one is not optional and is why the sweep refuses to run without `gh`: a squash
-merge leaves no ancestry at all, so git alone reports every deliberate squash as lost work
-for ever, and a sweep that cries wolf daily is one nobody reads. An open pull request is
-not a merge either, but somebody is already looking at it.
+Four facts have to hold before it says anything. The branch still **exists**; it has
+**commits the base does not**; **GitHub has no pull request for it**, merged or open; and
+**its newest commit has stopped moving for two hours**. The third is not optional and is
+why the sweep refuses to run without `gh`: a squash merge leaves no ancestry at all, so
+git alone reports every deliberate squash as lost work for ever, and a sweep that cries
+wolf daily is one nobody reads. An open pull request is not a merge either, but somebody
+is already looking at it.
+
+The fourth is bc-xl7n.63, and it is about the third one having a *time* on it. On
+2026-08-14 this sweep filed a card at 15:40:21Z saying of a branch that "GitHub has no
+pull request for it — not merged, not open, not refused". Pull request #315 for that exact
+branch was opened at 15:48:35Z, eight minutes later. Nothing was wrong with the reading:
+it was taken in the gap every delivery has between pushing its branch and opening its pull
+request — `beadcause-deliver` pushes, then calls `gh pr create` — and a sweep on an hourly
+tick lands in that gap whenever somebody is delivering, which here is most evenings. So a
+branch whose newest commit is younger than two hours is **held rather than carded**: no
+fingerprint is written, exactly as for a branch over the twenty-branch cap, so it is looked
+at again next sweep and carded then if it really was abandoned. The delay costs nothing —
+every bead this is about was closed over work its own session already finished, and a
+genuinely abandoned branch has a tip weeks old.
 
 There is no ancestry walk here, which is the one difference from the sweep above worth
 knowing. That one has to tell a merged branch apart from an unstarted worktree, and both
@@ -12662,6 +12841,44 @@ because the card gets answered and closed and a guard that read its existence wo
 it for ever. The card is written first all the same, and the fingerprint second: a creation
 that fails has written nothing and simply comes back next interval, where a fingerprint
 written over a card that was never filed would be a finding lost in silence.
+
+**And the card is re-asked every sweep, because the reading has an age.** The grace above
+is a guess about how long a session takes to open its pull request, so it cannot be the
+whole of the fix — a delivery whose gate runs three hours gets carded anyway. The card
+therefore says *when* GitHub was asked, in UTC and marked as such, and on every sweep the
+advocate walks the cards of this sweep's still in the inbox and asks GitHub again. One
+whose central claim has stopped being true is **closed with a reason saying so** rather
+than left for you to answer a question about a state that no longer exists: "Wrong when it
+was asked: #315 is open for `worktree-…`", and a line on the original bead's thread taking
+back the one the sweep put there.
+
+Closed rather than amended, which is the difference from [the conflicting-merge
+card](#a-branch-that-keeps-conflicting-does-not-keep-filing-cards). That one is a running report on merges still
+moving and there is more to say each cycle. This is a single question with two buttons, and
+once a pull request exists neither means anything — **Land it** would commission a session
+to rebuild a branch already in review, and **Let it go** would record a decision to abandon
+work nobody is abandoning. A question whose options have both become wrong is not one to
+reword.
+
+A card of this sweep's is found by its own title — `worktree-… never reached main — bc-… is
+closed over it` — and not by a record on disk. That is deliberate: the conflicting-merge
+sweep keeps its mapping in `~/.config/beadcause/sweep-cards.json`, and bc-xl7n.35 is the
+bead about eight of thirteen cards in one day outliving their record, after which nothing
+can ever amend or close them. Here the recovery path and the ordinary path are the same
+path, so there is no second one to go stale.
+
+The one asymmetry worth knowing: a **merge** settles the question for good and the
+fingerprint stays, so the branch costs no further `gh` call ever. An **open** pull request
+does not — it can be refused unmerged next week, and then the branch really is stranded —
+so closing a card for that reason writes a second mark that takes the ask back, and a later
+sweep may file a fresh card. The last mark on the bead wins.
+
+This is also what keeps this sweep and the conflicting-merge sweep from holding two open
+cards asking incompatible things about one branch, which they did on `worktree-reenter-gate-f31f`
+on the day above: one offering *land it / let it go* as if the work were abandoned, the
+other naming #315 and asking which side wins. There is no cross-check between them and
+there does not need to be — the other sweep only ever files about a branch that *has* a
+pull request, and the moment one exists this card cannot survive its next follow-up.
 
 Two costs shape the schedule. It is the only sweep here that reads *closed* beads, which is
 half a megabyte of `bd list` on a busy tracker; and it spends a `gh pr list` on each branch
@@ -15799,6 +16016,33 @@ rewrites `.beads/embeddeddolt/<prefix>/.dolt/noms/manifest` — about 150 bytes 
 new root hash. Reading it is one `open`/`read`/`close` of a file the page cache is
 already holding, and it spawns nothing.
 
+**The manifest alone is only true of embedded Dolt, and the reason is that embedded Dolt
+exits.** Flushing the manifest is part of a `bd` process ending, so under the embedded
+engine the new commit pointer is on disk by the time the command returns. A `dolt
+sql-server` never ends. It holds the store open and defers the rewrite: measured on
+2026-08-17 against a server on this repo's own workspace, writing and then polling, the
+manifest moved after **35.19s** and **35.51s**. A detector reading it alone therefore
+answers *nothing moved* for half a minute on a server-mode workspace and the daemon drops
+silently to the `pollSeconds` backstop this exists to improve on — graceful, invisible,
+and a straight miss against the five-second budget.
+
+**So the chunk journal is read beside it.** Dolt appends every write to a single file,
+`<prefix>/.dolt/noms/vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv` — thirty-two `v`s, a fixed name,
+not a hash — and it does so *before* it ever touches the manifest: within 0.6s of the
+write in the same measurement. Both are read and joined into one mark, so an embedded
+workspace keeps precisely the behaviour it had and a server-mode one gains a signal that
+moves at once. There is no mode detection and no per-workspace branch, because the file
+is present in every database of every workspace, and it is the join that makes one
+unconditional path correct for both.
+
+**What is read of the journal is its size** — not its bytes, which are 854MB on this
+repo's workspace, and emphatically not its mtime, which is the second near-miss below
+wearing a different hat: measured, ten `bd` reads under the embedded engine moved the
+journal's mtime and left its size alone. A size is appended to by writes and by nothing
+else, it is monotonic between collections, and the detector only ever compares against
+the mark immediately before it — so it needs no history. A `bd gc` truncating the journal
+reads as one change and costs one extra sweep.
+
 Three near-misses are worth writing down, because each of them looks like it would work:
 
 - **`.beads/last-touched` is not it.** It holds the last bead id `bd` looked at, and it
@@ -16157,8 +16401,9 @@ created. There is deliberately no second *are you sure?* screen after it — a
 confirmation you cannot change is only a delay.
 
 Tap a card and everything is editable in place: title, type, priority, description,
-acceptance, labels, and — as chips naming the other beads in the proposal — **parent**
-and **blocked by**. Remove a bead, or **＋** one the conversation missed. **Create N
+acceptance, labels, [the files it expects to
+touch](#a-card-says-which-files-its-bead-expects-to-touch), and — as chips naming the other
+beads in the proposal — **parent** and **blocked by**. Remove a bead, or **＋** one the conversation missed. **Create N
 beads** takes two taps, the same as answering a question, because creating six beads
 in a tracker off a pocket tap is not undoable in any way that matters.
 
@@ -16174,6 +16419,54 @@ dependencies exist before the bead that points at them. A `dependsOn` may also n
 bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on the one
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
+
+### A card says which files its bead expects to touch
+
+Under Labels there is one more field: **Files it expects to touch**. Type
+`lib/dms.js, lib/retry.js` into it, or let the agent propose them — a `files:` list on a
+bead in its `beads` block, read under `touches`, `paths` and `surface` as well, because the
+block is generated text and the cost of an unrecognised key is a declaration that silently
+is not there. The collapsed card shows `2 files` with the paths in its tooltip; the count
+rather than the paths because a repo-relative path is long and five of them would push the
+priority off a phone, and the one thing worth seeing at a glance is *that* this bead named a
+seam. An advocate's proposal card carries the same thing as **Expects to touch**.
+
+This is the field [the queue filter](#the-bead-whose-files-somebody-is-already-editing)
+reads, and it is the only place in beadcause anybody writes one. The moment is the point:
+a proposal is the one time somebody has the whole shape of the work in their head and
+nothing has been created yet, so "which files" is the same kind of claim as a title or a
+dependency and costs a sentence to make. Later it is a bead somebody has to go and edit.
+
+It is also the one field on a card that is about the **other** cards. Two beads in one
+proposal naming one file are two windows that must never open together — which is a
+judgement to make before pressing Create, by merging them, rather than a collision
+discovered at downmerge a day later.
+
+**Nothing is stored as a field, because `bd` has no such column.** The surface is written
+*into* the created bead's description, as the `beadfiles` block
+[described above](#the-bead-whose-files-somebody-is-already-editing) — by `withSurface` in
+`lib/beadfiles.js` and by nothing else, so a block written by the console and a block
+written by [a plan](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) cannot come to be
+spelled differently. It is normalised at the card and not at filing time, so `./lib/a.js`
+and `lib/a.js` are one path on the screen you are correcting rather than two paths that
+turn into one silently afterwards.
+
+**A bead that declares nothing is filed exactly as it always was**, description
+byte-for-byte, and dispatches exactly as every bead filed before this existed does. Nothing
+about a surface can refuse a filing, warn about one, or clamp one: a bad path is dropped
+and the bead is created. A declaration is a forecast written before anybody read the code,
+and the P0 this belongs to is explicit that a wrong one must dispatch rather than withhold —
+a field that could withhold work by being malformed would move the whole cost to the one
+place it must never be.
+
+The failure worth engineering against here is silent. A surface crosses five stages — the
+YAML an agent emits, the draft the server holds, the card the phone renders and edits, the
+YAML fed back to the agent next turn, and the `bd create` at the end — and a stage that
+drops it looks precisely like a stage that kept it: the card says `2 files`, the bead is
+filed with none, and the advocate reports nothing forever. So `node test/consolesurface.mjs`
+(in `npm test`) asserts round trips rather than stages, and its last group drives
+`POST /api/console/create` against a `bd` that records its argv and reads the surface back
+out of the `--description` that `bd` was really spawned with.
 
 ### A label is filed exactly as it was typed — only the refs are slugged
 
@@ -19982,7 +20275,7 @@ to be one.
 | `advocates.flagInMain` | [ask about an open bead naming a `worktree-*` branch that is already in `origin/main`](#the-bead-whose-branch-is-already-in-main) (default `true`). It never closes anything — a merged branch is a fact, "so the bead is done" is your call |
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.flagNotInMain` | [file a finding about a **closed** bead whose own `worktree-*` branch never reached `main`](#the-bead-that-is-closed-over-a-branch-that-never-reached-main) (default `true`). The one sweep here whose failure costs the work rather than a window. It closes, reopens, merges and pushes nothing: the finding is a new bead in the inbox, because a card on a closed bead is never rendered |
-| `advocates.notInMainIntervalMinutes` | how often that looks (default 60). Hourly rather than ten-minutely because it is the only sweep that reads *closed* beads — half a megabyte of `bd list` — and spends a `gh pr list` per branch git says never landed |
+| `advocates.notInMainIntervalMinutes` | how often that looks (default 60). Hourly rather than ten-minutely because it is the only sweep that reads *closed* beads — half a megabyte of `bd list` — and spends a `gh pr list` per branch git says never landed. The follow-up that re-asks about cards already filed rides the same clock, for the same reason |
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
@@ -24396,9 +24689,14 @@ hid that one declaration while reporting the other nine.
   has an answer: `[]` on a solo workspace, `[{name, url, sql_url}]` on a shared one. Note
   that the *non*-JSON form is the prose "No remotes configured." and exits 0 as well; see
   `doltRemote` in lib/bd.js and [A tracker two Macs share](#a-tracker-two-macs-share).
-- **Don't set `sharedServer: true`** unless you've run `bd dolt start`. The
-  workspaces pin `dolt_mode="embedded"`; forcing shared mode makes every command
-  fail against a Dolt server that isn't listening. Writes retry through the
-  embedded single-writer lock instead.
+- **`sharedServer: true` is not how you put a workspace on a server, and it never
+  was.** That flag sets `BEADS_DOLT_SHARED_SERVER=1`, which selects bd's *shared*
+  (global) server — a different thing from the per-project `dolt sql-server` a
+  workspace gets from `dolt_mode: "server"` in its own `.beads/metadata.json`. It is
+  also fleet-wide in lib/bd.js, so turning it on drags every other workspace into a
+  mode none of them are in, and each one then fails against a server that isn't
+  listening. Per-project server mode needs no environment variable at all: it is
+  configured workspace-side and the daemon already spawns `bd` correctly for it.
+  Leave this `false`.
 - **The public registry is pinned in `.npmrc`.** The global `~/.npmrc` points npm
   at Climative's Azure Artifacts feed with an expired token, which 401s here.

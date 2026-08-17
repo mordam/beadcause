@@ -156,8 +156,15 @@ try {
 
 // And the step that makes it live. See the header: the advocate reads plans off epics in
 // its queue, and a claimed epic is not in one.
+//
+// `reopenAbandoned` rather than the hand-rolled argv this used to spell out, because that
+// argv was refused on every ordinary run (bc-xl7n.85): the planner window claims the epic
+// as the human, this process writes as beadcause, and bd 1.2.1 refuses a reassign by
+// anyone but the holder. The warning below then scrolled past *underneath* the successful
+// group summary, so a planned epic that would never dispatch read as a clean success. The
+// claim being released is this window's own, which is exactly the case the flag is for.
 try {
-  await bd.run(ws, ['update', epicId, '--status', 'open', '--assignee', ''], { retries: 3 });
+  await bd.reopenAbandoned(ws, epicId);
 } catch (err) {
   warn(`could not hand ${epicId} back to the queue — ${err.message.split('\n')[0]}`);
   warn(`run \`bd update ${epicId} --status open --assignee ""\` yourself, or no group will be dispatched`);
