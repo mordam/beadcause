@@ -258,6 +258,86 @@ check(
 check('and a bead with no archive at all is simply absent', (await sessionlog.readDebriefs(one.dir, ['bc-nothing'])).length === 0);
 check('as is a directory that is not a repo', (await sessionlog.readDebriefs(path.join(tmp, 'nowhere'), ['bc-fam'])).length === 0);
 
+/* -------------------------------------------------- a report nobody has archived yet */
+//
+// The seam again, from the reader's side. For most of tier 4's life every read went through
+// `archivedBeads` alone, so a report was unreadable for exactly as long as it was pending —
+// and a window nobody ever archives (a resolver, a question, a crash) made that for ever.
+// The write said `debriefed <bead>` and the read a second later said no run had left one,
+// which is the two halves of one store disagreeing about whether it is empty.
+//
+// bc-race is the fixture with no archive: four staged entries, above, never consumed.
+
+console.log('\na report that is still staged');
+
+const stagedIds = await memory.stagedBeads(one.dir);
+check('a bead whose report is only staged is named', stagedIds.has('bc-race'), JSON.stringify([...stagedIds]));
+check('and one whose staging ref was consumed is not', !stagedIds.has('bc-fam.1'), JSON.stringify([...stagedIds]));
+check('nor is a bead nobody has ever written about', !stagedIds.has('bc-nothing'));
+check('a directory that is not a repo stages nothing, and does not throw', (await memory.stagedBeads(path.join(tmp, 'nowhere'))).size === 0);
+
+const union = await sessionlog.debriefBeads(one.dir);
+check('the candidate set is both halves', union.has('bc-race') && union.has('bc-fam.1'), JSON.stringify([...union]));
+check(
+  'and it is the archive plus the staged, not either alone',
+  [...(await sessionlog.archivedBeads(one.dir))].every((id) => union.has(id)) && union.size >= stagedIds.size
+);
+check('a non-repo unions to nothing rather than throwing', (await sessionlog.debriefBeads(path.join(tmp, 'nowhere'))).size === 0);
+
+// The whole bug, in three lines: write, read, and no archive anywhere in between.
+await memory.debrief('worker', 'bc-pend', 'the gate is npm test and it already passes — do not re-run it');
+const pending = await sessionlog.readDebriefs(one.dir, ['bc-pend']);
+check('a report written a moment ago reads back with no archive at all', pending.length === 1, JSON.stringify(pending));
+check('it carries the text', /the gate is npm test/.test(pending[0]?.text || ''), JSON.stringify(pending[0]));
+check('it is marked as pending rather than passed off as archived', pending[0]?.staged === true, JSON.stringify(pending[0]));
+check('and it has no archive commit, because there is none', pending[0]?.commit === null, String(pending[0]?.commit));
+check('it is stamped with when it was written', /^20\d\d-/.test(pending[0]?.at || ''), String(pending[0]?.at));
+check(
+  'a staged report is stamped exactly as an archived one is, so the two read alike',
+  /^worker · 20\d\d-/m.test(pending[0]?.text || ''),
+  JSON.stringify(pending[0]?.text)
+);
+check(
+  'and the bead is nameable from the candidate set, which is what used to fail first',
+  memory.debriefFamily(await sessionlog.debriefBeads(one.dir), { id: 'bc-pend' }).includes('bc-pend')
+);
+check(
+  'the section it becomes carries the pending report',
+  memory.debriefBrief(pending, { id: 'bc-pend' }).includes('the gate is npm test')
+);
+
+// A bead can have both: an archive from a run that finished and a report from one that has
+// not. Staged is the newer of the two by construction, so it must be quoted first — with
+// `perBead` at 1 for the brief, quoting the archive would spend the budget on the older run
+// and drop the pending one entirely.
+await memory.debrief('worker', 'bc-fam.1', 'and the pending run says the CSS build broke again');
+const both = await sessionlog.readDebriefs(one.dir, ['bc-fam.1'], { perBead: 2 });
+check('both the pending report and the archived one come back', both.length === 2, JSON.stringify(both.map((d) => d.staged)));
+check('the pending one first, because it is the newer run', both[0]?.staged === true && both[1]?.staged === false, JSON.stringify(both.map((d) => d.staged)));
+check('the archived one still carries its commit', /^[0-9a-f]{40}$/.test(both[1]?.commit || ''), String(both[1]?.commit));
+check(
+  'and a perBead of 1 spends it on the pending run rather than the finished one',
+  (await sessionlog.readDebriefs(one.dir, ['bc-fam.1'], { perBead: 1 })).every((d) => d.staged === true)
+);
+
+// The symptom as it was actually met: the command, in a repo, answering about a bead whose
+// only report is staged.
+const cli = await run(process.execPath, [path.join(HERE, '..', 'bin', 'beadcause-memory'), 'debriefs', 'bc-pend'], {
+  cwd: one.dir,
+  env: { ...process.env, BEADCAUSE_AGENT: 'worker' },
+});
+check('the command reads it too, rather than reporting the store empty', /the gate is npm test/.test(cli.stdout), cli.stdout.slice(0, 300));
+check('and says out loud that it has not been archived', /pending archive/.test(cli.stdout), cli.stdout.slice(0, 300));
+check(
+  'a bead with nothing anywhere still gets the honest "no report yet"',
+  /has left a report yet/.test(
+    (await run(process.execPath, [path.join(HERE, '..', 'bin', 'beadcause-memory'), 'debriefs', 'bc-nothing'], {
+      cwd: one.dir,
+      env: { ...process.env, BEADCAUSE_AGENT: 'worker' },
+    })).stdout
+  )
+);
+
 /* ------------------------------------------------------------------ the brief */
 
 console.log('\nthe section it becomes');
