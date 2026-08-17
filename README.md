@@ -23130,6 +23130,61 @@ wrong sentence here — "this store holds no personal data" — reads exactly as
 store starts holding some. The coverage check catches a new store; only a date catches a store
 whose contents changed under a sentence that was true when it was written.
 
+### Fifteen policies, each with an owner and a date it expires — `lib/policies.js`, `test/policies.mjs`
+
+A SOC 2 engagement opens with a request list, and it is close to identical between firms:
+information security, access control, change management, risk assessment, vendor
+management, incident response, business continuity and disaster recovery, data
+classification and handling, acceptable use, secure development, encryption, logging and
+monitoring, physical security, HR security, and a code of conduct. **The auditor's test is
+rarely the content.** It is the approval record and the review date, and the exception
+written up more often than any other is a policy last reviewed before the observation
+period began.
+
+So this is a register of fifteen documents rather than fifteen documents. It reuses
+[`lib/documents.js`](#every-document-has-an-owner-and-a-review-date--libdocumentsjs-testdocumentsmjs)
+outright — the review period, the ceiling on it, the warning a month out, the state that
+expires — because a second definition of *overdue* is how two registers come to disagree
+about the same date.
+
+**The criteria mapping is the load-bearing half.** Each entry names the SOC 2 criteria it
+is the documented answer for, and the suite refuses the two failures fieldwork finds
+first: a policy naming a criterion that does not exist, and — the one that reads as
+coverage — a criterion no policy claims. Fifteen current documents with CC7.2 in none of
+them is a gap nobody is looking for, because every individual document is fine. All 38
+criteria in the elected categories are claimed today, and 23 are exempt because
+processing integrity and privacy are not elected. Electing one more category is *meant* to
+turn this red until the set grows to meet it.
+
+**No entry names an ISO 27001 or 42001 control, and that is not an omission.** The corpus
+already declares the crosswalk, so `alsoServes` walks it: a policy claiming `SOC2.CC6.1`
+is documented information for whichever Annex A controls satisfy CC6.1, computed when
+asked. One source, two renderings — a second mapping maintained by hand is how a policy
+comes to be cited for a 27001 control it stopped covering a year ago. The resolution is a
+guarded import in the suite, so it starts working the moment `lib/controls.js` lands
+rather than when somebody remembers.
+
+**Not one of the fifteen exists, and `owed` is the honest state for all of them.** Writing
+owners and approval dates anyway would produce a register that passes every check and is
+false in the only way that matters, so an owed entry carries no approval fields at all and
+the rules enforce that in both directions: an adopted policy with no approver is refused,
+and an owed one carrying an approval date is refused just as hard. What an owed entry does
+carry is the role that has to own it, the cadence already decided, and `enforcedBy` — the
+modules here that already make its substance true. **A policy written but not operating is
+the common exception; this install has the inverse.** Nine of fifteen have something
+running: the endorsement gate and the merge queue for change management, `lib/incident.js`
+for incident response, [the supplier
+register](#every-third-party-is-named-and-a-sweep-fails-on-one-that-is-not--libsuppliersjs-testsuppliersmjs)
+for vendor management. Six have neither a document nor an enforcement, and the register
+names them rather than averaging them away — risk assessment is the largest, because CC3
+is tested by asking to see the current assessment and the one before it.
+
+Whose policies: Climative's. `bc-228x` settled the subject and `lib/boundary.js` records
+it, so the set belongs to the service organisation rather than to this daemon. The
+register itself is a controlled document in `lib/documents.js`, on twelve months, and what
+is approved there is the register — by the owner of this repository — and not the fifteen
+documents it tracks.
+
 ### Two branches that renumber the wizard merge clean — `test/wizardnumbers.mjs`
 
 The setup wizard numbers its questions in the prose of each heading —
