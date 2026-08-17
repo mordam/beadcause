@@ -3458,6 +3458,20 @@ exactly like one with nothing to say. So `ensureRepo` now appends any rule the f
 predates — appends, never rewrites, so a line you added by hand survives — and says
 in the log which ones it added. `test/commonrepo.mjs` holds it.
 
+**A snapshot that loses a race is fine; one that loses it forever is the same silence
+again.** Two processes writing here collide on `index.lock`, one loses, and dropping
+that commit is deliberate — the state file is already safe on disk and the next write
+picks up both changes. A git that *died* holding a lock produces the identical log
+line and never resolves: bc-xl7n.79 was a zero-byte `HEAD.lock` from 11 August, no
+holder, and six days of `common repo snapshot failed` scrolling past while nothing was
+committed at all. So `commit()` now tells the two apart on the failure path only. A
+lock is cleared and the snapshot retried once when **both** halves hold — untouched for
+over ten minutes, and open in no process, asked of `lsof` because git keeps the fd open
+for a lock's whole life and the file itself records no pid. Unknown means leave it: no
+`lsof`, a timeout, anything but a clean "nobody has this", and the lock stays, because
+the alternative is deleting one out from under a `git commit` somebody is typing a
+message into. A refusal about a secret is never retried.
+
 ### Two writers, and why it is a compare-and-swap
 
 Every write reads the ref tip, builds its value from it, and hands that tip back to
