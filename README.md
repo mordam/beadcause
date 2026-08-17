@@ -20549,6 +20549,329 @@ suite the moment `lib/controls.js` lands, alongside a second cross-check that sp
 `SKIP` until their neighbour exists, so they start working on somebody else's merge rather
 than on somebody remembering.
 
+### The AIMS on paper — `lib/aims.js`, `test/aims.mjs`
+
+Everything the compliance layer builds is a record *of* something, and the something has to
+already say what it is. An evidence register records that a control operated; a control
+operates against a policy; a policy is issued by an organisation with a name, under a scope
+with an edge, by somebody who is accountable for it. Beadcause had the records first and the
+paper not at all — which is the ordinary order for software and exactly backwards for an
+audit. An auditor opening at the
+[evidence register](#nothing-is-kept-without-saying-for-how-long--libevidencejs-testevidencemjs)
+asks what it is evidence *for*, and until this file existed the honest answer was "a
+management system nobody had written down".
+
+**The organisation is `Adam Morgan, trading as Neadamthal`, a sole trader**, and that was not
+a decision a session could make: the entity named in the scope statement is the one an
+accredited body audits and the one printed on the certificate. It was asked as `bc-jlpj` and
+answered on 2026-08-16. Top management is Adam Morgan, because a sole trader is its own top
+management and there is no board to appoint one. What is *not* recorded yet is the
+registration behind the name — the jurisdiction, the registration number, the registered
+address — so `ORGANISATION` carries a stated gap naming the bead that will fill it, in the
+same shape the [supplier register](#every-third-party-is-named-and-a-sweep-fails-on-one-that-is-not--libsuppliersjs-testsuppliersmjs)
+uses for a supplier's terms. A jurisdiction invented to fill a field reads exactly like a
+jurisdiction somebody checked.
+
+#### Why the policy is a data structure and not a PDF
+
+The answer chosen for this whole programme is **enforce-then-record**, and it makes a demand
+of the AI policy that a normal AI policy does not survive. The enforcement gates read clauses
+from here and turn them into refusals. A gate cannot refuse something for violating "we are
+committed to the responsible use of artificial intelligence". It *can* refuse something for
+violating "no session opens on a bead nobody endorsed", because that names a condition a
+function can evaluate.
+
+So every clause carries a sentence naming what is testable about it, and an enforcement state
+that is one of three:
+
+- **Enforced** — something in this repo refuses the non-conformant case *today*, and the
+  clause names the files that do it. The check fails the repo if one of those files is no
+  longer there, because a policy citing a gate that has been deleted is worse than a policy
+  with no gate at all: it reads as covered.
+- **Planned** — the clause is real, the gate is not written yet, and the clause names the bead
+  that writes it. A planned clause must name a bead and must say what holds the line
+  meanwhile, so the gap cannot rot quietly into an assumption.
+- **Organisational** — nothing can test it, and the policy says so in those words. Whether a
+  person *understood* what they approved is not mechanically checkable and never will be.
+  Writing it as though it were is the exact dishonesty an auditor is trained to find, so an
+  organisational clause carries no testable sentence at all and the check refuses one that
+  pretends to.
+
+**That third state is what makes the other two mean anything.** A policy in which every clause
+claims enforcement is a policy nobody checked.
+
+The four documents below are sections of this file, controlled by
+[`lib/documents.js`](#every-document-has-an-owner-and-a-review-date--libdocumentsjs-testdocumentsmjs)
+in the same register that already controls the specification, the supplier register and the
+evidence register — because a policy nobody reads is not a control, and this is where a
+person reads. The obvious failure of splitting a document from its machine-readable form is
+drift: a clause added in code that the policy never mentions, or a clause struck from the
+policy that a gate still enforces. Each document declares the ids it must contain and the
+section has to contain every one of them, so a drift fails on the diff that caused it rather
+than a year later.
+
+**None of the four is signed, and that is deliberate.** A session can draft a policy in an
+evening; it cannot commit an organisation to one. Each carries its named approver and a
+signature line and is registered as `awaitingApproval`, which the register reports as a
+warning every time anybody asks and never as a build failure — failing would turn the repo
+red on a state only a signature can clear, and the fix an unattended session would reach for
+is precisely the fabricated approval.
+
+One thing this file is emphatically not: an ownership vocabulary. `lib/owner.js` answers whose
+install this is and `lib/ownership.js` answers whose bead this is. Neither is an AIMS role,
+neither is touched here, and `NOT_AIMS_ROLES` names both so the next person looking for a
+roles table does not find three of them. Keeping them apart is also what makes it possible to
+later *check* a bead's owner against the roles table, which is impossible while they are the
+same list.
+
+#### The AI policy
+
+> Beadcause AI policy, version 0.1.0-draft. Issued by Adam Morgan as top management, for
+> **Adam Morgan, trading as Neadamthal**. **Draft — not yet signed.**
+
+Beadcause runs autonomous agent sessions that read, write and merge code on machines and in
+repositories that belong to people. This policy states what those agents may and may not do,
+in terms specific enough that the system itself can refuse the things it forbids. It is the
+standing instruction to every agent this system runs. Where a commitment in it can be enforced
+by a gate it is enforced by a gate rather than described; where it cannot, this document says
+so.
+
+**AIP-1 — No unattended agent session opens on work a person has not endorsed.**
+*Enforced*, by `lib/endorse.js` and `lib/advocate.js`. A bead carrying the `unendorsed` label
+is refused by the endorsement hold before any window is opened, and the refusal is written on
+the bead rather than shown as a window that quietly does not appear. Two layers on purpose:
+the marker is filtered out of every queue, and the launcher refuses a held bead handed
+straight to it. The filter is what makes the refusal rare; the refusal is what makes it true.
+
+**AIP-2 — No agent widens what an agent is permitted to do.**
+*Enforced*, by `lib/foundation.js`. An amendment to a protected field of an agent foundation —
+its identity, its protocol owner, what it may write, which repository it owns — is refused
+whoever asks, and the refusal is recorded with its reason. The second half arrives with
+`bc-eqn1.6`: an amendment that widens an agent even in an *amendable* field will additionally
+require a current impact assessment covering the widened form.
+
+**AIP-3 — Nothing leaves this machine to a third party the supplier register does not name.**
+*Enforced*, by `lib/suppliers.js`. A sweep of `lib/` and `bin/` for outbound hosts and for the
+commands actually executed fails the repo on one no supplier entry claims, so a new
+integration cannot ship without its entry. The clause that catches the largest egress in the
+system is the command half rather than the host half: every agent is a subprocess, and a sweep
+for URLs alone reports a clean tree while prompts leave the Mac.
+
+**AIP-4 — Every standing claim this system makes about itself has an owner and a date it goes
+stale.**
+*Enforced*, by `lib/documents.js`. Every controlled document carries an owner, a version, an
+approval and a review period, and the repo fails when one is past its review date — warning
+for a month first, and naming the owner in the failure. This is the clause that will one day
+turn the build red with no diff behind it. That is the control operating, and moving the date
+without doing the review is the single way to make the register lie.
+
+**AIP-5 — Nothing is kept without saying for how long, and nothing is deleted without saying
+who could.**
+*Enforced*, by `lib/evidence.js`. Every module that writes durable state is claimed by an
+evidence class stating its retention, its disposal and who can alter it, or is exempted by
+name with a reason; an unclaimed writer fails the repo. The enforcement runs in the direction
+that catches a new writer, and a claim naming a file that no longer writes anything is caught
+by the same check.
+
+**AIP-6 — No AI system in this register operates without a current impact assessment.**
+*Planned*, by `bc-eqn1.6`, in `lib/foundation.js` and `lib/dispatch.js`. Opening a session on
+an agent kind whose impact assessment is missing or expired will be refused, and registering a
+new agent kind without one will be refused, with the refusal kept as evidence. Until the gate
+lands, what holds the line is that the set of agent kinds is closed and changing it is a
+commit to a chained history — visible, but not refused. Nobody should read that as equivalent.
+
+**AIP-7 — No change reaches a default branch without naming what it was for.**
+*Planned*, by `bc-eqn1.8`, in `lib/mergequeue.js` and `lib/delivery.js`. A merge carrying no
+bead and no control or requirement claim of any kind will be refused by the queue rather than
+landed with an empty record. Every merge today already carries a bead, because the only path
+to one is a delivery that parks the work bead behind a merge bead; what is missing is the
+refusal of the case that does not.
+
+**AIP-8 — A change to which model an agent runs on is not invisible.**
+*Planned*, by `bc-eqn1.8`, in `lib/modelcard.js` and `lib/mergequeue.js`. A change to the model
+tier an agent kind runs on will not land unless the system card recording what that agent is
+changes in the same diff. The model an agent actually ran on is already recorded per session;
+what is not yet refused is a change to what it will run on *next* time, made without the card
+that describes the system moving with it.
+
+**AIP-9 — The process that writes a change is never the process that merges it.**
+*Planned*, by `bc-eqn1.8`, in `lib/mergequeue.js` and `lib/mergeadvocate.js`. A worker session
+pushes a branch and opens a pull request, and stops; the merge is performed by a separate
+process in the daemon that can see every open branch at once. This is how the system is
+arranged today and it is stated in every worker brief, but it is a convention rather than a
+refusal — nothing physically stops a session merging its own branch, and saying so is the
+point.
+
+**AIP-10 — Whoever approves an AI system impact assessment understands what they are
+approving.**
+*Organisational.* Nothing can test this and this policy will not pretend otherwise. What
+`bc-eqn1.16` makes checkable is the record that a competence review happened and when — a
+different and much weaker claim, and the difference between the two is exactly what an
+organisational clause is for.
+
+> **This policy is a draft and carries no signature.** It is issued for signature by Adam
+> Morgan, as top management, and `bc-nft5` is the question that asks for it. Until it is
+> signed, every register that names it says so.
+>
+> `Signed ____________________  Adam Morgan, for Adam Morgan trading as Neadamthal, as top management.  Date __________`
+
+#### Scope of the AI management system
+
+> Clause 4.3. Version 0.1.0-draft, awaiting Adam Morgan's signature as top management.
+
+The AI management system of **Adam Morgan, trading as Neadamthal** covers the design,
+development, operation and provision of Beadcause: the decision inbox and the daemon behind
+it, the autonomous agent sessions it opens against repositories on machines the organisation
+operates, the tracker those sessions read and write, and the compliance layer that evidences
+all of it.
+
+**Inside the boundary.**
+
+- **The daemon and its surfaces** — the server, the phone inbox, the terminal and the chat
+  session; everything a person touches to direct the system.
+- **The agent sessions** — every agent kind the system can open: the advocate that decides what
+  is ready, the worker that does it, the epic planner, the chat session, the resolver and the
+  merge advocate. Each is an AI system in its own right and each has an owner in the roles
+  table below.
+- **The repositories on this Mac** — the checkouts and worktrees an agent reads, writes and
+  merges into, and the trackers beside them.
+- **The compliance layer itself** — the control corpus, the registers, the enforcement gates
+  and the evidence they write. It is inside the boundary of the audits it serves, and being
+  outside it would make the evidence worth nothing.
+- **The machine the daemon runs on** — the Mac itself, its account security and its local
+  storage. Every record this system keeps begins there.
+
+**Outside it, and why.** An exclusion with no reason is a boundary drawn where the evidence ran
+out, so each says both why it is outside and what is still true about the risk once it is —
+the same discipline a carve-out owes a complementary control.
+
+- **The model and its training.** The organisation does not develop, train, fine-tune or host a
+  model; every agent is a subprocess of a supplier's tool, and the model's behaviour is a
+  property of that supplier's system rather than this one. *Residual:* the model is the largest
+  single risk in the system and being out of scope does not put it out of the audit. It is
+  carried as a supplier with the shortest review period in the register, and every clause about
+  what an agent may do is a control over the model's *effects* rather than over the model.
+- **Repositories this organisation does not own.** An agent may open a pull request into a
+  repository whose owner runs their own review, their own branch protection and their own
+  management system, and this AIMS cannot claim controls it does not operate. *Residual:* a
+  complementary control — the repository owner reviews and merges. The obligation on this side
+  is that every change is attributable to a bead and a session, which is what makes their
+  review possible at all.
+- **The third parties in the supplier register.** What GitHub, Atlassian, Slack, ntfy, Google
+  and Tailscale do internally is theirs; the organisation operates none of it and can evidence
+  none of it. *Residual:* what is sent to each, why and under what terms is squarely in scope
+  and is the supplier register's whole subject, with the terms in force recorded as a stated
+  gap rather than as a claim.
+- **Installs that have elected nothing.** Beadcause runs on machines with no architecture
+  checkout, no corpus and no interest in an attestation, and
+  [enforcement is scoped to what an install has elected](#what-you-elected-to-be-held-to--libelectionjs),
+  so those installs run no gates at all. *Residual:* the design and development of the software
+  is in scope for every install, because it is one artefact. What is out of scope is the
+  *operation* of a management system on an install that never declared one — and the election
+  history is a chained record, so which is which is answerable for any past date.
+
+This scope is reviewed with any change to what an agent may do, and at least annually.
+
+#### Interested parties and what they need
+
+> Clauses 4.1 and 4.2. Version 0.1.0-draft, awaiting Adam Morgan's signature as top management.
+
+**The context this system sits in**, internal first, because the internal issues are the ones
+that decide what the management system has to be:
+
+- One person operates the system, owns every role in it, and approves their own work. There is
+  no segregation of duties and no amount of process will create one.
+- Most of the code is written by the system's own agents, so the thing being audited and the
+  thing doing the auditing are the same artefact.
+- The specification, the tracker and the product are one repository, which makes evidence cheap
+  and makes a mistake in the record indistinguishable from a mistake in the code.
+- Attention is the scarce resource, not compute: a control that asks the operator a question
+  they do not have time to answer is a control that gets routed around.
+
+Externally: the system depends on a single model supplier whose terms, retention and
+capabilities can change without notice and without a version number; agents write into
+repositories other people own, so the consequences of a defect land on somebody who never ran
+this software; an autonomous merge can reach a deployed service, which means a failure has an
+audience beyond the operator; and the audience for the certificate is a customer or an
+accredited body who will read the evidence rather than the intentions.
+
+**The parties, what they need, and how the system answers it.**
+
+- **The operator** needs to know what every agent is doing right now and to be able to stop it,
+  to be asked rather than guessed at when a decision is theirs, and not to be asked about
+  anything the system could have decided itself. Answered by the inbox, the session windows and
+  the terminal; by the endorsement hold; and by the decision card that turns a question into two
+  taps on a phone.
+- **Owners of repositories agents write into** need every change attributable to a bead, a
+  session and a model, nothing merged they could not have reviewed, and a way to tell an
+  agent's work from a person's. Answered by a branch and a pull request per bead, the session
+  archive against that bead, and the byline saying which agent wrote it and what it ran on.
+- **Reviewers of a pull request an agent opened** need to know an agent wrote it, which one and
+  what it was asked to do, and a description that is true of the diff rather than of the
+  intention. Answered by the delivery writing the brief, the tests and the risks into the pull
+  request body, with the diffstat carried beside it so the two can be compared.
+- **People named in a bead, a commit or a file an agent reads** need their name, their words and
+  their email address not to be sent somewhere nobody recorded, and a way to find out where it
+  went. Answered by the supplier register stating what is sent to each third party, the
+  publishable vocabulary deciding what may leave the Mac at all, and the evidence register
+  stating how long each record is kept.
+- **Users of a service an autonomous merge deployed** need a bad deploy to be visible and
+  revertible, and not to be the first to notice. Answered by a merge deploying through a settle
+  window with the ship bead closing on the evidence that it went out, and by a poisoned build
+  being refused rather than served.
+- **An auditor or certification body** needs evidence that a control operated across a window
+  rather than a description of it, the ability to sample a change and follow it to its record,
+  and a scope with an edge and exclusions with reasons. Answered by the evidence register, the
+  control corpus, the refusals kept as records, and this document set.
+- **Whoever maintains or acquires the system next** needs the reason a thing was built the way
+  it was and not only what it does, and a document set that is current rather than one that was
+  current once. Answered by a specification that argues for everything it documents, and by
+  every standing document carrying a review date that fails the build when it passes.
+
+**Suppliers are interested parties too, and are deliberately not listed again here.** They are
+enumerated once, in the
+[supplier register](#every-third-party-is-named-and-a-sweep-fails-on-one-that-is-not--libsuppliersjs-testsuppliersmjs),
+and `parties()` folds them into this one. A register that re-derived them would be a second
+list of the same seven organisations, drifting from the one the egress sweep actually
+enforces — so the check refuses a hand-written party whose id belongs to a supplier.
+
+#### Roles, and who may approve what
+
+> Clause 5.3 and Annex A.3. Version 0.1.0-draft, awaiting Adam Morgan's signature as top
+> management.
+
+- **Top management** — Adam Morgan. Accountable for the AI management system as a whole: that it
+  exists, that it is resourced, and that it is reviewed. Issues the AI policy and owns the scope
+  statement. May approve: the AI policy, the AIMS scope, an agent protocol amendment, an
+  incident closure.
+- **AIMS manager** — Adam Morgan. Accountable for operating the management system day to day:
+  keeping the registers current, clearing the reviews the repo fails on, and running the
+  internal audit programme. May approve: a controlled document, a supplier.
+- **AI system owner** — Adam Morgan. Accountable for each AI system in the register, one per
+  agent kind: answerable for what that agent does, what it may write, and the model tier it runs
+  on. May approve: an agent protocol amendment.
+- **Impact assessment approver** — Adam Morgan. Accountable for deciding whether an AI system
+  impact assessment is adequate, and whether a widened agent may proceed on the strength of it.
+  May approve: an impact assessment.
+- **Incident owner** — Adam Morgan. Accountable for an incident from the moment it is raised to
+  the moment its corrective action is shown to have worked, including the review that follows
+  it. May approve: an incident closure.
+
+**Five roles and one holder, which is the first thing an auditor will raise.** The answer is
+written here before they ask, because the alternative — inventing four more people — is fraud
+and the alternative to *that* is pretending nobody noticed. There is no segregation of duties:
+the operator writes the policy, approves it, owns the systems it governs and closes the
+incidents they cause. What compensates is that the approvals which matter are enforced by code
+rather than by the approver's memory, and that every refusal, election and amendment is an
+append-only record the operator cannot quietly rewrite. What would change the day a second
+person arrives is which roles move first: the impact assessment approver and the incident
+owner, in that order, because those are the two approvals where an independent reader is worth
+the most.
+
+The list of approvals is closed, and the check refuses a table in which some kind of approval
+exists that no role may give — an approval nobody can give is a decision that cannot be made,
+which is a deadlock hiding inside a governance document.
+
 ### Every document has an owner and a review date — `lib/documents.js`, `test/documents.mjs`
 
 The documentation here is unusually good and was entirely uncontrolled. This file is about
