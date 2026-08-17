@@ -1388,13 +1388,13 @@ why. So the rules are measured against the binary rather than described from mem
 `test/closegatereal.mjs` builds each shape below in a throwaway workspace and asserts
 that what beadcause answers and what `bd close` then does are the same answer — except
 for the two **epic** rows at the bottom, which are beadcause's own rules and are asserted
-there as disagreements on purpose. Against bd 1.1.2:
+there as disagreements on purpose. Against bd 1.2.1:
 
 | the bead | bd | beadcause |
 |---|---|---|
 | an **epic** with a child not closed | refuses | refuses |
 | an **epic** whose children have all closed, or has none | closes | permits |
-| a **feature**, **task**, **bug** or **chore** with open children | **closes** | **permits** |
+| a **feature**, **task**, **bug** or **chore** with open children | refuses | refuses |
 | **blocked** by a `blocks` dependency not closed | refuses | refuses |
 | a `related`, `parent-child` or `discovered-from` edge, open | closes | permits |
 | a **blocker** closing while what it blocks stays open | closes | permits |
@@ -1402,15 +1402,19 @@ there as disagreements on purpose. Against bd 1.1.2:
 | an **epic** closed with a merge as the reason | **closes** | **refuses** |
 | a **work bead** closed with a merge as the reason | closes | permits |
 
-Two rows there are worth saying out loud, because both were assumed the other way
-round and each cost somebody an afternoon:
+Two things there are worth saying out loud:
 
-- **`epic` means the word, not "has children".** A feature with five open children
-  closes without a murmur. bc-5864 was filed on exactly that: `bc-rk2o` was closed by
-  `bin/deliver.js` while `bc-rk2o.1` was still open, which read as bd permitting a
-  close the gate would have refused — an invented gate, the expensive failure, caught
-  in the wild. `bc-rk2o` is a feature. bd permitted it, the gate would have permitted
-  it too, and nothing disagreed with anything.
+- **The open-children gate is on every parent since bd 1.2.1, not only on epics.** It
+  used to be the word `epic` alone — a feature, task, bug or chore closed over as many
+  open children as it liked — and `bc-5864` was filed on exactly that: `bc-rk2o`, a
+  feature, was closed by `bin/deliver.js` while `bc-rk2o.1` was still open, which read
+  as bd permitting a close the gate would have refused. It had not — `bc-rk2o` is a
+  feature, bd 1.1.x agreed with the gate, and the evidence was misread. bd 1.2.1 then
+  widened its own rule to `N open child issue(s); close children first or use --force`,
+  whatever the parent's type, and `gateFor` was widened to match, measured against the
+  real binary (bc-xl7n.39; `test/closegatereal.mjs` pins both parent types). So the row
+  above is agreement now, not the surprise it used to be — a feature or task with open
+  children refuses exactly like an epic does.
 - **Not-closed is what counts, not open.** `in_progress` is a child a session is
   working on right now, and `deferred` reads as *settled* everywhere else in this app.
   Neither is closed, so both still gate — on a child and on a blocker alike.
