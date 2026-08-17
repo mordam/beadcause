@@ -15928,6 +15928,33 @@ rewrites `.beads/embeddeddolt/<prefix>/.dolt/noms/manifest` — about 150 bytes 
 new root hash. Reading it is one `open`/`read`/`close` of a file the page cache is
 already holding, and it spawns nothing.
 
+**The manifest alone is only true of embedded Dolt, and the reason is that embedded Dolt
+exits.** Flushing the manifest is part of a `bd` process ending, so under the embedded
+engine the new commit pointer is on disk by the time the command returns. A `dolt
+sql-server` never ends. It holds the store open and defers the rewrite: measured on
+2026-08-17 against a server on this repo's own workspace, writing and then polling, the
+manifest moved after **35.19s** and **35.51s**. A detector reading it alone therefore
+answers *nothing moved* for half a minute on a server-mode workspace and the daemon drops
+silently to the `pollSeconds` backstop this exists to improve on — graceful, invisible,
+and a straight miss against the five-second budget.
+
+**So the chunk journal is read beside it.** Dolt appends every write to a single file,
+`<prefix>/.dolt/noms/vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv` — thirty-two `v`s, a fixed name,
+not a hash — and it does so *before* it ever touches the manifest: within 0.6s of the
+write in the same measurement. Both are read and joined into one mark, so an embedded
+workspace keeps precisely the behaviour it had and a server-mode one gains a signal that
+moves at once. There is no mode detection and no per-workspace branch, because the file
+is present in every database of every workspace, and it is the join that makes one
+unconditional path correct for both.
+
+**What is read of the journal is its size** — not its bytes, which are 854MB on this
+repo's workspace, and emphatically not its mtime, which is the second near-miss below
+wearing a different hat: measured, ten `bd` reads under the embedded engine moved the
+journal's mtime and left its size alone. A size is appended to by writes and by nothing
+else, it is monotonic between collections, and the detector only ever compares against
+the mark immediately before it — so it needs no history. A `bd gc` truncating the journal
+reads as one change and costs one extra sweep.
+
 Three near-misses are worth writing down, because each of them looks like it would work:
 
 - **`.beads/last-touched` is not it.** It holds the last bead id `bd` looked at, and it
@@ -24574,9 +24601,14 @@ hid that one declaration while reporting the other nine.
   has an answer: `[]` on a solo workspace, `[{name, url, sql_url}]` on a shared one. Note
   that the *non*-JSON form is the prose "No remotes configured." and exits 0 as well; see
   `doltRemote` in lib/bd.js and [A tracker two Macs share](#a-tracker-two-macs-share).
-- **Don't set `sharedServer: true`** unless you've run `bd dolt start`. The
-  workspaces pin `dolt_mode="embedded"`; forcing shared mode makes every command
-  fail against a Dolt server that isn't listening. Writes retry through the
-  embedded single-writer lock instead.
+- **`sharedServer: true` is not how you put a workspace on a server, and it never
+  was.** That flag sets `BEADS_DOLT_SHARED_SERVER=1`, which selects bd's *shared*
+  (global) server — a different thing from the per-project `dolt sql-server` a
+  workspace gets from `dolt_mode: "server"` in its own `.beads/metadata.json`. It is
+  also fleet-wide in lib/bd.js, so turning it on drags every other workspace into a
+  mode none of them are in, and each one then fails against a server that isn't
+  listening. Per-project server mode needs no environment variable at all: it is
+  configured workspace-side and the daemon already spawns `bd` correctly for it.
+  Leave this `false`.
 - **The public registry is pinned in `.npmrc`.** The global `~/.npmrc` points npm
   at Climative's Azure Artifacts feed with an expired token, which 401s here.
