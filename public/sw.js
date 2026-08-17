@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v69';
+const CACHE = 'beadcause-v70';
 const SHELL = [
   '/',
   '/index.html',
@@ -58,10 +58,10 @@ const SHELL = [
   // moment it is wanted is the moment a notification was opened on a phone that has
   // just woken up — the same argument as absorb.js above.
   '/dictate.js',
-  // The bottom tab bar, on every standing view. Every one of them is useless
-  // without it now — it is the only way off a page — so it belongs in the shell
-  // rather than being fetched once per page over a phone link.
-  '/tabbar.js',
+  // The pill row across the top of every page. Every one of them is useless without it
+  // — it is the only way off a page — so it belongs in the shell rather than being
+  // fetched once per page over a phone link.
+  '/viewbar.js',
   // How the app finds out that what it is made of has moved — the reload after a deploy
   // that changed public/, and the download-ask-install-restart the shell does when one
   // rebuilt the APK. In the shell rather than network-first because the moment it is
@@ -173,7 +173,9 @@ const SHELL = [
   '/monitor.js',
   // The chip row on it, and which of its three panes is up. In the shell because that
   // page is: without this file the chips are dead and two of the three panes — the board
-  // and the mirror — are unreachable from a cached advocates page.
+  // and the mirror — are unreachable from a cached advocates page. (bc-khoe.4 is where
+  // that row is dismantled and this line goes; bc-khoe.1 only took its `--topbar-h`
+  // observer, which the app shell made unnecessary.)
   '/montabs.js',
   // The ledger. In the shell because it is a tab: every tab has to open instantly from
   // the bar whatever the link is doing, and this is the one page in the app you might

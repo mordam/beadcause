@@ -811,8 +811,12 @@ await check('nothing beside the list counts it a second time', () => {
   // `publishCounts()` in prose, explaining what its removal cost.
   assert.ok(!/^\s*publishCounts\(/m.test(app), 'the space picker is being sent counts again');
   assert.ok(!app.includes("$('#waiting')"), 'the "N waiting" pill is back in the top bar');
-  const summary = app.slice(app.indexOf('function paintSummary'), app.indexOf('function paintArmed'));
-  assert.ok(!summary.includes('inKind(q)'), 'paintSummary is counting the list again');
+  // And `paintSummary`, which was the same mistake on the other bar: the proposals count
+  // hung off the Advocates tab through `beadcause.tabBadge`. bc-khoe.1 deleted the bottom
+  // bar it was drawn on, and the pill row that replaced it carries no counts at all — a
+  // badge is only ever live on the one page whose poll happens to fetch it.
+  assert.ok(!app.includes('function paintSummary'), 'paintSummary is back, counting the list into the chrome');
+  assert.ok(!app.includes('window.beadcause?.tabBadge'), 'something is hanging a count off the navigation again');
 });
 
 await check('the panel says [hidden] twice, because display:flex beats the UA rule', () => {

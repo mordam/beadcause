@@ -2,7 +2,7 @@
 //
 // check.mjs reads the built files; audit.mjs reads the sheet. Neither has ever seen a
 // card *render*, which is the one claim a design system actually makes. This drives the
-// repo's own headless-Chrome harness — the same one scripts/tabbar-check.mjs uses — over
+// repo's own headless-Chrome harness — the same one scripts/topbar-check.mjs uses — over
 // design-bundle/, screenshots each card light and dark, and probes the computed styles.
 //
 // The screenshots are for a person. The probes are the gate, because a screenshot of a
@@ -44,8 +44,12 @@ const PROBES = [
   ['.card:not(.open)', 'backgroundColor', (v, t) => v === THEMES[t].surface, 'sits on --surface'],
   ['.card.open', 'position', (v) => v === 'fixed', 'the full-screen layer'],
   ['.card.open', 'borderRadius', (v) => v === '0px', 'square, because it is the screen'],
-  ['.topbar', 'position', (v) => v === 'sticky', 'sticks to the top'],
-  ['.tabbar', 'position', (v) => v === 'fixed', 'pinned to the foot'],
+  // Both of these were `sticky` / `fixed` until bc-khoe.1: every page is a
+  // viewport-height shell now and the chrome is two rows of the flex column, so what
+  // proves they are still chrome is that neither of them stretches.
+  ['.topbar', 'flex', (v) => v.startsWith('0 0'), 'a row of the shell, not a stretcher'],
+  ['.viewbar', 'flex', (v) => v.startsWith('0 0'), 'the second row of the shell'],
+  ['.viewpill', 'borderRadius', (v) => v === '999px', 'a pill'],
   // `.filter-typeahead *` is excluded for the same reason `.id` is, and the sheet says so
   // in as many words: "The base .pill is an uppercase metadata badge; a bead id is
   // neither." Those pills are monospaced ids, so they opt out too.

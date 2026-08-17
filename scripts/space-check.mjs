@@ -436,7 +436,7 @@ try {
     'and nothing the page already did has gone',
     await evalJs(
       s,
-      `Boolean(document.querySelector('#mon-tabs') && document.querySelector('.tabbar') && document.getElementById('tally'))`
+      `Boolean(document.querySelector('#mon-tabs') && document.querySelector('.viewbar') && document.getElementById('tally'))`
     )
   );
 

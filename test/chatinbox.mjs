@@ -216,15 +216,16 @@ try {
 
   console.log('\nthe tab is gone and the page is not\n');
 
-  await check('the bar holds no Chat tab', () => {
-    const bar = read('public/tabbar.js');
-    const ids = [...bar.matchAll(/^\s*\{\s*id: '([a-z]+)'/gm)].map((m) => m[1]);
-    // That the table was read at all, keyed off a tab rather than off a count: the bar
-    // has lost two tabs since this was written (bc-l8jp.6 took PRs a moment after this
-    // took Chat) and a count here would fail as "the tab table is unreadable" every time
-    // the bar legitimately changes size.
-    assert.ok(ids.includes('inbox'), `expected the tab table, found: ${ids.join(', ') || 'nothing'}`);
-    assert.ok(!ids.includes('console'), `the Chat tab is still in the bar: ${ids.join(', ')}`);
+  await check('the row holds no Chat pill', () => {
+    const bar = read('public/viewbar.js');
+    const ids = [...bar.matchAll(/^\s*\{?\s*id: '([a-z]+)'/gm)].map((m) => m[1]);
+    // That the table was read at all, keyed off a view rather than off a count: this
+    // navigation has changed size three times since the assertion was written (bc-l8jp.6
+    // took PRs a moment after this took Chat; bc-khoe.1 replaced the whole bar with a
+    // row of pills) and a count here would fail as "the table is unreadable" every time
+    // it legitimately does so again.
+    assert.ok(ids.includes('inbox'), `expected the view table, found: ${ids.join(', ') || 'nothing'}`);
+    assert.ok(!ids.includes('console'), `the Chat pill is back in the row: ${ids.join(', ')}`);
   });
 
   for (const p of ['/console', '/console.html']) {

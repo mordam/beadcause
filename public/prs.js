@@ -697,7 +697,11 @@
 
   function render() {
     if (!state.data && !state.deploys && !state.error) return;
-    const scrollY = window.scrollY;
+    // `out` is the scroller, not the window (bc-7utr): the board is the last row of a
+    // viewport-height shell, so the offset that survives a repaint is its own. Read and
+    // written on the same element, which is also why this keeps working if the page ever
+    // goes back to scrolling as a document.
+    const was = out.scrollTop;
 
     out.innerHTML = deploysHtml() + boardHtml();
 
@@ -707,7 +711,7 @@
     // pull requests are actually in. A badge painted onto a bar with no tab to hang it
     // from would be a number nobody can see.
 
-    window.scrollTo(0, scrollY);
+    out.scrollTop = was;
   }
 
   /* -------------------------------------------------------------------- acting */
