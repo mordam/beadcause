@@ -216,8 +216,144 @@ body {
   width: 9px; height: 9px; border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
+  /* What the orbit below hangs off. `z-index: auto` is deliberate — a stacking context
+     here would trap `.orbit.far` in front of this element's own background, and the
+     whole picture is that half the beads go behind it. */
+  position: relative;
 }
-.dot.busy { animation: pulse 1.1s ease-out infinite; }
+
+/*
+  Beads going round the dot while the app is fetching (public/orbit.js).
+
+  `busy` is a page saying so — ten files toggle it, and two of them mean an agent is
+  thinking rather than a request being out. `loading` is the shared fetch watch in
+  public/report.js, which is what gives every view this signal without a line of its own.
+  Two reasons, one picture, and neither may switch the other off; see orbit.js.
+
+  Nothing is drawn when neither holds, and it is `display` rather than `opacity` because
+  an idle phone should not be compositing fourteen elements a frame for something nobody
+  can see.
+
+  One interaction is worth naming rather than discovering. `.dot.absorbing` — absorb.js's
+  thump, below — animates a `transform` on this element, and a transform is a stacking
+  context, so for the 380ms it runs the far half of the ring would be trapped in front of
+  the dot rather than behind it. It cannot happen today: absorb.js is loaded by the inbox
+  alone, its first target is `.brand h1.mark img`, and that is what the inbox has — the
+  `.brand .dot` entry in its target list is a fallback for a top bar that has not existed
+  since bc-khoe.5. If the dot ever becomes the flight target again, this is where to look.
+*/
+.orbit {
+  display: none;
+  /* The orbit's box is 26px across and the app-menu button starts 13.5px from the dot's
+     centre, so the near layer overlaps the left edge of the mark. An ellipse with a
+     border-radius still hit-tests over its whole interior, so without this the loading
+     signal quietly eats the first few pixels of the one control that leads everywhere. */
+  pointer-events: none;
+}
+.dot.busy .orbit, .dot.loading .orbit {
+  /* The box the halves are cut out of: 26×14 centred on the dot, which is the orbit
+     (21×8.4) plus room for a bead sitting at each extreme of it. `inset(50% …)` below
+     means this box's centre line, so it has to be centred on the dot and not on the
+     ellipse's bounding box.
+
+     26 wide is also the whole budget there is. The brand row is dot, 9px gap, then the
+     26px app mark, so the mark's left edge is 13.5px from the dot's centre — a bead at
+     the far right of the orbit ends at 12.9px and clears it by half a pixel. Widening
+     the orbit puts beads on the mark's rounded corner. */
+  display: block;
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 26px; height: 14px;
+  margin: -7px 0 0 -13px;
+}
+/*
+  The half going round the back, and the half coming past the front. Complementary clips
+  of the same box, so a bead crossing the centre line is drawn by one up to the line and
+  by the other beyond it — nothing twice, nothing dropped. The clip is also what puts
+  each half on its own layer: `clip-path` makes a stacking context, so `z-index` here is
+  read against the top bar and one half lands behind the dot's own background.
+*/
+.orbit.far {
+  clip-path: inset(0 0 50% 0);
+  z-index: -1;
+}
+.orbit.near {
+  clip-path: inset(50% 0 0 0);
+  z-index: 1;
+}
+/*
+  The string the beads are on. Drawn per half rather than once, so it is clipped by the
+  same line they are and genuinely passes behind the dot — a single ellipse would have
+  had to choose a side and be wrong on the other for the 9px it overlaps.
+*/
+.orbit-string {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 21px; height: 8.4px;
+  margin: -4.2px 0 0 -10.5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 50%;
+}
+.orbit.far .orbit-string { border-color: color-mix(in srgb, var(--accent) 12%, transparent); }
+.orbit-bead {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 4px; height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: var(--accent);
+  /* All fourteen share one keyframe list; `--i` is the only thing that differs, and a
+     negative delay is what starts each bead a seventh of a turn further round. */
+  animation: orbit-run 2.8s linear infinite;
+  animation-delay: calc(var(--i) * -0.4s);
+  will-change: transform, opacity;
+}
+/*
+  A page-coloured hairline on the beads coming past the front, and only on those.
+  Everything here is `--accent`, so a bead crossing the dot — which is the frame that
+  proves it is in front rather than behind — merged into it and read as one lumpy shape.
+  A single pixel of the background between them is what separates the two, and against
+  the bar itself it is invisible.
+*/
+.orbit.near .orbit-bead { box-shadow: 0 0 0 1px var(--bg); }
+/*
+  One turn. The position is an ellipse — the circle the beads actually travel, seen from
+  above its plane — and the scale and the opacity are the depth that goes with it: a bead
+  at the bottom of the screen is the one nearest you, so it is the largest and brightest,
+  and it shrinks and dims all the way round the back. Twelve stops rather than a formula
+  because CSS has no formula; the straight line between two of them is 0.4px off the true
+  arc, which is a third of a device pixel on a phone.
+*/
+@keyframes orbit-run {
+  0% { transform: translate(10.5px, 0) scale(0.88); opacity: 0.64; }
+  8.3333% { transform: translate(9.09px, 2.1px) scale(1.03); opacity: 0.82; }
+  16.6667% { transform: translate(5.25px, 3.64px) scale(1.14); opacity: 0.95; }
+  25% { transform: translate(0, 4.2px) scale(1.18); opacity: 1; }
+  33.3333% { transform: translate(-5.25px, 3.64px) scale(1.14); opacity: 0.95; }
+  41.6667% { transform: translate(-9.09px, 2.1px) scale(1.03); opacity: 0.82; }
+  50% { transform: translate(-10.5px, 0) scale(0.88); opacity: 0.64; }
+  58.3333% { transform: translate(-9.09px, -2.1px) scale(0.73); opacity: 0.46; }
+  66.6667% { transform: translate(-5.25px, -3.64px) scale(0.62); opacity: 0.33; }
+  75% { transform: translate(0, -4.2px) scale(0.58); opacity: 0.28; }
+  83.3333% { transform: translate(5.25px, -3.64px) scale(0.62); opacity: 0.33; }
+  91.6667% { transform: translate(9.09px, -2.1px) scale(0.73); opacity: 0.46; }
+  100% { transform: translate(10.5px, 0) scale(0.88); opacity: 0.64; }
+}
+/*
+  Still, but still there — and that is a departure from what the rest of this file does
+  under the preference, on purpose. An animation that decorates an outcome is skipped
+  (see `.flight-layer` below); this one *is* the message, and taking it away would leave
+  the five pages that never toggled `.busy` with no loading signal at all, which is the
+  hole this feature was opened to fill.
+
+  `paused` rather than `none`: the beads are placed by the keyframes, so `animation: none`
+  would pile all seven of them on the centre of the dot. Paused against the same negative
+  delay freezes each one exactly where it starts, which is a ring.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .orbit-bead { animation-play-state: paused; }
+}
+
 @keyframes pulse {
   70% { box-shadow: 0 0 0 9px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
@@ -6446,6 +6582,46 @@ button.p0-row {
   font-size: 12px;
 }
 .p0-rel-title { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
+/* What happened to this bead — the pull requests that name it and its session
+   (bc-rfnr.9.5). A column of rows rather than the wrapping row `.p0-rel` uses, because
+   these carry three things each (a number or a glyph, a title, and where it got to) and
+   the third one wraps: laid out as a wrapping row they would interleave, and you could
+   not tell which rung belonged to which pull request. */
+.p0-hap { display: flex; flex-direction: column; gap: 4px; }
+/* Both a `<button>` and an `<a>` and a `<div>` in the same list, so every inherited
+   control style is reset here: the three states differ in what they *do*, and a reader
+   must not be able to tell them apart by weight or colour before they know which is
+   which. Full width and left-aligned, since a bead can have four pull requests and a row
+   that centred its title would put four titles in four different places. */
+.p0-hap-row {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 12px; text-align: left; text-decoration: none;
+  cursor: pointer;
+}
+/* Not a control at all: the two states that are a `<div>` say something and offer
+   nothing, which is the whole of this bead's "never a link into an empty pane". */
+div.p0-hap-row { cursor: default; opacity: 0.75; }
+.p0-hap-row.is-checking, .p0-hap-row.is-none { color: var(--muted); }
+/* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex parent or
+   the live-session row draws nothing at all where its dot belongs — measured, and it is a
+   row whose whole subject is that a window is running. `inline-flex` rather than `flex`
+   so the emoji the other rows use still sits on the text baseline beside it. */
+.p0-hap-glyph { display: inline-flex; align-items: center; min-height: 12px; flex: none; font-size: 12px; }
+.p0-hap-row .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+/* `1 1 100%` for the same reason `.p0-rel-row` uses it one block up — a title beside the
+   rung wraps into the rung's column and reads as part of it. */
+.p0-hap-title { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.p0-hap-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
+/* The sentence for a bead nothing has happened to, which is most of them. Muted and
+   without a box, so it reads as an answer rather than as a row that failed to draw. */
+.p0-hap-none { font-size: 12px; color: var(--muted); }
 /* The way out to the graph, on the bead you tapped rather than on the card above it.
    It is where this row used to send you, and it stays reachable: the expansion is this
    bead, and the graph is everything around it. */
