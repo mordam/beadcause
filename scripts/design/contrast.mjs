@@ -73,6 +73,17 @@ const MEASURE = `(() => {
     return out;
   };
 
+  // The card frame is this bundle's own furniture rather than the app's — see build.mjs.
+  // Two tests and not one, because the three \`ds-\` classes are not the same kind of thing.
+  // \`.ds-stack\` and \`.ds-label\` wrap the app's markup, so only the wrapper itself is
+  // furniture and its children are the component. \`.ds-note\` is the card's own prose, so
+  // everything inside it is furniture too — and that half was missing: a note carrying an
+  // anchor gave it no class, the sliced sheet carries no element rule for one, and the
+  // UA's default blue on the page measured 2.05:1. A failing rule the app does not have
+  // and cannot fix is worse than no audit, because it is the one you learn to scroll past.
+  const furniture = (el) =>
+    /(^|\\s)ds-/.test(typeof el.className === 'string' ? el.className : '') || !!el.closest('.ds-note');
+
   const ownText = (el) => Array.from(el.childNodes)
     .filter((n) => n.nodeType === 3 && n.textContent.trim())
     .map((n) => n.textContent.trim().replace(/\\s+/g, ' '))
@@ -80,8 +91,7 @@ const MEASURE = `(() => {
 
   const out = [];
   for (const el of document.querySelectorAll('body *')) {
-    // The card frame is this bundle's own furniture, not the app's — see build.mjs.
-    if (/(^|\\s)ds-/.test(el.className || '')) continue;
+    if (furniture(el)) continue;
     const text = ownText(el);
     if (!text) continue;
     const cs = getComputedStyle(el);
@@ -169,3 +179,10 @@ console.log(
   `\n${cards.length} cards × 2 themes · ${measured} text runs measured · ` +
   `${fails.length} below AA in ${bySel.size} distinct rules`
 );
+
+// The exit code, so this is a gate rather than a report somebody has to read. It printed
+// its findings and returned 0 until bc-15tu, which is how the rules it had already found
+// sat in the sheet with the command that finds them documented in this directory's README:
+// a check nothing can fail is a check nothing runs. `--all` is exempt — that mode is for
+// reading the ratios of rules that pass, and it is not asking a question.
+if (!showAll && fails.length) process.exitCode = 1;
