@@ -570,9 +570,10 @@ await check('a selection the new scope keeps is kept', () => {
   row lit `My Epics` — so the most-tapped scope had a dead control on it and nothing said
   why. Asking for the beads is asking for the sweep that fetches them, so the tap widens.
 
-  Three checks, and they are three because the seam has three ends: the filter decides a
-  pill is unreachable and asks, public/app.js answers with a scope, and the selection has
-  to survive the survey that answer produces.
+  The seam has three ends and the checks below cover each: the filter decides a pill is
+  unreachable and asks, public/app.js answers with a scope, and the selection has to
+  survive the survey that answer produces. What no vm can reach is the three of them
+  agreeing across a real tap — `scripts/viewbar-check.mjs` drives that in a Chrome.
 */
 
 /** What public/app.js's `onWiden` does, with the scopes as the two kind lists. */
