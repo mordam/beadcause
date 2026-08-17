@@ -558,6 +558,188 @@ await check('a selection the new scope keeps is kept', () => {
   assert.deepEqual(list(filter.selected()), ['pr']);
 });
 
+/* ------------------------------------------- a pill the scope cannot produce */
+
+/*
+  The other half of the same fact, and the bug bc-khoe.25 is: dropping is right when the
+  *scope* has just had the last word and wrong when the *pill* is having it.
+
+  `All Beads` is drawn on every scope, because public/viewbar.js draws the row on twelve
+  pages and knows nothing about a scope. Under the default `Human` it was the one pill on
+  it that could not be selected at all — `set` dropped it, `current()` fell back and the
+  row lit `My Epics` — so the most-tapped scope had a dead control on it and nothing said
+  why. Asking for the beads is asking for the sweep that fetches them, so the tap widens.
+
+  The seam has three ends and the checks below cover each: the filter decides a pill is
+  unreachable and asks, public/app.js answers with a scope, and the selection has to
+  survive the survey that answer produces. What no vm can reach is the three of them
+  agreeing across a real tap — `scripts/viewbar-check.mjs` drives that in a Chrome.
+*/
+
+/** What public/app.js's `onWiden` does, with the scopes as the two kind lists. */
+const widener = (filter, seen) => (id) => {
+  seen.push(id);
+  // `chooseScope` surveys before it paints, so by the time `pick` reaches `set` the
+  // kinds are already the wide ones. Getting that order wrong here would pass a check
+  // the phone fails, which is why it is stated rather than assumed.
+  filter.survey({ kinds: AGENT_KINDS });
+  return true;
+};
+
+await check('a pill this scope cannot produce asks for a scope that can', () => {
+  const { filter, marks } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  const asked = [];
+  filter.onWiden(widener(filter, asked));
+  filter.pick('bead');
+  assert.deepEqual(asked, ['bead'], 'All Beads was dropped rather than asking for the sweep behind it');
+  assert.deepEqual(list(filter.selected()), ['bead'], 'the selection did not survive the widening');
+  assert.equal(filter.current(), 'bead', 'the row lit My Epics — which is the bug');
+  assert.equal(marks.at(-1), 'bead', 'and the row was never told');
+});
+
+await check('a tap that widened does not tell the page twice', () => {
+  // The widening already emptied the list, drew the wait and went back to `bd`. A
+  // listener firing on top of that is a repaint with nothing in hand — an empty list
+  // over "Asking bd…", which is the one screen this tap has least right to draw.
+  const { filter } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  filter.onWiden(widener(filter, []));
+  const told = [];
+  filter.onChange(() => told.push(list(filter.selected())));
+  filter.pick('bead');
+  assert.deepEqual(told, [], 'the page repainted an empty list over the refetch');
+  filter.pick('pr');
+  assert.deepEqual(told, [['pr']], 'an ordinary tap stopped telling the page anything');
+});
+
+await check('a pill it can produce leaves the scope alone', () => {
+  const { filter } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  const asked = [];
+  filter.onWiden(widener(filter, asked));
+  filter.pick('pr');
+  assert.deepEqual(asked, [], 'an ordinary tap moved the scope');
+  assert.deepEqual(list(filter.selected()), ['pr']);
+});
+
+await check('and My Epics still clears the selection rather than widening anything', () => {
+  // A place has no predicate, so there is nothing for a scope to fail to fetch — and
+  // widening on the way to an unnarrowed Home would be a tap that changed a preference
+  // for no reason at all.
+  const { filter } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  const asked = [];
+  filter.onWiden(widener(filter, asked));
+  filter.pick('bead');
+  filter.pick('epics');
+  assert.deepEqual(asked, ['bead'], 'My Epics asked for a scope');
+  assert.deepEqual(list(filter.selected()), []);
+  assert.equal(filter.current(), 'epics');
+});
+
+await check('a page with no answer is left as it was, not broken', () => {
+  // `onWiden` is optional: eleven of the twelve pages the row is on have no scope at
+  // all. The tap is then the drop it always was, which is a pill that does nothing —
+  // never a throw inside a click handler.
+  const { filter } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  filter.pick('bead');
+  assert.deepEqual(list(filter.selected()), []);
+  assert.equal(filter.current(), 'epics');
+});
+
+await check('?kind= names the slice a pill on another page asked for', () => {
+  // The same request arriving by URL instead of by tap. app.js reads this *before* it
+  // mounts anything, because the first survey is what would drop the selection and
+  // there is no second event to widen on — see `bootScope`.
+  assert.equal(load({ search: '?kind=bead' }).filter.asked(), 'bead');
+  assert.equal(load({ search: '?workspace=w&kind=pr' }).filter.asked(), 'pr');
+  assert.equal(load({ search: '?kind=epics' }).filter.asked(), null, 'a place is not a slice to reach');
+  assert.equal(load({ search: '?kind=endorsement' }).filter.asked(), null, 'a kind folded away months ago');
+  assert.equal(load({ search: '' }).filter.asked(), null);
+  assert.equal(load({ search: '?kind=%zz' }).filter.asked(), null, 'a malformed query is no instruction');
+});
+
+/*
+  public/app.js's end of it, in a room with the real `KINDS`. The file is one IIFE with
+  nothing exported, so the two declarations are sliced out — the shape test/cardpending.mjs
+  uses. A restatement of `kindsForScope` here could not fail while the phone shipped
+  something else, and `kindsForScope` is the function whose answer *was* the bug.
+*/
+const APP = read('public/app.js');
+
+/** One `const … ;` out of public/app.js, brace- and paren-matched. */
+function lift(name) {
+  const at = APP.indexOf(name);
+  assert.notEqual(at, -1, `public/app.js no longer declares \`${name}\``);
+  let depth = 0;
+  for (let i = at; i < APP.length; i += 1) {
+    const c = APP[i];
+    if (c === '{' || c === '(' || c === '[') depth += 1;
+    else if (c === '}' || c === ')' || c === ']') depth -= 1;
+    else if (c === ';' && depth === 0) return APP.slice(at, i + 1);
+  }
+  throw new Error(`no statement end after ${name}`);
+}
+
+/** `kindsForScope` and `scopeFor`, run against the table above on one of the three scopes. */
+function seam(scope) {
+  const ctx = vm.createContext({
+    state: { scope },
+    window: { beadcause: { inboxFilter: { KINDS: list(model.KINDS) } } },
+  });
+  // The completion value, because a `const` at the top of a script lands in the global
+  // *lexical* environment and never on the context object.
+  const out = vm.runInContext(
+    `${lift('const kindsForScope =')}
+${lift('const scopeFor =')}
+({ kinds: kindsForScope(), scopeFor });`,
+    ctx,
+    { filename: 'app.js' }
+  );
+  return { kinds: list(out.kinds), scopeFor: out.scopeFor };
+}
+
+await check('the human scope really cannot produce the beads — which is why the pill was dead', () => {
+  const human = seam('human');
+  assert.ok(!human.kinds.includes('bead'), 'the human sweep fetches beads now, and this whole seam is moot');
+  assert.equal(human.scopeFor('bead'), 'both', 'All Beads asks for no scope, so the tap widens nothing');
+});
+
+await check('Both is what it asks for, never Agent — widening must not take the questions away', () => {
+  assert.equal(seam('human').scopeFor('bead'), 'both');
+  for (const scope of ['both', 'agent']) {
+    assert.ok(seam(scope).kinds.includes('bead'), `${scope} cannot produce beads`);
+    assert.equal(seam(scope).scopeFor('bead'), null, `${scope} widens to reach a kind it already has`);
+  }
+});
+
+await check('a kind with no side never asks for anything, on any of the three', () => {
+  // The guard the bead asks for: a future `side` on one of these strands its pill the
+  // same way, and the answer is already here — `scopeFor` is asked about every kind.
+  for (const scope of ['human', 'both', 'agent']) {
+    const { kinds, scopeFor } = seam(scope);
+    for (const k of list(model.KINDS)) {
+      if (k.side !== 'any') continue;
+      assert.ok(kinds.includes(k.id), `${k.id} is unreachable under ${scope}`);
+      assert.equal(scopeFor(k.id), null, `${k.id} wanted a wider scope on ${scope}`);
+    }
+  }
+  assert.equal(seam('human').scopeFor(null), null, 'nothing asked for is something to widen');
+});
+
+await check('app.js answers the widening, and settles an arrival before the first survey', () => {
+  const boot = APP.slice(APP.indexOf('function bootScope()'));
+  const body = boot.slice(0, boot.indexOf('\n  }'));
+  assert.ok(body.includes('inboxFilter?.asked?.()'), 'the boot never reads what ?kind= asked for');
+  assert.ok(body.indexOf('scopeFor') < body.indexOf('mountFilters()'), 'the survey runs before the scope is settled');
+  const mount = APP.slice(APP.indexOf('function mountFilters()'));
+  const mbody = mount.slice(0, mount.indexOf('\n  }'));
+  assert.ok(mbody.includes('onWiden'), 'nothing answers the widening, so the pill is dead again');
+  assert.ok(mbody.indexOf('onWiden') < mbody.indexOf('survey({ kinds'), 'registered after the survey it exists for');
+});
+
 /* ------------------------------------------------------------------ chrome */
 
 /**
