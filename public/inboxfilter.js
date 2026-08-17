@@ -685,11 +685,19 @@
    * be more fake than the thing under test.
    */
   const arrived = () => {
-    const m = /[?&]kind=([^&]*)/.exec(window?.location?.search || '');
-    if (!m) return null;
-    const id = decodeURIComponent(m[1]);
-    if (!BY_ID.has(id)) return null;
-    return BY_ID.get(id).test ? [id] : [];
+    try {
+      const m = /[?&]kind=([^&]*)/.exec(window?.location?.search || '');
+      if (!m) return null;
+      const id = decodeURIComponent(m[1]);
+      if (!BY_ID.has(id)) return null;
+      return BY_ID.get(id).test ? [id] : [];
+    } catch {
+      // A stray `%` makes `decodeURIComponent` throw, and this runs at the top level of
+      // the file: an uncaught one here would mean no `window.beadcause.inboxFilter` at
+      // all, so the inbox would lose its whole filter control over a malformed query.
+      // Reading it as "no instruction" is the same answer an unknown kind gets.
+      return null;
+    }
   };
 
   state.sub = loadSub();

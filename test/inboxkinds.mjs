@@ -1075,6 +1075,15 @@ await check('?kind=epics is an unnarrowed Home, not a selection of nothing-match
   assert.ok(filter.matches(ROWS.question), 'My Epics arrived at an empty screen');
 });
 
+await check('a malformed query does not take the whole control down with it', () => {
+  // This is parsed at the top level of the file, so an uncaught throw here means no
+  // `window.beadcause.inboxFilter` at all — the inbox loses its filter, its counts and
+  // its empty state over a stray `%` in a URL somebody pasted.
+  const { filter } = load({ search: '?kind=%zz' });
+  assert.ok(filter, 'the file threw at load over a malformed query');
+  assert.deepEqual(list(filter.selected()), []);
+});
+
 await check('a ?kind= naming a retired id leaves the selection alone', () => {
   // A phone's home screen holds links this app wrote months ago. "No instruction" and
   // "clear it" are different answers and a stale link deserves the first.
