@@ -280,6 +280,14 @@ check('it names the command that writes the answers, against the bead the review
   assert.match(brief, /answer: changed\|clarify\|declined/);
 });
 
+check('and the caller may hand in the path it will actually be runnable by', () => {
+  // What lib/session.js passes: `node <main checkout>/bin/answer.js`, for the reason every
+  // other command in every other brief is named absolutely — PATH is an install detail, and
+  // the failure is at the last step of an unattended window.
+  const text = reviewAnswerPrompt('beadcause', ISSUE, SPEC, STATE, { answer: 'node /opt/beadcause/bin/answer.js' });
+  assert.match(text, /node \/opt\/beadcause\/bin\/answer\.js -w beadcause -b bc-mrg1/);
+});
+
 check('it forbids the merge and the close, which are somebody else’s', () => {
   assert.match(brief, /Never merge or push `main`/);
   assert.match(brief, /Do not close bc-7qo/);
