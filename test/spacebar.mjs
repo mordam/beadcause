@@ -114,12 +114,16 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }) } = {}) {
   });
 
   const select = el('space-pick');
+  /* The span the bar actually draws its label in. The `<select>` over it is invisible and
+     carries the whole names; this is where the cut-down one lands. See `.spacepick` in
+     public/style.css. */
+  const shown = el('space-shown');
   const bar = {
     className: '',
     hidden: true,
     innerHTML: '',
     classes: new Set(),
-    querySelector: (sel) => (sel === '#space-pick' ? select : null),
+    querySelector: (sel) => (sel === '#space-pick' ? select : sel === '#space-shown' ? shown : null),
     classList: {
       toggle(name, on) {
         if (on) bar.classes.add(name);
@@ -127,7 +131,24 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }) } = {}) {
       },
     },
   };
-  const topbar = { appended: [], append(node) { this.appended.push(node); } };
+  /* The picker goes after `.brand` rather than at the end of the bar (bc-khoe.5) — they
+     share a row now and /monitor keeps a tally in the actions beyond it. Both landing
+     places record into the same list, because what a check here can say is *that* it was
+     hung on the bar; where on the bar is geometry, and `scripts/topbar-check.mjs` is what
+     measures that. */
+  const topbar = {
+    appended: [],
+    append(node) {
+      this.appended.push(node);
+    },
+    querySelector: (sel) => (sel === '.brand' ? brand : null),
+  };
+  const brand = {
+    parentNode: topbar,
+    after(node) {
+      topbar.appended.push(node);
+    },
+  };
 
   const store = new Map();
   if (token) store.set('beadcause.token', token);
@@ -151,7 +172,7 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }) } = {}) {
   vm.runInContext(fs.readFileSync(PUBLIC('spacebar.js'), 'utf8'), ctx, { filename: 'spacebar.js' });
   // `win` so a check can hang something else off `beadcause` after the file has loaded —
   // which is how edit mode reaches this file, and the order the page loads them in.
-  return { space: ctx.window.beadcause.space, win: ctx.window, bar, select, topbar };
+  return { space: ctx.window.beadcause.space, win: ctx.window, bar, select, shown, topbar };
 }
 
 /* One space with two repos, one muted space with one, and a repo in neither — every
@@ -247,6 +268,69 @@ check('every configured repo is in the dropdown, quiet ones and empty ones inclu
   assert.ok(select.innerHTML.includes('<optgroup label="Personal">'));
   assert.ok(select.innerHTML.includes('<optgroup label="Climative 🔕">'));
   assert.ok(select.innerHTML.includes('<optgroup label="Other">'));
+});
+
+/* --------------------------------------------- the face, and the list behind it */
+
+/*
+  The picker shares the top row with the mark since bc-khoe.5, so what it *draws* is a
+  cut-down label while the dropdown keeps every whole name. Twelve characters through,
+  nine and an ellipsis past that. The rule is asserted here and the geometry it buys is
+  measured in `scripts/topbar-check.mjs`, which fails the repo for a second row.
+*/
+check('a name of twelve characters or fewer is drawn whole', () => {
+  const h = fresh();
+  h.select.value = 'ws:beadcause';
+  h.select.events.change();
+  assert.equal(h.shown.textContent, 'beadcause');
+});
+
+check('and a longer one is cut to nine and an ellipsis, so the bar cannot widen', () => {
+  const h = load();
+  h.space.adopt({
+    spaces: [{ name: 'Work', workspaces: ['climative-platform'] }],
+    workspaces: ['climative-platform', 'beadcause'],
+    filter: { space: 'Work', workspace: 'climative-platform' },
+  });
+  assert.equal(h.shown.textContent, 'climative…');
+  // Ten drawn characters, not eighteen. The number is the whole point of the rule.
+  assert.ok(h.shown.textContent.length <= 12, h.shown.textContent);
+});
+
+check('the twelfth character is in and the thirteenth is not — the boundary, both sides', () => {
+  const at = (name) => {
+    const h = load();
+    h.space.adopt({ spaces: [{ name: 'S', workspaces: [name] }], workspaces: [name, 'other'], filter: { space: 'S', workspace: name } });
+    return h.shown.textContent;
+  };
+  assert.equal(at('abcdefghijkl'), 'abcdefghijkl');
+  assert.equal(at('abcdefghijklm'), 'abcdefghi…');
+});
+
+check('but the dropdown itself is untouched — a whole name per row', () => {
+  const h = load();
+  h.space.adopt({
+    spaces: [{ name: 'Work', workspaces: ['climative-platform'] }],
+    workspaces: ['climative-platform', 'beadcause'],
+    filter: { space: 'Work', workspace: 'climative-platform' },
+  });
+  // The list is the one place the whole name is the point: it is what you are choosing
+  // *from*, and two repos sharing their first nine characters would be one row twice.
+  assert.ok(h.select.innerHTML.includes('>climative-platform<'), h.select.innerHTML);
+  assert.ok(!h.select.innerHTML.includes('…'), `a row was cut too: ${h.select.innerHTML}`);
+});
+
+check('shortLabel() is what the bar draws and label() is still the whole thing', () => {
+  const h = load();
+  h.space.adopt({
+    spaces: [{ name: 'Work', workspaces: ['climative-platform'] }],
+    workspaces: ['climative-platform', 'beadcause'],
+    filter: { space: 'Work', workspace: 'climative-platform' },
+  });
+  // Four pages write `label()` into a sentence — "Nothing in climative-platform." — and a
+  // sentence with an ellipsis in the middle of it is the cut leaking out of the chrome.
+  assert.equal(h.space.label(), 'climative-platform');
+  assert.equal(h.space.shortLabel(), 'climative…');
 });
 
 check('the picker draws no numbers — not on the bar, and not on a row', () => {

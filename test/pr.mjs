@@ -176,6 +176,10 @@ if (a === 'pr') {
     found.mergedAt = '2026-08-09T15:04:05Z';
     found.mergeCommit = { oid: '0ff1ce0ff1ce' };
     save();
+    // The merge landed and *then* something went wrong — real gh's own shape when it
+    // cannot delete the local branch. The write above happens either way, which is the
+    // whole point: the exit code says no and github.com says yes.
+    if (state.mergeCleanupFailure) fail(state.mergeCleanupFailure);
     out('Merged pull request #' + found.number + '\\n');
   }
   if (b === 'close') {
@@ -423,6 +427,97 @@ check('a checkout no account can see is null, having asked them all', (await pr.
 check(
   'and the active account is not asked twice for it',
   calls().filter((c) => c.args[0] === 'repo').length === 2,
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+/* --------------------------------------------- and as one that can merge */
+
+/**
+ * The second half of the same question, and the half that was not asked.
+ *
+ * beadcause's own repo is `mordam/beadcause`. Both logins can see it — the active one
+ * is a collaborator with READ, the owner has ADMIN — so the ambient probe answered,
+ * the sweep stopped there, and every `gh` call in that checkout ran as the READ
+ * account. Nothing looked wrong: listing PRs, reading checks, posting comments all
+ * work with READ. The merge did not, and it failed at the end of a ship with
+ *
+ *     GraphQL: NeanderthalMan does not have the correct permissions to execute
+ *     `MergePullRequest`
+ *
+ * after the work was already done. So visibility is no longer enough to win the probe.
+ */
+console.log('\nand which account can merge in it');
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+  prs: { 42: rawPR() },
+});
+
+check('a repo the active account can only read still resolves', (await pr.slugFor(REPO)) === 'them/shared');
+
+resetLog();
+await pr.merge(REPO, 42, { method: 'squash' }).catch(() => null);
+const ownerMerges = calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
+check(
+  'but `gh pr merge` runs as the account that may actually merge, not the one that answered first',
+  ownerMerges.length === 1 && ownerMerges[0].token === 'tok-owner',
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+check(
+  'and so does everything else in that checkout',
+  calls().length > 0 && calls().every((c) => c.token === 'tok-owner'),
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'otheracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', otheracct: 'tok-other' },
+  repoByToken: { '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' } },
+});
+
+check(
+  'a repo nobody here can write to is still resolved read-only rather than lost',
+  (await pr.slugFor(REPO)) === 'them/shared'
+);
+check(
+  'and that answer is the ambient account, carrying no token',
+  calls().filter((c) => c.args[0] === 'repo').every((c) => c.token === null || c.token === 'tok-other') &&
+    calls().filter((c) => c.args[0] === 'repo')[0].token === null,
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: { ok: true, accounts: [{ user: 'soloacct', active: true }] },
+  tokens: { soloacct: 'tok-solo' },
+  repo: { nameWithOwner: 'acme/widgets' },
+});
+check('a Mac with one login is unchanged — no permission, no sweep', (await pr.slugFor(REPO)) === 'acme/widgets');
+check(
+  'and it costs the one `gh repo view` it always did',
+  calls().filter((c) => c.args[0] === 'repo').length === 1,
   JSON.stringify(calls().map((c) => c.args.join(' ')))
 );
 
@@ -936,6 +1031,47 @@ check(
   'a real conflict is refused without waiting for a second opinion',
   stillConflict && stillConflict.status === 409 && slept === 0 && mergeCalls().length === 0,
   `slept ${slept}, ${mergeCalls().length} merges`
+);
+
+// And the failure that is not a refusal at all. `gh pr merge --delete-branch` merges,
+// deletes the remote branch, then deletes the local one — and that last act fails
+// whenever the branch is checked out in a worktree, which in this repo is every branch
+// a worker ever pushed. Read as a refusal, it told Adam *bc-g0tx was not answered,
+// nothing was written and nothing was lost* over #371, already merged, with its work
+// bead left in_progress and the card still sitting there. The exit code is not the
+// verdict; the pull request is.
+world({
+  prs: { 42: rawPR() },
+  mergeCleanupFailure:
+    "failed to delete local branch worktree-epicadvocate-foundation-x8k: failed to run git: error: Cannot delete " +
+    "branch 'worktree-epicadvocate-foundation-x8k' checked out at '/repo/.claude/worktrees/epicadvocate-foundation-x8k'",
+});
+resetLog();
+let landedAnyway = null;
+const tidied = await threw(async () => {
+  landedAnyway = await pr.merge(REPO, 42);
+});
+check('a merge that landed is not thrown away because gh failed to tidy up after it', !tidied, tidied && tidied.message);
+check(
+  'it comes back as the merged pull request',
+  landedAnyway && landedAnyway.state === 'MERGED' && landedAnyway.mergeCommit === '0ff1ce0ff1ce',
+  JSON.stringify(landedAnyway && { state: landedAnyway.state, sha: landedAnyway.mergeCommit })
+);
+check(
+  'carrying what gh complained about, so the card can say the local branch survived',
+  landedAnyway && /Cannot delete branch/.test(landedAnyway.cleanup || ''),
+  JSON.stringify(landedAnyway && landedAnyway.cleanup)
+);
+
+// The distinction that makes the above safe: a `gh` that failed *before* merging leaves
+// the PR open, and that is still a refusal with GitHub's words on it.
+world({ prs: { 42: rawPR() }, mergeRefusal: 'Pull request is not mergeable: a required check is failing.' });
+resetLog();
+const stillRefused = await threw(() => pr.merge(REPO, 42));
+check(
+  'a failure with the pull request still open is a refusal, as before',
+  stillRefused && stillRefused.status === 409 && /required check is failing/.test(stillRefused.message),
+  stillRefused && stillRefused.message
 );
 
 /* -------------------------------------------------------- close and comment */
