@@ -3094,11 +3094,135 @@ button.work-row {
    board during a restart is the deploy working, not a fault. */
 .board-foot.bad { color: var(--warn); }
 
+/* -------------------------------------------------------------- the two queues */
+
+/* The Releases view (bc-khoe.7): a Merge Card per bead with an unmerged branch, a Release
+   Card per merged pull request, and one set of rules over both — because the payload is
+   one shape and a card that had to know which queue it was in would be two renderers
+   wearing one name. See public/releases.js.
+
+   `.queue-` and not `.rel-`, which is taken: `.rel-row`, `.rel-group`, `.rel-kind`,
+   `.rel-dot` and `.rel-title` are the *related beads* list on the graph sheet, five
+   classes with nothing to do with a release. The same collision `.viewbar` avoided with
+   `.pill` (bc-khoe.1), found the same way — by grepping this file before inventing a
+   name. **The kind and the tone are prefixed too**, and that is not symmetry for its own
+   sake: `.release` further down is the Ship strip on the PR board, a padded tinted box,
+   and a card wearing a bare `release` inherited the lot — which on screen reads as a card
+   styled a bit differently rather than as two rules fighting. */
+
+.queue-sec { max-width: 780px; margin: 0 auto 18px; padding: 0 16px; }
+.queue-head {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 0 0 8px; font-size: 13px; font-weight: 620;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
+}
+.queue-count {
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-2); color: var(--prose);
+  font-size: 11px; letter-spacing: 0; font-variant-numeric: tabular-nums;
+}
+/* Only drawn where more than one repo has entries in a section — see `sectionHtml`. The
+   group *is* the batch: one release ships everything on that repo's `origin`. */
+.queue-group {
+  margin: 12px 0 6px; font-size: 12px; font-weight: 600;
+  color: var(--muted); overflow-wrap: anywhere;
+}
+.queue-empty { margin: 0; font-size: 13px; color: var(--muted); }
+
+.queue-card {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+  margin-bottom: 8px;
+}
+/* The tone carries where it has got to, so a list is readable before it is read — the
+   same three the deploy rows below use, and deliberately the same colours. */
+.queue-card.queue-live { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.queue-card.queue-good { border-color: color-mix(in srgb, var(--bead-made) 40%, var(--line)); }
+.queue-card.queue-warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+
+/* The whole collapsed card is the button. On a phone that is the difference between a
+   list you can use one-handed and one you have to aim at — the chevron is a hint about
+   what a tap does, never the thing you have to hit. */
+.queue-sum {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 13px; border: 0; background: none; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.queue-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+/* Wraps, and that is a sizing decision rather than a typographic one. `.work` — which
+   every scroller on every page is — carries `margin: 0 auto`, and an auto cross-axis
+   margin on a flex item turns `align-self: stretch` off: the scroller is then sized
+   `fit-content`, which is `min(max-content, max(min-content, available))`. A `nowrap`
+   title makes min-content the whole string, so one long pull request title made the
+   *page* 56px wider than the phone and everything on it hung off the right edge, clipped
+   by `body { overflow: hidden }` with nothing to say it had happened. Wrapping puts
+   min-content back to the longest word. Do not add `white-space: nowrap` here. */
+.queue-title {
+  font-size: 14px; color: var(--text);
+  overflow-wrap: anywhere;
+}
+.queue-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.queue-stage {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  font-size: 12px; color: var(--prose);
+  overflow-wrap: anywhere;
+}
+.queue-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.queue-card.queue-good .queue-dot { background: var(--bead-made); }
+.queue-card.queue-warn .queue-dot { background: var(--warn); }
+.queue-card.unfolded .chev { transform: rotate(90deg); }
+
+.queue-body { padding: 0 13px 12px; }
+
+/* The ladder. Every rung, always — a ladder that only drew the rungs it had reached
+   would be a progress bar, and the whole argument of this page is that *which* rung is
+   the answer and the ones ahead are the question. */
+.queue-rungs {
+  margin: 0 0 10px; padding: 0; list-style: none;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.queue-rung {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  padding: 3px 0; font-size: 12.5px; color: var(--muted);
+}
+.queue-mark { flex: none; width: 14px; text-align: center; }
+.queue-rung-name { min-width: 0; overflow-wrap: anywhere; }
+.queue-rung.done { color: var(--prose); }
+.queue-rung.done .queue-mark { color: var(--bead-made); }
+.queue-rung.now { color: var(--text); font-weight: 600; }
+.queue-rung.now .queue-mark { color: var(--accent); }
+.queue-rung.pending { opacity: 0.66; }
+/* Never the tick, and never merely greyed either: a rung nobody observed has to say so
+   in a word, because "no evidence" and "not yet" look identical as a colour. */
+.queue-rung.untracked .queue-mark { color: var(--warn); }
+.queue-untracked {
+  padding: 1px 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface-2));
+  color: var(--warn); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.queue-rung-at { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.queue-rung-note {
+  flex-basis: 100%; margin: 2px 0 0 22px;
+  font-size: 11.5px; font-weight: 400; color: var(--muted);
+}
+
+.queue-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.queue-facts { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.queue-fact { display: flex; gap: 8px; font-size: 11.5px; }
+.queue-fact dt { flex: none; width: 88px; color: var(--muted); }
+.queue-fact dd { margin: 0; min-width: 0; color: var(--prose); overflow-wrap: anywhere; }
+.queue-fact code { font-size: 11px; }
+
 /* ---------------------------------------------------------- a deploy, while it runs */
 
 /* Above the cards, not beside the lamp it belongs to. The Deployed lamp is something
    you scan for; a deploy in flight is something you are told — and on this repo it is
-   the daemon serving the page that is about to be SIGKILLed. See public/prs.js.
+   the daemon serving the page that is about to be SIGKILLed. It lived at the top of the
+   PR board until bc-khoe.7 and is at the top of the Releases view now, which is the page
+   its ladder is on. See public/releases.js.
 
    Nothing here renders when nothing has been deployed, which is most days: an empty
    box explaining that a repo has no deploys is a row of pixels that is never right. */

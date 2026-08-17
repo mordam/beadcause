@@ -74,8 +74,9 @@
   `prewarm` runs once per *document*, so it runs again on every reopen, and it was written
   when a reopen found an empty store: going and fetching all five paths was then the only
   way any tab was warm. With the store durable it is instead a second copy of five
-  payloads already on the disk — and two of them are the app's most expensive requests.
-  So those two are marked `holdOnly` and the background warm leaves a held one alone. See
+  payloads already on the disk — and three of them are, or can become, the app's most
+  expensive requests.
+  So those three are marked `holdOnly` and the background warm leaves a held one alone. See
   `prewarm`, and `MAINTAINED` in public/app.js for the same decision on the other warmer.
 
   Nothing here is load-bearing. Every reader treats a miss as "no cache" and does what
@@ -161,13 +162,25 @@
     // made it one tap away, and a view a thumb can reach in one tap must not wait on one
     // it cannot.
     //
-    // It is also one of the two `holdOnly` entries, which is a rule about the *background*
-    // warm and nothing else: fill this path when nothing is held for it, and never go and
-    // replace one that is. The two so marked are the two most expensive paths on this
-    // list, and they are the two the order above cannot help — moving a `gh`-per-repo
-    // sweep earlier in the queue does not make it cheaper, it only makes it sooner. See
-    // `prewarm`.
+    // It is also one of the three `holdOnly` entries, which is a rule about the
+    // *background* warm and nothing else: fill this path when nothing is held for it, and
+    // never go and replace one that is. The three so marked are the expensive paths on
+    // this list, and they are the ones the order above cannot help — moving a
+    // `gh`-per-repo sweep earlier in the queue does not make it cheaper, it only makes it
+    // sooner. See `prewarm`.
     { id: 'prs', paths: ['/api/prs'], holdOnly: true },
+    // Releases (bc-khoe.7), and the last of the five pills. What it buys is the page you
+    // open *while the daemon behind it is being restarted by the deploy it is drawing* —
+    // the moment a cold first frame is a blank screen rather than a slow one.
+    //
+    // `/api/queues` rides on top of the board rather than sweeping for itself, so once
+    // `/api/prs` is warm this entry costs a round trip and no `gh` at all. It is the
+    // *third* `holdOnly` anyway, because "once the board is warm" is not a promise this
+    // list can keep: the daemon's board cache is 25 seconds and the entry above is held
+    // for as long as the phone keeps it, so on a reopen the next morning `/api/prs` is
+    // skipped and this one would be the request that pays for the sweep instead. Which is
+    // the same `gh`-per-repo bill, moved rather than avoided.
+    { id: 'releases', paths: ['/api/queues'], holdOnly: true },
     // Below the row. None of these three is a pill, and all three are still reached in
     // one tap from somewhere else — the queue from the 🗳 in the inbox's top bar or the
     // advocate console's `N held for endorsement` pill, /admin from the ⚙ on /monitor
@@ -176,8 +189,8 @@
     // The queue is the second most expensive boot in the app — `/api/unendorsed` is a
     // `bd` sweep of every workspace and then a `bd show` per row for the provenance line
     // (lib/endorsequeue.js) — and warming it is the whole of why arriving there is
-    // instant: it is the one screen whose rows are the full bead. It is the other
-    // `holdOnly` entry, for the reason given against `/api/prs` above.
+    // instant: it is the one screen whose rows are the full bead. It is a `holdOnly`
+    // entry, for the reason given against `/api/prs` above.
     { id: 'endorse', paths: ['/api/unendorsed'], holdOnly: true },
     //
     // `/api/work` was under /admin once, because /admin fetched it — for the single
@@ -508,10 +521,13 @@
    * first two weeks that was simply correct, because a `sessionStorage` store came back
    * from a close empty and the only way the board was ever warm was this loop going and
    * fetching it. Now the entry survives the close. Re-fetching it is no longer what makes
-   * the tab warm; it is a second copy of a payload already on the disk, and for these two
+   * the tab warm; it is a second copy of a payload already on the disk, and for these
    * paths the copy costs `gh` once per repo (74s measured, bc-1kwl.1) and a `bd list` per
-   * workspace plus a `bd show` per row (48s). Two minutes of the daemon's day, spent in
-   * the background of every single app open, to replace two payloads that were already
+   * workspace plus a `bd show` per row (48s). `/api/queues` is here for the first of those
+   * bills rather than a third one — it rides the board's own sweep, so a reopen that
+   * skipped `/api/prs` and then asked for the queues would have paid for it anyway. Two
+   * minutes of the daemon's day, spent in
+   * the background of every single app open, to replace payloads that were already
    * paintable — that is precisely the reopen quietly turning into a `gh` sweep, and the
    * bead exists to stop it.
    *
@@ -519,8 +535,8 @@
    * one sweeps it on arrival, behind the frame it painted from the held copy (`warmBoot`
    * in public/prs.js, `load` in public/endorse.js), and while the inbox is up the log
    * restamps the entry for free and stops restamping the moment something contradicts it.
-   * That is the same decision `MAINTAINED` in public/app.js already records for these two
-   * and only these two — `refetch: false` — and this is that decision applied to the
+   * That is the same decision `MAINTAINED` in public/app.js already records for the two it
+   * knows about — `refetch: false` — and this is that decision applied to the
    * other warmer. A path with no held entry at all is still fetched here, so the first
    * run on a new device, and the run after an eviction, are unchanged.
    *

@@ -5318,15 +5318,15 @@ So there is one row now, under the top bar on every page the bottom bar was on:
   │ ● Beadcause                              🗳  ⌨️  ⟳ │
   │ Personal ▾                                    3 ▸    │
   ├──────────────────────────────────────────────────────┤
-  │ [🏠 Home]  📣 Advocates   📜 History   🚢 PRs        │  ← scrolls sideways
+  │ [🏠 Home]  📣 Advocates  📜 History  🚢 PRs  🚀 Rel… │  ← scrolls sideways
   └──────────────────────────────────────────────────────┘
 ```
 
-Four pills today, on eight pages. The three standing views — Home, Advocates, History —
-plus the board; the other five pages that used to load the bottom bar (`/admin`,
-`/console`, `/endorse`, `/flow`, `/requirements`) draw the row with **nothing on it
-current**, which is their way off a page that would otherwise be reachable only by the
-browser's back gesture.
+Five pills today, on nine pages. The three standing views — Home, Advocates, History —
+plus the board and [Releases](#releases--the-view-those-queues-are-drawn-on); the other
+five pages that used to load the bottom bar (`/admin`, `/console`, `/endorse`, `/flow`,
+`/requirements`) draw the row with **nothing on it current**, which is their way off a
+page that would otherwise be reachable only by the browser's back gesture.
 
 **A pill is an `<a href>`; the current one is a `<span>`.** Tapping where you already are
 should do nothing, not throw away the list, the conversation and your scroll position to
@@ -5334,9 +5334,10 @@ rebuild the same screen. It is marked twice over — `aria-current="page"` for a
 cannot see the accent, and the filled pill for one that can — because colour alone is not
 a mark.
 
-**The row scrolls sideways and never wraps.** There are four pills today and there will be
-roughly nine once the kinds become pills, Advocates and Mirror fold
-in and Releases arrives. A row that wrapped to a second line on a 360px phone would spend
+**The row scrolls sideways and never wraps.** There are five pills today — Releases joined
+them when the deploy strip left the PR board — and there will be roughly nine once the
+kinds become pills and Advocates and Mirror fold
+in. A row that wrapped to a second line on a 360px phone would spend
 a row of a screen that is mostly chrome already, which is the thing this change exists to
 stop. The selected pill is scrolled into view on load — done by arithmetic on the two
 rectangles rather than with `scrollIntoView`, which is allowed to scroll every ancestor
@@ -6133,11 +6134,13 @@ With the app open and nothing moving, the daemon now logs no periodic sweeps at 
 
 #### The last timer, and the event that deleted it
 
-One wall-clock timer survived that sweep, on the PR board, and it is worth saying why —
-because the reason was not "the deploy strip is special", it was a gap in the log.
+One wall-clock timer survived that sweep, on the deploy strip, and it is worth saying why
+— because the reason was not "the deploy strip is special", it was a gap in the log. (The
+strip was at the top of the PR board when this was written and is [a view of its
+own](#releases--the-view-those-queues-are-drawn-on) now; nothing about the clock moved
+with it.)
 
-The strip at the top of `/prs` answers *is something being made to run, right this
-second?* Its own subject genuinely cannot come off an event: the steps inside a deploy
+The strip answers *is something being made to run, right this second?* Its own subject genuinely cannot come off an event: the steps inside a deploy
 are a file being written on this Mac by a detached runner, and no event carries them, so
 while something is live the strip asks `/api/deploys` every four seconds and always
 will. That is not the timer that mattered. The one that mattered was the **idle** tick —
@@ -6175,8 +6178,8 @@ back, which is exactly what that callback is for.
 
 `node test/deploystart.mjs` holds both halves: the start event out of the real
 `/api/poll` at a real socket, that `lib/server.js` starts a deploy in exactly one place
-so a sixth call site cannot forget to announce, and — with the real `public/prs.js` and
-the real `public/stream.js` in a `vm` against a fake clock — that an idle board sets no
+so a sixth call site cannot forget to announce, and — with the real `public/releases.js`
+and the real `public/stream.js` in a `vm` against a fake clock — that an idle page sets no
 timeout, that a `deploy` event alone turns the fast tick on, and that a page with no
 stream behind it keeps the old one.
 
@@ -6330,8 +6333,8 @@ fifth of a second** where its cold load takes just over a second.
 
 What did need a line is the consequence nobody had gone back for. The **background warm**
 runs once per *document*, so it runs again on every reopen, and it was written when a
-reopen found an empty store: fetching all five paths was then the only way any tab was
-ever warm. With the store durable that fetch is a second copy of five payloads already on
+reopen found an empty store: fetching every path was then the only way any tab was
+ever warm. With the store durable that fetch is a second copy of payloads already on
 the disk — and two of them are the app's most expensive requests, `/api/prs` at a `gh`
 call per repo and `/api/unendorsed` at a `bd list` per workspace with a `bd show` per row.
 Measured on the live daemon (bc-1kwl.1) that is 74s and 48s: **two minutes of the Mac's
@@ -6339,7 +6342,16 @@ day, in the background of every single app open, for nothing on any screen.** So
 paths are marked `holdOnly` in `VIEWS`, and the background warm fills one only when
 nothing is held for it — never to replace one that is.
 
-That is the same answer [the maintenance table already
+`/api/queues` — [the Releases view](#releases--the-view-those-queues-are-drawn-on) — is
+the third, and it is there for the *first* of those two bills rather than a bill of its
+own. It sweeps for nothing itself; it rides the same 25-second board `/api/prs` shares. So
+on a reopen that has just skipped a held `/api/prs`, it is the request that would go and
+pay for the `gh`-per-repo call instead — the same two minutes, moved rather than avoided.
+It is the one `holdOnly` path with no counterpart in the maintenance table below, because
+the inbox holds no queue at all: it draws none, and nothing on the delta stream would let
+it maintain one.
+
+That is otherwise the same answer [the maintenance table already
 gives](#and-every-other-warmed-path-decided-one-at-a-time) for the same two paths, and the
 point is that it now has to be given twice: two warmers, one decision. What corrects a
 held board or a held queue is unchanged and is what always corrected it — the page that
@@ -9343,6 +9355,64 @@ rungs never drawn as done without a handover and never drawn from a handover bel
 another release, a repo with no declared deploy carrying merge entries and no release
 entries, and an entry that went live in the previous release still returned where one from
 two releases ago is not.
+
+### Releases — the view those queues are drawn on
+
+`/releases` is where both of them are on a screen (`/deploys` reaches the same page).
+Before it, `GET /api/queues` was an answer with nowhere to be read: the merge queue was a
+YAML block in a bead's notes, and the only thing on any screen that said a deploy was
+happening was a strip at the top of the PR board.
+
+**Two kinds of card, and one renderer over both.** A **Merge Card** per bead with an
+unmerged branch, from the moment its pull request joins the merge queue; a **Release Card**
+per merged pull request, in the batch it will ship with — which is what the grouping by
+repo *is*, since one release takes everything on that repo's `origin` with it. They are
+drawn by the same function, because every entry in either queue carries the same `rungs[]`
+shape on purpose; a card that had to ask which queue it was in would be two renderers
+wearing one name.
+
+**The stage is the collapsed summary, and the whole card is the tap target.** A card says
+where the work is without being opened — *Gate tests*, *Resolving conflicts*, *Merged*,
+*live in what is running now* — because "where is it" is the question the page exists for
+and an answer behind a fold is a worse answer than none. Unfolding gets you the ladder:
+every rung, the one it is on with the sentence explaining it, and the times somebody
+actually recorded. The tap is the card and not the chevron, which on a phone is the
+difference between a list you can use one-handed and one you have to aim at.
+
+**A rung nobody observed says so, in a word.** The three that come off the router's
+handover trail rather than the deploy journal are drawn `not tracked`, with a dash rather
+than a tick — on a release that has gone *live*, which is exactly when filling them in
+would be tempting and wrong. Where a handover *was* recorded they are ticked with the time
+on them, which is the same field arriving with a value instead of `null`.
+
+**A live entry says which release it went out in**, not merely that it is live: `live in
+what is running now`, or `live — one release back`, because the board keeps an entry one
+release past the one that made it live and those two sentences are the only thing telling
+them apart.
+
+**The deploy strip came here from the PR board** (bc-khoe.7) unchanged: what is being
+built and restarted this second, every step it has run, what the runner printed, and the
+banner that says a dropped connection *is* the deploy rather than the page breaking. It
+was on `/prs` because that was the nearest page, not because it was about a pull request —
+a deploy is the rung after one. What the board keeps is everything that is about a pull
+request, [the Ship button and the count over it](#the-release-queue--the-number-over-ship)
+included; what it no longer does is poll `/api/deploys` at all.
+
+**Two clocks, and only one of them ticks.** The queues are woken by the event log and ask
+for nothing in between. A deploy in flight keeps the four-second tick it has always had,
+because the steps inside one are a file being written on this Mac and no event can carry
+them — and a page with no stream behind it falls back to the thirty-second tick rather
+than quietly not refreshing. See [the last
+timer](#the-last-timer-and-the-event-that-deleted-it), which is this strip and is why it
+survived the move onto the stream.
+
+`node test/releases.mjs` runs the real `public/releases.js` in a `vm` on top of the real
+`public/prcard.js`: the stage readable in the collapsed card, one renderer opening both
+ladders, three rungs untracked on a release that is live and ticked once a handover exists,
+the picker narrowing what is drawn without asking again — and, from the other side, that
+`public/prs.js` no longer fetches the deploy journal while keeping Ship and its count.
+`node scripts/releases-check.mjs` is the same claims in a headless Chrome the size of a
+phone, including the case only a browser shows: the daemon going away mid-restart.
 
 ## The endorsement queue — a group tap, or a row at a time
 

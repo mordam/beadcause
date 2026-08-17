@@ -24,9 +24,9 @@
   bar and this row are flex rows above the one element that scrolls, so nothing here is
   laid out against a viewport that moves, because no viewport moves.
 
-  It **scrolls horizontally and never wraps**. There are five pills today and there will
-  be roughly nine once bc-khoe.2 (the six kinds), bc-khoe.4 (Advocates, Mirror) and
-  bc-khoe.7 (Releases) have landed, and a row that wraps to two lines on a 360px phone is
+  It **scrolls horizontally and never wraps**. There are five pills today — Releases
+  joined them with bc-khoe.7 — and there will be roughly nine once bc-khoe.2 (the six
+  kinds) and bc-khoe.4 (Advocates, Mirror) have landed, and a row that wraps to two lines on a 360px phone is
   the exact thing this epic exists to stop — it spends a second row of a screen that is
   mostly chrome already. So the row takes the width it needs and the current pill is
   scrolled into view on load, which is the one moment the offset can be wrong without
@@ -114,6 +114,13 @@
     // paths serve monitor.html, so the pill is current there and the chip row puts the
     // board up.
     { id: 'prs', href: '/prs', icon: '🚢', label: 'PRs', paths: ['/prs', '/pulls', '/prs.html'] },
+    // Where everything in flight actually is (bc-khoe.7). Last, and immediately after the
+    // board, because the two are read one after the other: the board is where you decide
+    // something may land, and this is where you watch it do so. It is a view rather than a
+    // fifth pane of /monitor for the reason the deploy strip left the board at all — a
+    // deploy in flight is not a fact about a pull request, it is the rung after it, and a
+    // screen about pull requests was the wrong place to be told.
+    { id: 'releases', href: '/releases', icon: '🚀', label: 'Releases', paths: ['/releases', '/deploys', '/releases.html'] },
   ];
 
   const here = location.pathname.replace(/\/+$/, '') || '/';

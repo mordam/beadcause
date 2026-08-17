@@ -25,8 +25,8 @@
  *    behaviour is checked as a regression rather than described: the message must reach
  *    the fix, and a 300-character slice of the paragraph provably does not.
  * 4. **The screen reads the fields rather than the paragraph.** A static read of
- *    public/prs.js and public/style.css, like test/quietcard.mjs: the renderer needs the
- *    whole board document to run, so what is checked is what a refactor breaks quietly
+ *    public/releases.js and public/style.css, like test/quietcard.mjs: the renderer needs
+ *    the whole page's document to run, so what is checked is what a refactor breaks quietly
  *    — that each field is read, that the error paragraph is no longer printed beside
  *    them, and that the classes it draws have rules.
  *
@@ -225,7 +225,10 @@ await new Promise((r) => ntfy.close(r));
 
 console.log('\nthe deploy strip reads the fields rather than the paragraph');
 
-const prs = fs.readFileSync(path.join(ROOT, 'public', 'prs.js'), 'utf8');
+/* public/releases.js since bc-khoe.7, and it was public/prs.js before it: the strip is a
+   view of its own now rather than a box at the top of the PR board. Nothing about the
+   verdict moved with it — the same `launchAgentHtml`, the same four fields. */
+const prs = fs.readFileSync(path.join(ROOT, 'public', 'releases.js'), 'utf8');
 const css = fs.readFileSync(path.join(ROOT, 'public', 'style.css'), 'utf8');
 
 check('there is a renderer for the verdict at all', /function launchAgentHtml/.test(prs));

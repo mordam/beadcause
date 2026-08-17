@@ -427,10 +427,12 @@ await check('it warms the other views and never the one it is on', async () => {
   await tick(20);
   assert.ok(!t.asked.includes('/api/questions?scope=human'), 'the inbox does not warm its own payload');
   // Pills first, in the row's own order, and `/api/work` at the head of them: the
-  // advocates roster is the heaviest payload of the three cheap ones and the pill next
+  // advocates roster is the heaviest payload of the cheap ones and the pill next
   // to Home, and this is a sequential loop, so its place in the queue is how long that
-  // view stays cold. /admin and the chat session come last because neither is a pill.
-  assert.deepEqual(t.asked, ['/api/work', '/api/prs', '/api/unendorsed', '/api/admin', '/api/consoles']);
+  // view stays cold. `/api/queues` follows `/api/prs` because Releases follows the board
+  // on the row and rides its sweep. /admin and the chat session come last because
+  // neither is a pill.
+  assert.deepEqual(t.asked, ['/api/work', '/api/prs', '/api/queues', '/api/unendorsed', '/api/admin', '/api/consoles']);
 });
 
 await check('a path two views share is fetched once, not twice', async () => {
@@ -443,6 +445,7 @@ await check('a path two views share is fetched once, not twice', async () => {
   assert.deepEqual(t.asked, [
     '/api/questions?scope=human',
     '/api/work',
+    '/api/queues',
     '/api/unendorsed',
     '/api/admin',
     '/api/consoles',
@@ -477,7 +480,7 @@ await check('a held board and a held queue are left alone whatever their age —
   // the floor. This *is* the reopen: `prewarm` runs once per document, and a reopen is a
   // new document, so before bc-1kwl.15 it went and fetched all five of these again.
   const payload = { workspaces: [], scopes: [], consoles: [], beads: [], repos: [] };
-  for (const p of ['/api/work', '/api/admin', '/api/consoles', '/api/unendorsed', '/api/prs']) {
+  for (const p of ['/api/work', '/api/admin', '/api/consoles', '/api/unendorsed', '/api/prs', '/api/queues']) {
     warm.write(p, payload);
     age(bag, p, 60 * 60 * 1000);
   }
@@ -489,6 +492,10 @@ await check('a held board and a held queue are left alone whatever their age —
   // spent on every single app open, to replace a payload already on the disk.
   assert.ok(!t.asked.includes('/api/prs'), 'a `gh` call per repo, for a board already held');
   assert.ok(!t.asked.includes('/api/unendorsed'), 'a `bd` sweep and a `bd show` per row, for a queue already held');
+  // And the third, added with the Releases view (bc-khoe.7): it rides the board's sweep,
+  // so on a reopen that has just skipped `/api/prs` it is the request that would pay for
+  // one instead — the same bill, moved rather than avoided.
+  assert.ok(!t.asked.includes('/api/queues'), 'the board sweep again, wearing the queues path');
   // And nothing else changed: the one `bd` sweep a tab is actually drawn from, and the
   // two in-memory reads, are still refreshed. Held is not the same as current for those,
   // and this is what stops Advocates arriving an hour old.
@@ -515,18 +522,31 @@ await check('the paths the background warm will not replace are the ones the inb
   // two pages that are not pills and this read the old order out of a literal. Which two
   // paths are too expensive to re-ask for is the claim here; where they sit in the queue
   // is not.
-  assert.deepEqual(holdOnly.slice().sort(), ['/api/prs', '/api/unendorsed']);
-  // `MAINTAINED` in public/app.js decides the same question for the other warmer, and the
-  // two answers have to agree. A path one of them refuses to re-ask while the other
-  // sweeps it on every reopen is the expensive half of that decision still being paid,
-  // by a route nobody is looking at — which is the whole of what bc-1kwl.15 found.
+  assert.deepEqual(holdOnly.slice().sort(), ['/api/prs', '/api/queues', '/api/unendorsed']);
+  // `MAINTAINED` in public/app.js decides the same question for the other warmer, and
+  // where both of them know a path the two answers have to agree. A path one of them
+  // refuses to re-ask while the other sweeps it on every reopen is the expensive half of
+  // that decision still being paid, by a route nobody is looking at — which is the whole
+  // of what bc-1kwl.15 found.
   const refetchFalse = [...read('public/app.js').matchAll(/path: '([^']+)',[\s\S]{0,2000}?refetch: (true|false),/g)]
     .filter((m) => m[2] === 'false')
     .map((m) => m[1]);
+  // A subset rather than an equality, and the gap is named rather than tolerated: the
+  // inbox holds no `/api/queues` at all — it draws no queue and the delta stream carries
+  // nothing that would let it maintain one — so there is no counterpart there to agree
+  // with. It is `holdOnly` here for a reason of its own: `/api/queues` rides the board's
+  // 25-second sweep, so on a reopen that has just skipped a held `/api/prs` it would be
+  // the request that pays for the `gh`-per-repo call instead (bc-khoe.7). Anything else
+  // appearing in this gap is the disagreement above, and must be added to both.
   assert.deepEqual(
-    refetchFalse.slice().sort(),
-    holdOnly.slice().sort(),
+    holdOnly.filter((p) => !refetchFalse.includes(p)),
+    ['/api/queues'],
     'the two warmers disagree about which paths are too expensive to re-ask for'
+  );
+  assert.deepEqual(
+    refetchFalse.filter((p) => !holdOnly.includes(p)),
+    [],
+    'the inbox refuses to re-ask for a path the background warm replaces on every reopen'
   );
 });
 
@@ -556,7 +576,7 @@ await check('it runs once per document — a page open all afternoon does not re
   warm.forget();
   warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
   await tick(20);
-  assert.equal(t.asked.length, 5, 'a tab switch is a new document, and that is what re-warms');
+  assert.equal(t.asked.length, 6, 'a tab switch is a new document, and that is what re-warms');
 });
 
 await check('a screen that has gone dark stops it — a phone in a pocket warms nothing', async () => {

@@ -162,6 +162,10 @@ const PAGES = [
   // on the bottom bar since the day it existed, so the bar is the only thing that has
   // ever linked to it and there is no older name in anybody's home screen to keep alive.
   { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
+  // Releases (bc-khoe.7) — the two queues as cards, and the deploy strip that left the PR
+  // board. Two names for it, because the page is about the journey and the strip was what
+  // most people came for: `/releases` is what it is, `/deploys` is the word somebody types.
+  { what: 'the releases view', marker: '/releases.js', paths: ['/releases', '/deploys', '/releases.html'] },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
