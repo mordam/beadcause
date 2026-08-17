@@ -3595,38 +3595,25 @@
     badge.hidden = !n;
   }
 
-  /**
-   * The count in the chrome: what is waiting elsewhere.
-   *
-   * There used to be a second one — an **N waiting** pill in the top bar, counting
-   * the beads asking you something. It is gone (bc-ka5y.1), and the reason is that
-   * the list under it *is* that number: the rows on screen are the beads waiting on
-   * you, so the pill spent the widest part of the bar restating what you were already
-   * looking at, and cost a local-versus-served reconciliation every repaint to do it.
-   * Its tap was a shortcut to the `human` scope, which the scope chips in the filter
-   * panel still do.
-   *
-   * What is left already has a tab of its own, so it is a badge on that tab rather
-   * than a chip in the bar — the number and the way to act on it end up the same tap
-   * target.
-   */
-  function paintSummary() {
-    const s = state.summary || {};
-    // The tabs live at the foot of every page, but only this one has the numbers:
-    // they ride the inbox's poll. A page that never sets a badge shows none, which
-    // is better than a number it has no way to refresh.
-    //
-    // One badge, and it is the proposals. A badge means *needs you* — that is what
-    // makes it worth putting a number on a tab you are not looking at — and a running
-    // agent needs nothing; it is a fact about the machine. `summary.sessions` is still
-    // served and still worth reading, and it is read on the page itself, in the
-    // advocate console's tally ("N working · M to answer"), where it sits beside the
-    // repo it belongs to instead of standing for every repo at once.
-    const badge = window.beadcause?.tabBadge;
-    if (!badge) return;
-    const proposals = Number(s.proposals) || 0;
-    badge('advocates', proposals, `Advocates — ${proposals} proposal${proposals === 1 ? '' : 's'} waiting`);
-  }
+  /*
+    ## There is no count in the chrome any more (bc-khoe.1)
+
+    Two of these have now gone the same way. The first was an **N waiting** pill in the
+    top bar (bc-ka5y.1): the list under it *was* that number, so it spent the widest part
+    of the bar restating what you were already looking at. The second was `paintSummary`,
+    which hung the proposals count off the Advocates tab through `beadcause.tabBadge` —
+    and it goes with the bottom bar that carried it.
+
+    The argument against it is the one the pill lost on, plus one the pill did not have.
+    A badge is a number about a page you are **not** looking at, and it is only ever live
+    on the one page whose poll happens to carry it — the inbox's. Everywhere else the bar
+    drew no badge at all, which was the honest state and also a second thing to have
+    learned. What is left is `summary` on the payload, still served, still read where a
+    count belongs beside the thing it counts: the advocate console's tally.
+
+    The pill row draws no counts, on any pill, deliberately — see the header of
+    public/viewbar.js.
+  */
 
   /**
    * The option this card's answer is currently making, or null.
@@ -5037,7 +5024,19 @@
   // placeholder holds a fresh SVG after every repaint, and a log pane is replaced
   // line by line.
   const OPAQUE = '.diagram, svg, pre';
-  const docScroller = () => document.scrollingElement || document.documentElement;
+  /**
+   * The page's own scroller — which is not the document any more (bc-7utr, bc-khoe.1).
+   *
+   * The inbox is a viewport-height shell: the top bar, the pill row and the filter line
+   * are rows of a flex column and the list is the one element with `overflow-y: auto`
+   * (see `.pagescroll` in public/style.css). So `document.scrollingElement.scrollTop` is
+   * 0 for the whole visit, and putting it back after a repaint restores a number that
+   * was never anything else. The fallback is kept for the same reason the anchoring
+   * above measures instead of assuming: a page that somehow loses the class still keeps
+   * its place.
+   */
+  const docScroller = () =>
+    document.querySelector('.pagescroll') || document.scrollingElement || document.documentElement;
   let placeGen = 0;
 
   /** Something deliberate is moving the page. Stop putting it back. */
@@ -6266,7 +6265,6 @@
     paintList(chunks);
 
     paintRequestBadge();
-    paintSummary();
     renderFilters();
     // The live half of any delivery on screen. `ensurePr` is a no-op for a card it
     // has already fetched, so this costs one GitHub round trip per pull request for
@@ -6407,6 +6405,12 @@
 
   // One paint per frame at most. Scroll fires far faster than the screen redraws, and
   // every paint here reads geometry back out of the layout.
+  //
+  // `capture` is what keeps this listener working now that the list scrolls rather than
+  // the document (bc-7utr): a `scroll` event on an element does not bubble, so a
+  // bubble-phase listener on the window never hears it — but it is still dispatched down
+  // the capture path, window first. One listener, both shapes, and it also catches an
+  // open card scrolling its own brief.
   addEventListener(
     'scroll',
     () => {
@@ -6416,7 +6420,7 @@
         paintScrollPos();
       });
     },
-    { passive: true }
+    { passive: true, capture: true }
   );
 
   /* --------------------------------------------------------------- actions */
@@ -9215,11 +9219,11 @@
         composeEl.focus();
       }
     });
-    // What tells the stylesheet to keep the foot of the list clear of the button, the
-    // same way `has-tabbar` keeps it clear of the bar. Set from here rather than
-    // written into the markup because it is a fact about this script having wired ＋
-    // up: on the stale-document load above there is no button, and reserving space
-    // under one would be a gap at the end of the list with nothing in it.
+    // What tells the stylesheet to keep the foot of the list clear of the button. Set
+    // from here rather than written into the markup because it is a fact about this
+    // script having wired ＋ up: on the stale-document load above there is no button,
+    // and reserving space under one would be a gap at the end of the list with nothing
+    // in it.
     document.body.classList.add('has-compose');
   }
 

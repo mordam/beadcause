@@ -245,6 +245,11 @@ async function spawnBackend(deadlineMs) {
     pid: child.pid,
     build: null,
     startedAt: Date.now(),
+    // When it first answered on its own port — the health check passing, which is a
+    // different moment from the spawn by anything between a second and the whole width of
+    // the window. Both are rungs of the release ladder (bc-khoe.8), and this is the only
+    // process that ever sees either.
+    healthyAt: null,
     role: 'starting',
     reaping: null,
     inflight: 0,
@@ -279,6 +284,7 @@ async function spawnBackend(deadlineMs) {
     }
     try {
       const state = await localJson(port, '/internal/state', { timeout: 2000 });
+      be.healthyAt = Date.now();
       be.build = state.build;
       be.role = state.role;
       be.reaping = state.reaping;
@@ -422,15 +428,25 @@ function retire(be) {
 }
 
 /**
- * Tell the error-reporting quiet window that the port has just changed hands.
+ * Write down that the port has just changed hands — twice, into two files, on purpose.
  *
- * bc-kttd. `lib/deploy.js` holds `POST /api/error` off across a deploy by reading the
- * deploy journal, and a swap writes nothing into it — so a hand-run `npm run swap`, and
- * every automatic one this file does when `lib/` moves, produced exactly the storm that
- * mechanism exists to stop: a handful of failures that happened a moment before the new
- * backend became healthy, described to it afterwards, each one a P0 in front of the
+ * **The marker (bc-kttd).** `lib/deploy.js` holds `POST /api/error` off across a deploy by
+ * reading the deploy journal, and a swap writes nothing into it — so a hand-run `npm run
+ * swap`, and every automatic one this file does when `lib/` moves, produced exactly the
+ * storm that mechanism exists to stop: a handful of failures that happened a moment before
+ * the new backend became healthy, described to it afterwards, each one a P0 in front of the
  * advocate. `markRestart` leaves the one fact that costs, and lib/deploy.js explains at
  * length why it is a file of its own rather than a fake deploy.
+ *
+ * **The trail (bc-khoe.8).** The marker answers "was there a handover in the last thirty
+ * seconds" and nothing else — it overwrites itself, deliberately. The release board asks a
+ * different question: *which* handover carried release 42, and when did each of its three
+ * stages happen. So the same moment is also appended to a short trail, with the spawn and
+ * the health check that preceded it and the deploy it belongs to, and lib/queues.js draws
+ * *deployed to green*, *green verification* and *swapping to blue* off that instead of
+ * marking them untracked. Which deploy it belongs to is the journal's question, not this
+ * file's — `restartingDeploy` answers it, and null is the ordinary answer, because a swap
+ * this router did on its own belongs to no deploy at all.
  *
  * **Lazily imported and never fatal**, for the reason at the top of this file and the
  * reason `armCrashHandlers` gives at more length: lib/deploy.js reaches lib/session.js
@@ -444,8 +460,30 @@ function retire(be) {
  * daemon that never moved. Only the assignment to `active` is the service changing hands.
  */
 function noteRestart(be, reason) {
+  const iso = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
   import('../lib/deploy.js')
-    .then(({ markRestart }) => markRestart({ build: be.build, pid: be.pid, reason }))
+    .then(async ({ markRestart, restartingDeploy }) => {
+      markRestart({ build: be.build, pid: be.pid, reason });
+      // The trail second, after the marker has already landed, imported separately and
+      // caught separately. Two failures with two different costs: a marker that did not
+      // land is a screen full of P0s, and a trail that did not land is three rungs of a
+      // release card reading "not tracked". They must not be able to take each other down,
+      // and they must not be reported in each other's words.
+      try {
+        const { recordHandover } = await import('../lib/handover.js');
+        recordHandover({
+          build: be.build,
+          pid: be.pid,
+          port: be.port,
+          spawnedAt: iso(be.startedAt),
+          healthyAt: iso(be.healthyAt),
+          reason,
+          deploy: restartingDeploy()?.id || null,
+        });
+      } catch (err) {
+        warn(`could not record the handover trail (${err.message}) — this swap's three stages will read as untracked`);
+      }
+    })
     .catch((err) => warn(`could not record the handover (${err.message}) — the reconnect after this swap may file beads`));
 }
 

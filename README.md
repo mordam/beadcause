@@ -789,10 +789,13 @@ combination of filter and workspace, because those two disagreeing in the direct
 #### The row it cost, and why it no longer costs one
 
 The picker had a full-width row of its own until bc-khoe.5, so six pages carried two rows
-of sticky chrome where they had carried one. On a phone that is worth arguing about, so it
+of pinned chrome where they had carried one. On a phone that is worth arguing about, so it
 was measured instead: at 360×640 the row was **43px** — a 31px control and the bar's 12px
-gap — taking the bar from 61px to 104px and the bar plus the tab bar from 116px to 159px,
-18% of the screen to **25%**.
+gap — taking the bar from 61px to 104px and the bar plus the navigation from 116px to
+159px, 18% of the screen to **25%**. (The navigation was a 54px bar along the bottom when
+those numbers were taken; bc-khoe.1 replaced it with the 53px
+[pill row](#getting-around--the-pill-row) under the top bar, so the totals below are a
+pixel smaller than they read. The argument is the same one either way.)
 
 It kept that row for a year of decisions, and the reason was arithmetic rather than taste:
 the first row was full. Three ways round it were tried against the real pages and all three
@@ -817,8 +820,8 @@ That is the trade the old arithmetic refused, and the reason it is affordable no
 the value is still on screen. `beadcause` — nine characters, and the common case — is not
 cut at all; `climative-…` still says which one; and the accent border says something is
 being kept off the screen either way. Measured after: the bar is **one line on all six
-pages at both widths**, 61px, and the bar plus the tab bar is **116px** against the 159px
-it replaced. The narrowest margin left on the row is 31px, on `/foundations`.
+pages at both widths**, and the bar plus the pill row is **108px** against the 159px the
+two of them replaced. The narrowest margin left on the row is 31px, on `/foundations`.
 
 The one cost worth naming separately is **refresh**. It was the last icon left loose in the
 bar, deliberately, because it is the most-pressed control in the app and the least worth two
@@ -829,7 +832,7 @@ and the picker is the shape being got rid of, and it is two taps now.
 forgotten — and it is where those numbers come from. Two widths, every page with a picker:
 the bar is **exactly one line**, the picker is on it and sharing it, no name the picker can
 select would draw a face over twelve characters, the face on the bar is the cut form of what
-is selected, every row in the dropdown is a whole name, and the bar plus the tab bar stays
+is selected, every row in the dropdown is a whole name, and the bar plus the pill row stays
 inside a **170px** budget. Then it picks the longest workspace in the fixture through the
 control itself and measures the bar again — because everything before that is measured on
 `All spaces`, which is under the cut, so without that pass the truncation could be deleted
@@ -850,23 +853,27 @@ carried `margin: -18px -16px 14px`, which on the agents' page cancels `.launcher
 `18px 16px` padding but here has an unpadded `<body>` to cancel and so simply pushed the
 strip past both edges. The symptom was not a scrollbar. It was the advocate console drawn
 at **96%**, draggable sideways by 16px, with the strip's first chip starting 2px off the
-left of the screen and the bottom tab bar's last label cut in half — which reads as a
+left of the screen and the bottom bar's last label cut in half — which reads as a
 font being slightly wrong rather than as a layout bug, and sat there unnoticed until a
 check printed the number (bc-3ui6).
 
-The sixth is what the bar does to whatever sticks *underneath* it. The bar is
-`position: sticky` at z-index 20, so a second sticky box on the same page that pins at
-`top: 0` pins itself behind it and is simply gone from the first scroll onwards —
-`/monitor`'s Advocates/PRs/Mirror strip did exactly that, carrying the whole cost of
-being sticky for none of the benefit (bc-ugd4). So the check makes each page scrollable,
-scrolls it, and requires every box pinned to the window to sit **against** the bar's
-bottom edge: overlapping it is that bug, and a gap below it is the bug you get from
-fixing that one with a constant — `top: 104px` read off a screenshot is a 43px hole the
-day the picker hides itself and the bar is 61px. Both directions fail, and `/monitor` is
-measured a second time with one workspace, in the shorter bar, because the two heights
-are the two states this ships in. The offset is `var(--topbar-h)`, published by
-`public/montabs.js` from a `ResizeObserver` on the bar — measured rather than derived, so
-the safe-area inset and a rewrap are covered by the same three lines as the picker.
+The sixth is that **the chrome does not move when you scroll**, and it used to be a
+narrower question. The bar was `position: sticky` at z-index 20, so a second sticky box
+pinning at `top: 0` pinned itself behind it and was gone from the first scroll onwards —
+`/monitor`'s Advocates/PRs/Mirror strip did exactly that, carrying the whole cost of being
+sticky for none of the benefit (bc-ugd4). The fix at the time was to offset it by
+`var(--topbar-h)`, a number `public/montabs.js` published off a `ResizeObserver` on the
+bar, because the bar's height is a fact about the payload: 104px with the picker's row and
+61px without it.
+
+[The app shell](#every-page-is-an-app-shell-not-a-document) removed the question rather
+than the number. Nothing is sticky any more — the bar and the pill row are rows of a flex
+column above the one element that scrolls — so the check now appends a spacer *inside that
+element*, scrolls it, and requires both rows to be in exactly the same place afterwards and
+the document not to have moved at all. A box still pinning itself to the window is reported
+as its own failure, because that is how the old bug gets back in. `/monitor` is measured a
+second time with one workspace, in the shorter bar, because the two heights are still the
+two states this ships in and the pill row has to sit against the bar in both.
 
 ### Space details — the page the advocate console became
 
@@ -2485,8 +2492,9 @@ turns later, in a way that looks like the agent being unhelpful. Those change by
 editing the file in a release, which is a human writing code.
 
 Amendable: `purpose`, `role`, `model`, `tools`, `allowedTools`, `env`, `timeoutMs`,
-`permissionMode`. A request naming anything else is **rejected, not filtered** —
-silently dropping half a request would apply an amendment you did not approve.
+`permissionMode`, and the five **card** fields the section below adds. A request naming
+anything else is **rejected, not filtered** — silently dropping half a request would apply
+an amendment you did not approve.
 
 ### The loop
 
@@ -2614,6 +2622,132 @@ channel would have looked identical in the shade and given you nothing to hold.
 parsed.** A malformed request still arrives in the foundation channel carrying its
 error, rather than falling back into the work feed where nobody is looking for a
 constitutional decision.
+
+## The AI system registry — what each of these is for, and what it would be wrong to use it for
+
+ISO/IEC 42001 asks, per AI system, for the intended use, the reasonably foreseeable
+misuse, the populations affected, the human oversight measure, the model, and the
+limitations somebody has to be told about. Beadcause had most of that already and called
+it something else. An allowlist is an oversight measure. `writes: false` is an oversight
+measure. A twelve-hour cooldown is an oversight measure. What was missing was the
+declarative half: nowhere did anything say, in a sentence, *what an agent was for* or
+*what it would be wrong to use it for*.
+
+So five fields on every foundation — `intendedUse`, `foreseeableMisuse`, `affects`,
+`oversight`, `limitations` — and the six agent kinds each carry all five. That is
+`CARD_FIELDS` in `lib/foundation.js`.
+
+**They are foundation fields rather than a register beside the code, and that is the whole
+design.** A register kept next to the thing it describes is a document somebody has to
+remember to update, and it stops being true on the first busy week. These sit inside the
+amendment chain, so a change to what an agent is documented as is a commit on
+`refs/beadcause/foundations` carrying its justification and the bead it came from —
+exactly like a change to an allowlist. Intended use drifting with nothing to show for it
+is the finding this exists to prevent, and a field *outside* `AMENDABLE` is a field that
+can drift in a release with nothing on the ref to record it. That is why they are in the
+amendable set rather than protected beside `id` and `writes`.
+
+All five are prose, including `affects`. A list would invite `add:` — one more population
+appended without re-arguing who else is on it — and the useful content here is not who but
+*how*: "the colleague named as the blocker in a proposal did not take part in the
+conversation that named them" is the sentence, and it does not fit in a list entry.
+
+### An amendment that outdates a card is refused
+
+The half that makes this evidence rather than a document. `CARD_IMPLICATIONS` is the
+table, and each row is an argument rather than a pairing:
+
+| moving this | owes a sentence in |
+|---|---|
+| `model` | `limitations` |
+| `tools`, `allowedTools` | `intendedUse` **or** `foreseeableMisuse` |
+| `permissionMode` | `oversight` |
+
+Nearly everything a card can honestly promise about what an agent will and will not
+manage is a statement about the model underneath it, so moving the model and leaving the
+limitations alone asserts the two are unrelated. A tool grant is the only way an agent's
+reach actually changes: either it is now doing more than the card said it was for, or
+there is a new way for it to go wrong, and naming one of the two is the bar.
+`permissionMode` *is* an oversight measure — it decides whether a person is in the loop
+for each tool call — so a card whose oversight sentence survives a change to it is
+describing a control that is no longer there.
+
+`purpose`, `role`, `env` and `timeoutMs` are deliberately ungated. A role is prose about
+how to behave that the card's own prose does not restate, and a gate on everything is a
+gate people route around by writing a card sentence that says nothing.
+
+It is checked **per moved field, not per patch**. An amendment moving `model` and
+`permissionMode` at once owes both `limitations` and `oversight`; a union would let one
+sentence about the model stand in for a deleted control.
+
+**And the refusal names both halves**, because a refusal a maintainer cannot act on is a
+refusal somebody eventually turns off:
+
+```
+refused: the system card does not change with it: `allowedTools` implicates
+`intendedUse` or `foreseeableMisuse`. Set the named card field in the same amendment, or
+narrow the request so it does not move allowedTools.
+```
+
+It is enforced in **two** places on purpose, and only one of them is the enforcement.
+`foundation.validate` — the funnel every write goes through — is what actually stops it,
+so no future caller of `amend` can walk past a gate that lived only in a parser. The
+second is `parseAmendment`, which refuses the block at the point the *agent* is still the
+audience: refused there, the agent is told in its own transcript which field it moved and
+which sentence it owes, and can re-file with it. Let it through and the same refusal
+arrives on your phone as a 422 while you are tapping approve. The parse refusal is
+**errored and complete**, the way a request naming a protected field already is: the
+scope, the justification and the delta all survive, so nothing about what the agent wanted
+is dropped on the floor.
+
+The reflection prompt an agent gets now prints its own card back to it alongside its
+allowlist, and states the rule with the table filled in from `CARD_IMPLICATIONS` — one
+copy of the mapping, so the prompt cannot describe a gate different from the one that
+runs.
+
+### And beadcause itself is a registered system
+
+Not only its agents. Six kinds of agent do work; the daemon, the phone app and the loop
+connecting them are the system those agents are part of, and an auditor asking "what is
+this thing, and what is it for" is not asking about the worker.
+
+It has **no `BASELINES` entry**, and that was the judgement worth writing down. A seventh
+key in that map would put `beadcause` in `AGENTS` — and every reader of `AGENTS` (the
+activity matcher, the chat launcher, the amendment parser, `POST /api/console`) would
+then be wrong, in a way that fails as a runtime surprise rather than as an error anybody
+sees. So it is a **sibling record** in `lib/systemcard.js`, resolved by the same reader:
+`systemCard(id)` answers for `beadcause` and for any agent kind without the caller
+knowing which it asked about, and `AGENTS` still means agent kinds afterwards.
+
+```js
+systemCard('beadcause')     // the system's own card
+systemCard('worker')        // the worker's, off its baseline
+await systemCards(dir)      // all seven, with approved amendments applied
+registryGaps()              // empty, or the cards missing a field
+```
+
+**Beadcause's own card is not amendable, and that is stronger than amendable rather than
+weaker.** An agent's card is amendable because there is an agent that could ask, and
+because a field outside the chain could drift. Nothing *is* beadcause, so there is nobody
+to file that request; changing what the system is for is a commit to that file, reviewed
+by a person. Said out loud because "not in the chain" otherwise reads as an oversight.
+
+What it does not carry is `tools`, `allowedTools` or a model: those are facts about a
+process that runs, and beadcause is the thing that opens the processes. Its model line
+says `source: 'per-agent'` and points at the six cards below it, rather than drawing a
+blank — a card declining to answer the model question is worse than one that says where
+the answer is. For an agent the same line is honest in the other direction: `model: null`
+means nobody has said anything about *this agent* specifically and the run is routed from
+the bead's complexity tier, so the card answers with the model an unrated bead lands on
+and `routed: true` to say that is a default rather than a decision. `FALLBACK_MODEL` is
+imported from `lib/complexity.js` and never restated — a mapping is a decision, and a
+second copy of a decision goes stale silently because both copies keep rendering.
+
+`test/systemcard.mjs` holds both properties: every registered system resolves to a card
+with all five fields on it (so a seventh agent kind with no card fails there rather than
+shipping as a blank row on a screen), and the gate refuses, by name, in every direction it
+is meant to. All three guards were mutation-tested — delete the throw, delete the parse
+refusal, blank a card field, confirm red, restore.
 
 ## What an agent remembers, and how agents tell each other things
 
@@ -3254,11 +3388,13 @@ this say before the advocate rewrote it" without anyone having remembered to ask
 Snapshots are debounced by two seconds and the reasons accumulate, because one
 advocate cycle rewrites `advocates.json` three or four times in a second and those
 are one event to whoever reads the history back. `status.json`, `restart.json`,
-`merge-sweeps.json`, `sweep-cards.json`, `coverage.json`, `logs/`
+`handovers.json`, `merge-sweeps.json`, `sweep-cards.json`, `coverage.json`, `logs/`
 and the check PNGs are ignored — churn, and not the thing you want a history of.
 `deploys/` is not, and the difference is the point: a deploy record is something somebody
 pressed Ship on, and a restart marker is one line the router overwrites on every swap
-which means nothing thirty seconds later. The coverage report is the same argument in a
+which means nothing thirty seconds later. [The trail beside it](#and-the-trail-the-release-board-reads)
+is the same argument at twenty rows: rewritten whole every time the port changes hands, so
+a commit per swap would be those same rows written twenty times over. The coverage report is the same argument in a
 larger size: a few hundred kilobytes rewritten whole by every [`npm run coverage`](#npm-run-coverage--which-files-the-suite-never-even-loads),
 true only of the commit stamped inside it, so a history of it would be one enormous diff
 per run saying nothing the run did not print.
@@ -3600,7 +3736,7 @@ the answer you can see.
 
 ### The agent halves are read, never written down
 
-The five agent kinds on that page — what each may run, whether it may write to the
+The seven agent kinds on that page — what each may run, whether it may write to the
 tracker, its timeout, its model, and the whole of its role prompt — come out of
 lib/foundation.js at render time. Nothing about an agent is restated in the model, and
 that is the point rather than an economy: a diagram carrying its own copy of an
@@ -3642,8 +3778,8 @@ inline `style`, which beats a stylesheet, and the failure only shows up on a pho
 dark. Like every other `*-check.mjs` it needs a headless Chrome, so it is not in
 `npm test`.
 
-**It is not a tab, and `/flow` is not on the bottom bar.** By [that bar's own
-rule](#getting-around--the-tab-bar) a tab is a claim that a page is somewhere you go
+**It is not a pill, and `/flow` is not on the row.** By [that row's own
+rule](#getting-around--the-pill-row) a place on the navigation is a claim that a page is somewhere you go
 repeatedly, and this is a page you read when you are new to the system or arguing about
 it — not one you check. `/map` is the same page, because both are what somebody types.
 
@@ -4623,7 +4759,7 @@ scope chips in the filter panel are the same tap.
 The two numbers that remain — agents running, advocates waiting — are **badges on the
 tabs that answer them**, not chips up here: the number and the way to act on it end up
 as the same tap target, and neither is a count of the list you are looking at. See
-[the tab bar](#getting-around--the-tab-bar).
+[the pill row](#getting-around--the-pill-row).
 
 ### The card is the control — tap it anywhere to open it
 
@@ -5095,72 +5231,81 @@ It also prints what the glass is doing — how much it magnifies, how big a titl
 inside it, how many beads it has room for — and `--id=<bead>` opens the graph the
 way **What this is blocking** does and asserts that bead ends up under it.
 
-## Getting around — the tab bar
+## Getting around — the pill row
 
 The standing views — it started as four: the **inbox**, the **chat session**, the
 **sessions** and the **advocates**, with the **pull requests** and the **admin**
-screen since. Three of the six have left again: **Sessions**, because it and Advocates
-turned out to be one view drawn twice, and then **Chat** and **PRs**, both for the reason
-given below. They are separate pages, and each one used to end in an ✕ in the top right
+screen since. They are separate pages, and each one used to end in an ✕ in the top right
 that hard-navigated back to `/`. That made the inbox a hallway — chat session to advocates
 was two taps through a page you did not want — and the ad-hoc cross-links that grew to
 paper over it (sessions → advocates, advocates → sessions) were the same complaint,
 admitting itself.
 
-So all of them carry the same bar along the bottom, where a thumb already is:
+The answer to that was a bar along the bottom, where a thumb already is. It was the right
+answer for a year and it is gone (bc-khoe.1), because by the end the app had **two** of
+them: that bar, which moved between pages, and the chip row on `/monitor`, which swaps a
+pane — drawn alike, at opposite ends of the screen, and telling them apart was something
+you had to have learned. On top of the two, the inbox's filter panel held ten *kinds*,
+which are categories doing a view's job.
+
+So there is one row now, under the top bar on every page the bottom bar was on:
 
 ```
-  📥         📣         📜        ⏸
- Inbox   Advocates   History   Admin     ＋
- ▔▔▔▔▔
+  ┌──────────────────────────────────────────────────────┐
+  │ ● Beadcause                              🗳  ⌨️  ⟳ │
+  │ Personal ▾                                    3 ▸    │
+  ├──────────────────────────────────────────────────────┤
+  │ [🏠 Home]  📣 Advocates   📜 History   🚢 PRs        │  ← scrolls sideways
+  └──────────────────────────────────────────────────────┘
 ```
 
-**A tab is not a shortcut to a page; it is a claim that the page is somewhere you live.**
-That is what took **PRs** back out of the bar (bc-l8jp.6): the board is somewhere you
-glance — *did that ship?* — and then act on twice a day, and its rows are incoming work
-like everything else the inbox holds. So [the rows moved into the
-inbox](#where-you-read-it-an-inbox-card-and-the-board) and the board kept its URLs
-without keeping a fifth of the bar. `/prs`, `/pulls` and `/prs.html` all still work —
-they are on the phone's home screen and in the notification a ship sends.
+Four pills today, on eight pages. The three standing views — Home, Advocates, History —
+plus the board; the other five pages that used to load the bottom bar (`/admin`,
+`/console`, `/endorse`, `/flow`, `/requirements`) draw the row with **nothing on it
+current**, which is their way off a page that would otherwise be reachable only by the
+browser's back gesture.
 
-**Kept its URLs and lost its way in.** With no tab, the only route to the board was the
-link on a PR card in the inbox — so on a day when no pull request was showing there, there
-was no route at all, and **Ship** lives on that board. A ship bead that says *press Ship on
-the pull request board and this closes itself* was not answerable from a phone without
-typing a URL. That is bc-d4d5, and the fix is not to undo bc-l8jp.6: the board is [a pane
-on the advocates page](#the-board-is-a-pane-too) now, which is the Mirror's argument for
-the second time. `/prs`, `/pulls` and `/prs.html` land there with its chip up, the bar
-marks **Advocates** as current on all three, and `scripts/tabbar-check.mjs` asserts exactly
-that. The chat session is still the page the bar marks nothing on, still with `tab: null`
-in that check — a page can be reachable, load-bearing, and not a tab.
+**A pill is an `<a href>`; the current one is a `<span>`.** Tapping where you already are
+should do nothing, not throw away the list, the conversation and your scroll position to
+rebuild the same screen. It is marked twice over — `aria-current="page"` for a reader that
+cannot see the accent, and the filled pill for one that can — because colour alone is not
+a mark.
 
-Four tabs is 90px each at 360px. Three was 120px, five was 72px — which "Advocates" still
-fits — and six would be 60px, which it does not, so the stylesheet steps the type down when
-a sixth tab is there (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own
-contents rather than off a count written down somewhere, so adding or removing a tab needs
-nothing else. It is dormant below six and will come back on its own if the bar fills up
-again.
+**The row scrolls sideways and never wraps.** There are four pills today and there will be
+roughly nine once the kinds become pills, Advocates and Mirror fold
+in and Releases arrives. A row that wrapped to a second line on a 360px phone would spend
+a row of a screen that is mostly chrome already, which is the thing this change exists to
+stop. The selected pill is scrolled into view on load — done by arithmetic on the two
+rectangles rather than with `scrollIntoView`, which is allowed to scroll every ancestor
+and would quietly move the list under it.
 
-Advocates carries a **badge** when there is something behind it — how many advocates
-are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
-carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
-is live while you are on the inbox and simply absent on a page that has no way to
-refresh it — which beats a stale number that looks live. Zero shows nothing. The badge
-sits inside the tab's `aria-hidden` icon, so the tab takes an `aria-label` saying what
-the number counts: "2" read out after "Advocates" says nothing about two of what.
+**No counts and no badges, on any pill.** Advocates used to carry one — how many proposals
+were waiting — and it went with the bar. A badge is a number about a page you are *not*
+looking at, and it was only ever live on the one page whose poll happened to fetch it: on
+every other page the bar drew nothing, which was honest and was also a second thing to
+have learned. The count is still served and still on screen, in the advocate console's own
+tally ("3 working · 1 to answer"), beside the repo it belongs to instead of standing in
+for all of them.
 
-**One badge, and it is the proposals.** Sessions used to carry the count of running
-agents beside it, and dropping it was deliberate rather than a casualty of the merge:
-a badge on a tab you are not looking at means *needs you*, and a running agent needs
-nothing — it is a fact about the machine. The count is still served and still on
-screen, in the advocate console's own tally ("3 working · 1 to answer"), beside the
-repo it belongs to instead of standing in for all of them.
+**What is not a pill, and why.** `/admin` is the screen you least want under a stray
+thumb, so it loses the rightmost tab it had — and it does not need one: since bc-khoe.5 it
+is a row in the menu the top bar's gear-wrapped mark opens, on every page rather than only
+the one that happened to carry a ⚙. The chat session
+has had no place on the navigation since bc-l8jp.5, because it was the one entry that was
+also the way to *create* something — the conversations you have open are rows in Home and
+starting one is the ＋ there. The endorsement queue's absence is a recorded decision
+(bc-j0zl, [never a sixth tab](#where-it-lives-and-the-tab-it-is-not)), and bc-khoe.2 folds
+it into a **Questions** pill rather than giving it one of its own. `/flow` and
+`/requirements` are pages you read when you are new to the system or arguing about it, not
+pages you check. A page can be reachable, load-bearing, and not a view.
 
-Any view is one tap from any other, and nothing closes any more. The current tab is
-a `<span>` rather than a link — tapping where you already are should do nothing, not
-throw away the list, the conversation and your scroll position to rebuild the same
-screen — and it is marked twice over, by the accent colour and by the rule above it,
-because colour alone is not a mark. The bar pads itself past the home indicator.
+**The board is a pill again.** bc-l8jp.6 took `/prs` off the bottom bar on the rule that a
+tab was a claim a page is somewhere you *live*, and a fifth of a five-tab bar is a lot to
+claim for a screen you glance at twice a day; bc-d4d5 then found that taking it off had
+left nothing at all pointing at it, and made it a chip on the advocates page. The row ends
+that argument by removing the thing it was about: a view costs one pill out of nine here
+rather than a fifth of the screen. `/prs`, `/pulls` and `/prs.html` are the pill's paths
+and all three still land on the advocates page with its board chip up.
 
 ⟳ stays in the top bar of the views that have it: it acts on the view you
 are looking at rather than taking you off it. ⌨️ (the terminal) and ⚖️ (the
@@ -5168,22 +5313,68 @@ foundations) stay in the inbox's top bar too — they are places you go for one 
 and come back from, not views you live in.
 
 An **open question is the exception**: a card you have opened takes the whole screen,
-tab bar included, because the answer buttons at its foot must not sit under anything.
-Collapsing it gives the bar back. That behaviour belongs to `.card.open` and to the
+pill row included, because the answer buttons at its foot must not sit under anything.
+Collapsing it gives the row back. That behaviour belongs to `.card.open` and to the
 inbox alone — the accordion on the pull request view marks its unfolded card
-`unfolded` instead, because a card that took the screen over the bar was a page you
+`unfolded` instead, because a card that took the screen over the navigation was a page you
 could not leave, on a view whose first load unfolds one.
 
-`node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
-the script serves itself: the bar is on every page and pinned to the bottom,
-exactly one tab is current and it is the right one — or, on the chat session and the pull
-request board, that **none** is — the current tab is not a link, and the last row of the
-list, the chat session's composer and the last advocate card all clear it. ＋ is checked
-there too, and driven rather than read: it is a real tap target, it sits above the bar
-rather than over it, the last card clears *it* as well, and tapping it asks which repo
-and then lands on the conversation it just made. All of it in both colour schemes.
-`--fake-inset` re-runs the safe-area sums with a
-notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
+### Every page is an app shell, not a document
+
+The chrome used to be `position: sticky` (the top bar) and `position: fixed` (the bar along
+the bottom), on a document that scrolled — and on a phone neither of them stayed still.
+Both are laid out against the **layout** viewport while what you are looking at is the
+**visual** one, and on iOS those are not the same rectangle: the URL bar collapses as you
+scroll down and grows back as you scroll up, moving the layout viewport under a fixed
+element, and a rubber-band overscroll translates the whole page with its fixed children in
+tow. The bottom bar slid half off the screen. No arithmetic fixes that, because the numbers
+are right and the rectangle they are measured against is the one that moves. That was
+bc-7utr, and Adam superseded it with bc-khoe.1 — deleting one of the two bars dissolves
+half of it, and the technique below is the other half.
+
+So the document does not scroll. `html` and `body` are clipped, `body` is exactly one
+viewport tall (`position: fixed; inset: 0`), and every page is a flex column:
+
+```
+  .topbar        flex: none
+  .viewbar       flex: none
+  .pagescroll    flex: 1; min-height: 0; overflow-y: auto   ← the only thing that scrolls
+```
+
+`.pagescroll` is marked **in the HTML** rather than inferred from a content class, because
+"the scrolling region" and "the list" are not the same claim: the reader (`/doc`) wraps two
+elements in one scroller, and the foundations screen has a `.thread` inside a `.pagescroll`
+that scrolls on its own. Anything that must *not* scroll away goes outside it — the two
+rows of chrome, the inbox's filter line, the advocate console's chip row.
+
+Two declarations in there are load-bearing and neither is obvious. `min-height: 0`, because
+a flex item's default `min-height: auto` is its content, so without it the scroller grows
+to fit the list instead of scrolling it and pushes everything else off the screen — the
+original bug back, wearing a different mechanism. And `.pagescroll > * { flex-shrink: 0 }`,
+because `.card` is `overflow: hidden` and a flex item that clips has an automatic minimum
+size of **zero**: without it every card in a list squashes to a fraction of its height to
+make the whole list fit one screen, and the page still scrolls and still looks like a list.
+
+The quiet half of the same change is in the scripts. On a shell `window.scrollY` is 0 for
+the whole visit and `window.scrollTo` moves nothing, so any repaint that "restored your
+place" through them was restoring a number that was never anything else — `app.js`,
+`endorse.js`, `prs.js` and `flow.js` all read and write the scroller's own `scrollTop`
+instead. `app.js`'s scroll listener is `{ capture: true }` for the same reason: a `scroll`
+event on an element does not bubble, so a bubble-phase listener on the window never hears
+it, but it is still dispatched down the capture path.
+
+`node test/shell.mjs` is the static half of the guard, in `npm test`: neither row of chrome
+is `fixed` or `sticky`, `body` still carries the shell's declarations, every page marks a
+scroller or is named as one with nothing to scroll, a pill is still over the 44px a thumb
+needs, and no page reaches for `window.scrollY` again. `node scripts/topbar-check.mjs`
+measures the real thing in a real Chrome at 360×640 and 393×852: it scrolls the scroller
+and asserts that both rows are in *exactly* the same place afterwards and that the document
+has not moved at all, which is the same geometry as the bar staying still through a URL-bar
+collapse.
+
+`node scripts/tabbar-check.mjs` — ~750 lines of cover for the deleted bar — went with it.
+bc-khoe.9 writes the row's own replacement, deriving the expected pills from
+`public/viewbar.js`'s own list rather than repeating it.
 
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
 real server for every URL a phone might still have on its home screen and checks which
@@ -5549,10 +5740,12 @@ the space picker there is no reason for the server to hold it.
 
 ### The Mirror is a pane, not a tab
 
-`tabbar.js` and [the Mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)
-landed in the same window, so for two days `/monitor` carried **two rows of tabs**: the
-bottom bar, which moves between pages, and an in-page pair (Advocates | Mirror) that swaps
-a pane. Either reading was defensible on the face of it — a standing view of its own, or a
+The app's navigation and [the Mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)
+landed in the same window, so for two days `/monitor` carried **two rows of tabs**: the bar
+along the bottom, which moved between pages, and an in-page pair (Advocates | Mirror) that
+swaps a pane. (That bar is gone — bc-khoe.1 replaced it with the
+[pill row](#getting-around--the-pill-row) across the top — and this decision is the reason
+the Mirror is not a pill on it either.) Either reading was defensible on the face of it — a standing view of its own, or a
 mode of the advocates page — and bc-3xb was the bead about which one it is.
 
 **It is a pane** — ruled in `docs/ux-review.md` §3 and §5, and approved with the rest of
@@ -5564,7 +5757,7 @@ about how much room the bar has:
   sessions, the same questions, seen from the other device. The rule above decides it:
   a tab is a claim that the page is somewhere you live, and nobody lives in a lens.
 - **It is the one surface in the app that is meaningless on a phone** — which is the
-  device a bottom tab is tapped from. The Mirror follows *another* device and drops its
+  device the navigation is tapped from. The Mirror follows *another* device and drops its
   own (`notMe` in `public/mirror.js`, and its chip declares no view at all — `data-view=""`
   in `monitor.html`, so `public/montabs.js` publishes `view: null` while the pane is up and
   a mirror cannot circle back onto the page it is drawn on). A phone that tapped a Mirror
@@ -5573,10 +5766,11 @@ about how much room the bar has:
 
 There was a third reason when this was decided — *the bar is full at five, and
 `style.css`'s `:has(.tab-item:nth-child(6))` rule is the stylesheet quietly admitting
-it* — and it has **since expired**: PRs left the bar in bc-l8jp.6 and there is a free
-place on it again. The decision does not move, and that is the point of writing the other
-two down: the next person to notice the empty slot should not have to re-derive why the
-Mirror is not what goes in it.
+it* — and it has **twice since expired**: PRs left the bar in bc-l8jp.6, and then bc-khoe.1
+deleted the bar for a row that scrolls sideways and has no fullness to be at. The decision
+does not move, and that is exactly the point of writing the other two down: the next person
+to notice the room should not have to re-derive why the Mirror is not what goes in it.
+bc-khoe.4 is where it is properly re-decided, together with the chip row it lives on.
 
 ### The board is a pane too
 
@@ -5588,8 +5782,10 @@ bc-d4d5 put it back as the **third chip on this same row**, between Advocates an
 on the Mirror's own two reasons: it is a mode of the advocates page (the same space's
 repos, seen as work waiting to ship rather than work running), and it is somewhere you
 glance and act on rather than somewhere you live. So the row reads **Advocates · PRs ·
-Mirror**, the bottom bar still has four tabs, and `/prs`, `/pulls` and `/prs.html` are
-three more paths to `monitor.html` with the middle chip up.
+Mirror**, and `/prs`, `/pulls` and `/prs.html` are three more paths to `monitor.html` with
+the middle chip up. (Those three are also the PRs pill's own `paths` since bc-khoe.1, so
+the row across the top marks it current on all of them while the chip row puts the board
+up — the duplication is transitional, and bc-khoe.4 is where the chip row goes.)
 
 What that cost, and what it did not:
 
@@ -6666,7 +6862,7 @@ to it rather than stolen.
 
 **Full width on a phone, inset on a wide screen** — with the tab still visible
 around it, because there it reads as detail rather than as a new page. It covers the
-[tab bar](#getting-around--the-tab-bar) while it is up, deliberately: the drawer is
+[pill row](#getting-around--the-pill-row) while it is up, deliberately: the drawer is
 one gesture deep, and the way out of it is back, not a fifth destination.
 
 The Android shell needed one line for this. `shouldOverrideUrlLoading` fires for
@@ -6700,7 +6896,7 @@ the ✕ cannot keep.
 It reads like an obvious rule and the app had three of them, which is the bug this
 replaced. `/session`'s ✕ went to `/sessions` — correct on the day it was written, and a
 ✕ that closed one view by *opening a different tab* from the day Advocates
-[absorbed the sessions view](#getting-around--the-tab-bar), since that path has served
+[absorbed the sessions view](#getting-around--the-pill-row), since that path has served
 the advocate console ever since. `/doc` and `/graph` went to `/`, each carrying its own
 copy of the `window.close()`-then-navigate dance. And the drawer dismissed to whatever
 was underneath, which is right, and is the only exit in the app that can leave you on
@@ -6917,7 +7113,7 @@ repaint there can no longer disturb what you are reading.
 list that was taught to fold it, and that fold was the only thing `/sessions` had which
 the advocate console did not. Once every row anywhere in the app reached the same
 address, the two pages were the same page — see [the tab
-bar](#getting-around--the-tab-bar).
+row](#getting-around--the-pill-row).
 
 ### And you can answer it
 
@@ -8991,15 +9187,25 @@ Drawing them as one ladder would say that a branch waiting on CI and a merge wai
 deploy are the same kind of waiting. They are not: one is waiting on a decision nobody has
 made, the other on a clock that is already running.
 
-**Three of the release rungs are not tracked, and the payload says so rather than
-guessing.** `npm run swap` replaces the backend every open phone is talking to and writes
-nothing but `restart.json` — [deliberately](#a-swap-is-not-a-deploy-so-the-router-leaves-a-marker-of-its-own),
-because a swap wearing a deploy record would appear in the deploy history and in a push
-notification announcing a deploy nobody pressed Ship on. So *deployed to green*, *green
-verification* and *swapping to blue* come back with `state: "untracked"` on every entry,
-and **never `done`**, however far along the entry is. A ladder that quietly skipped from
-*deploying* to *live* would say the handover does not happen, where the truth is that
-nothing here can see it yet.
+**Three of the release rungs come off the router rather than the deploy journal.** `npm
+run swap` replaces the backend every open phone is talking to and writes no deploy record —
+[deliberately](#a-swap-is-not-a-deploy-so-the-router-leaves-a-marker-of-its-own), because a
+swap wearing one would appear in the deploy history and in a push notification announcing a
+deploy nobody pressed Ship on. So *deployed to green*, *green verification* and *swapping to
+blue* are drawn off [the handover trail](#and-the-trail-the-release-board-reads) instead, and
+each one arrives with the time it was observed at:
+
+```json
+{ "id": "verifying", "label": "Green verification", "state": "done", "at": "2026-08-17T09:41:22.104Z" }
+```
+
+Every rung of both ladders carries that `at`, and on the merge ladder every one of them is
+`null` — a merge rung is a *position*, and a release rung that the router observed is a
+*stamp*. Where there is no handover to read the three come back `state: "untracked"` and
+**never `done`**, however far along the entry is: a repo the router is not in front of, a
+swap older than the trail, a router that could not write it. A ladder that quietly skipped
+from *deploying* to *live* would say the handover does not happen, and one that filled the
+three in from the current stage would tick a green verification that nobody ran.
 
 **Two rules decide what exists at all.** A repo with nothing to release — no service, no
 webapp, no declared deploy — creates **no release entry**: nothing could ever move one
@@ -9030,8 +9236,9 @@ checkout that is not on this Mac — because a branch that cannot merge must not
 one that already has.
 
 `node test/queues.mjs` is the whole of it, and it reaches no tracker, no checkout and no
-network: every rung of both ladders from the states that produce it, the untracked three
-never drawn as done, a repo with no declared deploy carrying merge entries and no release
+network: every rung of both ladders from the states that produce it, the three handover
+rungs never drawn as done without a handover and never drawn from a handover belonging to
+another release, a repo with no declared deploy carrying merge entries and no release
 entries, and an entry that went live in the previous release still returned where one from
 two releases ago is not.
 
@@ -9683,6 +9890,61 @@ of it is you at a keyboard rather than a deploy.
 shapes of garbled one. The proof that a real router actually writes it is in
 `scripts/test-swap.js`, after the explicit `--swap` — a marker written by hand can only
 show what the rule does with one.
+
+### And the trail the release board reads
+
+The marker above answers one question — *was there a handover in the last thirty seconds* —
+and it is shaped for exactly that: one fact that overwrites itself, expiring by arithmetic.
+The [release queue](#the-two-queues-and-where-a-bead-is-in-either) asks a different one:
+*which* handover carried release 42, and when did each of its stages happen. That is a
+question about a handover which is no longer the last one, so it needs a second file, and
+`handovers.json` is it (lib/handover.js).
+
+**One record per handover, carrying three moments**: the backend was spawned on its green
+port, it answered its health check, and it was promoted. Those are the last three rungs of
+the release ladder, and the router is the only process on this Mac that ever sees any of
+them.
+
+**Written once, after the fact, and that costs something worth naming.** Because the record
+appears only when the swap has finished, the first two rungs are only ever drawn `done` —
+a card can never show you a verification in progress. What it buys is that every record here
+is a handover that actually happened. A record opened at the spawn would have to be closed
+by something, and the two ways a swap ends without a handover — a build that is
+[condemned](#the-router--why-you-never-restart-it), and one that is merely slow and is
+retried on a widening window — are exactly the cases where nothing comes back to close it.
+A rung reading "verifying" for a swap that died twenty minutes ago is the same over-claim
+`untracked` was drawn to avoid. A failed swap has its own trail and it is a loud one: the
+log, the 503 body, `npm run swap:status` and the console health line, all off one verdict.
+
+**Which release it belongs to is the journal's question, not the router's.** `restartingDeploy`
+in lib/deploy.js answers it, at the moment of the handover, and it is the same read the quiet
+window makes: the newest record that restarts this daemon and has not been settled into
+something that never ran. `unconfirmed` counts, and it has to — launchd takes the runner along
+with the daemon, so by the time the new router is handing over, the record of the deploy that
+caused it may already have been swept. `failed` and `lost` do not: nothing went live in
+either. **Null is the ordinary answer**, and it is not a gap: a swap the router did because
+`lib/` moved belongs to no deploy at all, and a release must not pick that up because it is
+the only handover there is.
+
+That read can over-claim in one window — an `unconfirmed` record from twenty minutes ago is
+still the newest one when you run `npm run swap` by hand — so the reader takes the
+**earliest** handover claiming a deploy, which is the real one. A window tight enough to
+exclude the hand-run case would also be tight enough to miss a build step that took longer
+than usual, and that failure is silent where this one is not.
+
+**Churn, so no history.** The file is rewritten whole and holds the last twenty handovers, so
+a commit per swap in the [config repo](#the-state-files-get-a-history-for-free) would be the
+same twenty rows written twenty times over; it is ignored there, and lib/evidence.js records
+it under `NOT_EVIDENCE` for the same reason. What shipped and whether it took is `deploys/`,
+which is kept. Twenty is also deliberately shorter than the forty deploy records it points
+into: a handover whose deploy has aged out of the journal is a row nobody can join to
+anything.
+
+`node test/handover.mjs` holds the reading rules — every garbled shape answering "no
+handover", the earliest claim winning, a moment nobody recorded left out rather than given a
+borrowed stamp — and `scripts/test-swap.js` is where a real router produces three real
+timestamps in order, on a green port that is not the public one, attributed to no deploy,
+with the deploy journal still empty afterwards.
 
 ### Why these are the one thing filed without the hold
 
@@ -12785,6 +13047,68 @@ this one — the two of those never reach the queue at all — or the bead was
 — the one kind of work a worker here may not merge, whatever the space says. It went from
 being every delivery to being the interesting ones.
 
+### The reviewer — a seventh agent kind, and the diff nobody reads
+
+Everything above judges a pull request by what *happened to it*: whether it conflicts,
+whether a check went red, whether the base was already red there. Nothing reads the diff.
+On a Mac where the author is an agent and the approver is a queue, the change itself is
+the one thing in the whole path that no second party has looked at.
+
+So there is a **ReviewAdvocate** — a seventh kind in `lib/foundation.js`, beside the merge
+queue rather than inside it. The difference between those two agents is their permissions
+and not their code path, which is what makes it a kind rather than a mode: the merge queue
+may push, may merge to `main`, and is the only thing here that closes a work bead. The
+reviewer may do none of that. It reads the diff, says what it thinks, and the one thing it
+may write is the comment its verdict goes in. A reviewer that could merge the branch it had
+just approved would be the same self-certification that was taken away from the worker,
+arrived at from the other end.
+
+**Its output is a verdict, and a verdict is a document.** The comments it raised, whether
+it approved, and — when it did not — why. `lib/reviewadvocate.js` owns that shape, which is
+what `protocolOwner` means and why the field points there. It is written the way an epic's
+plan is written: a fenced JSON block between `<!-- beadcause:verdict -->` markers, in a
+**comment** on the merge-bead, under a sentence a person can read. Comments are append-only,
+so a verdict cannot lose a race with the daemon rewriting `notes` in the same minute; the
+round before this one stays on the bead, which is the only record of what the reviewer
+objected to before the worker answered it; and every surface that draws a bead already draws
+comments, so a review is readable on the phone with no new screen at all.
+
+The markers are `beadcause:verdict` and deliberately **not** `beadcause:review` — that name
+belongs to the review *state* block on the merge-bead's `notes`, rewritten every round and
+outliving admission. Two documents under one marker is a parser that reads whichever field
+it happened to be handed.
+
+**Severity is a closed vocabulary, because the only reader that matters is a machine.**
+`blocking`, `suggestion`, `question`, and nothing else — an unrecognised one is refused
+rather than coerced, since defaulting it to `blocking` lets a typo hold a branch for ever
+and defaulting it to `suggestion` waves a real objection through. `blocking` is a promise:
+the reviewer will not approve while it stands, so it belongs to correctness, data loss, a
+security hole, a broken contract with a caller, or a test that does not test what it claims.
+Style and taste are suggestions, and something wrong in the code the change landed *next
+to* is a bead, not a review comment. The brief spends its longest paragraph on that, because
+an agent asked to review a diff will find something to say about every hunk of it, and a
+review that raises eleven comments costs a worker eleven answers and the pull request a
+round it cannot get back.
+
+Three shapes are refused outright, and each is a verdict something would act on *wrongly*
+rather than reject:
+
+- **Approved with a blocking comment on it.** The gate reads `approved` and the worker
+  reads the comments, so a verdict saying both merges the branch while telling its author it
+  must not. Which half to believe is not a default anything should pick.
+- **A refusal that never says why.** That is a round spent on a worker guessing.
+- **Two comments sharing an id.** The worker answers comments by id and the next round
+  matches its answers back, so one answer would silently resolve both — the failure that
+  looks exactly like agreement. A *missing* id is numbered instead, because bookkeeping is
+  not worth a round.
+
+**What exists today is the kind, its verdict format, and the brief it argues from.** Nothing
+opens a window on a delivered pull request yet, and the merge queue does not wait for a
+verdict — a merge-bead still goes straight to the queue, and the flow diagram draws the
+reviewer beside that path rather than in it. The wiring, the round cap, the worker's
+hand-back and the approving review on GitHub are the rest of the epic; what landed first is
+the thing all four of them have to agree about, which is what a verdict *is*.
+
 ### The notification with nothing to answer
 
 Every other push from beadcause is a decision arriving. This one is a decision that has
@@ -14126,7 +14450,7 @@ implication at all about whether an auditor testing CC8.1 will want records out 
 carved-out thing.
 
 So a carved-out component may name what it still `bearsOn`, and beadcause names change
-management. All six agent kinds are carved out individually rather than as one row saying
+management. All seven agent kinds are carved out individually rather than as one row saying
 "beadcause agents", because *what non-human identity can change an in-scope repository* is
 a question asked per identity, and a single row answers it for none of them.
 
@@ -14997,7 +15321,7 @@ the list that read as a miss (bc-rjes). Each kind now carries its own label and 
 (`mark`, lib/foundation.js), consulted before the personas: an id that is a kind *is*
 that kind, whatever a persona of the same name would like to be called, since a persona
 cannot own one of these records at all. The advocate's is 📣 — [the Advocates
-tab's](#getting-around--the-tab-bar) icon, because it is the same thing and the
+pill's](#getting-around--the-pill-row) icon, because it is the same thing and the
 rest of its work is on that screen. A kind added to `BASELINES` with no mark fails
 `test/agentchats.mjs` rather than quietly shipping as another 🤖.
 
@@ -15233,6 +15557,51 @@ Both the close and the reopen appear in the scrollback as quiet divider lines. T
 belong in the history, but rendering them in an assistant bubble would read as
 something the agent said.
 
+### One refused edge does not cost the rest of the batch
+
+Creating from a chat proposal makes the beads first and wires them together afterwards,
+once every id is known. A `bd dep add` can be **refused** — bd holds one edge per pair in
+either direction, of any type, so a pair that already carries a `relates-to` cannot then
+be given a `blocks`, and `lib/mentions.js` draws that `relates-to` for free the moment
+either id appears in the other's prose.
+
+Until bc-arj0.19 the first refusal ended the create. Filing bc-khoe, `bd dep add
+bc-khoe.5 bc-45yl` was refused and the three dependencies declared after it were never
+attempted. Nothing looked wrong — nine beads, the right parents, the right text — and
+what was missing was structure on the beads furthest from the error, which named none of
+them. That is this epic's own failure mode by a new route: a dependency declared, and
+then existing only as prose in a description.
+
+So `lib/edges.js` applies the batch, and:
+
+- **Every declared edge is attempted.** A refusal is recorded against that edge and the
+  loop carries on. Nothing is rolled back either — beads has no transaction, and
+  un-writing four good edges because a fifth was impossible loses more structure than it
+  saves.
+- **Every failure is reported by id, as the command that would fix it** —
+  `bd dep add bc-khoe.5 bc-45yl — refused: <what bd said>`, with bd's own
+  `… failed in <workspace>:` prefix trimmed off because the line has already spelled the
+  command. An end that resolved to nothing has no id to paste and is reported as
+  `skipped — no such bead` instead.
+- **The batch is summarised in one paste** — `2 of 5 declared dependencies did not land;
+  the other 3 did. Paste to retry: bd dep add …; bd dep add …` — so retrying the lot,
+  once whatever made them impossible has been dealt with, is one line rather than a
+  reading exercise.
+- **The warnings keep the chat session open**, by the rule above, so the report is read
+  on the screen that produced it.
+- **A create that fails part-way still wires what it did make.** The beads that exist are
+  real, and the structure between them is no less true for a later card having failed to
+  become a bead. The request is still a `502` naming the create that failed.
+
+The JIRA ingest files the same shape of proposal and goes through the same module, so
+the two spellings of that warning cannot drift apart. A single edge applied on purpose —
+a delivery parking its bead behind a merge card, a supersede — deliberately does *not*:
+there a refusal is a real error and `bd.addDep` keeps throwing it.
+
+`test/edgebatch.mjs` (in `npm test`) holds it, and the refusing edge in it is the second
+of four rather than the last, because a batch whose bad edge is last passes on the broken
+code too.
+
 ### Keep typing while it is working
 
 Both chat surfaces used to treat a running turn as a reason to shut the composer
@@ -15267,10 +15636,12 @@ Delivering a message *into* the turn already running is deliberately not this. T
 needs a persistent `--input-format stream-json` process instead of the one-shot
 `claude -p --resume` per turn, and is its own piece of work.
 
-The queue lives in the page, like the half-typed text in the composer beside it: a
-reload loses what has not gone yet. Everything that *has* gone is on the server and in
-the transcript, which is the line worth keeping — a message is either visibly waiting
-on your screen or really sent, and never both or neither.
+The queue lives in the page: a reload loses what has not gone yet. Everything that
+*has* gone is on the server and in the transcript, which is the line worth keeping — a
+message is either visibly waiting on your screen or really sent, and never both or
+neither. The half-typed text in the composer beside it used to live in the page too,
+and no longer does; see [an unsent draft outlives the
+page](#an-unsent-draft-outlives-the-page).
 
 The queue itself is `public/sendqueue.js`, shared by both callers rather than written
 twice — including the pending strip, which `queue.attach({ el, box })` draws and wires
@@ -15299,6 +15670,58 @@ the same `409` the daemon does: the textarea is enabled, the send button is tapp
 the placeholder is unchanged, the box keeps focus, and both messages land as one turn
 with the fixture never once having been pushed through. `--baseline` serves the
 committed copies of both files, which fail it.
+
+### An unsent draft outlives the page
+
+Words that were *sent* and failed have been safe since the send queue landed: they sit
+above the composer in your own words, they can be tapped back into the box, and the
+strip says what is happening to them. Words that never left the box had none of that.
+They existed in the textarea and in `chat.say` and nowhere else, and both die with the
+page — so a reload, a crash, a backgrounded tab the phone evicts, or a client that
+re-mounts the page on a retry took the paragraph you were half-way through, with no
+recovery and no warning that there had been anything to recover. That asymmetry was
+the bug: the longer and more considered the message, the more there was to lose.
+
+So the composer's contents are written to `localStorage` on the keystroke, per chat,
+and read back when that chat is next drawn. Four things about it are the design:
+
+- **On the keystroke, not at some later save.** The same rule the inbox's answer boxes
+  follow (`setDraft` in `public/app.js`): the next thing that happens to this page may
+  be that it stops existing, and a save scheduled for a moment later is a save that
+  does not happen.
+- **`localStorage`, not the `sessionStorage` `public/warm.js` uses.** `sessionStorage`
+  is scoped to the tab, and a tab that is gone is precisely the case this exists for.
+  warm.js's rule — no fetched bead prose sitting on the phone's disk overnight — is
+  about somebody else's words; this is your own typing, which is the thing you would
+  be angriest to lose.
+- **Keyed by chat id, in one map under one key.** Two conversations can never restore
+  into each other, switching between chats is unaffected, and pruning is a rewrite of
+  one JSON object rather than a walk over every key in `localStorage`.
+- **Sending clears it, before the queue is handed the words.** From that moment the
+  words belong to the send queue, which is what puts them back in the box if the
+  delivery fails; a kept draft that survived a delivery would restore *beside* the
+  message it had already sent.
+
+A draft is dropped after a fortnight, on the next read. A sentence typed that long ago
+and never sent is not a draft any more — it is a surprise waiting in a chat you had
+forgotten — and the stamp is also what keeps a map of drafts from becoming a hoard.
+
+The restore runs `autoGrow`, so a four-line draft comes back four lines tall rather
+than as a one-line box you have to click into to discover the rest of. Storage being
+denied — private mode, a WebView with it switched off — is caught and ignored
+throughout: the composer works for that visit and forgets on the next, exactly as the
+chat tab strip beside it does.
+
+`test/composerdraft.mjs` (in `npm test`) runs the real `public/console.js` in a `vm`
+against a hand-made document, the way `test/chattabs.mjs` runs the same page's tab
+strip: type and reload, send and reload, two chats side by side, a stale entry, a map
+written by something else, and storage that refuses every write. A "reload" there is a
+second boot of the same file over the same storage map, which is the right shape and
+still not the real thing — so `node scripts/switch-check.mjs` closes it in a headless
+Chrome at phone size: a draft typed into one chat, a real `Page.navigate` to another
+and back, each conversation getting its own words back and the box restored at the
+height it was left at rather than as a one-line strip. `--baseline` fails exactly those
+three and passes everything above them.
 
 ### An old proposal says what became of it
 
@@ -17468,9 +17891,9 @@ stops it going quietly stale.
 
 The obvious shape is a table of accounts with a row per agent, and it is wrong in a way
 that would survive review by being ticked. **Nothing this daemon spawns holds a
-credential of its own.** All six agent kinds run as the single Claude subscription signed
+credential of its own.** All seven agent kinds run as the single Claude subscription signed
 in on this Mac; there is no per-agent secret to rotate, nothing to disable one at a time,
-and a table implying otherwise describes six accounts that do not exist.
+and a table implying otherwise describes seven accounts that do not exist.
 
 So the register's rows are **grants, not accounts** — the thing that hands a principal
 its reach, chosen because it is the thing a review can actually revoke:
@@ -17768,7 +18191,7 @@ These three are the exception because none of them costs a `bd` call. `sessions`
 readdir of `~/.claude/sessions` plus a JSON parse per record — every live session on
 the Mac, including ones in no configured workspace, which is exactly the set the
 advocate console lists (the ones outside every workspace under **Elsewhere**). It is
-no longer a tab badge — see [the tab bar](#getting-around--the-tab-bar) — but the
+no longer a tab badge — see [the pill row](#getting-around--the-pill-row) — but the
 console's tally is drawn from it. `proposals` counts **advocates**, not beads: one open ask per
 advocate is the rule `propose()` enforces, so a repo with two proposal-shaped beads
 in it is still one repo waiting on you.
@@ -21297,6 +21720,88 @@ is kept out of its own sweep, since every link to a supplier's terms is a host i
 otherwise report; that exemption is safe only while the file stays data, so its import list
 is pinned by the suite. Anything that could make a request has to come through there first.
 
+### Every store says where it came from and when it goes — `lib/datastores.js`, `test/datastores.mjs`
+
+Three registers already answer three different questions.
+[The evidence register](#nothing-is-kept-without-saying-for-how-long--libevidencejs-testevidencemjs)
+is keyed on what is *kept* — retention, integrity, who could alter it. The access register is
+keyed on *principals* — the grants that let a human, a device or an agent reach the system at
+all. [The supplier register](#every-third-party-is-named-and-a-sweep-fails-on-one-that-is-not--libsuppliersjs-testsuppliersmjs)
+is keyed on *third parties* and stops at the boundary. **None of the three answers the five
+questions Annex A.7 asks of a body of data**: where it came from, what it is used for, whether
+it is adequate for that use, who can reach it, and when it is disposed of.
+
+**So the fourth register's first job is to not become a fourth format.** It cites the other
+three rather than restating them — an evidence class by id, a supplier by id — and the
+coverage check fails the repo on a citation that resolves to nothing, on an evidence class
+nobody here classified, and on the specific failure a fourth register is most likely to
+produce: **a retention period that disagrees with the register that already stated one.** Two
+documents disagreeing about how long one store lives is worse than either answer, and the
+suite demonstrates that failure rather than asserting it cannot happen.
+
+**The coverage baseline is the evidence register rather than the filesystem**, and that is the
+choice worth defending. A sweep of `lib/` finds *modules*; what this register is about is
+*bodies of data*, and the inventory of those already exists one file over. So a new evidence
+class cannot land without somebody saying here whether it holds data about a person — which is
+exactly the question that otherwise gets answered once, at the start, and never again. Eight
+classes are excused into `NOT_SUBJECT` with a sentence each, because they record the daemon
+acting rather than anything it holds: a chain of digests, a set of shas, a config key that
+changed. An exemption for a class that is not there is itself a failure.
+
+**Personal data is located rather than denied, and the instinct to deny it is wrong in four
+places.** A bead names a colleague, an ingested ticket carries its reporter and often a
+customer, and a close reason quotes either — the largest concentration of it in the system,
+and it is in the *tracker*, which is not beadcause's own store, which is precisely why no
+register had it until this one. A screenshot carries whatever was on the screen, including the
+window nobody meant to capture, and it leaves as prompt content. An agent memory about how the
+operator likes work shaped is a statement about an identified individual, kept on purpose and
+readable by every agent kind. And the git identity — a name and an email — authors every commit
+in every ref, which is said once rather than repeated into fifteen fields that would then have
+to be kept agreeing. `personal.state` is a closed vocabulary of three and `none` is not a
+blank: a store claiming to hold none has to argue for it in a sentence somebody can disagree
+with.
+
+**Most of the answers are `permanent`, and that is a decision rather than a gap.** The disposal
+unit of a hash chain is the whole ref — removing the middle rewrites every sha after it, which
+is the property the chain exists for.
+[The run archive](#the-run-that-survives-its-own-reset--libagentarchivejs-testagentarchivemjs)
+found the one way out and it is a *split*: the record is chained and permanent, the body is a
+file beside it and is deleted at two years, and the deletion is itself a commit on the chain.
+That is available only where the two halves can be separated, and **they cannot be separated
+for a memory** — a memory *is* its body, so disposing of it leaves nothing saying a belief was
+ever held, and it explains session transcripts that are themselves permanent. What governs a
+store that never forgets is therefore what may be *written* to it and who may *read* it, both
+of which every entry now states outright, with disposal as a deliberate act against a named
+bead rather than a sweep. That closes the two "bc-eqn1.10 will decide this" sentences the
+evidence register had been carrying.
+
+**The contentless push is the one part of the file that is not a description.** A workspace in
+`ntfy.minimalWorkspaces`, or in a space set to `ntfyDetail: "minimal"`, has always got a
+notification with no question text, no option labels, no reply and no buttons — a nudge you tap
+through to the tailnet — because an `ntfy.sh` topic is a shared secret on a public relay and
+anybody who guesses the name receives the messages. That was a *feature*: nothing failed if it
+stopped working. `test/datastores.mjs` drives **every** exported `push*` in `lib/notify.js`
+against a minimal workspace with loaded fixtures and a stubbed `fetch`, and the published body
+must carry none of the text — then drives the same call against a `full` workspace, which must
+carry it, because a test that passes against a function that has silently stopped saying
+anything is a test of nothing. The list of pushers is read from the module's own exports, so a
+new notification cannot ship without being covered.
+
+**And it states its limit instead of overclaiming.** The deep link *has* to name the workspace
+and the bead or the tap lands nowhere, so minimal conceals what is being asked and not that
+something is being asked in a named repo; the tailnet hostname is the click target of every
+push regardless; the priority still tracks the bead's; and `Beadcause · asked again` is a
+permitted title, because giving the same answer twice from a lock screen is a real failure
+while the fact of a repeat leaks nothing. `LINK_ONLY` is that limit written as a rule, and the
+suite fails if a bead id ever migrates out of the click URL and into a title or a message.
+
+The register is itself
+[a controlled document](#every-document-has-an-owner-and-a-review-date--libdocumentsjs-testdocumentsmjs)
+with an owner and a twelve-month review, for the reason its own entries give: the wrong kind of
+wrong sentence here — "this store holds no personal data" — reads exactly as well after the
+store starts holding some. The coverage check catches a new store; only a date catches a store
+whose contents changed under a sentence that was true when it was written.
+
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
 There are two `grep` hazards on this laptop. One is a defect in every script that writes
@@ -21918,7 +22423,7 @@ and this sentence claimed it for a while before it was; four minutes serially be
 about one. Their output
 interleaves badly, so each child's is captured whole, only failures are replayed — the
 last 25 lines, which is where the three that matter are — and the full logs are left in a
-temp directory named in the summary. `--list` prints what would run, `--only tabbar,shade`
+temp directory named in the summary. `--list` prints what would run, `--only topbar,shade`
 narrows it, `--jobs N` changes the width, `--dir <root>` points it at another tree (which
 is how the runner itself is tested). Like the runner for `npm test`, it names no
 individual check: the directory is the inventory, so adding one is adding a file and
@@ -22364,8 +22869,8 @@ existed, while the block written beside the filter chips contributed `flex: 0 0 
 nothing else.
 
 The assertion is deliberately **not** "a selector appears once", because this stylesheet
-writes two of them twice on purpose and is right to: `:root { --tabbar-h: 54px }` sits with
-the tab bar rules that read it rather than eight hundred lines away with the rest of the
+writes two of them twice on purpose and is right to: `:root { --viewbar-h: 44px }` sits with
+the pill row rules that read it rather than eight hundred lines away with the rest of the
 palette, and `.icon-btn { position: relative }` sits with the badge it exists to position.
 Neither can silently win anything, because neither touches a property its other block sets.
 So what is asserted is the property that actually separates those from the four bugs — **no
@@ -22375,8 +22880,8 @@ resolved or the check would be trivially evaded, a second block setting `padding
 against a first setting `padding` colliding just as silently as one setting `padding`
 twice: a shorthand covers its own dashed longhands, plus the few families whose names do
 not share a prefix (`gap`/`row-gap`, `inset`/`top`, `place-items`/`align-items`,
-`flex-flow`/`flex-wrap`). Custom properties compare by exact name, so `--tabbar-h` beside
-`--tabbar` is two variables rather than a collision. Run against the tree as it stood
+`flex-flow`/`flex-wrap`). Custom properties compare by exact name, so `--viewbar-h` beside
+`--viewbar` is two variables rather than a collision. Run against the tree as it stood
 before this landed the check reports **45** silent overrides across ten selectors and
 neither of the two additive one-liners, and it is shown both shapes — a block that re-sets
 a property, and one that only adds — so a guard that cannot fail is not mistaken for a file

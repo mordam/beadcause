@@ -152,33 +152,36 @@ console.log('\nthe tab bars');
   check('and neither page wears the other bar’s class', !wears('foundations.html', '.mon-tabs') && !wears('monitor.html', '.agent-tabs'));
 
   /*
-    Where .mon-tabs sticks, which is a contract across two files (bc-ugd4).
+    Where .mon-tabs sits — and the contract across two files that used to be here.
 
-    The strip pins under a sticky `.topbar` whose height is a runtime fact — 104px with
-    the space picker's row and 61px without it, and the picker hides itself below two
-    workspaces. So the offset is `var(--topbar-h)`, published by public/montabs.js from
-    a `ResizeObserver` on the bar. Two files, and either half is silently useless
-    without the other: a stylesheet asking for a variable nobody sets falls back to the
-    two-row bar and leaves a 43px hole for anybody running one repo, and a script
-    setting a variable nobody reads is dead code that reads as a fix.
+    Until bc-khoe.1 the strip pinned under a *sticky* `.topbar` whose height is a runtime
+    fact (104px with the space picker's row, 61px without it, and the picker hides itself
+    below two workspaces), so its offset was `var(--topbar-h)`, published by
+    public/montabs.js from a `ResizeObserver` on the bar. Either half was silently
+    useless without the other, which is why both spellings were asserted here.
 
-    `scripts/topbar-check.mjs` measures the real thing, in both bar heights, and is what
-    would actually catch it — but it wants Chrome and is not in `npm test`, so the two
-    names being spelled the same in both files is asserted here, where it costs nothing.
+    Both halves are gone, because there is nothing left to offset: every page is an app
+    shell now, `.topbar` and `.viewbar` are rows of a flex column, and this strip is the
+    row under them. So the assertion is the inverse — that neither the offset nor the
+    observer has crept back — because a `top: var(--topbar-h)` on a strip in flow is a
+    43px hole and a variable nobody sets reads exactly like a fix.
+
+    `scripts/topbar-check.mjs` measures the real thing in both bar heights and is what
+    would actually catch it, but it wants Chrome and is not in `npm test`.
   */
   const mon = top.find((b) => b.prelude === '.mon-tabs');
   const body = mon ? blank(css).slice(mon.opens + 1, mon.closes) : '';
   const VAR = '--topbar-h';
   check(
-    `.mon-tabs sticks at var(${VAR}) rather than a constant`,
-    /position:\s*sticky/.test(body) && new RegExp(`top:\\s*var\\(\\s*${VAR}\\b`).test(body),
-    `it declares "${(body.match(/top:[^;]*/) || ['no top'])[0].trim()}" — a number here is right for one of the bar's two heights`
+    '.mon-tabs is a row of the shell, not a sticky strip',
+    /flex:\s*none/.test(body) && !/position:\s*sticky/.test(body),
+    `it declares "${(body.match(/position:[^;]*/) || ['no position'])[0].trim()}" — under the app shell there is nothing to stick to`
   );
   const montabs = fs.readFileSync(path.join(PUBLIC, 'montabs.js'), 'utf8');
   check(
-    `and public/montabs.js is what sets ${VAR}`,
-    montabs.includes(`setProperty('${VAR}'`) && /ResizeObserver/.test(montabs),
-    `nothing in montabs.js calls setProperty('${VAR}', …) off a ResizeObserver, so the stylesheet is on its fallback`
+    `and nothing publishes ${VAR} any more`,
+    !blank(css).includes(`var(${VAR}`) && !montabs.includes(`setProperty('${VAR}'`),
+    `${VAR} is being written or read again — a strip in flow that offsets itself by the bar's height sits a whole bar too low`
   );
 }
 
@@ -553,8 +556,8 @@ function auditFlex(css, els) {
  * property out of nine.
  *
  * The assertion is not "a selector appears once", though, because this stylesheet
- * deliberately writes some twice and is right to: `:root { --tabbar-h: 54px }` sits with
- * the tab bar rules that read it rather than eight hundred lines away with the palette,
+ * deliberately writes some twice and is right to: `:root { --viewbar-h: 44px }` sits with
+ * the pill row rules that read it rather than eight hundred lines away with the palette,
  * and `.icon-btn { position: relative }` sits with the badge it positions. Neither can
  * silently win anything, because neither touches a property the other block sets. So
  * the property asserted is the one that actually distinguishes those from the four
@@ -568,7 +571,7 @@ function auditFlex(css, els) {
  * `padding-left`, `font` covers `font-size`), plus the handful of families whose names
  * do not share a prefix (`gap`/`row-gap`, `inset`/`top`, `place-items`/`align-items`,
  * `flex-flow`/`flex-wrap`). Custom properties compare by exact name only, so a
- * `--tabbar-h` beside a `--tabbar` is two variables and not a collision.
+ * `--viewbar-h` beside a `--viewbar` is two variables and not a collision.
  *
  * The known limit, in the permissive direction on purpose: an exotic shorthand not in
  * that map is read as its own property, so a collision through it would go unreported.

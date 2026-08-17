@@ -297,11 +297,19 @@ await check('an approved amendment wins over the tier, because Adam approved it 
 });
 
 await check('and it wins through a real amendment, all the way to the command line', async () => {
-  await amend(CHECKOUT, 'worker', { model: 'haiku' }, {
-    bead: 'zz-amend',
-    justification: 'the test approved it',
-    by: 'test',
-  });
+  // `limitations` rides along because it has to: bc-eqn1.4 refuses an amendment that
+  // moves `model` without saying what that changes about the card, and this suite is
+  // the one place in the tests that amends a model for real. See `cardGap`.
+  await amend(
+    CHECKOUT,
+    'worker',
+    { model: 'haiku', limitations: 'On haiku it sees one branch and less of it.' },
+    {
+      bead: 'zz-amend',
+      justification: 'the test approved it',
+      by: 'test',
+    }
+  );
   const { opened, command } = await launchOn('zz-easy2', ['complexity:low']);
   assert.match(command, /--model 'haiku'/, 'the tier said sonnet and the amendment said otherwise');
   assert.ok(!/--model 'sonnet'/.test(command));
