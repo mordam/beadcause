@@ -2337,10 +2337,11 @@ in. That was fine while the only reader was the code doing the spawning. It stop
 working the moment an agent is allowed to *ask* to be different, because you cannot
 request a change to something with no single form.
 
-So `lib/foundation.js`: **one foundation per agent kind**, for all four of them —
-the chat session, the comment answerer, the repo advocate, and the worker session opened
-in iTerm. Read it to know what an agent may do; commit a change to it to change what
-the agent is.
+So `lib/foundation.js`: **one foundation per agent kind**, for all six of them — the chat
+session, the comment answerer, the repo advocate, [the P0
+advocate](#what-a-p0-advocate-is--its-foundation-and-what-one-visit-consists-of), the merge
+queue, and the worker session opened in iTerm. Read it to know what an agent may do; commit
+a change to it to change what the agent is.
 
 The line it draws is the important part. A foundation is what the agent is on **every**
 run. The prompt handed to one invocation — this bead, this comment, this survey — is
@@ -10013,6 +10014,84 @@ epic cannot become a batch head inside a plan.
 bead and both fallbacks; `node test/planbrief.mjs` covers the two briefs — including that
 an epic worker is told not to implement and not to endorse, and that the whole standard
 brief is still present around a group's quoted section.
+
+### What a P0 advocate *is* — its foundation, and what one visit consists of
+
+[The advocate that comes back](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs)
+is the machinery: three events, a cooldown, a sweep, a budget of its own. This is the other
+half — what the agent those windows open actually *is*. It lives in `lib/foundation.js` as
+the `epic-advocate` baseline, which is [what an agent is on every
+run](#what-an-agent-is--and-how-it-asks-to-be-different) whatever a particular brief says,
+and it answers four questions: what it is for, what it may and may not do, how it is
+re-entered, and what it writes down and where.
+
+It used to answer one and a half of those. The role said *"write everything down on the
+bead"* and named one place to put it; the agent actually has four, and a supervisor that
+puts the same conclusion in all four leaves a P0 with four answers that disagree. So the
+foundation now names them, and what each is *for* is the part that stops them colliding:
+
+| carrier | what belongs in it |
+|---|---|
+| the **plan**, a `beads` block in a comment | which children should exist and how they group. `lib/plan.js`'s format, because the repo advocate reads the same block — a plan only the P0 advocate could read would make the two of them two trackers. Updated in place; a second plan comment is a second answer |
+| the **waiting-on block** in `notes` | one line of *current* state, which is what the P0's card draws on a phone. It answers "is this getting done, and what is in the way" — it is not a summary of the visit, and there is only ever one of it |
+| **labels** | the facts a machine acts on: `planned`, `promoted`, the progress the card counts. Anything the daemon has to read is a label or a marked block, never prose it would have to interpret |
+| **`beadcause-memory`** | `note` for what is still true next week about this repo; `debrief` for what *this visit* was — the child it looked at and decided was fine, the blockage it thought it had found and had not, what it would look at first tomorrow. None of that fits on a card, and it used to be written as though it did |
+
+Anything a person needs to read and no machine does is an ordinary comment. The rule is that
+each thing is said once, in the carrier that owns it.
+
+**Two of the refusals were wrong and one was missing**, which is the other reason this was
+worth rewriting rather than lengthening.
+
+- *"You may not endorse your own subtree"* did not describe what happens. A child filed
+  under an **owned** P0 is workable the moment it is filed — owning the epic was the
+  agreement, and that is the whole argument for this agent having `bd create` where the
+  repo advocate does not. What is genuinely not its to do is take `unendorsed` off a bead
+  that arrived carrying one: those are somebody else's discoveries waiting for a tap, and
+  removing the label *is* the tap. Same prohibition, aimed at the write that actually
+  exists.
+- **Nothing said it may not close.** It has no `bd close`, but it has `bd update`, and a
+  status is a field — so the one thing standing between an advocate and closing the epic it
+  is answerable for was that nobody had thought to mention it. A work bead closes when its
+  merge lands and [the merge queue is what closes
+  it](#an-epic-does-not-close-because-a-branch-that-shared-its-name-merged); a P0 closes
+  when its theme is done, which is a call its owner makes. An advocate that believes its P0
+  is finished says so in the waiting-on line, which is the sentence on the card the close
+  would be tapped from anyway.
+- **Nothing said it may not pause itself.** [Pause is a button on your
+  screen](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo)
+  and the label behind it is yours. An advocate that could set it would be the one agent
+  here able to stop being asked.
+
+**And the run brief now says what to do with the reason it was opened for.** The sweep hands
+a window one prose sentence — `bc-x.3 has been in progress for over 1h with nothing on this
+Mac in a window on it and no live lease elsewhere` — and until now said nothing at all about
+what that asks of it. Three shapes, in the order `reason` composes them:
+
+- **a child closed** — does the plan still fit, is anything now unblocked that nobody has
+  noticed, and is the P0 itself finishable? That last only ever becomes true on a close;
+- **a child was filed** — is it in the plan, under the right parent, and work this P0 has to
+  carry at all? One carrying `unendorsed` is waiting on you, not on the advocate;
+- **a child stalled** — look for a branch or an open pull request carrying its work first,
+  because if there is one the work exists and the bead is exactly where it should be. If
+  there is not, the claim belongs to a window that died, and **while it stands the bead is
+  invisible to `bd ready`** — no advocate, no worker and no queue will ever look at it
+  again. `bd update <id> --status open --assignee ""` puts it back, and a comment saying
+  what was found stops the next window redoing the reasoning.
+
+That last one is not hypothetical, and the example is this section's own bead.
+`bc-xl7n.8.1` was left `in_progress` on 2026-08-14 by a session that delivered and exited,
+and the answer that arrived on the 16th — *"back to `bd ready` as ordinary work"* —
+commissioned more work without writing the status that would let anything see it. Claimed,
+with nothing in a window on it and no lease anywhere, under an enrolled P0: exactly the
+shape above. It was in no queue for three days, and it came back only because an advocate
+window eventually worked out for itself that the *status* was what was hiding it.
+The rule was always derivable; putting it in the brief is the difference between an agent
+that can derive it and one that starts there.
+
+`node test/epicadvocate.mjs` holds the foundation and the brief together: that the kind has
+a role at all, that its four carriers and its refusals are in it, and that the three shapes
+are in the brief a window is actually handed.
 
 ### One to three sessions, and never silently fewer
 
@@ -17868,6 +17947,7 @@ to be one.
 | `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |
 | `advocates.maxWorkersLimit` | the ceiling that clamps it (default 3). A larger `maxWorkers` is clamped **and logged**, never silently applied |
 | `advocates.globalMaxWorkers` | across every advocate (default 20, hard ceiling 36), so six repos can't open eighteen windows. A stepper at the top of the advocates console, so this one needs no restart; a stored 10 from an older install is moved to 20 once |
+| `advocates.maxEpicAdvocates` | how many [P0 advocate](#what-a-p0-advocate-is--its-foundation-and-what-one-visit-consists-of) windows one repo may have open at once (default 3, hard ceiling 9). **Its own budget, and deliberately not part of `maxWorkers` or `globalMaxWorkers`**: a planning window is cheap, short and does none of the work, so rationing it against coding windows made the two compete and the cheaper one lose on a busy repo. Stepping the session limit does not change this number, and the roster says so where it draws it |
 | `advocates.perWorkspace` | per-repo overrides, e.g. `{"sophab": {"maxWorkers": 2}}` |
 | `advocates.minPriority` | beads above this priority aren't work (default 3 — P4 is a backlog) |
 | `advocates.propose` | ask to create beads when the queue empties (default `true`; **nothing is ever created without your approval**) |
