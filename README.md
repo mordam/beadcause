@@ -5555,7 +5555,7 @@ Two things fix it, and neither of them makes anything faster: they stop the same
 being done twice.
 
 **The payload each view booted from is kept, and painted before the next request has
-left.** `public/warm.js` holds one entry per endpoint in `sessionStorage`, and every
+left.** `public/warm.js` holds one entry per endpoint in `localStorage`, and every
 standing page reads it at the top of its own boot: the inbox, the board, the advocate
 console, the launcher and the switches all draw the list they had last time in the
 first frame and refresh underneath it. Behind that — once the view you actually asked
@@ -5568,14 +5568,78 @@ exactly this against a fixture whose sweep takes 900ms: a cold load takes just o
 second, and coming back to the tab draws five cards in **under a tenth of it**, with
 the counter proving no request was answered during the paint.
 
-It is `sessionStorage` and not `localStorage` on purpose. A tab switch is a navigation
-inside one tab, which is precisely what sessionStorage survives; closing the app takes
-the cache with it, so bead text is not left on the phone's disk between one evening and
-the next. A cold start after that is a cold start — which is the case the inbox-first
-boot is for, since the inbox is what a notification opens and the only view that is
-ever urgent. And none of it is load-bearing: a browser that refuses the storage, a full
-quota, an entry past its fifteen minutes, a half-written one — every failure reads as a
-miss, and a page that cannot warm is a page that is merely as fast as it was last week.
+None of it is load-bearing: a browser that refuses the storage, a full quota, a
+half-written entry, one written by a build that stored a different shape — every failure
+reads as a miss, and a page that cannot warm is a page that is merely as fast as it was
+last week.
+
+### And across closing the app, which is where the wait actually was
+
+This was `sessionStorage` for its first two weeks, and the argument was good enough to
+survive several changes: a tab switch is a navigation inside one tab, which is precisely
+what sessionStorage survives, and letting the cache die with the app kept bead text off
+the phone's disk between one evening and the next. What that was quietly buying was a
+**reopen that started from nothing** — and a reopen from nothing is a cold
+`/api/questions`, which is one `bd human list` per workspace, about fifteen child
+processes, of which seven milliseconds is our own code. Measured off the live daemon's
+slow log on 2026-08-17, before this changed: 239 over-budget `/api/questions` in under
+three hours, **every one of them cold**, p50 8.3s. That is the number a reopen paid, every
+single time, for a privacy property Adam looked at on 2026-08-15 and decided against —
+bead text on disk between sessions is fine.
+
+So the store is `localStorage`, and the reopen is now the same trick the tab tap already
+was: the kept list paints in the first frame, and the sequence it carries turns the
+refresh behind it into `/api/poll?since=<that seq>` — a catch-up on the event log rather
+than a sweep. Away longer than the log holds, or the daemon restarted since (the bus is
+in memory), and `/api/poll` already answers `resync: true` with the whole payload. That
+path is untouched. It simply happens behind a list you can already read.
+
+Not IndexedDB and not the service worker's cache, both of which survive a close just as
+well: they are **asynchronous**, and the one thing that has to happen here is a
+*synchronous* read before the first paint. An `await` in front of `warmBoot()` is a
+spinner again, which is the thing being removed.
+
+**And no TTL.** There was a fifteen-minute one, on the grounds that a stale list is more
+confusing than a spinner. Adam's second decision the same day removed it, and the file's
+own header had already made the argument for maintained entries: an entry the log has not
+contradicted is as true as it was when it was fetched, however old, and one it *has*
+contradicted is corrected by the catch-up above. Age was never the question. There is no
+staleness banner either, and that is deliberate — `public/freshness.js` already draws when
+anything last looked, off the stamp `/api/questions` sets, and a very old kept list is
+exactly its case rather than a new one.
+
+Two things follow from durability that did not have to be thought about before, and both
+are in the code with the reason beside them:
+
+- **The store only ever grows, so it has a bound.** A byte budget of 1.5 MB against a
+  ~5 MB origin quota, evicting the oldest entry first — `at` is when an entry was last
+  known true and `refresh()` restamps it for free on every wake, so the entry nothing has
+  restamped in longest is the entry nothing is maintaining. **The inbox goes last of all,
+  whatever its age**, and that rule is not the ordering being polite: from any other page
+  the background warm writes the inbox's entry *first*, so it is the oldest thing in the
+  store, and plain oldest-first would evict precisely the payload a reopen needs. A
+  payload too large to ever fit is refused before the first eviction rather than after the
+  last, so one enormous write fails alone instead of emptying the store on its way down.
+  The old answer to a full store was `forget()` — throw the lot away — which was
+  defensible when every entry was fifteen minutes old at most and is not now.
+- **A durable entry outlives the build that wrote it**, which a fifteen-minute one
+  essentially never did. Each carries the store's shape version and a mismatch is a miss;
+  and `warmBoot()` on the inbox is wrapped, because a payload the current `adopt` does not
+  like used to be a throw in the first fifty lines of the page's own IIFE with a blank
+  screen behind it. It drops the entry and cold-starts instead.
+
+The other consequence is a rule rather than a mechanism: **every moment a held payload
+stops being yours now has to say so out loud**, because "it will be gone by tomorrow"
+has stopped being true of anything here. The credential being refused, signing out and
+revoking this device already called `warm.forget()`; switching accounts did not, and does
+now — several of these payloads are narrowed server-side by which account you are, and the
+whole promise of this layer is a *first frame* drawn from what is held.
+
+Claim 7 of `scripts/warm-check.mjs` is the gate, and it is three assertions rather than
+one, because a fast reopen on its own would only prove the fixture is fast: the list is up
+well inside a sweep, **no** sweep was asked for while it went up, and the poll that
+follows carries `since=<the kept seq>`. Under `--baseline` all three fail, which is the
+old behaviour printed.
 
 **The inbox follows the event log instead of re-asking on a clock.** `/api/poll` was
 already a long-poll that parks until the daemon's sequence moves and only sweeps `bd`
@@ -5749,8 +5813,12 @@ question: does the delta stream carry it?
   out with nothing to say. So on each wake the inbox folds them into the copy it is
   holding for the advocates page, through `warm.refresh()` — which also restamps the
   entry, and *that* is the half that matters most. A park is at most 25 seconds, so a
-  wake always beats the TTL, and a payload nothing has invalidated can no longer age out
-  from under a tab you have not tapped.
+  wake is always the freshest thing the store has seen, and a payload nothing has
+  invalidated can no longer age out from under a tab you have not tapped. (Written when
+  ageing out was literal: a fifteen-minute TTL dropped an unrestamped entry. That TTL is
+  [gone](#and-across-closing-the-app-which-is-where-the-wait-actually-was), so the restamp
+  now buys the re-ask floor and the store's eviction order instead — the same mechanism,
+  answering a smaller question.)
 - **Which bead each repo has claimed does not.** That is `bd`, behind no event that
   carries it, so it is re-asked — once, when `stream.workMoved()` says something happened
   that the roster does not already answer, and never otherwise. A `resync` counts, for the
@@ -5778,7 +5846,8 @@ afterwards would claim it does. Erring early means one refresh too many, which i
 harmless direction.
 
 Claim 5 of `scripts/warm-check.mjs` is the gate, and it is stated in requests rather than
-in seconds, because no check can sit out a fifteen-minute TTL: the entry is filled without
+in seconds, because no check could sit out the fifteen-minute TTL this was written
+against: the entry is filled without
 being asked for, 27 idle seconds leave it with a **newer stamp and no extra request**, an
 advocate pausing lands in it for nothing, a bead moving inside the floor does not become a
 second sweep, and a claimed bead is re-asked exactly once. Against `--baseline` the middle
@@ -5887,7 +5956,7 @@ and the one case that must give up rather than guess: a repeated key, where two 
 claim one identity and the honest answer is the whole-list rebuild this used to do
 anyway. That fallback is live in three other places too — a page loaded without
 `warm.js` at all, a chunk that is not a single element, and a browser with no
-`sessionStorage`. In every one of them the inbox is exactly the inbox it was before
+`localStorage`. In every one of them the inbox is exactly the inbox it was before
 this section existed.
 
 ### The shell's cache version — one note per bump rather than one line
@@ -14685,9 +14754,13 @@ Six things follow from that, and each is a way it would otherwise half-land:
   inside the panel it filters rather than above the strip that selects it.
 - **They survive the app being closed**, which is what makes them tabs rather than a
   session's scratch state — `localStorage`, beside the token. Only `{id, ws}` reaches
-  the disk, never a title: [the warm layer](#loaded-once-and-kept--what-a-tab-tap-actually-costs)
-  is `sessionStorage` on purpose so that bead text does not sit on the phone overnight,
-  and a chat's title is bead text. A handle restored tomorrow draws its **repo** until
+  the disk, never a title. That began as a privacy rule — [the warm
+  layer](#loaded-once-and-kept--what-a-tab-tap-actually-costs) was `sessionStorage` so that
+  bead text did not sit on the phone overnight, and a chat's title is bead text — and it
+  survives that layer going durable on its second reason, which was always the better one:
+  a stored title is a title that can be *wrong*, and a strip drawing last week's name for a
+  chat that has been renamed is worse than one drawing the repo. A handle restored tomorrow
+  draws its **repo** until
   the first `/api/consoles` comes back, which is the word the bar already falls back to
   for a chat with no seed — the same word in the same place, one request early.
 - **They are scoped by repo**, off the same space picker everything else on the phone
@@ -22023,14 +22096,16 @@ parent was well-behaved will go red in the first shell somebody starts by hand.
 
 `test/warm.mjs` covers [the warm layer](#loaded-once-and-kept--what-a-tab-tap-actually-costs),
 which is entirely made of things that fail without saying anything. A cache that hands
-back a payload from before its TTL, or half of one, or one a previous version stored in
-a different shape, is a screen showing something that is not true and looks exactly like
+back half a payload, or one a previous build stored in a different shape, is a screen showing something that is not true and looks exactly like
 a screen showing something that is — so every one of those is asserted to read as a
 *miss*, because a miss is the case every caller already handles. The same for the
-storage refusing to exist: `sessionStorage` throws on write in more browsers than it
+storage refusing to exist: `localStorage` throws on write in more browsers than it
 does not, and the file's whole promise is that a page which cannot warm is merely as
-fast as it was, so a broken store is asserted to make every call a safe no-op and a full
-quota to clear itself rather than spend the rest of the session failing every write.
+fast as it was, so a broken store is asserted to make every call a safe no-op. A full
+store is asserted in the direction that matters now that nothing expires: it gives up one
+entry at a time, oldest first, and **may never give up the inbox** — which used to be
+exactly what it did, because the old answer to a quota failure was to throw everything
+away at once.
 The real `public/warm.js` runs in a `vm` with a hand-made storage, the way `test/queue.mjs`
 runs the real send queue: a rewrite of the logic as a test-only module would pass this
 while the phone shipped something else.

@@ -8627,17 +8627,34 @@
    *
    * Returns whether anything was drawn, because the caller's next move depends on it:
    * with a warm list up there is no hurry, and without one there is nothing at all.
+   *
+   * **Wrapped, since bc-1kwl.14, and that is not belt-and-braces.** The entry survives the
+   * app closing now and never expires, so it is not merely possible but *certain* that a
+   * build eventually reads a payload an older build wrote. `warm.js` refuses the ones it
+   * can recognise as foreign (`STORE_V`), and what is left is a payload of the right
+   * vintage whose contents `adopt` does not like — which used to be a throw in the first
+   * fifty lines of this IIFE, taking `loadBoard()` and `loadAgents()` down with it and
+   * leaving a blank screen behind. A held payload is worth a first frame and nothing else
+   * on this page is allowed to depend on it, so it is dropped and this is a cold start.
    */
   function warmBoot() {
-    // The pull requests first, and unconditionally: they are a second payload with a
-    // warm entry of its own, and whether the questions were kept says nothing about
-    // whether the board was. `adopt` renders, so this only has to be in `state` before it.
-    warmBoard();
-    const hit = window.beadcause?.warm?.read?.(questionsPath(state.scope));
-    if (!Array.isArray(hit?.data?.questions)) return false;
-    seqIs(hit.seq);
-    adopt(hit.data);
-    return true;
+    try {
+      // The pull requests first, and unconditionally: they are a second payload with a
+      // warm entry of its own, and whether the questions were kept says nothing about
+      // whether the board was. `adopt` renders, so this only has to be in `state` before it.
+      warmBoard();
+      const hit = window.beadcause?.warm?.read?.(questionsPath(state.scope));
+      if (!Array.isArray(hit?.data?.questions)) return false;
+      seqIs(hit.seq);
+      adopt(hit.data);
+      return true;
+    } catch (err) {
+      // Dropped rather than left: it would fail identically on the next reopen, and an
+      // app that cannot be reopened is worse than one that is slow to.
+      window.beadcause?.warm?.drop?.(questionsPath(state.scope));
+      window.beadcause?.report?.error?.(`warm boot: ${err?.message || err}`, { where: 'warmBoot' });
+      return false;
+    }
   }
 
   /**
@@ -8657,11 +8674,19 @@
    * Every warmed path this page can keep young, and what a wake is able to do for each.
    *
    * The hole this closes is `prewarm`'s, in public/warm.js: it fills each path *once per
-   * document* and the TTL then ages what it fetched out fifteen minutes later, and
-   * `prewarmed` never goes back to false. On a page you pass through that is fine. On the
-   * inbox — the page you leave open all day, which is how this app is actually used —
-   * every warmed path is cold for all but the first quarter of an hour, with nothing able
-   * to put it back. bc-xxzz closed it for `/api/work` alone; this table is the rest of it.
+   * document* and `prewarmed` never goes back to false, so whatever the background warm
+   * fetched in the first second is all any other tab was ever going to get. On a page you
+   * pass through that is fine. On the inbox — the page you leave open all day, which is
+   * how this app is actually used — nothing else was ever going to touch those entries.
+   * bc-xxzz closed it for `/api/work` alone; this table is the rest of it.
+   *
+   * **What this table is for changed shape in bc-1kwl.14 without changing a row.** When
+   * the warm layer had a fifteen-minute TTL, the damage was an entry going *cold* a
+   * quarter of an hour in with nothing able to put it back, and half of what a wake buys
+   * was simply keeping that from happening. Nothing expires now, and the durable entry
+   * survives the app closing — so the damage is the other one: a payload the log has
+   * already contradicted, sat there indefinitely, painted as the first frame of a tab.
+   * The rows below are unchanged because they were always deciding the right question.
    *
    * **What makes an old entry still true is the log, not its age.** This page is parked on
    * `/api/poll`, so an entry the log has not contradicted is as true as it was when it was
@@ -8690,8 +8715,11 @@
    *   already sweeps it on its own minute *when the kind filter wants pull requests*
    *   (`loadBoard`), which is exactly when it is drawing them; when the filter does not,
    *   the free restamp above is all this path gets. So the board is warm for as long as it
-   *   is provably unchanged, and once a board event has gone by it keeps its own age and
-   *   the TTL takes it — which is where it started.
+   *   is provably unchanged, and once a board event has gone by the entry keeps its own
+   *   age and stops being restamped — which is all the difference there is to make, now
+   *   that age no longer expires anything. What corrects it is the board's own sweep on
+   *   arrival: `warmBoot` in public/prs.js paints the held rows and `load()` runs behind
+   *   it, every time, so the stale frame lasts exactly as long as a `gh` sweep does.
    *
    * Every branch fails soft. No warm layer, no held entry to maintain, a fetch that
    * throws: all of them leave one cold tab, which is exactly where this began.
@@ -8742,9 +8770,10 @@
       // page that may never be opened — the exact bill /endorse stopped paying when its
       // own 45-second timer went (bc-bsgn). What it gets is the free half: held young for
       // as long as the log says nothing has been filed, revoked, amended or asked about,
-      // and the moment one of those lands the entry keeps its own age and the TTL takes
-      // it. That is what makes arriving at the queue instant more than fifteen minutes
-      // after this document loaded, which on a phone left open all day is every arrival.
+      // and the moment one of those lands the entry stops being restamped and is left to
+      // the sweep /endorse runs on arrival anyway. That is what makes arriving at the
+      // queue instant hours after this document loaded, which on a phone left open all
+      // day is every arrival.
       path: '/api/unendorsed',
       fold: (queue) => (Array.isArray(queue?.beads) ? queue : null),
       moved: (events) => window.beadcause?.stream?.queueMoved?.(events) !== false,
@@ -9096,9 +9125,9 @@
       // The poll answered, so the credential is good and the daemon is up: the one
       // moment it is safe to go and warm the other four tabs.
       warmOthers();
-      // And to keep them warm rather than leaving them to age out under a TTL nothing
-      // was putting back — this is the wake every other view is maintained from, and
-      // `MAINTAINED` is where what that means per path is argued.
+      // And to keep them *true* rather than merely stored — this is the wake every other
+      // view is maintained from, and `MAINTAINED` is where what that means per path is
+      // argued.
       warmViews(data, events, resync);
       // Null means the park timed out with nothing but presence traffic — the quiet
       // case, and the whole point: no sweep ran on the daemon and nothing repaints
