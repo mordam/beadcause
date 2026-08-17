@@ -310,11 +310,18 @@ const collapseCard = async (id) => {
  * is read after the answer has been sent. Measured off the DOM rather than the
  * bounding boxes so it holds on a collapsed card, an open card and either landscape
  * column — all of which move the geometry and none of which change the order.
+ *
+ * `options` counts `.option[data-opt]` only, not every `.option` — a shut card with
+ * choices also draws the `💬 Discuss` button (bc-rfnr.9.3, see cardHtml's `discuss`
+ * const and test/optionanswer.mjs), which carries `class="option discuss"` and
+ * `data-discuss="1"` rather than `data-opt`. It is not a choice the question offers,
+ * so counting it here would report one option too many for every collapsed card that
+ * has any, this one included.
  */
 const ANSWERED = (id) => `(() => {
   const card = ${CARD(id)};
   const banner = card.querySelector('.answered-before');
-  const options = [...card.querySelectorAll('.options .option')];
+  const options = [...card.querySelectorAll('.options .option[data-opt]')];
   const kids = [...card.children];
   return {
     shown: !!banner && banner.getBoundingClientRect().height > 0,
