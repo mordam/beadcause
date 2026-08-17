@@ -112,6 +112,86 @@
     }
   }
 
+  /**
+   * What is half-typed in each composer, kept where the page going away cannot take it.
+   *
+   * Words that were *sent* and failed have been safe since `public/sendqueue.js`: they
+   * sit above the composer, they can be pulled back out, and the strip says so. Words
+   * that never left the box had none of that — they existed in the textarea and in
+   * `chat.say` and nowhere else, and both die with the page. A reload, a crash, a
+   * backgrounded tab the phone evicts, a client that re-mounts on retry: all of them
+   * take the paragraph you were half-way through, and the longer and more considered
+   * it was the more there is to lose. That asymmetry is the bug.
+   *
+   * `localStorage` rather than the `sessionStorage` `public/warm.js` uses, and the
+   * reason is the same one that makes this worth doing at all: `sessionStorage` is
+   * scoped to the tab, and a tab that is gone is exactly the case this is for. It is
+   * your own typing rather than fetched bead text, so it is also not what warm.js's
+   * rule — no bead prose on the phone's disk overnight — is about.
+   *
+   * One key holding a map rather than a key per chat, the same shape as `TABS_KEY`
+   * above. That is what makes the sweep below possible at all: pruning a per-chat
+   * naming scheme means enumerating `localStorage` itself, and one JSON object can
+   * simply be rewritten without its stale entries.
+   *
+   * The stamp is what keeps this from becoming a hoard. A sentence typed a fortnight
+   * ago and never sent is not a draft any more, it is a surprise waiting in a chat you
+   * had forgotten — so it is dropped on the next read, which is also the only moment
+   * anything here is ever looked at.
+   */
+  const SAY_KEY = 'beadcause.console.says';
+  /** How long an unsent draft is still a draft. */
+  const SAY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+  /** Every kept draft by chat id, minus anything stale. Never throws. */
+  function readSays() {
+    let raw;
+    try {
+      raw = JSON.parse(localStorage.getItem(SAY_KEY) || '{}');
+    } catch {
+      // Denied, or written by something else. Not a reason to fail to draw.
+      return {};
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const now = Date.now();
+    const kept = {};
+    for (const [id, held] of Object.entries(raw)) {
+      const text = typeof held?.text === 'string' ? held.text : '';
+      // An entry with no stamp is treated as new rather than dropped: it is somebody's
+      // typing, and the next save gives it a real one.
+      const at = Number(held?.at) || now;
+      if (!id || !text.trim() || now - at > SAY_TTL_MS) continue;
+      kept[id] = { text, at };
+    }
+    return kept;
+  }
+
+  const readSay = (id) => readSays()[id]?.text || '';
+
+  /**
+   * Keep — or drop — what one chat is holding.
+   *
+   * Written on the keystroke rather than at some later save, the way the inbox's
+   * answer boxes are (`setDraft` in public/app.js): the next thing that happens to
+   * this page may be that it stops existing, and a save scheduled for a moment later
+   * is a save that does not happen. Blank clears rather than storing `''`, so a chat
+   * whose draft was sent leaves nothing behind to restore.
+   */
+  function keepSay(id, text) {
+    if (!id) return;
+    const says = readSays();
+    const body = String(text ?? '');
+    if (body.trim()) says[id] = { text: body, at: Date.now() };
+    else if (!says[id]) return; // nothing held and nothing to hold: no write at all
+    else delete says[id];
+    try {
+      if (Object.keys(says).length) localStorage.setItem(SAY_KEY, JSON.stringify(says));
+      else localStorage.removeItem(SAY_KEY);
+    } catch {
+      // Storage denied. The composer works for this visit and forgets on the next.
+    }
+  }
+
   const state = {
     token: '',
     /**
@@ -180,8 +260,14 @@
       saveTimer: null,
       /** Where this thread was left, or null for one that has never been drawn. */
       scrollTop: null,
-      /** What was typed into the composer and not said. */
-      say: '',
+      /**
+       * What was typed into the composer and not said.
+       *
+       * Seeded from the disk rather than blank, which is the whole of how a draft
+       * survives a reload: a chat is made here on first sight, and after a reload the
+       * first sight of the chat in the address bar is the boot. See `SAY_KEY`.
+       */
+      say: readSay(id),
       queue: makeQueue(id),
     };
     state.chats.set(id, chat);
@@ -1362,8 +1448,32 @@
         toast(`${err.message} — tap the message above the box to get it back`, true);
       },
     });
-    q.attach({ el: `#queued[data-chat="${cssValue(id)}"]`, box: '#say', onRestore: autoGrow });
+    // A queued message pulled back out lands in the box without an `input` event, so
+    // the draft store has to be told here or the one thing you did *not* type would be
+    // the one thing a reload lost.
+    q.attach({
+      el: `#queued[data-chat="${cssValue(id)}"]`,
+      box: '#say',
+      onRestore: (box) => {
+        autoGrow(box);
+        noteSay(box.value);
+      },
+    });
     return q;
+  }
+
+  /**
+   * The composer changed: hold it in memory and on the disk in the same breath.
+   *
+   * `chat.say` is what a switch back to this conversation draws from and the disk is
+   * what a reload draws from; they are two answers to the same question and letting
+   * them diverge is how you get a box that restores yesterday's sentence.
+   */
+  function noteSay(text) {
+    const chat = cur();
+    if (!chat) return;
+    chat.say = text;
+    keepSay(chat.id, text);
   }
 
   function send(text) {
@@ -1371,6 +1481,10 @@
     if (!String(text || '').trim() || !chat?.console) return;
     $('#say').value = '';
     chat.say = '';
+    // Before the queue rather than after it: from here the words are the queue's, and
+    // it is the queue that puts them back in the box if the send fails. A kept draft
+    // that survived a delivery would restore beside the message it already sent.
+    keepSay(chat.id, '');
     autoGrow($('#say'));
     chat.queue.say(text);
   }
@@ -1848,6 +1962,12 @@
     if (!chat) return;
     chat.scrollTop = $('#thread').scrollTop;
     chat.say = $('#say').value;
+    // Belt as well as braces. Every path that puts words in the box is meant to have
+    // gone through `noteSay` already — the `input` listener for typing and dictation,
+    // the queue's `onRestore` for a message pulled back out — but this is the last
+    // moment this chat's words are on the screen, and one future writer that forgets
+    // would otherwise lose them silently.
+    keepSay(chat.id, chat.say);
   }
 
   /** Draw a conversation we already have, exactly as it was left. */
@@ -1866,7 +1986,13 @@
   /** Fetch one for the first time. Everything after this is drawn from memory. */
   async function load(chat) {
     $('#thread').innerHTML = '<div class="empty">Loading…</div>';
-    $('#say').value = '';
+    // What this chat is holding, not what the last one was: `draw` is the path for a
+    // chat already in memory and this is the path for one being fetched, so a draft
+    // restored from the disk after a reload arrives *here*. Filled rather than blanked
+    // so it is there while the transcript is still coming, which is also the window in
+    // which somebody starts typing again.
+    $('#say').value = chat.say || '';
+    autoGrow($('#say'));
     try {
       adopt(await api(`/api/console?id=${encodeURIComponent(chat.id)}`));
     } catch (err) {
@@ -2129,7 +2255,10 @@
       e.preventDefault();
       send($('#say').value);
     });
-    $('#say').addEventListener('input', () => autoGrow($('#say')));
+    $('#say').addEventListener('input', () => {
+      autoGrow($('#say'));
+      noteSay($('#say').value);
+    });
     $('#say').addEventListener('keydown', (e) => {
       // The keyboard says "send", so Enter sends. A newline is shift+Enter, which
       // is what anyone writing more than a line already reaches for.

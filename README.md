@@ -14626,10 +14626,12 @@ Delivering a message *into* the turn already running is deliberately not this. T
 needs a persistent `--input-format stream-json` process instead of the one-shot
 `claude -p --resume` per turn, and is its own piece of work.
 
-The queue lives in the page, like the half-typed text in the composer beside it: a
-reload loses what has not gone yet. Everything that *has* gone is on the server and in
-the transcript, which is the line worth keeping — a message is either visibly waiting
-on your screen or really sent, and never both or neither.
+The queue lives in the page: a reload loses what has not gone yet. Everything that
+*has* gone is on the server and in the transcript, which is the line worth keeping — a
+message is either visibly waiting on your screen or really sent, and never both or
+neither. The half-typed text in the composer beside it used to live in the page too,
+and no longer does; see [an unsent draft outlives the
+page](#an-unsent-draft-outlives-the-page).
 
 The queue itself is `public/sendqueue.js`, shared by both callers rather than written
 twice — including the pending strip, which `queue.attach({ el, box })` draws and wires
@@ -14658,6 +14660,58 @@ the same `409` the daemon does: the textarea is enabled, the send button is tapp
 the placeholder is unchanged, the box keeps focus, and both messages land as one turn
 with the fixture never once having been pushed through. `--baseline` serves the
 committed copies of both files, which fail it.
+
+### An unsent draft outlives the page
+
+Words that were *sent* and failed have been safe since the send queue landed: they sit
+above the composer in your own words, they can be tapped back into the box, and the
+strip says what is happening to them. Words that never left the box had none of that.
+They existed in the textarea and in `chat.say` and nowhere else, and both die with the
+page — so a reload, a crash, a backgrounded tab the phone evicts, or a client that
+re-mounts the page on a retry took the paragraph you were half-way through, with no
+recovery and no warning that there had been anything to recover. That asymmetry was
+the bug: the longer and more considered the message, the more there was to lose.
+
+So the composer's contents are written to `localStorage` on the keystroke, per chat,
+and read back when that chat is next drawn. Four things about it are the design:
+
+- **On the keystroke, not at some later save.** The same rule the inbox's answer boxes
+  follow (`setDraft` in `public/app.js`): the next thing that happens to this page may
+  be that it stops existing, and a save scheduled for a moment later is a save that
+  does not happen.
+- **`localStorage`, not the `sessionStorage` `public/warm.js` uses.** `sessionStorage`
+  is scoped to the tab, and a tab that is gone is precisely the case this exists for.
+  warm.js's rule — no fetched bead prose sitting on the phone's disk overnight — is
+  about somebody else's words; this is your own typing, which is the thing you would
+  be angriest to lose.
+- **Keyed by chat id, in one map under one key.** Two conversations can never restore
+  into each other, switching between chats is unaffected, and pruning is a rewrite of
+  one JSON object rather than a walk over every key in `localStorage`.
+- **Sending clears it, before the queue is handed the words.** From that moment the
+  words belong to the send queue, which is what puts them back in the box if the
+  delivery fails; a kept draft that survived a delivery would restore *beside* the
+  message it had already sent.
+
+A draft is dropped after a fortnight, on the next read. A sentence typed that long ago
+and never sent is not a draft any more — it is a surprise waiting in a chat you had
+forgotten — and the stamp is also what keeps a map of drafts from becoming a hoard.
+
+The restore runs `autoGrow`, so a four-line draft comes back four lines tall rather
+than as a one-line box you have to click into to discover the rest of. Storage being
+denied — private mode, a WebView with it switched off — is caught and ignored
+throughout: the composer works for that visit and forgets on the next, exactly as the
+chat tab strip beside it does.
+
+`test/composerdraft.mjs` (in `npm test`) runs the real `public/console.js` in a `vm`
+against a hand-made document, the way `test/chattabs.mjs` runs the same page's tab
+strip: type and reload, send and reload, two chats side by side, a stale entry, a map
+written by something else, and storage that refuses every write. A "reload" there is a
+second boot of the same file over the same storage map, which is the right shape and
+still not the real thing — so `node scripts/switch-check.mjs` closes it in a headless
+Chrome at phone size: a draft typed into one chat, a real `Page.navigate` to another
+and back, each conversation getting its own words back and the box restored at the
+height it was left at rather than as a one-line strip. `--baseline` fails exactly those
+three and passes everything above them.
 
 ### An old proposal says what became of it
 
