@@ -9233,9 +9233,11 @@
    *
    * Early on purpose: the line that says which slice you are looking at has to be on
    * screen while `bd` is still being asked, which is exactly when a wide scope makes
-   * the wait long enough to wonder. The kinds group is the control's own — see
-   * public/inboxfilter.js — and the scope group is handed over, so the two share one
-   * panel instead of stacking two rows.
+   * the wait long enough to wonder. The scope and the bead box are handed over; the two
+   * sub-filters are the control's own — see public/inboxfilter.js — so they share one
+   * panel instead of stacking two rows. **The kinds are not in here any more**: since
+   * bc-khoe.2 they are the pill row above, and what selecting one does still arrives
+   * back through `onChange` below, exactly as a chip's tap used to.
    *
    * A page served without the file still works: `renderFilters` and `inKind` both fall
    * back to doing nothing, which is the unfiltered list this page has always drawn.
@@ -9247,13 +9249,17 @@
       // The scope first, then the bead box: coarsest to narrowest, which is also the
       // order the panel reads top to bottom.
       groups: [scopeGroup, beadGroup],
-      // The kinds' own answer plus this page's. A picked bead hides most of the screen,
-      // and the summary pill has to go bold over it like it does for everything else.
+      // This page's half of "is the list narrowed". A picked bead hides most of the
+      // screen, and the summary pill has to go bold over it like it does for everything
+      // else. The kinds no longer contribute — the lit pill is where that is admitted
+      // to now; see `narrowed` in public/inboxfilter.js.
       narrowed: () => beadPicked(),
       // Forced, because a filter tap is a decision and must not be deferred behind a
       // half-written answer. Nothing is refetched for the kinds themselves — they are a
       // view over rows already in hand — but selecting `PRs` may be the first time this
-      // tab has wanted a board at all, and `loadBoard` is what goes and gets one.
+      // tab has wanted a board at all, and `loadBoard` is what goes and gets one. It
+      // fires for a pill tap too: public/viewbar.js routes those through `pick`, which
+      // is `set` underneath, which is this channel.
       onChange: () => {
         render(true);
         loadBoard();
