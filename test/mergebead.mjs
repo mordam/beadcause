@@ -5,8 +5,8 @@
  *     npm test
  *     node test/mergebead.mjs
  *
- * bc-r941.1. Four things are worth a suite here and none of them is visible by reading
- * one function:
+ * bc-r941.1, bc-36xx.2. Five things are worth a suite here and none of them is visible by
+ * reading one function:
  *
  * 1. **The block is the delivery card's block.** A merge-bead carries `beadpr`, written
  *    by lib/delivery.js's serialiser and parsed by lib/delivery.js's parser, because the
@@ -24,6 +24,13 @@
  * 4. **One merge-bead per pull request.** `clearOpenCards` in bin/deliver.js exists
  *    because two cards on one delivery were each a blocker on the work bead's close. A
  *    merge-bead is a blocker *by construction*, so the same pile here is strictly worse.
+ * 5. **Two state blocks share one field, and they are cut apart by their markers.** The
+ *    review loop's round, the reviewer's comments and the worker's answers to them have a
+ *    third lifetime — they survive an admission that resets the queue's counters — so they
+ *    are a second block with a second parser. What is worth pinning is not the round trip
+ *    but the *coexistence*: interleaved writes leave one of each block and a human's line
+ *    intact, and neither parser can be made to read the other's YAML. The half of that
+ *    which is about the admission itself lives in test/mergeadmit.mjs, where the reset is.
  */
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -46,6 +53,15 @@ const {
   mergeBeadTitle,
   mergeBeadBody,
   openMergeBeadFor,
+  REVIEW_OPEN,
+  REVIEW_CLOSE,
+  MAX_REVIEW_COMMENTS,
+  reviewState,
+  withReviewBlock,
+  reviewApproved,
+  reviewPending,
+  commentsForWorker,
+  commentsForReviewer,
 } = await import(LIB('mergebead.js'));
 const { MERGE_ADVOCATE } = await import(LIB('mergeadvocate.js'));
 const { AGENTS } = await import(LIB('foundation.js'));
@@ -202,6 +218,180 @@ check('a block a human broke reads as untried rather than as exhausted', () => {
 check('the block is bounded — a refusal cannot grow notes without limit', () => {
   const s = queueState({ notes: withQueueBlock('', { attempts: 1, refused: 'x'.repeat(2000) }) });
   assert.ok(s.refused.length <= 400, `a 2000-character refusal survived at ${s.refused.length}`);
+});
+
+/* ------------------------------------------------------------ the review state */
+
+const reviewed = {
+  round: 2,
+  verdict: 'changes',
+  reviewer: 'NeanderthalMan',
+  at: '2026-08-17T10:00:00.000Z',
+  comments: [
+    { id: 'rc1', path: 'lib/x.js', line: 12, body: 'This swallows the error.', answer: 'declined', note: 'It is deliberate — see the comment above it.' },
+    { id: 'rc2', body: 'Name it after what it does.', answer: 'changed', resolved: true },
+    { id: 'rc3', body: 'What is this branch for?' },
+  ],
+};
+
+check('a pull request nobody has reviewed has been reviewed nought times, and has no verdict', () => {
+  const s = reviewState({ notes: '' });
+  assert.equal(s.round, 0);
+  assert.equal(s.verdict, null, 'a null verdict is what holds the merge — it must not default to anything');
+  assert.equal(s.refused, null, 'refused must stay null, like the queue block: an empty sentence is a bug worth seeing');
+  assert.deepEqual(s.comments, []);
+});
+
+check('the review survives a round trip through notes, comments and answers included', () => {
+  const s = reviewState({ notes: withReviewBlock('', reviewed) });
+  assert.equal(s.round, 2);
+  assert.equal(s.verdict, 'changes');
+  assert.equal(s.reviewer, 'NeanderthalMan');
+  assert.equal(s.at, '2026-08-17T10:00:00.000Z');
+  assert.deepEqual(
+    s.comments.map((c) => [c.id, c.path, c.line, c.answer, c.resolved]),
+    [
+      ['rc1', 'lib/x.js', 12, 'declined', false],
+      ['rc2', '', null, 'changed', true],
+      ['rc3', '', null, '', false],
+    ]
+  );
+  assert.match(s.comments[0].note, /It is deliberate/);
+  // Serialise -> parse -> serialise is a fixed point, which is what makes the block safe
+  // to rewrite every round: anything that shifted on the second pass would drift a field
+  // at a time over the life of a review.
+  assert.equal(withReviewBlock('', s), withReviewBlock('', reviewed));
+  assert.deepEqual(reviewState({ notes: withReviewBlock('', s) }), s);
+});
+
+check('the two blocks live in one notes field and neither eats the other', () => {
+  // The whole reason for two marker pairs. A tick rewrites the queue's progress; the
+  // reviewer rewrites the review; a human's line outlives both.
+  let notes = withQueueBlock('A human wrote this line.', { attempts: 1 });
+  notes = withReviewBlock(notes, reviewed);
+  notes = withQueueBlock(notes, { attempts: 2, refused: 'lint is red.' });
+  notes = withReviewBlock(notes, { ...reviewed, round: 3 });
+
+  assert.match(notes, /A human wrote this line\./);
+  assert.equal(queueState({ notes }).attempts, 2);
+  assert.equal(queueState({ notes }).refused, 'lint is red.');
+  assert.equal(reviewState({ notes }).round, 3);
+  assert.equal(reviewState({ notes }).comments.length, 3, "the queue's rewrite ate the review comments");
+  // One of each, not a stack: two writers per bead per tick would otherwise grow the field
+  // without bound.
+  for (const marker of [QUEUE_OPEN, QUEUE_CLOSE, REVIEW_OPEN, REVIEW_CLOSE]) {
+    assert.equal(notes.split(marker).length - 1, 1, `${marker} appears more than once`);
+  }
+});
+
+check('and the review block is not inside the queue block, whatever order they were written in', () => {
+  // A `beadcause:review` block that landed between QUEUE_OPEN and QUEUE_CLOSE would be
+  // cut out wholesale by the next tick's `withQueueBlock`, and nothing would say so.
+  const notes = withQueueBlock(withReviewBlock('', reviewed), { attempts: 1 });
+  const q = notes.indexOf(QUEUE_OPEN);
+  const qEnd = notes.indexOf(QUEUE_CLOSE);
+  const r = notes.indexOf(REVIEW_OPEN);
+  assert.ok(r >= 0 && q >= 0, 'both blocks must be present');
+  assert.ok(r > qEnd || r < q, 'the review block sits inside the queue block');
+  assert.equal(reviewState({ notes: withQueueBlock(notes, { attempts: 2 }) }).round, 2);
+});
+
+check('a block that lost its closing marker stops at the next block, not at the end of the field', () => {
+  // How `notes` actually breaks: somebody edits the field and takes half a marker with
+  // them. With one block in it that cost a human's note; with two, the next write of the
+  // damaged block deletes the whole of the other one — and for the review block that is a
+  // merge-bead forgetting a review it has had, with nothing anywhere saying so.
+  const notes = `${QUEUE_OPEN}\nattempts: 2\n\n${withReviewBlock('', reviewed)}`;
+  const after = withQueueBlock(notes, { attempts: 3 });
+  assert.equal(reviewState({ notes: after }).round, 2, 'an unclosed queue block ate the review block');
+  assert.equal(queueState({ notes: after }).attempts, 3);
+  assert.equal(after.split(QUEUE_OPEN).length - 1, 1, 'the damaged block was left behind as well as rewritten');
+
+  // And the same the other way round, because either block can be the damaged one.
+  const other = withReviewBlock(`${REVIEW_OPEN}\nround: 1\n\n${withQueueBlock('', { attempts: 4 })}`, reviewed);
+  assert.equal(queueState({ notes: other }).attempts, 4, 'an unclosed review block ate the queue block');
+  assert.equal(reviewState({ notes: other }).round, 2);
+
+  // What follows no marker at all is still given up: there is nothing to cut to, and
+  // guessing where a block ends inside somebody's prose is worse than losing the tail.
+  assert.equal(withQueueBlock(`${QUEUE_OPEN}\nattempts: 1`, { attempts: 2 }), withQueueBlock('', { attempts: 2 }));
+});
+
+check('a verdict nothing recognises reads as no verdict at all', () => {
+  // The safe direction here is the opposite of the queue block's, and deliberately so: an
+  // unparseable queue block costs one more attempt, where an unrecognised review verdict
+  // must never be what lets an unreviewed pull request through the gate.
+  assert.equal(reviewState({ notes: withReviewBlock('', { round: 1, verdict: 'lgtm' }) }).verdict, null);
+  const broken = `${REVIEW_OPEN}\n: : not yaml : :\n${REVIEW_CLOSE}`;
+  assert.equal(reviewState({ notes: broken }).verdict, null);
+  assert.equal(reviewState({ notes: broken }).round, 0);
+});
+
+check('an unanswered comment is not a declined one', () => {
+  // Flattening the two is how every objection a worker never got to would read as settled.
+  const s = reviewState({ notes: withReviewBlock('', reviewed) });
+  assert.deepEqual(commentsForWorker(s).map((c) => c.id), ['rc3'], 'the worker owes an answer on exactly the unanswered ones');
+  assert.deepEqual(
+    commentsForReviewer(s).map((c) => c.id),
+    ['rc1'],
+    'the reviewer owes a look at the answered-but-unresolved ones — a change made is still a change to check'
+  );
+  const nonsense = reviewState({ notes: withReviewBlock('', { round: 1, comments: [{ id: 'x', body: 'y', answer: 'shipped' }] }) });
+  assert.equal(nonsense.comments[0].answer, '', 'an answer outside the three reads as unanswered');
+  assert.deepEqual(commentsForWorker(nonsense).map((c) => c.id), ['x']);
+});
+
+check('the approval is carried only when there is one', () => {
+  const approved = reviewState({
+    notes: withReviewBlock('', {
+      round: 2,
+      verdict: 'approved',
+      reviewer: 'NeanderthalMan',
+      approvedBy: 'NeanderthalMan',
+      approvedAt: '2026-08-17T11:00:00.000Z',
+      approvalUrl: 'https://github.com/mordam/beadcause/pull/42#pullrequestreview-1',
+    }),
+  });
+  assert.equal(reviewApproved(approved), true);
+  assert.equal(reviewPending(approved), false);
+  assert.equal(approved.approvedBy, 'NeanderthalMan');
+  assert.match(approved.approvalUrl, /pullrequestreview-1/, 'the approval must point at where a person can read it');
+
+  // Not on every merge-bead in the workspace, for `queueBlock`'s reason: a block carrying
+  // an empty approval on the ninety-nine per cent that never had one reads as a queue that
+  // asks for reviews it does not.
+  assert.ok(!/approved/.test(withReviewBlock('', { round: 0 })), 'an unreviewed bead carries approval fields');
+  const claimed = reviewState({ notes: withReviewBlock('', { round: 1, verdict: 'changes', approvedBy: 'somebody' }) });
+  assert.equal(claimed.approvedBy, '', 'an approver survived on a bead with no approval on it');
+  assert.equal(reviewPending(reviewState({ notes: '' })), true);
+});
+
+check('a refusal is its own verdict, and it is a sentence', () => {
+  const s = reviewState({ notes: withReviewBlock('', { round: 1, verdict: 'refused', refused: 'r'.repeat(2000) }) });
+  assert.equal(s.verdict, 'refused');
+  assert.ok(s.refused.length <= 400, `a 2000-character refusal survived at ${s.refused.length}`);
+});
+
+check('the block is bounded — a reviewer cannot grow notes without limit', () => {
+  const many = Array.from({ length: MAX_REVIEW_COMMENTS + 5 }, (_, i) => ({
+    id: `rc${i}`,
+    body: 'x'.repeat(3000),
+    // Every one past the cap is resolved, so the cap has something it is allowed to drop.
+    resolved: i < 5,
+  }));
+  const s = reviewState({ notes: withReviewBlock('', { round: 1, comments: many }) });
+  assert.equal(s.comments.length, MAX_REVIEW_COMMENTS);
+  assert.ok(s.comments[0].body.length <= 600, `a 3000-character comment survived at ${s.comments[0].body.length}`);
+  // What is dropped is history, never an objection: an unresolved comment falling off the
+  // end is a review that silently passed.
+  assert.equal(s.comments.filter((c) => !c.resolved).length, MAX_REVIEW_COMMENTS, 'the cap dropped an unresolved comment');
+});
+
+check('a comment with nothing in it is not a comment', () => {
+  // It would be a round nobody can finish: unanswerable, and unresolved forever.
+  const s = reviewState({ notes: withReviewBlock('', { round: 1, comments: [{ id: 'a', body: '  ' }, null, 'a bare string', { id: 'b', body: 'real' }] }) });
+  assert.deepEqual(s.comments.map((c) => c.body), ['a bare string', 'real']);
+  assert.equal(s.comments[0].id, 'c3', 'a comment with no id must still be keyed, or an answer cannot be matched back');
 });
 
 /* ------------------------------------------------------------- who it goes to */
