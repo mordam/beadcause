@@ -21202,6 +21202,51 @@ answered on a machine with no tracker at all, which is why "no workspaces found"
 found under ~/beads. Create one and re-run"*, which is advice to build the wrong thing in
 the wrong place.
 
+### `{name, dir}` or `"name"` — the workspace has two shapes, and the swap is silent
+
+A workspace is a `{name, dir}` object almost everywhere: that is what `discoverWorkspaces`
+builds, what `cfg.workspaces` holds, and what every `bd.*` call takes, because `dir` is
+the `BEADS_DIR` the binary is spawned with. But an *advocate record* carries it twice —
+`record(ws)` in lib/advocate.js sets `workspace` to the object and `name` to the string —
+and a dozen other things want only the name: lib/parked.js keys its store `<name>/<bead>`,
+lib/repos.js and lib/spaces.js look the name up in a config block, and the done/check-in
+files are named after it. Which of the two a call wants is decided entirely by the callee
+and is invisible at the call site. `a.workspace` and `a.name` are one keystroke apart.
+
+**Nothing throws either way, and that is the whole problem.** bc-2uj4.6 was the object
+handed to lib/parked.js: `openList(opened, a.workspace)` compared an object against a
+string, matched nothing, and returned `[]` on every tick for every advocate — which is
+exactly what a quiet laptop looks like, so the idle sweep's loop body had never once run,
+`state.parked` was `{}`, and the daemon log had no `parked …` line in its entire history.
+It lived a fortnight. Worse, `beadKey` is a template literal, so it *accepted* the object
+and filed seven live conversations under `[object Object]/<bead>`, where the resume path
+found them again under the same wrong key. The other direction is no louder: the name
+handed to `bd` leaves `workspace.dir` `undefined`, a spawn env drops an `undefined` value,
+and `bd` answers *successfully* about whichever tracker the daemon's own cwd resolves to.
+
+bc-ygwa audited every one of the advocate's sites — 47 `a.workspace` and 158
+`a.name` once its comments are blanked, plus the sibling advocates and everything the two are handed to — and found no
+second instance. Two things keep that true, because an audit is a fact about one afternoon
+and the hazard is permanent:
+
+- **`assertWorkspaceObject` in lib/bd.js**, at `run` — the single funnel every one of
+  `Bd`'s ~40 public methods reaches, so one check makes the name-for-object swap loud
+  everywhere at once, next to an `execFile` where it costs nothing measurable. It says
+  which of the two shapes it got and which command it was about to run. It comes out of
+  `graph` *synchronously* rather than as a rejection, deliberately: `graph` converts a
+  failed `bd export` into the last good index so one bad read cannot blank the board, and
+  a caller bug routed into that `catch` would be filed as a slow tracker and carried on
+  from — the exact silence this is here to end.
+- **`node test/wsshape.mjs`**, which reads lib/advocate.js rather than running it, because
+  the other direction has no funnel to guard. Every `a.workspace` must sit in the argument
+  list of a callee known to want the object; no callee known to want the name may be handed
+  one; and no `a.workspace` may reach a template literal. Handing one to a function neither
+  list names **fails the suite on purpose** — that red is somebody being asked which shape
+  a new callee wants at the one moment the answer is cheap.
+
+The two lists in that file are the audit, written down. Adding to them is the intended
+response to its failure, not a workaround for it.
+
 ### Many repos, one workspace — the approved list, and the token that names each
 
 Every other part of beadcause assumes a workspace **is** a repo: one tracker, one
