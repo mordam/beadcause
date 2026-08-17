@@ -12596,12 +12596,26 @@ different questions: "is the branch this bead asked for already in?" can be answ
 any branch the bead names, but "was this bead closed over work that never landed?" is a
 claim about its own delivery, and bc-5lcc's description names *another* bead's branch.
 
-Three facts have to hold before it says anything. The branch still **exists**; it has
-**commits the base does not**; and **GitHub has no pull request for it**, merged or open.
-That last one is not optional and is why the sweep refuses to run without `gh`: a squash
-merge leaves no ancestry at all, so git alone reports every deliberate squash as lost work
-for ever, and a sweep that cries wolf daily is one nobody reads. An open pull request is
-not a merge either, but somebody is already looking at it.
+Four facts have to hold before it says anything. The branch still **exists**; it has
+**commits the base does not**; **GitHub has no pull request for it**, merged or open; and
+**its newest commit has stopped moving for two hours**. The third is not optional and is
+why the sweep refuses to run without `gh`: a squash merge leaves no ancestry at all, so
+git alone reports every deliberate squash as lost work for ever, and a sweep that cries
+wolf daily is one nobody reads. An open pull request is not a merge either, but somebody
+is already looking at it.
+
+The fourth is bc-xl7n.63, and it is about the third one having a *time* on it. On
+2026-08-14 this sweep filed a card at 15:40:21Z saying of a branch that "GitHub has no
+pull request for it — not merged, not open, not refused". Pull request #315 for that exact
+branch was opened at 15:48:35Z, eight minutes later. Nothing was wrong with the reading:
+it was taken in the gap every delivery has between pushing its branch and opening its pull
+request — `beadcause-deliver` pushes, then calls `gh pr create` — and a sweep on an hourly
+tick lands in that gap whenever somebody is delivering, which here is most evenings. So a
+branch whose newest commit is younger than two hours is **held rather than carded**: no
+fingerprint is written, exactly as for a branch over the twenty-branch cap, so it is looked
+at again next sweep and carded then if it really was abandoned. The delay costs nothing —
+every bead this is about was closed over work its own session already finished, and a
+genuinely abandoned branch has a tip weeks old.
 
 There is no ancestry walk here, which is the one difference from the sweep above worth
 knowing. That one has to tell a merged branch apart from an unstarted worktree, and both
@@ -12633,6 +12647,44 @@ because the card gets answered and closed and a guard that read its existence wo
 it for ever. The card is written first all the same, and the fingerprint second: a creation
 that fails has written nothing and simply comes back next interval, where a fingerprint
 written over a card that was never filed would be a finding lost in silence.
+
+**And the card is re-asked every sweep, because the reading has an age.** The grace above
+is a guess about how long a session takes to open its pull request, so it cannot be the
+whole of the fix — a delivery whose gate runs three hours gets carded anyway. The card
+therefore says *when* GitHub was asked, in UTC and marked as such, and on every sweep the
+advocate walks the cards of this sweep's still in the inbox and asks GitHub again. One
+whose central claim has stopped being true is **closed with a reason saying so** rather
+than left for you to answer a question about a state that no longer exists: "Wrong when it
+was asked: #315 is open for `worktree-…`", and a line on the original bead's thread taking
+back the one the sweep put there.
+
+Closed rather than amended, which is the difference from [the conflicting-merge
+card](#a-branch-that-keeps-conflicting-does-not-keep-filing-cards). That one is a running report on merges still
+moving and there is more to say each cycle. This is a single question with two buttons, and
+once a pull request exists neither means anything — **Land it** would commission a session
+to rebuild a branch already in review, and **Let it go** would record a decision to abandon
+work nobody is abandoning. A question whose options have both become wrong is not one to
+reword.
+
+A card of this sweep's is found by its own title — `worktree-… never reached main — bc-… is
+closed over it` — and not by a record on disk. That is deliberate: the conflicting-merge
+sweep keeps its mapping in `~/.config/beadcause/sweep-cards.json`, and bc-xl7n.35 is the
+bead about eight of thirteen cards in one day outliving their record, after which nothing
+can ever amend or close them. Here the recovery path and the ordinary path are the same
+path, so there is no second one to go stale.
+
+The one asymmetry worth knowing: a **merge** settles the question for good and the
+fingerprint stays, so the branch costs no further `gh` call ever. An **open** pull request
+does not — it can be refused unmerged next week, and then the branch really is stranded —
+so closing a card for that reason writes a second mark that takes the ask back, and a later
+sweep may file a fresh card. The last mark on the bead wins.
+
+This is also what keeps this sweep and the conflicting-merge sweep from holding two open
+cards asking incompatible things about one branch, which they did on `worktree-reenter-gate-f31f`
+on the day above: one offering *land it / let it go* as if the work were abandoned, the
+other naming #315 and asking which side wins. There is no cross-check between them and
+there does not need to be — the other sweep only ever files about a branch that *has* a
+pull request, and the moment one exists this card cannot survive its next follow-up.
 
 Two costs shape the schedule. It is the only sweep here that reads *closed* beads, which is
 half a megabyte of `bd list` on a busy tracker; and it spends a `gh pr list` on each branch
@@ -19953,7 +20005,7 @@ to be one.
 | `advocates.flagInMain` | [ask about an open bead naming a `worktree-*` branch that is already in `origin/main`](#the-bead-whose-branch-is-already-in-main) (default `true`). It never closes anything — a merged branch is a fact, "so the bead is done" is your call |
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.flagNotInMain` | [file a finding about a **closed** bead whose own `worktree-*` branch never reached `main`](#the-bead-that-is-closed-over-a-branch-that-never-reached-main) (default `true`). The one sweep here whose failure costs the work rather than a window. It closes, reopens, merges and pushes nothing: the finding is a new bead in the inbox, because a card on a closed bead is never rendered |
-| `advocates.notInMainIntervalMinutes` | how often that looks (default 60). Hourly rather than ten-minutely because it is the only sweep that reads *closed* beads — half a megabyte of `bd list` — and spends a `gh pr list` per branch git says never landed |
+| `advocates.notInMainIntervalMinutes` | how often that looks (default 60). Hourly rather than ten-minutely because it is the only sweep that reads *closed* beads — half a megabyte of `bd list` — and spends a `gh pr list` per branch git says never landed. The follow-up that re-asks about cards already filed rides the same clock, for the same reason |
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
