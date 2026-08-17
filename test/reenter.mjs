@@ -606,6 +606,45 @@ await check('the window it just opened holds the same bead out of the queue', as
   );
 });
 
+await check('a repo at its worker limit still gets an Epic Advocate', async () => {
+  // The property the static read below used to own, asserted by driving it instead. An
+  // Epic Advocate takes no worker slot and competes for none, so `reenter` runs above
+  // `if (free <= 0) return` — and a repo at its limit is the state where supervision is
+  // worth the most, because every window it has is already busy. Every other tick case in
+  // this file runs an advocate with a slot to spare, so that state was reached only by a
+  // string match on the arithmetic — a line that gets renamed, and did. See bc-t5k0.
+  // A child of the enrolled epic rather than a bead of its own: the queue row has to be
+  // under a root or `withoutOrphans` takes it out before any of this is reached, and it
+  // has to be a task or it is a *planner*, which `maxWorkers` does not ration.
+  const queued = [
+    { id: 'x-1.2', title: 'x-1.2', priority: 2, issue_type: 'task', status: 'open', created_at: LONG_AGO, labels: [] },
+  ];
+  const args = {
+    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
+    ready: queued,
+  };
+  // The control first, or the second half asserts nothing: with the one slot free, that
+  // queue row is a bead the advocate opens a worker window on.
+  const spare = await tick(args);
+  assert.deepEqual(spare.workers, ['x-1.2'], 'the row does reach a launch when the repo has a slot');
+  assert.deepEqual(spare.opened.map((o) => o.id), ['x-1'], 'and the advocate gets its window beside it');
+
+  // And now with that slot taken. `maxWorkers` defaults to 1, so one worker is the limit;
+  // `at` is now rather than LONG_AGO, or `reconcile` reaps it before the tick reaches the
+  // sweep — see the advocate-tick-fixtures note.
+  const full = await tick({
+    ...args,
+    workers: [{ id: 'y-9', title: 'y-9', at: new Date().toISOString(), batch: [], attempt: 1 }],
+  });
+  assert.deepEqual(full.workers, [], 'the queue is held — the repo is at its limit');
+  assert.deepEqual(
+    full.opened.map((o) => o.id),
+    ['x-1'],
+    'and the advocate was re-opened anyway — it is not queue work'
+  );
+});
+
 /* ------------------------------------------------------------ what source says */
 
 await check('the sweep is below the three lines that stop the tick', async () => {
@@ -621,18 +660,19 @@ await check('the sweep is below the three lines that stop the tick', async () =>
   assert.ok(body.indexOf('if (OBSERVING) return note(a,') < at, 'an observer instance must open no windows');
   assert.ok(body.indexOf('if (a.paused) return note(a,') < at, 'paused means open no more sessions');
   assert.ok(body.indexOf('if (a.quiet) {') < at, 'quiet hours mean it too');
-  // And above the queue: an Epic Advocate takes no worker slot, so a repo at its limit — the
-  // state where supervision is worth the most — must still be able to get one.
+  // The fourth thing this used to assert — that `reenter` is above the queue, because an
+  // Epic Advocate takes no worker slot — is now the tick case above it, and deliberately
+  // not here. It was a string match on `const free = a.limit - a.workers.length`, and it
+  // has been wrong twice for the same reason: the line is arithmetic, arithmetic gets
+  // renamed, and neither rename broke anything. `a.workers.length` became
+  // `codersOf(a).length` and the suite went red over a correct edit (bc-xl7n.39); before
+  // that the same match had gone *silent* — `indexOf` returns -1, `at < -1` is false, and
+  // the failure read "it has become queue work" while nothing had (bc-t5k0). A static read
+  // cannot tell those two apart, and a check whose false alarm and whose real alarm print
+  // the same sentence is worse than no check. Driving a repo at its limit can.
   //
-  // Matched on `const free = a.limit -` rather than on the whole line, because the whole
-  // line is not what this check is about and pinning it made the suite red for a rename
-  // that was entirely correct: `a.workers.length` became `codersOf(a).length` on main,
-  // `indexOf` returned -1, and `at < -1` failed while `reenter` was still sitting exactly
-  // where it belongs. A static read should name the thing it means and no more of the
-  // line than that.
-  const queueAt = body.indexOf('const free = a.limit -');
-  assert.ok(queueAt > 0, 'the worker-slot arithmetic has moved or been renamed — re-point this check');
-  assert.ok(at < queueAt, 'it has become queue work');
+  // What is left here is the part a behaviour test genuinely cannot reach in-process:
+  // `OBSERVING` is read from the environment once at module load.
 });
 
 await check('the default for the injectable is the real door', async () => {
