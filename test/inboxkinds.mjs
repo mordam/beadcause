@@ -578,7 +578,7 @@ await check('a selection the new scope keeps is kept', () => {
  * test/beadsearch.mjs is where the box's is.
  */
 function mounted({ hover = false, store = new Map(), kinds = ANY_KINDS, counts } = {}) {
-  const { filter, doc, host, marks, counts: pushed } = load({ hover, store });
+  const { filter, doc, host, marks } = load({ hover, store });
   const scope = { id: 'human' };
   const changes = [];
   const group = {
@@ -603,7 +603,7 @@ function mounted({ hover = false, store = new Map(), kinds = ANY_KINDS, counts }
   const box = (groupId) => panel.children.find((b) => b.dataset.group === groupId);
   const chips = (groupId) => box(groupId).children[1].children;
   const chip = (groupId, id) => chips(groupId).find((c) => c.dataset.chip === id);
-  return { filter, doc, host, root, summary, panel, box, chips, chip, scope, changes, marks, pushed };
+  return { filter, doc, host, root, summary, panel, box, chips, chip, scope, changes, marks };
 }
 
 console.log('\nthe control at rest');
