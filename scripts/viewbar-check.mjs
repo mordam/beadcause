@@ -347,6 +347,11 @@ const PROBE = `(() => {
   const plus = document.querySelector('#compose');
   const out = {
     row: !!nav,
+    /* Did a page arrive at all? ROUTES below is a copy of the rewrites in serveStatic,
+       and a rewrite that has moved there gives this fixture a 404 whose body is the word
+       "no" — a document with no top bar, no row and no link home, which reads exactly
+       like the row having broken. Reported separately so it does not. */
+    page: !!document.querySelector('.topbar'),
     home: home ? name(home) : null,
     spare: spare ? name(spare) : null,
     chip: !!chip,
@@ -489,6 +494,13 @@ try {
          `/viewbar.js` (which is how it got into PAGES) and drawing no `.viewbar` has
          broken the row itself, and that is a different bug from a page that has stopped
          loading it. */
+      if (!m.page) {
+        bad(
+          `${at}: the fixture serves a page for this URL`,
+          `nothing with a .topbar came back — ROUTES in this file is a copy of the rewrites in serveStatic (lib/server.js), and one of them has moved`
+        );
+        continue;
+      }
       if (!m.row) {
         bad(
           `${at}: the page draws the pill row, or has a way back to Home`,
