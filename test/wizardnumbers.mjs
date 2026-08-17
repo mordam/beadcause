@@ -44,8 +44,9 @@
 // COMMENTS ARE BLANKED BEFORE THE SCAN. Every file in this repo argues in prose that
 // quotes the code around it, so a static read that does not blank comments finds its own
 // documentation and reports it as a site. It has bitten three times (see the memory note
-// grepping-this-repos-own-source-must-blank-comments); `blankJs` below is the scanner from
-// public/editmode.js, which is inside an IIFE there and so cannot be imported. The header
+// grepping-this-repos-own-source-must-blank-comments); `blankJs` in test/helpers/blank.mjs
+// is the scanner, copied from public/editmode.js because it lives inside an IIFE there and
+// so cannot be imported. It was a private function here until bc-ygwa wanted it too. The header
 // you are reading is itself the hazard: it writes `bold('7. Push notifications')` in
 // prose, and were this file ever scanned by its own rule, an unblanked read would count it.
 // Measured while writing this, by pasting two such comments into configure.js: the blanked
@@ -65,6 +66,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { blankJs } from './helpers/blank.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -79,123 +81,6 @@ function check(name, fn) {
     console.log(`FAIL  ${name}`);
     console.log(`      ${err.message.split('\n').join('\n      ')}`);
   }
-}
-
-/**
- * Blank every comment, preserving length so offsets still land where they came from.
- *
- * A character scanner, because a regex cannot tell a comment from a comment's spelling:
- * `//` inside a string is not a comment and `'` inside a comment does not open one, so
- * the two have to be tracked together. Template literals carry a stack because this repo
- * nests them. Regular expressions are the one construct it guesses at — `/` is division
- * or the start of a literal depending on what came before, which is not decidable without
- * parsing — and the cost of guessing wrong is a blanked tail of one line, which loses a
- * heading rather than inventing one. Lifted from `blankJs` in public/editmode.js, which
- * lives inside an IIFE and exports nothing.
- */
-function blankJs(src) {
-  const out = src.split('');
-  const stack = [];
-  let mode = 'code';
-  let prev = '';
-  let i = 0;
-  const wipe = (n) => {
-    for (let k = 0; k < n; k++) if (out[i + k] !== '\n') out[i + k] = ' ';
-  };
-  while (i < src.length) {
-    const c = src[i];
-    const d = src[i + 1];
-    if (mode === 'code') {
-      if (c === '/' && d === '/') {
-        mode = 'line';
-        continue;
-      }
-      if (c === '/' && d === '*') {
-        mode = 'block';
-        continue;
-      }
-      if (c === '/' && /[(,=:[!&|?{};+\-*%~^<>]/.test(prev)) {
-        mode = 'regex';
-        i += 1;
-        continue;
-      }
-      if (c === "'" || c === '"') {
-        mode = c;
-        i += 1;
-        continue;
-      }
-      if (c === '`') {
-        stack.push('tpl');
-        mode = 'tpl';
-        i += 1;
-        continue;
-      }
-      // A `}` that closes a `${…}` hands the scanner back to the template around it.
-      if (c === '}' && stack[stack.length - 1] === 'sub') {
-        stack.pop();
-        mode = 'tpl';
-        i += 1;
-        continue;
-      }
-      if (!/\s/.test(c)) prev = c;
-      i += 1;
-      continue;
-    }
-    if (mode === 'line') {
-      if (c === '\n') {
-        mode = 'code';
-        prev = '';
-        i += 1;
-        continue;
-      }
-      wipe(1);
-      i += 1;
-      continue;
-    }
-    if (mode === 'block') {
-      if (c === '*' && d === '/') {
-        wipe(2);
-        mode = 'code';
-        i += 2;
-        continue;
-      }
-      wipe(1);
-      i += 1;
-      continue;
-    }
-    if (c === '\\') {
-      i += 2;
-      continue;
-    }
-    if (mode === 'tpl') {
-      if (c === '`') {
-        stack.pop();
-        mode = 'code';
-        i += 1;
-        continue;
-      }
-      if (c === '$' && d === '{') {
-        stack.push('sub');
-        mode = 'code';
-        i += 2;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-    if (mode === 'regex') {
-      if (c === '/' || c === '\n') mode = 'code';
-      i += 1;
-      continue;
-    }
-    // A single- or double-quoted string, named by the quote that opened it.
-    if (c === mode) {
-      mode = 'code';
-      prev = c;
-    }
-    i += 1;
-  }
-  return out.join('');
 }
 
 const lineOf = (text, index) => text.slice(0, index).split('\n').length;
