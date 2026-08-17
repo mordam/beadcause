@@ -163,6 +163,30 @@
    *   knowing: PR status narrows by default (`unmerged`), bead status does not.
    *
    * `side` is which scope fetches it; see `usable`.
+   *
+   * ## `filters` — which of the panel's groups this pill can use
+   *
+   * The kinds left the panel; what stayed behind is a bead search and two sub-filters,
+   * and **not one of the three is relevant to every pill** (bc-khoe.3). PR status over
+   * `Chats` is a control that cannot change anything, and the bead search over `Chats`
+   * is worse than that: `inBead` in public/app.js hides every row that is not a bead, so
+   * a bead picked while you are looking at chats is an empty screen whose cause is a
+   * control the panel is still offering. That is the same complaint that made the kinds
+   * pills in the first place, one level down.
+   *
+   * So each pill names the groups it can use, by id, and everything else follows from
+   * the one list:
+   *
+   * - the panel offers those groups' chips and hides the rest (`hidden`),
+   * - the summary line names only what is narrowing something this pill can hold
+   *   (`said`, and `subSaid` below for the one case where the two part company),
+   * - and a selection the newly-picked pill cannot use is **dropped** rather than left
+   *   narrowing a list it is not about — which is `set()`'s existing rule for a kind the
+   *   new scope cannot produce, applied one level in.
+   *
+   * The ids are the panel's, not this table's: `bead` is public/app.js's search box, and
+   * `status`/`beadstatus` are the two `sub` groups below. A page group named by no pill
+   * would never be offered, which is why `mount()` warns about one.
    */
   const KINDS = [
     {
@@ -174,6 +198,13 @@
       icon: '🎯',
       label: 'My Epics',
       note: 'The P0 board — the epics you own, and the work under them.',
+      // Home with nothing narrowed holds every kind, so every group here *can* narrow
+      // it — and only the search is offered all the same. The two sub-filters are the
+      // second axis of a pill you have not picked, and offering both of them over a
+      // list that is mostly neither would be the collapsed panel of ten chips again.
+      // What they still do here is confessed on the line rather than dropped: see
+      // `subSaid`, and the standing `unmerged` default it exists for.
+      filters: ['bead'],
     },
     {
       id: 'question',
@@ -195,6 +226,10 @@
       // agent-side row belongs here only while it is *held*, because a held bead is a
       // decision waiting on you and every other agent row is a report about work.
       test: (q) => !q.session && !isPr(q) && (q.agent ? Boolean(q.held) : true),
+      // Every row here is a bead, so the search is the whole of what narrows this list.
+      // Neither sub-filter can: a question is not a pull request and it is not one of
+      // the live beads nobody is asking you about.
+      filters: ['bead'],
     },
     {
       id: 'pr',
@@ -207,6 +242,9 @@
       label: 'PRs',
       note: 'Pull requests, and the finished branches waiting on a merge. Unmerged unless you ask for more.',
       test: (q) => !q.session && isPr(q),
+      // The one pill with both. A pull request follows its beads — see `inBead` in
+      // public/app.js — so the search narrows this list as well as the status does.
+      filters: ['bead', 'status'],
       // The status sub-filter. `options` are read through public/prcard.js, which mirrors
       // the ladder in lib/prstage.js, so the chips cannot name a rung the daemon does not
       // put on a row. `closed` is deliberately not among them: a pull request closed
@@ -242,6 +280,12 @@
       label: 'Chats',
       note: 'Conversations you have open about what to file next. Tap one to pick it up.',
       test: (q) => Boolean(q.session),
+      // **The empty list, and the reason this bead exists.** A chat is not in the
+      // tracker, so it is under no bead and has no status — and `inBead` hides a row
+      // that is not a bead outright rather than showing it, so a pick left over from
+      // the pill next door empties this screen completely. Nothing narrows chats, so
+      // the panel has nothing to offer here and hides itself; see `mount`.
+      filters: [],
     },
     {
       id: 'history',
@@ -252,6 +296,11 @@
       icon: '📜',
       label: 'History',
       note: 'What already happened — the ledger of answered questions, merges and deploys.',
+      // A place, and a different page at that: /history has a filter bar of its own
+      // (public/history.js, the same public/filtermenu.js behind it) and this panel
+      // never narrows it. `set()` refuses to select a place, so this is the honest
+      // answer rather than a reachable state.
+      filters: [],
     },
     {
       id: 'bead',
@@ -268,6 +317,8 @@
       // this table is: exclusivity is the property the table is asserted on, and a
       // partition that only holds while nobody reorders it is not one.
       test: (q) => Boolean(q.agent) && !q.held && !q.session && !isPr(q),
+      // Beads, so the search applies, plus the three rungs below.
+      filters: ['bead', 'beadstatus'],
       // Where `claimed`, `blocked` and `unclaimed` went. Three kinds became three rungs
       // of one, and the difference from the PR ladder above is the whole reason `inSub`
       // has two behaviours: **this group's default is everything**. A bead's status is
@@ -447,6 +498,11 @@
     const same = next.size === state.on.size && [...next].every((id) => state.on.has(id));
     state.on = next;
     save();
+    // One level in from the rule above, and for the same reason: a filter the newly-lit
+    // pill cannot use is dropped rather than kept and quietly narrowing a list it is not
+    // about. Only when the pill actually moved — `dropUnusable` reads the selection, so
+    // running it on a no-op set would be a chance to clear something for no reason.
+    if (!same) dropUnusable();
     paint();
     if (!same && !quiet) notify();
     return same;
@@ -625,8 +681,84 @@
 
   const allGroups = () => [...pageGroups, ...subGroups()];
 
-  /** Are this sub group's chips on screen? Only while its kind is selected. */
-  const subOpen = (g) => state.on.has(g.parent);
+  /**
+   * Which panel groups the lit pill can use — its `filters`, by id (bc-khoe.3).
+   *
+   * Read off `current()` rather than off `state.on` so the empty selection answers as
+   * `My Epics`, which is what it means. A pill the table has somehow lost offers
+   * nothing, which is the safe direction: a control that is not drawn cannot narrow a
+   * list behind your back, and a control that is drawn over a pill it does nothing for
+   * is the whole complaint.
+   */
+  const offers = () => BY_ID.get(current())?.filters || [];
+
+  /** Is this group's control on screen right now? The one question `hidden` asks. */
+  const offered = (id) => offers().includes(id);
+
+  /**
+   * Can the list, as it is narrowed right now, hold a row of this kind at all?
+   *
+   * Wider than "is this pill lit": the empty selection is every kind. It is the
+   * difference between a narrowing that is dormant and one that is still biting — a PR
+   * status chosen and then widened back to `My Epics` goes on hiding merged pull
+   * requests, and the same choice under `Questions` hides nothing, because there is no
+   * pull request in that list to hide.
+   */
+  const inView = (kindId) => state.on.size === 0 || state.on.has(kindId);
+
+  /**
+   * Drop what the pill that is now lit cannot use. Called from `set`, and only there.
+   *
+   * Two shapes, because the two kinds of group keep their selection in different
+   * places. A sub-filter's lives here, and it is dropped once its kind is out of view
+   * entirely — *not* merely because its chips have gone, which is the `My Epics` case
+   * above and is a narrowing that is still real. A page group's lives with the page, so
+   * all this end can do is ask: `clear()` is optional, and a group without one keeps
+   * whatever it had, which is what every group did before this existed.
+   *
+   * Quiet on the way through. The caller has just changed the selection and is about to
+   * paint and notify for it, and a second notify here would re-enter the page's render
+   * for one half of one change.
+   */
+  function dropUnusable() {
+    for (const k of KINDS) {
+      if (!k.sub || inView(k.id) || !chosenSub(k.id).size) continue;
+      setSub(k.id, [], { quiet: true });
+    }
+    for (const g of pageGroups) {
+      if (offered(g.id) || typeof g.clear !== 'function') continue;
+      try {
+        g.clear();
+      } catch {
+        /* a page that cannot clear its own box must not stop the pill being picked */
+      }
+    }
+  }
+
+  /**
+   * A page's own group, with this file's answer to "does the lit pill use it" folded in.
+   *
+   * Wrapped rather than mutated: `beadGroup` in public/app.js is a literal that file
+   * owns, and writing a `hidden` onto it from here would be this file editing another's
+   * descriptor — the thing that made the panel and the pill row able to take the same
+   * shape in the first place. A group that already has a `hidden` of its own keeps it;
+   * the two are OR-ed, because either reason to hide a control is a reason.
+   *
+   * A group no pill names could never be drawn, which is a filter the page believes it
+   * has and has not — the same failure public/filterpills.js warns about for a text
+   * group on the flat row, and loud here for the same reason.
+   */
+  function adopt(g) {
+    if (!g || !g.id) return g;
+    if (!KINDS.some((k) => (k.filters || []).includes(g.id))) {
+      console.warn(`[inboxFilter] no pill can use the "${g.id}" group — it will never be offered`);
+    }
+    const own = typeof g.hidden === 'function' ? g.hidden : () => false;
+    return { ...g, hidden: () => !offered(g.id) || Boolean(own()) };
+  }
+
+  /** Are this sub group's chips on screen? Only while its own pill can use them. */
+  const subOpen = (g) => offered(g.id);
 
   /**
    * Does the summary line mention this sub group?
@@ -640,11 +772,20 @@
    * screen with pull requests on it whether or not you touched the chips. Bead status
    * narrows nothing with nothing chosen, so saying `any status` there would be the line
    * reporting a filter that is not filtering — noise around the one that is.
+   *
+   * **Both of the wider clauses are gated on `inView`** (bc-khoe.3), which is the other
+   * half of the same rule and the one that is easy to miss. `counts` is taken before the
+   * kind filter — that is what makes a pill's number the list it would open — so under
+   * `Questions` there are still four pull requests counted and none of them in the list.
+   * Without the gate the line would read `unmerged` over a screen with no pull request
+   * on it, which is this control's own failure in the mirror: naming a filter that is
+   * not filtering is the same lie as hiding one that is.
    */
   const subSaid = (g) =>
     subOpen(g) ||
-    chosenSub(g.parent).size > 0 ||
-    (Boolean(subOf(g.parent)?.fallback) && (state.counts[g.parent] || 0) > 0);
+    (inView(g.parent) &&
+      (chosenSub(g.parent).size > 0 ||
+        (Boolean(subOf(g.parent)?.fallback) && (state.counts[g.parent] || 0) > 0)));
 
   /** Chips and summary, never structure. Safe to call from a render loop, and a no-op
    *  before the control is drawn — `set()` runs at load, which is earlier than that. */
@@ -674,7 +815,7 @@
    */
   function mount(host, opts = {}) {
     if (!host || chrome) return null;
-    pageGroups = Array.isArray(opts.groups) ? opts.groups : [];
+    pageGroups = (Array.isArray(opts.groups) ? opts.groups : []).map(adopt);
     if (typeof opts.onChange === 'function') listeners.push(opts.onChange);
     const pageNarrowed = typeof opts.narrowed === 'function' ? opts.narrowed : () => false;
     chrome = window.beadcause.filterMenu.mount(host, {

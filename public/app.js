@@ -4757,6 +4757,35 @@
   const beadPicked = () => state.bead.picks.length > 0;
 
   /**
+   * Everything the box was holding, dropped — the picks, the half-typed word and the
+   * request in flight behind it.
+   *
+   * Called from public/inboxfilter.js when the pill you have just tapped cannot use this
+   * group, which today is `Chats` and only `Chats`: `inBead` below hides every row that
+   * is not a bead, so a pick carried into that pill is an empty screen whose cause is a
+   * control that is no longer on it. Dropping it is the same rule `set()` applies to a
+   * kind the new scope cannot produce, and the alternative — keeping it dormant — is a
+   * filter you cannot see, which is the one thing this whole control is against.
+   *
+   * **No `render` here.** The caller is mid-`set()` and about to tell this page the
+   * selection moved, which is what redraws the list; a render from inside would run it
+   * twice for one tap. The chrome is repainted because the summary line has to lose the
+   * pill in the same frame the panel loses the box.
+   */
+  function clearBeads() {
+    if (!state.bead.picks.length && !state.bead.query) return;
+    clearTimeout(beadTimer);
+    beadAsked = '';
+    state.bead.picks = [];
+    state.bead.trees.clear();
+    state.bead.query = '';
+    state.bead.suggestions = [];
+    state.bead.busy = false;
+    state.bead.failed = '';
+    renderFilters();
+  }
+
+  /**
    * Which keys the picked beads allow. The union of their trees — bc-gwsi's OR.
    *
    * Two pills mean "show me both of these", which is the only reading a pill with its own
@@ -4811,6 +4840,12 @@
    * A page group like the scope switch, and in the same panel for the same reason: a
    * second box beside the filter pill would be the two-rows-of-chrome problem this
    * control exists to have solved once.
+   *
+   * **Which pills it is offered under is not decided here** (bc-khoe.3). `KINDS` in
+   * public/inboxfilter.js names the groups each pill can use, this group's id is `bead`,
+   * and `Chats` is the one pill that does not name it — see `clear` at the foot and
+   * `inBead` above for why. The descriptor is unchanged by any of that, which is the
+   * same property that let the scope move out onto the row without being rewritten.
    */
   const beadGroup = {
     id: 'bead',
@@ -4851,6 +4886,8 @@
       })),
     pick: (key) => pickBead(key),
     unpick: (key) => unpickBead(key),
+    /** What the panel calls when the lit pill cannot use this group — see `clearBeads`. */
+    clear: () => clearBeads(),
   };
 
   /**
@@ -6803,7 +6840,15 @@
       // Not while a bead is picked, though: that filter *replaces* the board's narrowing
       // (see `inBoard` above), so an empty list there is the pill's doing and `beadNudge`
       // is the sentence that names the way out of it.
-      const boarded = Boolean(roots) && !beadPicked();
+      //
+      // A lit pill is the same shape of thing and now gets the same exemption
+      // (bc-khoe.3). With `Chats` selected and no conversation on the go, "your epics
+      // are on the board above" is a true sentence about the wrong screen: the board is
+      // not why this list is empty, the pill is, and the way out is a tap on the row
+      // rather than a look at the board. `kinded` below is what decides whether the pill
+      // is really the cause — with nothing in this repo at all it is not.
+      const pilled = kinded && Boolean(window.beadcause?.inboxFilter?.selected?.().length);
+      const boarded = Boolean(roots) && !beadPicked() && !pilled;
       const asks = boarded ? p0AsksN(p0Cards()) : 0;
       chunks.push({
         key: '@empty',
@@ -10222,6 +10267,12 @@
    *
    * The panel is mounted first because filtermenu.js replaces the host's children and
    * the pills prepend themselves in front of it; see `mount` in public/filterpills.js.
+   *
+   * **What the panel offers is a function of the lit pill** (bc-khoe.3): the bead box is
+   * hidden under `Chats`, which can use no filter at all, and with nothing left to offer
+   * the panel takes itself off the row. The scope switch is not part of that — it
+   * decides which pills exist rather than narrowing within one — so the row never
+   * empties and `renderFilters` never has to hide it.
    *
    * A page served without either file still works: `renderFilters` and `inKind` both
    * fall back to doing nothing, which is the unfiltered list this page has always drawn.
