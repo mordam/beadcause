@@ -306,6 +306,59 @@ const readyIds = async () => (await bd.ready(ws, { excludeLabels: [] })).map((r)
   );
 }
 
+/* ---------------------------- and a workspace-qualified original, still against real bd */
+
+{
+  // bc-xl7n.71. The one thing a fake `bd` cannot answer for is whether `bd label add`
+  // and `bd ready --json` really do round-trip a `/` inside a label untouched — no
+  // escaping, no split into two labels, no URL-decoding surprise. Everything else about
+  // the cross-workspace path (no edge attempted, the original never fetched through
+  // *this* tracker) is plain JS and is covered in test/superseded.mjs; this section
+  // exists only to ask the real binary the one question a stub cannot.
+  const dup = await make({ title: 'a bead whose original lives in another tracker' });
+  const qualified = 'otherws/ee-9999';
+  const sync = (args) => {
+    const r = bdRun(args);
+    if (r.status !== 0) throw Object.assign(new Error('Command failed: bd'), { stderr: r.stderr, stdout: r.stdout });
+    return r.stdout;
+  };
+  const row = (id) => {
+    const out = JSON.parse(bdRun(['show', id, '--json']).stdout);
+    return Array.isArray(out) ? out[0] : out;
+  };
+
+  const out = mark(sync, dup, qualified, {
+    dupRow: row(dup),
+    originalRow: { id: 'ee-9999', issue_type: 'task', status: 'open' },
+    knownWorkspaces: ['otherws'],
+  });
+  check(() => assert.equal(out.marked, true, JSON.stringify(out)), 'mark marks a bead superseded by a qualified target against the real bd');
+  check(() => assert.equal(out.edge, '', JSON.stringify(out)), 'and draws no edge at all — there is no tracker that spans both');
+  check(() => assert.equal(out.held, false), 'so it is held by the marker rather than by the graph');
+
+  const after = row(dup);
+  check(
+    () => assert.ok((after.labels || []).includes(supersedeLabel(qualified)), `labels: ${(after.labels || []).join(', ')}`),
+    'the qualified label — the slash included — is on the bead exactly as written'
+  );
+  check(
+    () => assert.equal((after.dependencies || []).length, 0, JSON.stringify(after.dependencies)),
+    'and no dependency edge was drawn for it'
+  );
+
+  const readyRow = (await bd.json(ws, ['ready', '--limit', '0'])).find((r) => r.id === dup);
+  check(
+    () => assert.ok(readyRow && (readyRow.labels || []).includes(supersedeLabel(qualified)), JSON.stringify(readyRow)),
+    'and `bd ready --json` hands the same label back untouched, slash included'
+  );
+
+  const swept = await bd.readySuperseded(ws);
+  check(
+    () => assert.ok(swept.some((r) => r.id === dup), `readySuperseded: ${swept.map((r) => r.id).join(', ')}`),
+    'readySuperseded still finds it — the parse handles the qualified shape, not only the bare one'
+  );
+}
+
 fs.rmSync(tmp, { recursive: true, force: true });
 
 console.log(failures ? `\n${failures}/${ran} failed\n` : `\n${ran}/${ran} passed\n`);
