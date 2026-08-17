@@ -12067,9 +12067,9 @@ for a claim that is abandoned, and this is the one caller that can be sure it is
 reason and a shorter one — the claim it is releasing is its own.
 
 **Three things were deliberately left alone.** `Bd.reopen` still has no flag on it, because
-the review path in `lib/server.js` and `Bd.commission` reopen beads whose holder may still
-be typing, and there the guard is doing exactly the job it was added for; force belongs at
-the call site that has established otherwise, not in the shared write. The refusal is
+`Bd.commission` and `lib/jiragate.js` reopen beads whose holder may still be typing, and
+there the guard is doing exactly the job it was added for; force belongs at the call site
+that has established otherwise, not in the shared write. The refusal is
 matched by its own regex (`REASSIGN_GUARD_RE`) rather than by widening the one that reads
 a refused *close*, because both hand `--force` to their caller and the two sentences share
 no wording — a regex that drifted across them would step over a live blocker or an epic's
@@ -12082,6 +12082,36 @@ That suite asks the binary as well as the code: a stub can only confirm what `li
 already believes, and *that the plain write is refused at all* is a claim about bd. Like
 `test/closegatereal.mjs` it runs against a fresh throwaway workspace, and skips loudly
 where `bd` is not installed.
+
+##### The review path was on that list and should never have been
+
+The first of those three said the review path in `lib/server.js` reopens a bead whose
+holder may still be typing. It does not, and had not since **bc-r941**: a worker delivers
+and *stops*, so the window that claimed the bead is reaped minutes later and the answer
+comes hours after that. Every `CHANGES:` and every `DECLINE:` was therefore releasing an
+abandoned claim through the write bd refuses for abandoned claims, and the bead stayed
+`in_progress` and assigned — out of `bd ready`, with the delivery card already closed as
+answered and nothing that re-raises one. The pull request sat open with a change requested
+and nothing anywhere was coming back for it.
+
+Eleven of these were answered on 2026-08-17 and two were refused. `bc-36xx.10` on #401 was
+frozen for two hours and read as healthy from every angle — open PR, `MERGEABLE`, a
+downmerge pushed by a resolver — and was found only because an Epic Advocate happened to
+look at its timestamps: `started_at`, `heartbeat_at` and `lease_expires_at` were all still
+the original claim's. The other nine survived because the worker window happened still to
+be alive, which is luck rather than design.
+
+Both answers now go through one helper, `handBackWorkBead`, which asks for
+`Bd.reopenAbandoned` — so a live claim is still handed back unforced, and a dead one no
+longer strands the branch. **And the helper returns whether it worked**, which is the other
+half of this. The old code caught the refusal into a log line and then announced
+`— <bead> back in the queue` on the very next line, unconditionally, after a call whose
+outcome nothing looked at; the card said the same to the phone. That is what made this two
+hours of hunting rather than one `grep` of the log, so the line and the card now report
+what happened, and the response carries `delivery.handedBack` for anything watching.
+`test/handbackdelivery.mjs` drives the whole answer through `/api/respond` against a fake
+`bd` that *enforces* the refusal and reads the bead's row back afterwards — a stub that
+only records argv would pass with the bug still in.
 
 #### Closing the window — a session that has finished should not still be on screen
 
