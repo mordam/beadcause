@@ -26,6 +26,16 @@
      teal that every other live thing in this app already uses. */
   --bead-answered: #60a5fa;
   --bead-made: #4ade80;
+  /* The same green once it has to be *read* rather than seen. Note it is not the same
+     kind of token as --accent-ink, --danger-ink and --warn-ink, which name what goes
+     *on* a surface of that colour — this one is that colour, made legible as text, and
+     naming it --bead-made-ink would have promised the other thing. It exists for the
+     reason those three do: --bead-made was picked to be told apart from --bead-answered
+     and from --accent mid-flight across a page (public/absorb.js), not to be read at
+     11px, and one colour cannot be asked for both. On this scheme they are the same
+     value — a light green on the dark surfaces is 10:1 either way — and the light
+     scheme is where they part. Measured by scripts/design/contrast.mjs. */
+  --made-ink: #4ade80;
   --bead-flash: #ffffff;
   --radius: 14px;
   --tap: 48px;
@@ -51,6 +61,14 @@
        #0b0f14 — the dark scheme's values wash out against it. */
     --bead-answered: #2563eb;
     --bead-made: #16a34a;
+    /* And here they part. #16a34a is a step darker than the dark scheme's green so the
+       flight reads on a near-white page, but as *text* it is 3.30:1 on --surface,
+       3.07:1 on --bg and 2.91:1 on --surface-2 — under AA at every size this sheet
+       draws it: "+412" and "✓ 3" on a PR row, the LIVE rung, a deploy's step ticks.
+       A darker green fixes the reading without touching the flight, which is the one
+       job the brighter one was picked for: this is 7.13, 6.65 and 6.29 on those same
+       three grounds. Measured by scripts/design/contrast.mjs. */
+    --made-ink: #166534;
   }
 }
 
@@ -2931,7 +2949,7 @@ button.work-row {
    request on its way is not an alert. */
 .pr-stage { font-variant-numeric: tabular-nums; }
 .pr-stage.st-review { border-color: var(--accent); color: var(--accent); }
-.pr-stage.st-live { border-color: var(--bead-made); color: var(--bead-made); }
+.pr-stage.st-live { border-color: var(--made-ink); color: var(--made-ink); }
 .pr-stage.st-closed { opacity: 0.7; }
 
 /* ------------------------------------------------- a pull request in the inbox */
@@ -2992,14 +3010,14 @@ button.work-row {
    the reason this screen re-reads the pull request before it draws a button, and a
    refusal you had to have been looking at is one you press the button over twice. */
 .pr-said { margin: 8px 0 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
-.pr-said.pr-ok { color: var(--bead-made); }
+.pr-said.pr-ok { color: var(--made-ink); }
 .pr-said.pr-bad { color: var(--danger); }
 .board-num { color: var(--muted); font-variant-numeric: tabular-nums; }
 .board-nobead { font-style: italic; opacity: 0.8; }
 .board-facts { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.diffstat ins { color: var(--bead-made); text-decoration: none; }
+.diffstat ins { color: var(--made-ink); text-decoration: none; }
 .diffstat del { color: var(--danger); text-decoration: none; }
-.board-checks.passing { color: var(--bead-made); }
+.board-checks.passing { color: var(--made-ink); }
 .board-checks.pending { color: var(--warn); }
 .board-checks.failing { color: var(--danger); }
 
@@ -3138,7 +3156,7 @@ button.work-row {
 .deploy-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .deploy-what { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; min-width: 0; }
 .deploy-said { color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.deploy.good .deploy-said { color: var(--bead-made); }
+.deploy.good .deploy-said { color: var(--made-ink); }
 .deploy.warn .deploy-said { color: var(--warn); }
 .deploy.bad .deploy-said { color: var(--danger); }
 .deploy.live .deploy-said { color: var(--accent); }
@@ -3195,7 +3213,7 @@ button.work-row {
 
 .deploy-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .deploy-step { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; font-size: 12.5px; }
-.deploy-tick { flex: none; width: 1em; color: var(--bead-made); }
+.deploy-tick { flex: none; width: 1em; color: var(--made-ink); }
 .deploy-step.bad .deploy-tick { color: var(--danger); }
 .deploy-step-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .deploy-step-note { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
