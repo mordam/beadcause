@@ -256,6 +256,32 @@ check(
   !isCandidate({ status: 'open', labels: ['unendorsed'] })
 );
 
+/**
+ * bc-7qo.8 — and the one exclusion that is not about this bead at all.
+ *
+ * Flagging applies `human`, and `human` is what `bd.listAgent` excludes: the merge
+ * queue's only read of the tracker. So a card offered here on a merge-bead does not
+ * merely ask a meaningless question, it takes that pull request out of the queue's sight
+ * silently and for ever. The branch such a bead names is its own, and landing it is the
+ * thing the bead exists to do.
+ */
+check(
+  'a merge-bead is not a candidate — flagging one takes its pull request out of the queue',
+  !isCandidate({ status: 'open', labels: ['merge-queue'] })
+);
+check(
+  'even when it names a branch, which every merge-bead does',
+  !isCandidate({
+    status: 'open',
+    labels: ['merge-queue', 'for:someone@example.com'],
+    description: 'brings main into worktree-a-branch-9fx and merges it',
+  })
+);
+check(
+  'while an ordinary bead naming the same branch still is',
+  isCandidate({ status: 'open', labels: [], description: 'brings main into worktree-a-branch-9fx and merges it' })
+);
+
 /* --------------------------------------------------------- the git question */
 
 console.log('\nwhat counts as already in main');

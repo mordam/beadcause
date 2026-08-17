@@ -283,5 +283,52 @@ check('and an already-queued one does not claim to have moved anything', () => {
   assert.match(text, /already on the merge queue/);
 });
 
+/* ------------------------------------------- the bead that carries both — bc-7qo.8 */
+
+/**
+ * A merge-bead wearing the queue's label *and* `human`, which is the state lib/inmain.js
+ * used to create by finding a `worktree-` string in the bead's own text.
+ *
+ * The reason it is worth a section of its own is that it is the one shape where every
+ * signal `beadsAbout` reads says *queued* and the queue cannot see the bead at all: the
+ * exclusion is in `bd.listAgent`, a layer above `queueFor`, so nothing counts it and an
+ * empty sweep prints nothing. Adam approved one of these five times over twenty hours.
+ */
+const shunnedBead = (notes = '') => queuedBead(notes, { labels: [MERGE_LABEL, HUMAN_LABEL] });
+
+check('a merge-bead carrying `human` is not reported as queued, label and assignee notwithstanding', () => {
+  const [found] = beadsAbout([shunnedBead()], about);
+  assert.equal(found.labelled, true, 'it does carry the queue label');
+  assert.equal(found.assigned, true, 'and the queue assignee');
+  assert.equal(found.shunned, true, 'but the read excludes it');
+  assert.equal(found.queued, false, 'so it must not read as queued');
+});
+
+check('so re-approving it re-arms it and strips the label, rather than recording a fifth opinion', () => {
+  const plan = admitPlan([shunnedBead()], about);
+  assert.equal(plan.action, 'admit', 'it was treated as already moving');
+  assert.ok(plan.removeLabels.includes(HUMAN_LABEL), '`human` was left on the bead');
+  assert.ok(plan.addLabels.includes(MERGE_LABEL));
+  assert.equal(plan.assignee, MERGE_ASSIGNEE);
+});
+
+check('and the sentence says what was actually wrong, not one of the reassuring ones', () => {
+  const plan = admitPlan([shunnedBead()], about);
+  assert.match(plan.why, /invisible/i);
+  assert.doesNotMatch(plan.why, /already on the queue/i);
+});
+
+check('the state is reset too, so a re-armed bead does not arrive with spent attempts', () => {
+  const plan = admitPlan([shunnedBead(withQueueBlock('', { attempts: MAX_ATTEMPTS, refused: 'lint' }))], about);
+  assert.equal(plan.action, 'admit');
+  assert.equal(plan.state.attempts, 0);
+});
+
+check('an ordinary queued bead is untouched by all of this', () => {
+  const plan = admitPlan([queuedBead()], about);
+  assert.equal(plan.action, 'approve');
+  assert.deepEqual(plan.removeLabels, []);
+});
+
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
 process.exit(failures ? 1 : 0);
