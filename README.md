@@ -9896,6 +9896,8 @@ was a deletion:
   other open bead, so they are now rows under the
   [Questions pill](#one-list-six-kinds--and-the-two-sub-filters) rather than a fifth
   destination to remember. Nothing replaced the icon.
+- **Every advocate on the console has a `Requested endorsements` subcard**, carrying the
+  held beads that advocate's own work produced — [below](#and-the-advocate-console-splits-them-by-who-produced-them).
 
 That icon carried **no badge**, deliberately, and it was the one thing on this page that
 had an obvious one and should not: the count would have cost a `bd list --label
@@ -9903,6 +9905,66 @@ unendorsed` per workspace on every thirty-second poll, where the counts already 
 bar are free by-products of a sweep the poller was making anyway. The argument is worth
 keeping because it is what the replacement had to beat — and the chip's count clears it,
 being a label test on a row already in hand rather than a query of its own.
+
+### And the advocate console splits them by who produced them
+
+The queue is one list of everything, which is the right shape for the screen where the
+decision is made and the wrong shape for the screen where you are watching the machine
+work. On the [advocate console](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero)
+an endorsement is not an item in a backlog: it is **a decision one particular advocate is
+stopped on**, and the card that is otherwise a complete account of what that advocate is
+doing said only how many there were.
+
+So every advocate carries a folded `Requested endorsements` section, and which beads land
+in whose is a hybrid rather than one rule. Verbatim, from the answer that settled it
+(bc-w156.2): *"shown under EpicAdvocate if they were produced by its work or by the agents
+it spawns. per workspace otherwise."*
+
+- **Under an EpicAdvocate** where the graph says so. An advocate's agents are the sessions
+  opened on beads under its epic, and a discovery one of them files is filed *under* the
+  bead it was working — `beadcause-file` homes it there and keeps the parent even when bd
+  refuses to hold the provenance edge beside it. So the epic is an ancestor of the held
+  bead, and the **nearest** advocate above it owns it: an epic's own subcard beats the P0
+  three levels up, which is the difference between a dozen readable sections and one
+  section holding the whole repo.
+- **On the repo's own card otherwise** — a bead with no parent, one filed under an epic
+  nobody is planning, one you filed yourself from the console. This half is why the split
+  works at all. Per-advocate on its own was rejected precisely because a bead no advocate
+  owns would have vanished from this screen entirely; with the repo as the bucket, nothing
+  is ever unreachable, and the two counts add up to the `N held for endorsement` pill at
+  the top of the card.
+
+**It is a proxy and it says so.** Nothing records which *agent* filed a bead, so a bead
+somebody parented under an epic by hand reads here exactly like one an advocate's worker
+found. The exact reading needs a stamp written at file time, which is its own work; this
+is the reading available today, and it is right for every bead the advocates actually
+produce.
+
+**The rows cost nothing, which is the part that had to be checked rather than assumed.**
+The count was already there and the rows behind it were being thrown away: `bd ready
+--label unendorsed` is one of the four calls the console's own row has always made,
+because `ready` is a lie until the held beads come out of it (lib/work.js). So this is a
+projection of a list already in hand, and the objection that keeps a held count *off* the
+inbox's chrome — a `bd list --label` per workspace per poll — does not apply here at all.
+The chain of epics above each bead is read from `bd export`, which lib/bd.js caches for a
+minute — and this card **never builds one**. It asks whether anything has read the graph
+already before it asks what is in it, and takes what is on hand rather than waiting: the
+daemon's own tick exports every workspace that has an advocate, and so does the inbox's
+P0 board, so on the machine this card is drawn on the answer is a cache hit. Where it is
+not, a repaint seconds after a restart draws every held bead on the repo's own card and
+gains the per-advocate split on the next one. No bead is ever missing; only its section
+is, and only briefly.
+
+A row is a title, an id and a link, where the queue gives the same bead its whole
+description and the agent's argument. That asymmetry is deliberate and it is the queue's
+own reasoning turned around: the fat row exists because a decision made off a title is a
+rubber stamp, and this is not the screen the decision is made on — it is the screen that
+tells you there is one to make, on the card of the advocate that is waiting for it. The
+link is `?bead=<workspace>/<id>`, the same deep link the inbox uses, so the queue opens on
+the bead you tapped.
+
+The list is capped, because the one thing an endorsement backlog does is grow, and what
+the cap takes off is said inside the section rather than left to look complete.
 
 ### Checking it
 
@@ -9921,6 +9983,13 @@ reply agent may run (`label`, `update`, `close`, `create`, `delete`) is on its a
 that an agent you have since deleted keeps its own name in the thread rather than being
 relabelled the default — and that a bead you have just asked about comes back from
 `/api/unendorsed` carrying its 💬 rather than reading as untouched.
+
+`node test/heldsubcard.mjs` covers the console's half. The server end is argv against a
+stub `bd` — that the rows ride the call the row was already making, that the graph is
+never waited on, and that a workspace whose tracker fell over reports its error rather
+than an empty list. The page end runs public/monitor.js in a `node:vm` and reads which
+section each bead was actually drawn in, because the join is the feature: a source read
+could confirm every string and still miss a bead landing in two sections or in none.
 
 `node scripts/endorse-check.mjs [--out=DIR]` drives the real page in a headless Chrome
 the size of a phone, against a fixture that records every write. The three assertions it
