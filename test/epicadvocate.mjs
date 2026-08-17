@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The P0 advocate: a fifth agent kind, and the three P0s that must not get one.
+ * The Epic Advocate: a fifth agent kind, and the three beads that must not get one.
  *
  *     npm test
  *     node test/epicadvocate.mjs
@@ -256,7 +256,7 @@ check('IT IS TOLD THESE ARE AN ADVOCATE’S NOTES, NOT A WORKER’S', () => {
   // advocate's store is written by supervisors taking stock, never by somebody with the
   // file open, and an agent that misreads the author misreads the weight.
   const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam', { notes: NOTES });
-  assert.match(text, /another P0 advocate wrote down/);
+  assert.match(text, /another Epic Advocate wrote down/);
   assert.ok(!/another worker wrote down/.test(text), 'it is being told a worker wrote its own memory');
 });
 
@@ -308,7 +308,7 @@ check('THE DAEMON READS THE ADVOCATE’S OWN STORE, NOT THE WORKER’S', () => {
   const from = src.indexOf('export async function openEpicAdvocateSession');
   assert.ok(from > 0, 'openEpicAdvocateSession has been renamed — re-point this check');
   const body = src.slice(from, src.indexOf('\n}\n', from));
-  assert.match(body, /notesIn\(dir, EPIC_ADVOCATE\)/, 'the P0 advocate is opened with no index, or with somebody else’s');
+  assert.match(body, /notesIn\(dir, EPIC_ADVOCATE\)/, 'the Epic Advocate is opened with no index, or with somebody else’s');
   assert.ok(!/notesIn\(dir, 'worker'\)/.test(body), 'it is being handed the worker’s notes');
 });
 
@@ -321,7 +321,7 @@ check('THE BRIEF ASKS FOR A DEBRIEF, AND NAMES IT AS THE THIRD THING', () => {
   // about memory", it is the closing step reading as a restatement of those two. The
   // command has to be there and it has to be distinguished from them.
   const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
-  assert.match(text, /beadcause-memory debrief "/, 'the P0 advocate is never asked for a report on its visit');
+  assert.match(text, /beadcause-memory debrief "/, 'the Epic Advocate is never asked for a report on its visit');
   const at = text.indexOf('beadcause-memory debrief');
   assert.ok(at > text.indexOf(WAITING_CLOSE), 'the report is asked for before the sentence the card draws');
   assert.ok(at < text.indexOf('Two things you may not do'), 'and it is not the last word — the refusals are');
@@ -355,7 +355,7 @@ check('AND THE DOOR STAMPS THE BEAD, WHICH IS THE HALF NO BRIEF CAN SHOW', () =>
   const from = src.indexOf('export async function openEpicAdvocateSession');
   assert.ok(from > 0, 'openEpicAdvocateSession has been renamed — re-point this check');
   const body = src.slice(from, src.indexOf('\n}\n', from));
-  assert.match(body, /agent: EPIC_ADVOCATE, bead: row\.id/, 'the P0 advocate is opened with no bead, so debrief refuses');
+  assert.match(body, /agent: EPIC_ADVOCATE, bead: row\.id/, 'the Epic Advocate is opened with no bead, so debrief refuses');
   assert.match(body, /debriefs: await debriefsFor\(dir, row\)/, 'and it is asked for a report it is never shown one of');
 });
 

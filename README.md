@@ -560,7 +560,7 @@ of quiet it was, because the lever is different for each:
 ```
 
 **And filing follows the account.** The address in the bar is the handle a bead you file
-is stamped with — its owner label at P0, its addressee, the byline on a comment, the
+is stamped with — its owner label on a root, its addressee, the byline on a comment, the
 handle a claim leases with. Before accounts, that was whichever address `me` happened to
 list first, forever. Both addresses stay yours, so a question another machine addresses
 to your other one still arrives here as yours; only what a *new* write is signed with
@@ -1484,7 +1484,7 @@ A refusal that can only be answered by hand is a refusal that gets walked around
 gate above says *adopt them or drop them from the line*, and until bc-arj0.2 "adopt them"
 meant a person typing `bd update <bead> --parent <epic>` once per bead — ninety of them
 on the day the measurement was taken. So the daemon does it: `lib/adoptsweep.js` runs in
-the poll cycle, reads each epic's list off the same `bd export` the P0 board is already
+the poll cycle, reads each epic's list off the same `bd export` the epic board is already
 built from, and reparents what it names. **The list is the contract; the edges are the
 machine's job.** Write the line, wait a tick, and `bd dep tree` draws what the prose says.
 
@@ -2902,7 +2902,7 @@ standing in none of them. Every read an *agent* can reach still resolves from
 `process.cwd()`, which is the whole point of the indirection — `lib/foundation.js` draws
 the same line in the same place with `effective(dir, agent)`.
 
-#### The P0 advocate gets the same push, and it is the kind that most needed it
+#### The Epic Advocate gets the same push, and it is the kind that most needed it
 
 Three doors now read the store and put the result in a brief: `openWorkSession` for a
 worker, `openPlanSession` for the epic worker, and `openEpicAdvocateSession` for the P0
@@ -2934,7 +2934,7 @@ key the P0's brief did not pick is still on the line underneath it.
 `notesIn(dir, 'worker')` — the copy-paste that would look entirely correct while
 handing this agent a different agent's memory. The section says whose it is, in the
 clause that makes the notes evidence rather than instructions ("what another **P0
-advocate** wrote down for its own future self"), because a P0 advocate's store is
+advocate** wrote down for its own future self"), because an Epic Advocate's store is
 written by supervisors taking stock and never by somebody with the file open, and an
 agent that misreads the author misreads how much weight the line carries. That is the
 `who` option on `notesBrief`; it defaults to `worker`, so the other two doors say what
@@ -2994,7 +2994,7 @@ file a report against somebody else's work, and afterwards that is indistinguish
 their having written it. A window with no bead — a ship window, a rebase window — is
 stamped with nothing, and `debrief` refuses there rather than guessing.
 
-**And that refusal caught one window it should never have applied to.** The P0 advocate is
+**And that refusal caught one window it should never have applied to.** The Epic Advocate is
 opened, closed and re-opened on the *same bead* for weeks, and it was the one bead-shaped
 door passing an agent and no bead — so tier 4 could not see the session that had the most
 to say to its own successor. It was not an oversight in tier 4: that agent landed after
@@ -3048,7 +3048,7 @@ The epic planner gets the same section, and is arguably the reader it serves bes
 reports its children's runs left are the only first-hand account of which parts of an epic
 turned out to be entangled, which is the exact question a plan answers.
 
-The P0 advocate gets it too, and the same graph rule narrows it further without a line of
+The Epic Advocate gets it too, and the same graph rule narrows it further without a line of
 special-casing: a root P0 has no parent, so it has no siblings, so what arrives is the
 reports of previous runs at *that P0* and nothing else. That is the right answer twice —
 it is this agent's own account of its last visit, which a window that starts from the bead
@@ -3168,7 +3168,7 @@ per run saying nothing the run did not print.
 ### Tier 3 — a repo one agent owns, and the experiment that is the point of it
 
 Tiers 1 and 2 settled durability. What they did not answer is what an agent does with
-a space nobody has designed. So three agents — the repo advocate, the P0 advocate and the
+a space nobody has designed. So three agents — the repo advocate, the Epic Advocate and the
 worker — are each given one:
 
 ```
@@ -3247,14 +3247,14 @@ The advocate was the only subject to begin with, and that was very nearly the en
 experiment. A survey is the rarest thing this daemon does — one per repo per twelve hours
 at best, and none at all while a proposal sits unanswered — so in four days the log held
 **one** run, in one arm, and the comparison the whole thing exists for could not be
-computed. bc-goo.12 put the grant on the two agents that actually run: the P0 advocate,
+computed. bc-goo.12 put the grant on the two agents that actually run: the Epic Advocate,
 which fires on every child event, and the worker, which is most of what opens a window
 here at all.
 
 Two rules fall out of that, and both are in `lib/agentrepo.js`:
 
 - **The numbers are read per agent and never pooled across them.** A worker editing
-  files for an hour, a P0 advocate doing one turn of thinking and a repo advocate arguing
+  files for an hour, an Epic Advocate doing one turn of thinking and a repo advocate arguing
   about a queue are three populations, and the worker outruns the other two by a wide
   margin — a pooled `readFirst` would report the worker's behaviour under all three names.
   `summary({agent})` narrows it and `summaryByAgent()` lays all three side by side.
@@ -3814,7 +3814,7 @@ could be in the list at all — because `/api/prs` is a `gh` call per repo behin
 25-second cache on the daemon, and asking it every 25 seconds because the inbox polls
 would keep that sweep hot all day for six repos. The rows are synthesised at render time
 and never merged into `state.questions`: nearly everything reading that array is about
-beads — the kind filter's counts, the P0 board, the answer path — and a pull request is
+beads — the kind filter's counts, the epic board, the answer path — and a pull request is
 none of them.
 
 **A kind filter does not change what rings your phone.** The space picker's does — it is
@@ -3851,10 +3851,10 @@ and `node test/beadsearch.mjs` is the whole of it.
 
 **A picked bead means that bead and its descendants**, following `parent-child` edges
 alone — a `discovered-from` trail does not drag half the backlog in. That is the answer
-the rest of the app already gives: the P0 board keys rows by the P0 they descend from and
+the rest of the app already gives: the epic board keys rows by the P0 they descend from and
 a P0 card expands to every descendant at any depth, so a filter that showed one bead and
 hid its six children would be the only place in the inbox where "this piece of work"
-meant one row. It is also the answer that **replaces** the P0 board's own narrowing rather
+meant one row. It is also the answer that **replaces** the epic board's own narrowing rather
 than stacking on it — half the beads worth searching for are under somebody else's P0 or
 under none at all, and stacked, the commonest search on a shared tracker would end in an
 empty list with a pill on screen naming the bead it was hiding. An explicit filter
@@ -3883,17 +3883,17 @@ poll, to answer a question that is asked for about four seconds a week.
 
 ### Epics assigned to you, and the tree each one carries
 
-The section at the top of the inbox is the P0s **you** own — open, `owner:<you>`, at
-priority 0 — and `p0board` on `/api/questions` is where it comes from. Each card says
-what is left under it (`open`, `inFlight`), what it is waiting on once a P0 advocate has
-written one (`lib/epicadvocate.js`, and the 🧭 button on the card is
-[`POST /api/bead/advocate`](#http-api)), and, since bc-rfnr.9.1, **`tree`: every
-descendant of that P0 at any depth**.
+The section at the top of the inbox is the **roots you own** — open, `owner:<you>`, and
+either an epic at any priority or a P0 — and `rootboard` on `/api/questions` is where it
+comes from. Each card says its priority, what is left under it (`open`, `inFlight`), what
+it is waiting on once an Epic Advocate has written one (`lib/epicadvocate.js`, and the 🧭
+button on the card is [`POST /api/bead/advocate`](#http-api)), and, since bc-rfnr.9.1,
+**`tree`: every descendant of that root at any depth**.
 
 The tree is not the row filter seen from the other end, and that is the whole reason it
-exists. `p0board.under` is a fact about the *inbox rows* — one string per row naming the
-P0 it descends from, which is what lets the list narrow itself to your work. It is keyed
-by row, and most of a P0's descendants have no row, because nobody is being asked about
+exists. `rootboard.under` is a fact about the *inbox rows* — one string per row naming the
+root it descends from, which is what lets the list narrow itself to your work. It is keyed
+by row, and most of a root's descendants have no row, because nobody is being asked about
 them: `bc-rfnr` had 16 descendants and one pending question the day this landed. A card
 drawn from `under` would have said "16 open" over a tree of three.
 
@@ -3928,7 +3928,7 @@ rows that have closed.
 It costs no extra `bd`. The whole board — the cards, `under`, and every tree — comes off
 one `bd export` per workspace, cached for a minute by `Bd.graph` and **never built on
 the request path**: nine of those measured 7.3 seconds cold, and bc-1kwl's budget is a
-page under a second. So a cold daemon answers with an empty `p0s` for a repaint or two
+page under a second. So a cold daemon answers with an empty `roots` for a repaint or two
 and then fills in, which the client already reads as "do not narrow anything" — the flat
 inbox, briefly, rather than an empty one. A workspace whose tracker cannot be read
 contributes no cards and hides nothing, for the same reason. `node test/p0tree.mjs`
@@ -4090,7 +4090,7 @@ up the parent chain can stop at the first ancestor already kept.
 Three smaller decisions, each of which had a wrong way that looked fine:
 
 - **It narrows the trees and nothing else.** The list under the board is
-  `underOwnedP0s`'s business — a bead you filtered out of a tree is still a question you
+  `underOwnedRoots`'s business — a bead you filtered out of a tree is still a question you
   are being asked, and a status filter that reached the list would hide it with nothing on
   screen saying where it went.
 - **The pick is page state, persisted** (`beadcause.p0status`), like the fold and unlike
@@ -4123,19 +4123,27 @@ cards go away. On a phone four epics with their controls *are* the first screen,
 are days when what you came to the inbox for is the questions underneath; before this the
 board could only be scrolled past.
 
-It says **"Epics assigned to you"**, not "Your P0s". Every card on it is an epic carrying
-your `owner:<handle>`; "P0" is beads' word for the priority the board selects on, and a
-heading that names a priority field reads as a filter you set rather than as the work you
-are answerable for. The internals keep the old name — `p0board`, `state.p0open`, `.p0-card`
-— because they *are* about the priority, and renaming them would be four files changed to
-move one line of screen text.
+It says **"Epics assigned to you"**, not "Your P0s". Every card on it is a **root** carrying
+your `owner:<handle>` — an epic at any priority, or a P0 — and a heading that names a
+priority field would read as a filter you set rather than as the work you are answerable
+for. That heading was a kindness until bc-htoy, when the board still selected on P0 alone;
+it is now literally true, and the only cards on it that are not epics are the crashes the
+app filed on itself, which are the one thing you want at the top of a screen called this.
+
+Because the board is no longer all one priority, **each card draws its own** beside the id,
+and `rootBoard` sorts on it before it sorts on how much is still open — a P3 epic with
+sixty children left must not push a crash off the top. The stylesheet only tints P0 and P1,
+so the urgent ones stand out rather than every card carrying a colour. The wire moved with
+the rule (`rootboard`, `roots`, `GET /api/roots`); the CSS class names did not — `.p0-card`
+is a namespace prefix rather than a claim, and restyling four hundred selectors would buy
+nothing a reader can see.
 
 Three things keep the fold from being a way to lose the board:
 
 - **The count stays on the shut line.** A fold that hid the fact there was anything behind
   it would leave a screen indistinguishable from one with no epics on it, which is the
   single thing this section exists to prevent.
-- **It is display only.** `underOwnedP0s` narrows the inbox to your epics' descendants off
+- **It is display only.** `underOwnedRoots` narrows the inbox to your epics' descendants off
   the board *data*, not off whether the board is drawn — so folding it changes nothing
   about the list underneath. A control that quietly emptied the inbox would be worse than
   no control.
@@ -4161,9 +4169,9 @@ page looking right all session. The chevron is read as a computed transform rath
 markup, so it fails on a stale stylesheet too — which is what [v59](docs/sw-cache/v59.md)
 is about.
 
-### The advocate that comes back — what re-opens a P0 advocate, and what it costs
+### The advocate that comes back — what re-opens an Epic Advocate, and what it costs
 
-The 🧭 button opens a P0 advocate. For a fortnight that was the *only* thing that did,
+The 🧭 button opens an Epic Advocate. For a fortnight that was the *only* thing that did,
 and the agent's own brief told it otherwise on every run: *"You are re-entrant, not
 resident. You will be re-opened on child events rather than left running — so write
 everything down on the bead."* It duly wrote everything down. Nothing came back to read
@@ -4223,7 +4231,7 @@ minute cooldown (`bc-goo` 11 of them, `bc-xl7n` 12, `bc-sj8k` one). A six-hour c
 would have made it 4.1 a day, which is the same feature costing a third less and arriving
 a third stale, so 180 stayed.
 
-Two more things it does not do. A P0 advocate **takes no worker slot** and competes for
+Two more things it does not do. A Epic Advocate **takes no worker slot** and competes for
 none — it is supervision, not throughput — so the sweep sits above every number the queue
 is bounded by, and a repo already at its `maxWorkers` can still get one, which is the
 state where supervision is worth the most. And it opens **no window at all** under
@@ -10463,7 +10471,7 @@ twenty minutes would not be one.
 
 Both sweeps above close a window that **finished**. Neither can touch the one there are
 thirteen of: a window that **stopped**. A resolver that pushed its rebase, a MergeAdvocate
-waiting on a review, a P0 advocate that wrote its waiting-on sentence and had nothing left
+waiting on a review, an Epic Advocate that wrote its waiting-on sentence and had nothing left
 to say — each has an open bead and a name that says nothing about being finished, so both
 sweeps look straight past them, correctly, and they sit there until somebody opens them one
 at a time. That was the state of this Mac on 2026-08-16: fifteen live Claude sessions,
@@ -11752,14 +11760,14 @@ not withheld work, it is not work, and a line every thirty seconds for the life 
 daemon would teach everyone to scroll past exactly the kind of line that rule needs read.
 The refusal at the door is loud, because that one is a caller being told no.
 
-**The P0 advocate's door is deliberately left open to containers**, and it is the only
+**The Epic Advocate's door is deliberately left open to containers**, and it is the only
 asymmetry between the three doors into an unattended session. An [EpicAdvocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero)
 is re-entrant, belongs to its epic for as long as the epic is open, files children *under*
 the root, and never closes it — a standing root is precisely what that agent is for.
 Guarding this door too would point the one agent that looks after standing roots at
 everything except standing roots.
 
-**A container still draws on the P0 board, and stays a valid parent**, which is the half
+**A container still draws on the epic board, and stays a valid parent**, which is the half
 that keeps this from being a way to delete a subtree: the marker says "do not work *this*",
 never "do not work under this". No code was needed for it — the board is built from the
 tracker's graph and never from `bd ready`, so a bead this filter removes from every queue is
@@ -11771,7 +11779,7 @@ by hand, and could not be — bd is a separate tool with no hook in it. What it 
 from is the only ending a dispatched session has. The belt on top of that is already there
 and is not this marker's: a delivery refuses to close an **epic** on a merge, and every
 standing root is an epic. `node test/container.mjs` covers both layers, the planner's door,
-and — the assertion most likely to be "fixed" by somebody tidying — that the P0 advocate's
+and — the assertion most likely to be "fixed" by somebody tidying — that the Epic Advocate's
 door still lets one through.
 
 ### The session log, kept in the repo
@@ -11859,7 +11867,7 @@ by its title. So there are three states, all of them normal:
 |---|---|---|
 | an id that exists | the id, validated against the corpus | `lib/beadreqs.js`, in the bead's notes |
 | something requirement-shaped, no id | a **candidate**: token, name, one definition sentence | the same block, in a separate list |
-| nothing requirement-shaped | the bead is labelled `req-glean` at landing, and the P0 advocate is asked what shipped | `lib/reqglean.js` |
+| nothing requirement-shaped | the bead is labelled `req-glean` at landing, and the Epic Advocate is asked what shipped | `lib/reqglean.js` |
 
 An id is refused at the door if the corpus does not have it — and the refusal is *said out
 loud* in the next brief, because an advocate that is not told writes the same invented id
@@ -12426,25 +12434,40 @@ an agent finds may not outrank the work you chose.
 
 #### Where it lands — a bead filed under nothing is unworkable the moment it exists
 
-Since bc-rfnr.7, a bead that is not a P0 and has no P0 above it is **not workable**: no
-advocate queues it, no launcher opens a session on it, and its card wears a `no P0 above
-this` pill offering the fix. That rule is the point of the P0 board, and it has a
-consequence for everything the daemon files unattended — a bead created with no parent
-fails it the moment it exists, and there are two things wrong with it rather than one:
+Since bc-rfnr.7, a bead that is not a **root** and has no root above it is **not
+workable**: no advocate queues it, no launcher opens a session on it, and its card wears
+a `nothing decided above this` pill offering the fix. That rule is the point of the epic
+board, and it has a consequence for everything the daemon files unattended — a bead
+created with no parent fails it the moment it exists, and there are two things wrong with
+it rather than one:
 
 - It is **held**, which the advocate says out loud: a log line, an event on the bus and
   the pill.
 - It is **invisible**, which nothing says at all. The inbox draws only what descends
-  from a P0 you own, so a `human` card filed with no parent is not on the phone. A
+  from a root you own, so a `human` card filed with no parent is not on the phone. A
   *question* the daemon writes to a screen that will not show it is this app's one
   unforgivable failure arriving through the mechanism meant to prevent it.
 
+**A root is an epic at any priority, or a P0** — `isRoot` in `lib/ownership.js`. Until
+bc-htoy it was a P0 and nothing else, and that was a mistake worth naming rather than
+quietly correcting: an epic *is* a decision, which is what filing one means, and priority
+says how urgent that decision is rather than whether it was made. Tying them together
+meant the only way to root work, take an `owner:` label, or be given an Epic Advocate was
+to claim the work was the most urgent thing on the tracker — so either the board filled
+with P0s nobody thought were urgent, or real epics went unmanaged.
+
+It **widened** rather than moved, and the reason is one bead: `lib/errors.js` files every
+daemon crash at P0 by construction, and those are `type=task`. Had a root become "an
+epic", the first thing to stop being workable would have been the stack trace the app
+filed on itself — off the board and refused at the door, which is exactly the failure
+bc-rfnr.4 exists to prevent, arriving through the mechanism meant to fix it.
+
 So the parent is chosen at the filing seam (`lib/homing.js`), and the rule is one
-sentence: **a bead lands under the P0 that the work which found it belongs to** —
+sentence: **a bead lands under the root that the work which found it belongs to** —
 `--from` on the command above, the closed bead behind a
 [stranded branch](#the-bead-that-is-closed-over-a-branch-that-never-reached-main), the
 epic behind a promotion, the session behind an amendment request. Failing that, under
-the **unsorted backlog**: the open P0 carrying the `unsorted` label, which is where a
+the **unsorted backlog**: the open root carrying the `unsorted` label, which is where a
 bead goes when nobody has yet decided where it goes. The bead's notes say which happened
 and invite you to move it, because a bead quietly adopted into an epic nobody named
 otherwise reads as somebody else's decision.
@@ -12452,11 +12475,11 @@ otherwise reads as somebody else's decision.
 Five things about that rule are deliberate and each is a thing that would be wrong if
 reversed:
 
-**Under the P0, not under the bead that found it.** The tempting version parents each
+**Under the root, not under the bead that found it.** The tempting version parents each
 discovery under whatever turned it up. It reads better and it manufactures, on a
 schedule, the one shape that is held forever with nothing saying why: an open child of a
-non-P0 parent that has since closed. A task closes in a week; a P0 closing is the end of
-an epic, which is the honest moment for what hangs off it to stop being work. The
+non-root parent that has since closed. A task closes in a week; a root closing is the end
+of an epic, which is the honest moment for what hangs off it to stop being work. The
 `discovered-from` edge already records the fine-grained trail, and it is deliberately
 *not* an ancestry edge — a `discovered-from` must never pull a bead into a P0's
 descendants, since every bead an agent has ever filed carries one.
@@ -14406,7 +14429,7 @@ Every bead filed from one chat on 2026-08-13 came out carrying both
 by the time it was noticed, because `bd create --parent` hands a parent's labels down to
 every child. It took *two* bugs meeting, and the second is the reason it was a pair rather
 than a rename: `lib/draft.js` slugged the label on the way in, and then `Bd.create` — which
-stamps this machine's owner onto any P0 that arrives without one — looked for the `owner:`
+stamps this machine's owner onto any root that arrives without one — looked for the `owner:`
 prefix, could not find it through the slug, and added a second label naming the same person.
 
 What is still slugged is everything a proposal invents for itself: a `ref`, and the
@@ -14528,7 +14551,7 @@ Three details do the work:
   own twin, and a resemblance paragraph on an inbox card would be noise on the one screen
   where noise costs most. Anything carrying `human` is skipped, and costs no read.
 
-The candidates come from the workspace shape that is already cached for the P0 board and
+The candidates come from the workspace shape that is already cached for the epic board and
 for filing a bead under a P0 (lib/homing.js), so on a running
 daemon the steady-state cost is a map walk and no `bd` call at all. Held for a minute on
 a timer of its own — the parent cache is dropped every time a bead is filed under a
@@ -17017,11 +17040,11 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | GET | `/api/beads` | `?q=` | `{beads[], warming, q}` — what [the inbox's bead search box](#finding-one-bead) drops down: up to 12 `{key, workspace, id, title, status}`, ranked exact id → id prefix → id substring → title, open before closed. **Every workspace at once**, because you type an id knowing the bead rather than knowing its tracker. The one route that can be asked once per keystroke, so it reads the graph `Bd.graph` already caches and **never waits on a `bd export`** — `warming` counts the workspaces it has not read yet, which is what lets the box say *still reading the trackers* instead of claiming a bead does not exist |
 | GET | `/api/bead/tree` | `?workspace=&id=` | `{workspace, id, title, keys[]}` — that bead's key and every descendant's, at any depth, `parent-child` edges only. What a pick in the search box narrows the inbox to. 404 for a bead the graph has never heard of. Unlike `/api/beads` this one **waits** for a cold cache: it is one request per pick, and answering "nothing is under this" from an unread graph would narrow the list to a single row and look exactly like a working filter |
-| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card, and the first one: the window it opens writes the waiting-on sentence that [enrols the P0 for automatic re-entry](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs), so this is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
-| POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
+| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **Epic Advocate** on this epic — the button on the inbox's card, and the first one: the window it opens writes the waiting-on sentence that [enrols it for automatic re-entry](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs), so this is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a root anybody owns — an epic at any priority or a P0, since bc-htoy (a crash bead is refused by name — a stack trace is not an epic). **Never two on one epic**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of it no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `rootboard`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
+| POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], root, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on an epic that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
 | POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via a `dismissed` event, and with the honest limit [narrowing the filter](#and-it-does-not-tidy-up-the-noise-it-already-made) ran into: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
-| GET | `/api/p0s` | `?workspace=` | `{p0s[]}` — every **open** P0 in that workspace, `{id, title, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every P0 and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there are no P0s" |
-| POST | `/api/bead/adopt` | `{workspace, id, parent}` | moves a bead under `parent` — the fix for the one hold that never clears itself, offered on the sheet of any bead with **no P0 above it**. Answers `{parent, workable}`, where `workable` is the gate's own answer after the write rather than a promise about it. A parent with no P0 above *it* is a 409 naming that, since the adoption would not make the bead workable; an empty `parent` detaches instead, which is how an adoption into the wrong epic is undone. The cached graph is refreshed on the way out, so the next advocate tick acts on the new shape |
+| GET | `/api/roots` | `?workspace=` | `{roots[]}` — every **open root** in that workspace (an epic at any priority, or a P0), `{id, title, priority, epic, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every root and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there is nothing to adopt under" |
+| POST | `/api/bead/adopt` | `{workspace, id, parent}` | moves a bead under `parent` — the fix for the one hold that never clears itself, offered on the sheet of any bead with **nothing decided above it**. Answers `{parent, workable}`, where `workable` is the gate's own answer after the write rather than a promise about it. A parent with nothing decided above *it* is a 409 naming that, since the adoption would not make the bead workable; an empty `parent` detaches instead, which is how an adoption into the wrong epic is undone. The cached graph is refreshed on the way out, so the next advocate tick acts on the new shape |
 | GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it, and a `closeReason` cut to 240 characters on a word boundary — two lines of the row hold 226 at the widest, and the whole sentence is on the sheet the row links to. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
 | GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
@@ -17877,8 +17900,8 @@ to be one.
 | `advocates.planEpics` | [open an **epic worker** on an epic rather than working it](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) (default `true`) — a window that groups the epic's beads for N child-workers, writes each group's prompt, and does none of the work itself. `false` falls all the way back to handing one worker the epic and its ready children as a batch, which is what this did before plans existed and is still the right answer if a plan ever briefs badly. An epic whose planning has failed `maxAttemptsPerBead` times falls back to that on its own |
 | `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed |
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
-| `advocates.reenterAdvocates` | [re-open the **P0 advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: a P0 is enrolled once its notes carry the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and erasing that block is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
-| `advocates.reenterIntervalMinutes` | how often that sweep looks (default 10). It reads the same cached `bd export` the inbox's P0 board is built from — which the EpicAdvocate roster already warms every tick — so it costs no tracker call of its own |
+| `advocates.reenterAdvocates` | [re-open the **Epic Advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: a P0 is enrolled once its notes carry the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and erasing that block is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
+| `advocates.reenterIntervalMinutes` | how often that sweep looks (default 10). It reads the same cached `bd export` the inbox's epic board is built from — which the EpicAdvocate roster already warms every tick — so it costs no tracker call of its own |
 | `advocates.reenterCooldownMinutes` | the floor between two *automatic* advocate windows on one P0 (default 180), alongside one window per tick per workspace. Nothing waits on an advocate — advocacy does not gate dispatch — so being three hours late costs nothing, where a Mac full of 🧭 windows costs real money |
 | `advocates.reenterStallMinutes` | how long a descendant sits `in_progress` with no window on it anywhere and no live lease elsewhere before that is a stall worth waking a supervisor for (default 60). Half of `workerTimeoutMinutes`, which releases the *slot* and never asks the question this does: the slot came back and the bead is still claimed |
 | `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
@@ -17901,7 +17924,7 @@ to be one.
 | `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
-| `advocates.agentRepo` | which arm of the [tier 3 experiment](#tier-3--a-repo-one-agent-owns-and-the-experiment-that-is-the-point-of-it) each run of an agent that owns a private repo gets: `alternate` (the default) flips per workspace and agent, `blind`/`index` pin one, and `off` withdraws the affordance and the write grant with it. Named under `advocates` because the advocate was the first agent to have one; the P0 advocate and the worker read the same key. `npm run agentrepo` is what reads the result back |
+| `advocates.agentRepo` | which arm of the [tier 3 experiment](#tier-3--a-repo-one-agent-owns-and-the-experiment-that-is-the-point-of-it) each run of an agent that owns a private repo gets: `alternate` (the default) flips per workspace and agent, `blind`/`index` pin one, and `off` withdraws the affordance and the write grant with it. Named under `advocates` because the advocate was the first agent to have one; the Epic Advocate and the worker read the same key. `npm run agentrepo` is what reads the result back |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
 | `advocates.closeGraceSeconds` | how long an idle session gets between reaching its ending and the first signal (default 90) |
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
@@ -18122,7 +18145,7 @@ which is where it gets read.
 
 **They are rows, not beads.** Synthesised at render time and never merged into
 `state.questions`, exactly as the pull requests and the chat sessions are, for the reason
-that array is read by things a ticket is none of: the kind filter's counts, the P0 board,
+that array is read by things a ticket is none of: the kind filter's counts, the epic board,
 the answer path, the "N waiting" the monitor draws. A
 ticket is **never** a bead here: the ticket gets [an epic of its own](#an-epic-per-ticket--filed-once-forever-and-held),
 and that bead is the thing you act on, while the row stays a row. Counting the row as work
@@ -18130,7 +18153,7 @@ asking you something would be a number that no tap can bring down.
 
 Two behaviours come free from being a row and are worth stating because they are what a
 separate screen would have had to re-implement: a ticket obeys the **space picker** and
-the **P0 board's filter** like everything else in the list, and a ticket in a quiet space
+the **epic board's filter** like everything else in the list, and a ticket in a quiet space
 is as quiet as that space's questions — quiet is per space, a workspace belongs to a
 space, and the row carries the space of the workspace whose JIRA held it. The standing
 asymmetry applies here too: the *kind* filter lives in `localStorage` and deliberately

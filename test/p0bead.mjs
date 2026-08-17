@@ -129,7 +129,7 @@ function lift(src, opener) {
 /* --------------------------------------------------------------- the fixtures */
 
 /**
- * One epic with four descendants, three levels deep — the shape `p0Card` sends. Two of
+ * One epic with four descendants, three levels deep — the shape `rootCard` sends. Two of
  * them are siblings so that "the expansion goes between a bead and its children" is a
  * claim about order rather than about the end of a list.
  */
@@ -137,7 +137,7 @@ const CARD = {
   key: 'beadcause/bc-rfnr',
   workspace: 'beadcause',
   id: 'bc-rfnr',
-  title: 'The inbox is a P0 board',
+  title: 'The inbox is a epic board',
   status: 'open',
   issue_type: 'epic',
   open: 4,
@@ -185,7 +185,7 @@ const BEAD = {
 /** The board, drawn for real, out of a page state you hand it. */
 function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map(), cards = [CARD] } = {}) {
   const state = {
-    p0board: { owned: true, p0s: cards, under: {} },
+    rootboard: { owned: true, roots: cards, under: {} },
     p0open: new Set(open),
     p0beadopen: new Set(beadopen),
     p0beaddetail: detail,

@@ -35,10 +35,10 @@
  *    *under* the root and never closes it — it is what a standing root is *for*.
  * 6. **The gates are layers, not a replacement for each other.** A container that is also
  *    unendorsed fails on endorsement, with endorsement's own error.
- * 7. **A container is still a root.** It is still a P0 in `p0RootsOf`, so its children are
+ * 7. **A container is still a root.** It is still a P0 in `rootsOf`, so its children are
  *    still workable and a bead filed under it is still under a P0 — the acceptance
  *    criterion that says a container stays a valid parent and stays on the board. The board
- *    itself needs no change and gets none: `p0Board` is built from `bd.graph`, never from
+ *    itself needs no change and gets none: `rootBoard` is built from `bd.graph`, never from
  *    `bd.ready`, so the filter here cannot reach it.
  */
 import assert from 'node:assert/strict';
@@ -60,7 +60,7 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const { CONTAINER, isContainer, refusal, assertNotContainer } = await import(LIB('container.js'));
 const { QUEUE_EXCLUDED, UNENDORSED } = await import(LIB('endorse.js'));
 const { Bd } = await import(LIB('bd.js'));
-const { p0RootsOf, hasP0Above } = await import(LIB('underp0.js'));
+const { rootsOf, hasRootAbove } = await import(LIB('underroot.js'));
 const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 const { openWorkSession, openPlanSession, openEpicAdvocateSession } = await import(LIB('session.js'));
 
@@ -111,7 +111,7 @@ await check('the refusal is the family shape — 409, a named boolean, and it na
   assert.match(err.message, /zz-root may not be worked/);
   // Whoever reads this is holding a bead they thought was work, so the sentence has to
   // say where the work actually goes rather than only that this is not it. Same argument
-  // lib/underp0.js's message makes, and for the same reason: nothing clears this hold.
+  // lib/underroot.js's message makes, and for the same reason: nothing clears this hold.
   assert.match(err.message, /children|file a new one under it/);
   assert.throws(() => assertNotContainer(container('zz-root')), (e) => e.container === true);
   assert.equal(assertNotContainer({ id: 'zz-work', labels: [] }).id, 'zz-work');
@@ -221,11 +221,11 @@ await check('and it is a layer, not a replacement for the first four', async () 
 
 await check('A CONTAINER IS STILL A P0 ROOT, so its children are still workable', () => {
   // The acceptance criterion that keeps this from being a way to delete a subtree: the
-  // marker says "do not work *this*", never "do not work under this". `p0RootsOf` is the
-  // set `p0Board` measures `unhomed` against and the set lib/underp0.js gates on, so this
+  // marker says "do not work *this*", never "do not work under this". `rootsOf` is the
+  // set `rootBoard` measures `unhomed` against and the set lib/underroot.js gates on, so this
   // one assertion covers both the board and the rule.
-  assert.ok(p0RootsOf(INDEX.beads).has('zz-root'), 'the container stopped being a root');
-  assert.equal(hasP0Above(INDEX, 'zz-root.1'), true, 'and its children stopped being workable');
+  assert.ok(rootsOf(INDEX.beads).has('zz-root'), 'the container stopped being a root');
+  assert.equal(hasRootAbove(INDEX, 'zz-root.1'), true, 'and its children stopped being workable');
 });
 
 await check('and a bead filed under one is ordinary work — in the queue, and past this gate', async () => {

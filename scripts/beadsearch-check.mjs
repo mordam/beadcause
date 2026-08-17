@@ -69,7 +69,7 @@ const WS = 'demo';
  * them off the screen, and taking the pill back off has to bring them back.
  */
 const GRAPH = [
-  { id: 'bc-rfnr', title: 'The inbox is a P0 board', status: 'open', workspace: WS },
+  { id: 'bc-rfnr', title: 'The inbox is a epic board', status: 'open', workspace: WS },
   { id: 'bc-rfnr.1', title: 'An owner is a label, not an assignee', status: 'open', workspace: WS },
   { id: 'bc-rfnr.2', title: 'The inbox leads with the P0s you own', status: 'open', workspace: WS },
   { id: 'bc-qid9', title: 'What a picked bead filters to', status: 'open', workspace: WS },
@@ -140,10 +140,10 @@ function serve() {
         workspaces: [WS],
         spaces: [],
         scope: 'human',
-        // `owned: false` — the P0 board's own narrowing is off, so what the list does is
+        // `owned: false` — the epic board's own narrowing is off, so what the list does is
         // the bead filter and nothing else. The two are asserted against each other in
         // test/beadsearch.mjs; here the question is whether the tap works.
-        p0board: { p0s: [], under: {}, unhomed: {}, owned: false },
+        rootboard: { roots: [], under: {}, unhomed: {}, owned: false },
         summary: { questions: QUESTIONS.length, sessions: 0, proposals: 0 },
         seq: 1,
       });

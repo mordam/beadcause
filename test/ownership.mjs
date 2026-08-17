@@ -19,9 +19,13 @@
  *    entered. Every assertion about a stamped bead is repeated with `me` absent, because
  *    that is the configuration every existing install has, and the failure is silent: a
  *    P0 arrives owned by nobody in particular and nothing says so.
- * 2. **P0 and nothing else.** The stamp is on the priority somebody has to be answerable
- *    for. A P1 filed by the same daemon on the same machine must come out byte-for-byte
- *    the bead it came out before, or every filing path in the app has quietly changed.
+ * 2. **A root and nothing else.** The stamp is on the kind of bead somebody has to be
+ *    answerable for — a P0, or since bc-htoy an epic at any priority. A P1 *task* filed by
+ *    the same daemon on the same machine must come out byte-for-byte the bead it came out
+ *    before, or every filing path in the app has quietly changed. And an epic carrying
+ *    `unendorsed` is not stamped either, because that label is the tracker saying nobody
+ *    has agreed to carry this yet — which is the whole JIRA backlog, filed exactly that
+ *    way by lib/jiraepic.js.
  * 3. **An owner the caller named wins.** Triage files a P0 *for* somebody else; stamping
  *    this Mac's handle on top would give it two owners and make the second one a lie.
  * 4. **It survives what killed the assignee.** A claim and a reopen are asserted against
@@ -250,13 +254,41 @@ await check('and a question at P0 carries both stamps, because they answer diffe
   assert.deepEqual(labelsPassed(), ['human', 'for:adam@example.com', 'owner:adam@example.com']);
 });
 
-await check('NOTHING BUT P0 IS STAMPED', async () => {
+await check('NOTHING BUT A ROOT IS STAMPED', async () => {
   const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test', me: 'adam@example.com' });
   for (const priority of [1, 2, 3, 4]) {
     clear();
     await bd.create(ws, { title: 'ordinary work', priority, labels: ['worker'] });
-    assert.deepEqual(labelsPassed(), ['worker'], `P${priority} was stamped`);
+    assert.deepEqual(labelsPassed(), ['worker'], `a P${priority} task was stamped`);
   }
+});
+
+await check('AN EPIC IS STAMPED AT ANY PRIORITY — bc-htoy', async () => {
+  // The half the old rule got wrong: an epic filed through this path arrived unowned
+  // unless somebody had also called it the most urgent thing on the tracker, which put it
+  // off the board and out of reach of the advocate roster in one go.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test', me: 'adam@example.com' });
+  for (const priority of [1, 2, 3, 4]) {
+    clear();
+    await bd.create(ws, { title: 'a theme', type: 'epic', priority, labels: ['worker'] });
+    assert.deepEqual(labelsPassed(), ['worker', 'owner:adam@example.com'], `a P${priority} epic was not stamped`);
+  }
+});
+
+await check('BUT AN UNENDORSED EPIC IS NOT — nobody has agreed to carry it yet', async () => {
+  // The care the widening needed, and it is not hypothetical: lib/jiraepic.js files every
+  // ingested ticket as an `unendorsed` P1 epic. Without this branch the next JIRA sweep
+  // would hand this Mac's person the whole backlog — a card each on the board, a row each
+  // on the advocate roster, and the inbox below narrowed to their descendants.
+  clear();
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test', me: 'adam@example.com' });
+  await bd.create(ws, { title: 'TECH-1234 — somebody else’s ticket', type: 'epic', priority: 1, labels: ['unendorsed'] });
+  assert.deepEqual(labelsPassed(), ['unendorsed'], 'an unendorsed epic was claimed for this Mac');
+  // And the P0 half is untouched by that guard, deliberately: it behaved this way before
+  // bc-htoy and changing it would be a second behaviour change riding in beside the first.
+  clear();
+  await bd.create(ws, { title: 'a critical thing', priority: 0, labels: ['unendorsed'] });
+  assert.deepEqual(labelsPassed(), ['unendorsed', 'owner:adam@example.com']);
 });
 
 await check('AND WITH me UNSET A P0 IS THE BEAD THIS DAEMON ALWAYS FILED', async () => {

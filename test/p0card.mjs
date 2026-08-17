@@ -89,7 +89,7 @@ const APP = read('public/app.js');
 const CSS = read('public/style.css');
 
 /**
- * One P0 with a tree six deep — the shape `p0Card` in lib/server.js sends, and the shape
+ * One P0 with a tree six deep — the shape `rootCard` in lib/server.js sends, and the shape
  * test/p0tree.mjs proves it sends. Depths 1..5 on purpose: 4 and 5 are the two that a
  * cap has to flatten and 3 is the last one that still steps.
  */
@@ -97,7 +97,7 @@ const CARD = {
   key: 'beadcause/bc-rfnr',
   workspace: 'beadcause',
   id: 'bc-rfnr',
-  title: 'The inbox is a P0 board',
+  title: 'The inbox is a epic board',
   status: 'open',
   issue_type: 'epic',
   open: 4,
@@ -165,9 +165,9 @@ function lift(src, opener) {
  * faithful stand-in for the poll repaint that the feature has to survive. `status` is
  * `state.p0status` the same way: what the chips write, and the only thing the filter is.
  */
-function board(p0s, open = [], shut = false, status = 'live') {
+function board(roots, open = [], shut = false, status = 'live') {
   const state = {
-    p0board: { owned: true, p0s, under: {} },
+    rootboard: { owned: true, roots, under: {} },
     p0open: new Set(open),
     p0shut: shut,
     p0status: status,
@@ -240,7 +240,7 @@ check('summarises: id, both counts, title, and how much is behind the tap', () =
   assert.match(html, /bc-rfnr/);
   assert.match(html, /4 open/);
   assert.match(html, /1 in flight/);
-  assert.match(html, /The inbox is a P0 board/);
+  assert.match(html, /The inbox is a epic board/);
   // The total, which is the number the open count cannot give you: 4 of 5 left. Both
   // numbers since bc-rfnr.9.6, because the default filter puts a wedge between them —
   // the fifth bead is closed, so the tap opens four of the five that are filed.
@@ -368,7 +368,7 @@ check('and the toggle writes state rather than poking the DOM', () => {
 });
 
 check('the board is still one reconcile chunk, which is why the set has to exist', () => {
-  assert.match(APP, /chunks\.push\(\{ key: '@p0', html: p0s \}\)/);
+  assert.match(APP, /chunks\.push\(\{ key: '@p0', html: roots \}\)/);
 });
 
 console.log('\nthe section folds away');
@@ -387,7 +387,7 @@ check('the heading is the control, and it says what the section is', () => {
 check('shut, the cards are gone and the count is not', () => {
   const html = board([CARD, OTHER], [], true);
   assert.ok(!html.includes('p0-card'), 'a shut board is still drawing its cards');
-  assert.ok(!html.includes('The inbox is a P0 board'), 'a shut board is still drawing its titles');
+  assert.ok(!html.includes('The inbox is a epic board'), 'a shut board is still drawing its titles');
   // How many epics are behind the fold. Without it, a folded board is indistinguishable
   // from a screen with no epics on it — which is the one thing this section exists to
   // never be (bc-rfnr.2).
@@ -429,11 +429,11 @@ check('the tap writes the preference as well as the state, and pokes no DOM', ()
 });
 
 check('folding changes nothing about the list underneath', () => {
-  // `underOwnedP0s` is what narrows the inbox to your epics' descendants, and it reads
+  // `underOwnedRoots` is what narrows the inbox to your epics' descendants, and it reads
   // the board data rather than whether the board is on screen. A fold that narrowed the
   // list too would be a control that quietly empties the inbox.
-  const at = APP.indexOf('function underOwnedP0s(rows)');
-  assert.notEqual(at, -1, 'underOwnedP0s is gone');
+  const at = APP.indexOf('function underOwnedRoots(rows)');
+  assert.notEqual(at, -1, 'underOwnedRoots is gone');
   const fn = APP.slice(at, APP.indexOf('\n  }', at));
   assert.ok(!fn.includes('p0shut'), 'the inbox filter is reading whether the board is folded');
 });
@@ -638,11 +638,11 @@ check('the pick is page state, persisted — so it survives a repaint and a relo
 });
 
 check('it narrows the trees and nothing else — the list below is untouched', () => {
-  // `underOwnedP0s` is what the inbox is narrowed by. A bead you filtered out of a tree is
+  // `underOwnedRoots` is what the inbox is narrowed by. A bead you filtered out of a tree is
   // still a question you are being asked, and a status filter that reached the list would
   // hide it with nothing on screen to say where it went.
-  const at = APP.indexOf('function underOwnedP0s(rows)');
-  assert.notEqual(at, -1, 'underOwnedP0s is gone');
+  const at = APP.indexOf('function underOwnedRoots(rows)');
+  assert.notEqual(at, -1, 'underOwnedRoots is gone');
   assert.ok(!APP.slice(at, APP.indexOf('\n  }', at)).includes('p0status'), 'the inbox filter is reading the board filter');
 });
 
@@ -690,7 +690,7 @@ check('a title out of the tracker cannot write markup into the board', () => {
 
 check('the three no-op cases are untouched: no `me`, no P0s, an old payload', () => {
   assert.equal(board([]), '');
-  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state: { p0board: { owned: false, p0s: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map() } });
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state: { rootboard: { owned: false, roots: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map() } });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
