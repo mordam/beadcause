@@ -330,7 +330,10 @@ try {
   await sleep(300);
 
   /* 2. describe — a hold on a card, and a sentence about it */
-  await hold(s, await at(s, '.card[data-key] p.q'));
+  // A shut card's title is a real <button class="q"> now, not a <p> (bc-rfnr.9.8) — `.q`
+  // rather than `p.q` finds it either way, and it is still the only `.q` in a shut card's
+  // DOM (the foot's is drawn only inside the brief, which a shut card never renders).
+  await hold(s, await at(s, '.card[data-key] .q'));
   const asked = await evalJs(s, `document.querySelector('.editnote')?.textContent || null`);
   check('a hold asks what the thing under your thumb should do instead', Boolean(asked && /instead/i.test(asked)), asked ? `"${asked.slice(0, 60)}…"` : 'no note box');
   const refused = await evalJs(s, `document.querySelector('[data-act="edit-note-add"]')?.disabled === true`);
@@ -344,7 +347,7 @@ try {
   );
 
   /* 3. point — a hold, a drag, and what it landed against */
-  const from = await at(s, '.card[data-key] p.q');
+  const from = await at(s, '.card[data-key] .q');
   const cards = await evalJs(s, `document.querySelectorAll('.card[data-key]').length`);
   const to = await evalJs(
     s,
@@ -370,7 +373,7 @@ try {
   /* 4. retype — the one literal edit, and the one refusal that matters most */
   await evalJs(s, TOP);
   await sleep(200);
-  await tap(s, await at(s, '.card[data-key] p.q'));
+  await tap(s, await at(s, '.card[data-key] .q'));
   const said = await evalJs(s, `document.querySelector('.editbar-say')?.textContent || ''`);
   check(
     'a tap on a bead’s own title is refused, because that is the tracker',

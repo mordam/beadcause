@@ -20,15 +20,14 @@
  * that wrong does not look like a bug on the screen where it happens: the control does
  * fire, and the card opening over it reads as the app being keen.
  *
- * Four things are pinned here, and none of them is visible by reading one function:
+ * Five things are pinned here, and none of them is visible by reading one function:
  *
- * 1. **The button is gone, from every kind of card and in both states.** Asserted on the
- *    real `cardTopHtml`, plus a source read that no `<button>` anywhere in public/app.js
- *    carries `data-act="toggle"` — the act belongs to the article now, and a second
- *    emitter of it would be the old control growing back somewhere else. The same read
- *    counts the attribute across the whole file and insists on **one** line: edit mode
- *    anchors a tapped control by grepping this source, and one act has always meant one
- *    line, which is why both renderers interpolate `shutCardAct` instead of typing it.
+ * 1. **The "Show details" button is gone**, from every kind of card and in both states —
+ *    asserted on the real `cardTopHtml`. The act belongs to the article now, and a source
+ *    read counts `data-act="toggle"` across the whole file and insists on **one** line:
+ *    edit mode anchors a tapped control by grepping this source, and one act has always
+ *    meant one line, which is why the renderers interpolate `shutCardAct` instead of
+ *    typing it.
  * 2. **A shut card carries the act and an open one does not.** Both card renderers, run
  *    for real. The open half matters as much: an open question card is a full-screen
  *    sheet whose way out is `↑ Collapse`, and an article that still answered to `toggle`
@@ -41,6 +40,18 @@
  *    link, a button, the four form elements, a `<pre>`, a contenteditable, a live text
  *    selection, and the two negatives that make the assertions mean something — a plain
  *    paragraph opens the card, and so does a link that is *not inside* this card.
+ * 5. **The title is the one focusable way in (bc-rfnr.9.8).** Taking the article's own
+ *    role away from the button left a shut card with nothing Tab could reach, since
+ *    `role="button" tabindex="0"` on the article would be invalid ARIA over the six
+ *    interactive descendants a shut proposal card carries. Both renderers now draw
+ *    `<p class="q">` as a real `<button class="q">`, unconditionally — shut, it carries
+ *    `shutCardAct` and its own `data-key`; open, `tabindex="-1"` takes it out of the tab
+ *    order rather than swapping the tag, because a `<p>`-when-open, `<button>`-when-shut
+ *    split is one more literal `class="q"` than `editmode.js`'s chain-narrowing anchor
+ *    can place — see the note on `shutCardAct` in public/app.js. The button is written
+ *    inline in each renderer for the same reason, not behind a shared helper, and that
+ *    is why the exactly-one-line count in (1) still holds: nothing types the attribute
+ *    itself, both call the one function that does.
  *
  * public/app.js is one IIFE with nothing exported, so the declarations are sliced out
  * and run in a `vm` the way test/jirarow.mjs and test/modelcard.mjs do it. The
@@ -209,9 +220,11 @@ check('an open card keeps the ⋮ and the way out, and grows no "Hide details"',
   assert.doesNotMatch(bar, /data-act="toggle"/);
 });
 
-check('no <button> anywhere in the app answers to `toggle` any more', () => {
-  // The act belongs to the article now. A second emitter of it on a button would be the
-  // old control grown back somewhere else in the file, drawn beside the card it opens.
+check('no <button> spells the act out literally — only `shutCardAct` interpolates it', () => {
+  // A second emitter typing `data-act="toggle"` directly onto a button would be the old
+  // "Show details" control grown back somewhere else in the file. The title button
+  // (bc-rfnr.9.8) is allowed to carry the act at runtime, but only by calling the same
+  // function the article does — see the next section.
   const buttons = APP.match(/<button[^>]*data-act="toggle"/g) || [];
   assert.deepEqual(buttons, [], `still emitted by ${buttons.length} button(s)`);
 });
@@ -249,9 +262,10 @@ check('an open agent card is not, though it never wears .open', () => {
 check('the act is written in exactly one place, which edit mode depends on', () => {
   // public/editmode.js anchors a tapped element by grepping this file for the markup
   // that produced it, with the comments blanked; a `data-act` is its strongest key
-  // because one act has always meant one line. Both card renderers interpolate
-  // `shutCardAct` rather than typing the attribute, and this is why. Caught in review by
-  // scripts/editmode-check.mjs, which said `2 sites via data-act="toggle"`.
+  // because one act has always meant one line. Both card renderers, and now the title
+  // button too, interpolate `shutCardAct` rather than typing the attribute, and this is
+  // why. Caught in review by scripts/editmode-check.mjs, which said `2 sites via
+  // data-act="toggle"`.
   const code = APP.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const sites = code.match(/data-act="toggle"/g) || [];
   assert.equal(sites.length, 1, `${sites.length} lines of source produce this one control`);
@@ -265,6 +279,59 @@ check('the list handler asks the guard before it acts on a card', () => {
   assert.notEqual(at, -1, 'the list click handler moved');
   const head = APP.slice(at, at + 600);
   assert.match(head, /classList\.contains\('card'\)\s*&&\s*!cardBodyOpens\(ev, btn\)/);
+});
+
+/* --------------------------------------------------- 5. the title is the way in, keyboard */
+
+console.log('\nthe title is a real button, shut and open alike\n');
+
+check('a shut question card`s title is a focusable button carrying the act and the key', () => {
+  const html = draw('cardHtml', question());
+  const btn = html.match(/<button type="button" class="q"[^>]*>[^<]*<\/button>/);
+  assert.ok(btn, 'no <button class="q"> in the shut card');
+  assert.match(btn[0], /data-act="toggle"/, 'the title would not open the card');
+  assert.match(btn[0], /data-key="beadcause\/bc-aaa1"/, 'a tap on it would carry no key');
+  assert.doesNotMatch(btn[0], /tabindex="-1"/, 'shut, it should be a normal tab stop');
+  assert.match(btn[0], />Should the card be the control\?</, 'drew the tracker title, not source text');
+});
+
+check('open, the same title carries no act and drops out of the tab order', () => {
+  // Still the same `<button>` — a `<p>`-when-open, `<button>`-when-shut split would be a
+  // second literal `class="q"` an editmode anchor could no longer place by chain. What
+  // changes is only that it has nothing left to do: `↑ Collapse` is the way out of an
+  // open sheet, and `tabindex="-1"` keeps a control with no act off Tab without lying
+  // about which element drew the heading.
+  const html = draw('cardHtml', question(), { open: true });
+  const btn = html.match(/<button type="button" class="q"[^>]*>[^<]*<\/button>/);
+  assert.ok(btn, 'no <button class="q"> in the open card');
+  assert.doesNotMatch(btn[0], /data-act="toggle"/, 'a tap on the brief would collapse the sheet');
+  assert.match(btn[0], /tabindex="-1"/, 'a dead tab stop was left in the way');
+  assert.match(btn[0], />Should the card be the control\?</);
+});
+
+check('a shut agent card`s title answers to the act too', () => {
+  const html = draw('agentCardHtml', agentBead());
+  const btn = html.match(/<button type="button" class="q"[^>]*>[^<]*<\/button>/);
+  assert.ok(btn, 'no <button class="q"> in the shut agent card');
+  assert.match(btn[0], /data-act="toggle"/);
+  assert.match(btn[0], /data-key="beadcause\/bc-bbb2"/);
+  assert.doesNotMatch(btn[0], /tabindex="-1"/);
+  assert.match(btn[0], />Every card expands when you tap it</, 'the title, not the question');
+});
+
+check('open, the agent card`s title carries no act either', () => {
+  const html = draw('agentCardHtml', agentBead(), { open: true });
+  const btn = html.match(/<button type="button" class="q"[^>]*>[^<]*<\/button>/);
+  assert.ok(btn);
+  assert.doesNotMatch(btn[0], /data-act="toggle"/);
+  assert.match(btn[0], /tabindex="-1"/);
+});
+
+check('the button is reset to read as the heading it replaces, not as browser chrome', () => {
+  assert.match(CSS, /button\.q\s*\{[^}]*background:\s*none/, 'default button chrome left on the title');
+  assert.match(CSS, /button\.q\s*\{[^}]*border:\s*none/, 'a border drawn around a heading');
+  assert.match(CSS, /button\.q\s*\{[^}]*width:\s*100%/, 'not full width, so long titles would wrap oddly');
+  assert.match(CSS, /button\.q\s*\{[^}]*font:\s*inherit/, 'the platform`s own button font, not the card`s');
 });
 
 /* ------------------------------------------------------------- 3. and 4. the guard */

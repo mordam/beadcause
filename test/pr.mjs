@@ -426,6 +426,97 @@ check(
   JSON.stringify(calls().map((c) => c.args.join(' ')))
 );
 
+/* --------------------------------------------- and as one that can merge */
+
+/**
+ * The second half of the same question, and the half that was not asked.
+ *
+ * beadcause's own repo is `mordam/beadcause`. Both logins can see it — the active one
+ * is a collaborator with READ, the owner has ADMIN — so the ambient probe answered,
+ * the sweep stopped there, and every `gh` call in that checkout ran as the READ
+ * account. Nothing looked wrong: listing PRs, reading checks, posting comments all
+ * work with READ. The merge did not, and it failed at the end of a ship with
+ *
+ *     GraphQL: NeanderthalMan does not have the correct permissions to execute
+ *     `MergePullRequest`
+ *
+ * after the work was already done. So visibility is no longer enough to win the probe.
+ */
+console.log('\nand which account can merge in it');
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+  prs: { 42: rawPR() },
+});
+
+check('a repo the active account can only read still resolves', (await pr.slugFor(REPO)) === 'them/shared');
+
+resetLog();
+await pr.merge(REPO, 42, { method: 'squash' }).catch(() => null);
+const ownerMerges = calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
+check(
+  'but `gh pr merge` runs as the account that may actually merge, not the one that answered first',
+  ownerMerges.length === 1 && ownerMerges[0].token === 'tok-owner',
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+check(
+  'and so does everything else in that checkout',
+  calls().length > 0 && calls().every((c) => c.token === 'tok-owner'),
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'otheracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', otheracct: 'tok-other' },
+  repoByToken: { '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' } },
+});
+
+check(
+  'a repo nobody here can write to is still resolved read-only rather than lost',
+  (await pr.slugFor(REPO)) === 'them/shared'
+);
+check(
+  'and that answer is the ambient account, carrying no token',
+  calls().filter((c) => c.args[0] === 'repo').every((c) => c.token === null || c.token === 'tok-other') &&
+    calls().filter((c) => c.args[0] === 'repo')[0].token === null,
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: { ok: true, accounts: [{ user: 'soloacct', active: true }] },
+  tokens: { soloacct: 'tok-solo' },
+  repo: { nameWithOwner: 'acme/widgets' },
+});
+check('a Mac with one login is unchanged — no permission, no sweep', (await pr.slugFor(REPO)) === 'acme/widgets');
+check(
+  'and it costs the one `gh repo view` it always did',
+  calls().filter((c) => c.args[0] === 'repo').length === 1,
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
 pr.forgetAvailability();
 world();
 

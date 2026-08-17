@@ -48,10 +48,13 @@
   everywhere else; the count that matters is in the list you are looking at.
 
   **Admin.** It had the rightmost tab and it loses it here: it is the screen you least
-  want to hit by accident, and bc-khoe.5 puts it in the gear menu the top bar's mark
-  opens. Until that lands the route is the ⚙ at monitor.html:44 — which is why this bead
-  must not remove that, and why /admin is the one page below that draws the row with
-  nothing on it current.
+  want to hit by accident. bc-khoe.5 landed while this branch was parked and put it where
+  it belongs — a row in the menu the top bar's gear-wrapped mark opens
+  (`account-admin` in public/accountbar.js), drawn on every page rather than on the one
+  that happened to have a ⚙. So it is reachable from everywhere and is on no row, which is
+  what it was always supposed to be; /admin itself draws this row with nothing on it
+  current. monitor.html's own ⚙ stays, because accountbar.js hoists it into that menu
+  rather than duplicating it.
 
   **The chat session.** bc-l8jp.5 took it off the bar and the argument has not moved: it
   was the one entry that was also the way to *create* something, and a row drawn

@@ -68,7 +68,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ownAddresseeLabels } from '../lib/addressee.js';
-import { isClaimGuard } from '../lib/bd.js';
+import { isClaimGuard, LIVE_STATUSES } from '../lib/bd.js';
 import { bylineFor } from '../lib/byline.js';
 import { isMergeReason, parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
@@ -881,14 +881,50 @@ async function landHere(landed, { external = false } = {}) {
      * guard is what refused; anything else still travels out to `oweClose` below exactly
      * as it did. `isClaimGuard` is imported from lib/bd.js rather than re-written here so
      * the two processes cannot disagree about what that refusal looks like.
+     *
+     * And the other half, which is not about a refusal at all: **a zero exit is not a
+     * close.** bc-q6qc — a merged bead took the comment written immediately before its
+     * close and stayed `in_progress` for a day, with nothing in the log, nothing in
+     * `owed-closes.json` and every layer above reporting the close as done. `bd` came back
+     * 0 and the row did not move, and there is no exit code, stream or exception in which
+     * that is distinguishable from success. So the close is *asked about* rather than
+     * assumed, one `bd show` on a path that has already spent a dozen subprocesses.
+     *
+     * `Bd.assertClosed` in lib/bd.js is the same check on the daemon's side of the same
+     * failure; this is a separate process shelling out to `bd` synchronously, which is why
+     * it is a second implementation rather than an import, and why it stays this small.
+     * Both fail towards believing the close — an unreadable tracker or a status neither
+     * has heard of is not evidence, because inventing a failure here would park a landed
+     * bead in `owed-closes.json` to be retried for ever.
      */
+    const stillOpen = () => {
+      try {
+        const rows = JSON.parse(bd(['show', beadId, '--json']));
+        const row = (Array.isArray(rows) ? rows : rows?.issues || [])[0] || null;
+        if (!row) return '';
+        const status = String(row.status || '').trim().toLowerCase();
+        return LIVE_STATUSES.has(status) ? status : '';
+      } catch {
+        return '';
+      }
+    };
+    const mustHaveClosed = () => {
+      const status = stillOpen();
+      if (status) throw new Error(`bd exited 0 closing ${beadId} and the bead is still ${status} — the close did not happen`);
+    };
+
     const closeWorkBead = () => {
       try {
         bd(['close', beadId, '--reason', closeReason]);
+        mustHaveClosed();
       } catch (err) {
+        // Not widened to the silent case, for lib/bd.js's reason: `--force` lifts the
+        // blocker, children and epic gates too, and a close bd said nothing about is a
+        // close nobody can explain. That one goes out to `oweClose` below instead.
         if (!isClaimGuard(err)) throw err;
         console.error(`beadcause-deliver: closing ${beadId} over the claim guard — ${where} is merged`);
         bd(['close', beadId, '--reason', closeReason, '--force']);
+        mustHaveClosed();
       }
     };
     try {
