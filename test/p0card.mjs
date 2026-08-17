@@ -34,8 +34,12 @@
  *    `workspace/id`; a renderer that fell back to a shared or missing key would open and
  *    close all four of the week's epics together, which reads as a fault in the tap.
  *
- * 5. **A bead that is itself a question is marked.** `pending` is the whole reason to
- *    open a tree, and bc-rfnr.9.7 removes the flat list that draws those questions today.
+ * 5. **A bead that is itself a question is marked, at three heights.** `pending` is the
+ *    whole reason to open a tree, and since bc-rfnr.9.7 took the flat list away the tree
+ *    is the only place a question is drawn — so the pill on the row is not enough on its
+ *    own. The collapsed card counts them and the section heading counts them for the whole
+ *    board, because a question four levels down a tree that is folded shut by default is
+ *    not findable, and the status filter is not allowed to exclude one at all.
  *
  * 6. **Tracker text cannot write markup into the board.** A bead title is text out of
  *    `bd`; the escaped form is asserted present, not merely the raw tag absent.
@@ -237,6 +241,12 @@ function board(roots, open = [], shut = false, status = 'live') {
       lift(APP, 'function p0ActsHtml(c, more'),
       lift(APP, 'function p0CardHtml(c)'),
       lift(APP, 'function p0FullHtml(c)'),
+      // bc-rfnr.9.7's two: which cards the scope filters leave, and how many beads under
+      // them are asking you something. The section calls both — the first for its own
+      // list and the second for the count on the heading — so a board rendered without
+      // them is a `ReferenceError` rather than a missing pill.
+      lift(APP, 'const p0AsksN = ('),
+      lift(APP, 'function p0Cards(list)'),
       // bc-s8mc's picker, at the foot of the section — lifted because `p0SectionHtml`
       // calls it on every render and would otherwise throw. `state.p0picker` is false
       // here, so what it draws in this suite is the closed offer and nothing else;
@@ -294,7 +304,11 @@ check('the counts on the card and the counts in the tab are drawn once, so they 
   const open = board([CARD], ['beadcause/bc-rfnr']);
   assert.equal((open.match(/class="p0-head"/g) || []).length, 2, 'the card and its tab are not both drawn');
   assert.equal((open.match(/>4 open</g) || []).length, 2);
-  assert.equal((open.match(/1 asks you/g) || []).length, 2);
+  // On the pill rather than on the words, because since bc-rfnr.9.7 there is a third
+  // reader of the same number: the fold heading says it too (`.p0-kind-asks`), so that it
+  // still says how many are waiting once the board is shut. That one is a count of the
+  // whole board and is checked on its own below; this pair is the card and its tab.
+  assert.equal((open.match(/class="pill p0-asks">1 asks you/g) || []).length, 2);
 });
 
 check('an epic with nothing under it says so instead of drawing a bar at zero', () => {
@@ -395,6 +409,34 @@ check('a bead that is itself asking you something says so', () => {
   // And a bead nobody is asking about does not.
   const quiet = html.slice(html.indexOf('bc-rfnr.9<') - 300, html.indexOf('bc-rfnr.9<') + 300);
   assert.ok(!quiet.includes('asks you'), 'a bead with no question drew the pill');
+});
+
+check('AND THE COLLAPSED CARD CARRIES THE COUNT — bc-rfnr.9.7, four levels up', () => {
+  // The question in this fixture is at depth 3 of a tree that is folded shut by default.
+  // With the flat list gone, a board that made you open every card to find out whether
+  // anything was waiting would have moved the inbox somewhere you cannot see it.
+  const shutTree = board([CARD, OTHER], []);
+  assert.ok(!shutTree.includes('p0-tree'), 'the fixture opened a tree — this is the folded claim');
+  assert.match(shutTree, /<span class="pill p0-asks">1 asks you<\/span>/);
+  assert.match(shutTree, /class="p0-card asks"/);
+  // And the epic with nothing waiting under it is not marked, which is what makes the
+  // mark worth scanning for.
+  const other = shutTree.slice(shutTree.indexOf('bc-p49x'));
+  assert.ok(!other.includes('p0-asks'), 'an epic nobody is asking about was marked anyway');
+  assert.ok(!other.includes('p0-card asks'));
+});
+
+check('and so does the section heading, which is all that is left when the board is folded', () => {
+  const shut = board([CARD, OTHER], [], true);
+  assert.ok(!shut.includes('p0-card'), 'the board is not actually folded');
+  assert.match(shut, /class="p0-kind-asks">1 asks you</);
+  assert.match(shut, /class="p0-kind-n">2</, 'the fold lost the count of epics');
+  // Plural, because "1 ask you" is the sort of thing that ships.
+  const two = { ...OTHER, tree: OTHER.tree.map((r) => ({ ...r, pending: true })) };
+  assert.match(board([CARD, two], [], true), /class="p0-kind-asks">2 ask you</);
+  // And nothing at all where nothing is waiting — an empty marker is a mark you stop
+  // seeing.
+  assert.ok(!board([OTHER], [], true).includes('p0-kind-asks'));
 });
 
 check('a status that is not `open` is named, and `open` is not restated sixty times', () => {
@@ -550,13 +592,16 @@ check('an absent `p0shut` is an open board, on every state object that predates 
 check('the tap writes the preference as well as the state, and pokes no DOM', () => {
   const at = APP.indexOf("if (act === 'p0-fold') {");
   assert.notEqual(at, -1, 'the fold handler is gone');
-  const branch = APP.slice(at, at + 500);
+  const branch = APP.slice(at, at + 1400);
   const body = branch.slice(0, branch.indexOf('\n    }'));
   assert.match(body, /state\.p0shut = !state\.p0shut/);
   // Persisted on the tap. The next thing that happens to this page is a poll, and there
   // is no later save — a reload before the write is the fold undoing itself.
   assert.match(body, /localStorage\.setItem\('beadcause\.p0shut'/);
-  assert.match(body, /render\(true\)/);
+  // And through `keepTheScreenStill`, bc-rfnr.9.9. Unfolding the board inserts the whole
+  // section above the list, which is the anchor's blind spot exactly as a tree is — see
+  // the same assertion on the card's own tap below.
+  assert.match(body, /keepTheScreenStill\(\(\) => render\(true\)\)/);
   assert.ok(!/classList|\.hidden|innerHTML|querySelector/.test(body), 'the fold is reaching into the DOM');
   // And it leaves the cards' own open set alone: folding the board away is putting it
   // down, not closing the epic you were reading in it.
@@ -644,6 +689,24 @@ function chips(html) {
   while ((hit = re.exec(html))) out.push({ id: hit[1], on: hit[2] === 'true', label: hit[3], count: Number(hit[4]) });
   return out;
 }
+
+check('THE FILTER CANNOT HIDE A QUESTION — bc-rfnr.9.7', () => {
+  // `Closed` is one tap, and before this it took every open question in the tracker off
+  // the screen with it: the tree is the only place a question is drawn now, so a filter
+  // that could exclude one is a filter that loses it. The row is still drawn as itself.
+  const html = board([CARD], ['beadcause/bc-rfnr'], false, 'closed');
+  assert.match(html, />bc-rfnr\.9\.2\.1</, 'the closed filter took the pending bead away');
+  assert.match(html, /asks you/);
+  // Its ancestors come with it, for the reason every kept row's do — a row indented under
+  // whatever happened to precede it reads as a different bead's child.
+  assert.match(html, />bc-rfnr\.9</);
+  assert.match(html, />bc-rfnr\.9\.2</);
+  // And it is genuinely the filter that is on: the pending row is kept *on its own*
+  // where every other open bead in this tree is kept only as scaffolding.
+  assert.ok(!/\bvia\b/.test(rowClass(html, 'bc-rfnr.9.2.1')), 'the question is drawn as context');
+  assert.match(rowClass(html, 'bc-rfnr.9.2.1.1'), /\bvia\b/, 'the closed filter stopped filtering');
+  assert.match(rowClass(html, 'bc-rfnr.9'), /\bvia\b/);
+});
 
 check('defaults to not-closed — open, in progress and blocked all show, closed does not', () => {
   const html = board([MIX], ['beadcause/bc-mix']);
@@ -883,6 +946,8 @@ check('the three no-op cases are untouched: no `me`, no P0s, an old payload', ()
       lift(APP, 'function p0ActsHtml(c, more'),
       lift(APP, 'function p0CardHtml(c)'),
       lift(APP, 'function p0FullHtml(c)'),
+      lift(APP, 'const p0AsksN = ('),
+      lift(APP, 'function p0Cards(list)'),
       // bc-s8mc's picker, at the foot of the section — lifted because `p0SectionHtml`
       // calls it on every render and would otherwise throw. `state.p0picker` is false
       // here, so what it draws in this suite is the closed offer and nothing else;

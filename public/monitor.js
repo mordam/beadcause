@@ -1009,6 +1009,11 @@
           ${b.acceptance ? `<p class="mon-bead-meta"><strong>Done when:</strong> ${esc(b.acceptance)}</p>` : ''}
           ${b.rationale ? `<p class="mon-bead-meta why">Why: ${esc(b.rationale)}</p>` : ''}
           ${b.deps?.length ? `<p class="mon-bead-meta"><strong>Depends on:</strong> ${esc(b.deps.join(', '))}</p>` : ''}
+          ${
+            b.files?.length
+              ? `<p class="mon-bead-meta"><strong>Expects to touch:</strong> ${esc(b.files.join(', '))}</p>`
+              : ''
+          }
           <div class="mon-bead-acts">
             <button class="adv-btn${pick === 'yes' ? ' on' : ''}" data-pick="yes" data-key="${esc(q.key)}" data-n="${n}">Create</button>
             <button class="adv-btn${pick === 'no' ? ' on danger' : ''}" data-pick="no" data-key="${esc(q.key)}" data-n="${n}">Decline</button>
@@ -1573,13 +1578,23 @@
   function globalHtml(g, observing) {
     if (!g) return ''; // An older daemon behind a newer page: say nothing, invent nothing.
     const ceiling = g.ceiling || 36;
-    const held = g.live >= g.maxWorkers;
+    // Both populations, because since bc-29b3 the cap counts both. A resolver is a
+    // session the pull-request sweep opened rather than an advocate, and this row
+    // reading `18 of 20` while every advocate card says "held by globalMaxWorkers" is
+    // exactly the arithmetic-that-does-not-add-up the change exists to stop. `|| 0` is
+    // for an older daemon behind a newer page, which is the rule the line above keeps.
+    const resolvers = g.resolvers || 0;
+    const open = g.live + resolvers;
+    const held = open >= g.maxWorkers;
+    const resolverNote = resolvers
+      ? ` · ${resolvers} resolving ${resolvers === 1 ? 'a pull request' : 'pull requests'}`
+      : '';
     return `<div class="svc ok svc-set">
       <span class="svc-dot">⚙</span>
-      <span><b class="svc-num${held ? ' warn' : ''}">${g.live}</b> of ${plural(
+      <span><b class="svc-num${held ? ' warn' : ''}">${open}</b> of ${plural(
         g.maxWorkers,
         'session'
-      )} open across every advocate${held ? ' — every slot is in use' : ''}</span>
+      )} open across every advocate${resolverNote}${held ? ' — every slot is in use' : ''}</span>
       ${limitControl({
         key: GLOBAL_STEP,
         live: g.maxWorkers,

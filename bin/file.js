@@ -39,6 +39,11 @@
  *       No ?v= on the script tag, so a shipped header change looks absent.
  *     acceptance: A deploy changes the URL.
  *     rationale: Found while reading webapp/templates/base.html for bc-7qo.
+ *     files: [webapp/templates/base.html]   # optional: what it expects to touch
+ *
+ * `files` is written into the bead's description as the block lib/beadfiles.js reads, and
+ * it is a forecast rather than a promise: nothing refuses a filing over it and a bead that
+ * names none is filed exactly as every bead filed before bc-42ow was.
  *
  * Prints one id per line on stdout, so `$(beadcause-file …)` is a list of new beads.
  * Everything else — warnings, the duplicate flags, what was clamped — is stderr, since
@@ -151,11 +156,32 @@ const endorsed = autoEndorseAllowed(cfg, ws.name);
 
 const { filed, failed, home } = await fileBeads(bd, ws, beads, { from, onWarn: warn, endorsed });
 
-// Where they landed, once for the batch — they all share one home (lib/homing.js). Said
-// out loud rather than left to `bd show`, because a bead quietly adopted into an epic the
-// session never named is the kind of surprise a worker should be able to correct in the
-// same breath it filed in.
-if (home?.why) warn(`filed under ${home.why} — nothing named a home, and a bead with no P0 above it is not workable`);
+/**
+ * Where they landed, once for the batch — they all share one home (lib/homing.js). Said
+ * out loud rather than left to `bd show`, because a bead quietly adopted into an epic the
+ * session never named is the kind of surprise a worker should be able to correct in the
+ * same breath it filed in.
+ *
+ * **Over what actually landed, not over what was decided, and bc-xl7n.65 is the whole
+ * reason.** `home` is the answer `lib/homing.js` gave; a bead whose `--parent` bd then
+ * refused is re-filed without one, and this line used to print the answer regardless. So
+ * a session was told *filed under bc-eqn1.1* about a bead sitting under nothing — the
+ * refusal was two lines above, truncated to the session's own title, and the reassuring
+ * sentence was the last word. Every one of those beads was invisible to its own filer.
+ */
+const homed = filed.filter((b) => b.parent);
+const stranded = filed.filter((b) => !b.parent);
+if (home?.why && homed.length) {
+  warn(`filed under ${home.why} — nothing named a home, and a bead with nothing decided above it is not workable`);
+}
+if (home?.parent && stranded.length) {
+  warn(
+    `${stranded.length === 1 ? '1 of them is' : `${stranded.length} of them are`} filed with NO PARENT — ` +
+      `${home.parent} would not take ${stranded.length === 1 ? 'it' : 'them'} (the refusal is above). ` +
+      `Nothing will work ${stranded.length === 1 ? 'it' : 'them'} until you adopt ${stranded.length === 1 ? 'it' : 'them'} ` +
+      `under an epic: ${stranded.map((b) => b.id).join(', ')}`
+  );
+}
 
 for (const b of filed) {
   if (b.clamped) warn(`"${b.title}" filed at P${b.priority} — an agent-filed bead may not outrank P${PRIORITY_FLOOR}`);

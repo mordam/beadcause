@@ -76,15 +76,16 @@
 
       <!-- There was a 🗳️ here, and it was a door to the endorsement queue. It is gone
            (bc-w156), and what removed it is not a tidy-up: the beads it led to are in the
-           inbox now, under an Endorsements chip of their own, and a door in the chrome to
-           a list the inbox is already carrying is a fifth place to look for something
-           that is in front of you. See the kinds table in inboxfilter.js.
+           inbox now — under the Questions pill since bc-khoe.2, having had a chip of
+           their own before that — and a door in the chrome to a list the inbox is already
+           carrying is a fifth place to look for something that is in front of you. See
+           the kinds table in inboxfilter.js.
 
            Worth keeping the old argument for the badge that was refused, because it is
            what the replacement had to beat: a count here would have cost a
            `bd list --label unendorsed` per workspace on every thirty-second poll, where
            the inbox's counts are free by-products of a sweep the poller already makes.
-           The chip's count is free in exactly that way — a held bead is already in the
+           The count is free in exactly that way — a held bead is already in the
            agent sweep, and all that was added was a label test on a row in hand.
 
            The page itself is still there and still reachable: the `N held for endorsement`
@@ -105,14 +106,23 @@
   </header>
 
   <!--
-    The inbox's own filter, and all of it: which slice of the tracker, and which kinds
-    of incoming thing. Built by public/inboxfilter.js — one line at rest saying what is
-    selected, the full set of chips on hover with a pointer and on a tap without one.
+    The inbox's own filter, in two halves that share one row.
+
+    In front: the **scope** — Human, Both, Agent — as a segmented switch on the chrome
+    (public/filterpills.js, bc-khoe.24). It decides which sweep runs, so it decides what
+    Home is able to contain at all, and it is the one control here that must never be
+    behind anything.
+
+    Behind it: what is left of the collapsed panel — which bead, and which rung within
+    the pill you are on. Built by public/inboxfilter.js: one line at rest saying what is
+    selected, the chips on hover with a pointer and on a tap without one.
 
     It held three permanent rows once, coarsest first: the scope, then the space, then
-    the workspace. The bottom two are the space picker in the top bar now; the top one
-    is inside the panel with the kinds, because two rows of chips above the list is two
-    questions you cannot see on a phone.
+    the workspace. The bottom two are the space picker in the top bar now. The **kinds**
+    were in here too, as ten chips, and bc-khoe.2 promoted them out to the pill row above
+    — ten categories of incoming thing is a navigation rather than a filter, and a
+    navigation you have to open something to see is one nobody uses. bc-khoe.26 is what
+    takes the rest of the panel apart the same way.
   -->
   <nav class="filters" id="filters" hidden></nav>
 
@@ -246,10 +256,18 @@
        inboxfilter.js, which mounts it rather than drawing one: without this file the
        inbox has no control on it at all. -->
   <script src="/filtermenu.js"></script>
-  <!-- The inbox's filter: the scope and a chip per kind of incoming thing, behind one
-       collapsed line. Before app.js, because app.js hands it the scope group and asks
-       it whether each row is in view as it renders — and a page that drops it falls
-       back to the unfiltered list rather than to no list. -->
+  <!-- The other half of that pair: the filters that are *not* behind a collapsed line,
+       drawn flat in the same row (bc-khoe.24). The scope switch is the one tenant today
+       and bc-khoe.26 moves the rest out here beside it. Before app.js, which hands it
+       the scope group as it boots; a page that drops this file keeps the panel and loses
+       the switch rather than losing the filter. -->
+  <script src="/filterpills.js"></script>
+  <!-- The kinds table, and the scope and sub-filters behind one collapsed line. Before
+       app.js, because app.js hands it the scope group and asks it whether each row is in
+       view as it renders — and a page that drops it falls back to the unfiltered list
+       rather than to no list. **After viewbar.js**, which draws the pill row the kinds
+       are now: this file pushes the lit pill at that one through
+       `window.beadcause.views.mark`, at load, so the row has to exist by then. -->
   <script src="/inboxfilter.js"></script>
   <!-- The answer collapsing into beads and the beads going into the mark. Before
        app.js because submit() reaches for it on the tap; it registers itself on

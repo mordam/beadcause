@@ -1,101 +1,92 @@
 /*
-  The inbox's own filter — one line at rest, the whole set when you reach for it.
+  What Home is carrying, and which of it you are looking at.
 
-  ## What was wrong with three rows of chips
+  ## Six pills at the top, and what they cost to get there
 
-  `#filters` used to be three permanent rows: which slice of the tracker, then which
-  space, then which workspace. The bottom two are the space picker in the top bar now
-  (public/spacebar.js), which left one row — and the moment the inbox needs a filter
-  per *kind* of incoming thing, the row is two rows again and we are back where we
-  started. A phone screen is about fifteen rows tall. Spending two of them, always, on
-  an answer that changes twice a week is two questions you cannot see.
+  This file used to be a filter panel with ten chips under a `Kinds` legend, behind a
+  collapsed line you had to reach for. Every one of those ten was a *category of thing
+  arriving* — a question, a proposal, a merge, a pull request, a ticket, a bead held for
+  endorsement, and live beads in three states — which is a navigation, not a filter, and
+  the collapse meant it was a navigation nobody could see. bc-khoe.2 promoted them out
+  and amalgamated ten into six. They are the pill row across the top of every page now
+  (public/viewbar.js); the argument for the row itself is in that file's header.
 
-  So the control collapses. At rest it is a single line saying what is selected —
-  `Human · All kinds` — and it opens on hover with a pointer, on a tap without one.
-  The panel is *absolutely positioned*, so opening it draws over the list rather than
-  pushing it down: the cards under the pointer do not move as you reach for the chips,
-  and `paintScrollPos` (which measures `#filters` to decide which card you are reading)
-  measures the same one line whether the panel is open or shut.
-
-  ## The panel is not in this file any more
-
-  It was, and every word above still describes it — the collapsing, the hover, the tap
-  that pins it, the grace period on a diagonal exit. All of that moved to
-  public/filtermenu.js when the History tab needed the same control over a different
-  vocabulary, and the argument for the split is in that file's header. What is left here
-  is the inbox's half: which *kinds* of thing the inbox carries, which of them the
-  current scope can produce, how many of each are in view, and what survives the filter.
+  The remaining panel — `#filters`, one line at rest, opening on hover with a pointer
+  and on a tap without one — is still here, and everything below about it still holds.
+  It is `public/filtermenu.js` that draws it, shared with the History page's own; what
+  is left in it is the bead search and the two sub-filters, which narrow *within* the
+  pill you are on rather than choosing between pills. The scope went out onto the row in
+  front of it (bc-khoe.24, public/filterpills.js) for the same reason the kinds did, only
+  harder: it decides which sweep runs, so a scope nobody can see is a screen that is
+  empty for a reason that is off screen.
 
   The seam is `mount()` at the foot: this file hands filtermenu.js a list of groups and
   is asked, on every paint, what each one looks like right now. Nothing about the inbox
-  crosses it — `Merges`, `unmerged`, `agent-filed` are words filtermenu.js has never
-  heard — and nothing about the panel is decided here.
+  crosses it — `unmerged`, `agent-filed` are words filtermenu.js has never heard — and
+  nothing about the panel is decided here.
 
   ## The kinds
 
-  The inbox is not one list. An advocate asking to create beads, a worker asking you
-  to merge a pull request, a plain question, and — under `Both` and `Agent` — the live
-  beads nobody is asking you about at all, are four different jobs that happen to
-  arrive at the same address. `KINDS` is the table that names them, and it is
-  deliberately the only place that knows: bc-l8jp.5 (chat sessions in the inbox) and
-  bc-l8jp.6 (pull requests as cards) each add one row to it and get a filter, a chip,
-  a count and a place in the summary line for free. Both of them have landed — `pr` and
-  `session` below — and between them they cost two rows plus two words, `!q.pr` and
-  `!q.session`, in the predicate they would otherwise have fallen into. That is the
-  table paying for itself: two features that each removed a tab, and neither of them
-  had to touch the chips, the counts or the summary line to get a category of its own.
+  Home is not one list. An advocate asking to create beads, a worker asking you to merge
+  a pull request, a plain question, and — under `Both` and `Agent` — the live beads
+  nobody is asking you about at all, are different jobs that happen to arrive at the
+  same address. `KINDS` is the table that names them, and it is deliberately the only
+  place that knows: bc-l8jp.5 (chat sessions in the inbox), bc-l8jp.6 (pull requests as
+  cards), bc-0i27.3 (JIRA tickets) and bc-w156 (beads held for endorsement) were each
+  one row here, and each got a filter, a count and a place in the summary line for free.
 
-  `jira` is the third to take that deal (bc-0i27.3), and the first that was never a tab:
-  the tickets assigned to you arrive off JIRA rather than off a `bd` sweep, and one row
-  here is the whole of what makes them a section — a chip, a count, a word in the summary
-  line, and the space picker and the epic board narrowing them exactly as they narrow
-  everything else. Its price was the same one word, `!q.jira`, in the predicate below.
-
-  `endorsement` is the fourth, and the first that took the deal with **no new fetch at
-  all** (bc-w156). A bead held for endorsement was already in this list — the agent sweep
-  returns one like any other open bead, and it drew as one more `unclaimed` — so the whole
-  of the change was a row here, a `held` flag on the row, and `!q.held` in the three
-  predicates it is being taken out of. That is why it could be done at the same time as
-  *deleting* a door: the 🗳️ in the chrome was a fifth destination for a list this table
-  could already have been carrying, and what replaced it is nothing.
+  Three of those four are folded into a neighbour now, and folding them cost the table
+  nothing it did not already have — the predicates moved, the rows went, and the rest of
+  the app went on asking `kindOf` and `matches` the same two questions. That is the same
+  property that made adding them cheap, running the other way, and it is the reason the
+  amalgamation is edits to these rows rather than a second table somewhere: the moment
+  two files know what a Question is, one of them is wrong and nothing says which.
 
   Each kind carries a `side`, because a scope that never fetched a row cannot show a
-  chip for it: `human` sweeps questions, `agent` sweeps live beads, `both` does both,
-  and a chip for something the current scope cannot contain is a control that does
+  pill for it: `human` sweeps questions, `agent` sweeps live beads, `both` does both,
+  and a pill for something the current scope cannot contain is a control that does
   nothing. `usable()` is what applies that, and `set()` drops selections the new scope
-  cannot produce — otherwise switching to `Agent` with `Merges` selected is an empty
+  cannot produce — otherwise switching to `Human` with `All Beads` selected is an empty
   screen with nothing on it to say why. `any` is the third value and it means what it
-  says: a pull request comes off `gh`, a chat session off no sweep at all, and a JIRA
-  ticket off JIRA, so for none of the three is there a scope that could have failed to
-  fetch it, and none of them has a scope in which its chip would be dead.
+  says: a pull request comes off `gh`, a chat session off no sweep at all, and Questions
+  can be produced by either sweep, so for none of them is there a scope that could have
+  failed to fetch one, and none of them has a scope in which its pill would be dead.
 
-  ## The one sub-filter
+  ## The two sub-filters
 
   A kind may carry a `sub`: a second group of chips that appears in the panel *only when
-  that kind is selected*, and narrows within it. Pull requests have the only one, and it
-  is the reason the mechanism exists — five of them are open right now and thirty have
-  merged in the last three weeks, so a PR chip with no second axis would be a list of
-  history with this morning's decisions somewhere inside it.
+  that kind's pill is selected*, and narrows within it. There are two, and the pair of
+  them is why the mechanism is worth having rather than being a special case for one
+  screen.
 
-  Two rules make it safe:
+  **PR status** came first and is the one with teeth. Five pull requests are open right
+  now and thirty have merged in the last three weeks, so a PRs pill with no second axis
+  would be a list of history with this morning's decisions somewhere inside it. Two
+  rules make it safe:
 
-  - **Its default is not "everything".** With no status chosen the inbox shows only what
+  - **Its default is not "everything".** With no status chosen the list shows only what
     has *not merged* — `review`. A merged pull request is history, and history should be
-    asked for. Which is a filter you did not set, so the summary line says `unmerged`
-    where the other groups say `All`, and there is no state in which the control claims
-    to be showing you everything while showing you one rung.
-  - **It applies whether or not its parent chip is pressed.** The default above is about
-    what the inbox *is*, not about what you last tapped, so it holds under `All kinds`
-    too. The panel only stops offering you the choice.
+    asked for. Which is a filter you did not set, so the summary line says `unmerged`,
+    and there is no state in which the control claims to be showing you everything while
+    showing you one rung.
+  - **It applies whether or not its pill is selected.** The default above is about what
+    Home *is*, not about what you last tapped. The panel only stops offering the choice.
+
+  **Bead status** is the second (bc-khoe.2) and it is deliberately the other way round:
+  `claimed`, `blocked` and `unclaimed` were three pills' worth of one thing in three
+  states, and none of the three is history. So it has no `fallback` — nothing chosen
+  means every rung — and the summary line says nothing about it until you choose one,
+  because a line reporting a filter that is not filtering is noise around the one that
+  is. `inSub` and `subSaid` are where those two behaviours part.
 
   ## What this does *not* touch
 
   **A kind filter does not change what rings your phone.** The space picker's does —
   it is stored on the server and the push path reads it (see `quietReasonFor`) — and
   this deliberately is not: it lives in localStorage, on this device, because "I am
-  reading merges this hour" is not "do not tell me about questions". The accepted
-  consequence is that a hidden kind can still notify you, and the summary line saying
-  `Human · Merges` is the standing reminder that the list is narrowed.
+  reading pull requests this hour" is not "do not tell me about questions". The accepted
+  consequence is that a hidden kind can still notify you, and the lit pill saying `PRs`
+  over a list with no questions in it is the standing reminder that it is narrowed.
 */
 (() => {
   'use strict';
@@ -105,58 +96,109 @@
   const SUB_KEY = 'beadcause.prstatus';
 
   /**
-   * The kinds of thing the inbox carries, in the order their chips are drawn.
+   * Is this row a pull request, for the pill that carries both halves of one?
    *
-   * `test` is exhaustive and mutually exclusive by construction — every row the list
-   * can hold answers to exactly one of these — so `kindOf` never returns null for a
-   * row the app drew, and a new kind added here cannot silently steal rows from an
-   * old one. `side` is which scope fetches it; see `usable`.
+   * A delivery bead that is *also* a proposal is not, and that exclusion is the one
+   * piece of precedence in this file. Nothing writes such a row today; if anything ever
+   * did, it is an advocate asking to create beads before it is a branch waiting on a
+   * merge, and Questions is where a thing asking you something belongs. Stated here
+   * rather than in two predicates so the two cannot disagree.
+   */
+  const isPr = (q) => Boolean(q.pr) || (!q.proposal && Boolean(q.delivery));
+
+  /**
+   * The kinds of thing Home carries, in the order their pills are drawn.
+   *
+   * ## Six rows, and two of them are not slices of the list
+   *
+   * A kind with a `test` is a **slice**: a predicate over the rows the inbox holds. The
+   * four of those partition it — every row the list can hold answers to exactly one, so
+   * `kindOf` never returns null for a row the app drew and a new kind cannot silently
+   * steal rows from an old one. That is the property test/inboxkinds.mjs asserts, in
+   * both directions, and it is the reason the exclusions below are spelled out in the
+   * predicates rather than left to the order of the rows.
+   *
+   * A kind here carries what a kind *is* — its id, its label, its note, its icon and
+   * which scope can fetch it — and deliberately not **where its pill goes**. That is
+   * public/viewbar.js's, because it is a fact about the row rather than about the kind,
+   * and a URL written down in both files is the drift this table exists to prevent. What
+   * the two do share is the identity half, and test/inboxkinds.mjs holds them to it.
+   *
+   * A kind with no `test` is a **place**. `My Epics` is Home with nothing narrowed —
+   * the P0 board and the work under it, which is a card (bc-rfnr.9) and not a category
+   * of row — and `History` is a different page altogether. Neither is a filter, so
+   * neither can be selected: `set()` drops them, exactly as it drops an id the table
+   * has never heard of. They are in this table anyway, because the pill row is one row
+   * of six and a reader asking "what are the six" must not have to find two of them
+   * somewhere else. public/viewbar.js draws the row from a list of its own — it is on
+   * twelve pages and this file is on one — and test/inboxkinds.mjs is what holds the
+   * two lists to the same six ids, labels and hrefs.
+   *
+   * ## What the amalgamation cost, and what it bought
+   *
+   * There were ten of these and they were chips inside a collapsed panel (bc-khoe.2).
+   * Ten categories behind a line you have to open is a navigation nobody can see, and
+   * six is what fits across a phone as pills you can. Four rows went into two:
+   *
+   * - **Questions** absorbs `proposal`, `jira` and `endorsement`. All four are the same
+   *   job — something waiting on a word from you — and having them apart meant three
+   *   chips you had to know to check. `endorsement` is the one that changes `side`
+   *   here: a held bead is only ever returned by the *agent* sweep (`agentBeads` in
+   *   lib/server.js) while a question comes off the human one, so the amalgamated kind
+   *   is reachable under either scope and is therefore `any` rather than `question`.
+   * - **PRs** absorbs `delivery`. A worker's finished branch waiting on a merge and the
+   *   pull request that branch opened are one thing arriving twice; bc-khoe.2 folds what
+   *   the Merges card said into the PR card rather than keeping a pill for each.
+   * - **All Beads** absorbs `claimed`, `blocked` and `unclaimed`, which were never three
+   *   kinds of thing — they are one kind of thing in three states. They are a sub-filter
+   *   now, the way PR status already was, and the difference between the two is worth
+   *   knowing: PR status narrows by default (`unmerged`), bead status does not.
+   *
+   * `side` is which scope fetches it; see `usable`.
    */
   const KINDS = [
     {
+      id: 'epics',
+      // A place, not a slice. Home with nothing narrowed *is* the board, so this pill
+      // has no predicate and no selection: it is where you land, and every other pill
+      // on this page is a narrowing of it.
+      side: 'any',
+      icon: '🎯',
+      label: 'My Epics',
+      note: 'The P0 board — the epics you own, and the work under them.',
+    },
+    {
       id: 'question',
-      side: 'question',
+      // `any`, and this is the one row where that word is doing something other than
+      // describing a fetch that no scope owns. A plain question comes off the human
+      // sweep and a held bead off the agent one, so *both* scopes can produce a row of
+      // this kind and neither can be said to be the one that fetches it. A chip that is
+      // dead under one of them is what `side` exists to prevent, and this kind is dead
+      // under neither.
+      side: 'any',
+      icon: '❓',
       label: 'Questions',
-      note: 'Beads asking you something in words — the app’s original inbox.',
-      // `!q.pr`, `!q.session` and `!q.jira` for the same reason `!q.proposal` is spelled
-      // out under Merges: none of a pull request, a chat session or a JIRA ticket is a
-      // bead, and none of them answers any of the other tests, so without these three
-      // they would land here — the one kind whose predicate is "none of the above" and
-      // therefore the one that silently absorbs anything new. Nothing else in the
-      // codebase would catch a ticket drawn as a question — it looks exactly like an
-      // inbox with more questions in it — so `!q.jira` here is the whole of the guard,
-      // and test/jirarow.mjs reads this line rather than the comment above it.
-      test: (q) => !q.agent && !q.proposal && !q.delivery && !q.pr && !q.session && !q.jira,
-    },
-    {
-      id: 'proposal',
-      side: 'question',
-      label: 'Proposals',
-      note: 'An advocate asking to create beads. Approve or decline them one at a time.',
-      test: (q) => !q.agent && Boolean(q.proposal),
-    },
-    {
-      id: 'delivery',
-      side: 'question',
-      label: 'Merges',
-      note: 'A worker’s finished branch, waiting on a merge or a request for changes.',
-      // `!q.proposal` is not defensive padding: nothing writes a bead that is both, but
-      // if anything ever did, two chips claiming it would double it in the counts and
-      // show it under a filter that is not about it. Exclusivity is the property the
-      // table is asserted on (test/inboxkinds.mjs), so it is stated here rather than
-      // left to the order of the rows.
-      test: (q) => !q.agent && !q.proposal && Boolean(q.delivery),
+      note: 'Everything waiting on a word from you — questions, proposals, tickets, and beads held for endorsement.',
+      // Still the "none of the above" predicate, and still the one that would silently
+      // absorb anything new — which is why the two exclusions are by name rather than
+      // implied by where the row sits. `!q.session` because a chat session is not a
+      // question and answering it is a different gesture; `!isPr` because a pull
+      // request is the pill next door. The agent clause is the endorsement half: an
+      // agent-side row belongs here only while it is *held*, because a held bead is a
+      // decision waiting on you and every other agent row is a report about work.
+      test: (q) => !q.session && !isPr(q) && (q.agent ? Boolean(q.held) : true),
     },
     {
       id: 'pr',
-      // On neither side: a pull request comes off `gh`, not off a `bd` sweep, so no
-      // scope fetches it and no scope can fail to. It is here under `Human` because a
-      // pull request in review is a thing waiting on you, and under `Agent` because it
-      // is not a bead the sweep could have missed.
+      // On neither side in the original sense of the word: a pull request comes off
+      // `gh`, not off a `bd` sweep, so no scope fetches it and no scope can fail to.
+      // The delivery beads it now also carries do come off the human sweep, which does
+      // not narrow it — a scope that can produce *either* half can produce the kind.
       side: 'any',
+      icon: '🚢',
       label: 'PRs',
-      note: 'Pull requests, and how far each one got. Unmerged unless you ask for more.',
-      test: (q) => Boolean(q.pr),
+      note: 'Pull requests, and the finished branches waiting on a merge. Unmerged unless you ask for more.',
+      test: (q) => !q.session && isPr(q),
       // The status sub-filter. `options` are read through public/prcard.js, which mirrors
       // the ladder in lib/prstage.js, so the chips cannot name a rung the daemon does not
       // put on a row. `closed` is deliberately not among them: a pull request closed
@@ -174,90 +216,81 @@
           (window.beadcause?.prCard?.STAGES || [])
             .filter((s) => s.id !== 'closed')
             .map((s) => ({ id: s.id, label: s.label, note: s.note })),
-        of: (q) => q?.pr?.stage || '',
+        // A delivery bead has no rung of its own — it is the branch, not the pull
+        // request — so it answers `review`, the one rung that means "not merged yet".
+        // Which is also what puts it in the list under the default: the whole argument
+        // for folding Merges into PRs is that the two are the same thing arriving
+        // twice, and a fold that hid one of them by default would not be one.
+        of: (q) => q?.pr?.stage || (q?.delivery ? 'review' : ''),
       },
     },
     {
       id: 'session',
-      // The second kind on neither side, and between them the reason `side` has a third
-      // value at all: a chat session is not in the tracker, so no scope fetches it and
-      // no scope can fail to. It is here under `Human` because it is a thing waiting on
-      // you, and under `Agent` because it is not a bead the sweep could have missed —
-      // it is simply always true, which is what `any` says. Next to `pr` because the two
-      // are the same shape of row: something outside `bd` that the inbox nonetheless
-      // holds, and the pair of them are what emptied two tabs off the bar.
+      // A chat session is not in the tracker, so no scope fetches it and no scope can
+      // fail to — which is what `any` says. Next to `pr` because the two are the same
+      // shape of row: something outside `bd` that Home nonetheless holds.
       side: 'any',
+      icon: '💬',
       label: 'Chats',
       note: 'Conversations you have open about what to file next. Tap one to pick it up.',
       test: (q) => Boolean(q.session),
     },
     {
-      id: 'jira',
-      // The third on neither side, and the clearest case for the value: a JIRA ticket
-      // comes off JIRA, so there is no `bd` scope that could have failed to fetch one
-      // and therefore no scope in which this chip would be dead. Under `Human` because
-      // an assigned ticket is a thing waiting on you; under `Agent` because it is not a
-      // bead the sweep could have missed — it is not a bead at all yet, which is the
-      // whole of what bc-0i27.4 exists to change.
+      id: 'history',
+      // The second place. /history is a page with its own filter bar and its own poll,
+      // and it was a tab before it was a pill — nothing about it moves here except that
+      // the row it is on is the same row as the five above and below it.
       side: 'any',
-      label: 'JIRA',
-      note: 'Tickets assigned to you in JIRA, before anything here has made them work.',
-      test: (q) => Boolean(q.jira),
+      icon: '📜',
+      label: 'History',
+      note: 'What already happened — the ledger of answered questions, merges and deploys.',
     },
     {
-      id: 'endorsement',
-      // On the agent side, and that is a fact about where the rows come from rather than
-      // about what they are. A bead held for endorsement is a decision waiting on you —
-      // by every other measure it belongs under `Human` — but the only sweep that returns
-      // one is the agent sweep (`agentBeads` in lib/server.js), because the marker is a
-      // label and the human sweep queries a different one. Putting the chip under `Human`
-      // would be a control with nothing behind it until something pays for a second query
-      // per workspace per poll, which is the bill the chrome refused (bc-w156.4).
+      id: 'bead',
+      // The one kind still tied to a scope, and it is the agent sweep that fetches it.
+      // A chip for it under `Human` would be a control with nothing behind it until
+      // something pays for a second query per workspace per poll, which is the bill the
+      // chrome refused (bc-w156.4).
       side: 'agent',
-      label: 'Endorsements',
-      note: 'Beads an agent filed that nothing may work until you say so. Tap through to decide.',
-      // First among the agent kinds because it is the only one of the four that is
-      // waiting on *you*: claimed, blocked and unclaimed are all reports about work, and
-      // this is a question. It also has to be first in effect as well as in order — the
-      // three below say `!q.held` rather than relying on being tested later, for the
-      // reason `!q.proposal` is spelled out under Merges: exclusivity is the property
-      // this table is asserted on (test/inboxkinds.mjs), not an accident of the ordering.
-      //
-      // `q.held` is `awaitingEndorsement` computed server-side, so a ship bead — which
-      // carries the same marker and is waiting on a deploy rather than on a judgement —
-      // is not one of these. That rule lives in lib/endorsequeue.js and is deliberately
-      // not restated here; two copies of it is what the incident behind lib/shipbead.js
-      // was made of.
-      test: (q) => Boolean(q.agent) && Boolean(q.held),
-    },
-    {
-      id: 'claimed',
-      side: 'agent',
-      label: 'Claimed',
-      note: 'Work an agent has in hand right now. Nothing here is asking you anything.',
-      test: (q) => Boolean(q.agent) && !q.held && q.status === 'in_progress',
-    },
-    {
-      id: 'blocked',
-      side: 'agent',
-      label: 'Blocked',
-      note: 'Live beads waiting on something else — the work that is stuck.',
-      test: (q) => Boolean(q.agent) && !q.held && q.status === 'blocked',
-    },
-    {
-      id: 'unclaimed',
-      side: 'agent',
-      label: 'Unclaimed',
-      note: 'Open beads nobody has picked up.',
-      test: (q) =>
-        Boolean(q.agent) && !q.held && q.status !== 'in_progress' && q.status !== 'blocked',
+      icon: '🧿',
+      label: 'All Beads',
+      note: 'Every live bead nobody is asking you about — claimed, blocked or waiting to be picked up.',
+      // `!q.held` is the endorsement half of Questions stated from the other side. It is
+      // here rather than left to the order of the rows for the reason every exclusion in
+      // this table is: exclusivity is the property the table is asserted on, and a
+      // partition that only holds while nobody reorders it is not one.
+      test: (q) => Boolean(q.agent) && !q.held && !q.session && !isPr(q),
+      // Where `claimed`, `blocked` and `unclaimed` went. Three kinds became three rungs
+      // of one, and the difference from the PR ladder above is the whole reason `inSub`
+      // has two behaviours: **this group's default is everything**. A bead's status is
+      // not a claim about whether it is finished with — nothing here is history the way
+      // a merged pull request is — so there is no rung it would be honest to hide.
+      sub: {
+        id: 'beadstatus',
+        legend: 'Bead status',
+        multi: true,
+        /** No `fallback`, which is what makes "nothing chosen" mean every rung. */
+        all: 'any status',
+        options: () => [
+          { id: 'claimed', label: 'Claimed', note: 'Work an agent has in hand right now.' },
+          { id: 'blocked', label: 'Blocked', note: 'Live beads waiting on something else.' },
+          { id: 'unclaimed', label: 'Unclaimed', note: 'Open beads nobody has picked up.' },
+        ],
+        // The same three-way split the three predicates made, in one place. Anything bd
+        // grows a name for tomorrow lands on `unclaimed`, exactly as it did before —
+        // a row no chip can show is a row `All` cannot show either.
+        of: (q) => (q?.status === 'in_progress' ? 'claimed' : q?.status === 'blocked' ? 'blocked' : 'unclaimed'),
+      },
     },
   ];
 
   const BY_ID = new Map(KINDS.map((k) => [k.id, k]));
 
+  /** The four that are slices of the list. The other two are places — see KINDS. */
+  const SLICES = KINDS.filter((k) => typeof k.test === 'function');
+
   /** Which kind a row is. Never null for a row the inbox drew — see KINDS. */
-  const kindOf = (q) => KINDS.find((k) => k.test(q))?.id || null;
+  const kindOf = (q) => SLICES.find((k) => k.test(q))?.id || null;
 
   const state = {
     /** Selected kind ids. **Empty means all** — never "none", which would be a list
@@ -290,16 +323,24 @@
   /**
    * Does this row survive its own kind's sub-filter? True for a kind that has none.
    *
-   * The fallback is the point: with nothing chosen a pull request has to be on the
-   * `review` rung to be in the list, because a merged one is history. Every other kind
-   * has no `sub` and answers true here without a decision being made about it.
+   * `fallback` is what a group means with nothing chosen, and the two groups in the
+   * table mean opposite things by it. PR status **has** one — with nothing chosen a
+   * pull request has to be on the `review` rung to be in the list, because a merged one
+   * is history and history should be asked for. Bead status has **none**, and that is
+   * the deliberate other half rather than an omission: an agent's bead is live whether
+   * it is claimed, blocked or waiting, so there is no rung it would be honest to hide
+   * from somebody who asked for all of them. A group with no `fallback` therefore
+   * answers true for every value, which is "all of them" and not "none of them" — the
+   * distinction is worth stating because getting it backwards is a screen that is empty
+   * for a reason nothing on it explains.
    */
   function inSub(q) {
     const sub = subOf(kindOf(q));
     if (!sub) return true;
     const chosen = chosenSub(subKindOf(sub));
     const value = sub.of(q);
-    return chosen.size ? chosen.has(value) : (sub.fallback || []).includes(value);
+    if (chosen.size) return chosen.has(value);
+    return sub.fallback ? sub.fallback.includes(value) : true;
   }
 
   /** Which kind owns this sub descriptor. One each, and the table is small. */
@@ -382,13 +423,18 @@
 
   /**
    * Narrow to these kinds. Unknown ids are dropped, and so are kinds the current scope
-   * cannot produce: `Agent` with `Merges` held over from `Human` is an empty list whose
-   * cause is off screen, and the only thing worse than a filter you cannot see is one
-   * you cannot see selecting something that does not exist here.
+   * cannot produce: `Agent` with `All Beads` held over and then a switch to `Human` is
+   * an empty list whose cause is off screen, and the only thing worse than a filter you
+   * cannot see is one you cannot see selecting something that does not exist here.
+   *
+   * A **place** — `My Epics`, `History` — is dropped the same way and for a plainer
+   * reason: it has no predicate, so selecting it would hide every row in the list. The
+   * pill row treats `My Epics` as the empty selection this leaves behind, which is what
+   * it means: Home, with nothing narrowed.
    */
   function set(ids, { quiet = false } = {}) {
     const next = new Set(
-      (ids || []).filter((id) => BY_ID.has(id) && state.usable.includes(id))
+      (ids || []).filter((id) => BY_ID.get(id)?.test && state.usable.includes(id))
     );
     const same = next.size === state.on.size && [...next].every((id) => state.on.has(id));
     state.on = next;
@@ -398,7 +444,32 @@
     return same;
   }
 
-  const toggle = (id) => set(state.on.has(id) ? [...state.on].filter((x) => x !== id) : [...state.on, id]);
+  /**
+   * Which pill is lit, as an id from the table. Never null.
+   *
+   * The empty selection is `epics`, and that is the whole of what My Epics means — Home
+   * with nothing narrowed. It is a function rather than a stored value because the
+   * selection can be changed by things that are not a pill tap (`revealPr` widens it to
+   * show a card you arrived at from a notification, and `survey` drops a kind the new
+   * scope cannot produce), and a row painted from a second copy of the answer would go
+   * stale on exactly those paths.
+   *
+   * More than one selected is possible — nothing in the row can produce it, but
+   * `revealPr` can — and the first in table order wins, because a row of pills has to
+   * light exactly one and lighting the leftmost is the only answer that does not depend
+   * on the order the selections arrived in.
+   */
+  const current = () => SLICES.find((k) => state.on.has(k.id))?.id || 'epics';
+
+  /**
+   * Tap a pill. Exclusive, unlike the chips it replaced.
+   *
+   * The chips were a multi-select because they were a filter panel; a row of pills is a
+   * navigation, and a navigation with two destinations lit is not one. `epics` — and
+   * any other place, and any id the table does not know — clears the selection, which
+   * is what "Home with nothing narrowed" is.
+   */
+  const pick = (id) => set(BY_ID.get(id)?.test ? [id] : []);
 
   /**
    * Narrow one kind's sub-filter. Empty is the kind's own default, not "everything".
@@ -463,28 +534,24 @@
     two screens.
   */
 
-  /** Extra chip groups the page puts in the same panel, above the kinds. */
+  /** Extra chip groups the page puts in the same panel. */
   let pageGroups = [];
 
   /** The chrome, once mounted. `null` until then — see `paint`. */
   let chrome = null;
 
-  /** The kinds group, built here so the page never has to know the table. */
-  const kindGroup = () => ({
-    id: 'kind',
-    legend: 'Kinds',
-    multi: true,
-    all: 'All kinds',
-    options: () =>
-      KINDS.filter((k) => state.usable.includes(k.id)).map((k) => ({
-        id: k.id,
-        label: k.label,
-        note: k.note,
-        count: state.counts[k.id] || 0,
-        on: state.on.has(k.id),
-      })),
-    pick: (id) => toggle(id),
-  });
+  /*
+    **There is no kinds group in the panel any more** (bc-khoe.2). There was — ten chips
+    under a `Kinds` legend — and the whole of this bead is that ten categories behind a
+    line you have to open is a navigation nobody can see. They are the pill row now
+    (public/viewbar.js), which is on screen without being reached for.
+
+    What is left in the panel is what a pill cannot be: the bead search, which wants a
+    dropdown under it, and the two sub-filters below, which narrow *within* the pill you
+    are on rather than choosing between them. The scope was here too until bc-khoe.24 and
+    is a segmented switch in front of this panel now (public/filterpills.js). bc-khoe.26
+    is what takes the rest of it apart the same way.
+  */
 
   /**
    * The sub-filter groups, as the same shape as every other group.
@@ -517,7 +584,7 @@
       return g;
     });
 
-  const allGroups = () => [...pageGroups, kindGroup(), ...subGroups()];
+  const allGroups = () => [...pageGroups, ...subGroups()];
 
   /** Are this sub group's chips on screen? Only while its kind is selected. */
   const subOpen = (g) => state.on.has(g.parent);
@@ -526,30 +593,41 @@
    * Does the summary line mention this sub group?
    *
    * Wider than "are its chips showing", deliberately. A status chosen while `PRs` was
-   * selected goes on narrowing the list after you widen back to `All kinds`, and a
+   * selected goes on narrowing the list after you widen back to `My Epics`, and a
    * narrowing nothing on screen admits to is the one thing this control must never do.
-   * It is also mentioned while its kind is merely *visible* and has rows — that is the
-   * standing `unmerged` default, which is equally a narrowing you did not set. And on a
-   * screen with no pull requests in it at all, it says nothing, because there is nothing
-   * for it to be about.
+   *
+   * The third clause is the standing default, and it is why the group has to have one to
+   * qualify: PR status narrows with nothing chosen, so the line says `unmerged` over a
+   * screen with pull requests on it whether or not you touched the chips. Bead status
+   * narrows nothing with nothing chosen, so saying `any status` there would be the line
+   * reporting a filter that is not filtering — noise around the one that is.
    */
-  const subSaid = (g) => subOpen(g) || chosenSub(g.parent).size > 0 || (state.counts[g.parent] || 0) > 0;
+  const subSaid = (g) =>
+    subOpen(g) ||
+    chosenSub(g.parent).size > 0 ||
+    (Boolean(subOf(g.parent)?.fallback) && (state.counts[g.parent] || 0) > 0);
 
   /** Chips and summary, never structure. Safe to call from a render loop, and a no-op
    *  before the control is drawn — `set()` runs at load, which is earlier than that. */
   function paint() {
     if (chrome) chrome.paint();
+    // And the row, which is the kinds' half of the chrome now. Pushed rather than
+    // pulled: viewbar.js is loaded on twelve pages and this file on one, so the row
+    // cannot ask which kind is selected — it would have to know the storage key, which
+    // is the second place that knows this bead exists to remove. A no-op everywhere but
+    // Home, where `mark` is what moves the lit pill.
+    window.beadcause?.views?.mark?.(current());
   }
 
   /**
    * Draw the control inside `host`, once.
    *
-   * `groups` are the page's own — the inbox puts the scope switch here, because a
-   * scope is a filter too and two collapsing controls side by side would be the three
-   * rows again with extra steps. Each is
+   * `groups` are the page's own — the inbox puts its bead search here. Each is
    * `{ id, legend, all?, multi?, options(), pick() }` — or a text group, or a typeahead;
    * see public/filtermenu.js — and stays owned by the page: filtermenu.js paints them and
-   * routes the taps, and knows nothing about what they mean.
+   * routes the taps, and knows nothing about what they mean. It is the same descriptor
+   * public/filterpills.js takes, which is what let the scope move from this list to that
+   * row without being rewritten.
    *
    * `opts.narrowed` is the other half of that ownership. This file answers "are the kinds
    * narrowed"; a page with a group of its own that hides rows has to say so, or the
@@ -564,15 +642,23 @@
       groups: allGroups,
       closeOnPick: opts.closeOnPick,
       // What "this list is showing less than everything" means for the inbox. Not "some
-      // chip is pressed": the scope switch always has exactly one, and `Both` is not a
-      // narrowing.
+      // chip is pressed": the scope switch — on the row in front of this panel since
+      // bc-khoe.24 — always has exactly one, and `Both` is not a narrowing.
       //
       // `opts.narrowed` is the page's own half, for the same reason `opts.groups` is: a
       // group the page owns narrows the page's list, and this file cannot know whether it
       // has. The inbox's bead search is the one that does — a bead picked in it hides most
       // of the screen, and a summary line that did not go bold over it would be the
       // collapsed-filter risk this whole control was built against.
-      narrowed: () => state.on.size > 0 || subNarrowed() || Boolean(pageNarrowed()),
+      //
+      // **The selected kind is deliberately not part of this any more** (bc-khoe.2). It
+      // was, and had to be, while the kinds were chips inside the panel: a narrowing you
+      // could only see by opening something is the one this line exists to confess. They
+      // are a lit pill in the row above now, which is a stronger admission than a bold
+      // line and is on screen without being reached for — and a line that went bold for
+      // every pill but the leftmost would be bold nearly always, which is a signal that
+      // has stopped signalling.
+      narrowed: () => subNarrowed() || Boolean(pageNarrowed()),
     });
     return chrome ? chrome.root : null;
   }
@@ -583,8 +669,43 @@
      that only applies once the chrome exists is a list that shows everything for a
      frame and then takes half of it away. Last in the file, because `set` paints, and
      the nodes it paints are declared above. */
+  /**
+   * `?kind=…`, which is how a pill tapped on another page arrives here.
+   *
+   * It outranks what is on disk, and it has to: tapping `PRs` from /history is a request
+   * for the pull requests, and landing on Home showing whatever you last looked at
+   * instead would be the row's one job not working. `epics` — and any place — is the
+   * empty selection, so `My Epics` from another page arrives at an unnarrowed Home
+   * rather than at your last narrowing of it.
+   *
+   * An id the table does not know is `null` rather than `[]`, which is the difference
+   * between "no instruction" and "clear it": a stale link from a phone's home screen
+   * naming a kind that has since been folded into another should leave the selection
+   * alone, not silently widen it.
+   *
+   * Parsed by hand off `window.location`. `URLSearchParams` is a web API rather than a
+   * language one, and this file is driven in a vm by test/inboxkinds.mjs with a document
+   * small enough to read — adding a URL parser to that room to answer one question would
+   * be more fake than the thing under test.
+   */
+  const arrived = () => {
+    try {
+      const m = /[?&]kind=([^&]*)/.exec(window?.location?.search || '');
+      if (!m) return null;
+      const id = decodeURIComponent(m[1]);
+      if (!BY_ID.has(id)) return null;
+      return BY_ID.get(id).test ? [id] : [];
+    } catch {
+      // A stray `%` makes `decodeURIComponent` throw, and this runs at the top level of
+      // the file: an uncaught one here would mean no `window.beadcause.inboxFilter` at
+      // all, so the inbox would lose its whole filter control over a malformed query.
+      // Reading it as "no instruction" is the same answer an unknown kind gets.
+      return null;
+    }
+  };
+
   state.sub = loadSub();
-  set(load(), { quiet: true });
+  set(arrived() || load(), { quiet: true });
 
   window.beadcause = window.beadcause || {};
   window.beadcause.inboxFilter = {
@@ -595,6 +716,10 @@
     set,
     paint,
     mount,
+    /** Which pill is lit. `epics` — Home, nothing narrowed — when nothing is selected. */
+    current,
+    /** Tap a pill: exclusive, and a place clears the selection. */
+    pick,
     /** Selected kind ids — empty for "all of them". */
     selected: () => [...state.on],
     /** One kind's sub-filter selection — empty for that kind's own default. */

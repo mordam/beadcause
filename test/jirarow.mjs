@@ -159,26 +159,57 @@ function renderRow(row) {
   return context.out;
 }
 
-console.log('\na JIRA ticket is its own kind, not a question');
+console.log('\na JIRA ticket is a question, and it used to be a kind of its own');
 
-await check('the question predicate refuses a ticket, by name', () => {
-  // The `test:` line and not the block around it. That block *argues* for `!q.jira` in
-  // three lines of comment directly above the predicate, so a slice-and-grep is
-  // satisfied by the prose alone — which is exactly the shape of check that passes on
-  // the day somebody deletes the word it is guarding. Measured: dropping `!q.jira` from
-  // the predicate leaves this file matching `/!q\.jira/` five times.
-  const block = FILTER.slice(FILTER.indexOf("id: 'question'"), FILTER.indexOf("id: 'proposal'"));
-  const [line] = block.split('\n').filter((l) => l.trim().startsWith('test:'));
-  assert.ok(line, 'the question kind no longer has a predicate');
-  assert.match(line, /!q\.jira/, 'the "none of the above" predicate would absorb every ticket');
+/*
+  This pair inverted in bc-khoe.2 and it is worth saying why, because the checks read as
+  the opposite of what they were.
+
+  bc-0i27.3 gave tickets a row in `KINDS` and the hazard then was the *question*
+  predicate — the one whose test is "none of the above", which without `!q.jira` in it
+  would have absorbed every ticket into the plain-questions chip. Nothing else in the
+  codebase would have caught that; a ticket drawn as a question looks exactly like an
+  inbox with more questions in it.
+
+  Ten kinds became six and Questions is now deliberately the amalgamation of everything
+  waiting on a word from you — a question, a proposal, a ticket, a bead held for
+  endorsement. So a ticket landing there is the intended answer rather than the bug, and
+  `!q.jira` is gone from the predicate because there is no longer anything for it to
+  guard against. What is still worth a check is that a ticket lands on exactly one pill
+  and it is that one, which is a behaviour rather than a line of source — asserted
+  against the real table below, and again over every fixture in test/inboxkinds.mjs.
+*/
+
+/**
+ * The real table, in a room with nothing in it.
+ *
+ * A smaller room than test/inboxkinds.mjs needs: nothing here mounts the panel, so
+ * there is no document, no filtermenu.js and no prcard.js. The file's load-time
+ * restore reaches for a `localStorage` that is not there and its own try/catch reads
+ * that as "nothing stored", which is the state this wants anyway.
+ */
+const KINDS = (() => {
+  const window = { location: { search: '' } };
+  const ctx = vm.createContext({ window });
+  vm.runInContext(FILTER, ctx, { filename: 'inboxfilter.js' });
+  return Array.from(ctx.window.beadcause.inboxFilter.KINDS);
+})();
+
+/** A ticket as a row of the list, which is what `jiraRows` in public/app.js makes. */
+const TICKET_ROW = { key: 'jira:w/TECH-1204', workspace: 'w', jira: TICKET };
+
+await check('a ticket lands under Questions, and on nothing else', () => {
+  const hits = KINDS.filter((k) => k.test?.(TICKET_ROW)).map((k) => k.id);
+  assert.deepEqual(hits, ['question'], `a ticket matched ${hits.join(', ') || 'nothing'}`);
 });
 
-await check('and the table has a row of its own for it, on neither side', () => {
-  const row = FILTER.slice(FILTER.indexOf("id: 'jira'"), FILTER.indexOf("id: 'claimed'"));
-  assert.match(row, /side: 'any'/, "a ticket comes off JIRA — no `bd` scope could have missed it");
-  assert.match(row, /label: '[^']+'/, 'no chip label');
-  assert.match(row, /note: '[^']+'/, 'no note — the chip would have no accessible name');
-  assert.match(row, /test: \(q\) => Boolean\(q\.jira\)/, 'nothing tests for a ticket');
+await check('and the table no longer keeps a row of its own for it', () => {
+  // The fold, from the other side. A `jira` row left behind would be a pill for a kind
+  // no row can ever be — dead chrome that the partition check above would not notice,
+  // because a predicate nothing matches breaks no partition.
+  assert.equal(FILTER.indexOf("id: 'jira'"), -1, 'the retired JIRA kind is still in the table');
+  const bar = read('public/viewbar.js');
+  assert.equal(bar.indexOf("kind: 'jira'"), -1, 'the row still draws a JIRA pill');
 });
 
 console.log('\nand it is a row, not a bead');
@@ -214,8 +245,11 @@ await check('a row carries the space, or the picker makes it disappear', () => {
 
 await check('the monitor is not told a ticket is a question waiting on you', () => {
   // `publishView` is what the monitor draws as "N waiting", which is a claim about work
-  // asking you something. A ticket nobody has decided about yet is not one.
-  assert.match(APP, /publishView\(visible\.filter\(\(q\) => !q\.pr && !q\.session && !q\.jira\)\)/);
+  // asking you something. A ticket nobody has decided about yet is not one. Since
+  // bc-rfnr.9.7 the number is the list's beads *plus* the questions the board draws
+  // instead of the list — the exclusion this pins is the filter on the first half.
+  assert.match(APP, /const listBeads = visible\.filter\(\(q\) => !q\.pr && !q\.session && !q\.jira\)\.length/);
+  assert.match(APP, /publishView\(listBeads \+ \(beadPicked\(\) \? 0 : p0AsksN\(p0Cards\(\)\)\)\)/);
 });
 
 await check('and it is not sorted among the beads either', () => {
