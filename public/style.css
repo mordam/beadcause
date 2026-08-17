@@ -687,7 +687,16 @@ body {
 .accountmenu-switch .accountmenu-label { display: flex; flex-direction: column; gap: 2px; }
 .accountmenu-sub {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--muted); font: 500 12px/1.2 inherit;
+  color: var(--muted);
+  /* Longhands, not `font: 500 12px/1.2 inherit`. That shorthand is what the three rules
+     above and below this one are written as and it is **invalid** — `inherit` is not a
+     legal family inside the shorthand, so the whole declaration is dropped and the box
+     silently keeps the page's own font. It cost 7px of bar height here before it was
+     caught (`.spacepick-shown`, same mistake, measured at 40px against the 33px it says).
+     bc-khoe.15 is filed for the ones this bead did not own. */
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.2;
 }
 .accountmenu-row[hidden] { display: none; }
 /* The hoisted buttons keep their own glyph and lose the plate around it: inside a menu
