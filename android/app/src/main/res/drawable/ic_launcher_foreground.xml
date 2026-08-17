@@ -1,15 +1,18 @@
 <!--
-  "bdcoz", ported from public/icon.svg so the app icon and the PWA are the same thing.
+  "bdcz", ported from public/icon.svg so the app icon and the PWA are the same thing.
   Kept on the source's 512 viewport, with the same coordinates and the same 30-wide
   strokes, so the two can be diffed line for line rather than drifting apart.
 
   Two differences are forced by the format and the mask:
     - vector drawables have no <circle>, so each bowl is an arc pair;
-    - the launcher only guarantees the central 66dp of 108dp — a circle of radius 156
+    - the launcher only guarantees the central 66dp of 108dp — a circle of radius 156.4
       on this viewport, tighter than the 205 the PWA's "maskable" purpose asks for.
-      The farthest ink is the z's bottom-right corner, 194 out, so the group scales to
-      0.80 about the centre and lands at 155. There is no translate, unlike the strand
-      this replaces: the lockup is drawn centred on (256,256) to begin with.
+      Since the o came out, the farthest ink is no longer the z's bottom-right corner
+      but the ascenders: the stem tops of b and d, 141 out from the centre plus their
+      round caps, for 156.1. That clears 156.4 by a third of a unit, which is inside the
+      anti-aliased edge and not a margin at all, so the group scales 0.96 about the
+      centre and lands at 149.9. There is no translate: the lockup is drawn centred on
+      (256,256) to begin with.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -19,8 +22,8 @@
     <group
         android:pivotX="256"
         android:pivotY="256"
-        android:scaleX="0.80"
-        android:scaleY="0.80">
+        android:scaleX="0.96"
+        android:scaleY="0.96">
 
         <!-- bd: stem, bowl / bowl, stem — the two are mirrors of each other -->
         <path
@@ -42,18 +45,14 @@
             android:strokeWidth="30"
             android:strokeLineCap="round" />
 
-        <!-- coz. The c is the o with 110° taken out of its right side. -->
+        <!-- cz. The c is a bowl with 110° taken out of its right side. -->
         <path
-            android:pathData="M166.5,301.15 a34,34 0 1,0 0,55.7"
+            android:pathData="M224.5,301.15 a34,34 0 1,0 0,55.7"
             android:strokeColor="#5eead4"
             android:strokeWidth="30"
             android:strokeLineCap="round" />
         <path
-            android:pathData="M229,329 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0"
-            android:strokeColor="#5eead4"
-            android:strokeWidth="30" />
-        <path
-            android:pathData="M345,295 L399,295 L345,363 L399,363"
+            android:pathData="M287,295 L341,295 L287,363 L341,363"
             android:strokeColor="#5eead4"
             android:strokeWidth="30"
             android:strokeLineCap="round"

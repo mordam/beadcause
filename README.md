@@ -4808,6 +4808,38 @@ Four things that had to be got right, and each of them was a real failure first:
   in `bd show`'s dependencies and drawn above the description; the incoming copy is dropped
   from the list below rather than grouped, the same way children are.
 
+**And when a declared dependency lands on the same pair, the declared edge wins.** bd
+holds one row per *ordered* pair and refuses a second type on it, which turned the good
+habit into the bug: a proposal that says *why* it waits on `bc-x` names `bc-x`, the hook
+draws the see-also as the description is written, and the dependency the proposal actually
+declared is then refused for ever — `already exists with type "relates-to" (requested
+"blocks"); remove it first`. That is exactly the shape of proposal this app asks people to
+write. So the collision is settled by precedence rather than by ordering the two writes:
+a `relates-to` came from a word appearing in a paragraph and a `blocks` came from somebody
+deciding, so the mention is taken off and the declared edge goes in its place. Ordering
+would only have hidden it — the sweep above runs on its own, long after the bead was
+filed, on a pair nobody is writing.
+
+Three things that fall out of that, and the middle one is the one a passing test would
+have lied about:
+
+- **Never the other way round.** A prose mention does not demote anything, because it
+  never reaches the question: `planFor` skips any pair the graph already joins. And only a
+  see-also may be displaced — `discovered-from` above all, because provenance is an older
+  fact than whatever wants the pair now, which is the same trade `lib/adoptsweep.js` makes
+  from the other side.
+- **Both ends of it.** `bd dep relate` writes two rows and bd refuses per *ordered* pair,
+  so dropping only the row bd named lets the retry through and leaves the pair holding a
+  `blocks` one way and a `relates-to` the other — two rows saying different things about
+  the same two beads, printed under two headings on the card. The far row is read before
+  it is deleted, so a pair that holds a mention one way and something older the other
+  keeps the older one.
+- **A refusal is asked once.** The retry test in `Bd.run` is a substring match on `lock`,
+  and bd's sentence ends `(requested "blocks")` — so every refused edge looked exactly
+  like Dolt lock contention and spent five spawns and four seconds of backoff proving what
+  the first millisecond already knew. Fine while a refused edge was an accident; not fine
+  on `/api/console/create`, which is a tap on a phone.
+
 One thing it does not fix, deliberately: the `blocks N` pill at first paint is
 `dependent_count` straight from bd, which counts every edge pointing at a bead — children
 already, and now see-alsos too. It is replaced by the real rows the moment
@@ -4815,7 +4847,10 @@ already, and now see-alsos too. It is replaced by the real rows the moment
 
 Checked by `test/mentions.mjs` (the module, the hook against a fake `bd` that records its
 argv, and the two client-side spellings in source) and by `test/graphwaits.mjs`, which is
-where the `relates-to` spelling is held to not blocking anything.
+where the `relates-to` spelling is held to not blocking anything. The precedence rule has
+its own two: `test/declarededge.mjs` against a fake `bd` that remembers its own edges, and
+`test/declarededgereal.mjs`, which files a bead whose description names the bead it depends
+on against the real binary and asks bd what is left.
 
 ### The glass in the middle
 
@@ -10074,6 +10109,60 @@ asks a release agent for UAT and production, and a false premise stated as fact 
 worse than no bead at all. Where an epic is waiting like that, the card says which of its
 beads have not closed rather than only that it is holding.
 
+### What to test is asked of the tracker, not read off the bead — `beadcause-promotework`
+
+A promotion bead's body is written once, at the moment it is filed, and cannot grow. That
+is right for an epic whose plan is its final word, and wrong for the shape this daemon
+actually produces: an advocate is re-entered on child events precisely so it can file what
+the first plan missed, so an epic goes on closing work for days after its plan completes.
+
+Measured on bc-9d37 (2026-08-17). Its promotion bead was filed on 08-14 naming four beads.
+By 08-15 the epic had closed nine pieces of work, and the most visible behaviour change it
+has — a handed-back sweep card over a merged pull request settling by itself — was among
+the five that landed afterwards. The **image** promoted is right regardless; it is `main`'s
+merge build and carries everything. What was wrong is what the release agent would be told
+to **exercise in UAT**, and a promotion that tests the wrong things and *passes* is worse
+than one that fails.
+
+So the body is the reason the card exists, and the test plan is derived when somebody
+promotes:
+
+    beadcause-promotework -w beadcause -e bc-9d37      the epic
+    beadcause-promotework -w beadcause -b bc-9d37.10   the promotion bead, which names it
+
+One place decides what an epic's work was and it is the tracker, which cannot go stale. The
+filed body says so in as many words and prints that command with the epic already in it —
+the snapshot it *also* carries is dated and labelled as a snapshot, because a body with no
+list at all is a card nobody can judge at a glance. `landedWork` in lib/promote.js is the
+single derivation both ends call.
+
+Three things it deliberately does, each of which is a way of being wrong on purpose:
+
+- **It over-includes.** Ship beads, promotion beads, containers and superseded ones are cut
+  — nothing was built for any of them — and nothing else is. There is no label separating
+  landed work from a card the daemon filed and Adam answered: bc-xl7n.15 (*#244 left 1
+  conflicting pull request behind it*) and bc-xl7n.35 (*a sweep card whose record is dropped
+  can never close*) are both closed under bc-9d37 and both carry `inbox`, and only the
+  second was built. bc-9d37 therefore derives 29 rows where fourteen are its own work. The
+  titles separate them in a glance; the alternative is silently testing four of nine and
+  passing.
+- **`unendorsed` is not an exclusion, though it reads like the strongest one there is.**
+  bc-9d37.12 and bc-9d37.14 are closed, still carry it, and are two of that epic's nine —
+  a session working a neighbour fixed them and nothing takes the label off. Cutting it
+  would drop two of the beads this whole thing exists to stop dropping. An *open*
+  `unendorsed` bead is excluded, where it means the opposite: a discovery nothing will open
+  a window on, not work in flight.
+- **A tracker that will not answer is a refusal, not an empty list.** `bd export` times out
+  under load and `Bd.graph` hands back an empty index carrying `.error`; printing that as
+  "nothing to test" is the same lie in a new place. The command exits 5 and says why, and
+  filing falls back to the plan's list with the failure written into the body.
+
+It prints what it left out and why, and — separately — anything still open under the epic,
+which is bc-4bet.2's defect (a promotion filed over work that has not landed) showing up in
+front of the last reader in a position to stop a release over it. `node
+test/promotework.mjs` covers the derivation, both exclusion decisions above, the refusal,
+and what the filed body says.
+
 **And the mechanical grouping did not go away; it became the fallback.** Where planning is
 switched off (`planEpics: false`), and where an epic's planning has failed
 `maxAttemptsPerBead` times, the epic is handed to one worker as a batch exactly as it was
@@ -11199,6 +11288,37 @@ bead and does not try: "the branch is in main" is a fact, and "so the bead is fi
 a judgement, because a bead can name a branch that landed and still want more than what
 landed. "Keep it open" is a `closes: false` option, so it hands the bead straight back to
 `bd ready` with the finding on it.
+
+**What it may offer is narrower than what it may say, and that is bc-xl7n.52.** The sweep
+reads a bead's `notes` like every other field, and nothing checks that a branch named there
+belongs to the bead the text was found in — so when an advocate wrote a triage paragraph
+naming the branches its two children were sitting in, as evidence they were alive and
+should be left alone, the P0 that commissioned that survey acquired two cards offering to
+close *itself*. It has seven open descendants. The failure is correlated with the beads it
+is worst on: only a P0 gets an advocate, and only an advocate writes long notes surveying
+other beads' branches, so the more thorough the note the more close-offers its own root
+accrues.
+
+So **`close-it` is offered only where closing could not strand anything** — never on an
+epic, never over a live descendant at any depth, and never where the `bd export` shape
+could not be read, because "I cannot tell what is under this bead" is not "nothing is".
+Everything else is unchanged: the fact still goes on the thread, the card still says the
+branch is in `main`, and "keep it open" is still there. What goes is the one tap, and the
+card says in a sentence why it went. That is stricter than the tracker's own close gate in
+two ways, both on purpose — bd refuses a close over an open **child**, so a bead whose
+children are all closed over a live *grandchild* passes it, and bd has no opinion at all
+about an epic with nothing under it yet, which is exactly the standing root a survey is
+about to fill.
+
+The other half of that fix is on the phone, and without it the first half would have been a
+worse card rather than a better one. bd's gate is a refusal rather than an absence: it
+arrives as a 409 after the press, and a card that already knows one is coming
+[draws no answer button at all](#when-bd-will-not-close-the-bead). Those are
+the same beads — so a card left holding only a `closes: false` option would have been
+unanswerable, with `human` sitting on it until somebody closed the children. A card whose
+*every* option commissions is now the one shape that gate leaves alone, because
+`/api/respond` skips the close gate for a commission, and a typed answer on a card where
+any option would have commissioned rides the same path rather than closing on a guess.
 
 The label is also the whole of the saving. `bd ready` excludes `human`, so a flagged bead
 is out of the queue built moments later in the same tick and no session is opened on it —

@@ -277,9 +277,13 @@ check('a question with no model field draws nothing rather than throwing', () =>
 check('the chip is drawn in the card meta row, beside the workspace and the id', () => {
   assert.match(APP, /\$\{modelChipHtml\(q\)\}/, 'the chip is defined and never called');
   // From `cardHtml` itself: four renderers in this file open a `.card-head`, and the
-  // question that matters is whether *this* one draws the chip.
+  // question that matters is whether *this* one draws the chip. The slice used to end at
+  // the literal `<p class="q">` that followed it; bc-rfnr.9.8 made the title a real
+  // `<button class="q">` instead (written inline, not behind a shared helper — see the
+  // note on `shutCardAct` in public/app.js for why), so that opening tag is the marker
+  // now — still the next line after the chip, and still unique to this call site.
   const at = APP.indexOf('function cardHtml(q)');
-  const head = APP.slice(APP.indexOf('<div class="card-head">', at), APP.indexOf('<p class="q">', at));
+  const head = APP.slice(APP.indexOf('<div class="card-head">', at), APP.indexOf('<button type="button" class="q"', at));
   assert.match(head, /modelChipHtml\(q\)/, 'the chip is called from somewhere other than the card head');
 });
 
