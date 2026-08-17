@@ -65,13 +65,88 @@ html, body {
   overscroll-behavior-y: contain;
 }
 
+/*
+  ## Every page is an app shell, not a document (bc-7utr, landed in bc-khoe.1)
+
+  The chrome used to be `position: sticky` (the top bar) and `position: fixed` (the bar
+  along the bottom) on a document that scrolled, and on a phone neither of them stayed
+  still. Both are laid out against the *layout* viewport while what you are looking at is
+  the *visual* one, and on iOS those two are not the same rectangle: the URL bar
+  collapses as you scroll down and grows back as you scroll up, which moves the layout
+  viewport under a fixed element, and a rubber-band overscroll translates the whole page
+  — fixed children included. The bottom bar slid half off the screen; the top bar
+  drifted for the same reason. No arithmetic fixes that, because the numbers are right
+  and the rectangle they are measured against is the one that moves.
+
+  So the document does not scroll. `body` is exactly one viewport tall and clipped, a
+  flex column of `.topbar`, `.viewbar` and the page's own scroller — and the only thing
+  that scrolls is the last one (`.pagescroll` below). Nothing is positioned against a
+  viewport that moves, because no viewport moves: with no document scroll there is no
+  URL-bar collapse and no rubber-band to translate anything. The chat session
+  (`.console-body`), the terminal (`.term-body`) and the graph already worked this way
+  for their own reasons; this is that shape, made the rule.
+
+  `100dvh` rather than `100vh` because the two differ by the collapsible chrome, and
+  `dvh` is the one that means "what is on screen now" — the same reason every other
+  height in this file is in it. `overflow: hidden` on `html` as well as `body` is what
+  takes the last rubber-band away: with only `body` clipped, iOS still bounces the root.
+
+  test/shell.mjs is what keeps this shape; scripts/topbar-check.mjs measures it in a
+  real Chrome at both phone widths.
+*/
+html { height: 100%; overflow: hidden; }
+
 body {
-  padding: 0 env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 24px) env(safe-area-inset-left);
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
+/*
+  The one element on a page that scrolls. It is marked in the HTML rather than inferred
+  from a content class, because "the scrolling region" and "the list" are not the same
+  claim — the reader (public/doc.html) wraps two elements in one scroller, and the
+  foundations screen has a `.thread` inside a `.pagescroll` that scrolls on its own.
+  Anything that has to *not* scroll away goes outside it: the top bar, the pill row, the
+  inbox's filter line, the advocate console's chip row.
+
+  `min-height: 0` is load-bearing. A flex item's default `min-height: auto` is its
+  content, so without this the scroller grows to fit the list instead of scrolling it and
+  pushes everything else off the screen — which is the original bug back again, wearing a
+  different mechanism.
+*/
+.pagescroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* A flick that reaches the end of the list must not become a gesture on whatever is
+     behind this page — the drawer's host page, or the browser's own pull-to-refresh. */
+  overscroll-behavior: contain;
+}
+
+/*
+  And the trap that comes with it, which cost a screenshot to find.
+
+  `.list`, `.work` and `.thread` are all `display: flex; flex-direction: column` — and a
+  flex item's default is `flex-shrink: 1`. While the scroller was content-sized that
+  never bit, because there was no definite height to fit into; the moment it became a row
+  of a viewport-height shell, the browser started shrinking the cards to make the whole
+  list fit one screen. Normally the automatic minimum size (`min-height: auto`) stops
+  that at the item's content — but `.card` is `overflow: hidden`, and an item that clips
+  has an automatic minimum of **zero**. So every card squashed to a fraction of its
+  height and clipped its own contents, and the page still scrolled and still looked like
+  a list.
+*/
+.pagescroll > * { flex-shrink: 0; }
+
 .topbar {
-  position: sticky;
-  top: 0;
+  /* In flow, as the first row of the shell above — not sticky. There is nothing for it
+     to stick to any more, and a sticky bar was the drift bc-7utr was filed about. */
+  flex: none;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -153,6 +228,12 @@ body {
   to decide which card you are reading, so its height has to be the same open or shut.
 */
 .filters {
+  /* A row of the shell rather than the first thing in the list (bc-7utr), so it no
+     longer scrolls away — which is what paintScrollPos() in app.js already assumed: it
+     takes the lower of this nav's bottom edge and the top bar's as the line a card has
+     to clear to count as the one you are reading. `flex: none` because the height of
+     this line is fixed either way and the scroller under it is what takes the slack. */
+  flex: none;
   display: flex;
   padding: 10px 16px 6px;
 }
@@ -795,7 +876,10 @@ body {
 .accountform-repo { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--prose); cursor: pointer; }
 .accountform-error { margin: 10px 0 0; color: var(--danger); font-size: 13px; }
 
-.list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 12px; }
+/* The bottom 12px is the gap after the last card. It used to be 0 because the body
+   reserved the bottom bar's whole height under the list; the list is the scroller now
+   and ends where the screen does, so the breathing room has to be its own. */
+.list { padding: 12px 12px 12px; display: flex; flex-direction: column; gap: 12px; }
 
 /*
   The foundation channel — agents asking to change what they are.
@@ -3141,7 +3225,9 @@ button.work-row {
 
 /* The graph tab. The canvas fills what's left under the topbar; the card and the
    sheet float over it, so neither of them can push the graph around. */
-.graph-body { overflow: hidden; height: 100dvh; display: flex; flex-direction: column; }
+/* The column, the clip and the height are `body`'s now (bc-7utr) — this page wanted them
+   before every page had them. Nothing is left that is only true here, so the rule is
+   gone; `.graph-main` below is what takes the room the canvas draws in. */
 .graph-main { flex: 1; min-height: 0; position: relative; }
 #canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 /* `display: grid` beats the UA's [hidden] rule, and this one covers the whole
@@ -3537,7 +3623,18 @@ button.work-row {
   underneath is the one being withheld. Centred and short: there are two controls on
   it and one of them is folded away.
 */
-.login-body { display: grid; place-items: center; min-height: 100dvh; padding: 24px; }
+/* The one page that is neither a shell nor a document: a single card, centred. It has to
+   undo the body's `display: flex` and its clip — a sign-in card can be taller than a
+   landscape phone, and with the root clipped there would be no way to reach the button.
+   `place-items` rather than `place-content` on purpose: the row sizes to the card, so
+   tall content overflows downward and scrolls instead of being centred half off the top. */
+.login-body {
+  display: grid;
+  place-items: center;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 24px;
+}
 .login { width: 100%; max-width: 380px; text-align: center; }
 .login-mark { margin-bottom: 14px; }
 .login h1 { margin: 0 0 4px; font-size: 22px; }
@@ -3621,7 +3718,7 @@ button.work-row {
 @media (orientation: landscape) {
   .topbar { padding: calc(env(safe-area-inset-top) + 6px) 16px 6px; }
   .filters { padding: 8px 16px 2px; }
-  .list { padding: 10px 12px 0; }
+  .list { padding: 10px 12px 10px; }
   /* 62vh of a landscape screen is nearly all of it. */
   .md img, .brief img { max-height: 80vh; }
 }
@@ -3725,15 +3822,15 @@ button.work-row {
    than a long document, because a composer that scrolls away with the
    conversation is a composer you have to hunt for on every turn. */
 
-.console-body {
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding-bottom: 0;
-}
+/* The shape itself is `body`'s now — every page in the app is a viewport-height column
+   (bc-7utr). What is left here is the one thing that is only true of this page and the
+   foundations screen: the bottom row is a composer with its own home-indicator gap, so
+   the body must not hold one as well. */
+.console-body { padding-bottom: 0; }
 
-.launcher { flex: 1; overflow-y: auto; padding: 18px 16px 40px; max-width: 780px; margin: 0 auto; width: 100%; }
+/* The launcher and the thread are both `.pagescroll` in the HTML; what is left here is
+   only the column they draw in. */
+.launcher { padding: 18px 16px calc(env(safe-area-inset-bottom) + 40px); max-width: 780px; margin: 0 auto; width: 100%; }
 .launcher .section-label { margin-top: 22px; }
 .lede { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0 0 4px; }
 .recent { display: flex; flex-direction: column; gap: 2px; }
@@ -4570,13 +4667,10 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    keyboard, not under it — `dvh` plus the visual-viewport resize in term.js are
    what keep it there when the keyboard opens. */
 
-.term-body {
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding-bottom: 0;
-}
+/* The column is `body`'s shape now (bc-7utr). The key row carries the home-indicator gap
+   itself — it is the bottom row and it is full of tap targets — so the body must not
+   hold one too. */
+.term-body { padding-bottom: 0; }
 
 .screen-wrap {
   flex: 1;
@@ -4711,13 +4805,14 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    bottom 53 and the bar's was top 0, bottom 104. Nothing of it was on screen, and it
    was carrying the whole cost of being sticky for none of the benefit.
 
-   `--topbar-h` is the bar's height, published by public/montabs.js from a
-   `ResizeObserver` on `.topbar` — see the block there for why the number cannot be
-   written here. Short version: it is 104px with the space picker's row and 61px
-   without, the picker hides itself under two workspaces, and the bar also carries
-   `env(safe-area-inset-top)` and wraps. The fallback is the two-row bar, so a page
-   that somehow loses that script is 43px wrong in the uncommon case rather than a
-   whole bar wrong in the common one.
+   **And that whole mechanism is gone (bc-khoe.1).** The offset used to be
+   `var(--topbar-h)`, a number public/montabs.js measured off `.topbar` with a
+   `ResizeObserver` because it is 104px with the space picker's row and 61px without and
+   the picker hides itself under two workspaces — a fact about the payload, not a
+   constant. Under the app shell there is nothing to offset: this strip is a **row of the
+   column**, in flow between the pill row and the pane, and the thing it used to hide
+   behind is the row above it. `position: sticky` goes with the number, because the
+   viewport no longer scrolls and there is nothing that could scroll this away.
 
    The 14px used to be a bottom margin, and a margin is transparent — under a strip
    that now actually stays put, that was a 14px band of the list sliding through
@@ -4725,8 +4820,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    which is the same gap drawn in `var(--bg)`; the border-bottom moves down by it,
    which is what a border under a bar with room beneath it should do anyway. */
 .mon-tabs {
-  position: sticky;
-  top: var(--topbar-h, 104px);
+  flex: none;
   z-index: 3;
   padding: 8px 14px 14px;
   background: var(--bg);
@@ -4849,113 +4943,93 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mir-links { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 14px; }
 .mir-links a { color: var(--accent); font-size: 13.5px; font-weight: 600; text-decoration: none; }
 
-/* ── The tab bar ──────────────────────────────────────────────────────────────
+/* ── The pill row ─────────────────────────────────────────────────────────────
 
-   The standing views, one bar, on every one of them — see public/tabbar.js for
-   why. It sits at the bottom because that is where a thumb is, and the safe-area
-   padding is its own rather than the body's: it is `position: fixed`, so it is
-   laid out against the viewport and the body's inset padding never reaches it.
+   One row of views across the top of every page — see public/viewbar.js for what it
+   replaced and why. It is the second row of the app shell, under `.topbar`, so it is in
+   flow rather than pinned: nothing here is laid out against a viewport, because the
+   document does not scroll.
 
-   `--tabbar-h` is the bar without that inset. Everything that has to sit clear of
-   the bar — the foot of a scrolling page, a toast — adds the inset back itself,
-   which is why it appears in the sums below and not in the variable. */
+   **`.viewbar` and `.viewpill`, not `.pillrow` and `.pill`.** `.pill` in this file is
+   the uppercase metadata badge with twenty modifiers under it, and `.pill-row` is the
+   flex-wrapping row those badges sit in — so the obvious names were both taken by
+   something unrelated, and a navigation called `.pillrow` full of `.pill`s would have
+   restyled every badge in the app. See the header of public/viewbar.js.
 
-:root { --tabbar-h: 54px; }
+   `--viewbar-h` is the height of one pill, which is also the row's tap target. 44px is
+   the floor a thumb needs, and the number the bottom bar's own browser check held it to
+   before both were deleted (bc-khoe.9 writes the row's replacement). The row costs
+   44 + 8px of its own padding against the bottom bar's 54 plus the home indicator it was
+   holding clear — so the chrome this spends is less than the chrome it deletes, on a
+   change whose whole argument is that a phone's screen is mostly chrome already. */
 
-.tabbar {
-  position: fixed;
-  z-index: 25;
-  left: 0; right: 0; bottom: 0;
+:root { --viewbar-h: 44px; }
+
+.viewbar {
+  flex: none;
+  z-index: 19;
   display: flex;
-  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid var(--line);
+  gap: 6px;
+  padding: 4px 12px;
+  /* Opaque, unlike the top bar. The bar is translucent because it used to have a page
+     scrolling under it; nothing has ever scrolled under this one — the scroller starts
+     below it — so a blur here would be a filter over a solid colour. */
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  /* Sideways, never down. There will be roughly nine of these once bc-khoe.2, .4 and .7
+     have landed, and a row that wraps to a second line is the thing this epic exists to
+     stop. The scrollbar is hidden because a phone draws none anyway and on the Mac a
+     trough under five pills reads as the row being broken. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  /* A sideways flick that runs out of pills must not become the browser's back
+     gesture. */
+  overscroll-behavior-x: contain;
 }
+.viewbar::-webkit-scrollbar { display: none; }
 
-.tab-item {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.viewpill {
+  /* `flex: none` twice over: a pill must not be squeezed to fit — that is what the
+     sideways scroll is for — and must not stretch to fill a row with room to spare,
+     which would make five pills on a Mac read as five tabs. */
+  flex: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  min-height: var(--tabbar-h);
-  padding: 5px 2px;
+  gap: 6px;
+  min-height: var(--viewbar-h);
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
   color: var(--muted);
   text-decoration: none;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  white-space: nowrap;
   -webkit-tap-highlight-color: transparent;
 }
-.tab-icon { font-size: 19px; line-height: 1.1; position: relative; }
-.tab-label { line-height: 1; }
+.viewpill-icon { font-size: 15px; line-height: 1; }
 
-/* Six tabs is 60px each at 360px — the common Android width — and "Advocates" does
-   not fit that at 10.5px. Rather than shorten a label that is already one word, the
-   type steps down when there is a sixth item to make room for. Keyed off the bar's
-   own contents so adding or removing a tab needs nothing here. */
-.tabbar:has(.tab-item:nth-child(6)) .tab-item { font-size: 9.5px; letter-spacing: 0; padding-inline: 1px; }
-.tabbar:has(.tab-item:nth-child(6)) .tab-icon { font-size: 18px; }
-
-/* How many proposals are waiting — on the tab that answers them, so the number and
-   the way to act on it are one tap target. It hangs off the icon rather than the item
-   so it lands on the glyph and not out at the edge of a tab that is a fifth of the
-   screen wide. */
-.tab-badge {
-  position: absolute;
-  top: -3px; left: 62%;
-  min-width: 16px; height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
+/* Current. Colour alone would be the only mark, and colour alone is not a mark — so the
+   accent is doubled by filling the pill and moving its border, which reads in both
+   schemes and without colour vision. `aria-current` is the same claim, said to a reader
+   that cannot see either. */
+.viewpill[aria-current="page"] {
+  border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: 10px; font-weight: 700; line-height: 16px;
-  text-align: center;
-  /* The bar is translucent and the list scrolls under it; without this ring a badge
-     can sit on top of a card's own text and read as part of it. */
-  box-shadow: 0 0 0 2px var(--bg);
-}
-.tab-badge[hidden] { display: none; }
-
-/* Current. Colour alone would be the only mark, and colour alone is not a mark —
-   so the accent is doubled by a rule along the top edge of the tab, which reads
-   in both schemes and without colour vision. */
-.tab-item[aria-current="page"] { color: var(--accent); }
-.tab-item[aria-current="page"]::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 24%; right: 24%;
-  height: 2px;
-  border-radius: 0 0 2px 2px;
-  background: var(--accent);
 }
 
-/* Keep the foot of a scrolling page clear of the bar. Beats the plain `body` rule
-   at the top of this file, which reserved only the home indicator. */
-.has-tabbar { padding-bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 16px); }
-
-/* The chat session is not a document that scrolls under a fixed bar — it is a fixed
-   column of bar, thread and composer, and a composer is the one thing that must
-   never be covered. So on that page the tab bar stops being fixed and becomes the
-   last row of the column, and the composer hands it the home-indicator gap it was
-   holding itself. */
-.console-body.has-tabbar { padding-bottom: 0; }
-.console-body .tabbar { position: static; flex: none; }
-.console-body.has-tabbar .composer { padding-bottom: 10px; }
-
-/* The toast is bottom-anchored, so every one of these lifts by the bar. The
-   chat session's already clears its composer; it now clears the bar under it too. */
-.has-tabbar .toast { bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 18px); }
-.console-body.has-tabbar .toast { bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 84px); }
-
-/* Height is the scarce axis on a phone on its side — the same reason the top bar
-   thins out up there. */
+/* Height is the scarce axis on a phone on its side — the same reason the top bar thins
+   out up there. The 44px tap floor is not what gets spent; the row's padding and the
+   type are. */
 @media (orientation: landscape) {
-  :root { --tabbar-h: 44px; }
-  .tab-icon { font-size: 17px; }
+  .viewbar { padding: 3px 12px; }
+  .viewpill { font-size: 12.5px; padding: 0 11px; }
 }
 
 /* ── ＋, and the conversations it starts ──────────────────────────────────────
@@ -4971,15 +5045,14 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    in the list still clears it exactly as it clears the bar.
 
    z-index 24 is deliberate and sits between two things: above the list (which scrolls
-   under it) and below both the tab bar (25) and an open card (40, `position: fixed;
-   inset: 0`). An answer takes the whole screen and must not have a create button
-   sitting on top of it. */
+   under it) and below an open card (40, `position: fixed; inset: 0`). An answer takes
+   the whole screen and must not have a create button sitting on top of it. */
 
 .compose-wrap {
   position: fixed;
   z-index: 24;
   right: calc(env(safe-area-inset-right) + 14px);
-  bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 14px);
+  bottom: calc(env(safe-area-inset-bottom) + 14px);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -5018,12 +5091,15 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .compose-pick .section-label { margin: 0 0 6px; padding-top: 0; border-top: 0; }
 .compose-pick .chip-row { flex-wrap: wrap; }
 
-/* Room at the foot of the list for the button sitting over it. On top of the tab
-   bar's own reservation, because both are there at once — see .has-tabbar. */
-.has-compose.has-tabbar { padding-bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 76px); }
+/* Room at the foot of the list for the button sitting over it. On the **scroller**
+   rather than on the body, which is where it was while the body was the thing that
+   scrolled: under the app shell the body is exactly one viewport tall, so padding there
+   would shorten the screen by 76px and leave a gap under the last card either way. The
+   class stays on the body, because what it records is that app.js wired ＋ up at all. */
+.has-compose .pagescroll { padding-bottom: 76px; }
 /* And the toast, which is bottom-centred and would otherwise land under it on a
    narrow phone. */
-.has-compose.has-tabbar .toast { bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 78px); }
+.has-compose .toast { bottom: calc(env(safe-area-inset-bottom) + 78px); }
 
 /* A conversation, as one row in the inbox.
 
@@ -6180,7 +6256,7 @@ button.p0-row {
    *do* here — a 36px target hidden between two counts is a target you miss — and the
    graph is the link the id pill used to be, moved down now the summary above it is one
    tap target and cannot hold an anchor of its own. */
-.p0-acts { display: flex; align-items: stretch; gap: 6px; margin-top: 4px; }
+.p0-acts { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin-top: 4px; }
 .p0-advocate {
   flex: 1 1 auto;
   min-height: 40px;
@@ -6220,6 +6296,65 @@ a.p0-advocate {
    this is a control. */
 a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 
+/* ------------------------------------------------- starting an epic from the board
+
+   bc-s8mc. Three controls, and what they have in common is that every one of them writes
+   to the tracker — so they are drawn as buttons that look like the board's other buttons
+   rather than as chips, which on this screen mean a filter you can undo by looking away.
+
+   The picker sits at the *foot* of the board, under the cards, because it is the answer to
+   "and what else could be here" — a question you ask after reading what is. Full width and
+   quiet: it is an offer, not the thing the section is for. */
+.p0-off {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit; font-size: 12.5px;
+  cursor: pointer;
+}
+.p0-off:disabled { opacity: 0.6; cursor: default; }
+.p0-pick {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.p0-pick[aria-expanded='true'] { color: var(--text); border-style: solid; background: var(--surface); }
+.p0-picker { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+/* One row per P0 you could start: the same two-line shape a card has — identity and count
+   on the first line, the title on the second — so the list reads as a board of cards that
+   are not there yet rather than as a menu of ids. */
+.p0-cand {
+  display: flex; flex-direction: column; gap: 4px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.p0-cand:disabled { opacity: 0.6; cursor: default; }
+.p0-cand-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.p0-cand-title { min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.35; }
+/* Nothing started yet: the section is the offer and nothing else, so it carries none of
+   the board's own chrome — no heading, no fold, no count of nothing. */
+.p0-board.bare { margin-bottom: 10px; }
+.p0-board.bare .p0-pick { margin-top: 0; }
+
 /* ------------------------------------------------------------- edit mode
 
    The app as the thing you point at (bc-p49x.1). Two controls and one tint, and all
@@ -6239,7 +6374,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   position: fixed;
   z-index: 24;
   left: calc(env(safe-area-inset-left) + 14px);
-  bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 14px);
+  bottom: calc(env(safe-area-inset-bottom) + 14px);
   display: flex; align-items: center; justify-content: center;
   width: 44px; height: 44px;
   border-radius: 50%;

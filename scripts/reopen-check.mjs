@@ -74,9 +74,11 @@ const SWEEP_MS = 900;
 // counter. The background warm waits 1200ms and then runs its five paths *sequentially*,
 // so this has to outlast the whole queue at fixture speed — and it has to do so on both
 // sides of a close, or the two runs are comparing different amounts of finished work. It
-// was 4.8s and that was a third of a second short of the last path in the queue, which is
-// `/api/prs`: the baseline then reported *nothing* swept where the answer is one, because
-// the request it was waiting for had not been issued when the page navigated away.
+// was 4.8s and that was a third of a second short of whatever `VIEWS` puts last: the
+// baseline then reported *nothing* swept where the answer is one, because the request it
+// was waiting for had not been issued when the page navigated away. Which path that is is
+// not this file's to know — bc-khoe.1 has since moved `/api/prs` up out of that place —
+// so the slack is against the length of the queue, never against a named path.
 const WARMED_MS = 3000 + 5 * SWEEP_MS;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

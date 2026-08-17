@@ -47,7 +47,7 @@ fs.mkdirSync(SESSIONS, { recursive: true });
 fs.mkdirSync(REPO, { recursive: true });
 
 const { createAdvocates } = await import(LIB('advocate.js'));
-const { dispatchable, formatPlan, parsePlan, planFrom, PLANNED_LABEL, PROMOTED_LABEL, unplanned, validatePlan, MAX_GROUPS } =
+const { dispatchable, formatPlan, isUnder, parsePlan, planFrom, PLANNED_LABEL, PROMOTED_LABEL, unplanned, validatePlan, MAX_GROUPS } =
   await import(LIB('plan.js'));
 const { PROMOTE_LABEL, PROMOTE_TYPE } = await import(LIB('promote.js'));
 
@@ -75,7 +75,7 @@ const group = (name, beads, over = {}) => ({
  * An epic with no `planned` label never reaches it at all, which is the whole point of the
  * label, and `calls.comments` is what asserts that rather than a comment claiming it.
  */
-async function tick({ ready = [], children = {}, comments = {}, workers = [], attempts = {}, overrides = {}, rows = [] } = {}) {
+async function tick({ ready = [], children = {}, comments = {}, workers = [], attempts = {}, overrides = {}, rows = [], parents = [] } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   await quiesce();
   for (const f of fs.readdirSync(dir)) await removeTree(path.join(dir, f));
@@ -140,7 +140,9 @@ async function tick({ ready = [], children = {}, comments = {}, workers = [], at
     // dependency-blocked bead is missing from exactly as a closed one is. `rows` is what a
     // case wants the tracker to say about the beads its plan named; see bc-4bet.2.
     graph: async () => ({
-      parents: new Map(),
+      // `parents` is what says a bead is under an epic when its *id* does not — the shape
+      // `bd update --parent` leaves behind. Empty for every case that does not care.
+      parents: new Map(parents),
       beads: new Map(rows.map((b) => [b.id, b])),
       adopts: new Map(),
       edges: new Map(),
@@ -328,6 +330,35 @@ await check('ungrouped ready work under a planned epic is what a re-entry is for
   assert.deepEqual(unplanned(plan, [bead('x-1.1'), bead('x-1.4'), bead('y-2.1')]).map((b) => b.id), ['x-1.4']);
 });
 
+/**
+ * The adopted child. `bd update <bead> --parent=<epic>` moves the edge and renumbers
+ * nothing, so a real child of `x-1` can be called `z-9` — and every id-shaped answer to
+ * "is this under x-1" says no about a bead the tracker, the card and `bd children` all
+ * agree is under it. That cost bc-rfnr.9 two children it could neither group nor count.
+ */
+await check('a child is under its epic by the graph, not only by its id', () => {
+  const parents = new Map([
+    ['z-9', 'x-1'],
+    ['z-9.1', 'z-9'],
+    ['q-2', 'y-7'],
+  ]);
+  assert.equal(isUnder('x-1.1', 'x-1'), true, 'a created child still passes on the id alone');
+  assert.equal(isUnder('z-9', 'x-1'), false, 'and an adopted one cannot, which is the bug');
+  assert.equal(isUnder('z-9', 'x-1', parents), true, 'the parent edges are what say so');
+  assert.equal(isUnder('z-9.1', 'x-1', parents), true, 'at any depth, walking up');
+  assert.equal(isUnder('q-2', 'x-1', parents), false, "and somebody else's child is still not ours");
+  assert.equal(isUnder('x-1', 'x-1', parents), false, 'an epic is not under itself here — a group naming it is refused');
+});
+
+await check('a plan may name an adopted child, and unplanned can see one', () => {
+  const parents = new Map([['z-9', 'x-1']]);
+  const plan = validatePlan(planSpec([group('one', ['z-9'])]), { epic: 'x-1', children: [bead('z-9')] });
+  assert.deepEqual(plan.groups[0].beads, ['z-9'], 'the tracker said it is a child, which outranks the id');
+  const bare = validatePlan(planSpec([group('one', ['x-1.1'])]), { epic: 'x-1', children: null });
+  assert.deepEqual(unplanned(bare, [bead('z-9')]).map((b) => b.id), [], 'no graph, no adopted child — the old answer');
+  assert.deepEqual(unplanned(bare, [bead('z-9')], parents).map((b) => b.id), ['z-9'], 'with one, it is ungrouped work');
+});
+
 /* --------------------------------------------------------------- the advocate */
 
 /**
@@ -457,6 +488,24 @@ await check('a bead nobody grouped re-opens the planner', async () => {
   assert.equal(r.planned[0].revising, true, 'and it is told it is revising, so it keeps the groups already running');
   assert.deepEqual(r.opened, [], 'nothing opened on the ungrouped bead meanwhile');
   assert.match(heldWhy(r.card, 'x-1.4'), /waiting on x-1's plan, which is being revised/);
+});
+
+/**
+ * The same re-entry, over a child whose id says nothing. Both halves have to move together:
+ * `unplanned` finding it is what re-opens the planner, and the hold using the same test is
+ * what stops it taking an ordinary window against a plan being rewritten around it.
+ */
+await check('an adopted bead nobody grouped re-opens the planner too', async () => {
+  const plan = validatePlan(planSpec([group('router', ['x-1.1'])]), { epic: 'x-1', children: null });
+  const r = await tick({
+    ready: [epic('x-1', { priority: 1, labels: [PLANNED_LABEL] }), bead('z-9')],
+    comments: { 'x-1': [{ text: formatPlan(plan) }] },
+    parents: [['z-9', 'x-1']],
+  });
+  assert.deepEqual(r.planned.map((p) => p.id), ['x-1'], 'the planner is re-entered over it');
+  assert.deepEqual(r.planned[0].kids, ['z-9']);
+  assert.deepEqual(r.opened, [], 'and it is held rather than worked out from under the plan');
+  assert.match(heldWhy(r.card, 'z-9'), /waiting on x-1's plan, which is being revised/);
 });
 
 await check('and it is released rather than held for ever once planning has run out', async () => {

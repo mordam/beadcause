@@ -200,6 +200,8 @@ function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map()
     workspace: 'all',
     spaces: [],
     p0opening: new Map(),
+    // bc-s8mc: the picker is shut in this suite. See the lift below.
+    p0picker: false,
     // What the thread's own collapse is remembered in. Empty, so every comment starts
     // in whatever state `openThreadIndexes` decided for it.
     thread: new Map(),
@@ -260,6 +262,11 @@ function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map()
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),
       lift(APP, 'function p0Control(c)'),
+      // bc-s8mc's picker, at the foot of the section — lifted because `p0SectionHtml`
+      // calls it on every render and would otherwise throw. `state.p0picker` is false
+      // here, so what it draws in this suite is the closed offer and nothing else;
+      // what it draws open is test/p0start.mjs's.
+      lift(APP, 'function p0PickerHtml(rows)'),
       lift(APP, 'function p0SectionHtml()'),
       'p0SectionHtml();',
     ].join('\n'),

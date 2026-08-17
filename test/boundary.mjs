@@ -320,7 +320,7 @@ check('beadcause is carved out, and the carve-out names what it still bears on',
 
 check('every agent kind is a named role, because an auditor asks per identity', () => {
   const roles = carvedOut(climative, 'role').map((c) => c.id);
-  for (const agent of ['console', 'dispatch', 'advocate', 'epic-advocate', 'worker', 'merge-advocate']) {
+  for (const agent of ['console', 'dispatch', 'advocate', 'epic-advocate', 'worker', 'merge-advocate', 'review-advocate']) {
     assert.ok(roles.includes(`agent-${agent}`), `${agent} is not in the role list`);
   }
 });

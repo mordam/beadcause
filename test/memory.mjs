@@ -112,6 +112,7 @@ fs.writeFileSync(path.join(store, 'android-keystore.properties'), 'storePassword
 fs.writeFileSync(path.join(store, 'loupe-sophab.png'), 'PRETEND PNG');
 fs.writeFileSync(path.join(store, 'status.json'), '{}');
 fs.writeFileSync(path.join(store, 'restart.json'), '{"at":"2026-08-11T00:00:00.000Z"}');
+fs.writeFileSync(path.join(store, 'handovers.json'), '{"handovers":[{"at":"2026-08-11T00:00:00.000Z","pid":9}]}');
 fs.writeFileSync(path.join(store, 'merge-sweeps.json'), '{"beadcause":{"workspace":"beadcause","key":"beadcause","number":9}}');
 fs.writeFileSync(path.join(store, 'sweep-cards.json'), '{"bc-1":{"card":"bc-1","workspace":"beadcause","prs":[]}}');
 fs.writeFileSync(path.join(store, 'coverage.json'), '{"commit":"abc","files":[]}');
@@ -130,6 +131,10 @@ check('status.json churn is not tracked', !tracked.includes('status.json'), trac
 // The same argument, one file along: the router rewrites restart.json on every handover
 // and it means nothing thirty seconds later, so its history is noise (bc-kttd).
 check('restart.json churn is not tracked', !tracked.includes('restart.json'), tracked.join(' '));
+// And the longer form of the same file: the last twenty handovers, rewritten whole every
+// time the port changes hands, so a commit per swap is the same twenty rows over and over.
+// What shipped is deploys/, which is tracked (bc-khoe.8).
+check('handovers.json churn is not tracked', !tracked.includes('handovers.json'), tracked.join(' '));
 // And once more for the sweep a merge asks for: written by whichever process merged,
 // emptied by the next poll cycle, and a history of it would be one commit per merge
 // saying something the pull request already says (bc-9d37.4).
