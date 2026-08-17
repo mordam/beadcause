@@ -10060,6 +10060,20 @@ things a board sorts on — a `promote` label against `ship`, and a `chore` type
 `task` — because two things called a release bead, settling on different evidence, is a
 board that lies.
 
+**"Every bead has closed" is asked of the tracker's rows, and it used not to be.** Until
+bc-4bet.2 the test was "nothing of this plan is in the queue and nothing is running", and
+that reads *not-ready* as *done*: the queue is the advocate's, which excludes `unendorsed`
+by design, and a bead blocked behind a dependency is not in `bd ready` either. Both are open
+work nobody has started, and both looked exactly like a group that had finished — so a
+promotion bead went out on 2026-08-14 saying an epic's work was in `main` over two beads
+that had never been touched. The check is now a status check: a plan is done when every bead
+it named is *closed*, read off the same cached `bd export` the advocate already takes once a
+tick, so it costs no tracker call of its own. A bead the export has no row for — a cold
+cache, an export that failed — is **not** closed, and nothing is filed; the promotion bead
+asks a release agent for UAT and production, and a false premise stated as fact on one is
+worse than no bead at all. Where an epic is waiting like that, the card says which of its
+beads have not closed rather than only that it is holding.
+
 **And the mechanical grouping did not go away; it became the fallback.** Where planning is
 switched off (`planEpics: false`), and where an epic's planning has failed
 `maxAttemptsPerBead` times, the epic is handed to one worker as a batch exactly as it was
@@ -17934,7 +17948,7 @@ to be one.
 | `advocates.settleSeconds` | how long a new bead sits before a session opens on it (default 60) |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
 | `advocates.planEpics` | [open an **epic worker** on an epic rather than working it](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) (default `true`) — a window that groups the epic's beads for N child-workers, writes each group's prompt, and does none of the work itself. `false` falls all the way back to handing one worker the epic and its ready children as a batch, which is what this did before plans existed and is still the right answer if a plan ever briefs badly. An epic whose planning has failed `maxAttemptsPerBead` times falls back to that on its own |
-| `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed |
+| `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed. "Closed" is read off the tracker's own rows and never off the queue — an `unendorsed` or dependency-blocked bead is missing from the queue exactly as a closed one is, and a bead no row can be found for is not closed (bc-4bet.2) |
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `advocates.reenterAdvocates` | [re-open the **P0 advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: a P0 is enrolled once its notes carry the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and erasing that block is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
 | `advocates.reenterIntervalMinutes` | how often that sweep looks (default 10). It reads the same cached `bd export` the inbox's P0 board is built from — which the EpicAdvocate roster already warms every tick — so it costs no tracker call of its own |
