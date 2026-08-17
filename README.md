@@ -12628,13 +12628,32 @@ tracker's graph and never from `bd ready`, so a bead this filter removes from ev
 untouched on the screen. That is the right way round: the board's furniture has to be
 visible *as* furniture, because filing under it is what it is for.
 
+**And a bead filed under one is ordinary work** — which turned out to take a change rather
+than nothing. `bd create --parent` copies the parent's labels onto the child, so for three
+days every bead the daemon filed under `bc-xl7n` was born carrying `container` and `human`.
+That is the unsorted backlog, and by construction the busiest filing target in the graph:
+every ship follow-up, sweep card and advocate finding lands there. Both labels are in the
+queue's exclusion list, so each of those beads was out of every queue *after* being
+endorsed — the part that makes it worse than being unendorsed, because the tap looked like
+it worked and changed nothing — refused 409 at both doors, and drawn on the phone as a
+question that asks nothing. `Bd.create` now passes `--no-inherit-labels` whenever it passes
+`--parent`, so a child arrives with exactly the labels its filer chose, which every caller
+already spells out in full. Off wholesale rather than filtered down to the markers that
+hurt: a list of labels a child may not inherit is a list somebody has to extend every time
+a marker is invented, and the window lease `held:` riding down to beads no window was ever
+opened on is the proof that nobody does. An older `bd` that has never heard of the flag is
+retried without it rather than losing the bead, and `bd update --parent` inherits nothing,
+so reparenting was never a second door onto this.
+
 What this is *not* strong enough to be: a container is not protected from `bd close` typed
 by hand, and could not be — bd is a separate tool with no hook in it. What it is protected
 from is the only ending a dispatched session has. The belt on top of that is already there
 and is not this marker's: a delivery refuses to close an **epic** on a merge, and every
 standing root is an epic. `node test/container.mjs` covers both layers, the planner's door,
-and — the assertion most likely to be "fixed" by somebody tidying — that the P0 advocate's
-door still lets one through.
+the filing seam — with a fake `bd` that inherits the way the real one does, since the check
+that a child is workable was green for three days over a hand-written child that could not
+occur — and, the assertion most likely to be "fixed" by somebody tidying, that the P0
+advocate's door still lets one through.
 
 ### The session log, kept in the repo
 
