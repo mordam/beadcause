@@ -4169,10 +4169,69 @@ directions, and over every combination of the fields the payload can carry rathe
 only over the rows it writes), the row's copy of it, the scope rule, both sub-filters'
 defaults and the chrome on a pointer and a touchscreen.
 
+### The scope is a control you can see
+
+`Human`, `Both`, `Agent` — three words on the chrome, above the list and in front of
+everything else in the filter row. It is the coarsest control this page has, because it is
+the only one that changes what gets **fetched**: `human` sweeps the questions, `agent`
+sweeps the live beads nobody is asking you about, `both` does both. Every other filter on
+Home narrows rows already in hand; this one decides what Home is *able to contain*.
+
+It spent a while as the `Show` group inside the collapsing panel, on the argument that two
+collapsing controls side by side would be the three permanent rows of chips again with
+extra steps. That was the wrong trade and bc-khoe.24 undoes it. A control you have to open
+something to see is a control you forget is set, and the cost of forgetting this one is a
+screen that is empty for a reason that is off screen — which is the same complaint that
+promoted the ten kinds out to [the pill row](#one-list-six-kinds--and-the-two-sub-filters),
+and it has the same answer.
+
+**It is a segmented switch and not a pill that opens three chips.** Three options with
+exactly one always armed is the definition of a segmented control, three words fit across a
+360px phone, and a pill saying `Human ▾` would cost a tap to change and put the choice back
+behind something you have to open. The look did not change with the move — it is the same
+`.chip-row.scopes` banding it had inside the panel, in front of the panel instead of inside
+it — so somebody who used the old one finds the same control in a place they can see.
+
+**The mechanism is `public/filterpills.js`, and it is deliberately more general than one
+switch.** A group here is exactly the descriptor `public/filtermenu.js` takes —
+`{ id, legend, all?, multi?, options(), pick(id), hidden?() }` — so moving a filter between
+the panel and the row is editing which list it is handed to, rather than rewriting it. That
+is what bc-khoe.26 does with the bead search and the two status sub-filters. Two shapes are
+refused rather than half-drawn: a `text` group (the typeahead genuinely wants a dropdown
+under it, which is a panel's shape) and `said` (there is no summary line out here — the
+chips are the summary). A refused group is a `console.warn`, not a silent skip, because a
+filter the page believes it drew and has not is the worst of the three outcomes.
+
+Two properties are load-bearing and neither is visible by reading the file. `paint()`
+touches text and attributes only and rebuilds a group's chips only when the *set* of option
+ids changes, because the inbox repaints every 25 seconds and a row rebuilt on that clock
+drops the focus ring off a chip somebody is tabbing through. And **nothing in `.filters`
+may set `overflow`**: the panel beside the switch is absolutely positioned so it draws
+*over* the list, and a scroll container on either axis makes the other one `auto` too,
+which would clip that panel to the 34px line it hangs off. A narrow phone takes the width
+out of the summary line, which already ellipsises, and the switch never shrinks.
+
+**And the panel it now sits in front of opens leftwards.** That is the one thing the move
+broke and it is invisible outside a browser: the panel is 260px at its narrowest and hangs
+off `.filter-menu`, which the switch pushes to x=240 on a 360px phone — so left-anchored it
+ran 140px off the side of the screen. `#filters .filter-panel` is right-anchored, scoped to
+the inbox because it is only safe where the menu is the *last* thing on its row; the History
+tab's is the first, and the same rule there would push it off the other edge.
+
+What did **not** move is what the switch does. `chooseScope` in `public/app.js` is still
+the one place that stores the preference, drops selections the new scope cannot produce
+(`All Beads` under `Human` is a pill with nothing behind it), and refetches. And it is
+still this device's preference and nothing else's: `beadcause.scope` is read and written in
+`public/app.js` alone, so **changing scope cannot change what rings your phone** — that is
+the space picker's, stored on the server, where the push path can read it.
+`node test/filterpills.mjs` covers the switch, the repaint, the refusals and all four of
+those wirings; `node test/inboxkinds.mjs` still covers the panel it left.
+
 ### Finding one bead
 
 The chips answer "what *kind* of thing"; the box under them answers "which one". It sits
-in the same collapsed panel, below the scope switch, and it is a typeahead: type any part
+in the collapsed panel, behind the line the scope switch now sits in front of, and it is a
+typeahead: type any part
 of a bead id — or any part of a title — and the matches drop down, narrowing as you type.
 Click one and it becomes a pill with an × beside it, and the inbox is that bead and every
 bead under it. Take the × off and the list comes back. Several pills at once mean the
