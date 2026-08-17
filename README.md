@@ -13306,6 +13306,58 @@ reads better as "a window is already open on it" than as "somebody is editing
 because the live-session filter one call in took it out first. `node test/claimqueue.mjs`
 covers it.
 
+### The collision that has not happened yet — two beads, one tick
+
+Every filter above reads a collision that already exists: a window that is open, a branch
+with commits on it, another Mac's claim, a file somebody has their hands on right now. Two
+ready beads whose *declared* surfaces intersect are none of those. Neither has claimed
+anything, because neither has been opened; both therefore pass the filter above, both are
+dispatched in the same tick, and the collision happens about ninety seconds later in two
+windows. The first anybody hears of it is `scripts/claim-guard.sh` refusing an edit — which
+is exactly the lateness reading the register at dispatch exists to end, one tick further up.
+
+**A tick already knows every bead it is about to open.** Comparing their surfaces to each
+other costs nothing and the answer is free, so the outermost filter of the seven does that
+and **defers** the later of the two to the next tick. Later defers to earlier, so the
+ordering the survey has already established decides it rather than a new one invented here.
+`advocates.holdCollidingSurfaces: false` takes the filter out.
+
+Three things about the shape of that, and each is the same argument made elsewhere in this
+file:
+
+- **Deferred, not blocked.** The loser comes up on the next tick with nothing to release, no
+  timer and nobody to ask. By then the winner is holding a real claim, so what holds the
+  loser from that point on is the filter above — with a sentence that names a branch. This
+  one keeps no state between ticks at all.
+- **Declared surfaces only**, whatever `holdGuessedFiles` says. That flag decides whether a
+  guess may hold against a claim somebody is really holding; a hold with a guess at *both*
+  ends has no evidence at either. A bead that declared nothing is dispatched, exactly as it
+  is everywhere else in this field's story.
+- **It says so on the card**, as its own pill with its own reason, because a bead that
+  quietly never opens is indistinguishable from a bead nobody wants. The pill names the
+  other bead, which is all there is to look at — there is no window and no branch yet.
+
+**And one tick earlier still, a plan may not create the collision at all.** A plan is the
+one document in this system where somebody decides, in one sitting, what several windows
+will each go and do, which makes it the only place a file collision can be *designed out*
+rather than arbitrated afterwards. So [a plan group](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window)
+may declare a `files:` list, `formatPlan` prints it on the group's line so the person reading
+the plan comment can see the seam, and `validatePlan` **refuses** a plan whose groups
+intersect within one repo — naming the earlier group, which is the one the planner wrote
+first and is most likely to keep. It is a refusal rather than a deferral for the reason the
+strictness is worth stating: everywhere else a surface is a forecast and an overlap is a
+risk, but a plan is a decomposition somebody has just made, so an overlap in one is not a
+fact about the world, it is a bug in the plan — and the planner is the only party still
+holding the context to split it. Declaring nothing is legal and intersects nothing.
+
+The overlap test itself lives in `lib/beadfiles.js` beside the parser and the writer, and
+there is exactly one of it. Both sides of a comparison may be globs — `lib/**` against
+`lib/pr*.js` is a real pair — so the question is not "does A match B" but whether any path
+exists that both would match, decided exactly for a language of three things: `*` within a
+segment, `**` across them, and a literal. A plan that computed overlap differently from the
+dispatcher would be the worst outcome available, two mechanisms that both believe they are
+reading one field. `node test/plansurface.mjs` covers both ends.
+
 ### The child that goes ready after its parent's window opened
 
 Every filter so far asks about work *underneath* a bead: is a child ready, is a session in
@@ -20252,6 +20304,7 @@ to be one.
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
 | `advocates.holdClaimedFiles` | [hold a bead out of the queue while another session on this Mac is editing the files it would touch](#the-bead-whose-files-somebody-is-already-editing) (default `true`). The same register `scripts/claim-guard.sh` asks at `PreToolUse`, read at dispatch instead — where standing down costs nothing rather than a session that has already been briefed. No new state and no interval: the map is in this process |
 | `advocates.holdGuessedFiles` | whether a surface *guessed* out of the bead's prose may hold as well, or may only say so on the card (default `false`). A declared surface is a forecast somebody wrote down; a guess is the daemon having read a description, and evidence that is a resemblance errs toward doing the work twice rather than not at all — the same way the twin filter does, and the opposite of the open-pull-request one |
+| `advocates.holdCollidingSurfaces` | [defer a bead to the next tick when another bead this same tick is opening declared an intersecting surface](#the-collision-that-has-not-happened-yet--two-beads-one-tick) (default `true`). The only file collision no register can see, because at the moment it is decided neither window exists. Declared surfaces only, whatever `holdGuessedFiles` says — a hold with a guess at both ends has no evidence at either end — and deferred rather than blocked: it keeps no state between ticks and there is nothing to release |
 | `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it — the bead itself, or anything above or below it in the subtree — and stand down when a claim above one of our own windows wins](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
 | `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
