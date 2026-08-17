@@ -6,7 +6,7 @@ import { buildStamp } from '../lib/build.js';
 import { beginShutdown, installCrashHandlers } from '../lib/crash.js';
 import { declareOwnDeploy, ownWorkspace } from '../lib/deploy.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
-import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
+import { attachTerminalSocket, attachUpgrade, releaseSockets } from '../lib/termsocket.js';
 import { cleartextWarning, closeServer, startRenewal } from '../lib/tls.js';
 import { describeTailnet, tailnetState } from '../lib/tailnet.js';
 import { pushCertificate } from '../lib/notify.js';
@@ -275,12 +275,45 @@ if (startDelayMs > 0) {
   await new Promise((resolve) => setTimeout(resolve, startDelayMs));
 }
 
+/**
+ * What to do when the tailnet address turns up after we gave up on binding it.
+ *
+ * Only `npm run start:bare` ever reaches this: behind the router this process is handed
+ * `host: '127.0.0.1'` and has no tailnet address to fail on, and the router runs its own
+ * copy of exactly this dance. Binding the socket is `listen()`'s half; the half that is
+ * ours is that the socket has to be *joined up* — an `upgrade` handler for the terminal,
+ * and a renewal loop that has the certificate on it — and neither happens by itself.
+ *
+ * Which means the watcher can beat us to it. `listen()` runs first and the arrival can
+ * land on the next 5s tick, while everything between here and `armLateBind` below —
+ * `attachTerminalSocket`, which dynamically imports `ws` — is ordinary startup that can
+ * outlast a tick on a loaded Mac. So an early arrival is *remembered* rather than
+ * dropped, and `armLateBind` runs it if it has already happened. Getting this wrong
+ * would be the original bug with extra steps: an address that came back, a daemon that
+ * noticed, and still nothing serving the phone. bin/router.js says the same thing about
+ * its own copy, and it is the same trap.
+ */
+let armedLateBind = null;
+let lateArrived = null;
+const onLateBind = (late) => {
+  if (armedLateBind) return armedLateBind(late);
+  lateArrived = [...(lateArrived || []), ...late];
+};
+const armLateBind = (fn) => {
+  armedLateBind = fn;
+  if (!lateArrived) return;
+  const late = lateArrived;
+  lateArrived = null;
+  fn(late);
+};
+
 const servers = listen(
   // Behind the router this binds loopback only. The tailnet reaches the router; an
   // internal backend that also bound the tailnet IP would be answerable directly,
   // skipping every cutover guarantee the router exists to provide.
   internalPort ? { ...cfg, port: internalPort, host: '127.0.0.1' } : cfg,
-  handler
+  handler,
+  { onLateBind }
 );
 
 // `listen()` is the one place a certificate can *appear* — it is what calls
@@ -310,11 +343,42 @@ const wss = await attachTerminalSocket(cfg, servers);
  * socket stops being plain http, under the same condition: only the process that owns
  * the real port may decide what the phone is told.
  */
-const certRenewal = startRenewal(cfg, servers, {
+const renewalOptions = {
   notify: (state) => pushCertificate(cfg, state),
   onAcquired: () => {
     if (!internalPort) reconcileBaseUrl(cfg, { persist: true });
   },
+};
+let certRenewal = startRenewal(cfg, servers, renewalOptions);
+
+/**
+ * And the other half of a deferred tailnet bind: join the late socket up to everything
+ * a socket bound at startup got, so a daemon that came up before Tailscale ends in the
+ * same place as one that came up after it — with no `launchctl kickstart` in between.
+ *
+ * Three things, and each of them is load-bearing on its own.
+ *
+ * **The terminal**, through `attachUpgrade` rather than a second `attachTerminalSocket`.
+ * That call builds a whole new `WebSocketServer`, and `wss` above is the only handle
+ * `/internal/release` has — so a phone attached over the late address would be invisible
+ * to `releaseSockets` and get 1006 mid-keystroke on the next swap instead of a close
+ * frame it can act on. One socket server, one client set.
+ *
+ * **The renewal loop**, rebuilt rather than left alone, because `startRenewal` filters
+ * the array it is handed *once*, at call time, and returns null when none of them are
+ * TLS. A daemon that came up loopback-only therefore has no renewal at all, and the late
+ * bind is the first moment there is anything to renew. Clearing the old timer first is
+ * what keeps that idempotent when Tailscale goes down and comes back more than once.
+ *
+ * **The URL the phone is handed**, which names the address until there is a certificate
+ * — so it moves when the address does, under the same guard as everywhere else here:
+ * only the process that owns the real port may decide what the phone is told.
+ */
+armLateBind((late) => {
+  attachUpgrade(cfg, wss, late);
+  if (certRenewal) clearInterval(certRenewal);
+  certRenewal = startRenewal(cfg, servers, renewalOptions);
+  if (!internalPort) reconcileBaseUrl(cfg, { persist: true });
 });
 // Terminals that were running when the last daemon went away. Nothing is spawned
 // here — they come back as offers to resume, and the first attach is what starts a
