@@ -301,6 +301,12 @@ try {
       depth: 1,
       key: 'alpha/zz-p0.1',
       pending: false,
+      // Who is in this bead's window right now, for the expansion's "what happened to
+      // it" (bc-rfnr.9.5). `null` here because this suite runs no sessions — and the
+      // field is asserted rather than skipped precisely because it is the cheap half:
+      // the live pid rides the poll on the row, so a row that stopped carrying it would
+      // take the live link off every open bead without a word.
+      session: null,
     });
   });
 

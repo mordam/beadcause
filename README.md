@@ -4633,6 +4633,86 @@ approximate, because nothing above the row changes height — and calls `release
 after, so the restores `settlePlace` has queued for the next frame do not put the anchor's
 answer back.
 
+### What happened to it — its pull requests, and its session
+
+The block at the foot of an expanded bead answers the question the rest of it raises and
+cannot reach: **and then what?** Everything above it is the bead as `bd` holds it. This is
+the part that is *about* the bead and lives somewhere else — on GitHub, and in a window
+that has probably already closed.
+
+It exists because [taking the flat list away](#the-board-is-the-inbox-and-the-list-under-it-is-what-a-tree-cannot-hold)
+took the last surface that connected the two. A pull request row in that list carried
+[the beads it names](#which-bead-a-pull-request-is-for), so the trail from a delivery to
+its bead was one glance; now that row follows its bead off the list, and the trail had no
+screen at all. This is the same index walked from the other end.
+
+**The pull requests are that index, reversed — not a sweep of their own.** `/api/prs`
+already resolves `beads[]` per row on the daemon, so "which pull requests are for this
+bead" is a question this page has the answer to before it is asked. What it costs is one
+subtlety worth stating plainly: **a board this page has not got is not a board with
+nothing on it.** The sweep is a `gh` call per repo behind its own minute, and the kind
+filter can switch it off entirely — so until it lands the block says it is reading, and
+never that no pull request exists. An open bead also counts as a reader of the board, so
+the sweep runs while one is open whatever the filter says; without that the section would
+sit on "reading" for ever on a filter with pull requests hidden, which is worse than the
+call it was avoiding.
+
+**An open pull request is a button into the card this app already has** — the full view
+with the diffstat, the checks, the merge and the decline on it — because reimplementing
+any of that inside a tree row would be a second copy of it, drifting from the first from
+the day it landed. A **closed** one gets a link out to GitHub instead, and that is not a
+style choice: the inbox's own row list drops closed pull requests, so a button would open
+nothing at all, and a control whose only outcome is nothing happening is invisible until
+somebody taps it.
+
+**The session is two different addresses and they are not interchangeable.** A window
+running right now is reachable only by pid — `/session?pid=…` — and that pid rides the
+tree row itself, because the daemon already had the session list in hand when it built the
+card, so it is a `find` rather than a request. A window that has finished has no pid at
+all and is addressed by the bead: [`/bead-session`](#reading-it-back-on-the-phone--bead-session),
+which is also where the memories it left are shown. A bead can honestly have both — one
+run archived and another going now — and both are drawn, because collapsing them would
+hide whichever one the reader came for.
+
+Whether anything is archived is one `git log` over one ref (`/api/session-archive`), asked
+after the bead has painted rather than folded into it, and it has the three states [the
+graph's sheet](#the-way-through--what-its-session-did) gave the same question: **looking**,
+which is deliberately not tappable, because a row that is a link and then stops being one
+loses the tap of somebody who reached for it as it resolved; **an archive**, with the count
+and when the newest ran; and **nothing archived**, which is the same box, muted, and not a
+link. A check that *failed* offers the link anyway — the two errors are not symmetrical.
+Saying "no session" over a bead that has one hides the page for good; offering one over a
+bead that has none costs a tap onto a page whose whole design is saying plainly what is not
+there.
+
+**And a bead with neither says so in one sentence and offers nothing to tap.** That is the
+acceptance criterion and it is the common case, not the edge: most beads in this tracker
+have never had a pull request or a session, so a heading over two rows both reading "none"
+would be three lines of furniture on every bead you open. One sentence instead, naming the
+bead, with no anchor and no button anywhere in the block.
+
+`node test/p0happened.mjs` runs the renderers out of `public/app.js` in a `node:vm` over a
+fixture board and a fixture archive: that a bead lists every pull request naming it and no
+others, that the match is on the id and not on a prefix of it (every parent id here is a
+prefix of its children's, so `startsWith` would put two children's deliveries on their
+epic), that an open one is a button and a declined one is a link out, that a live session
+and an archived one are drawn at their own addresses and both when both are true, that
+"still looking" is not tappable, that a bead with neither has nothing tappable in it at
+all, that a board this page never fetched says so rather than claiming an absence, and
+that an open bead makes the board wanted whatever the kind filter says.
+
+`node scripts/p0happened-check.mjs` is the half a string cannot reach — the real page in
+headless Chrome at 393×852, with `/api/prs` held back until the tap has landed so that the
+"reading" state is a frame somebody actually sees: that the block draws before the board
+answers and has nothing to press while it is unresolved, that the rows arrive off one sweep
+and the archive off one request, that every row is a thumb-sized target and none of them
+pushes a 393px page wider than itself, that a bead nothing happened to has no control
+anywhere inside the block, and the one that is only true in a browser — **that tapping a
+pull request actually opens the card.** That button is nested in the bead expansion, which
+is nested in a card whose summary is also a button, and the sheet it opens is a row the
+inbox's own filter had already dropped. It came up empty the first time it was run, which is
+what turned up the ordering above.
+
 ### One status filter, in the tab with the tree it narrows
 
 At the top of an open epic's tab sits one control — **Not closed · All · Closed** — and
@@ -4782,12 +4862,22 @@ the board has:
   trade costs is worth naming — the *ladder* a delivery is on (in review, waiting on a
   deploy: `lib/prstage.js`) is not on a tree row, so it is now a thing the board does not
   tell you. A delivery that actually needs you is a `human` bead and is still drawn, as a
-  question, in the tree.
+  question, in the tree. What closes that gap is
+  [the block at the foot of an expanded bead](#what-happened-to-it--its-pull-requests-and-its-session),
+  which draws the same ladder on the bead itself.
 - **A JIRA ticket**, for the same reason as a chat: it has no bead at all until
   `bd jira pull` files one.
 - **A question under nobody's root** — [`unhomed`](#a-question-under-nothing-is-still-drawn),
   and this is now most of what is in the list. No card on the board holds it, so removing it
   with the rest would put it on no screen, which is the exact bug that map exists to fix.
+
+**And a card that is open has a row, whoever's P0 its bead hangs off.** That test runs
+before every one of the four, because `.card.open` is a full-screen sheet built out of an
+inbox row: a sheet opened over a row this filter had dropped comes up empty. It sat *below*
+the pull request rule until bc-rfnr.9.5 and that was a real gap rather than an ordering
+nicety — a pull request naming a bead is filtered out unconditionally, so tapping one on
+the board page's `Full view`, following a notification into it, or using the new control on
+the bead itself put a sheet up over nothing and looked like a tap the app had ignored.
 
 The three no-op cases still hold, unchanged: an install with no `cfg.me`, one that owns no
 epics yet, and a payload from a server that predates the board all keep the flat inbox they
