@@ -13972,6 +13972,51 @@ unknown, rather than reporting a conflict nothing established. That length is no
 preference but the size of a race in somebody else's bookkeeping, so it is a constant in
 `lib/pr.js` rather than a key here.
 
+### Seeing a review at all, and who is allowed to leave one
+
+Two facts about this particular repo sit underneath everything the review loop wants to
+do, and both are the kind that read as a bug in beadcause when you meet them from above.
+
+**`reviewDecision` cannot see an approval here, and it never will.** GitHub's
+`reviewDecision` answers *does this pull request satisfy its review requirement* — not
+*has anybody approved it*. A repo with no branch protection and no ruleset has no
+requirement, so the answer is the empty string with an approving review sitting on the
+pull request, exactly as it is with none. `mordam/beadcause` is that repo: measured
+2026-08-17, `repos/mordam/beadcause/branches/main/protection` is a 404,
+`.../rulesets` is `[]`, and `reviewDecision` is `""` on all thirty of the most recent
+pull requests, merged and open alike. So `requireApproval` above, which reads
+`reviewDecision`, is right everywhere the repo configures a requirement and blind on
+this one — and a gate that waited on it would look, from the outside, like a reviewer
+that reviewed and was ignored.
+
+The fix is to ask the reviews themselves. `latestReviews` — the most recent review from
+each reviewer, GitHub's own de-duplication — is in the field list `lib/pr.js` fetches,
+and every pull request now carries `reviews` (author, state, association, when) and
+`approvedBy` (the logins whose *latest* review is an approval, so a dismissed one stops
+counting). It costs nothing measurable: a forty-row `gh pr list` with the field and
+without it both came back in 3.5–4.3 seconds against this repo. Review *bodies* are
+deliberately not carried — a reviewing agent writes its comments where the worker will
+read them, and carrying the prose would put every review's full text into the board's
+list payload, which is the cost the board already strips the pull request's own
+description to avoid.
+
+**And the account that opens a pull request can never approve it.** GitHub refuses an
+approving review from the author, which is not a policy anyone here can turn off. There
+are two logins on this Mac — the owner with `ADMIN` on `mordam/beadcause`, and
+`NeanderthalMan`, a collaborator with `READ` — and `lib/pr.js` has always picked the
+first of those, because it picks the account that will *merge* and sweeps for one that
+can write. That is the right answer to its own question and the wrong one here: the
+account best qualified to merge is precisely the account that cannot approve.
+
+So there is a second lookup beside it, `reviewerFor(dir)`, choosing by **role** rather
+than by capability — an account that can see the repo and is *not* the one everything
+else runs as. `READ` is enough on purpose: a collaborator with read access may submit an
+approving review on a pull request it did not open, so being able to see the repo is the
+whole test. On a Mac with one login it returns **null**, which is an ordinary answer and
+not an error — one account cannot both open and approve, and a caller that meets a null
+records the approval on the bead and says plainly that no GitHub review was submitted,
+rather than failing a delivery over a second account nobody promised.
+
 ### What it does to the two things that were already here
 
 **A fourth ending.** The advocate reads three endings off a session that exits: closed,
