@@ -11362,6 +11362,13 @@ the same read [`beadcause-promotework`](#what-to-test-is-asked-of-the-tracker-no
 prints — and anything still open under the epic is named on the record, which is bc-4bet.2's
 defect in front of the last reader who can stop a release over it.
 
+**The hold is not routed around.** Every promotion bead is filed `unendorsed`, and that
+marker is the only thing standing between an unattended sweep and a production deploy — so
+it is enforced in the two layers everything else here is: a filter, so an unendorsed bead is
+never picked up, and a refusal, so one handed straight to `carry` is still not carried. The
+filter keeps the refusal from being reached; the refusal is the guarantee, because a filter
+is one caller away from being routed around.
+
 **One repo, for now, and it says so.** An epic spanning three repos is three images with
 three UAT runs and three production runs, and they may not all pass; one bead cannot hold
 "two of three promoted" without either lying or closing early. Until that shape exists, a

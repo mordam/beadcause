@@ -43,7 +43,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-promoterun-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { assertDriver, carry, epicOf, openPromotions, readStep, reposOf, stateOf, STEPS, PASSED, FAILED, UNKNOWN } =
+const { assertDriver, carry, epicOf, isEndorsed, openPromotions, readStep, reposOf, stateOf, STEPS, PASSED, FAILED, UNKNOWN } =
   await import(LIB('promoterun.js'));
 const { filePromotion } = await import(LIB('promote.js'));
 const { validatePlan } = await import(LIB('plan.js'));
@@ -61,7 +61,7 @@ const promotionBead = (over = {}) => ({
   description: BODY,
   status: 'open',
   assignee: '',
-  labels: ['promote', 'unendorsed'],
+  labels: ['promote'],
   ...over,
 });
 
@@ -365,6 +365,11 @@ const refusals = [
   ['a bead that is not a promotion bead', { row: promotionBead({ labels: ['ship'] }) }, /not a promotion bead/],
   ['a bead that is already closed', { row: promotionBead({ status: 'closed' }) }, /already closed/],
   [
+    'a bead nobody has endorsed — the hold is the whole gate between a sweep and production',
+    { row: promotionBead({ labels: ['promote', 'unendorsed'] }) },
+    /not endorsed/,
+  ],
+  [
     'a bead another agent is holding',
     { row: promotionBead({ status: 'in_progress', assignee: 'someone-else' }) },
     /held by someone-else/,
@@ -438,9 +443,14 @@ await check('the epic and the repos are read out of what lib/promote.js actually
   assert.equal(epicOf(row), 'x-1');
   assert.deepEqual(reposOf(row), ['alpha']);
 
+  assert.deepEqual(created[0].labels, ['promote', 'unendorsed'], 'filed held, as every bead this daemon files for itself is');
+  const held = await carry(fakeBd({ row }), WS, 'p-9', fakeDriver(), { actor: 'release-agent' });
+  assert.match(held.refused, /not endorsed/, 'so the bead as filed is refused until somebody agrees to it');
+
+  const endorsed = { ...row, labels: ['promote'] };
   const driver = fakeDriver();
-  const run = await carry({ ...fakeBd({ row }), row }, WS, 'p-9', driver, { actor: 'release-agent' });
-  assert.equal(run.refused, undefined, 'and a freshly filed promotion bead can be carried as it stands');
+  const run = await carry(fakeBd({ row: endorsed }), WS, 'p-9', driver, { actor: 'release-agent' });
+  assert.equal(run.refused, undefined, 'and once endorsed it carries as it stands, with nothing rewritten by hand');
   assert.equal(run.repo, 'alpha');
 });
 
@@ -456,9 +466,14 @@ await check('stateOf never guesses: only the three words, or a plain boolean, ar
 });
 
 await check('the pick-up is every promotion bead nobody has closed', async () => {
-  const rows = [promotionBead(), promotionBead({ id: 'p-2', status: 'closed' })];
+  const rows = [
+    promotionBead(),
+    promotionBead({ id: 'p-2', status: 'closed' }),
+    promotionBead({ id: 'p-3', labels: ['promote', 'unendorsed'] }),
+  ];
   const found = await openPromotions({ listLabel: async () => rows }, WS);
-  assert.deepEqual(found.map((r) => r.id), ['p-1'], 'a closed promotion is not work waiting');
+  assert.deepEqual(found.map((r) => r.id), ['p-1'], 'a closed promotion is not work waiting, and a held one is not picked up');
+  assert.equal(isEndorsed(rows[2]), false, 'and the filter and the refusal read the same label');
   assert.deepEqual(await openPromotions({}, WS), [], 'and a bd that cannot list is an empty list, not a crash');
 });
 
