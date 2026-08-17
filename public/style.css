@@ -865,7 +865,10 @@ body {
   border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
   border-radius: 10px;
   background: var(--surface); color: var(--text);
-  font: 650 13px/1 inherit; cursor: pointer;
+  /* Longhands, not `font: 650 13px/1 inherit` — that shorthand is invalid (bc-khoe.15):
+     `inherit` is not a legal family inside it, so the whole declaration used to be
+     dropped and this button drew at the bar's inherited weight and line-height. */
+  font-weight: 650; font-size: 13px; line-height: 1; cursor: pointer;
 }
 
 /*
@@ -953,7 +956,11 @@ body {
   padding: 8px 10px;
   border: 0; border-radius: 9px;
   background: none; color: var(--text);
-  font: 600 14px/1.2 inherit; text-align: left;
+  /* Longhands, not `font: 600 14px/1.2 inherit` — invalid CSS (bc-khoe.15): `inherit`
+     is not a legal family inside the shorthand, so it was silently dropped and this
+     row drew at the menu's inherited weight and line-height instead. Sibling to the
+     comment on `.accountmenu-sub` just below, which caught this shape first. */
+  font-weight: 600; font-size: 14px; line-height: 1.2; text-align: left;
   /* Anchors are rows too (Admin, and every hoisted `<a>`), and a row that is a link must
      not look like one. */
   text-decoration: none;
@@ -1046,7 +1053,10 @@ body {
 .accountpick-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .accountpick-add, .accountpick-close, .accountpick-remove {
   flex: 1 1 auto; min-height: var(--tap); padding: 0 14px;
-  border-radius: 11px; font: 650 14px/1 inherit; cursor: pointer;
+  /* Longhands, not `font: 650 14px/1 inherit` — invalid CSS (bc-khoe.15): `inherit`
+     is not a legal family inside the shorthand, so it was silently dropped and these
+     buttons drew at the dialog's inherited weight and line-height instead. */
+  border-radius: 11px; font-weight: 650; font-size: 14px; line-height: 1; cursor: pointer;
 }
 .accountpick-add { border: 0; background: var(--accent); color: var(--accent-ink); }
 .accountpick-close { border: 1px solid var(--line); background: var(--bg); color: var(--text); }
