@@ -39,6 +39,11 @@
  *       No ?v= on the script tag, so a shipped header change looks absent.
  *     acceptance: A deploy changes the URL.
  *     rationale: Found while reading webapp/templates/base.html for bc-7qo.
+ *     files: [webapp/templates/base.html]   # optional: what it expects to touch
+ *
+ * `files` is written into the bead's description as the block lib/beadfiles.js reads, and
+ * it is a forecast rather than a promise: nothing refuses a filing over it and a bead that
+ * names none is filed exactly as every bead filed before bc-42ow was.
  *
  * Prints one id per line on stdout, so `$(beadcause-file …)` is a list of new beads.
  * Everything else — warnings, the duplicate flags, what was clamped — is stderr, since

@@ -560,7 +560,17 @@ await check('a selection the new scope keeps is kept', () => {
 
 /* ------------------------------------------------------------------ chrome */
 
-/** Mount the control with a scope group, the way public/app.js does. */
+/**
+ * Mount the control with a page group of its own.
+ *
+ * The scope is the stand-in, and since bc-khoe.24 it is a stand-in rather than the real
+ * wiring: the scope is a segmented switch on the chrome now (public/filterpills.js) and
+ * what public/app.js actually hands this panel is the bead search. It is kept here
+ * because what these checks are about is the panel's handling of *a page's own group* —
+ * chips, the summary line, the accessible names — and a typeahead draws an input rather
+ * than chips. test/filterpills.mjs is where the scope's own home is pinned, and
+ * test/beadsearch.mjs is where the box's is.
+ */
 function mounted({ hover = false, store = new Map(), kinds = ANY_KINDS, counts } = {}) {
   const { filter, doc, host, marks } = load({ hover, store });
   const scope = { id: 'human' };
@@ -623,6 +633,8 @@ await check('a chip per group the panel still owns, and no kinds among them', ()
   const { panel, chips } = mounted();
   const groups = panel.children.map((b) => b.dataset.group);
   assert.ok(!groups.includes('kind'), 'the kinds are still chips in the panel');
+  // `scope` here is the fixture's page group, not app.js's — see `mounted`. What the
+  // check is about is that the page's group leads and the control's own two follow it.
   assert.deepEqual(groups, ['scope', 'status', 'beadstatus'], `the panel holds ${groups.join(', ')}`);
   // The scope is a switch, not a count: there is no cheap number for a slice that has
   // not been fetched, and a wrong one beside a real one is worse than none.

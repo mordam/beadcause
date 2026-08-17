@@ -1571,6 +1571,12 @@
     const others = all.filter((x) => x.ref !== b.ref);
     const externals = b.dependsOn.filter((d) => !all.some((x) => x.ref === d));
     const dupe = dupeHtml(b.duplicate);
+    // A count and not the paths themselves on the collapsed row: a repo-relative path is
+    // long, five of them would push the priority and type pills off a phone, and the one
+    // thing worth seeing at a glance is *that* this bead declared a seam. The paths are
+    // in the tooltip and in the field below. `|| []` because a draft kept on this phone
+    // may predate the field (bc-42ow) — the sheet must not go blank over it.
+    const files = b.files || [];
 
     const summary = `<button class="bead-head" data-toggle="${esc(b.ref)}" aria-expanded="${isOpen}">
       <span class="bead-title">${esc(b.title || 'Untitled bead')}</span>
@@ -1580,6 +1586,11 @@
         ${b.parent ? `<span class="pill">under ${esc(b.parent)}</span>` : ''}
         ${b.dependsOn.length ? `<span class="pill">after ${esc(b.dependsOn.join(', '))}</span>` : ''}
         ${b.labels.map((l) => `<span class="pill">${esc(l)}</span>`).join('')}
+        ${
+          files.length
+            ? `<span class="pill" title="${esc(files.join('\n'))}">${files.length} file${files.length === 1 ? '' : 's'}</span>`
+            : ''
+        }
       </span>
     </button>`;
 
@@ -1657,6 +1668,13 @@
           <span>Labels</span>
           <input type="text" data-field="labels" data-ref="${esc(b.ref)}" value="${esc(b.labels.join(', '))}"
             placeholder="comma, separated" autocapitalize="none" autocorrect="off">
+        </label>
+
+        <label class="field">
+          <span>Files it expects to touch</span>
+          <input type="text" data-field="files" data-ref="${esc(b.ref)}" value="${esc(files.join(', '))}"
+            placeholder="lib/thing.js, test/thing.mjs" autocapitalize="none" autocorrect="off"
+            spellcheck="false">
         </label>
 
         ${
@@ -1755,7 +1773,14 @@
           // normalises identically; see `labelList` in lib/draft.js for why.
           field === 'labels'
             ? el.value.split(',').map((s) => s.trim()).filter(Boolean)
-            : el.value;
+            : // A path contains no comma and a phone keyboard puts spaces where it likes,
+              // so both separate. Nothing is normalised here — `normalizeSurface` in
+              // lib/beadfiles.js is the one place that decides what a path is, and a
+              // second opinion on this phone is how two spellings of one file come to
+              // read as two files, which is the whole thing bc-42ow exists to prevent.
+              field === 'files'
+              ? el.value.split(/[\s,]+/).filter(Boolean)
+              : el.value;
         if (el.tagName === 'TEXTAREA') autoGrow(el);
         markDirty();
       });
@@ -1939,6 +1964,7 @@
       design: '',
       notes: '',
       labels: [],
+      files: [],
       parent: null,
       dependsOn: [],
     });

@@ -26,6 +26,16 @@
      teal that every other live thing in this app already uses. */
   --bead-answered: #60a5fa;
   --bead-made: #4ade80;
+  /* The same green once it has to be *read* rather than seen. Note it is not the same
+     kind of token as --accent-ink, --danger-ink and --warn-ink, which name what goes
+     *on* a surface of that colour — this one is that colour, made legible as text, and
+     naming it --bead-made-ink would have promised the other thing. It exists for the
+     reason those three do: --bead-made was picked to be told apart from --bead-answered
+     and from --accent mid-flight across a page (public/absorb.js), not to be read at
+     11px, and one colour cannot be asked for both. On this scheme they are the same
+     value — a light green on the dark surfaces is 10:1 either way — and the light
+     scheme is where they part. Measured by scripts/design/contrast.mjs. */
+  --made-ink: #4ade80;
   --bead-flash: #ffffff;
   --radius: 14px;
   --tap: 48px;
@@ -51,6 +61,14 @@
        #0b0f14 — the dark scheme's values wash out against it. */
     --bead-answered: #2563eb;
     --bead-made: #16a34a;
+    /* And here they part. #16a34a is a step darker than the dark scheme's green so the
+       flight reads on a near-white page, but as *text* it is 3.30:1 on --surface,
+       3.07:1 on --bg and 2.91:1 on --surface-2 — under AA at every size this sheet
+       draws it: "+412" and "✓ 3" on a PR row, the LIVE rung, a deploy's step ticks.
+       A darker green fixes the reading without touching the flight, which is the one
+       job the brighter one was picked for: this is 7.13, 6.65 and 6.29 on those same
+       three grounds. Measured by scripts/design/contrast.mjs. */
+    --made-ink: #166534;
   }
 }
 
@@ -221,11 +239,20 @@ body {
 
 /*
   One line, always. `#filters` held three stacked rows of chips once — the scope, then
-  the spaces, then the workspaces — and now holds a single collapsed control (see
-  public/inboxfilter.js) whose panel is *absolutely positioned*, so opening it draws
-  over the list instead of pushing it down. That matters twice: the cards under the
-  pointer do not move as you reach for a chip, and paintScrollPos() measures this nav
-  to decide which card you are reading, so its height has to be the same open or shut.
+  the spaces, then the workspaces — and now holds two controls side by side: the scope
+  switch, flat on the chrome (public/filterpills.js, bc-khoe.24), and behind it the
+  collapsed panel with what is left of the filter in it (public/inboxfilter.js). The
+  panel is *absolutely positioned*, so opening it draws over the list instead of pushing
+  it down. That matters twice: the cards under the pointer do not move as you reach for
+  a chip, and paintScrollPos() measures this nav to decide which card you are reading,
+  so its height has to be the same open or shut.
+
+  **Nothing here may set `overflow`.** The obvious answer to two controls on a narrow
+  phone is the sideways scroll `.viewbar` has — and it is the wrong one: a scroll
+  container on either axis makes the other one `auto` too, so the panel that is supposed
+  to draw *over* the list would be clipped to the 34px line it hangs off. The width is
+  taken out of the summary instead, which already ellipsises, and the switch never
+  shrinks.
 */
 .filters {
   /* A row of the shell rather than the first thing in the list (bc-7utr), so it no
@@ -235,9 +262,25 @@ body {
      this line is fixed either way and the scroller under it is what takes the slack. */
   flex: none;
   display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 10px 16px 6px;
 }
-.filter-menu { position: relative; max-width: 100%; }
+/*
+  The filters that are not behind anything. One row today and it is the scope; bc-khoe.26
+  brings the rest of the panel out beside it, which is why this is a flex row of groups
+  rather than a rule on the one group in it.
+
+  `flex: none` is the half that matters on a 360px phone: the switch is three fixed words
+  and the line beside it is prose that can be cut, so the summary is what gives up the
+  width. A switch squeezed to fit would put its last segment on a second line, and a
+  segmented control that wraps is three chips again.
+*/
+.filterpills { flex: none; display: flex; align-items: center; gap: 8px; }
+/* `min-width: 0` and not `max-width: 100%` alone: a flex item's floor is its content, so
+   without this the summary refuses to shrink, pushes the row past the viewport, and the
+   ellipsis inside `.sel` never gets to do its job. */
+.filter-menu { position: relative; min-width: 0; max-width: 100%; }
 /*
   What the control says when nobody is reaching for it: the scope and the kinds, in
   words, on one line. Shaped like a chip because that is what it replaced, and wide
@@ -280,6 +323,21 @@ body {
 /* `display: flex` beats the UA's [hidden] rule, so the attribute needs saying again —
    without this the panel is open from the moment the page loads. */
 .filter-panel[hidden] { display: none; }
+/*
+  On the inbox the panel hangs off its *right* edge, and that is bc-khoe.24's doing.
+
+  The panel is 260px wide at its narrowest and it is positioned against `.filter-menu`,
+  which used to be the first thing on the row and 16px from the left edge — so `left: 0`
+  put it comfortably on the screen. The scope switch leads now, which pushes the menu to
+  x=240 on a 360px phone, and a left-anchored panel from there runs 140px off the side of
+  the screen. Right-anchored it opens leftwards, back under the switch, and fits.
+
+  Scoped to `#filters` and not written on `.filter-panel` itself, because it is only safe
+  where the menu is the *last* thing on its row: the History tab's panel (`#hist-filters`)
+  is the first, and right-anchoring that one would push it off the other edge instead.
+  bc-khoe.26 takes this whole panel apart, and this rule goes with it.
+*/
+#filters .filter-panel { left: auto; right: 0; }
 /*
   The 6px gap above the panel, made part of the control. Without it, moving the mouse
   from the summary to a chip crosses ordinary page and fires a pointerleave; with it
@@ -407,17 +465,23 @@ body {
 }
 .chip-row::-webkit-scrollbar { display: none; }
 /*
-  The scope leads, and it is a different *kind* of control from the two rows under
-  it: those filter the rows already fetched, this one changes what gets fetched at
+  The scope leads, and it is a different *kind* of control from the filters beside
+  it: those narrow the rows already fetched, this one changes what gets fetched at
   all. So it is set apart — squarer, tighter, banded together like one segmented
-  switch rather than three independent chips — and a rule under it draws the line
-  between "which slice of the tracker" and "which part of that slice".
+  switch rather than three independent chips.
+
+  Since bc-khoe.24 it is not in the panel at all: being the control that decides what
+  the page can contain is exactly why it is the one that must not be behind a line you
+  reach for. The look did not change with the move — it is the same switch, in front of
+  the panel instead of inside it — and the P0 board's status filter borrows it (`.p0-status`
+  in public/app.js) because it is the same kind of choice.
+
+  `flex-wrap: nowrap` is what makes it one object: a segmented control with its last
+  segment on a row of its own is three chips again. It was scoped to `.filter-panel`
+  until bc-khoe.24 and is not any more, because the switch has two homes now and the
+  rule is about the switch rather than about either of them.
 */
-.chip-row.scopes { gap: 0; }
-/* The switch is one object and must not break across lines, whatever the panel's
-   width — a segmented control with its last segment on a row of its own is three
-   chips again. */
-.filter-panel .chip-row.scopes { flex-wrap: nowrap; }
+.chip-row.scopes { gap: 0; flex-wrap: nowrap; }
 .chip-row.scopes .chip {
   border-radius: 0;
   border-left-width: 0;
@@ -1222,6 +1286,46 @@ body {
   the other only needs your thumb.
 */
 .card.has-failed:not(.open) { box-shadow: inset 3px 0 0 var(--danger); }
+
+/*
+  And the card you have just tapped, for as long as what it needs is still on the wire.
+  bc-jair.
+
+  A shut card is opened by `expand()`, which awaits `/api/question` or `/api/bead` and
+  only *then* redraws the list. Until it landed the tap had nothing at all to show for
+  itself — and a tap with nothing to show for itself is one people make again, which on
+  a question card is two taps racing to open the same brief. `.card[data-act]:active`
+  above says "your finger is here"; this says "and it went", for as long as that is
+  still true.
+
+  An outline where the two rules above are inset edges, and the difference in shape is
+  the difference in kind: those two are a standing property of the row — you did not
+  finish, the tracker refused — and this is a thing happening to the card right now.
+  It also means a card can wear both at once, which is the ordinary case rather than a
+  corner: tapping a card that holds a draft must not have to choose between saying so
+  and saying it heard you.
+
+  `outline-offset: -2px` puts the ring inside the border box, so nothing on the card
+  moves and nothing is cut off by `.card`'s own `overflow: hidden`. A border, or a
+  wider one, would shove the text sideways under the thumb that tapped it — the same
+  reason the draft edge above is a shadow.
+
+  The pulse starts *at* the ring rather than fading up to it, so the first frame the
+  browser paints after the tap is the whole mark however slow the fetch turns out to
+  be. That is also what lets reduced motion be one line: switch the animation off and
+  what is left is exactly that first frame, held.
+*/
+.card.opening:not(.open) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  animation: card-opening 1.4s ease-in-out infinite;
+}
+@keyframes card-opening {
+  50% { outline-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card.opening:not(.open) { animation: none; }
+}
 
 .card-head { padding: 14px 15px 0; }
 
@@ -2931,7 +3035,7 @@ button.work-row {
    request on its way is not an alert. */
 .pr-stage { font-variant-numeric: tabular-nums; }
 .pr-stage.st-review { border-color: var(--accent); color: var(--accent); }
-.pr-stage.st-live { border-color: var(--bead-made); color: var(--bead-made); }
+.pr-stage.st-live { border-color: var(--made-ink); color: var(--made-ink); }
 .pr-stage.st-closed { opacity: 0.7; }
 
 /* ------------------------------------------------- a pull request in the inbox */
@@ -2992,14 +3096,14 @@ button.work-row {
    the reason this screen re-reads the pull request before it draws a button, and a
    refusal you had to have been looking at is one you press the button over twice. */
 .pr-said { margin: 8px 0 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
-.pr-said.pr-ok { color: var(--bead-made); }
+.pr-said.pr-ok { color: var(--made-ink); }
 .pr-said.pr-bad { color: var(--danger); }
 .board-num { color: var(--muted); font-variant-numeric: tabular-nums; }
 .board-nobead { font-style: italic; opacity: 0.8; }
 .board-facts { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.diffstat ins { color: var(--bead-made); text-decoration: none; }
+.diffstat ins { color: var(--made-ink); text-decoration: none; }
 .diffstat del { color: var(--danger); text-decoration: none; }
-.board-checks.passing { color: var(--bead-made); }
+.board-checks.passing { color: var(--made-ink); }
 .board-checks.pending { color: var(--warn); }
 .board-checks.failing { color: var(--danger); }
 
@@ -3138,7 +3242,7 @@ button.work-row {
 .deploy-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .deploy-what { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; min-width: 0; }
 .deploy-said { color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.deploy.good .deploy-said { color: var(--bead-made); }
+.deploy.good .deploy-said { color: var(--made-ink); }
 .deploy.warn .deploy-said { color: var(--warn); }
 .deploy.bad .deploy-said { color: var(--danger); }
 .deploy.live .deploy-said { color: var(--accent); }
@@ -3195,7 +3299,7 @@ button.work-row {
 
 .deploy-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .deploy-step { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; font-size: 12.5px; }
-.deploy-tick { flex: none; width: 1em; color: var(--bead-made); }
+.deploy-tick { flex: none; width: 1em; color: var(--made-ink); }
 .deploy-step.bad .deploy-tick { color: var(--danger); }
 .deploy-step-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .deploy-step-note { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
