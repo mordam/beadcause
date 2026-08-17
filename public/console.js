@@ -87,12 +87,16 @@
    * conversations back, in the order you opened them, the same way a browser gives
    * you your tabs back rather than starting you at a blank page.
    *
-   * Only `{ id, ws }` is kept, never the title. `public/warm.js` is `sessionStorage`
-   * on purpose so that bead text does not sit on the phone's disk overnight, and a
-   * chat's title is bead text — so a restored handle draws its repo until the first
-   * `/api/consoles` comes back, which is an in-memory read on the daemon. The repo is
-   * what the bar already falls back to for a chat with no seed, so it is the same
-   * word in the same place, one request early.
+   * Only `{ id, ws }` is kept, never the title. That was originally a privacy rule —
+   * `public/warm.js` was `sessionStorage` so that bead text did not sit on the phone's
+   * disk overnight, and a chat's title is bead text. Adam settled that question the other
+   * way on 2026-08-15 and warm.js is durable now (bc-1kwl.14), so the rule survives on its
+   * second reason alone, which was always the better one: a stored title is a title that
+   * can be *wrong*, and a strip that draws last week's name for a chat that has been
+   * renamed is worse than one that draws the repo. So a restored handle draws its repo
+   * until the first `/api/consoles` comes back, which is an in-memory read on the daemon.
+   * The repo is what the bar already falls back to for a chat with no seed, so it is the
+   * same word in the same place, one request early.
    *
    * The `ws` is what makes the strip per-workspace *before* that request lands: it is
    * the only thing that can say which handles this filter lets through when nothing
