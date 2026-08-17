@@ -4124,7 +4124,9 @@ where it comes from. Each card says its priority, what is left under it (`open`,
 `inFlight`), what it is waiting on once an Epic Advocate has written one
 (`lib/epicadvocate.js`, and the 🧭 button on the card is
 [`POST /api/bead/advocate`](#http-api)), and, since bc-rfnr.9.1, **`tree`: every descendant
-of that root at any depth**.
+of that root at any depth**. Since bc-s8mc it also carries `startable` — the roots of
+yours that are *not* on the board and could be, which is what [the picker at its
+foot](#starting-an-epic-from-the-board-and-taking-one-off) draws.
 
 The tree is not the row filter seen from the other end, and that is the whole reason it
 exists. `rootboard.under` is a fact about the *inbox rows* — one string per row naming the
@@ -4174,10 +4176,10 @@ renamed: a descendant with no pending question is in the tree.
 ### The board is the epics you have started
 
 A card is drawn for a P0 you own **whose status is `in_progress`**. Raising a P0 does not
-put it on the board; starting it does, and `bd update <id> --claim` is the whole of how
-today. A picker for starting one of the others without leaving the inbox is bc-s8mc and is
-not built yet — until it is, the P0s that are off the board are reached the way every other
-bead is, through search and the bead sheet.
+put it on the board; starting it does — from the phone, with [the picker at the foot of
+the board](#starting-an-epic-from-the-board-and-taking-one-off), or on the Mac with `bd
+update <id> --claim`. The P0s that are off the board are still reached the way every other
+bead is as well, through search and the bead sheet.
 
 The rule used to be *not closed*, and the count is the argument. bc-6s96 measured the
 board across all nine workspaces on 2026-08-16: **~42** owned P0s not closed against
@@ -4217,28 +4219,138 @@ should happen", and raising a P0 is that decision whether or not you have got to
 Narrowing the gate to started epics would have stopped the advocate on five sixths of the
 tracker overnight, which is a rule about a screen reaching into the queue.
 
-### Tapping a P0 card opens it
+### Starting an epic from the board, and taking one off
 
-The card is a summary you can open. Collapsed it is what the week is about — the id, how
-much is in flight, how much is open, the title, the advocate's sentence if there is one,
-and a line saying how many beads are behind the tap. That last number is the *total*,
-where the count above it is what is left: "9 open" tells you nothing about whether the
-epic is nine of ten or nine of sixty. Since bc-rfnr.9.6 it is two numbers whenever the
-status filter is narrowing anything — "Tap for 7 of the 16 beads under it" — because the
-line promises what the tap will actually open, and a filter is exactly what puts a wedge
-between what is filed and what you will get.
+The board is what you have started, so there has to be a way to start something without
+leaving the inbox — otherwise the one screen that says what the week is about is the one
+screen that cannot change it, and the answer to "this is what I am on today" is a laptop.
+**A `+ Start an epic` button sits at the foot of the board.** It opens a picker of the P0s
+you own that are open and have not been started, each with the same "N open" count the
+cards carry, in the same order the board uses — most still open first, because a picker
+sorted by id would put whichever epic was filed first at the top for ever. Choosing one
+writes `status: in_progress` and it is a card on the next poll.
 
-Tap it and the tree unfolds in place, indented under each parent, one row per descendant
-at any depth. A row says the bead's id and title, marks it **asks you** when it is itself
-a question (`pending`), and names any status that is not `open` — sixty rows all saying
-`open` is the default restated sixty times. Closed work is struck through and faded where
-it is drawn at all; whether it is drawn is [the board's status
-filter](#one-status-filter-over-the-whole-board), which defaults to not. Each row is a
-disclosure of its own bead — see [the next
-section](#and-a-bead-in-the-tree-opens-where-it-stands). A P0 with nothing under it
-expands to a sentence saying so — an empty gap reads as a tree that failed to arrive.
+**A status write, deliberately, and not a phone-local pin.** One source of truth: the
+advocates, `bd list`, the console, the other Mac and the screen in your hand all agree,
+and `bd show` says `Started:` afterwards. A pin would have been cheaper and would have
+made the board a thing only this phone believed.
 
-Two things about it are less obvious than they look.
+**The reverse is on the card** — `↩ Take it off the board`, back to `open`, which is the
+same tap undone. It leaves the assignee alone: who is on the work is a different fact from
+what leads your screen, and a screen decision must not quietly erase it. It is also *not*
+[pausing the epic's advocate](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo), which stops dispatch under a P0 and leaves
+it started — the two are different axes and compose. Nothing is lost either way: an epic
+taken off is open, owned and one tap from the picker again.
+
+**Four beads are never offered**, and each is a tap that would have been refused
+downstream: an `unendorsed` one (nobody has said the work should happen — the answer to it
+is the endorsement queue), a superseded one (the job is somewhere else), a **crash**
+(`lib/errors.js` files every daemon crash at P0 with an owner, so a bad week would fill the
+picker with stack traces — a stack trace is not an epic, the same sentence the advocate
+launch makes), and a `blocked` one (the tracker says it cannot move, so a card claiming the
+week is about it would be the screen contradicting the graph). `bd` is still there for the
+case where you mean it.
+
+**Every refusal is loud and on screen.** `POST /api/bead/start` answers 409 with a
+sentence for each of those and for the races the picker cannot see — the bead closed, or
+started from the other device, since the list you are looking at was drawn — and the
+button says it rather than leaving you with a card that never appears. The rules are
+checked again at the door rather than trusted from the client for exactly that reason: the
+picker's list is up to one poll old.
+
+**And it appears without a reload.** The write refreshes that workspace's `Bd.graph`
+entry, so the next payload is built from a graph that knows — without it the card would
+take up to a minute to turn up, the write having worked and the screen having nothing to
+say about it. The phone that tapped re-polls immediately; every other device is woken by a
+`p0board` event on its parked log request. `node test/p0start.mjs` holds both halves — the
+picker's list and the two writes, against a fake `bd` that really changes its mind.
+
+**And one thing about it is only visible in a browser.** The picker opens at the foot of
+the board, which is *above* the inbox list — and `capturePlace` anchors the page's scroll
+on the first card in that list, so a repaint that grew the board scrolls the page down by
+exactly the height of what just opened: the button you pressed leaves the screen. The fix
+is `keepTheScreenStill`, the same one bc-rfnr.9.4 needed one surface along, and nothing in
+the HTML shows whether it is there. `node scripts/p0start-check.mjs` is the half a string
+cannot reach — a real tap in headless Chrome at 393×852, reading `getBoundingClientRect()`
+before and after. Measured with the call taken out: the button moved from 467px to 318px
+under the thumb.
+
+### The board is a grid, and tapping a card opens it full-tab
+
+The comment over `.p0-card` used to say these were the four or five things the week was
+about, and the board was a single vertical stack of full-width cards on that premise. It
+has never been four or five. Until [bc-6s96](#the-board-is-the-epics-you-have-started) it
+was every open owned P0 — about two dozen on this tracker — and since bc-6s96 it is the
+ones you have started, which was nine. Either number is a column you scroll rather than
+scan on a phone, and on a desktop it is one narrow ribbon down an empty page whatever the
+count. And a tapped card unfolded its tree *inline*, between the board and the inbox
+list, which is both cramped and the whole of how bc-rfnr.9.9's scroll jump was possible.
+
+bc-grut is three changes, and each one is the reason for the next.
+
+**The cards are a grid**: `.p0-cards`, one across on a phone, two from 640px, three from
+960px. The cards did not have to change shape to do it — they were always a column of
+short lines — but the track sizing did: `minmax(0, 1fr)` rather than `1fr`, because a
+grid track's automatic minimum is its content and a bead title is one unbroken
+60-character string often enough that plain `1fr` lets a column bid wider than its share
+and pushes the third card off the row. `.p0-acts` takes `margin-top: auto` at the same
+time, so the advocate button and the graph link land on one line across the row instead
+of following each card's own last line of text; a grid item stretches to its row, and
+controls that stepped up and down with the length of the titles are the thing that makes
+three cards side by side unreadable.
+
+**A collapsed card says enough to be worth scanning across.** The id, how much is in
+flight, how much is open, the title, the advocate's sentence if there is one — and then
+two things bc-grut adds. A **progress bar with `12 of 19 done` under it**, which is the
+number the open count can never give you: "9 open" says nothing about whether the epic is
+nine of ten or nine of sixty, and a proportion is the only thing on a card that can be
+taken in without being read. And an **`N ask you` pill** when anything under the epic is
+itself a question, because on a grid of cards read in one pass that is the one field
+that means *you* are the thing holding the epic up. Neither is counted through the status filter,
+which matters — see below. An epic with nothing filed under it gets "Nothing filed under
+it yet" instead of a bar at zero, because a bar at zero claims that nothing has landed
+where the truth is that nothing has been written down.
+
+**And the tap takes the whole tab.** `p0FullHtml` is a fixed layer over the viewport with
+the four rows `.card.open` has always used for an inbox row: a top bar carrying the only
+way back, a head that stays, a body that scrolls on its own, and the acts pinned to the
+bottom where a thumb is. The way back says `‹ Board` rather than a cross, because a cross
+leaves you guessing whether it closed the epic or the app. It takes that shape at *every*
+height, unlike `.card.open` which falls back to scrolling whole below 440px — there is no
+composer here, so nothing on the layer needs to stay above a keyboard.
+
+Inside it the tree is what it always was: indented under each parent, one row per
+descendant at any depth. A row says the bead's id and title, marks it **asks you** when it
+is itself a question (`pending`), and names any status that is not `open` — sixty rows all
+saying `open` is the default restated sixty times. Closed work is struck through and faded
+where it is drawn at all; whether it is drawn is [the status
+filter](#one-status-filter-in-the-tab-with-the-tree-it-narrows), which defaults to not and
+lives in the tab with it. Each row is a disclosure of its own bead — see [the next
+section](#and-a-bead-in-the-tree-opens-where-it-stands). A P0 with nothing under it opens
+to a sentence saying so — an empty gap reads as a tree that failed to arrive.
+
+**This ends bc-rfnr.9.9 by construction rather than by correction.** That bug is the
+board's own tap scrolling the page out from under you: `capturePlace` anchors on the first
+`.card` in the list and faithfully holds it still, so six hundred pixels inserted *above*
+the list moved the page down by six hundred pixels. A layer over the tab inserts nothing
+into the flow at all, so there is no height to hold still and no scroll to jump.
+
+What the layer does need is the other half of that: `capturePlace` now records
+`.p0-full-body`'s own `scrollTop` and `restorePlace` puts it back. The tab is a scroller
+that is not a `.card`, so the anchor cannot see it, and it lives inside the one reconcile
+chunk that any moved count on the board replaces whole — without this a 25-second poll
+drops you back at the top of a sixty-row tree.
+
+**At most one is open at a time**, which the `p0` handler enforces by clearing the set
+rather than deleting one key. It is the accordion `openOnly` keeps for `.card.open` and
+for the same reason: a second fixed layer stacks on the first with nothing on either
+saying which epic you are reading. Escape closes it — behind the two menus and only when
+neither was open, so one press never dismisses two things — and focus follows the layer in
+both directions, to the way out when it opens and back to the card it came from when it
+shuts, because delegation cannot do that for you and the alternative is a Tab that starts
+again at the top of the document.
+
+Two things about the tree itself are less obvious than they look.
 
 **The indent is capped at three steps.** The rows arrive flat with a `depth` each, and
 the client turns that into `margin-left: calc(var(--d) * 13px)` — a margin rather than a
@@ -4253,17 +4365,31 @@ so every other card pays for it too.
 drawn as *one* reconcile chunk (`warm.paint` keys it `@p0`), because every count on it
 comes from one sweep — so any repaint that moves a single number replaces the whole
 section's HTML. An `open` attribute on a `<details>`, or a `hidden` toggled on a node,
-would therefore fold up under your thumb every 25 seconds. The set of open card keys lives
-in the page's state, the section is rebuilt from it on every render, and the tap does
-nothing but write to the set and repaint. It is not persisted across a reload, unlike the
-filter: which epics are unfolded is where you are looking *now*, and a phone that came back
-to four expanded trees would be a screen you had to fold up before you could read it.
+would therefore fold up under your thumb every 25 seconds. The open card key lives in the
+page's state, the section is rebuilt from it on every render, and the tap does nothing but
+write to the set and repaint. It is not persisted across a reload, unlike the filter:
+which epic you are reading is where you are looking *now*, and a phone that came back to a
+tab over the inbox would be a screen you had to dismiss before you could see what you
+opened it for.
 
 `node test/p0card.mjs` runs the real renderer out of `public/app.js` in a `node:vm` — no
 browser, no `bd` — over a fixture nested five deep: that a collapsed card draws no tree at
-all, that an expanded one draws every descendant in the server's order, that the indent
-steps and then stops, that only the tapped card opens, that the same state renders the
-same board twice, and that the tap handler writes state rather than reaching into the DOM.
+all and does draw its progress and its `asks you`, that an open one draws every descendant
+in the server's order, that the indent steps and then stops, that only the tapped card
+opens and only one tab is ever drawn, that the card's numbers do not move when the filter
+does, that the same state renders the same board twice, and that the tap handler writes
+state rather than reaching into the DOM.
+
+`node scripts/p0grid-check.mjs` is everything in that list that is a *measurement* rather
+than a string, over six epics in headless Chrome at 393px, 760px and 1280px: that one row
+is one card, then two, then three; that the controls line up across a row rather than
+following each card's own last line; that the tab's four edges are the viewport's four
+edges, which is the one thing a `position: fixed` inside `#list` can lose to any ancestor
+with a `transform` on it while every rule and every attribute stays right; that a bead
+title with no spaces in it does not push its neighbours off the row, which is the whole
+reason the track is `minmax(0, 1fr)`; and — bc-rfnr.9.9, read the way that bug was
+measured — that the card you tapped has the same `top` after the tab has opened and closed
+again as it had before you touched it.
 
 ### And a bead in the tree opens where it stands
 
@@ -4339,13 +4465,22 @@ approximate, because nothing above the row changes height — and calls `release
 after, so the restores `settlePlace` has queued for the next frame do not put the anchor's
 answer back.
 
-### One status filter over the whole board
+### One status filter, in the tab with the tree it narrows
 
-Between the heading and the cards sits one control — **Not closed · All · Closed** — and
-it decides what every tree on the board draws. Not one per card: every tree on the screen
-is answering the same question at the same time, so a control per card would be four taps
-to ask it once, and then four trees that could each be showing something different with
-the only record of which on the cards themselves.
+At the top of an open epic's tab sits one control — **Not closed · All · Closed** — and
+it decides what the tree under it draws. It is one *pick*, not one per card: `p0status` is
+a single page-state field, persisted, so whichever epic you open next is drawn the way you
+last asked for. A pick per card would be a control you set again on every epic, and four
+trees that could each be showing something different with the only record of which on the
+cards themselves.
+
+**It sat between the heading and the cards until bc-grut**, and the argument for putting
+it there is exactly what moved it: a control over things that are not on screen is a
+control you set and cannot see the effect of. The trees are in the tab now, so the board
+is precisely where its effect cannot be seen. What that buys as well is the collapsed
+card's own summary — `12 of 19 done`, `3 ask you` — which counts the whole tree and is
+unreachable by the filter, so nothing on the grid moves because of a control that is not
+on the screen.
 
 **It defaults to not closed**, which is the whole reason it exists. `bc-rfnr` has 16
 descendants and nine of them have landed; a tree that drew all sixteen by default is an
@@ -4356,8 +4491,9 @@ combinations of three checkboxes mean nothing anybody wants to ask.
 
 **And closed work is one tap away rather than gone.** A closed child is how you read what
 a P0 has *delivered*, which is the one thing the "N open" count on the card can never tell
-you. Each chip carries what it would leave you with, counted over the cards on the board,
-so `Closed 0` says there is nothing behind that tap before you take it.
+you. Each chip carries what it would leave you with — counted over the epic in front of
+you since bc-grut, where it used to be counted across every card on the board — so
+`Closed 0` says *this* epic has delivered nothing before you tap to find out.
 
 The part that fails silently is the ancestors. The rows arrive flat with a `depth` drawn
 as an indent, so a row's place in the tree is carried entirely by what is above it: drop
@@ -4376,7 +4512,7 @@ Three smaller decisions, each of which had a wrong way that looked fine:
   are being asked, and a status filter that reached the list would hide it with nothing on
   screen saying where it went.
 - **The pick is page state, persisted** (`beadcause.p0status`), like the fold and unlike
-  which cards are open. The board is one reconcile chunk replaced whole every 25 seconds,
+  which card is open. The board is one reconcile chunk replaced whole every 25 seconds,
   so a filter applied by hiding nodes would come undone under your thumb; and whether you
   are reading what is left or what has landed is a standing preference. An id the page
   does not know — a newer option, a hand-edited key — reads as the default rather than
@@ -4388,12 +4524,13 @@ Three smaller decisions, each of which had a wrong way that looked fine:
 `node test/p0card.mjs` covers it in the same `node:vm` as the rest of the board, over a
 fixture with both awkward shapes in it: a closed parent with an open child, and an open
 parent with a closed one. `node scripts/p0filter-check.mjs` is the half no renderer test
-can see — a real tap in headless Chrome at 393×852: that the chips are inside `#list` at
-all, since every handler on this page is delegated from that element and one drawn outside
-it renders perfectly and does nothing; that three chips fit one line on a phone; that the
-list under the board has exactly the rows it had either side of every tap; and that a
-reload comes back where you left it, which is two separate ends — the write on the tap and
-the read at boot — either of which can be missing with the page looking right all session.
+can see — a real tap in headless Chrome at 393×852, on an epic opened first because the
+chips are in its tab: that the chips are inside `#list` at all, since every handler on this
+page is delegated from that element and one drawn outside it renders perfectly and does
+nothing; that three chips fit one line on a phone; that the list under the board has
+exactly the rows it had either side of every tap; and that a reload comes back where you
+left it, which is two separate ends — the write on the tap and the read at boot — either of
+which can be missing with the page looking right all session.
 The mark on a held-up row is read as a computed border style rather than as a class, so it
 fails on a stale stylesheet too, which is what [v62](docs/sw-cache/v62.md) is about.
 
@@ -6179,6 +6316,45 @@ inbox drawing PR cards sweeps the board on its own minute and every count would 
 be unattributable. Against `--baseline` three of those five lines fail — the two that pass
 are the ones asserting a moved entry is left alone, which a baseline that maintains nothing
 satisfies by doing nothing at all.
+
+### The other three views reopen too — and what durability quietly cost
+
+The store the inbox proved durable is **one store, for every view**, so the moment it
+became `localStorage` the advocate monitor, the chat launcher and the PR board started
+reopening from the disk as well. None of them needed a line: each has read its held
+payload at the top of its own boot since long before any of this — `warmBoot()` in
+`public/monitor.js` and `public/prs.js`, the read at the head of `showLauncher()` in
+`public/console.js` — and what those reads had never survived was the app being closed.
+Measured against a fixture whose sweep is 900ms, each of the three now paints in **under a
+fifth of a second** where its cold load takes just over a second.
+
+What did need a line is the consequence nobody had gone back for. The **background warm**
+runs once per *document*, so it runs again on every reopen, and it was written when a
+reopen found an empty store: fetching all five paths was then the only way any tab was
+ever warm. With the store durable that fetch is a second copy of five payloads already on
+the disk — and two of them are the app's most expensive requests, `/api/prs` at a `gh`
+call per repo and `/api/unendorsed` at a `bd list` per workspace with a `bd show` per row.
+Measured on the live daemon (bc-1kwl.1) that is 74s and 48s: **two minutes of the Mac's
+day, in the background of every single app open, for nothing on any screen.** So those two
+paths are marked `holdOnly` in `VIEWS`, and the background warm fills one only when
+nothing is held for it — never to replace one that is.
+
+That is the same answer [the maintenance table already
+gives](#and-every-other-warmed-path-decided-one-at-a-time) for the same two paths, and the
+point is that it now has to be given twice: two warmers, one decision. What corrects a
+held board or a held queue is unchanged and is what always corrected it — the page that
+boots from one sweeps it on arrival, behind the frame it painted from the disk. A path
+with nothing held is still fetched, so the first run on a new device, and the run after
+the byte budget gave an entry up, are exactly as they were.
+
+`node scripts/reopen-check.mjs` is the gate: three reopens, each against its own cold
+load, with every request counted and attributed to the view that made it. Two of the
+sweeps it counts are legitimate and always were — the board's own arrival, and the
+monitor's **Ship** strip, which draws a number a press acts on and may not be answered
+from a held payload — so the counts are per view rather than summed, or a total would hide
+which one moved. Under `--baseline` three of its seven claims fail, and their numbers are
+the old behaviour printed: three reopens, four expensive sweeps, nothing on any screen
+that was not already on the disk.
 
 ### A repaint that leaves alone what did not change
 
@@ -12579,13 +12755,32 @@ tracker's graph and never from `bd ready`, so a bead this filter removes from ev
 untouched on the screen. That is the right way round: the board's furniture has to be
 visible *as* furniture, because filing under it is what it is for.
 
+**And a bead filed under one is ordinary work** — which turned out to take a change rather
+than nothing. `bd create --parent` copies the parent's labels onto the child, so for three
+days every bead the daemon filed under `bc-xl7n` was born carrying `container` and `human`.
+That is the unsorted backlog, and by construction the busiest filing target in the graph:
+every ship follow-up, sweep card and advocate finding lands there. Both labels are in the
+queue's exclusion list, so each of those beads was out of every queue *after* being
+endorsed — the part that makes it worse than being unendorsed, because the tap looked like
+it worked and changed nothing — refused 409 at both doors, and drawn on the phone as a
+question that asks nothing. `Bd.create` now passes `--no-inherit-labels` whenever it passes
+`--parent`, so a child arrives with exactly the labels its filer chose, which every caller
+already spells out in full. Off wholesale rather than filtered down to the markers that
+hurt: a list of labels a child may not inherit is a list somebody has to extend every time
+a marker is invented, and the window lease `held:` riding down to beads no window was ever
+opened on is the proof that nobody does. An older `bd` that has never heard of the flag is
+retried without it rather than losing the bead, and `bd update --parent` inherits nothing,
+so reparenting was never a second door onto this.
+
 What this is *not* strong enough to be: a container is not protected from `bd close` typed
 by hand, and could not be — bd is a separate tool with no hook in it. What it is protected
 from is the only ending a dispatched session has. The belt on top of that is already there
 and is not this marker's: a delivery refuses to close an **epic** on a merge, and every
 standing root is an epic. `node test/container.mjs` covers both layers, the planner's door,
-and — the assertion most likely to be "fixed" by somebody tidying — that the Epic Advocate's
-door still lets one through.
+the filing seam — with a fake `bd` that inherits the way the real one does, since the check
+that a child is workable was green for three days over a hand-written child that could not
+occur — and, the assertion most likely to be "fixed" by somebody tidying, that the Epic
+Advocate's door still lets one through.
 
 ### The session log, kept in the repo
 
@@ -16231,9 +16426,21 @@ properties:
 | `board:` | lib/prboard.js | 25s | The whole swept PR board — every repo, every rung |
 | `prs:<checkout>` | lib/prboard.js | 120s | One checkout's `gh` slug and pull requests |
 | `queue:<workspaces>` | lib/endorsequeue.js | 15s | Every held bead in the active account's repos, with provenance |
+| `questions:<workspace>` | lib/server.js | 10s | One `bd human list`, behind `allQuestions()` |
+| `foundation:<workspace>` | lib/server.js | 10s | One `bd list --label`, the foundation channel on its own |
+| `agentbeads:<workspace>` | lib/server.js | 10s | One `bd list --exclude-label human` |
+| `work:<workspace>` | lib/work.js | 10s | The four `bd` calls behind one workspace's row on `/api/work` |
 
-The windows are the ones each cache always had. Nothing here was retuned: the point was
-never that the answers were too old, it was that the sixteenth second cost a minute.
+The first four windows are the ones each cache always had. Nothing here was retuned: the
+point was never that the answers were too old, it was that the sixteenth second cost a
+minute. **The last four had no cache to inherit a window from** (bc-1kwl.7) — the two
+standing screens, the inbox and the advocate console, were swept fresh on every single
+request. Their ten seconds is the ledger's own window and the ledger's own argument: a
+bead that changed a moment ago is still ten seconds stale at worst, and the daemon's
+own poll cycle already keeps `questions:` warm on a faster clock than that — see the
+comment on `tick` in lib/server.js, which reads with `refresh: true` for exactly that
+reason. `foundation:`, `agentbeads:` and `work:` have no such tick and stand on the
+window alone, same as `board:`/`prs:`/`queue:` do.
 
 **Why the board has no scope and the queue does**, when the account chip narrows both: the
 board is swept for the whole Mac and narrowed *on the way out*, per request, so one cache
@@ -18075,6 +18282,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/bead/adopt` | `{workspace, id, parent}` | moves a bead under `parent` — the fix for the one hold that never clears itself, offered on the sheet of any bead with **nothing decided above it**. Answers `{parent, workable}`, where `workable` is the gate's own answer after the write rather than a promise about it. A parent with nothing decided above *it* is a 409 naming that, since the adoption would not make the bead workable; an empty `parent` detaches instead, which is how an adoption into the wrong epic is undone. The cached graph is refreshed on the way out, so the next advocate tick acts on the new shape |
 | GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it, and a `closeReason` cut to 240 characters on a word boundary — two lines of the row hold 226 at the widest, and the whole sentence is on the sheet the row links to. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
 | GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
+| POST | `/api/bead/start` | `{workspace, id}` | **puts a P0 on the board** — writes `status: in_progress`, which is the one thing the board reads (bc-s8mc). The picker at the foot of the board is the client, and `p0board.startable` is what it draws. Refusals are all 409 with a sentence, because a write bd rejects has to be visible rather than a card that silently never appears: not a P0, not carrying your `owner:` label, closed, already started, `blocked`, `unendorsed`, superseded, or a crash bead this app filed at P0 itself. Checked here as well as in the picker's own filter — the list on the phone is up to a poll old, and the bead somebody closed in between is exactly the tap that would otherwise go through. Not guarded by `OBSERVING`: like the verdict routes, this is you deciding rather than the daemon acting. The graph cache for that workspace is refreshed on the way out and a `p0board` event is emitted, which is what makes the card arrive on the next poll on every device rather than a minute later |
+| POST | `/api/bead/unstart` | `{workspace, id}` | **takes it off again** — back to `status: open`, the exact reverse, and a 409 for a bead that is not on the board. The assignee is left alone, unlike `Bd.reopen`: taking an epic off the board is a decision about what leads your screen, and who is on the work is not that tap's to erase. Distinct from [pausing an epic's advocate](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo), which leaves it started and stops dispatch under it |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
 | POST | `/api/bead/adjust` | `{workspace, ids[], edits, endorse?}` | the ✎ of the proposal card, aimed at a bead that exists. `edits` may name `title, type, priority, description, acceptance, labels`, through the same clamps a proposed bead goes through; the two labels the daemon owns (`unendorsed`, `agent-filed`) are not yours to set. **Keeps the marker** unless `endorse: true`. A title may not be given to a group |

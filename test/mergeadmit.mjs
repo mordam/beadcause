@@ -6,7 +6,7 @@
  *     node test/mergeadmit.mjs
  *
  * lib/mergeraise.js takes a pull request *out* of the queue and hands it to Adam; this is
- * the inverse, and the whole risk in an inverse is that it is not one. Four things are
+ * the inverse, and the whole risk in an inverse is that it is not one. Five things are
  * pinned here, and each is a way the round trip could be lossy without anything failing:
  *
  * 1. **The labels are exactly the ones the raise moved**, in both directions. `queueFor`
@@ -24,6 +24,12 @@
  * 4. **The approval is a gate input, not a bypass.** `gateVerdict` takes it in place of a
  *    GitHub review — which the author of a branch cannot give themselves — and takes it
  *    *only* in that position, so a red check still refuses a merge with an approval on it.
+ * 5. **The reset stops at the queue's own block.** bc-36xx.2 puts a second block in the
+ *    same `notes` field for the review loop, and an admitted pull request has not
+ *    un-reviewed itself — so the write bin/merge.js makes is asserted to zero the
+ *    attempts and leave the round count, the reviewer's comments and the worker's answers
+ *    exactly as they were. That is the one assertion a review folded into `queueState`
+ *    would fail, and nothing else here would.
  */
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -33,7 +39,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
 
 const { admitPlan, admittedState, approvedState, beadsAbout, admitComment, HUMAN_LABEL } = await import(LIB('mergeadmit.js'));
-const { MAX_ATTEMPTS, MERGE_ASSIGNEE, MERGE_LABEL, mergeBeadBody, queueState, withQueueBlock } = await import(LIB('mergebead.js'));
+const { MAX_ATTEMPTS, MERGE_ASSIGNEE, MERGE_LABEL, mergeBeadBody, queueState, withQueueBlock, reviewState, withReviewBlock } =
+  await import(LIB('mergebead.js'));
 const { gateVerdict, queueFor } = await import(LIB('mergeadvocate.js'));
 const { DELIVERY_LABEL, deliveryBody } = await import(LIB('delivery.js'));
 
@@ -238,6 +245,58 @@ check('and a bead nobody approved says so', () => {
   assert.equal(queueState({ notes: withQueueBlock('', { attempts: 1 }) }).approved, false);
   assert.equal(queueState({ notes: '' }).approved, false);
   assert.ok(!/approved/.test(withQueueBlock('', { attempts: 1 })), 'every merge-bead now carries an approval field');
+});
+
+/* ----------------------------------------------------- the review block beside it */
+
+/**
+ * bc-36xx.2's reason for existing, asserted rather than argued.
+ *
+ * The review block and the queue block share one `notes` field and have opposite
+ * behaviour under an admission: the queue's counters are reset on purpose, and the review
+ * must not be. This is the test the design turns on — a round-trip test would pass just as
+ * happily over a review folded into `queueState`, which is exactly the mistake.
+ */
+check('an admission resets the queue block and leaves the review block untouched', () => {
+  const review = {
+    round: 2,
+    verdict: 'changes',
+    reviewer: 'NeanderthalMan',
+    at: '2026-08-16T12:00:00.000Z',
+    comments: [
+      { id: 'rc1', path: 'lib/x.js', line: 12, body: 'This swallows the error.', answer: 'declined', note: 'It is deliberate.' },
+      { id: 'rc2', body: 'Name it after what it does.', answer: 'changed', resolved: true },
+    ],
+  };
+  // Both blocks in one field, plus a human's line, exactly as a real merge-bead carries them.
+  const notes = withReviewBlock(withQueueBlock('Adam left this line.', { attempts: 3, refused: 'lint is red.', resolving: true }), review);
+  const row = raisedBead(notes);
+  const plan = admitPlan([row], about);
+
+  // The write bin/merge.js makes, verbatim: it cuts the queue block by its markers and
+  // leaves the rest of the field alone. That is what carries the review through.
+  const after = withQueueBlock(row.notes || '', plan.state);
+
+  const q = queueState({ notes: after });
+  assert.equal(q.attempts, 0, 'the queue block was not reset');
+  assert.equal(q.refused, null);
+  assert.equal(q.approved, true);
+
+  const r = reviewState({ notes: after });
+  assert.deepEqual(r, reviewState({ notes }), 'the admission changed the review state');
+  assert.equal(r.round, 2, 'the round count did not survive the admission');
+  assert.equal(r.comments.length, 2);
+  assert.equal(r.comments[0].answer, 'declined', 'the worker answer did not survive the admission');
+  assert.match(after, /Adam left this line\./, 'the write ate what was already in notes');
+});
+
+check('and a merge-bead that has never been reviewed is not read as one that was', () => {
+  // The direction that matters: bc-36xx.4 holds a merge on `verdict === null`, so an
+  // absent block must be an absence rather than anything the gate could take for a pass.
+  const state = reviewState({ notes: withQueueBlock('', admittedState(null, { by: 'Adam', at: 'now' })) });
+  assert.equal(state.verdict, null);
+  assert.equal(state.round, 0);
+  assert.deepEqual(state.comments, []);
 });
 
 /* ------------------------------------------------------------------- the gate */

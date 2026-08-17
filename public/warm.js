@@ -67,6 +67,17 @@
   What is left, now that nothing expires, is that the store only ever grows — so it has a
   bound, and `BUDGET_BYTES` below is it.
 
+  **And the background warm had to be told, which nothing else did.** Every standing page
+  already read its held payload at the top of its own boot, so the console, the board and
+  the advocates monitor started reopening from disk the moment the store did — there was
+  no per-view work left in bc-1kwl.15, only a consequence nobody had gone back for.
+  `prewarm` runs once per *document*, so it runs again on every reopen, and it was written
+  when a reopen found an empty store: going and fetching all five paths was then the only
+  way any tab was warm. With the store durable it is instead a second copy of five
+  payloads already on the disk — and two of them are the app's most expensive requests.
+  So those two are marked `holdOnly` and the background warm leaves a held one alone. See
+  `prewarm`, and `MAINTAINED` in public/app.js for the same decision on the other warmer.
+
   Nothing here is load-bearing. Every reader treats a miss as "no cache" and does what
   it did before, and `localStorage` throwing — Safari's private mode, a full quota — is a
   miss. A page that cannot warm is a page that is merely as fast as it was.
@@ -149,7 +160,14 @@
     // shells out to `gh` once per repo. It is here rather than last because bc-khoe.1
     // made it one tap away, and a view a thumb can reach in one tap must not wait on one
     // it cannot.
-    { id: 'prs', paths: ['/api/prs'] },
+    //
+    // It is also one of the two `holdOnly` entries, which is a rule about the *background*
+    // warm and nothing else: fill this path when nothing is held for it, and never go and
+    // replace one that is. The two so marked are the two most expensive paths on this
+    // list, and they are the two the order above cannot help — moving a `gh`-per-repo
+    // sweep earlier in the queue does not make it cheaper, it only makes it sooner. See
+    // `prewarm`.
+    { id: 'prs', paths: ['/api/prs'], holdOnly: true },
     // Below the row. None of these three is a pill, and all three are still reached in
     // one tap from somewhere else — the queue from the 🗳 in the inbox's top bar or the
     // advocate console's `N held for endorsement` pill, /admin from the ⚙ on /monitor
@@ -158,8 +176,9 @@
     // The queue is the second most expensive boot in the app — `/api/unendorsed` is a
     // `bd` sweep of every workspace and then a `bd show` per row for the provenance line
     // (lib/endorsequeue.js) — and warming it is the whole of why arriving there is
-    // instant: it is the one screen whose rows are the full bead.
-    { id: 'endorse', paths: ['/api/unendorsed'] },
+    // instant: it is the one screen whose rows are the full bead. It is the other
+    // `holdOnly` entry, for the reason given against `/api/prs` above.
+    { id: 'endorse', paths: ['/api/unendorsed'], holdOnly: true },
     //
     // `/api/work` was under /admin once, because /admin fetched it — for the single
     // `observing` boolean, which the delta stream now carries on every wake (bc-rk2o).
@@ -483,6 +502,28 @@
    * path and not the rest, and a path fetched inside the floor is skipped. Nothing it
    * does is visible if it never runs.
    *
+   * **And a `holdOnly` path is skipped whenever anything is held for it, at any age.**
+   * This is bc-1kwl.15, and it is the one thing durability changed about this function.
+   * `prewarm` runs once per *document*, so it runs again on every reopen — and for its
+   * first two weeks that was simply correct, because a `sessionStorage` store came back
+   * from a close empty and the only way the board was ever warm was this loop going and
+   * fetching it. Now the entry survives the close. Re-fetching it is no longer what makes
+   * the tab warm; it is a second copy of a payload already on the disk, and for these two
+   * paths the copy costs `gh` once per repo (74s measured, bc-1kwl.1) and a `bd list` per
+   * workspace plus a `bd show` per row (48s). Two minutes of the daemon's day, spent in
+   * the background of every single app open, to replace two payloads that were already
+   * paintable — that is precisely the reopen quietly turning into a `gh` sweep, and the
+   * bead exists to stop it.
+   *
+   * What corrects them instead is what already corrected them: the page that boots from
+   * one sweeps it on arrival, behind the frame it painted from the held copy (`warmBoot`
+   * in public/prs.js, `load` in public/endorse.js), and while the inbox is up the log
+   * restamps the entry for free and stops restamping the moment something contradicts it.
+   * That is the same decision `MAINTAINED` in public/app.js already records for these two
+   * and only these two — `refetch: false` — and this is that decision applied to the
+   * other warmer. A path with no held entry at all is still fetched here, so the first
+   * run on a new device, and the run after an eviction, are unchanged.
+   *
    * @param {object} o
    * @param {string} o.here     tab id of the view doing the warming; its own paths are skipped
    * @param {function} o.api    the page's own fetch wrapper — `api(path) -> Promise<data>`
@@ -496,13 +537,25 @@
     // /api/questions?scope=human is three's, and warming either twice would be a
     // second `bd` sweep for a payload we already hold.
     const wanted = [];
+    // Hold-only is a property of the *path*, and a path is only hold-only if every view
+    // that boots from it says so. One listed by an ordinary view as well is a path that
+    // view is still owed — `filled` is what makes that decidable in one pass rather than
+    // by trusting the order `VIEWS` happens to be in.
+    const holdOnly = new Set();
+    const filled = new Set();
     for (const view of VIEWS) {
-      for (const path of view.paths) if (!mine.has(path) && !wanted.includes(path)) wanted.push(path);
+      for (const path of view.paths) {
+        if (mine.has(path)) continue;
+        if (!wanted.includes(path)) wanted.push(path);
+        (view.holdOnly ? holdOnly : filled).add(path);
+      }
     }
     setTimeout(async () => {
       for (const path of wanted) {
         if (typeof document !== 'undefined' && document.hidden) break;
         if (fresh(path)) continue;
+        // Held at any age is enough for these two. See the note above.
+        if (holdOnly.has(path) && !filled.has(path) && read(path)) continue;
         try {
           const data = await api(path);
           write(path, data, seqOf(data));
