@@ -123,7 +123,11 @@
     const on = p.paths.includes(here);
     const tag = on ? 'span' : 'a';
     const attrs = on ? 'aria-current="page"' : `href="${esc(p.href)}"`;
-    return `<${tag} class="viewpill" data-view="${esc(p.id)}" ${attrs}>` +
+    /* `data-pill` and not `data-view`: the chips on /monitor already carry a `data-view`
+       and it means something else there — what public/presence.js should say this device
+       is looking at — so one name for two things across two rows of chrome is exactly
+       what this change exists to stop. */
+    return `<${tag} class="viewpill" data-pill="${esc(p.id)}" ${attrs}>` +
       `<span class="viewpill-icon" aria-hidden="true">${p.icon}</span>` +
       `<span class="viewpill-label">${esc(p.label)}</span>` +
       `</${tag}>`;

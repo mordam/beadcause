@@ -4843,7 +4843,7 @@ pane — drawn alike, at opposite ends of the screen, and telling them apart was
 you had to have learned. On top of the two, the inbox's filter panel held ten *kinds*,
 which are categories doing a view's job.
 
-So there is one row now, across the top of every page, under the bar:
+So there is one row now, under the top bar on every page the bottom bar was on:
 
 ```
   ┌──────────────────────────────────────────────────────┐

@@ -4910,7 +4910,10 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   display: flex;
   gap: 6px;
   padding: 4px 12px;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  /* Opaque, unlike the top bar. The bar is translucent because it used to have a page
+     scrolling under it; nothing has ever scrolled under this one — the scroller starts
+     below it — so a blur here would be a filter over a solid colour. */
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
   /* Sideways, never down. There will be roughly nine of these once bc-khoe.2, .4 and .7
      have landed, and a row that wraps to a second line is the thing this epic exists to
