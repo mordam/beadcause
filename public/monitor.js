@@ -485,6 +485,14 @@
    * withhold work (bc-hrno), and shown anyway, because whether that gate should ever be
    * turned on is a question only the pattern on this row can answer.
    *
+   * `heldBySurface` is the newest (bc-42ow.4), and the only one whose second party is a
+   * bead with nothing behind it yet: two beads about to be opened in the same tick that
+   * both declared the same file. Every other pill on this row names something that already
+   * exists — a window, a branch, a claim, a machine — and this one names a collision that
+   * has not happened, which is the whole reason nothing else could report it. It is the
+   * most short-lived pill here: on the next tick the winner is holding a real claim and
+   * `heldByClaim` beside it is what says so.
+   *
    * `heldByNoRoot` is the ninth (bc-rfnr.7), and the only one that is not about contention
    * at all: every other pill on this row names two things wanting one bead, and this one
    * names a bead nothing has asked for. It is `p1` for `heldByRepo`'s reason — those two
@@ -516,6 +524,7 @@
     const sitting = (a && a.heldByLive) || [];
     const claimed = (a && a.heldByLease) || [];
     const onFiles = (a && a.heldByClaim) || [];
+    const colliding = (a && a.heldBySurface) || [];
     const busyFiles = (a && a.filesBusy) || [];
     const stood = (a && a.stoodDown) || [];
     const orphans = (a && a.heldByNoRoot) || [];
@@ -599,6 +608,17 @@
       // worktree, and both are on this Mac.
       onFiles.length
         ? `<span class="pill muted" title="${esc(onFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${onFiles.length} whose files are being edited</span>`
+        : '',
+      // The ninth, and the only pill here whose second party has not happened yet: a bead
+      // deferred because another bead *this same tick opened* declared the same files
+      // (bc-42ow.4). `muted`, and the most short-lived of them — by the next tick the
+      // winner holds a real claim and the pill beside this one is what reports it, or the
+      // winner has finished and this bead simply went. The tooltip names the other bead,
+      // which is the only thing there is to look at: there is no window and no branch yet.
+      colliding.length
+        ? `<span class="pill muted" title="${esc(colliding.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${
+            colliding.length
+          } deferred a tick behind the same files</span>`
         : '',
       // And the near miss, which is not a hold and must not read as one: the same collision
       // over a surface guessed from the bead's text, dispatched anyway because a guess may

@@ -317,6 +317,11 @@ const collapseCard = async (id) => {
  * `data-discuss="1"` rather than `data-opt`. It is not a choice the question offers,
  * so counting it here would report one option too many for every collapsed card that
  * has any, this one included.
+ *
+ * bc-khoe.12 fixed the same count on main as `.option:not(.discuss)`, which is
+ * equivalent today; this is the stricter of the two and deliberately kept over it in
+ * the merge, because a blacklist over-counts again the moment a second non-choice
+ * button joins `.options`, which is exactly how this went red the first time.
  */
 const ANSWERED = (id) => `(() => {
   const card = ${CARD(id)};
