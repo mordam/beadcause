@@ -43,6 +43,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -384,6 +385,6 @@ console.log('\na changes-requested answer, against a bd that refuses the hand-ba
   check(() => assert.equal(r.json.delivery?.handedBack, false), 'and the response carries it, for anything watching');
 }
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures}/${ran} failed\n` : `\n${ran}/${ran} passed\n`);
 process.exit(failures ? 1 : 0);
