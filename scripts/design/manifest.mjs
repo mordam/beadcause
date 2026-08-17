@@ -130,8 +130,8 @@ const CORE = [
         path: 'chrome/viewbar.html',
         name: 'Pill row',
         subtitle: 'Every standing view, one row',
-        viewport: { width: 420, height: 140 },
-        note: `The second row of the app shell, under the top bar — and the app's only navigation since bc-khoe.1 deleted the bar along the bottom. The current pill is a <b>&lt;span&gt;, not a link</b>: tapping where you already are should do nothing, and an anchor pointed at this page would throw the list and your scroll position away to rebuild the same screen. It scrolls <b>sideways and never wraps</b> — there will be roughly nine of these — and it carries <b>no counts</b>, because a badge is only ever live on the one page whose poll happens to fetch it.`,
+        viewport: { width: 420, height: 200 },
+        note: `The second row of the app shell, under the top bar, and the app's only navigation since bc-khoe.1 deleted the bar along the bottom. The current pill is a <b>&lt;span&gt;, not a link</b> — tapping where you already are should do nothing. It scrolls <b>sideways and never wraps</b>, and carries <b>no counts</b>.`,
         markup: `<nav class="viewbar" aria-label="Views">
   <span class="viewpill" data-view="inbox" aria-current="page">
     <span class="viewpill-icon" aria-hidden="true">🏠</span>
