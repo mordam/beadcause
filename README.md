@@ -22088,6 +22088,59 @@ wrong sentence here — "this store holds no personal data" — reads exactly as
 store starts holding some. The coverage check catches a new store; only a date catches a store
 whose contents changed under a sentence that was true when it was written.
 
+### Two branches that renumber the wizard merge clean — `test/wizardnumbers.mjs`
+
+The setup wizard numbers its questions in the prose of each heading —
+`bold('7. Push notifications')` — rather than deriving them from position. That is a
+readable way to write a linear script and a **silent merge hazard**, and the difference
+matters because the thing it breaks is not a line anybody edited.
+
+Two branches that each insert a question in a *different region* of
+`scripts/configure.js` do not touch each other's lines. Git has nothing to conflict over,
+so it merges them clean and produces a wizard that asks two questions with the same
+number and skips one entirely. Not hypothetical: resolving #264 on 2026-08-14, one branch
+had inserted a new question 1 and shifted every later number by one while another had
+inserted Confluence before sign-in. The merge was clean, the result printed two "12." and
+no "14.", and the suite was 212 of 213 green over it — because nothing asserted the
+headings at all. `test/team.mjs` reads question 3's *default*, and `test/confluencesetup.mjs`
+and `test/signinsetup.mjs` each pass a heading of their own in, so neither ever sees what
+`configure.js` actually hands those modules. It was caught by a person reading the merge,
+which is not a mechanism. The same defect had already survived a whole worker session and
+its review on the branch beforehand.
+
+**Both shapes, or it misses the case that bit.** Most of the numbers are inline `bold('N. …')`
+calls; the last two are `heading: 'N. …'` strings passed *into* `lib/confluencesetup.js` and
+`lib/signinsetup.js`. Those two modules take the number from the caller deliberately — a
+question in another file that counts itself is a duplicate the first time somebody inserts
+one back in the wizard — so the numbering has exactly one source, and a check reading only
+the inline calls would have been green over the merge that started this. The suite reads
+both, and separately asserts the number still *reaches* those calls, since a `heading:`
+that stopped being passed would leave the count here intact while the wizard printed the
+modules' unnumbered defaults.
+
+It also pins the order: the numbers ascend as the questions are asked, sign-in is last and
+Confluence is second to last. Those placements are argued for in source comments — they are
+the two questions that take a credential, so both prompts with the echo turned off are the
+last thing setup does rather than one being buried mid-wizard — and this file is what makes
+moving them a decision rather than a tidy-up.
+
+**It reads the file rather than driving the wizard**, on purpose. The numbering is a property
+of the source, and driving `configure.js` needs a real pty and one `expect` block per question
+— far too expensive to run unconditionally, for an answer no better. Reading costs milliseconds,
+so it runs every time, which is the whole point: the failure here is nobody remembering to look.
+Comments are blanked before the scan, for
+[the reason every static read in this repo blanks them](#nothing-is-kept-without-saying-for-how-long--libevidencejs-testevidencemjs)
+— every file here argues in prose that quotes the code beside it, and an unblanked scan of
+`configure.js` with two such comments in it reported a duplicate and a phantom question 99,
+both invented entirely out of documentation.
+
+What it does not claim: nothing about a heading added with *no* number, since `bold(…)` also
+draws things that are not questions; and nothing about the comments inside `configure.js` that
+name a question by number, `lib/reposcan.js`'s doc comment that names one, or the sentences in
+this file that do — those are prose, and a renumber still owes them a `grep -rn 'question [0-9]'`
+and a look for the ordinals. It claims the one thing a clean merge can break with nobody
+seeing it.
+
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
 There are two `grep` hazards on this laptop. One is a defect in every script that writes
