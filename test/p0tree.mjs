@@ -90,16 +90,22 @@ const row = (id, extra = {}) => ({
 const parentEdge = (child, parent) => ({ issue_id: child, depends_on_id: parent, type: 'parent-child' });
 
 /**
- * A P0 of yours with four descendants and a grandchild, one of somebody else's, and a
- * bead under nothing.
+ * A P0 of yours with four descendants and a grandchild, one of somebody else's, one of
+ * yours you have not started, and a bead under nothing.
  *
  * `zz-p0.1.1` is the fixture this suite exists for: two levels down, nobody is being
  * asked about it, so it is in no inbox row and `under` has never heard of it. `zz-p0.10`
  * is the one with a question pending, and is also where a plain string sort would file
  * the tenth child between the first and the second.
+ *
+ * `zz-later` is bc-6s96's: yours, P0, open, and never started. It is the whole difference
+ * between a board and a backlog, and the only reason it is staged here rather than in a
+ * suite of its own is that the three claims it makes are each one line against a payload
+ * this file already has warm — no card, no `under` for its question, and *not* `unhomed`,
+ * which is the one a narrower `roots` gets wrong for free.
  */
 const EXPORT = [
-  row('zz-p0', { priority: 0, issue_type: 'epic', title: 'The P0 itself', labels: [`owner:${ME}`] }),
+  row('zz-p0', { status: 'in_progress', priority: 0, issue_type: 'epic', title: 'The P0 itself', labels: [`owner:${ME}`] }),
   row('zz-p0.1', { status: 'in_progress', assignee: ME, dependencies: [parentEdge('zz-p0.1', 'zz-p0')] }),
   row('zz-p0.1.1', { dependencies: [parentEdge('zz-p0.1.1', 'zz-p0.1')] }),
   // Closed, and still carrying the label — a question that was answered by closing the
@@ -108,25 +114,25 @@ const EXPORT = [
   row('zz-p0.10', { labels: ['human'], dependencies: [parentEdge('zz-p0.10', 'zz-p0')] }),
   row('zz-theirs', { priority: 0, labels: ['owner:bob@example.com'] }),
   row('zz-theirs.1', { dependencies: [parentEdge('zz-theirs.1', 'zz-theirs')] }),
+  row('zz-later', { priority: 0, issue_type: 'epic', title: 'A P0 of yours you have not started', labels: [`owner:${ME}`] }),
+  row('zz-later.1', { labels: ['human'], dependencies: [parentEdge('zz-later.1', 'zz-later')] }),
   row('zz-orphan'),
 ]
   .map((r) => JSON.stringify(r))
   .join('\n');
 
-/** The one bead in that tracker that is asking you something. */
-const HUMAN = [
-  {
-    id: 'zz-p0.10',
-    title: 'bead zz-p0.10',
-    description: 'Which way?',
-    status: 'open',
-    priority: 2,
-    issue_type: 'task',
-    labels: ['human'],
-    created_at: '2026-08-13T08:00:00Z',
-    updated_at: '2026-08-13T08:00:00Z',
-  },
-];
+/** The beads in that tracker asking you something — one under each of your two P0s. */
+const HUMAN = ['zz-p0.10', 'zz-later.1'].map((id) => ({
+  id,
+  title: `bead ${id}`,
+  description: 'Which way?',
+  status: 'open',
+  priority: 2,
+  issue_type: 'task',
+  labels: ['human'],
+  created_at: '2026-08-13T08:00:00Z',
+  updated_at: '2026-08-13T08:00:00Z',
+}));
 
 /* ------------------------------------------------------------------ the fake bd */
 
@@ -230,6 +236,34 @@ try {
     assert.deepEqual(rest, [], 'somebody else’s P0 is on your board');
     assert.equal(card.id, 'zz-p0');
     assert.ok(Array.isArray(card.tree), '/api/questions carries no tree at all');
+  });
+
+  await check('A P0 OF YOURS YOU HAVE NOT STARTED DRAWS NO CARD — the board is not the backlog', () => {
+    // bc-6s96. zz-later is yours, P0 and open; the only thing it is not is `in_progress`.
+    // Before this rule it drew a card indistinguishable from the one above it, and 42 of
+    // them drew a screen you scroll rather than a week you read.
+    assert.deepEqual(
+      payload.p0board.p0s.map((c) => c.id),
+      ['zz-p0'],
+      'an unstarted P0 is still on the board'
+    );
+  });
+
+  await check('AND ITS QUESTION LEAVES THE LIST WITHOUT BEING CALLED UNHOMED', () => {
+    // The decided consequence, and the one thing it must not become. `under` is keyed on
+    // the board's roots, so the row drops out of the narrowed list — that is intended, and
+    // it comes back the moment the epic is started. `unhomed` means "no open P0 above this
+    // at all", which is false here: zz-later is open. Marking it would put the row back on
+    // the screen through the map that exists for beads nobody has homed, which is both a
+    // lie about the tracker and this feature quietly not working.
+    assert.equal(payload.p0board.under['alpha/zz-later.1'], undefined, '`under` still names a P0 that is off the board');
+    assert.equal(
+      payload.p0board.unhomed['alpha/zz-later.1'],
+      undefined,
+      'a row under an unstarted P0 of yours was reclassified as having no P0 above it'
+    );
+    // And the sweep did fetch it, so the two assertions above are about a row that exists.
+    assert.equal(payload.questions.some((q) => q.key === 'alpha/zz-later.1'), true, 'the fixture question never arrived');
   });
 
   await check('A DESCENDANT NOBODY IS ASKING ABOUT IS IN THE TREE — the whole bead', () => {
