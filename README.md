@@ -4978,8 +4978,8 @@ thing finishes. So until bc-lco2 there was no way to say *stop* to one epic. You
 close it, or you could pause the whole repo — which stops the four other epics that were
 fine.
 
-**Pause is a per-P0 control on its section of `/monitor`, and the fact lives on the bead**
-as an `advocate-paused` label. A label rather than a marked block in `notes`, which is the
+**Pause is a per-P0 control in the head of its own card on `/monitor`, and the fact lives
+on the bead** as an `advocate-paused` label. A label rather than a marked block in `notes`, which is the
 opposite of the choice the waiting-on sentence makes one file over, and the two facts are
 why: a waiting-on sentence is prose only the advocate writes, so it needs a field that can
 hold a clause; a pause is a boolean somebody toggles from a phone, and `bd label add` is
@@ -11232,6 +11232,61 @@ cache, an export that failed — is **not** closed, and nothing is filed; the pr
 asks a release agent for UAT and production, and a false premise stated as fact on one is
 worse than no bead at all. Where an epic is waiting like that, the card says which of its
 beads have not closed rather than only that it is holding.
+
+### One card per advocate — an EpicAdvocate is not a fold inside the repo's card
+
+The advocates view draws one card per repo, and until bc-henk every EpicAdvocate under
+that repo was a **collapsed section inside it**, listed under an "Advocates" fold whose
+count was `1 + epicsOf(a).length`. A repo with fourteen open P0s was one card with fifteen
+advocates folded into it, and the nesting made a claim that is not true: that an
+EpicAdvocate is a part of the repo advocate. It is not. It has [its own
+budget](#config--configbeadcauseconfigjson) (`maxEpicAdvocates`, rationed separately from
+`maxWorkers`), its own state, [its own pause](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo),
+and its own queue — the beads under one epic. The only thing it shares with the repo
+advocate is the repo.
+
+**So an advocate is a card.** The repo advocate keeps its own, with its state chip, its
+stepper and its five controls; each epic with an advocate assigned gets a card at the same
+level, headed by the epic's title, its id, what its advocate is doing, and the two controls
+that were previously buried in a section's foot — Pause/Resume and *Open the epic*. Cards
+are emitted **repo, then that repo's epics**, rather than every repo followed by every
+epic: on a phone the second shape puts the reason a repo is dispatching groups a whole
+screen away from the repo doing it.
+
+**The half you cannot see from the layout is where the windows went.** A group dispatched
+from an epic's plan carries the epic it came from (`w.group.epic`), so those sessions are
+now rows on *that epic's* card, and the repo card's "Working now" is only the work no epic
+claimed. Before this they were rows in the repo's list, indistinguishable from the beads
+the repo advocate picked up one at a time — a plan that put four windows up had nothing on
+screen tying them together. No window is drawn on two cards.
+
+**"Working now" keeps counting every coder, and that is not a bug in the arithmetic.** The
+section's count is `codersOf(a).length/limit` — all of them, including the ones an epic
+claimed — because `limit` is what the daemon actually rations per repo, and a section
+headed `2/4` over a repo with four coding windows would be the card disagreeing with what
+`tickOne` will do next. The rows are the subset; a line underneath says how many went to an
+epic's card, so the difference is stated rather than left as arithmetic you have to notice.
+
+**The head of an epic card *is* its fold**, and that is the decision that makes a dozen of
+them affordable. A card cannot be the 40px a collapsed section was — it has a border, its
+own padding and a head — so instead of a head sitting above a collapsed strip, the head is
+the summary: the caret, the epic's title on one line, its id, what its advocate is doing,
+and Pause plus *Open the epic*. Everything else is behind it. The toggle is a `<button>`
+with the controls as its siblings rather than its children, because a button inside a
+button is not markup and Pause has to be pressable without opening anything.
+
+Measured in a headless Chrome at 393×852 — one repo, twelve assigned epics, a window on
+none of them, everything shut:
+
+| shape | the repo and its twelve epics |
+|---|---|
+| twelve folds inside one card (before this) | 2304px |
+| thirteen cards, each head its own fold | 1656px = 372 + 12×107 |
+
+So a repo with a dozen open P0s is **shorter** after being taken apart into cards than it
+was as one card. A fold whose 40px summary strip sat under a two-line card head cost more
+than a head that is the fold. The fold also keeps the key it had as a section
+(`<ws>:epic:<id>`), so an epic you had open before this landed is still open after it.
 
 ### What to test is asked of the tracker, not read off the bead — `beadcause-promotework`
 

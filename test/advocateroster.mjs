@@ -23,9 +23,11 @@
  *      that is Adam's requirement in one sentence, and it is the assertion below that
  *      would actually catch a regression, because sharing a key or a ceiling is exactly
  *      how the coupling would come back.
- *   3. **`/monitor` draws a section each**, whether or not a window is up, and "Working
+ *   3. **`/monitor` draws a card each**, whether or not a window is up, and "Working
  *      now" counts coders only — a card saying `2 of 2 sessions` over a repo whose second
  *      window is a planner is claiming the repo is full while the daemon still has a slot.
+ *      It was a *section* inside the repo advocate's card until bc-henk; the nesting said
+ *      an EpicAdvocate was part of the repo advocate, and everything above says it is not.
  *
  * The roster and the two limits are pure functions and are driven for real. The tick's
  * slot arithmetic and the page are source assertions, the shape test/closedpill.mjs and
@@ -201,18 +203,43 @@ check('the roster is rebuilt from the graph every tick, and never persisted', ()
 
 /* ------------------------------------------------------------------- the page */
 
-check('the console draws a section per assigned epic, from the roster on the wire', () => {
+check('the console draws a card per assigned epic, from the roster on the wire', () => {
   assert.match(daemon, /epicAdvocates: a\.epicAdvocates \|\| \[\]/, 'the roster is not in the snapshot');
-  assert.match(page, /function epicSections\(a, key\)/, 'nothing draws the sections');
-  assert.match(page, /epicsOf\(a\)\s*\n?\s*\.map\(\(e\)/, 'the sections are not built from the roster');
-  assert.match(page, /section\(`\$\{key\}:epic:\$\{e\.id\}`/, 'the sections share a key, so opening one opens them all');
-  assert.match(page, /epicSections\(a, key\)/, 'they are built but never placed in the card');
+  assert.match(page, /function epicCard\(a, e\)/, 'nothing draws the cards');
+  assert.match(page, /epicsOf\(a\)\.map\(\(e\) => epicCard\(a, e\)\)/, 'the cards are not built from the roster');
+  assert.match(page, /const fold = `\$\{key\}:epic:\$\{e\.id\}`/, 'the fold has lost the key it had as a section, so every open epic shuts on deploy');
+  assert.match(page, /advocateCard\(w, a, proposals, r\) \+ epicCards\(a\)/, 'they are built but never placed in the run');
+});
+
+check('and each one is a top-level card, not a fold inside the repo advocate', () => {
+  // The whole of bc-henk in two assertions. An `<article class="card">` at the same level
+  // as the repo's, and nothing left in `advocateCard` that draws an epic inside itself.
+  const fn = page.slice(page.indexOf('function epicCard(a, e)'), page.indexOf('const epicCards ='));
+  assert.match(fn, /<article class="card work-card mon-card epic-card/, 'an epic is still drawn as something other than a card');
+  const card = page.slice(page.indexOf('function advocateCard'), page.indexOf('function plainCard'));
+  assert.ok(!/epicSections/.test(card), 'the repo card still folds its epics inside itself');
+  assert.ok(!/'Advocates', String\(1 \+ epicsOf\(a\)\.length\)/.test(card), 'the roster count still adds the epics to the repo advocate');
+  // Paused and "Open the epic" both reachable from the head, which is the part of a shut
+  // card you can see — a card that has to be opened to be paused is a fold with a border.
+  const head = fn.slice(fn.indexOf('const controls ='), fn.indexOf('const plan ='));
+  assert.match(head, /data-epic="\$\{e\.paused \? 'epicResume' : 'epicPause'\}/, 'the pause is not in the head');
+  assert.match(head, /Open the epic/, 'nor the way into the epic');
+});
+
+check('a window is on exactly one card, and the repo card says where the rest went', () => {
+  const card = page.slice(page.indexOf('function advocateCard'), page.indexOf('function plainCard'));
+  assert.match(card, /const claimed = carded\(a\)/, 'the repo card no longer knows which epics have cards');
+  assert.match(card, /codersOf\(a\)\.filter\(\(w\) => !claimed\.has\(w\.group\?\.epic\)\)/, 'the repo card draws epic-dispatched windows too');
+  assert.match(card, /came out of an epic's plan/, 'nothing accounts for the rows the count includes and the list does not');
+  assert.match(page, /const dispatchedFrom = \(a, id\) => codersOf\(a\)\.filter\(\(w\) => w\.group\?\.epic === id\)/, 'the epic card cannot find its own sessions');
 });
 
 check('an epic with no window is drawn as fully as one with it, and says which reason', () => {
-  const fn = page.slice(page.indexOf('function epicSections'), page.indexOf('function workerRow'));
-  assert.match(fn, /No window right now/, 'an unwindowed epic renders an empty section');
+  const fn = page.slice(page.indexOf('function epicStateOf'), page.indexOf('const epicCards ='));
+  assert.match(fn, /No window right now/, 'an unwindowed epic renders an empty card');
   assert.match(fn, /e\.why/, 'and it does not say why, which is the only actionable half');
+  // In the head chip as well as the body, because a shut card is only its head.
+  assert.match(fn, /return \{ text: e\.why \|\| 'no window'/, 'the reason is only readable once the card is opened');
   assert.match(daemon, /waiting for a slot/, 'the daemon never sends the out-of-budget reason');
   assert.match(daemon, /nothing under it is ready to plan yet/, 'nor the other one');
 });
@@ -221,7 +248,10 @@ check('Working now counts coders only, in both the number and the rows', () => {
   const card = page.slice(page.indexOf('const secs = ['), page.indexOf('Only drawn when there is one'));
   assert.match(card, /codersOf\(a\)\.length \? `\$\{codersOf\(a\)\.length\}\/\$\{a\.limit\}`/, 'the count still includes planners');
   assert.ok(!/a\.workers\.map\(\(x\) => workerRow\(a, x\)\)/.test(card), 'the rows still include planners');
-  assert.match(card, /codersOf\(a\)\s*\n?\s*\.map\(\(x\) => workerRow\(a, x\)\)/);
+  // The rows are the coders no epic claimed — a subset of the same population, never
+  // `a.workers`. The count above stays every coder, so it agrees with what `tickOne`
+  // rations; see the comment in the card.
+  assert.match(card, /unclaimed\.map\(\(x\) => workerRow\(a, x\)\)/);
 });
 
 check('and the head chip does too, so it can never read "2 of 1 sessions"', () => {

@@ -540,7 +540,7 @@ await check('the off switch is off', async () => {
   assert.deepEqual(r.opened, [], 'and beadcause is back to a button');
   assert.equal(r.calls.graph, 0, 'off costs nothing, not even the export');
   // The roster's read is not the sweep's and is not switched off with it: an advocate
-  // with `reenterAdvocates: false` still draws its EpicAdvocate section, and that read
+  // with `reenterAdvocates: false` still draws its EpicAdvocate card, and that read
   // costs whatever the cache already holds. See the note on the fake's `graph`.
   assert.equal(r.calls.cached, 1, 'and the roster is unaffected — it is a different feature');
 });
