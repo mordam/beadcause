@@ -230,6 +230,65 @@ await check('renaming a controlled section detaches it from its owner, loudly', 
   assert.equal(hasSection('# One\n## Install\n\ntext', '## Install'), true);
 });
 
+/* -------------------------------------------------------------- the drafts */
+
+await check('a draft records no approval, and is not required to have one', () => {
+  const draft = { ...sound(), approvedBy: null, approvedOn: null, awaitingApproval: 'Adam Morgan, as top management' };
+  assert.deepEqual(entryProblems(draft), [], 'a document waiting for a signature is a state, not a defect');
+});
+
+await check('a draft carrying an approval anyway is refused, because that is the lie', () => {
+  const both = { ...sound(), awaitingApproval: 'Adam Morgan, as top management' };
+  const problems = entryProblems(both);
+  assert.ok(problems.some((p) => /must carry `approvedBy: null` and `approvedOn: null`/.test(p)), problems.join('\n'));
+
+  const half = { ...sound(), approvedBy: null, awaitingApproval: 'Adam Morgan, as top management' };
+  assert.ok(entryProblems(half).some((p) => /approvedOn: null/.test(p)), 'a leftover date is the same problem');
+});
+
+await check('a draft awaiting nobody in particular is refused', () => {
+  const vague = { ...sound(), approvedBy: null, approvedOn: null, awaitingApproval: '' };
+  const problems = entryProblems(vague);
+  // An empty string is not "no draft" — it is a draft whose signatory nobody wrote down, which
+  // is the one that would sit in the register for a year with nobody able to say whose it was.
+  assert.ok(problems.some((p) => /`awaitingApproval` must name whose signature/.test(p)), problems.join('\n'));
+});
+
+await check('a draft warns every time anybody asks, and never fails', () => {
+  const now = new Date('2026-08-17T12:00:00Z');
+  const draft = {
+    ...sound(),
+    reviewedOn: '2026-08-17',
+    approvedBy: null,
+    approvedOn: null,
+    awaitingApproval: 'Adam Morgan, as top management',
+  };
+  const { problems, warnings } = registerProblems(ROOT, now, [draft]);
+  assert.deepEqual(problems, [], 'failing on a state only a signature can clear is not something a terminal can fix');
+  assert.ok(warnings.some((w) => /draft, awaiting Adam Morgan/.test(w)), warnings.join('\n'));
+});
+
+await check('the review clock still runs on a draft, because one unsigned for a year is a different problem', () => {
+  const draft = {
+    ...sound(),
+    approvedBy: null,
+    approvedOn: null,
+    awaitingApproval: 'Adam Morgan, as top management',
+  };
+  const { problems } = registerProblems(ROOT, new Date('2029-01-01T12:00:00Z'), [draft]);
+  assert.ok(problems.some((p) => /review was due/.test(p)), problems.join('\n'));
+});
+
+await check('the four documents bc-eqn1.1 drafted are in the register, and all four are drafts', () => {
+  const drafted = REGISTER.filter((e) => e.awaitingApproval);
+  assert.equal(drafted.length, 4, 'the AI policy, the scope statement, the interested parties and the roles table');
+  for (const e of drafted) {
+    assert.equal(e.approvedOn, null, `${e.id}: a draft that records an approval is the artefact this refuses to produce`);
+    assert.equal(e.approvedBy, null, `${e.id}: same`);
+    assert.ok(e.section?.startsWith('#### '), `${e.id}: each is a section of the README, which is where a person reads it`);
+  }
+});
+
 /* ------------------------------------------------------------ change history */
 
 await check('the change history is the one in git, and an unknown path is empty rather than an error', () => {
