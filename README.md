@@ -5435,9 +5435,28 @@ and asserts that both rows are in *exactly* the same place afterwards and that t
 has not moved at all, which is the same geometry as the bar staying still through a URL-bar
 collapse.
 
-`node scripts/tabbar-check.mjs` — ~750 lines of cover for the deleted bar — went with it.
-bc-khoe.9 writes the row's own replacement, deriving the expected pills from
-`public/viewbar.js`'s own list rather than repeating it.
+`node scripts/tabbar-check.mjs` — ~750 lines of cover for the deleted bar — went with it,
+and `node scripts/viewbar-check.mjs` is the row's own replacement (bc-khoe.9). It drives
+every page that loads `/viewbar.js` at 360×640 and 393×852 and asks the things a row of
+navigation has to be true of before anybody can trust it: that exactly the pills the
+source lists are drawn, in its order; that the one saying *you are here* is a `<span>` with
+no href and the rest are links or buttons; that each is a 44px tap target and a tap on it
+reaches it rather than something drawn over it; that the row is one line and scrolls
+sideways instead of wrapping; and that the pill saying where you are is scrolled into view
+on load, which is asked again on a viewport too narrow for the row to fit, because that
+promise is unobservable on a row with room to spare.
+
+Two things about it are derivations rather than lists. The **pills** are read out of
+`PILLS` in `public/viewbar.js` — bc-khoe.2, bc-khoe.4 and bc-khoe.7 each change that set,
+and a list copied into the check would make every one of them a check edit as well; which
+pill should be lit on a given page comes from that same array's `paths`, so *nothing is
+current* on `/console` or `/admin` is asserted exactly as firmly as *`history` is* on
+`/history`. The **pages** are read out of `public/` — every `*.html` that pulls in
+`/viewbar.js` has to be driven, so a page that starts drawing the row without being added
+fails the check rather than quietly going uncovered. It closes by asking the other half of
+[the row's own argument](#getting-around--the-pill-row): that nothing the bottom bar
+reached is a dead end, and that `/admin` — which is on no row on purpose — is still
+reachable from a standing page, through the Admin row in the mark's menu or a page's own ⚙.
 
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
 real server for every URL a phone might still have on its home screen and checks which
