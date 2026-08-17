@@ -33,7 +33,7 @@
  *
  * The wiring is asserted against the source, the way test/beadsession.mjs asserts that
  * page never makes a non-GET. A unit test of `advocateSession` passes just as happily
- * against a `p0Card` that never calls it, and "the field reaches the card" is the whole
+ * against a `rootCard` that never calls it, and "the field reaches the card" is the whole
  * of what was asked for.
  */
 import assert from 'node:assert/strict';
@@ -124,11 +124,11 @@ check('opening lapses, so a launch that died gives the button back', () => {
 
 check('the card is actually given it', () => {
   const src = read('lib', 'server.js');
-  assert.match(src, /advocate: advocateSession\(sessions, bead\.id/, 'p0Card must carry the advocate field');
+  assert.match(src, /advocate: advocateSession\(sessions, bead\.id/, 'rootCard must carry the advocate field');
   // Matched on the last argument rather than the whole call: bc-rfnr.9.1 re-keyed this
   // off a children index while this bead was in flight, and a test that pins every
   // argument of somebody else's function fails on their change rather than on ours.
-  assert.match(src, /p0s\.push\(p0Card\([^)]*, sessions\)\)/, 'the board must hand its snapshot down');
+  assert.match(src, /cards\.push\(rootCard\([^)]*, sessions\)\)/, 'the board must hand its snapshot down');
   assert.match(src, /const sessions = liveSessions\(cfg\);/, 'one read per board, not one per card');
 });
 
@@ -147,8 +147,8 @@ check('and so does the other door, through the same record', () => {
   // that reason — a card that showed "opening" for the button's launch and re-offered the
   // button for the sweep's would be offering a control whose only outcome is a 409.
   const adv = read('lib', 'advocate.js');
-  assert.match(adv, /rememberAdvocateOpened\(`\$\{a\.name\}\/\$\{p0\.id\}`\)/, 'the sweep forgets its own launch');
-  assert.match(adv, /advocateSession\(sessions, p0\.id, \{ openedAt: openedRecently\(/, 'and it refuses a second one by the same rule');
+  assert.match(adv, /rememberAdvocateOpened\(`\$\{a\.name\}\/\$\{epic\.id\}`\)/, 'the sweep forgets its own launch');
+  assert.match(adv, /advocateSession\(sessions, epic\.id, \{ openedAt: openedRecently\(/, 'and it refuses a second one by the same rule');
   const epicadv = read('lib', 'epicadvocate.js');
   assert.match(epicadv, /const OPENED = new Map\(\)/, 'the record has moved back into one importer');
 });

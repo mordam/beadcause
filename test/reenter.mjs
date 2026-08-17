@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Re-entering the P0 advocate: which P0s are enrolled, what counts as movement, and the
+ * Re-entering the Epic Advocate: which epics are enrolled, what counts as movement, and the
  * three things that stop a window opening anyway.
  *
  *     npm test
@@ -49,7 +49,7 @@ const REPO = path.join(tmp, 'projects', 'alpha');
 fs.mkdirSync(SESSIONS, { recursive: true });
 fs.mkdirSync(REPO, { recursive: true });
 
-const { advocatedP0s, reentryFor, REENTER_DEFAULTS } = await import(LIB('reenter.js'));
+const { advocatedRoots, reentryFor, REENTER_DEFAULTS } = await import(LIB('reenter.js'));
 const { WAITING_OPEN, WAITING_CLOSE, forgetAdvocateOpened } = await import(LIB('epicadvocate.js'));
 const { leaseLabel } = await import(LIB('lease.js'));
 const { createAdvocates } = await import(LIB('advocate.js'));
@@ -69,7 +69,7 @@ const bead = (id, over = {}) => ({
   notes: '',
   ...over,
 });
-/** An owned, open, non-crash P0 whose advocate has written its sentence: enrolled. */
+/** An owned, open, non-crash root whose advocate has written its sentence: enrolled. */
 const p0 = (id, over = {}) =>
   bead(id, { priority: 0, issue_type: 'epic', labels: [OWNER], notes: waiting('a worker slot'), ...over });
 
@@ -109,21 +109,32 @@ async function check(name, fn) {
 /* ------------------------------------------------------------- who is enrolled */
 
 await check('enrolment is the waiting-on block, and nothing else', () => {
-  assert.deepEqual(advocatedP0s(subtree()).map((r) => r.p0.id), ['x-1']);
-  // No sentence, no enrolment — a P0 nobody has ever advocated is left alone, which is
-  // what keeps this from opening windows on P0s the owner never asked to supervise.
-  assert.deepEqual(advocatedP0s(subtree({ p0: { notes: 'prose but no block' } })), []);
-  assert.deepEqual(advocatedP0s(subtree({ p0: { notes: '' } })), []);
+  assert.deepEqual(advocatedRoots(subtree()).map((r) => r.epic.id), ['x-1']);
+  // No sentence, no enrolment — an epic nobody has ever advocated is left alone, which is
+  // what keeps this from opening windows on epics the owner never asked to supervise.
+  assert.deepEqual(advocatedRoots(subtree({ p0: { notes: 'prose but no block' } })), []);
+  assert.deepEqual(advocatedRoots(subtree({ p0: { notes: '' } })), []);
 });
 
 await check('the four `wantsAdvocate` refusals hold on this door too', () => {
-  // The same gate the launch refuses on, so this can never queue a P0 the launch would
+  // The same gate the launch refuses on, so this can never queue a bead the launch would
   // then throw about — see `advocateRefusal` in lib/session.js.
-  assert.deepEqual(advocatedP0s(subtree({ p0: { priority: 1 } })), [], 'not a P0');
-  assert.deepEqual(advocatedP0s(subtree({ p0: { status: 'closed' } })), [], 'closed');
-  assert.deepEqual(advocatedP0s(subtree({ p0: { labels: [] } })), [], 'nobody owns it');
   assert.deepEqual(
-    advocatedP0s(subtree({ p0: { labels: [OWNER, 'app-error'] } })),
+    advocatedRoots(subtree({ p0: { priority: 1, issue_type: 'task' } })),
+    [],
+    'neither an epic nor a P0'
+  );
+  // And the half bc-htoy changed, pinned in the same breath: dropping only the priority
+  // leaves an enrolled P1 epic, which is now a first-class root rather than a refusal.
+  assert.deepEqual(
+    advocatedRoots(subtree({ p0: { priority: 1 } })).map((r) => r.epic.id),
+    ['x-1'],
+    'a P1 epic is enrolled — bc-htoy'
+  );
+  assert.deepEqual(advocatedRoots(subtree({ p0: { status: 'closed' } })), [], 'closed');
+  assert.deepEqual(advocatedRoots(subtree({ p0: { labels: [] } })), [], 'nobody owns it');
+  assert.deepEqual(
+    advocatedRoots(subtree({ p0: { labels: [OWNER, 'app-error'] } })),
     [],
     'a crash is not an epic'
   );
@@ -134,23 +145,23 @@ await check('the brief gets direct children, the events get the whole subtree', 
     [p0('x-1'), bead('x-1.1', { issue_type: 'epic' }), bead('x-1.1.1'), bead('x-1.2')],
     { 'x-1.1': 'x-1', 'x-1.1.1': 'x-1.1', 'x-1.2': 'x-1' }
   );
-  const [row] = advocatedP0s(deep);
+  const [row] = advocatedRoots(deep);
   assert.deepEqual(row.kids.map((k) => k.id), ['x-1.1', 'x-1.2'], 'the brief says "children" and means children');
   assert.deepEqual(
     row.tree.map((k) => k.id).sort(),
     ['x-1.1', 'x-1.1.1', 'x-1.2'],
-    'a P0 whose children are epics has its movement a level down'
+    'an epic whose children are epics has its movement a level down'
   );
 });
 
-await check('two enrolled P0s come back in a decided order', () => {
+await check('two enrolled epics come back in a decided order', () => {
   const two = index([p0('x-10'), p0('x-2')], {});
-  assert.deepEqual(advocatedP0s(two).map((r) => r.p0.id), ['x-2', 'x-10'], 'numerically, not by export order');
+  assert.deepEqual(advocatedRoots(two).map((r) => r.epic.id), ['x-2', 'x-10'], 'numerically, not by export order');
 });
 
 /* --------------------------------------------------------------- what is news */
 
-const treeOf = (idx) => advocatedP0s(idx)[0].tree;
+const treeOf = (idx) => advocatedRoots(idx)[0].tree;
 
 await check('a first sight learns and says nothing', () => {
   const out = reentryFor(null, treeOf(subtree()));
@@ -538,7 +549,7 @@ await check('a refused launch backs off for the cooldown and keeps the event', a
   const r = await tick({
     graph: subtree({ 'x-1.1': { status: 'closed' } }),
     advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
-    refuse: 'x-1 may not have a P0 advocate — nobody owns it',
+    refuse: 'x-1 may not have an Epic Advocate — nobody owns it',
   });
   assert.deepEqual(r.opened, []);
   assert.deepEqual(r.state.advocated['x-1'].kids, SEEN.kids, 'the event survives a launch that threw');
@@ -557,7 +568,7 @@ await check('a graph that would not answer changes nothing', async () => {
   assert.deepEqual(r.state.advocated['x-1'].kids, SEEN.kids, 'the snapshot is left exactly as it was');
 });
 
-await check('a P0 that is no longer enrolled is forgotten', async () => {
+await check('an epic that is no longer enrolled is forgotten', async () => {
   const r = await tick({
     graph: subtree({ p0: { notes: 'the advocate took its sentence off' }, 'x-1.1': { status: 'closed' } }),
     advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
@@ -595,6 +606,46 @@ await check('the window it just opened holds the same bead out of the queue', as
   );
 });
 
+await check('a repo at its worker limit still gets an Epic Advocate', async () => {
+  // The property the static read below used to own, asserted by driving it instead. An
+  // Epic Advocate takes no worker slot and competes for none, so `reenter` runs above
+  // `if (free <= 0) return` — and a repo at its limit is the state where supervision is
+  // worth the most, because every window it has is already busy. Every other tick case in
+  // this file runs an advocate with a slot to spare, so that state was reached only by a
+  // string match on the arithmetic — a line that gets renamed, and did. See bc-t5k0.
+  //
+  // A child of the enrolled epic rather than a bead of its own: the queue row has to be
+  // under a root or `withoutOrphans` takes it out before any of this is reached, and it
+  // has to be a task or it is a *planner*, which `maxWorkers` does not ration.
+  const queued = [
+    { id: 'x-1.2', title: 'x-1.2', priority: 2, issue_type: 'task', status: 'open', created_at: LONG_AGO, labels: [] },
+  ];
+  const args = {
+    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
+    ready: queued,
+  };
+  // The control first, or the second half asserts nothing: with the one slot free, that
+  // queue row is a bead the advocate opens a worker window on.
+  const spare = await tick(args);
+  assert.deepEqual(spare.workers, ['x-1.2'], 'the row does reach a launch when the repo has a slot');
+  assert.deepEqual(spare.opened.map((o) => o.id), ['x-1'], 'and the advocate gets its window beside it');
+
+  // And now with that slot taken. `maxWorkers` defaults to 1, so one worker is the limit;
+  // `at` is now rather than LONG_AGO, or `reconcile` reaps it before the tick reaches the
+  // sweep — see the advocate-tick-fixtures note.
+  const full = await tick({
+    ...args,
+    workers: [{ id: 'y-9', title: 'y-9', at: new Date().toISOString(), batch: [], attempt: 1 }],
+  });
+  assert.deepEqual(full.workers, [], 'the queue is held — the repo is at its limit');
+  assert.deepEqual(
+    full.opened.map((o) => o.id),
+    ['x-1'],
+    'and the advocate was re-opened anyway — it is not queue work'
+  );
+});
+
 /* ------------------------------------------------------------ what source says */
 
 await check('the sweep is below the three lines that stop the tick', async () => {
@@ -606,28 +657,29 @@ await check('the sweep is below the three lines that stop the tick', async () =>
   assert.ok(from > 0, 'tickOne has been renamed — re-point this check');
   const body = src.slice(from, src.indexOf('\n  }\n', from));
   const at = body.indexOf('await reenter(a)');
-  assert.ok(at > 0, 'nothing re-opens the P0 advocate — this is bc-goo.15 regressing');
+  assert.ok(at > 0, 'nothing re-opens the Epic Advocate — this is bc-goo.15 regressing');
   assert.ok(body.indexOf('if (OBSERVING) return note(a,') < at, 'an observer instance must open no windows');
   assert.ok(body.indexOf('if (a.paused) return note(a,') < at, 'paused means open no more sessions');
   assert.ok(body.indexOf('if (a.quiet) {') < at, 'quiet hours mean it too');
-  // And above the queue: a P0 advocate takes no worker slot, so a repo at its limit — the
-  // state where supervision is worth the most — must still be able to get one.
+  // The fourth thing this used to assert — that `reenter` is above the queue, because an
+  // Epic Advocate takes no worker slot — is the tick case above, and deliberately not here.
+  // It was a string match on `const free = a.limit - a.workers.length`; `a.workers.length`
+  // became `codersOf(a).length` on main, `indexOf` returned -1, `at < -1` was false, and
+  // the suite went red saying "it has become queue work" while `reenter` sat exactly where
+  // it belongs. bc-xl7n.39 shortened the match and added a `queueAt > 0` guard, which turns
+  // the next rename into "re-point this check" rather than into a false regression report
+  // — honest, but still a red for a correct edit, and still no evidence about the property.
+  // Driving a repo at its limit costs one more tick, survives every rename, and is the only
+  // form of this that fails when `reenter` is *gated* on a slot rather than moved. bc-t5k0.
   //
-  // Matched on `const free = a.limit -` rather than on the whole line, because the whole
-  // line is not what this check is about and pinning it made the suite red for a rename
-  // that was entirely correct: `a.workers.length` became `codersOf(a).length` on main,
-  // `indexOf` returned -1, and `at < -1` failed while `reenter` was still sitting exactly
-  // where it belongs. A static read should name the thing it means and no more of the
-  // line than that.
-  const queueAt = body.indexOf('const free = a.limit -');
-  assert.ok(queueAt > 0, 'the worker-slot arithmetic has moved or been renamed — re-point this check');
-  assert.ok(at < queueAt, 'it has become queue work');
+  // What is left here is the part a behaviour test genuinely cannot reach in-process:
+  // `OBSERVING` is read from the environment once at module load.
 });
 
 await check('the default for the injectable is the real door', async () => {
   const src = fs.readFileSync(LIB('advocate.js'), 'utf8');
   assert.match(src, /openAdvocate = openEpicAdvocateSession/, 'the sweep is wired to a stub in production');
-  assert.match(src, /rememberAdvocateOpened\(`\$\{a\.name\}\/\$\{p0\.id\}`\)/, 'the card will offer a second window');
+  assert.match(src, /rememberAdvocateOpened\(`\$\{a\.name\}\/\$\{epic\.id\}`\)/, 'the card will offer a second window');
 });
 
 /* ---------------------------------------------------------------------- done */

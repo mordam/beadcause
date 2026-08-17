@@ -113,7 +113,7 @@ const board = () => ({
   owned: true,
   under: Object.fromEntries(QUESTIONS.map((q) => [q.key, STARTED.id])),
   unhomed: {},
-  p0s: [...started].map((id) => card(id, id === STARTED.id ? STARTED.title : OFFERS.find((o) => o.id === id)?.title || id)),
+  roots: [...started].map((id) => card(id, id === STARTED.id ? STARTED.title : OFFERS.find((o) => o.id === id)?.title || id)),
   startable: OFFERS.filter((o) => !started.has(o.id)).map((o) => ({
     key: `${WS}/${o.id}`,
     workspace: WS,
@@ -147,7 +147,7 @@ function serve() {
         workspaces: [WS],
         spaces: [{ name: 'Work', workspaces: [WS], quiet: false, muted: false, count: QUESTIONS.length }],
         filter: { space: 'all', workspace: 'all' },
-        p0board: board(),
+        rootboard: board(),
         summary: { sessions: 0, proposals: 0 },
         scope: 'human',
       });

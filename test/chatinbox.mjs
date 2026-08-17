@@ -216,16 +216,24 @@ try {
 
   console.log('\nthe tab is gone and the page is not\n');
 
-  await check('the row holds no Chat pill', () => {
+  await check('the row holds no pill that goes to the chat session', () => {
     const bar = read('public/viewbar.js');
     const ids = [...bar.matchAll(/^\s*\{?\s*id: '([a-z]+)'/gm)].map((m) => m[1]);
     // That the table was read at all, keyed off a view rather than off a count: this
-    // navigation has changed size three times since the assertion was written (bc-l8jp.6
+    // navigation has changed size four times since the assertion was written (bc-l8jp.6
     // took PRs a moment after this took Chat; bc-khoe.1 replaced the whole bar with a
-    // row of pills) and a count here would fail as "the table is unreadable" every time
-    // it legitimately does so again.
-    assert.ok(ids.includes('inbox'), `expected the view table, found: ${ids.join(', ') || 'nothing'}`);
-    assert.ok(!ids.includes('console'), `the Chat pill is back in the row: ${ids.join(', ')}`);
+    // row of pills; bc-khoe.2 made six of those pills the inbox's kinds) and a count
+    // here would fail as "the table is unreadable" every time it legitimately does so
+    // again. Home is `epics` since bc-khoe.2 — the P0 board is what an unnarrowed Home
+    // *is*.
+    assert.ok(ids.includes('epics'), `expected the view table, found: ${ids.join(', ') || 'nothing'}`);
+    // **There is a `Chats` pill now and it is not this one.** bc-khoe.2 gave the kinds
+    // the row, and one of the six is the conversations you have open — which are rows in
+    // the inbox, filtered in place. What must stay gone is a pill that *navigates to*
+    // /console: that was the one entry on the bar that was also the way to create
+    // something, and the ＋ below is what replaced it. So this is read as an href rather
+    // than as an id, because the id `session` is now legitimately on the row.
+    assert.ok(!/href: '\/console/.test(bar), `the Chat pill is back in the row: ${ids.join(', ')}`);
   });
 
   for (const p of ['/console', '/console.html']) {

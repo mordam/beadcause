@@ -529,6 +529,26 @@ await test('and the narrowed list is what reached the CLI', () => {
   }
 });
 
+// The prompt itself, off the same argv — the one place in the suite where what the
+// survey was *told* can be read as the CLI received it. Cheap here and unavailable
+// anywhere else: `surveyPrompt` is module-private and reaching it needs this fixture.
+// test/surveybrief.mjs holds the paragraph's own behaviour; this holds that it arrives.
+await test('and the queue brief reached the prompt, degrading to no numbers', () => {
+  const argv = JSON.parse(fs.readFileSync(ARGV, 'utf8'));
+  const prompt = argv[argv.length - 1];
+  assert.match(prompt, /Your queue is empty — nothing\nleft in it after the filters below/, 'the premise is not narrowed');
+  assert.ok(
+    !/no ready work left in this repo's beads tracker/.test(prompt),
+    'the survey is told again that the tracker is empty — a claim its own `bd ready` disproves',
+  );
+  assert.match(prompt, /"Empty" is my queue after its filters, not the tracker/, 'the queue brief never arrived');
+  assert.match(prompt, /`QUEUE_EXCLUDED`, lib\/endorse\.js/, 'the invisible label filter is not named');
+  // This fixture's `bd` is duck-typed and has neither count method, which is the
+  // degradation path: the paragraph stands, without numbers, and nothing was lost.
+  assert.ok(!/carry `unendorsed`/.test(prompt), 'a count was invented from a bd that cannot answer');
+  assert.match(prompt, /Nothing was held back by contention/, 'the hold promise is missing');
+});
+
 await cleanupTmp(tmp);
 
 console.log(failures ? `\n${failures} failed` : '\nallowlist: all good');
