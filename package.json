@@ -41,6 +41,7 @@
     "coverage": "node scripts/coverage.mjs",
     "qr": "node bin/beadcause.js --qr",
     "vendor": "node scripts/vendor.js",
+    "icons": "node scripts/icons.mjs",
     "postinstall": "node scripts/vendor.js",
     "monitor": "node bin/monitor.js",
     "timings": "node scripts/timings.mjs",
