@@ -49,6 +49,14 @@
  *    Bead status is the opposite and is asserted to be: nothing chosen is every rung,
  *    and the line stays quiet about a group that is not narrowing anything.
  *
+ * 7. **Three of the six have a ＋ and two do not (bc-khoe.27.1).** `compose` is a flag
+ *    per kind, and `composes()` answers it for whichever pill is lit. The failure it
+ *    guards is a create on a screen with nothing to create — Questions and PRs are
+ *    queues of things waiting on a word from you — and the failure on the other side is
+ *    a kind that quietly loses the app's primary action. Both directions are asserted
+ *    by name rather than by count, because a table edited to agree with a count is a
+ *    table nothing checked. public/app.js's half is test/composekind.mjs.
+ *
  * The control runs in a vm with a hand-made document, the way test/dictate.mjs runs the
  * real dictation: a rewrite of the logic as a test-only module could not fail while the
  * phone shipped something else. It is a *small* document on purpose — the file builds
@@ -297,6 +305,12 @@ const PILLS = ['epics', 'question', 'pr', 'session', 'history', 'bead'];
 const SLICES = ['question', 'pr', 'session', 'bead'];
 /** The two with none: Home unnarrowed, and a page of its own. */
 const PLACES = ['epics', 'history'];
+/* Which of the six have a ＋, and which have none — bc-khoe.27.1. Not derived from
+   PLACES or SLICES, and it cuts across both: `My Epics` is a place with a create and
+   `Questions` is a slice without one. History is a page of its own and never had a ＋,
+   so it is in neither list for a reason that has nothing to do with the other five. */
+const COMPOSE = ['epics', 'session', 'bead'];
+const NO_COMPOSE = ['question', 'pr', 'history'];
 /* On neither side, so every scope can hold one: a pull request comes off `gh`, a chat
    session off no sweep at all, and a question can come off either sweep — the human one
    asks it and the agent one returns the beads held for endorsement that fold into it.
@@ -360,6 +374,74 @@ await check('a place is drawn but can never be selected', () => {
     assert.deepEqual(list(filter.selected()), [], `${id} was selectable`);
     assert.ok(filter.matches(ROWS.question), `${id} emptied the list`);
   }
+});
+
+await check('three of the six carry a ＋ and three carry none, by name', () => {
+  // The table, read directly. `composes()` below is the same fact reached through the
+  // lit pill, and the two are stated apart on purpose: one of them is what public/app.js
+  // asks, and the other is the row it would be asking about.
+  for (const k of list(model.KINDS)) {
+    const want = COMPOSE.includes(k.id);
+    assert.equal(Boolean(k.compose), want, `${k.id} ${want ? 'lost' : 'grew'} its ＋`);
+  }
+  assert.deepEqual(
+    list(model.KINDS.filter((k) => k.compose)).map((k) => k.id),
+    COMPOSE,
+    'the kinds with a create are not the three'
+  );
+  assert.deepEqual(
+    list(model.KINDS.filter((k) => !k.compose)).map((k) => k.id),
+    NO_COMPOSE,
+    'the kinds with no create are not the three'
+  );
+  // Stated a third way, because the loop above would still pass if a seventh kind
+  // arrived carrying a flag nobody thought about: the two lists are the whole row.
+  assert.deepEqual([...COMPOSE, ...NO_COMPOSE].sort(), [...PILLS].sort());
+});
+
+await check('＋ follows the lit pill, and the two queues have none', () => {
+  const { filter } = load();
+  // Nothing selected is `My Epics`, which is where you land and which has one.
+  assert.equal(filter.current(), 'epics');
+  assert.equal(filter.composes(), true, 'the default screen lost ＋');
+  for (const id of SLICES) {
+    filter.set([id]);
+    assert.equal(filter.current(), id, `${id} is not the lit pill after selecting it`);
+    assert.equal(filter.composes(), COMPOSE.includes(id), `＋ is wrong on ${id}`);
+  }
+  // And back: a create that does not come back when you widen is a button you lose for
+  // the rest of the session by having tapped Questions once.
+  filter.set([]);
+  assert.equal(filter.composes(), true, '＋ did not come back on My Epics');
+});
+
+await check('a place clears the selection, and ＋ comes back with it', () => {
+  // `History` is the second place and it is the one that is not Home. Tapping it here
+  // clears the selection rather than selecting anything (see the check above), so the
+  // kind you are left on is `epics` — and `epics` has a ＋ whatever `history` does.
+  const { filter } = load();
+  filter.set(['question']);
+  assert.equal(filter.composes(), false);
+  filter.pick('history');
+  assert.equal(filter.current(), 'epics', 'a place did not leave Home unnarrowed');
+  assert.equal(filter.composes(), true, '＋ did not come back');
+});
+
+await check('a scope that drops the selected kind hands ＋ back with the pill', () => {
+  // The path no tap goes down: `All Beads` is agent-only, so switching to `Human`
+  // drops it and the lit pill falls back to `My Epics`. A ＋ painted from a stored
+  // answer rather than from `current()` would be stale here — and `All Beads` and
+  // `My Epics` both having one is what would hide it, so the assertion is the
+  // *question*, asked twice, not the button being visible both times.
+  const { filter } = load();
+  filter.survey({ kinds: AGENT_KINDS });
+  filter.set(['bead']);
+  assert.equal(filter.current(), 'bead');
+  assert.equal(filter.composes(), true);
+  filter.survey({ kinds: ANY_KINDS });
+  assert.deepEqual(list(filter.selected()), [], 'the agent-only kind survived the scope');
+  assert.equal(filter.current(), 'epics');
+  assert.equal(filter.composes(), true);
 });
 
 await check('an agent row with a status nobody has heard of is still exactly one kind', () => {

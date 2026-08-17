@@ -160,6 +160,11 @@
     one repo in the selected space there is no single place to start, so it asks
     instead of guessing or going dead. Same control the chat launcher grew for the
     same reason, and it borrows its .ws-pick styling.
+
+    Both are in the markup on every load and neither is drawn on every kind: ＋ belongs
+    to the view now (bc-khoe.27.1), so the wrapper is hidden — along with `has-compose`,
+    and along with the panel — on Questions and PRs, which have nothing to create. See
+    `paintCompose` in public/app.js and `compose` in public/inboxfilter.js.
   -->
   <div class="compose-wrap">
     <div id="compose-pick" class="compose-pick ws-pick" hidden>

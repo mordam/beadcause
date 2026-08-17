@@ -155,6 +155,24 @@
    *   knowing: PR status narrows by default (`unmerged`), bead status does not.
    *
    * `side` is which scope fetches it; see `usable`.
+   *
+   * ## `compose` — which of the six has a ＋
+   *
+   * ＋ used to be a fixed part of Home's chrome: one button, drawn on every kind,
+   * starting a chat session. That was right while Home was one list (bc-l8jp.5) and is
+   * wrong now the pills are five screens, because *new* is a different thing on each of
+   * them — an epic on `My Epics`, a conversation on `Chats`, a bead on `All Beads` —
+   * and it is not anything at all on `Questions` or `PRs`. Both of those are queues of
+   * things waiting on a word from you; there is nothing on either screen to create, and
+   * a button whose only honest label there would be "make yourself another question to
+   * answer" is worse than no button.
+   *
+   * So the flag lives here, one row per kind, rather than as a list of ids in
+   * public/app.js — for the same reason the predicates do. A second file that knows
+   * what the six kinds are is a second file that can be wrong about them, and nothing
+   * would say which. What the flag deliberately does *not* say is what ＋ *does*: that
+   * is bc-khoe.27.2 and bc-khoe.27.3, and until they land it starts a chat session
+   * wherever it is drawn, which is what it has always done.
    */
   const KINDS = [
     {
@@ -166,6 +184,10 @@
       icon: '🎯',
       label: 'My Epics',
       note: 'The P0 board — the epics you own, and the work under them.',
+      // A place with a create, which is not a contradiction: `compose` is about the
+      // screen you are on, and `test` is about which rows are in the list. This is the
+      // screen you land on, so it is also the one ＋ is drawn on by default.
+      compose: true,
     },
     {
       id: 'question',
@@ -234,6 +256,9 @@
       label: 'Chats',
       note: 'Conversations you have open about what to file next. Tap one to pick it up.',
       test: (q) => Boolean(q.session),
+      // The original ＋, and the only one that already does its own thing: this list is
+      // conversations, and the create is a conversation.
+      compose: true,
     },
     {
       id: 'history',
@@ -255,6 +280,9 @@
       icon: '🧿',
       label: 'All Beads',
       note: 'Every live bead nobody is asking you about — claimed, blocked or waiting to be picked up.',
+      // A list of every live bead is the one screen where "file another one" is the
+      // obvious next thing to do (bc-khoe.27.3).
+      compose: true,
       // `!q.held` is the endorsement half of Questions stated from the other side. It is
       // here rather than left to the order of the rows for the reason every exclusion in
       // this table is: exclusivity is the property the table is asserted on, and a
@@ -720,6 +748,15 @@
     current,
     /** Tap a pill: exclusive, and a place clears the selection. */
     pick,
+    /**
+     * Does the view you are on have a create of its own? See `compose` in KINDS.
+     *
+     * A question rather than a stored answer, and derived from `current()` rather than
+     * from the selection, for the same reason the lit pill is: `revealPr` and `survey`
+     * both change which kind you are on without a pill being tapped, and a button drawn
+     * from a second copy of the answer would still be there after them.
+     */
+    composes: () => Boolean(BY_ID.get(current())?.compose),
     /** Selected kind ids — empty for "all of them". */
     selected: () => [...state.on],
     /** One kind's sub-filter selection — empty for that kind's own default. */

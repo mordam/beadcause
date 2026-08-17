@@ -4193,6 +4193,58 @@ directions, and over every combination of the fields the payload can carry rathe
 only over the rows it writes), the row's copy of it, the scope rule, both sub-filters'
 defaults and the chrome on a pointer and a touchscreen.
 
+### ＋ belongs to the view, so two of the six do not have one
+
+＋ always means *new*. What *new* is belongs to the screen you are on rather than to the
+button — and once the kinds became five screens rather than one list, a single ＋ drawn
+across all of them was a control whose meaning depended on a pill it did not look at.
+
+| Pill | ＋ | Because |
+|---|---|---|
+| **My Epics** | yes | Take a bead and make it an epic of yours (bc-khoe.27.2) |
+| **Questions** | **no** | A queue of things waiting on a word from you |
+| **PRs** | **no** | The same, arriving off `gh` |
+| **Chats** | yes | Start a conversation — what ＋ has always done |
+| **All Beads** | yes | File a bead, from a form (bc-khoe.27.3) |
+| **History** | — | A page of its own, and it never had one |
+
+**Questions and PRs are the interesting half.** Neither is a place you make something;
+both are lists of things somebody else has put in front of you, and the only honest
+label a ＋ could carry on either would be "make yourself another thing to answer". A
+button that has to invent a purpose to justify being drawn is one that should not be.
+
+`compose` is a flag on the kind, one row of `KINDS` beside its predicate and its icon,
+for the same reason the predicate is there: a list of ids in `public/app.js` would be a
+second file that knows what the six kinds are, and nothing would say which of the two
+was wrong. `composes()` answers it for whichever pill is lit — derived from `current()`
+rather than stored, because `revealPr` and a scope change both move which kind you are
+on without a pill being tapped.
+
+**Three things move together in `public/app.js`, and any one of them moving alone is the
+bug.** `paintCompose` does all three on every change of kind:
+
+- **The button**, hidden on the `.compose-wrap` rather than on `#compose`, so the repo
+  picker anchored above it goes with it. `hidden` alone loses to `display: flex`, which
+  is why the stylesheet carries a rule for it — a ＋ still drawn while the padding is
+  gone covers the last card of the list.
+- **`body.has-compose`**, which reserves the button's height at the foot of the scroller
+  and lifts the toast clear of it. It used to be added once, at load, as a record that
+  the script had wired ＋ up at all, and never removed; on a kind with no ＋ that is 76px
+  of nothing under the last card, which reads as a list that failed to finish loading.
+- **The picker**, closed on *every* change of kind rather than only the ones that take
+  the button away. It was opened to answer "which repo do I start this in", and on the
+  three kinds that keep ＋ the create it belongs to is a different create.
+
+A page served without `public/inboxfilter.js` draws ＋ anyway. That is the generous
+fallback on purpose: a cached document against a script that never loaded is a state
+this app is built to survive, and losing the primary action to a missing file is a worse
+failure than drawing the button one screen too wide.
+
+`node test/composekind.mjs` drives `paintCompose` in a `vm` — both directions of the
+padding, the picker outliving its button, the picker outliving a kind change that keeps
+it, and the fallback — and `node test/inboxkinds.mjs` holds the table to the three and
+the three.
+
 ### The scope is a control you can see
 
 `Human`, `Both`, `Agent` — three words on the chrome, above the list and in front of
@@ -6089,7 +6141,8 @@ and the only way to start another. Neither belonged on this bar.
 The **list** is incoming work like everything else the inbox holds — a conversation
 you left half-finished is a thing waiting on you in exactly the sense a question is —
 so open chat sessions are rows in the inbox now, under their own category in the
-[kind filter](#what-the-inbox-shows), beside Questions, Proposals, Merges and PRs. The row
+[kind pills](#one-list-six-kinds--and-the-two-sub-filters), as **Chats** — beside My
+Epics, Questions, PRs and All Beads. The row
 says which conversation it is and what state it is in without opening it: the repo, a
 breathing spark while the agent is composing, "2 proposed · your turn" when there is a
 proposal waiting to be read, and when it last moved. Tapping it goes into the session.
@@ -6100,7 +6153,10 @@ did would have to mean the same thing on all of them and creating does not; and 
 belongs next to the thumb rather than in the top bar with ⟳, because it is the primary
 action of the app. It floats over the list and the list pays for it — the foot of the
 page reserves the button's height, the same way it reserves the bar's, so the last card
-still clears everything. With one repo in the selected space it starts there; with
+still clears everything. It is drawn on the kinds that have a create and [not on the two
+that do not](#-belongs-to-the-view-so-two-of-the-six-do-not-have-one), which is the same
+argument one step down: a create cannot mean the same thing on every screen either.
+With one repo in the selected space it starts there; with
 more it asks which, because offering to start work in a repo the app is not showing
 you is the one thing the space picker exists to stop. Either way it lands on
 `/console?id=<id>`, which is exactly where the launcher's own ＋ lands.
