@@ -511,28 +511,39 @@ other account's questions, pull requests, chats, tickets, advocates and spaces a
 behind a filter you can widen — they are not on the screen, and the picker does not offer
 them.
 
-**The address is the control.** It sits at the right-hand end of the top bar on every
-page; tapping it opens a menu holding that page's own actions — refresh, the endorsement
-queue, foundations, the gear — and **Switch accounts**, which opens the picker. The
-picker has a ＋ for adding one: an address, a name, and a tick per workspace.
+**The mark is the control.** It sits at the left-hand end of the top bar on every page,
+wrapped in a gear; tapping it opens a menu holding that page's own actions — refresh,
+foundations, open-in-Chrome — plus **Admin** and **Switch account**, which opens the
+picker. The picker has a ＋ for adding one: an address, a name, and a tick per workspace.
 
 ```
 ┌────────────────────────────────────────────────┐
-│ ●  [icon]                you@work.example  ▾   │
+│ ●  [icon⚙]  [ beadcause      ▾ ]               │
 │ ┌────────────────────────────────────────────┐ │
-│ │ ⟳   Refresh                                │ │
-│ │ 🗳️   Endorsement queue                      │ │
 │ │ ⚖️   Foundations                            │ │
+│ │ ⟳   Refresh                                │ │
 │ │ ────────────────────────────────────────── │ │
-│ │ ⇄   Switch accounts                        │ │
+│ │ ⏸   Admin                                  │ │
+│ │ ⇄   Switch account                         │ │
+│ │       you@work.example                     │ │
 │ └────────────────────────────────────────────┘ │
 └────────────────────────────────────────────────┘
 ```
 
+The address was the control until bc-khoe.5, as a chip at the *other* end of that bar,
+and the argument for it was good: a chip saying "Personal" needs a second surface to say
+which identity it files as, where the email is both at once. What moved it was the row
+rather than the argument. The space picker had a full-width row of its own under a first
+row that was already full, so every standing view carried two rows of sticky chrome, and
+the chip's width is what paid for bringing the picker up beside the mark. The address did
+not go anywhere — it is the second line of **Switch account**, which is the row that
+changes it, so the two things you ever want it for are now the same tap target. See
+[the top bar](#the-top-bar-says-who-is-asking-not-what-the-app-is-called).
+
 **Nothing is on until there are two.** An install with no `accounts` behaves exactly as
-it did before they existed — every predicate answers "in scope", and the chip simply
-draws `me`. One account owns everything unless it says otherwise, so the *first* one
-changes nothing but the address in the bar. Adding a second is what separates anything —
+it did before they existed — every predicate answers "in scope", and the menu simply
+draws `me` under **Switch account**. One account owns everything unless it says
+otherwise, so the *first* one changes nothing but that line. Adding a second is what separates anything —
 and adding it through the picker writes both: the account you typed, and the one it
 implies, owning every workspace you did not give away. A config with one account and
 eight unclaimed repos is not a state the ＋ can leave you in, because those repos would
@@ -684,10 +695,7 @@ selects is what the whole app is about:
 
 ```
 ┌──────────────────────────────────────────────┐
-│  ●  ▣                      ⌨️  ⚖️  ⟳          │
-│  ┌──────────────────────────────────────┐    │
-│  │ beadcause                        ▾   │    │
-│  └──────────────────────────────────────┘    │
+│  ●  ▣⚙   [ beadcause             ▾ ]         │
 └──────────────────────────────────────────────┘
      Personal ─┬─ Personal — all
                ├─   beadcause
@@ -697,6 +705,19 @@ selects is what the whole app is about:
                    climative
      All spaces
 ```
+
+**It is on the mark's row, and it is narrow.** It had a full-width row of its own until
+bc-khoe.5 — the first row was full at four icon buttons, so 43px of every screen went on
+a second row of chrome. Those buttons are rows in the mark's menu now, so the picker came
+up beside it, and it pays for the fit with its *label*: what the bar draws is at most
+twelve characters, and a longer name is cut to nine and an ellipsis. Only the bar. Every
+row in the dropdown is the whole name, because the list is what you are choosing *from*
+and two repos sharing nine characters would be one row printed twice.
+
+The cut is affordable for the same reason the row was not: what the picker has to say is
+*where you are*, and `climative-…` still says it while `beadcause` — nine characters, the
+common case — is not cut at all. `scripts/topbar-check.mjs` measures both halves and
+fails the repo if the bar ever needs a second row again.
 
 Pick `beadcause` and it is beadcause's questions in the inbox, beadcause's advocate on
 the advocate console, beadcause's pull requests on the board, beadcause's chats in the
@@ -765,43 +786,60 @@ The check that earns the suite is still the one nobody can do by reading: the cl
 combination of filter and workspace, because those two disagreeing in the direction
 "rings but is not shown" is a question you were told about and cannot find.
 
-#### The row it costs, and why it keeps it
+#### The row it cost, and why it no longer costs one
 
-The picker is a full-width row of its own, so six pages carry two rows of sticky chrome
-where they carried one. On a phone that is worth arguing about, so it was measured
-instead: at 360×640 the row is **43px** — a 31px control and the bar's 12px gap — which
-takes the bar from 61px to 104px and the bar plus the tab bar from 116px to 159px, 18%
-of the screen to **25%**.
+The picker had a full-width row of its own until bc-khoe.5, so six pages carried two rows
+of sticky chrome where they had carried one. On a phone that is worth arguing about, so it
+was measured instead: at 360×640 the row was **43px** — a 31px control and the bar's 12px
+gap — taking the bar from 61px to 104px and the bar plus the tab bar from 116px to 159px,
+18% of the screen to **25%**.
 
-It keeps the row, and the reason is arithmetic rather than taste — though the arithmetic
-moved under it once and is worth stating in its current form. bc-ka5y.1 took the "N
-waiting" chip out of the brand and the count out of the picker, which is 89px off the
-inbox's first row and 55px off what a picker needs on it. Measured now, at 360px with
-the bar's padding off (328px of content): the inbox's brand is **44px** and its icon
-buttons **128px**, leaving 132px spare, and the picker needs **129px**. So on five of the
-six pages the picker would now fit inline — and on `/foundations` it is 111px short,
-because that page carries a 123px brand and 163px of actions.
+It kept that row for a year of decisions, and the reason was arithmetic rather than taste:
+the first row was full. Three ways round it were tried against the real pages and all three
+broke something. **Collapsing onto the first row where it fits** (`flex: 1 1 <basis>`,
+letting wrapping decide) made the picker a full-width control on some tabs and a narrow or
+missing one on others, which is the four-controls-in-one-coat the picker replaced — and a
+control that moves on one page in six is a control you stop looking for. **Hiding it on
+scroll down** means a fixed, translated header on six pages, because a sticky bar that
+shrinks mid-scroll moves every card up 43px under your thumb, and the row is back the
+moment you scroll up, which is when you were reading it. **Folding it into the mark** paid
+with the picker's whole job: the repo name is exactly what does not fit, so what is left is
+a control whose current value is invisible.
 
-Which is exactly the case that settles it, and it is unchanged: collapsing onto the first
-row *where it fits* (`flex: 1 1 <basis>`) makes the picker a full-width control on five
-tabs and a missing one on the sixth. That is the four-controls-in-one-coat this replaced,
-and it is worse now than when three pages could not hold it, because a control that moves
-on one page in six is a control you stop looking for. The other two options are no better
-than they were: hiding it on scroll means a fixed, translated header on six pages, because
-a sticky bar that shrinks mid-scroll moves every card up 43px under your thumb — and the
-row is back the moment you scroll up, which is when you were reading it. Folding it into
-the mark pays with the picker's whole job: the repo name is exactly what does not fit, so
-what is left is a control whose current value is invisible.
+What bc-khoe.5 did is none of those. It **emptied the first row** rather than trying to fit
+the picker past what was on it. The loose icon buttons — up to four of them, 128px at
+360px — are rows in the mark's menu; the account chip's address is a line inside that menu;
+and what is left up there is a 26px mark in a gear. The picker moved up beside it, and the
+one thing it gives up is *width*: the bar draws at most twelve characters of the label, and
+a longer name is cut to nine and an ellipsis, while every row in the dropdown stays whole.
+
+That is the trade the old arithmetic refused, and the reason it is affordable now is that
+the value is still on screen. `beadcause` — nine characters, and the common case — is not
+cut at all; `climative-…` still says which one; and the accent border says something is
+being kept off the screen either way. Measured after: the bar is **one line on all six
+pages at both widths**, 61px, and the bar plus the tab bar is **116px** against the 159px
+it replaced. The narrowest margin left on the row is 31px, on `/foundations`.
+
+The one cost worth naming separately is **refresh**. It was the last icon left loose in the
+bar, deliberately, because it is the most-pressed control in the app and the least worth two
+taps. It went into the menu with the rest, because a single icon floating between the mark
+and the picker is the shape being got rid of, and it is two taps now.
 
 `node scripts/topbar-check.mjs [--out=DIR]` is what stops this being decided once and
-forgotten — and it is where those numbers come from: it prints the spare-versus-needed
-arithmetic per page on every run, which is how the change above was noticed rather than
-inherited. Two widths, every page with a picker: the bar is at most two lines, the
-picker has the last line to itself at the full width of the bar, no label in the
-dropdown is clipped, and the bar plus the tab bar stays inside a **170px** budget — a
-third row is +43px and fails it on the spot. It also prints the first-row arithmetic per
-page and says so if *every* page ever has room for the picker inline, because that, and
-only that, is when collapsing would cost nothing and this is worth reopening.
+forgotten — and it is where those numbers come from. Two widths, every page with a picker:
+the bar is **exactly one line**, the picker is on it and sharing it, no name the picker can
+select would draw a face over twelve characters, the face on the bar is the cut form of what
+is selected, every row in the dropdown is a whole name, and the bar plus the tab bar stays
+inside a **170px** budget. Then it picks the longest workspace in the fixture through the
+control itself and measures the bar again — because everything before that is measured on
+`All spaces`, which is under the cut, so without that pass the truncation could be deleted
+and the file would still pass. The fixture carries one deliberately over-length repo name
+for the same reason: every real workspace on this Mac is nine or ten characters.
+
+It also prints, per page, how much of the row is left once the brand has taken its share,
+and says so when any page is inside 24px of it. That is the same arithmetic bc-hne3 turned
+on, pointed the other way: what would push the picker back off the row is a page growing
+its *title*, and that is the half nobody measures on purpose.
 
 The fifth thing it asserts is not about the bar at all, and it is there because measuring
 the bar is what found it: **the page has to fit the screen**. Every number above is a
@@ -1417,6 +1455,65 @@ means *any* failure after the comment leaves a card that will be answered again,
 thread — the repeat finishes the close rather than saying the same sentence twice. Only
 the newest, and only an exact match: the same words six comments up are a real answer,
 and `lib/answered.js` is what tells you about that on the card.
+
+##### And a zero exit is not a close
+
+Everything above is about a refusal — a sentence on stderr and a non-zero exit, which is
+something a caller can read, log, owe and retry. **bc-q6qc is the case where there is no
+sentence at all.** `bc-3muu.12` merged as #339, took the comment `finish` writes
+immediately before its close, and sat `in_progress` for a day. There was no `[bd] …
+closing over the claim guard` line, so nothing forced; no `[merge-queue] … but the work
+bead did not close` line and an empty `owed-closes.json`, so nothing threw. All three are
+written by code either side of that one call, and their absence is the measurement: `bd
+close` came back **0** and the row did not move. The merge-queue card said `merged 1`,
+the bead carried a comment saying it had merged, and the bead was open. That is bc-ec6's
+failure class — every layer reporting a close it never had — and it is the expensive one,
+because an assigned open bead is skipped by `bd ready`, so nothing crashes and nothing
+re-opens; the tracker just fills with landed work that reads as in flight.
+
+So the close is **asked about** rather than assumed. `Bd.assertClosed` reads the row back
+after every close — the plain one and the forced one alike — and throws if the bead is
+still live, which turns the invisible ending into the one all five call sites already
+handle: logged, written to `owed-closes.json`, and said on the bead in bd's own words. One
+`bd show` per merge is the whole price. `bin/deliver.js` carries the same check because it
+is a separate process shelling out to `bd` synchronously, and imports `LIVE_STATUSES` from
+lib/bd.js rather than restating it, so the two cannot disagree about what counts as open.
+
+**The sixth path — the answer — deliberately does not have it yet.** Not because the lie
+would be smaller there but because the *consequence* is: a question whose close silently
+did not happen stays in the inbox with its answer on the thread, which Adam sees within
+the hour and which `Bd.answerOnce` and `lib/answered.js` are both already built to
+survive, where a delivery's failure is invisible by construction. What it costs to change
+is honest fixtures in five suites whose fake `bd` serves a fixed row still reading `open`
+after closing it — which is worth doing, and is `bc-2uj4.8` rather than a doubled diff
+here.
+
+Two things it deliberately does **not** do, and both are the same instinct as the rest of
+this section:
+
+- **It never forces.** A refusal bd can explain buys a `--force`; a close bd said nothing
+  about is a close nobody can explain, and forcing would be a guess that also lifts open
+  children, live blockers and the epic gates. A silent non-close leaves as an *owed*
+  close instead. Closed, or loudly owed — never silently open.
+- **It fails towards believing the close.** A tracker that will not answer the `show`, a
+  row that has been renamed away, a status this codebase has never heard of: none of
+  those is evidence that the close did not happen. `LIVE_STATUSES` therefore names what
+  is **open** rather than what is done, because bd's done state is configurable and a
+  list of closed words would read a workspace using its own as an open bead — turning
+  every successful close there into a landed bead retried out of `owed-closes.json`
+  every thirty seconds for ever. An unfamiliar status reads as closed, which can only
+  ever miss this bug rather than invent it.
+
+The bead also proposed widening `isClaimGuard` to bd's other wording for a held claim —
+*held by "…" (in_progress); coordinate with the holder* — on the theory that a close had
+come back that way. **It had not.** Measured against bd 1.2.1: a close refused over a
+claim says *assignee is / actor is*, whether the bead is flat or dotted, whether it is a
+child of an epic, and whether the lease is live or six minutes expired; the *held by*
+sentence belongs to `bd update --assignee`, which is a reassign and not a close. The
+alternation is in the regex anyway, anchored on `cannot close` and on a quoted holder
+followed by `(in_progress)`, because it costs nothing and this exact sentence has already
+been reworded once (bc-9d37.12) — and because so anchored it cannot reach any of the
+refusals `--force` must never be reached for. `test/closeverify.mjs` pins both halves.
 
 The last three rows of the table are the exception to every sentence above — the two
 where beadcause refuses what bd closes, and the one underneath them that says what is
@@ -4363,12 +4460,26 @@ Beadcause. It is the app mark now, the same artwork as the home-screen icon, sti
 inside the `<h1>` with the name as the image's `alt` so the header is labelled and a
 reader still hears which app this is.
 
-What the reclaimed width is spent on is the space picker, and nothing else:
+**And the bar is one row** (bc-khoe.5). It was two: a first row of the mark, up to four
+icon buttons and the account chip, and the space picker below at full width. Now it is
+the mark, the page's own title, and the picker:
 
 ```
-  ●  ◔                                      ⌨️  ⚖️  ⟳
-  [ beadcause                          ▾ ]
+  ●  ▣⚙  [ beadcause      ▾ ]
 ```
+
+That is 116px of sticky chrome with the tab bar, against 159px — 43px of a 640px phone
+handed back to the list, on every standing view at once. What paid for it is that the
+first row was emptied rather than squeezed. **The mark is wrapped in a gear and is the
+menu**, and everything that was a loose icon up there is a row inside it: refresh,
+foundations, open-in-Chrome, Admin, and Switch account with the address under it. On the
+eleven pages that draw a title rather than a mark, the trigger is the gear on its own, in
+the same place, so it is one control and not twelve.
+
+The one cost worth naming is **refresh, which is two taps now**. It is the app's most
+pressed control and it was deliberately left loose in the bar for exactly that reason
+until this landed. It went in with the rest because a single icon floating between the
+mark and the picker is the shape the flattening was for.
 
 **There is no count up here.** An **N waiting** pill sat beside the mark until
 bc-ka5y.1 — how many beads were asking you something, hidden at zero, dropping its word
@@ -4749,6 +4860,38 @@ Four things that had to be got right, and each of them was a real failure first:
   in `bd show`'s dependencies and drawn above the description; the incoming copy is dropped
   from the list below rather than grouped, the same way children are.
 
+**And when a declared dependency lands on the same pair, the declared edge wins.** bd
+holds one row per *ordered* pair and refuses a second type on it, which turned the good
+habit into the bug: a proposal that says *why* it waits on `bc-x` names `bc-x`, the hook
+draws the see-also as the description is written, and the dependency the proposal actually
+declared is then refused for ever — `already exists with type "relates-to" (requested
+"blocks"); remove it first`. That is exactly the shape of proposal this app asks people to
+write. So the collision is settled by precedence rather than by ordering the two writes:
+a `relates-to` came from a word appearing in a paragraph and a `blocks` came from somebody
+deciding, so the mention is taken off and the declared edge goes in its place. Ordering
+would only have hidden it — the sweep above runs on its own, long after the bead was
+filed, on a pair nobody is writing.
+
+Three things that fall out of that, and the middle one is the one a passing test would
+have lied about:
+
+- **Never the other way round.** A prose mention does not demote anything, because it
+  never reaches the question: `planFor` skips any pair the graph already joins. And only a
+  see-also may be displaced — `discovered-from` above all, because provenance is an older
+  fact than whatever wants the pair now, which is the same trade `lib/adoptsweep.js` makes
+  from the other side.
+- **Both ends of it.** `bd dep relate` writes two rows and bd refuses per *ordered* pair,
+  so dropping only the row bd named lets the retry through and leaves the pair holding a
+  `blocks` one way and a `relates-to` the other — two rows saying different things about
+  the same two beads, printed under two headings on the card. The far row is read before
+  it is deleted, so a pair that holds a mention one way and something older the other
+  keeps the older one.
+- **A refusal is asked once.** The retry test in `Bd.run` is a substring match on `lock`,
+  and bd's sentence ends `(requested "blocks")` — so every refused edge looked exactly
+  like Dolt lock contention and spent five spawns and four seconds of backoff proving what
+  the first millisecond already knew. Fine while a refused edge was an accident; not fine
+  on `/api/console/create`, which is a tap on a phone.
+
 One thing it does not fix, deliberately: the `blocks N` pill at first paint is
 `dependent_count` straight from bd, which counts every edge pointing at a bead — children
 already, and now see-alsos too. It is replaced by the real rows the moment
@@ -4756,7 +4899,10 @@ already, and now see-alsos too. It is replaced by the real rows the moment
 
 Checked by `test/mentions.mjs` (the module, the hook against a fake `bd` that records its
 argv, and the two client-side spellings in source) and by `test/graphwaits.mjs`, which is
-where the `relates-to` spelling is held to not blocking anything.
+where the `relates-to` spelling is held to not blocking anything. The precedence rule has
+its own two: `test/declarededge.mjs` against a fake `bd` that remembers its own edges, and
+`test/declarededgereal.mjs`, which files a bead whose description names the bead it depends
+on against the real binary and asks bd what is left.
 
 ### The glass in the middle
 
@@ -6040,10 +6186,16 @@ are frozen together and thaw together.
 
 ✏️ sits at the bottom left of the inbox, mirroring ＋ across the foot of the screen: the
 other thumb, the same height, and the same z-index bargain — over the list, under an open
-card. It is not a fifth icon in the top bar because that bar is full at four, which is
-measured rather than assumed: `scripts/topbar-check.mjs` puts a fifth `.icon-btn` at
-216px of `.sheet-actions` against a 133px brand, which wraps `.topbar` to three rows at
-both 360 and 393. See bc-qsj6.1.
+card. It was not a fifth icon in the top bar because that bar was full at four, which was
+measured rather than assumed: `scripts/topbar-check.mjs` put a fifth `.icon-btn` at 216px
+of `.sheet-actions` against a 133px brand, wrapping `.topbar` to three rows at both 360
+and 393 (bc-qsj6.1).
+
+That bar has room now — bc-khoe.5 emptied it into the mark's menu — and this control still
+does not go in it, for a reason that outlives the arithmetic: **edit mode freezes the
+screen**, and inside it a tap points at an element rather than acting on it. Nothing behind
+a tap-to-open menu can be reached from in there, so the way *into* the mode would work and
+the way *out* of it would not. It stays a button on the page.
 
 The button is in `public/index.html` rather than built by the module, because where it
 goes is a question about *that page's* layout and not about the mode. A page that never
@@ -10070,6 +10222,74 @@ things a board sorts on — a `promote` label against `ship`, and a `chore` type
 `task` — because two things called a release bead, settling on different evidence, is a
 board that lies.
 
+**"Every bead has closed" is asked of the tracker's rows, and it used not to be.** Until
+bc-4bet.2 the test was "nothing of this plan is in the queue and nothing is running", and
+that reads *not-ready* as *done*: the queue is the advocate's, which excludes `unendorsed`
+by design, and a bead blocked behind a dependency is not in `bd ready` either. Both are open
+work nobody has started, and both looked exactly like a group that had finished — so a
+promotion bead went out on 2026-08-14 saying an epic's work was in `main` over two beads
+that had never been touched. The check is now a status check: a plan is done when every bead
+it named is *closed*, read off the same cached `bd export` the advocate already takes once a
+tick, so it costs no tracker call of its own. A bead the export has no row for — a cold
+cache, an export that failed — is **not** closed, and nothing is filed; the promotion bead
+asks a release agent for UAT and production, and a false premise stated as fact on one is
+worse than no bead at all. Where an epic is waiting like that, the card says which of its
+beads have not closed rather than only that it is holding.
+
+### What to test is asked of the tracker, not read off the bead — `beadcause-promotework`
+
+A promotion bead's body is written once, at the moment it is filed, and cannot grow. That
+is right for an epic whose plan is its final word, and wrong for the shape this daemon
+actually produces: an advocate is re-entered on child events precisely so it can file what
+the first plan missed, so an epic goes on closing work for days after its plan completes.
+
+Measured on bc-9d37 (2026-08-17). Its promotion bead was filed on 08-14 naming four beads.
+By 08-15 the epic had closed nine pieces of work, and the most visible behaviour change it
+has — a handed-back sweep card over a merged pull request settling by itself — was among
+the five that landed afterwards. The **image** promoted is right regardless; it is `main`'s
+merge build and carries everything. What was wrong is what the release agent would be told
+to **exercise in UAT**, and a promotion that tests the wrong things and *passes* is worse
+than one that fails.
+
+So the body is the reason the card exists, and the test plan is derived when somebody
+promotes:
+
+    beadcause-promotework -w beadcause -e bc-9d37      the epic
+    beadcause-promotework -w beadcause -b bc-9d37.10   the promotion bead, which names it
+
+One place decides what an epic's work was and it is the tracker, which cannot go stale. The
+filed body says so in as many words and prints that command with the epic already in it —
+the snapshot it *also* carries is dated and labelled as a snapshot, because a body with no
+list at all is a card nobody can judge at a glance. `landedWork` in lib/promote.js is the
+single derivation both ends call.
+
+Three things it deliberately does, each of which is a way of being wrong on purpose:
+
+- **It over-includes.** Ship beads, promotion beads, containers and superseded ones are cut
+  — nothing was built for any of them — and nothing else is. There is no label separating
+  landed work from a card the daemon filed and Adam answered: bc-xl7n.15 (*#244 left 1
+  conflicting pull request behind it*) and bc-xl7n.35 (*a sweep card whose record is dropped
+  can never close*) are both closed under bc-9d37 and both carry `inbox`, and only the
+  second was built. bc-9d37 therefore derives 29 rows where fourteen are its own work. The
+  titles separate them in a glance; the alternative is silently testing four of nine and
+  passing.
+- **`unendorsed` is not an exclusion, though it reads like the strongest one there is.**
+  bc-9d37.12 and bc-9d37.14 are closed, still carry it, and are two of that epic's nine —
+  a session working a neighbour fixed them and nothing takes the label off. Cutting it
+  would drop two of the beads this whole thing exists to stop dropping. An *open*
+  `unendorsed` bead is excluded, where it means the opposite: a discovery nothing will open
+  a window on, not work in flight.
+- **A tracker that will not answer is a refusal, not an empty list.** `bd export` times out
+  under load and `Bd.graph` hands back an empty index carrying `.error`; printing that as
+  "nothing to test" is the same lie in a new place. The command exits 5 and says why, and
+  filing falls back to the plan's list with the failure written into the body.
+
+It prints what it left out and why, and — separately — anything still open under the epic,
+which is bc-4bet.2's defect (a promotion filed over work that has not landed) showing up in
+front of the last reader in a position to stop a release over it. `node
+test/promotework.mjs` covers the derivation, both exclusion decisions above, the refusal,
+and what the filed body says.
+
 **And the mechanical grouping did not go away; it became the fallback.** Where planning is
 switched off (`planEpics: false`), and where an epic's planning has failed
 `maxAttemptsPerBead` times, the epic is handed to one worker as a batch exactly as it was
@@ -11195,6 +11415,37 @@ bead and does not try: "the branch is in main" is a fact, and "so the bead is fi
 a judgement, because a bead can name a branch that landed and still want more than what
 landed. "Keep it open" is a `closes: false` option, so it hands the bead straight back to
 `bd ready` with the finding on it.
+
+**What it may offer is narrower than what it may say, and that is bc-xl7n.52.** The sweep
+reads a bead's `notes` like every other field, and nothing checks that a branch named there
+belongs to the bead the text was found in — so when an advocate wrote a triage paragraph
+naming the branches its two children were sitting in, as evidence they were alive and
+should be left alone, the P0 that commissioned that survey acquired two cards offering to
+close *itself*. It has seven open descendants. The failure is correlated with the beads it
+is worst on: only a P0 gets an advocate, and only an advocate writes long notes surveying
+other beads' branches, so the more thorough the note the more close-offers its own root
+accrues.
+
+So **`close-it` is offered only where closing could not strand anything** — never on an
+epic, never over a live descendant at any depth, and never where the `bd export` shape
+could not be read, because "I cannot tell what is under this bead" is not "nothing is".
+Everything else is unchanged: the fact still goes on the thread, the card still says the
+branch is in `main`, and "keep it open" is still there. What goes is the one tap, and the
+card says in a sentence why it went. That is stricter than the tracker's own close gate in
+two ways, both on purpose — bd refuses a close over an open **child**, so a bead whose
+children are all closed over a live *grandchild* passes it, and bd has no opinion at all
+about an epic with nothing under it yet, which is exactly the standing root a survey is
+about to fill.
+
+The other half of that fix is on the phone, and without it the first half would have been a
+worse card rather than a better one. bd's gate is a refusal rather than an absence: it
+arrives as a 409 after the press, and a card that already knows one is coming
+[draws no answer button at all](#when-bd-will-not-close-the-bead). Those are
+the same beads — so a card left holding only a `closes: false` option would have been
+unanswerable, with `human` sitting on it until somebody closed the children. A card whose
+*every* option commissions is now the one shape that gate leaves alone, because
+`/api/respond` skips the close gate for a commission, and a typed answer on a card where
+any option would have commissioned rides the same path rather than closing on a guess.
 
 The label is also the whole of the saving. `bd ready` excludes `human`, so a flagged bead
 is out of the queue built moments later in the same tick and no session is opened on it —
@@ -17948,7 +18199,7 @@ to be one.
 | `advocates.settleSeconds` | how long a new bead sits before a session opens on it (default 60) |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
 | `advocates.planEpics` | [open an **epic worker** on an epic rather than working it](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) (default `true`) — a window that groups the epic's beads for N child-workers, writes each group's prompt, and does none of the work itself. `false` falls all the way back to handing one worker the epic and its ready children as a batch, which is what this did before plans existed and is still the right answer if a plan ever briefs badly. An epic whose planning has failed `maxAttemptsPerBead` times falls back to that on its own |
-| `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed |
+| `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed. "Closed" is read off the tracker's own rows and never off the queue — an `unendorsed` or dependency-blocked bead is missing from the queue exactly as a closed one is, and a bead no row can be found for is not closed (bc-4bet.2) |
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `advocates.reenterAdvocates` | [re-open the **P0 advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: a P0 is enrolled once its notes carry the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and erasing that block is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
 | `advocates.reenterIntervalMinutes` | how often that sweep looks (default 10). It reads the same cached `bd export` the inbox's P0 board is built from — which the EpicAdvocate roster already warms every tick — so it costs no tracker call of its own |

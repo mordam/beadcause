@@ -900,6 +900,20 @@
    *
    * Empty while the card is open, because an open card's way out is `↑ Collapse` and a
    * body that also collapsed would close the sheet on the first tap on a paragraph.
+   *
+   * Both card renderers also call this from their new title `<button>` (bc-rfnr.9.8),
+   * and that button's own markup is written out inline, in each renderer, rather than
+   * behind a shared helper the way `shutCardAct` itself is. The difference is
+   * `editmode.js`'s `byChain`: it disambiguates the card head's title from the one at
+   * the card's foot by checking that the title's own source line comes *after* the
+   * `.card-head` div that opens it, in the same block — true only while the button's
+   * markup is nested textually inside `cardHtml`/`agentCardHtml` themselves. A shared
+   * function's one definition would sit *before* both callers in the file, and the
+   * ancestor check would fail for both of them at once — caught live by
+   * scripts/editmode-check.mjs, as the title resolving to three ambiguous sites where it
+   * used to narrow to two. `shutCardAct` itself gets away with being shared because
+   * nothing ever anchors on the *article's* class, only on `data-act="toggle"`, which is
+   * a flat count across the file rather than a chain relative to an ancestor.
    */
   const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
 
@@ -2857,6 +2871,23 @@
     // carry none (links, boxes, a selection you are making). It is on the article only
     // while shut, because an open card's way out is `↑ Collapse` and a body that also
     // collapsed would close the sheet under the first tap on a paragraph.
+    //
+    // **The title is a real `<button>`, not the `<p class="q">` it used to be**
+    // (bc-rfnr.9.8): the article took the only *focusable* control away when it became
+    // the whole card's tap target, and `role="button"` on the article itself is invalid
+    // ARIA over the six interactive descendants a shut proposal card holds. `commentHtml`
+    // answers the same question for a thread message by making the author line the
+    // toggle instead of adding a chevron; this is that idiom applied to the title, the
+    // thing your eye already uses to decide whether to open a card. It shares
+    // `shutCardAct`'s literal for the reason given on that function, and carries its own
+    // `data-key` because once it is the button `closest('[data-act]')` finds, it is the
+    // button's own dataset the click handler reads. `tabindex="-1"` while open takes it
+    // out of the tab order without changing which element it is — open, there is
+    // nothing left for it to do, `↑ Collapse` is the way out, and a stray tab stop that
+    // does nothing would be worse than the heading it replaced. Unconditionally a
+    // `<button>`, never a `<p>`, and written inline here rather than behind a shared
+    // helper: see the note on `shutCardAct` for why factoring it out would have broken
+    // the anchor's chain-narrowing between this title and the one at the card's foot.
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
       q.failed ? ' has-failed' : ''
     }${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(q.key)}" data-key="${esc(
@@ -2877,7 +2908,9 @@
         ${addressPanelHtml(q)}
         ${arrivedQuietHtml(q)}
         ${activityHtml(q)}
-        <p class="q">${esc(q.question || q.title)}</p>
+        <button type="button" class="q"${shutCardAct(open)}${
+          open ? ' tabindex="-1"' : ''
+        } data-key="${esc(q.key)}">${esc(q.question || q.title)}</button>
         ${q.question && q.title !== q.question ? `<p class="subtitle">${esc(q.title)}</p>` : ''}
         ${(q.errors || []).map((e) => `<p class="subtitle bad">⚠ ${esc(e)}</p>`).join('')}
       </div>
@@ -2945,7 +2978,7 @@
     // carry their own machinery, and `closeGate` already on the card means a refusal
     // has just been reported in full above — a second telling under it would be the
     // card saying the same thing twice.
-    const gated = !q.delivery && !q.closeGate ? q.gate : null;
+    const gated = !q.delivery && !q.closeGate && !allCommissions(q) ? q.gate : null;
     const boxPlaceholder = declining
       ? 'Optional — what should the next attempt do instead?'
       : q.delivery
@@ -2957,7 +2990,7 @@
       ? `Decline #${q.delivery.number} &amp; close`
       : q.delivery
       ? 'Request changes &amp; close'
-      : esc(answerLabel(pickedOption(q)));
+      : esc(answerLabel(pickedOption(q), q));
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
       ${failedNoteHtml(q)}
@@ -2982,6 +3015,31 @@
   }
 
   /**
+   * Does every option on this card hand the bead back rather than finish it?
+   *
+   * The gate below withdraws the answer button when bd is going to refuse the close, and
+   * that is right for the ordinary card, whose affirmative option closes. It is wrong for
+   * a card where *nothing* closes: `/api/respond` skips the gate entirely for a commission
+   * (`closes: false`), and a typed answer on a card where any option would have
+   * commissioned rides the same path — so on this shape there is no refusal coming and the
+   * button withdrawn is the only way to answer at all.
+   *
+   * bc-xl7n.52 is where that mattered. lib/inmain.js stopped offering "close it" on a bead
+   * with a live subtree, leaving a card whose one option is a commission — and those are
+   * exactly the beads bd gates, so without this the fix would have swapped a close nobody
+   * could press for a card nobody could answer, with the `human` label sitting on it until
+   * the children closed.
+   *
+   * A card with no options at all is **not** this: a typed answer there closes, and the
+   * gate is the honest thing to show. `some` is the wrong quantifier for the same reason —
+   * one commission beside a `close-it` still leaves a button that means the close.
+   */
+  const allCommissions = (q) => {
+    const options = q?.decision?.options || [];
+    return options.length > 0 && options.every((o) => o.closes === false);
+  };
+
+  /**
    * What the primary button will actually do, in its own words.
    *
    * *Answer & close* is the ordinary ending and stays the default. It becomes a lie
@@ -2993,11 +3051,20 @@
    * this label and this is the only place left that can say it. (Shut, the button
    * *is* the write again — optionLabel below is where the same sentence gets said.)
    *
+   * **With nothing picked it reads off the card instead**, which is the same sentence
+   * one step further back. A typed answer names no option, and on a card where any
+   * option would have commissioned the server treats it as one rather than closing on a
+   * guess (`ambiguous` in lib/server.js) — so on a card where they *all* commission,
+   * there is no reading under which the press closes anything, and *Answer & close* over
+   * it would name the one outcome that cannot happen. That is the shape lib/inmain.js
+   * now writes on a bead with a live subtree, and the shape the gate above lets through.
+   *
    * Plain text, not HTML — it goes through `esc()` when the card is drawn and
    * through `textContent` when paintPicked() repaints it.
    */
-  function answerLabel(chosen) {
-    return chosen?.closes === false ? 'Answer & commission' : 'Answer & close';
+  function answerLabel(chosen, q) {
+    if (chosen) return chosen.closes === false ? 'Answer & commission' : 'Answer & close';
+    return allCommissions(q) ? 'Answer & commission' : 'Answer & close';
   }
 
   /**
@@ -3292,7 +3359,9 @@
           <time>${esc(relTime(q.since))}</time>
         </div>
         ${activityHtml(q)}
-        <p class="q">${esc(q.title)}</p>
+        <button type="button" class="q"${shutCardAct(open)}${
+          open ? ' tabindex="-1"' : ''
+        } data-key="${esc(q.key)}">${esc(q.title)}</button>
         ${
           q.actor || q.type
             ? `<p class="subtitle">${[q.type, q.actor].filter(Boolean).map(esc).join(' · ')}</p>`
@@ -3615,7 +3684,7 @@
       else if (label) label.textContent = btn.dataset.label;
     }
     const primary = card?.querySelector('.freeform .primary[data-act="answer"]');
-    if (primary) primary.textContent = answerLabel(chosen);
+    if (primary) primary.textContent = answerLabel(chosen, q);
   }
 
   /**

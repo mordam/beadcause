@@ -343,6 +343,34 @@ async function diverge(name, id, { reason = 'asking bd', gate: expected } = {}) 
 }
 
 {
+  // **bc-q6qc, and it is a negative result worth a case.** That bead was filed on the
+  // hypothesis that bd has a *second* wording for a held claim — `held by "…"
+  // (in_progress); coordinate with the holder` — which `CLAIM_GUARD_RE` did not match, so
+  // a close refused that way would neither force nor be recognised. bd does say exactly
+  // that sentence, but for `bd update --assignee`, which is a **reassign** and not a
+  // close; every close refused over a claim comes back in the *assignee is / actor is*
+  // words above.
+  //
+  // Asked of the shape the bead actually was, rather than of the shape the other case
+  // happens to use: bc-3muu.12 is a **dotted child of an epic** that a session had
+  // `bd update --claim`ed, where the case above is a flat bead assigned directly. Both
+  // differences were live suspects — a dotted id is truncated by lib/beadref.js elsewhere
+  // (bc-68ou.10), and `--claim` writes a lease where `--assignee` does not — and neither
+  // changes bd's answer. What is *not* pinned here is the third: the lease on bc-3muu.12
+  // had expired. Measured by hand against bd 1.2.1 on 2026-08-17 — same sentence, same
+  // exit 1, six minutes after the lease ran out — and left out of this file because
+  // pinning it would mean sleeping six minutes in `npm test`.
+  const parent = await make({ title: 'an epic with a claimed child', type: 'epic', priority: 0 });
+  const kid = await make({ title: 'a child a worker session claimed', parent });
+  await bd.run(ws, ['update', kid, '--claim'], { actor: 'neadamthal@gmail.com' });
+  const raw = bdRun(['close', kid, '--reason', 'Merged #339 as 457341e1 into main on GitHub', '--actor', 'beadcause (neadamthal@gmail.com)']);
+  const said = `${raw.stderr || ''}${raw.stdout || ''}`.trim().split('\n')[0];
+  check(() => assert.equal(raw.status !== 0, true, `bd said: ${said}`), 'a claimed dotted child — bd refuses the close rather than exiting 0');
+  check(() => assert.match(said, CLAIM_GUARD_RE), 'a claimed dotted child — in the same words, so the guard still matches');
+  check(() => assert.match(said, /assignee is/i), 'a claimed dotted child — and it is the assignee wording, not bd’s held-by one');
+}
+
+{
   // The other half of bc-ko7n, and the two facts about bd it rests on. `answerOnce`
   // skips a comment that is already the newest thing on the thread, so it needs the
   // field the text is under and the direction the rows come back in. Both are silent if

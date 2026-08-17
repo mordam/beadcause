@@ -29,7 +29,13 @@
            screen, in the PWA title and in the switcher; spelling it out a fourth time
            spent the widest part of the bar on the one thing you cannot be unsure of.
            It stays an <h1> with the name as the image's alt text, so the header is
-           still labelled and a reader still hears which app this is. -->
+           still labelled and a reader still hears which app this is.
+
+           It is also the way into the app's menu now (bc-khoe.5). What wraps it in a
+           gear and makes it the trigger is accountbar.js, at runtime, on every page —
+           this markup is the mark and nothing else on purpose, because eleven other
+           pages draw a title here instead and the button has to be the same control on
+           all twelve. -->
       <h1 class="mark"><img src="/icon.svg" alt="Beadcause" width="26" height="26" decoding="async"></h1>
       <!-- An "N waiting" pill used to sit beside the mark, counting the beads asking
            you something. It is gone (bc-ka5y.1): the list under it is that number, so
@@ -38,10 +44,18 @@
            chips in the filter panel still are. -->
     </div>
     <div class="sheet-actions">
-      <!-- The chat session, the sessions and the advocates used to hang here. They are
+      <!-- Nothing is drawn here any more, and that is the point: every button below is
+           moved into the mark's menu at load by accountbar.js, and this row is left
+           empty rather than deleted because the nodes are *moved*, so a page script
+           still wires the element the thumb lands on (and the monitor puts a tally back
+           into its own copy of this row on every poll).
+
+           The chat session, the sessions and the advocates used to hang here. They are
            tabs now — the bar at the foot of every page owns them, so they are one
-           tap from anywhere rather than one tap from the inbox. What is left is
-           what acts on *this* view (⟳) or is not a standing view of its own.
+           tap from anywhere rather than one tap from the inbox. ⟳ was the last one to
+           stay loose, and bc-khoe.5 took it in with the rest: the bar is one row now,
+           shared with the space picker, and a single icon floating between the mark and
+           the picker is the shape that was being got rid of. Refresh costs two taps.
 
            The terminal (⌨️) used to hang here too and does not any more (bc-l8jp.2):
            it is the least-opened surface in the app and this is the most-opened
@@ -151,9 +165,12 @@
 
     Edit mode freezes the repaints and turns a tap into a way of pointing at an element
     instead of opening it (bc-p49x.1). It is a button in the page rather than an icon in
-    the top bar because that bar is full at four: a fifth wraps it to three rows on both
-    phone widths, which is measured in scripts/topbar-check.mjs and is the whole of
-    bc-qsj6.1. Bottom left, mirroring ＋ across the foot of the screen — the other thumb,
+    the top bar, and it stays one now that the bar has room: the bar was full at four
+    icons and a fifth wrapped it to three rows on both phone widths (bc-qsj6.1), and
+    bc-khoe.5 emptied it by moving every one of those into the mark's menu. That is the
+    one place this control cannot go — edit mode freezes the screen, so a tap opens
+    nothing, and a way *into* the mode behind a tap-to-open menu would be reachable and a
+    way *out* of it would not. Bottom left, mirroring ＋ across the foot of the screen — the other thumb,
     the same height, and the same z-index bargain: it floats over the list and sits below
     an open card, which is a fixed layer above both.
 
@@ -186,10 +203,11 @@
        that has stopped repainting — which no page can report from inside its own render.
        Before stream.js, which stamps it on every answer. See public/freshness.js. -->
   <script src="/freshness.js"></script>
-  <!-- The account switcher in the top bar — which of your lives every screen is about,
-       and the menu the page's own top-right buttons live in. Before the page's own
-       script, because it *moves* those buttons rather than copying them: a page that
-       wires one by id afterwards is still wiring the element the thumb lands on. See
+  <!-- The app menu — the mark in a gear at the left of the top bar, and everything the
+       bar used to hold loose behind it: this page's own top-right buttons, Admin, and
+       which of your lives every screen is about. Before the page's own script, because
+       it *moves* those buttons rather than copying them: a page that wires one by id
+       afterwards is still wiring the element the thumb lands on. See
        public/accountbar.js. -->
   <script src="/accountbar.js"></script>
   <script src="/vendor/marked.js"></script>
