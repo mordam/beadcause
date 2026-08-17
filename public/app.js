@@ -4842,6 +4842,23 @@
       )
       .map((k) => k.id);
 
+  /**
+   * The scope this kind needs, or `null` when the one we are on can already produce it.
+   *
+   * `both` rather than the kind's own side, and that is the whole of the answer rather
+   * than a shortcut: `both` can produce every kind, so it is reachable from anywhere and
+   * it never takes anything *away*. Widening to `agent` to reach `All Beads` would put
+   * the questions behind the pill that fetched the beads, which is a tap that hid what
+   * you were looking at.
+   *
+   * Written as a question about a kind rather than as a scope switch because it has two
+   * callers that cannot share one (bc-khoe.25): the pill tapped on Home, which widens
+   * through `chooseScope` and refetches, and the same pill tapped on another page, which
+   * arrives as `?kind=` before anything has been fetched at all and only has to be the
+   * scope this page boots in.
+   */
+  const scopeFor = (id) => (!id || kindsForScope().includes(id) ? null : 'both');
+
   /** Does this row survive the kind filter? True when the control never loaded. */
   const inKind = (q) => window.beadcause?.inboxFilter?.matches?.(q) ?? true;
 
@@ -9881,10 +9898,25 @@
   window.beadcause = window.beadcause || {};
   window.beadcause.refresh = load;
 
-  /** The scope survives a reload — it is a preference, not a session detail. */
+  /**
+   * The scope survives a reload — it is a preference, not a session detail.
+   *
+   * Unless the URL asks for a kind it cannot produce. `/?kind=bead` is the `All Beads`
+   * pill tapped from one of the eleven other pages the row is on, and it outranks the
+   * stored scope for the reason the tap does on Home: it is a request for the beads, and
+   * a scope that never fetches one would answer it with an empty list and the pill
+   * unlit. It is settled here, before `mountFilters`, because the first `survey` is what
+   * would drop the selection — and unlike a tap there is no second event to widen on.
+   * Nothing has been fetched yet, so this costs a wider first sweep and no refetch.
+   */
   function bootScope() {
     const saved = localStorage.getItem('beadcause.scope');
     if (SCOPES.includes(saved)) state.scope = saved;
+    const wider = scopeFor(window.beadcause?.inboxFilter?.asked?.());
+    if (wider) {
+      state.scope = wider;
+      localStorage.setItem('beadcause.scope', state.scope);
+    }
     mountFilters();
   }
 
@@ -9933,6 +9965,17 @@
     // children. The scope is its own group and nothing else is on the row yet —
     // bc-khoe.26 is what moves the bead box and the two sub-filters out here beside it.
     window.beadcause?.filterPills?.mount?.(filtersEl, { groups: [scopeGroup] });
+    // How the row reaches a kind this scope cannot produce. The filter knows which pill
+    // was tapped and that it is unreachable; only this page knows what a scope is, so
+    // the widening lives here and the decision to ask for it lives there. `chooseScope`
+    // is the same reset-and-refetch the switch itself runs — a pill that widened without
+    // going through it would be the second copy of that.
+    f?.onWiden?.((id) => {
+      const wider = scopeFor(id);
+      if (!wider) return false;
+      chooseScope(wider);
+      return true;
+    });
     f?.survey({ kinds: kindsForScope() });
     // Whichever of the two mounted is what unhides the row.
     renderFilters();

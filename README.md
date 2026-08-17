@@ -4072,9 +4072,21 @@ signal that has stopped signalling.
 
 Each kind carries a `side` — which scope can fetch it — and after the amalgamation exactly
 one still has a real one. `bead` is `agent`, because the agent sweep is the only thing that
-returns a live bead nobody is asking you about, and a pill for something the current scope
-cannot contain would be a control that does nothing: it is not offered, and a selection the
-new scope cannot produce is dropped rather than kept and ignored. Everything else is `any`.
+returns a live bead nobody is asking you about, so a selection the new scope cannot produce
+is dropped rather than kept and ignored. Everything else is `any`.
+
+**A `side` is a fact about the fetch and not a veto on the tap** (bc-khoe.25). The row is
+drawn by `public/viewbar.js` on twelve pages and knows nothing about a scope, so `All Beads`
+is on it whatever the scope is — and under the default `Human`, where `bead` is unreachable,
+`set()` dropped the one selection that pill could ever make, `current()` fell back and the
+row lit `My Epics`. The most-tapped scope had a dead control on it and nothing said why.
+Asking for the beads is asking for the sweep that fetches them, so `pick` widens instead: it
+asks `widen` — the seam `public/app.js` registers with `onWiden` and answers with
+`chooseScope('both')` — and then selects. `Both` rather than `Agent`, because widening must
+not take the questions away. The same request arriving as `/?kind=bead` from another page is
+settled in `bootScope`, before the first `survey` that would drop it and while there is
+still nothing fetched to refetch. Dropping is what happens when the *scope* had the last
+word; widening is what happens when the *pill* did.
 That is straightforward for a pull request (off `gh`) and a chat session (off no sweep at
 all); **`Questions` is `any` for a different reason**, and it is the one place the
 amalgamation changed the meaning of a field. A plain question comes off the human sweep and
@@ -4219,8 +4231,9 @@ the inbox because it is only safe where the menu is the *last* thing on its row;
 tab's is the first, and the same rule there would push it off the other edge.
 
 What did **not** move is what the switch does. `chooseScope` in `public/app.js` is still
-the one place that stores the preference, drops selections the new scope cannot produce
-(`All Beads` under `Human` is a pill with nothing behind it), and refetches. And it is
+the one place that stores the preference, drops selections the new scope cannot produce,
+and refetches — and since bc-khoe.25 it is also what the `All Beads` pill goes through when
+the tap needs a wider scope than the one you are on. And it is
 still this device's preference and nothing else's: `beadcause.scope` is read and written in
 `public/app.js` alone, so **changing scope cannot change what rings your phone** — that is
 the space picker's, stored on the server, where the push path can read it.

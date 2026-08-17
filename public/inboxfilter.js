@@ -43,14 +43,22 @@
   two files know what a Question is, one of them is wrong and nothing says which.
 
   Each kind carries a `side`, because a scope that never fetched a row cannot show a
-  pill for it: `human` sweeps questions, `agent` sweeps live beads, `both` does both,
-  and a pill for something the current scope cannot contain is a control that does
-  nothing. `usable()` is what applies that, and `set()` drops selections the new scope
-  cannot produce — otherwise switching to `Human` with `All Beads` selected is an empty
-  screen with nothing on it to say why. `any` is the third value and it means what it
-  says: a pull request comes off `gh`, a chat session off no sweep at all, and Questions
-  can be produced by either sweep, so for none of them is there a scope that could have
-  failed to fetch one, and none of them has a scope in which its pill would be dead.
+  pill for it: `human` sweeps questions, `agent` sweeps live beads, `both` does both.
+  `usable()` is what applies that, and `set()` drops selections the new scope cannot
+  produce — otherwise switching to `Human` with `All Beads` selected is an empty screen
+  with nothing on it to say why. `any` is the third value and it means what it says: a
+  pull request comes off `gh`, a chat session off no sweep at all, and Questions can be
+  produced by either sweep, so for none of them is there a scope that could have failed
+  to fetch one, and none of them has a scope in which its pill would be dead.
+
+  **A `side` is a fact about the fetch, not a veto on the tap** (bc-khoe.25). The row
+  draws every pill on every scope and knows nothing about any of this, so for a while
+  `All Beads` under the default `Human` scope was a pill that lit `My Epics` — `set`
+  dropped the one selection it could ever make. Dropping is right when the scope has
+  just had the last word (a switch, a survey, a reload) and wrong when the *pill* is
+  having it: asking for the beads is asking for the sweep that fetches them. So `pick`
+  and `asked` go through `widen`, which public/app.js answers by moving the scope to
+  `Both` — in the switch beside the row, where you can see it happen.
 
   ## The two sub-filters
 
@@ -462,14 +470,45 @@
   const current = () => SLICES.find((k) => state.on.has(k.id))?.id || 'epics';
 
   /**
+   * How the page makes a kind reachable that the current scope cannot produce, if it
+   * has an answer. Returns whether it moved anything.
+   *
+   * `null` until a page registers one, and optional forever: the row is on twelve pages
+   * and only Home has a scope at all, so a page that never calls `onWiden` is a page
+   * where this seam has nothing to do. See `pick`.
+   */
+  let widen = null;
+
+  /**
    * Tap a pill. Exclusive, unlike the chips it replaced.
    *
    * The chips were a multi-select because they were a filter panel; a row of pills is a
    * navigation, and a navigation with two destinations lit is not one. `epics` — and
    * any other place, and any id the table does not know — clears the selection, which
    * is what "Home with nothing narrowed" is.
+   *
+   * **A pill for a kind this scope cannot produce widens the scope rather than being
+   * dropped** (bc-khoe.25). `set` drops it, and that is right for everything `set` is
+   * for — a scope switch, a reload, a survey — because those are all the scope having
+   * the last word. A tap is not: the row draws `All Beads` on every scope, so under
+   * `Human`, where `bead` is unreachable, dropping the selection lit `My Epics` and the
+   * pill was a control that did nothing at all. Asking for the beads is asking for the
+   * sweep that fetches them, and the widening is visible — the scope switch beside the
+   * row moves to `Both` — which is what makes it a control you watch rather than a
+   * preference something changed behind your back.
+   *
+   * A tap that widened is applied **quietly**, and that is not a detail: the widening
+   * has already told the page more than a filter change ever does — it emptied the
+   * list, put the wait on screen and went back to `bd`. The listeners' repaint on top
+   * of that would draw an *empty* list over "Asking bd…", which is the one screen this
+   * tap has least right to show, because nothing has come back yet. The refetch is what
+   * repaints, when it has something to repaint with.
    */
-  const pick = (id) => set(BY_ID.get(id)?.test ? [id] : []);
+  const pick = (id) => {
+    if (!BY_ID.get(id)?.test) return set([]);
+    const widened = !state.usable.includes(id) && Boolean(widen?.(id));
+    return set([id], { quiet: widened });
+  };
 
   /**
    * Narrow one kind's sub-filter. Empty is the kind's own default, not "everything".
@@ -670,7 +709,35 @@
      frame and then takes half of it away. Last in the file, because `set` paints, and
      the nodes it paints are declared above. */
   /**
-   * `?kind=…`, which is how a pill tapped on another page arrives here.
+   * The id `?kind=` names, if the table still has one by that name. Null otherwise.
+   *
+   * Parsed by hand off `window.location`. `URLSearchParams` is a web API rather than a
+   * language one, and this file is driven in a vm by test/inboxkinds.mjs with a document
+   * small enough to read — adding a URL parser to that room to answer one question would
+   * be more fake than the thing under test.
+   *
+   * Two callers read it as two different questions and neither can be the other, which
+   * is why the parse is its own function: `arrived` wants the *selection* to boot with,
+   * and `asked` wants the *slice that was asked for*, because a slice may need a wider
+   * scope before it can be selected at all. See `asked`.
+   */
+  const named = () => {
+    try {
+      const m = /[?&]kind=([^&]*)/.exec(window?.location?.search || '');
+      if (!m) return null;
+      const id = decodeURIComponent(m[1]);
+      return BY_ID.has(id) ? id : null;
+    } catch {
+      // A stray `%` makes `decodeURIComponent` throw, and this runs at the top level of
+      // the file: an uncaught one here would mean no `window.beadcause.inboxFilter` at
+      // all, so the inbox would lose its whole filter control over a malformed query.
+      // Reading it as "no instruction" is the same answer an unknown kind gets.
+      return null;
+    }
+  };
+
+  /**
+   * `?kind=…` as a selection, which is how a pill tapped on another page arrives here.
    *
    * It outranks what is on disk, and it has to: tapping `PRs` from /history is a request
    * for the pull requests, and landing on Home showing whatever you last looked at
@@ -682,26 +749,24 @@
    * between "no instruction" and "clear it": a stale link from a phone's home screen
    * naming a kind that has since been folded into another should leave the selection
    * alone, not silently widen it.
-   *
-   * Parsed by hand off `window.location`. `URLSearchParams` is a web API rather than a
-   * language one, and this file is driven in a vm by test/inboxkinds.mjs with a document
-   * small enough to read — adding a URL parser to that room to answer one question would
-   * be more fake than the thing under test.
    */
   const arrived = () => {
-    try {
-      const m = /[?&]kind=([^&]*)/.exec(window?.location?.search || '');
-      if (!m) return null;
-      const id = decodeURIComponent(m[1]);
-      if (!BY_ID.has(id)) return null;
-      return BY_ID.get(id).test ? [id] : [];
-    } catch {
-      // A stray `%` makes `decodeURIComponent` throw, and this runs at the top level of
-      // the file: an uncaught one here would mean no `window.beadcause.inboxFilter` at
-      // all, so the inbox would lose its whole filter control over a malformed query.
-      // Reading it as "no instruction" is the same answer an unknown kind gets.
-      return null;
-    }
+    const id = named();
+    return id ? (BY_ID.get(id).test ? [id] : []) : null;
+  };
+
+  /**
+   * The **slice** `?kind=` asks for, if it asks for one. `null` for a place, an id the
+   * table has forgotten, and a URL with no `kind` in it.
+   *
+   * Read by public/app.js before it mounts anything, because the arrival is the same
+   * request a tap is (see `pick`) and the scope it needs has to be settled *before* the
+   * first survey — a survey under the stored scope would drop the selection this query
+   * came here to make, and there is no tap left to widen on.
+   */
+  const asked = () => {
+    const id = named();
+    return id && BY_ID.get(id).test ? id : null;
   };
 
   state.sub = loadSub();
@@ -720,6 +785,12 @@
     current,
     /** Tap a pill: exclusive, and a place clears the selection. */
     pick,
+    /** The slice `?kind=` asks for — a pill tapped on another page. Null for none. */
+    asked,
+    /** How to reach a kind this scope cannot produce. One page has an answer; see `pick`. */
+    onWiden(fn) {
+      if (typeof fn === 'function') widen = fn;
+    },
     /** Selected kind ids — empty for "all of them". */
     selected: () => [...state.on],
     /** One kind's sub-filter selection — empty for that kind's own default. */
