@@ -4736,6 +4736,21 @@ holds all of it: the first sight that must be silent, each event, the stall's tw
 every bound, and — as a source read, because a behaviour test cannot see it cheaply — that
 the sweep is still below the three lines that stop the tick.
 
+**The no-worker-slot half of that is driven, not grepped, and the difference is bc-t5k0.**
+It used to be a fourth source read in the same check, matching the queue's slot arithmetic
+by string and asserting the sweep appeared above it. That line is arithmetic, and arithmetic
+gets renamed: `a.workers.length` became `codersOf(a).length`, `indexOf` returned `-1`, and
+the suite went red announcing that the sweep "has become queue work" while it sat exactly
+where it belongs. A static read cannot tell a rename from a regression, and that one
+printed the same sentence for both. bc-xl7n.39 made the failure honest — the anchor is
+shorter and a `queueAt > 0` guard now says "re-point this check" — but honest is still a
+red for a correct edit, and still no evidence about the property itself. So the suite now
+ticks a repo holding its one worker against a queue that has a bead in it, and asserts the
+advocate gets its window anyway: the state this section calls the one where supervision is
+worth the most, and the only state in the file where the queue is actually full. It is also
+strictly more sensitive than the string was. Gate `reenter` on a free slot instead of moving
+it, and every source read still passes — that one case goes red alone.
+
 ### Pausing one epic — the button that stops dispatch under a P0 without stopping the repo
 
 Everything above holds an epic back for **contention**: a twin already being worked, a
