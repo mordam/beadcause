@@ -10857,6 +10857,33 @@ because a batch means the first nine windows are signalled on the strength of a 
 only lands after the tenth. A failed write is a window left open, which is exactly the state
 that existed before any of this.
 
+**And the sweep itself is asserted in `test/parked.mjs`'s companion, `test/parkidle.mjs`,
+which builds no fixture at all.** For its first fortnight this feature parked nothing —
+`state.parked` was empty, no `parked …` line had ever been written to the daemon log, and
+resolver records from windows that closed hours earlier were still sitting in the open
+register. The sweep asked lib/parked.js for its list with the workspace *object*, where
+every writer of that register puts the workspace *name*, so the filter compared an object
+against a string, matched nothing, and the loop body never once ran. There was nothing to
+notice: an empty list is what a quiet laptop looks like, and `` `${object}/${id}` `` is a
+perfectly good string, so keys were happily written as `[object Object]/bc-x` and read back
+under themselves. `test/parked.mjs` was green throughout, because it passes the name by hand
+— the one argument the daemon never passed. So the second suite stands up the real
+`createAdvocates`, runs a real tick, and lets the advocate record be built the way the daemon
+builds it, with both shapes on it; reaching for the wrong one is now a failing assertion
+rather than an empty list. lib/parked.js also takes either shape and uses the name, because
+the honest lesson of that fortnight is that this mistake does not announce itself.
+
+The parks that *were* written in the meantime — by `finish`, for handed-back and delivered
+workers, under the same wrong key — are **adopted rather than orphaned**, once, on the first
+sweep that runs the fix. They are live conversations on live branches waiting for an answer,
+and correcting the key without moving them would have made every one of them silently
+unresumable as the fix's own first act. The workspace name cannot be recovered from a record
+the bug wrote, so it is recovered from the one field that still says where the agent was
+standing: the record's directory, resolved by the same rule a live session's `cwd` is. A
+record whose directory belongs to another workspace is left for that workspace's advocate,
+and one that maps to nothing at all is left alone to age out under the seven-day TTL — a
+park nothing can place is not a park to guess at.
+
 | before a window is parked | why |
 |---|---|
 | this daemon **opened** it, and said so at the time | the register in `state.json` is keyed by **session id**, written by `launch` itself. Every earlier attempt to match a window to what opened it matched on the *name*, and a name is something the session writes about itself and can change; the id is chosen by the launcher and reported straight back off Claude Code's own live-session record, so the join is exact. A window you opened yourself is not in the register and cannot be reached |
