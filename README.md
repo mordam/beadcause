@@ -21530,6 +21530,88 @@ is kept out of its own sweep, since every link to a supplier's terms is a host i
 otherwise report; that exemption is safe only while the file stays data, so its import list
 is pinned by the suite. Anything that could make a request has to come through there first.
 
+### Every store says where it came from and when it goes — `lib/datastores.js`, `test/datastores.mjs`
+
+Three registers already answer three different questions.
+[The evidence register](#nothing-is-kept-without-saying-for-how-long--libevidencejs-testevidencemjs)
+is keyed on what is *kept* — retention, integrity, who could alter it. The access register is
+keyed on *principals* — the grants that let a human, a device or an agent reach the system at
+all. [The supplier register](#every-third-party-is-named-and-a-sweep-fails-on-one-that-is-not--libsuppliersjs-testsuppliersmjs)
+is keyed on *third parties* and stops at the boundary. **None of the three answers the five
+questions Annex A.7 asks of a body of data**: where it came from, what it is used for, whether
+it is adequate for that use, who can reach it, and when it is disposed of.
+
+**So the fourth register's first job is to not become a fourth format.** It cites the other
+three rather than restating them — an evidence class by id, a supplier by id — and the
+coverage check fails the repo on a citation that resolves to nothing, on an evidence class
+nobody here classified, and on the specific failure a fourth register is most likely to
+produce: **a retention period that disagrees with the register that already stated one.** Two
+documents disagreeing about how long one store lives is worse than either answer, and the
+suite demonstrates that failure rather than asserting it cannot happen.
+
+**The coverage baseline is the evidence register rather than the filesystem**, and that is the
+choice worth defending. A sweep of `lib/` finds *modules*; what this register is about is
+*bodies of data*, and the inventory of those already exists one file over. So a new evidence
+class cannot land without somebody saying here whether it holds data about a person — which is
+exactly the question that otherwise gets answered once, at the start, and never again. Eight
+classes are excused into `NOT_SUBJECT` with a sentence each, because they record the daemon
+acting rather than anything it holds: a chain of digests, a set of shas, a config key that
+changed. An exemption for a class that is not there is itself a failure.
+
+**Personal data is located rather than denied, and the instinct to deny it is wrong in four
+places.** A bead names a colleague, an ingested ticket carries its reporter and often a
+customer, and a close reason quotes either — the largest concentration of it in the system,
+and it is in the *tracker*, which is not beadcause's own store, which is precisely why no
+register had it until this one. A screenshot carries whatever was on the screen, including the
+window nobody meant to capture, and it leaves as prompt content. An agent memory about how the
+operator likes work shaped is a statement about an identified individual, kept on purpose and
+readable by every agent kind. And the git identity — a name and an email — authors every commit
+in every ref, which is said once rather than repeated into fifteen fields that would then have
+to be kept agreeing. `personal.state` is a closed vocabulary of three and `none` is not a
+blank: a store claiming to hold none has to argue for it in a sentence somebody can disagree
+with.
+
+**Most of the answers are `permanent`, and that is a decision rather than a gap.** The disposal
+unit of a hash chain is the whole ref — removing the middle rewrites every sha after it, which
+is the property the chain exists for.
+[The run archive](#the-run-that-survives-its-own-reset--libagentarchivejs-testagentarchivemjs)
+found the one way out and it is a *split*: the record is chained and permanent, the body is a
+file beside it and is deleted at two years, and the deletion is itself a commit on the chain.
+That is available only where the two halves can be separated, and **they cannot be separated
+for a memory** — a memory *is* its body, so disposing of it leaves nothing saying a belief was
+ever held, and it explains session transcripts that are themselves permanent. What governs a
+store that never forgets is therefore what may be *written* to it and who may *read* it, both
+of which every entry now states outright, with disposal as a deliberate act against a named
+bead rather than a sweep. That closes the two "bc-eqn1.10 will decide this" sentences the
+evidence register had been carrying.
+
+**The contentless push is the one part of the file that is not a description.** A workspace in
+`ntfy.minimalWorkspaces`, or in a space set to `ntfyDetail: "minimal"`, has always got a
+notification with no question text, no option labels, no reply and no buttons — a nudge you tap
+through to the tailnet — because an `ntfy.sh` topic is a shared secret on a public relay and
+anybody who guesses the name receives the messages. That was a *feature*: nothing failed if it
+stopped working. `test/datastores.mjs` drives **every** exported `push*` in `lib/notify.js`
+against a minimal workspace with loaded fixtures and a stubbed `fetch`, and the published body
+must carry none of the text — then drives the same call against a `full` workspace, which must
+carry it, because a test that passes against a function that has silently stopped saying
+anything is a test of nothing. The list of pushers is read from the module's own exports, so a
+new notification cannot ship without being covered.
+
+**And it states its limit instead of overclaiming.** The deep link *has* to name the workspace
+and the bead or the tap lands nowhere, so minimal conceals what is being asked and not that
+something is being asked in a named repo; the tailnet hostname is the click target of every
+push regardless; the priority still tracks the bead's; and `Beadcause · asked again` is a
+permitted title, because giving the same answer twice from a lock screen is a real failure
+while the fact of a repeat leaks nothing. `LINK_ONLY` is that limit written as a rule, and the
+suite fails if a bead id ever migrates out of the click URL and into a title or a message.
+
+The register is itself
+[a controlled document](#every-document-has-an-owner-and-a-review-date--libdocumentsjs-testdocumentsmjs)
+with an owner and a twelve-month review, for the reason its own entries give: the wrong kind of
+wrong sentence here — "this store holds no personal data" — reads exactly as well after the
+store starts holding some. The coverage check catches a new store; only a date catches a store
+whose contents changed under a sentence that was true when it was written.
+
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
 There are two `grep` hazards on this laptop. One is a defect in every script that writes
