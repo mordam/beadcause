@@ -888,7 +888,7 @@ of those is set wrong is the moment you are looking at what it did, on a phone, 
 weekend.
 
 So **`/monitor` is the details of the space the picker has selected**, and its settings
-are on it:
+are on it — under the **Config** chip on that page's own row:
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -896,6 +896,8 @@ are on it:
 │  ┌──────────────────────────────────────┐    │
 │  │ Personal                         ▾   │    │
 │  └──────────────────────────────────────┘    │
+├──────────────────────────────────────────────┤
+│  Advocates    PRs   [Config]   Mirror        │
 ├──────────────────────────────────────────────┤
 │  Personal                    may reach you   │
 │  ▾ SETTINGS                                  │
@@ -913,18 +915,40 @@ are on it:
 │  ▾ WHAT EACH REPO RESOLVES TO            3   │
 │      beadcause  full push · files endorsed…  │
 │      Beads agents file here  On Off Inh(off) │
-├──────────────────────────────────────────────┤
-│  beadcause      3 of 3 sessions              │
-│  …the advocate cards, exactly as before      │
 └──────────────────────────────────────────────┘
 ```
 
 Nothing the page already did has gone: the advocates and their pause, reclaim and
 limit controls, the sessions view it absorbed (`/sessions`, `/work` and `/work.html`
 still serve it), the proposal cards, the launchd and router health lines, [the mirror
-pane](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it). The settings card
-sits above them because it is what the page is the details *of*, and a setting you scroll
-six advocate cards to reach is a setting you go back to editing the config file for.
+pane](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it).
+
+**It is a chip of its own, and it got there by leaving the roster (bc-me2b).** The card
+was drawn *above* the advocate cards for a year, on the argument that it is what the page
+is the details of — and what that meant in practice is that the pane you open to see what
+is running this minute opened on eleven switches and a row per repo, with the first
+advocate below the fold of a phone. The same test the Mirror and the board are on decides
+it: this is a **mode** of the page — the same space, seen as its configuration rather than
+as its work — so it is a chip on that row, sitting third between the board and the
+Mirror, rather than the top of the first pane.
+`spaceHtml` did not change; only where its output is written did.
+
+**The pane is stood down like the others, and stands down more cheaply.** Advocates holds
+a parked `/api/poll`, the board a `gh` sweep per repo behind every wake, the Mirror a poll
+of its own; Config holds nothing. Tapping the chip fetches `/api/space` and stops — a read
+of the config object the daemon is already holding, with no `bd` and no disk behind it —
+and the ⟳ while it is up re-reads that and only that. Which also means the Advocates pane
+is no longer swept at all by somebody who opened the page to change a setting.
+
+**And it shows the repo you picked.** The picker has two levels (`Personal`, and
+`beadcause` inside it) and this card only ever read the coarse one: pinning to `beadcause`
+still drew every repo of Personal in *What each repo resolves to*, which reads as the
+console answering a question about somebody else's config. The panel now draws the pinned
+repo alone, and the heading says so — *What beadcause resolves to*. The settings above it
+stay the whole space's, because they are: pinning the picker to one repo does not make
+`quietHours` a property of that repo, and a card that redrew them as if it had would be
+promising a narrowing the config cannot express. What narrows is the panel that is
+per-repo already.
 
 **Four shapes of control, and the shape is the shape of the answer.** `Muted` is
 two-state, because there is no global mute behind it and a third button would be a
@@ -6219,9 +6243,13 @@ with no pull request in the inbox there was no way to reach it — and **Ship** 
 bc-d4d5 put it back as the **third chip on this same row**, between Advocates and Mirror,
 on the Mirror's own two reasons: it is a mode of the advocates page (the same space's
 repos, seen as work waiting to ship rather than work running), and it is somewhere you
-glance and act on rather than somewhere you live. So the row reads **Advocates · PRs ·
-Mirror**, and `/prs`, `/pulls` and `/prs.html` are three more paths to `monitor.html` with
-the middle chip up. (Those three are also the PRs pill's own `paths` since bc-khoe.1, so
+glance and act on rather than somewhere you live. bc-me2b added **Config** on the same
+test, and it is the only one of the four that arrived by *leaving* the Advocates pane
+rather than by folding a page into it — see
+[Space details](#space-details--the-page-the-advocate-console-became). So the row reads
+**Advocates · PRs · Config · Mirror**, and `/prs`, `/pulls` and `/prs.html` are three more
+paths to `monitor.html` with the second chip up. (Those three are also the PRs pill's own
+`paths` since bc-khoe.1, so
 the row across the top marks it current on all of them while the chip row puts the board
 up — the duplication is transitional, and bc-khoe.4 is where the chip row goes.)
 
@@ -6235,12 +6263,13 @@ What that cost, and what it did not:
 - **The chip row grew a file.** A two-way swap can live in whichever pane owns it, which
   is where it was (`mirror.js`); a three-way one cannot, because the pane going *away* has
   to be told as much as the one arriving and "the other one" stops naming anything. So
-  `public/montabs.js` owns the row, the panes subscribe, and each of the three answers only
+  `public/montabs.js` owns the row, the panes subscribe, and each of them answers only
   for itself. The mapping — which section a chip shows, and what `presence.js` should say
   this device is looking at — is declared on the chips in the HTML.
-- **A hidden pane is stood down, not merely invisible.** Each of the three holds a parked
+- **A hidden pane is stood down, not merely invisible.** Three of the four hold a parked
   `/api/poll`, and the board's wakes are a `gh` call per repo; the subscription is what
-  stops all three running at once. Nothing is fetched for the board until its chip is up.
+  stops them running at once. Nothing is fetched for the board until its chip is up, and
+  Config's one `/api/space` read is not sent until its chip is.
 - **The top bar is shared.** One ⟳ for the page, and each pane ignores it while it is
   hidden — rather than a second refresh button that would mean a different half of the same
   screen depending on where your thumb landed.
@@ -6282,7 +6311,7 @@ restyle needs to be able to move it without moving the other page.
 
 **The strip is sticky, and for a while that bought nothing.** It has to be — the
 advocates list is long enough that halfway down it there is nothing on screen saying
-which of the three panes you are in, and no way to the other two without scrolling to
+which of the four panes you are in, and no way to the other three without scrolling to
 the top first. It was sticky at `top: 0`, inherited wholesale from `.agent-tabs` on the
 foundations page, where zero is correct because that strip's scroll container is a
 `.launcher` that already *starts* below the top bar. Here the scroll container is the

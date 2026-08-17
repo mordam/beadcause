@@ -73,6 +73,16 @@
        looking for the first mention of its path and prose ahead of the tag reads to them
        as the tag being in the wrong place.
 
+       Config is the fourth of them (bc-me2b) and it sits third on the row, between the
+       board and the Mirror. It is also the only one that arrived by *leaving* the
+       Advocates pane rather than by folding a page into it. The selected space's whole
+       settings card — eleven controls and a row per repo — was drawn above the advocate
+       cards, on the argument that it is what the page is the details of.
+       What that meant in practice is that the pane you open to see what is running this
+       minute opened on a screenful of switches you touch about once a month, and every
+       advocate was below the fold. It is a mode of the page by the same test as the other
+       two: the same space, seen as its configuration rather than as its work.
+
        `data-pane` is the section a chip shows and `data-view` is what this device tells
        public/presence.js it is looking at; public/montabs.js reads both and owns the
        swap. Mirror's is empty on purpose — see that file. -->
@@ -80,6 +90,7 @@
 
     <button class="chip" data-tab="advocates" data-pane="mon" data-view="sessions" aria-pressed="true">Advocates</button>
     <button class="chip" data-tab="prs" data-pane="prs" data-view="prs" aria-pressed="false">PRs</button>
+    <button class="chip" data-tab="config" data-pane="config" data-view="config" aria-pressed="false">Config</button>
     <button class="chip" data-tab="mirror" data-pane="mirror" data-view="" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>
   </nav>
 
@@ -93,6 +104,16 @@
        a second set. -->
   <section id="prs" class="work pagescroll" hidden>
     <div class="empty">Asking every repo…</div>
+  </section>
+
+  <!-- The selected space's settings, and what each of its repos resolves to. Drawn by
+       monitor.js, which owns the roster pane too: the same file, the same delegated
+       press handlers, one card of which now lives here instead of at the top of that
+       roster. Its own payload though — `/api/space`, and nothing of the `bd` sweep the
+       pane above it needs. In the row's own order, after the board and before the
+       Mirror. -->
+  <section id="config" class="work pagescroll" hidden>
+    <div class="empty">Reading this space…</div>
   </section>
 
   <section id="mirror" class="work pagescroll" hidden>

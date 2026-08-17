@@ -68,6 +68,12 @@
   })();
 
   const out = document.getElementById('mon');
+  /* The Config pane (bc-me2b). Its card is drawn by this file like everything in `out`
+     and pressed through the same delegated handlers — it is one section of this page's
+     output that happens to be shown under a different chip, not a second page. A build
+     served an older monitor.html finds nothing here, and every write below is guarded,
+     so such a page draws the roster and simply has no settings card. */
+  const cfg = document.getElementById('config');
   const pulse = document.getElementById('pulse');
   const tally = document.getElementById('tally');
   const observing = document.getElementById('observing');
@@ -1654,6 +1660,28 @@
     return f && f.space && f.space !== 'all' ? f.space : null;
   };
 
+  /**
+   * The one repo the picker is pinned to, or null when the whole space is selected.
+   *
+   * The picker has two levels and the settings card only ever read the coarse one: pick
+   * `beadcause` and it stores `{space: 'Personal', workspace: 'beadcause'}`, the card
+   * asked `spaceName()` for the space, and what it drew was Personal — every setting of
+   * it, and a row each for beadcause, deluvia, ehatt and sophab. The settings are
+   * genuinely the space's and stay whole. The rows are not: you narrowed to one repo,
+   * and a panel headed "what each repo resolves to" listing three you did not pick is
+   * the console answering a question about somebody else's config (bc-me2b).
+   *
+   * Deliberately not `inSpace`, which is the *row* filter every other list on this page
+   * uses. That one resolves a name through `spaceOf`, and a name in `d.missing` is by
+   * definition not a configured workspace — so `spaceOf` calls it 'Other' and `inSpace`
+   * would drop the drift warning off a card that is narrowed to nothing but a space. The
+   * question here is only ever "is the picker pinned to a repo", so it is asked directly.
+   */
+  const onlyRepo = () => {
+    const f = window.beadcause?.space?.filter;
+    return f && f.workspace && f.workspace !== 'all' ? f.workspace : null;
+  };
+
   const DAYS = [
     ['mon', 'M'],
     ['tue', 'T'],
@@ -1993,10 +2021,18 @@
     // knew what was wrong. The tag stays beside the buttons and is not made redundant by
     // them: it is the *resolved* answer, and the buttons say which of the three levels
     // gave it.
-    const many = d.repos.filter((r) => typeof r.checkouts === 'number');
-    const total = d.repos.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
-    const repos = d.repos.length
-      ? `<div class="space-repos">${d.repos
+    //
+    // And only the repo you picked, when you picked one — see `onlyRepo`. The settings
+    // above stay the whole space's, because they are: pinning the picker to one repo
+    // does not make `quietHours` a property of that repo, and a card that redrew them as
+    // if it had would be promising a narrowing the config cannot express. What narrows
+    // is this panel, which is per-repo already.
+    const only = onlyRepo();
+    const shown = only ? d.repos.filter((r) => r.name === only) : d.repos;
+    const many = shown.filter((r) => typeof r.checkouts === 'number');
+    const total = shown.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
+    const repos = shown.length
+      ? `<div class="space-repos">${shown
           .map(
             (r) => `<div class="space-repo">
               <div class="space-repo-tags">
@@ -2039,7 +2075,14 @@
               )} holds many checkouts sharing one tracker, so the settings above are one answer for all of them — which repo a bead is about does not change them.</p>`
             : ''
         }`
-      : '<p class="subtitle">No configured repo is in this space.</p>';
+      : only
+        ? // The picker sets the space from the repo (`spaceOf` in public/spacebar.js), so
+          // a pinned repo its own space does not contain is config that moved under a
+          // selection rather than anything you can do from here. Said plainly all the
+          // same — "no configured repo is in this space" would be a lie about a space
+          // with five.
+          `<p class="subtitle">${esc(only)} is not one of this space's repos — pick the space itself above to see the ones that are.</p>`
+        : '<p class="subtitle">No configured repo is in this space.</p>';
 
     const missing = d.missing.length
       ? `<div class="adv-note warn">${esc(d.missing.join(', '))} ${
@@ -2060,11 +2103,46 @@
       ${missing}
       ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
       ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
-      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(total), repos)}
+      ${section(
+        `space:${d.space}:repos`,
+        // Narrowed to one repo, "each repo" is a heading over a panel with one row in
+        // it, and the reading it invites is that this space has one repo. The fold key
+        // is unchanged either way, so a panel you left open stays open across a change
+        // of picker.
+        only ? `What ${only} resolves to` : 'What each repo resolves to',
+        String(total),
+        repos
+      )}
     </article>`;
   }
 
   /* ------------------------------------------------------------------- render */
+
+  /**
+   * The Config pane: the selected space's card, and nothing else.
+   *
+   * Its own function, and called ahead of the `state.work` guard below, because the two
+   * panes are drawn from different payloads. The roster needs `/api/work`; this card
+   * needs `/api/space` and no more — so a Config chip tapped on a page that has never
+   * swept `bd` paints, and a press on it repaints, where a card folded into `render`'s
+   * body would have sat behind a guard about a roster nobody is looking at.
+   *
+   * Also where the observer's read-only treatment is applied to these controls, for the
+   * same reason it is applied to the roster's: this instance's `cfg` is the acting
+   * daemon's config file, so a press here would change what the *other* process does at
+   * its next restart and nothing about what it is doing now.
+   */
+  function renderConfig() {
+    if (!cfg) return;
+    cfg.innerHTML = spaceHtml();
+    if (!state.work?.observing) return;
+    for (const el of cfg.querySelectorAll(
+      '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel'
+    )) {
+      el.disabled = true;
+      el.title = 'This instance only watches — the settings belong to the daemon that acts.';
+    }
+  }
 
   /**
    * `polled` marks the twenty-second repaint, as opposed to one your press asked for.
@@ -2076,9 +2154,18 @@
    * cost of it is one paint deferred by twenty seconds.
    */
   function render({ polled = false } = {}) {
+    // The two editable fields on this page are both in the Config pane now, so the guard
+    // asks that pane. `out` is still asked as well: a build served an older
+    // monitor.html has no Config section and draws the card at the top of the roster,
+    // and a poll taking the clock out from under that page's thumb is the same bug.
+    const typing =
+      document.activeElement?.type === 'time' &&
+      (cfg?.contains(document.activeElement) || out.contains(document.activeElement));
+    if (polled && typing) return;
+    renderConfig();
+
     const data = state.work;
     if (!data) return;
-    if (polled && out.contains(document.activeElement) && document.activeElement?.type === 'time') return;
 
     // A pending number the daemon has since arrived at anyway — this repo stepped from
     // another device, or the value applied and came back — is settled, not pending. Done
@@ -2140,14 +2227,21 @@
     const nothing = (data.workspaces || []).length
       ? `<div class="empty">Nothing in ${esc(window.beadcause?.space?.label?.() || 'this space')}.</div>`
       : '<div class="empty">No workspaces configured.</div>';
-    // The space's own settings sit under the two health lines and above the repos: it
-    // is what this page is the details *of*, and a setting you scroll six advocate
-    // cards to reach is a setting you go back to editing the config file for.
+    // The space's own settings used to sit here, under the two health lines and above
+    // the repos, on the argument that this page is the details *of* a space. They are
+    // under the Config chip now (bc-me2b): eleven controls and a row per repo is a
+    // screenful, and this pane is the one you open to see what is running — every
+    // advocate started below the fold, on a phone, to keep settings you touch monthly at
+    // the top. `spaceHtml` is unchanged and unmoved; only where its output is written is.
+    //
+    // The ternary is for a service worker serving a monitor.html from before the chip
+    // existed: with no Config section to draw into, the card goes back where it was
+    // rather than being written nowhere and lost.
     out.innerHTML =
       serviceHtml(data.service) +
       routerHtml(data.router) +
       globalHtml(data.globals, data.observing) +
-      spaceHtml() +
+      (cfg ? '' : spaceHtml()) +
       (cards || nothing);
 
     // An observer may read this space's settings and may not write them: its `cfg` is
@@ -2725,7 +2819,20 @@
 
   /* ------------------------------------------------------------------- events */
 
-  out.addEventListener('click', (e) => {
+  /* The three inputs this page has, wherever they are. They live in the settings card,
+     which is the Config pane on a current monitor.html and the top of the roster on one
+     served from an old cache — and the ids are unique either way, so asking the document
+     is the one lookup that is right in both places. It was `out.querySelector`, which on
+     a current page silently answers null: Set would then have sent `{from: undefined}`. */
+  const field = (id) => document.getElementById(id);
+
+  /* One handler, two panes — see the loop that registers it below. The settings card
+     moved to the Config section (bc-me2b) and its presses did not change at all: they are
+     the same delegated branches, matched on the same data attributes. So this file
+     listens on the other pane as well rather than growing a second copy of them. A branch
+     that never fires there costs nothing; a branch that lives in one of two copies is how
+     the next pane gets it wrong. */
+  const onClick = (e) => {
     // Ship, first of all: it is the one control on this page that changes what is
     // running, and it carries its repo on itself rather than a workspace — so nothing
     // below, all of which reads `data-ws`, may be allowed to claim the press.
@@ -2781,8 +2888,8 @@
         saveSpace({ quietHours: null }, hours);
         return;
       }
-      const from = out.querySelector('#qh-from')?.value;
-      const to = out.querySelector('#qh-to')?.value;
+      const from = field('qh-from')?.value;
+      const to = field('qh-to')?.value;
       saveSpace({ quietHours: { from, to } }, hours);
       return;
     }
@@ -2790,7 +2897,7 @@
     const chan = e.target.closest('[data-space-channel]');
     if (chan) {
       e.preventDefault();
-      const typed = (out.querySelector('#slack-channel')?.value || '').trim();
+      const typed = (field('slack-channel')?.value || '').trim();
       // A blank field and a press on Set is the one gesture with no honest reading:
       // `""` is what Never writes and it is a *different* answer from Inherit, so
       // picking one of them here would be the card quietly deciding which. Both
@@ -2891,7 +2998,7 @@
       e.preventDefault();
       readArchived(read.dataset.read, read.dataset.commit);
     }
-  });
+  };
 
   /* The one field on this page you type into, and this page repaints off a stream
      event rather than off your thumb — so what has been typed is held in `state` and
@@ -2899,16 +3006,30 @@
      reason. Without it a poll landing between the first character and the press takes
      the channel id away and the field silently goes back to what the space already
      said. */
-  out.addEventListener('input', (e) => {
+  const onInput = (e) => {
     if (!e.target.closest('#slack-channel')) return;
     state.slackDraft = { space: spaceName(), text: e.target.value };
-  });
+  };
 
-  /* The ⟳ is the page's, and this page has three panes now — so it only means *this*
-     one while this one is up. Without the guard, pressing it on the board would sweep
-     `bd` for every tracker on the Mac to refresh a roster nobody is looking at, which is
-     the same bill `ready` below exists to stop the stream running up. */
+  /* Both panes, and no dispatch between them: a click has one target and it is inside
+     exactly one section, so whichever listener fires is the one whose pane holds it. */
+  for (const pane of [cfg, out]) {
+    if (!pane) continue;
+    pane.addEventListener('click', onClick);
+    pane.addEventListener('input', onInput);
+  }
+
+  /* The ⟳ is the page's, and this page has four panes now — so it only means whichever
+     one is up. Without the guard, pressing it on the board would sweep `bd` for every
+     tracker on the Mac to refresh a roster nobody is looking at, which is the same bill
+     `ready` below exists to stop the stream running up. Config re-reads its own card and
+     stops there: it is one `/api/space` read of the daemon's config object, with no `bd`
+     and no `gh` behind it. */
   document.getElementById('refresh').addEventListener('click', () => {
+    if (cfg && !cfg.hidden) {
+      loadSpace().then(renderConfig);
+      return;
+    }
     if (out.hidden) return;
     load();
     // The ⟳ means "ask everything again", and the Ship count is one of the things on this
@@ -2916,10 +3037,15 @@
     loadBoard({ force: true });
   });
   /* The space picker moved. Which repos are drawn is decided at paint time off the
-     /api/work payload already in hand — but *whose settings* the card at the top shows
-     has changed, and that is a different space's config, so it is fetched. Painted
-     first all the same: the repos below are correct immediately, and the card says it
-     is reading rather than sitting on the previous space's answers. */
+     /api/work payload already in hand — but *whose settings* the Config card shows has
+     changed, and that is a different space's config, so it is fetched. Painted first all
+     the same: the repos are correct immediately, and the card says it is reading rather
+     than sitting on the previous space's answers.
+
+     Both panes repaint from it, and the second one is not incidental: the picker's fine
+     level is what the settings card now narrows its repo panel by (`onlyRepo`), so
+     moving from a space to one of its repos changes what is drawn under the Config chip
+     with no fetch involved at all. */
   window.beadcause?.space?.onChange(() => {
     state.spaceSaid = null;
     render();
@@ -3011,10 +3137,11 @@
 
   /* Where this device is, for a mirror on some other screen, is published by
      public/montabs.js rather than here — because on this page it is a fact about which
-     of the three chips is up, and there is no moment at which this file knows that and
+     of the four chips is up, and there is no moment at which this file knows that and
      that one does not. The ids are on the chips themselves in monitor.html: `sessions`
      for this pane, because that is what lib/presence.js whitelists and what the mirror
-     already has a name for; `prs` for the board; and nothing at all for the Mirror.
+     already has a name for; `prs` for the board; `config` for the settings; and nothing
+     at all for the Mirror.
 
      That last one is not tidiness. This page can also *be* a mirror, and presence.js's
      own header was right that a device which followed itself would be absurd — so the
@@ -3038,7 +3165,17 @@
        the chip row was a file would load this one beside no montabs.js, and a page that
        then never asked for anything would be a blank roster with no way to fill it. */
     const tabs = window.beadcause?.monTabs;
-    if (tabs) tabs.onChange((which) => which === 'advocates' && load());
+    if (tabs)
+      tabs.onChange((which) => {
+        if (which === 'advocates') return void load();
+        /* The Config chip asks for its own payload and no more. `/api/space` is a read
+           of the config object the daemon is already holding — no `bd`, no disk — so
+           opening the settings costs one request, where routing it through `load` would
+           have swept every tracker on the Mac for a roster in a pane that is hidden.
+           Every visit, not only the first: the file can have been edited on the Mac, or
+           by the phone in your other hand, since you last looked. */
+        if (which === 'config') return void loadSpace().then(renderConfig);
+      });
     else load();
   }
 })();
