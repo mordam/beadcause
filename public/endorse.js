@@ -641,9 +641,11 @@
     // them mid-flight. See `catchUp`.
     if (stale) setTimeout(catchUp, 0);
     if (!state.data && !state.error) return;
-    const scrollY = window.scrollY;
+    // The queue is the scroller, not the window (bc-7utr) — it is the middle row of a
+    // viewport-height shell, so the offset that has to survive a repaint is its own.
+    const was = out.scrollTop;
     out.innerHTML = listHtml();
-    window.scrollTo(0, scrollY);
+    out.scrollTop = was;
   }
 
   /* --------------------------------------------------------------------- acting */

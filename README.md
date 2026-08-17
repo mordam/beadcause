@@ -789,10 +789,13 @@ combination of filter and workspace, because those two disagreeing in the direct
 #### The row it cost, and why it no longer costs one
 
 The picker had a full-width row of its own until bc-khoe.5, so six pages carried two rows
-of sticky chrome where they had carried one. On a phone that is worth arguing about, so it
+of pinned chrome where they had carried one. On a phone that is worth arguing about, so it
 was measured instead: at 360×640 the row was **43px** — a 31px control and the bar's 12px
-gap — taking the bar from 61px to 104px and the bar plus the tab bar from 116px to 159px,
-18% of the screen to **25%**.
+gap — taking the bar from 61px to 104px and the bar plus the navigation from 116px to
+159px, 18% of the screen to **25%**. (The navigation was a 54px bar along the bottom when
+those numbers were taken; bc-khoe.1 replaced it with the 53px
+[pill row](#getting-around--the-pill-row) under the top bar, so the totals below are a
+pixel smaller than they read. The argument is the same one either way.)
 
 It kept that row for a year of decisions, and the reason was arithmetic rather than taste:
 the first row was full. Three ways round it were tried against the real pages and all three
@@ -817,8 +820,8 @@ That is the trade the old arithmetic refused, and the reason it is affordable no
 the value is still on screen. `beadcause` — nine characters, and the common case — is not
 cut at all; `climative-…` still says which one; and the accent border says something is
 being kept off the screen either way. Measured after: the bar is **one line on all six
-pages at both widths**, 61px, and the bar plus the tab bar is **116px** against the 159px
-it replaced. The narrowest margin left on the row is 31px, on `/foundations`.
+pages at both widths**, and the bar plus the pill row is **108px** against the 159px the
+two of them replaced. The narrowest margin left on the row is 31px, on `/foundations`.
 
 The one cost worth naming separately is **refresh**. It was the last icon left loose in the
 bar, deliberately, because it is the most-pressed control in the app and the least worth two
@@ -829,7 +832,7 @@ and the picker is the shape being got rid of, and it is two taps now.
 forgotten — and it is where those numbers come from. Two widths, every page with a picker:
 the bar is **exactly one line**, the picker is on it and sharing it, no name the picker can
 select would draw a face over twelve characters, the face on the bar is the cut form of what
-is selected, every row in the dropdown is a whole name, and the bar plus the tab bar stays
+is selected, every row in the dropdown is a whole name, and the bar plus the pill row stays
 inside a **170px** budget. Then it picks the longest workspace in the fixture through the
 control itself and measures the bar again — because everything before that is measured on
 `All spaces`, which is under the cut, so without that pass the truncation could be deleted
@@ -850,23 +853,27 @@ carried `margin: -18px -16px 14px`, which on the agents' page cancels `.launcher
 `18px 16px` padding but here has an unpadded `<body>` to cancel and so simply pushed the
 strip past both edges. The symptom was not a scrollbar. It was the advocate console drawn
 at **96%**, draggable sideways by 16px, with the strip's first chip starting 2px off the
-left of the screen and the bottom tab bar's last label cut in half — which reads as a
+left of the screen and the bottom bar's last label cut in half — which reads as a
 font being slightly wrong rather than as a layout bug, and sat there unnoticed until a
 check printed the number (bc-3ui6).
 
-The sixth is what the bar does to whatever sticks *underneath* it. The bar is
-`position: sticky` at z-index 20, so a second sticky box on the same page that pins at
-`top: 0` pins itself behind it and is simply gone from the first scroll onwards —
-`/monitor`'s Advocates/PRs/Mirror strip did exactly that, carrying the whole cost of
-being sticky for none of the benefit (bc-ugd4). So the check makes each page scrollable,
-scrolls it, and requires every box pinned to the window to sit **against** the bar's
-bottom edge: overlapping it is that bug, and a gap below it is the bug you get from
-fixing that one with a constant — `top: 104px` read off a screenshot is a 43px hole the
-day the picker hides itself and the bar is 61px. Both directions fail, and `/monitor` is
-measured a second time with one workspace, in the shorter bar, because the two heights
-are the two states this ships in. The offset is `var(--topbar-h)`, published by
-`public/montabs.js` from a `ResizeObserver` on the bar — measured rather than derived, so
-the safe-area inset and a rewrap are covered by the same three lines as the picker.
+The sixth is that **the chrome does not move when you scroll**, and it used to be a
+narrower question. The bar was `position: sticky` at z-index 20, so a second sticky box
+pinning at `top: 0` pinned itself behind it and was gone from the first scroll onwards —
+`/monitor`'s Advocates/PRs/Mirror strip did exactly that, carrying the whole cost of being
+sticky for none of the benefit (bc-ugd4). The fix at the time was to offset it by
+`var(--topbar-h)`, a number `public/montabs.js` published off a `ResizeObserver` on the
+bar, because the bar's height is a fact about the payload: 104px with the picker's row and
+61px without it.
+
+[The app shell](#every-page-is-an-app-shell-not-a-document) removed the question rather
+than the number. Nothing is sticky any more — the bar and the pill row are rows of a flex
+column above the one element that scrolls — so the check now appends a spacer *inside that
+element*, scrolls it, and requires both rows to be in exactly the same place afterwards and
+the document not to have moved at all. A box still pinning itself to the window is reported
+as its own failure, because that is how the old bug gets back in. `/monitor` is measured a
+second time with one workspace, in the shorter bar, because the two heights are still the
+two states this ships in and the pill row has to sit against the bar in both.
 
 ### Space details — the page the advocate console became
 
@@ -3644,8 +3651,8 @@ inline `style`, which beats a stylesheet, and the failure only shows up on a pho
 dark. Like every other `*-check.mjs` it needs a headless Chrome, so it is not in
 `npm test`.
 
-**It is not a tab, and `/flow` is not on the bottom bar.** By [that bar's own
-rule](#getting-around--the-tab-bar) a tab is a claim that a page is somewhere you go
+**It is not a pill, and `/flow` is not on the row.** By [that row's own
+rule](#getting-around--the-pill-row) a place on the navigation is a claim that a page is somewhere you go
 repeatedly, and this is a page you read when you are new to the system or arguing about
 it — not one you check. `/map` is the same page, because both are what somebody types.
 
@@ -4542,7 +4549,7 @@ scope chips in the filter panel are the same tap.
 The two numbers that remain — agents running, advocates waiting — are **badges on the
 tabs that answer them**, not chips up here: the number and the way to act on it end up
 as the same tap target, and neither is a count of the list you are looking at. See
-[the tab bar](#getting-around--the-tab-bar).
+[the pill row](#getting-around--the-pill-row).
 
 ### The card is the control — tap it anywhere to open it
 
@@ -5014,72 +5021,81 @@ It also prints what the glass is doing — how much it magnifies, how big a titl
 inside it, how many beads it has room for — and `--id=<bead>` opens the graph the
 way **What this is blocking** does and asserts that bead ends up under it.
 
-## Getting around — the tab bar
+## Getting around — the pill row
 
 The standing views — it started as four: the **inbox**, the **chat session**, the
 **sessions** and the **advocates**, with the **pull requests** and the **admin**
-screen since. Three of the six have left again: **Sessions**, because it and Advocates
-turned out to be one view drawn twice, and then **Chat** and **PRs**, both for the reason
-given below. They are separate pages, and each one used to end in an ✕ in the top right
+screen since. They are separate pages, and each one used to end in an ✕ in the top right
 that hard-navigated back to `/`. That made the inbox a hallway — chat session to advocates
 was two taps through a page you did not want — and the ad-hoc cross-links that grew to
 paper over it (sessions → advocates, advocates → sessions) were the same complaint,
 admitting itself.
 
-So all of them carry the same bar along the bottom, where a thumb already is:
+The answer to that was a bar along the bottom, where a thumb already is. It was the right
+answer for a year and it is gone (bc-khoe.1), because by the end the app had **two** of
+them: that bar, which moved between pages, and the chip row on `/monitor`, which swaps a
+pane — drawn alike, at opposite ends of the screen, and telling them apart was something
+you had to have learned. On top of the two, the inbox's filter panel held ten *kinds*,
+which are categories doing a view's job.
+
+So there is one row now, under the top bar on every page the bottom bar was on:
 
 ```
-  📥         📣         📜        ⏸
- Inbox   Advocates   History   Admin     ＋
- ▔▔▔▔▔
+  ┌──────────────────────────────────────────────────────┐
+  │ ● Beadcause                              🗳  ⌨️  ⟳ │
+  │ Personal ▾                                    3 ▸    │
+  ├──────────────────────────────────────────────────────┤
+  │ [🏠 Home]  📣 Advocates   📜 History   🚢 PRs        │  ← scrolls sideways
+  └──────────────────────────────────────────────────────┘
 ```
 
-**A tab is not a shortcut to a page; it is a claim that the page is somewhere you live.**
-That is what took **PRs** back out of the bar (bc-l8jp.6): the board is somewhere you
-glance — *did that ship?* — and then act on twice a day, and its rows are incoming work
-like everything else the inbox holds. So [the rows moved into the
-inbox](#where-you-read-it-an-inbox-card-and-the-board) and the board kept its URLs
-without keeping a fifth of the bar. `/prs`, `/pulls` and `/prs.html` all still work —
-they are on the phone's home screen and in the notification a ship sends.
+Four pills today, on eight pages. The three standing views — Home, Advocates, History —
+plus the board; the other five pages that used to load the bottom bar (`/admin`,
+`/console`, `/endorse`, `/flow`, `/requirements`) draw the row with **nothing on it
+current**, which is their way off a page that would otherwise be reachable only by the
+browser's back gesture.
 
-**Kept its URLs and lost its way in.** With no tab, the only route to the board was the
-link on a PR card in the inbox — so on a day when no pull request was showing there, there
-was no route at all, and **Ship** lives on that board. A ship bead that says *press Ship on
-the pull request board and this closes itself* was not answerable from a phone without
-typing a URL. That is bc-d4d5, and the fix is not to undo bc-l8jp.6: the board is [a pane
-on the advocates page](#the-board-is-a-pane-too) now, which is the Mirror's argument for
-the second time. `/prs`, `/pulls` and `/prs.html` land there with its chip up, the bar
-marks **Advocates** as current on all three, and `scripts/tabbar-check.mjs` asserts exactly
-that. The chat session is still the page the bar marks nothing on, still with `tab: null`
-in that check — a page can be reachable, load-bearing, and not a tab.
+**A pill is an `<a href>`; the current one is a `<span>`.** Tapping where you already are
+should do nothing, not throw away the list, the conversation and your scroll position to
+rebuild the same screen. It is marked twice over — `aria-current="page"` for a reader that
+cannot see the accent, and the filled pill for one that can — because colour alone is not
+a mark.
 
-Four tabs is 90px each at 360px. Three was 120px, five was 72px — which "Advocates" still
-fits — and six would be 60px, which it does not, so the stylesheet steps the type down when
-a sixth tab is there (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own
-contents rather than off a count written down somewhere, so adding or removing a tab needs
-nothing else. It is dormant below six and will come back on its own if the bar fills up
-again.
+**The row scrolls sideways and never wraps.** There are four pills today and there will be
+roughly nine once the kinds become pills, Advocates and Mirror fold
+in and Releases arrives. A row that wrapped to a second line on a 360px phone would spend
+a row of a screen that is mostly chrome already, which is the thing this change exists to
+stop. The selected pill is scrolled into view on load — done by arithmetic on the two
+rectangles rather than with `scrollIntoView`, which is allowed to scroll every ancestor
+and would quietly move the list under it.
 
-Advocates carries a **badge** when there is something behind it — how many advocates
-are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
-carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
-is live while you are on the inbox and simply absent on a page that has no way to
-refresh it — which beats a stale number that looks live. Zero shows nothing. The badge
-sits inside the tab's `aria-hidden` icon, so the tab takes an `aria-label` saying what
-the number counts: "2" read out after "Advocates" says nothing about two of what.
+**No counts and no badges, on any pill.** Advocates used to carry one — how many proposals
+were waiting — and it went with the bar. A badge is a number about a page you are *not*
+looking at, and it was only ever live on the one page whose poll happened to fetch it: on
+every other page the bar drew nothing, which was honest and was also a second thing to
+have learned. The count is still served and still on screen, in the advocate console's own
+tally ("3 working · 1 to answer"), beside the repo it belongs to instead of standing in
+for all of them.
 
-**One badge, and it is the proposals.** Sessions used to carry the count of running
-agents beside it, and dropping it was deliberate rather than a casualty of the merge:
-a badge on a tab you are not looking at means *needs you*, and a running agent needs
-nothing — it is a fact about the machine. The count is still served and still on
-screen, in the advocate console's own tally ("3 working · 1 to answer"), beside the
-repo it belongs to instead of standing in for all of them.
+**What is not a pill, and why.** `/admin` is the screen you least want under a stray
+thumb, so it loses the rightmost tab it had — and it does not need one: since bc-khoe.5 it
+is a row in the menu the top bar's gear-wrapped mark opens, on every page rather than only
+the one that happened to carry a ⚙. The chat session
+has had no place on the navigation since bc-l8jp.5, because it was the one entry that was
+also the way to *create* something — the conversations you have open are rows in Home and
+starting one is the ＋ there. The endorsement queue's absence is a recorded decision
+(bc-j0zl, [never a sixth tab](#where-it-lives-and-the-tab-it-is-not)), and bc-khoe.2 folds
+it into a **Questions** pill rather than giving it one of its own. `/flow` and
+`/requirements` are pages you read when you are new to the system or arguing about it, not
+pages you check. A page can be reachable, load-bearing, and not a view.
 
-Any view is one tap from any other, and nothing closes any more. The current tab is
-a `<span>` rather than a link — tapping where you already are should do nothing, not
-throw away the list, the conversation and your scroll position to rebuild the same
-screen — and it is marked twice over, by the accent colour and by the rule above it,
-because colour alone is not a mark. The bar pads itself past the home indicator.
+**The board is a pill again.** bc-l8jp.6 took `/prs` off the bottom bar on the rule that a
+tab was a claim a page is somewhere you *live*, and a fifth of a five-tab bar is a lot to
+claim for a screen you glance at twice a day; bc-d4d5 then found that taking it off had
+left nothing at all pointing at it, and made it a chip on the advocates page. The row ends
+that argument by removing the thing it was about: a view costs one pill out of nine here
+rather than a fifth of the screen. `/prs`, `/pulls` and `/prs.html` are the pill's paths
+and all three still land on the advocates page with its board chip up.
 
 ⟳ stays in the top bar of the views that have it: it acts on the view you
 are looking at rather than taking you off it. ⌨️ (the terminal) and ⚖️ (the
@@ -5087,22 +5103,68 @@ foundations) stay in the inbox's top bar too — they are places you go for one 
 and come back from, not views you live in.
 
 An **open question is the exception**: a card you have opened takes the whole screen,
-tab bar included, because the answer buttons at its foot must not sit under anything.
-Collapsing it gives the bar back. That behaviour belongs to `.card.open` and to the
+pill row included, because the answer buttons at its foot must not sit under anything.
+Collapsing it gives the row back. That behaviour belongs to `.card.open` and to the
 inbox alone — the accordion on the pull request view marks its unfolded card
-`unfolded` instead, because a card that took the screen over the bar was a page you
+`unfolded` instead, because a card that took the screen over the navigation was a page you
 could not leave, on a view whose first load unfolds one.
 
-`node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
-the script serves itself: the bar is on every page and pinned to the bottom,
-exactly one tab is current and it is the right one — or, on the chat session and the pull
-request board, that **none** is — the current tab is not a link, and the last row of the
-list, the chat session's composer and the last advocate card all clear it. ＋ is checked
-there too, and driven rather than read: it is a real tap target, it sits above the bar
-rather than over it, the last card clears *it* as well, and tapping it asks which repo
-and then lands on the conversation it just made. All of it in both colour schemes.
-`--fake-inset` re-runs the safe-area sums with a
-notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
+### Every page is an app shell, not a document
+
+The chrome used to be `position: sticky` (the top bar) and `position: fixed` (the bar along
+the bottom), on a document that scrolled — and on a phone neither of them stayed still.
+Both are laid out against the **layout** viewport while what you are looking at is the
+**visual** one, and on iOS those are not the same rectangle: the URL bar collapses as you
+scroll down and grows back as you scroll up, moving the layout viewport under a fixed
+element, and a rubber-band overscroll translates the whole page with its fixed children in
+tow. The bottom bar slid half off the screen. No arithmetic fixes that, because the numbers
+are right and the rectangle they are measured against is the one that moves. That was
+bc-7utr, and Adam superseded it with bc-khoe.1 — deleting one of the two bars dissolves
+half of it, and the technique below is the other half.
+
+So the document does not scroll. `html` and `body` are clipped, `body` is exactly one
+viewport tall (`position: fixed; inset: 0`), and every page is a flex column:
+
+```
+  .topbar        flex: none
+  .viewbar       flex: none
+  .pagescroll    flex: 1; min-height: 0; overflow-y: auto   ← the only thing that scrolls
+```
+
+`.pagescroll` is marked **in the HTML** rather than inferred from a content class, because
+"the scrolling region" and "the list" are not the same claim: the reader (`/doc`) wraps two
+elements in one scroller, and the foundations screen has a `.thread` inside a `.pagescroll`
+that scrolls on its own. Anything that must *not* scroll away goes outside it — the two
+rows of chrome, the inbox's filter line, the advocate console's chip row.
+
+Two declarations in there are load-bearing and neither is obvious. `min-height: 0`, because
+a flex item's default `min-height: auto` is its content, so without it the scroller grows
+to fit the list instead of scrolling it and pushes everything else off the screen — the
+original bug back, wearing a different mechanism. And `.pagescroll > * { flex-shrink: 0 }`,
+because `.card` is `overflow: hidden` and a flex item that clips has an automatic minimum
+size of **zero**: without it every card in a list squashes to a fraction of its height to
+make the whole list fit one screen, and the page still scrolls and still looks like a list.
+
+The quiet half of the same change is in the scripts. On a shell `window.scrollY` is 0 for
+the whole visit and `window.scrollTo` moves nothing, so any repaint that "restored your
+place" through them was restoring a number that was never anything else — `app.js`,
+`endorse.js`, `prs.js` and `flow.js` all read and write the scroller's own `scrollTop`
+instead. `app.js`'s scroll listener is `{ capture: true }` for the same reason: a `scroll`
+event on an element does not bubble, so a bubble-phase listener on the window never hears
+it, but it is still dispatched down the capture path.
+
+`node test/shell.mjs` is the static half of the guard, in `npm test`: neither row of chrome
+is `fixed` or `sticky`, `body` still carries the shell's declarations, every page marks a
+scroller or is named as one with nothing to scroll, a pill is still over the 44px a thumb
+needs, and no page reaches for `window.scrollY` again. `node scripts/topbar-check.mjs`
+measures the real thing in a real Chrome at 360×640 and 393×852: it scrolls the scroller
+and asserts that both rows are in *exactly* the same place afterwards and that the document
+has not moved at all, which is the same geometry as the bar staying still through a URL-bar
+collapse.
+
+`node scripts/tabbar-check.mjs` — ~750 lines of cover for the deleted bar — went with it.
+bc-khoe.9 writes the row's own replacement, deriving the expected pills from
+`public/viewbar.js`'s own list rather than repeating it.
 
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
 real server for every URL a phone might still have on its home screen and checks which
@@ -5468,10 +5530,12 @@ the space picker there is no reason for the server to hold it.
 
 ### The Mirror is a pane, not a tab
 
-`tabbar.js` and [the Mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)
-landed in the same window, so for two days `/monitor` carried **two rows of tabs**: the
-bottom bar, which moves between pages, and an in-page pair (Advocates | Mirror) that swaps
-a pane. Either reading was defensible on the face of it — a standing view of its own, or a
+The app's navigation and [the Mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)
+landed in the same window, so for two days `/monitor` carried **two rows of tabs**: the bar
+along the bottom, which moved between pages, and an in-page pair (Advocates | Mirror) that
+swaps a pane. (That bar is gone — bc-khoe.1 replaced it with the
+[pill row](#getting-around--the-pill-row) across the top — and this decision is the reason
+the Mirror is not a pill on it either.) Either reading was defensible on the face of it — a standing view of its own, or a
 mode of the advocates page — and bc-3xb was the bead about which one it is.
 
 **It is a pane** — ruled in `docs/ux-review.md` §3 and §5, and approved with the rest of
@@ -5483,7 +5547,7 @@ about how much room the bar has:
   sessions, the same questions, seen from the other device. The rule above decides it:
   a tab is a claim that the page is somewhere you live, and nobody lives in a lens.
 - **It is the one surface in the app that is meaningless on a phone** — which is the
-  device a bottom tab is tapped from. The Mirror follows *another* device and drops its
+  device the navigation is tapped from. The Mirror follows *another* device and drops its
   own (`notMe` in `public/mirror.js`, and its chip declares no view at all — `data-view=""`
   in `monitor.html`, so `public/montabs.js` publishes `view: null` while the pane is up and
   a mirror cannot circle back onto the page it is drawn on). A phone that tapped a Mirror
@@ -5492,10 +5556,11 @@ about how much room the bar has:
 
 There was a third reason when this was decided — *the bar is full at five, and
 `style.css`'s `:has(.tab-item:nth-child(6))` rule is the stylesheet quietly admitting
-it* — and it has **since expired**: PRs left the bar in bc-l8jp.6 and there is a free
-place on it again. The decision does not move, and that is the point of writing the other
-two down: the next person to notice the empty slot should not have to re-derive why the
-Mirror is not what goes in it.
+it* — and it has **twice since expired**: PRs left the bar in bc-l8jp.6, and then bc-khoe.1
+deleted the bar for a row that scrolls sideways and has no fullness to be at. The decision
+does not move, and that is exactly the point of writing the other two down: the next person
+to notice the room should not have to re-derive why the Mirror is not what goes in it.
+bc-khoe.4 is where it is properly re-decided, together with the chip row it lives on.
 
 ### The board is a pane too
 
@@ -5507,8 +5572,10 @@ bc-d4d5 put it back as the **third chip on this same row**, between Advocates an
 on the Mirror's own two reasons: it is a mode of the advocates page (the same space's
 repos, seen as work waiting to ship rather than work running), and it is somewhere you
 glance and act on rather than somewhere you live. So the row reads **Advocates · PRs ·
-Mirror**, the bottom bar still has four tabs, and `/prs`, `/pulls` and `/prs.html` are
-three more paths to `monitor.html` with the middle chip up.
+Mirror**, and `/prs`, `/pulls` and `/prs.html` are three more paths to `monitor.html` with
+the middle chip up. (Those three are also the PRs pill's own `paths` since bc-khoe.1, so
+the row across the top marks it current on all of them while the chip row puts the board
+up — the duplication is transitional, and bc-khoe.4 is where the chip row goes.)
 
 What that cost, and what it did not:
 
@@ -6585,7 +6652,7 @@ to it rather than stolen.
 
 **Full width on a phone, inset on a wide screen** — with the tab still visible
 around it, because there it reads as detail rather than as a new page. It covers the
-[tab bar](#getting-around--the-tab-bar) while it is up, deliberately: the drawer is
+[pill row](#getting-around--the-pill-row) while it is up, deliberately: the drawer is
 one gesture deep, and the way out of it is back, not a fifth destination.
 
 The Android shell needed one line for this. `shouldOverrideUrlLoading` fires for
@@ -6619,7 +6686,7 @@ the ✕ cannot keep.
 It reads like an obvious rule and the app had three of them, which is the bug this
 replaced. `/session`'s ✕ went to `/sessions` — correct on the day it was written, and a
 ✕ that closed one view by *opening a different tab* from the day Advocates
-[absorbed the sessions view](#getting-around--the-tab-bar), since that path has served
+[absorbed the sessions view](#getting-around--the-pill-row), since that path has served
 the advocate console ever since. `/doc` and `/graph` went to `/`, each carrying its own
 copy of the `window.close()`-then-navigate dance. And the drawer dismissed to whatever
 was underneath, which is right, and is the only exit in the app that can leave you on
@@ -6836,7 +6903,7 @@ repaint there can no longer disturb what you are reading.
 list that was taught to fold it, and that fold was the only thing `/sessions` had which
 the advocate console did not. Once every row anywhere in the app reached the same
 address, the two pages were the same page — see [the tab
-bar](#getting-around--the-tab-bar).
+row](#getting-around--the-pill-row).
 
 ### And you can answer it
 
@@ -14982,7 +15049,7 @@ the list that read as a miss (bc-rjes). Each kind now carries its own label and 
 (`mark`, lib/foundation.js), consulted before the personas: an id that is a kind *is*
 that kind, whatever a persona of the same name would like to be called, since a persona
 cannot own one of these records at all. The advocate's is 📣 — [the Advocates
-tab's](#getting-around--the-tab-bar) icon, because it is the same thing and the
+pill's](#getting-around--the-pill-row) icon, because it is the same thing and the
 rest of its work is on that screen. A kind added to `BASELINES` with no mark fails
 `test/agentchats.mjs` rather than quietly shipping as another 🤖.
 
@@ -17753,7 +17820,7 @@ These three are the exception because none of them costs a `bd` call. `sessions`
 readdir of `~/.claude/sessions` plus a JSON parse per record — every live session on
 the Mac, including ones in no configured workspace, which is exactly the set the
 advocate console lists (the ones outside every workspace under **Elsewhere**). It is
-no longer a tab badge — see [the tab bar](#getting-around--the-tab-bar) — but the
+no longer a tab badge — see [the pill row](#getting-around--the-pill-row) — but the
 console's tally is drawn from it. `proposals` counts **advocates**, not beads: one open ask per
 advocate is the rule `propose()` enforces, so a repo with two proposal-shaped beads
 in it is still one repo waiting on you.
@@ -21903,7 +21970,7 @@ and this sentence claimed it for a while before it was; four minutes serially be
 about one. Their output
 interleaves badly, so each child's is captured whole, only failures are replayed — the
 last 25 lines, which is where the three that matter are — and the full logs are left in a
-temp directory named in the summary. `--list` prints what would run, `--only tabbar,shade`
+temp directory named in the summary. `--list` prints what would run, `--only topbar,shade`
 narrows it, `--jobs N` changes the width, `--dir <root>` points it at another tree (which
 is how the runner itself is tested). Like the runner for `npm test`, it names no
 individual check: the directory is the inventory, so adding one is adding a file and
@@ -22349,8 +22416,8 @@ existed, while the block written beside the filter chips contributed `flex: 0 0 
 nothing else.
 
 The assertion is deliberately **not** "a selector appears once", because this stylesheet
-writes two of them twice on purpose and is right to: `:root { --tabbar-h: 54px }` sits with
-the tab bar rules that read it rather than eight hundred lines away with the rest of the
+writes two of them twice on purpose and is right to: `:root { --viewbar-h: 44px }` sits with
+the pill row rules that read it rather than eight hundred lines away with the rest of the
 palette, and `.icon-btn { position: relative }` sits with the badge it exists to position.
 Neither can silently win anything, because neither touches a property its other block sets.
 So what is asserted is the property that actually separates those from the four bugs — **no
@@ -22360,8 +22427,8 @@ resolved or the check would be trivially evaded, a second block setting `padding
 against a first setting `padding` colliding just as silently as one setting `padding`
 twice: a shorthand covers its own dashed longhands, plus the few families whose names do
 not share a prefix (`gap`/`row-gap`, `inset`/`top`, `place-items`/`align-items`,
-`flex-flow`/`flex-wrap`). Custom properties compare by exact name, so `--tabbar-h` beside
-`--tabbar` is two variables rather than a collision. Run against the tree as it stood
+`flex-flow`/`flex-wrap`). Custom properties compare by exact name, so `--viewbar-h` beside
+`--viewbar` is two variables rather than a collision. Run against the tree as it stood
 before this landed the check reports **45** silent overrides across ten selectors and
 neither of the two additive one-liners, and it is shown both shapes — a block that re-sets
 a property, and one that only adds — so a guard that cannot fail is not mistaken for a file

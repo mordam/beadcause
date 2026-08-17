@@ -97,8 +97,12 @@ if (listed.status === 0 && JSON.stringify(list) === JSON.stringify(onDisk)) {
   bad('--list prints exactly what is on disk', missing.length ? `not listed: ${missing.join(', ')}` : `exit ${listed.status}`);
 }
 
-const only = spawnSync(process.execPath, [RUNNER, '--list', '--only', 'tabbar'], { encoding: 'utf8' });
-if (only.stdout.trim() === 'scripts/tabbar-check.mjs') ok('--only narrows the run to one check');
+/* `topbar` rather than `tabbar`, which is what this said until bc-khoe.1 deleted the bar
+   along the bottom and the ~750-line check that drove it. bc-khoe.9 writes the pill row's
+   own replacement; until it lands the top bar's check is the one that measures the
+   chrome, and it is the narrowest `--only` that still matches exactly one file. */
+const only = spawnSync(process.execPath, [RUNNER, '--list', '--only', 'topbar'], { encoding: 'utf8' });
+if (only.stdout.trim() === 'scripts/topbar-check.mjs') ok('--only narrows the run to one check');
 else bad('--only narrows the run to one check', JSON.stringify(only.stdout.trim()));
 
 /* ------------------------------------------------------- dead on arrival, three ways */

@@ -13,8 +13,8 @@
 // Six things are worth a browser, and every one of them would be silently wrong otherwise:
 //
 //   • **Tapping a row opens the whole screen.** Not an inline expansion — the same fixed
-//     `.card.open` sheet a question opens into, with the tab bar covered and one card open
-//     at a time. Measured against the viewport, because "full screen" is geometry.
+//     `.card.open` sheet a question opens into, with the pill row covered and one card
+//     open at a time. Measured against the viewport, because "full screen" is geometry.
 //   • **Merge is armed, and the first press sends nothing.** The only proof is the absence
 //     of a request. A phone in a pocket that merges on one tap is the worst thing on this
 //     screen, and it is exactly the thing a screenshot cannot show.
@@ -344,7 +344,7 @@ const SHEET = (n) => `(() => {
   if (!card) return { there: false };
   const box = card.getBoundingClientRect();
   const cs = getComputedStyle(card);
-  const bar = document.querySelector('.tabbar');
+  const bar = document.querySelector('.viewbar');
   const barBox = bar ? bar.getBoundingClientRect() : null;
   const text = card.textContent.replace(/\\s+/g, ' ');
   const facts = {};
@@ -357,9 +357,10 @@ const SHEET = (n) => `(() => {
     fixed: cs.position === 'fixed',
     fullWidth: Math.round(box.width) >= innerWidth - 1,
     fullHeight: Math.round(box.height) >= innerHeight - 1,
-    // The sheet is drawn over the tab bar deliberately: it is one gesture deep, and the
-    // way out is Collapse.
-    overTabbar: !!barBox && Number(cs.zIndex) > Number(bar ? getComputedStyle(bar).zIndex : 0),
+    // The sheet is drawn over the pill row deliberately: it is one gesture deep, and the
+    // way out is Collapse. (It was the bar along the bottom until bc-khoe.1; the claim is
+    // the same one, against whichever navigation the app has.)
+    overNav: !!barBox && Number(cs.zIndex) > Number(bar ? getComputedStyle(bar).zIndex : 0),
     openCards: document.querySelectorAll('.card.open').length,
     collapse: !!card.querySelector('[data-act="collapse"]'),
     description: (card.querySelector('.brief .md')?.textContent || '').replace(/\\s+/g, ' ').trim(),
@@ -419,7 +420,7 @@ try {
   await shot('open');
   check('tapping it opens full screen, not inline', sheet.open && sheet.fixed, JSON.stringify({ open: sheet.open, fixed: sheet.fixed }));
   check('the sheet is the viewport', sheet.fullWidth && sheet.fullHeight, JSON.stringify({ w: sheet.fullWidth, h: sheet.fullHeight }));
-  check('over the tab bar, one gesture deep', sheet.overTabbar === true, String(sheet.overTabbar));
+  check('over the pill row, one gesture deep', sheet.overNav === true, String(sheet.overNav));
   check('exactly one card is open', sheet.openCards === 1, `${sheet.openCards} open`);
   check('and there is a way back to the list', sheet.collapse === true, String(sheet.collapse));
   check('nothing was written by opening it', real().length === 0, JSON.stringify(real().map((w) => w.path)));

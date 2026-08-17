@@ -83,7 +83,7 @@
     <button class="chip" data-tab="mirror" data-pane="mirror" data-view="" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>
   </nav>
 
-  <main id="mon" class="work">
+  <main id="mon" class="work pagescroll">
     <div class="empty">Asking every workspace…</div>
   </main>
 
@@ -91,11 +91,11 @@
        as a page of its own: this page's top bar carries the pulse, the ⟳ and the
        observer mark already, and the board's script shares all three rather than drawing
        a second set. -->
-  <section id="prs" class="work" hidden>
+  <section id="prs" class="work pagescroll" hidden>
     <div class="empty">Asking every repo…</div>
   </section>
 
-  <section id="mirror" class="work" hidden>
+  <section id="mirror" class="work pagescroll" hidden>
     <div class="empty">Looking for a device…</div>
   </section>
 
@@ -132,7 +132,7 @@
        had, the other keeps it true. -->
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
-  <script src="/tabbar.js"></script>
+  <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one
        rebuilt the APK. On every standing view, because the "Update app" button belongs to
