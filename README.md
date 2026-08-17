@@ -12566,6 +12566,49 @@ the same:
   is what separates `lib/advocate.js` from a package name or a path that used to exist, and
   it still is not evidence enough to withhold work.
 
+**How a bead declares one: a `beadfiles` block in its description.** A bead is a `bd` row
+and `bd` has no surface column, so the field has to live inside one of the text fields it
+does have — and which one is a measurement rather than a preference. `bd list --json`
+returns `description` on every row and returns neither `notes` nor `design`; those cost a
+`bd show` **per bead**, and the advocate asks this of every candidate on every tick, so a
+surface in `notes` would put one tracker read per candidate behind a thirty-second timer.
+Labels are the other free field and are the wrong shape: a path is full of `/` and `.`,
+five files would be five labels, and bd's label vocabulary is one flat namespace that
+`repo:`, `human`, `unendorsed` and the lease markers already mean something in. So:
+
+```beadfiles
+lib/advocate.js
+lib/beadfiles.js
+public/app.js
+lib/          # everything under here — a trailing slash means lib/**
+```
+
+Fenced the way the `beads` and `decision` blocks are, and read out of the description
+wherever it appears in it. One path per line, `#` for a comment, `*` inside a segment and
+`**` across them. It is the one block here that does **not** carry YAML, and it cannot:
+`*` is YAML's alias indicator, so a path beginning with one is a parse error rather than a
+path — `files: [*.js]` fails with "unresolved alias" — and a glob is the single most
+useful thing anybody writes into a surface. Lines have nothing to quote and nothing to
+escape.
+
+`lib/beadfiles.js` reads that block and also writes it, and those are the only two
+implementations of the format there are: `formatSurface` and `withSurface` are what every
+path that files a bead calls, so a block written by the console and a block written by a
+plan cannot come to be spelled differently. Writing replaces any block already in the
+description rather than appending — a corrected surface that silently lost to the one it
+corrected would be worse than no correction — and an empty list withdraws the block and
+leaves the prose. The bounds are the ones the register already had: 24 files, 300
+characters an entry, `node_modules/`, `.git/` and `.claude/worktrees/` never, duplicates
+folded, the overflow dropped rather than the bead refused.
+
+**A missing block and an unreadable one are the same answer, and the answer is dispatch.**
+No block, an empty block, a block of nothing but comments, an unclosed fence, a block full
+of things that are not paths — all yield nothing, which is exactly what a bead that never
+mentioned files yields. A declaration is a forecast somebody wrote at filing time, before
+anybody read the code; a field that could withhold work by being malformed would be worse
+than not having the field at all. `node test/beadfiles.mjs` asserts each of those ways of
+having no surface, and that what the writer writes the reader reads back.
+
 **A guess may speak, but it may not hold.** It is `withoutTwins`' rule — evidence that is a
 resemblance must err toward doing the work twice rather than not at all — and the opposite
 of [the open-pull-request rule](#the-bead-whose-work-is-already-in-an-open-pull-request),
