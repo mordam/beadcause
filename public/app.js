@@ -5528,11 +5528,11 @@
    * under the status filter that narrowed it. It is the wrong line now that the tap opens
    * a tab of its own: the filter went into the tab with the tree, so a summary counted
    * through it would be a card whose numbers moved because of a control that is not on
-   * the screen, on a board where twenty-three other cards did not move at all.
+   * the screen, on a board where every other card stayed exactly as it was.
    *
    * So the collapsed card counts the whole tree and nothing else. `done` over `total` is
    * the number "N open" can never give you — nine open says nothing about whether the epic
-   * is nine of ten or nine of sixty — and `asks` is the one field on a grid of two dozen
+   * is nine of ten or nine of sixty — and `asks` is the one field on a grid of a dozen
    * cards worth scanning *for*, because it is the only one that means you are the thing
    * holding the epic up.
    */
@@ -5548,7 +5548,7 @@
   /**
    * That, drawn: a bar, and the two numbers under it.
    *
-   * A bar because the board is a grid now and the eye takes two dozen of these in one
+   * A bar because the board is a grid now and the eye takes a row of these in one
    * pass — a proportion is a shape you read without reading, where "12 of 19 done" is a
    * sentence you have to stop on. Both are drawn, because the shape on its own cannot say
    * whether the epic is small or enormous, and that is half of what you are scanning for.
@@ -5896,9 +5896,10 @@
    * shape that survives the chunk above being replaced whole 25 seconds later.
    *
    * **The cards are a grid, and the tap takes the tab (bc-grut).** The comment under
-   * `.p0-card` used to say these were the four or five things the week was about; this
-   * tracker carries about two dozen open owned P0 epics, so at every width the board was
-   * one column of near-identical cards you scrolled rather than scanned. `.p0-cards` is a
+   * `.p0-card` used to say these were the four or five things the week was about, and it
+   * has never been four or five — every open owned P0 until bc-6s96, about two dozen here,
+   * and the ones you have started since. Either way the board was, at every width, one
+   * column of near-identical cards you scrolled rather than scanned. `.p0-cards` is a
    * grid — one across on a phone, two on a tablet, three on a desktop — and the collapsed
    * card is given something worth scanning across: how far along it is, and whether any
    * of it is waiting on *you*.

@@ -6,9 +6,10 @@
 //
 // bc-grut. The board was a single vertical stack of full-width cards at every width, on a
 // premise the CSS comment stated outright — "these are the four or five things the week is
-// about". This tracker carries about two dozen open owned P0 epics, so what that produced
-// was a long scroll on a phone and a narrow ribbon down an empty desktop, with a tapped
-// card unfolding its tree inline between the board and the inbox list.
+// about". It has never been four or five: every open owned P0 until bc-6s96, about two
+// dozen on this tracker, and the ones you have started since. What that produced was a
+// long scroll on a phone and a narrow ribbon down an empty desktop, with a tapped card
+// unfolding its tree inline between the board and the inbox list.
 //
 // test/p0card.mjs holds the renderer: what markup each state produces, that only one tab
 // is drawn, that the collapsed card's numbers do not move when the filter does. Everything

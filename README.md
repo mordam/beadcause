@@ -3981,8 +3981,9 @@ poll, to answer a question that is asked for about four seconds a week.
 
 ### Epics assigned to you, and the tree each one carries
 
-The section at the top of the inbox is the P0s **you** own — open, `owner:<you>`, at
-priority 0 — and `p0board` on `/api/questions` is where it comes from. Each card says
+The section at the top of the inbox is the P0s **you have started** — `owner:<you>`, at
+priority 0, and `in_progress` rather than merely open ([why](#the-board-is-the-epics-you-have-started))
+— and `p0board` on `/api/questions` is where it comes from. Each card says
 what is left under it (`open`, `inFlight`), what it is waiting on once a P0 advocate has
 written one (`lib/epicadvocate.js`, and the 🧭 button on the card is
 [`POST /api/bead/advocate`](#http-api)), and, since bc-rfnr.9.1, **`tree`: every
@@ -4033,15 +4034,62 @@ contributes no cards and hides nothing, for the same reason. `node test/p0tree.m
 holds all of that, including the one assertion that separates the feature from `under`
 renamed: a descendant with no pending question is in the tree.
 
+### The board is the epics you have started
+
+A card is drawn for a P0 you own **whose status is `in_progress`**. Raising a P0 does not
+put it on the board; starting it does, and `bd update <id> --claim` is the whole of how
+today. A picker for starting one of the others without leaving the inbox is bc-s8mc and is
+not built yet — until it is, the P0s that are off the board are reached the way every other
+bead is, through search and the bead sheet.
+
+The rule used to be *not closed*, and the count is the argument. bc-6s96 measured the
+board across all nine workspaces on 2026-08-16: **~42** owned P0s not closed against
+**9** in progress; this repo's own tracker on 2026-08-17 was 18 against 4, the same shape.
+A section that draws all 42 is a backlog under a heading that says "Epics assigned to
+you", and what it costs is the one thing the board is for — the top of the inbox stopped
+being a picture of the week and became a list you scroll past to reach the questions.
+Closed was already off it for the same reason from the other end: a P0 that landed is not
+something to lead the screen with. Open-but-not-started is that sentence's other half.
+
+**The flat list below follows, and that is a decided consequence rather than a side
+effect.** The list is narrowed by `p0board.under`, which is keyed on the same roots the
+cards are — so a question hanging off a P0 you have not started leaves the inbox with its
+card. It is not moved anywhere, nothing is deleted, and it comes back the moment the epic
+is started. That is acceptable because it is already true that nothing is dispatched under
+an epic you have not begun; a question there was waiting on a screen you were not reading.
+
+**What it must not do is come back as `unhomed`,** and that is the one line of this that
+could have gone quietly wrong. That map means *no open P0 above this bead at all* — the
+thing that rescues a question filed with no parent — and it is false here, because the
+unstarted P0 is open and is above the row. So `p0Board` keeps two root sets that now
+disagree on purpose: the cards' (yours, started) and `unhomed`'s (anybody's, open). A row
+under an unstarted P0 of yours is in neither, which is exactly the "hidden, and honestly
+so" that somebody else's P0 has always got. `node test/ownquestion.mjs` pins all four
+shapes against each other — under a started P0 of yours, under a colleague's, under one
+that closed, and under one you have not started — because the only way to be sure about a
+map with a hole in it is to stage every shape at once.
+
+**With nothing started, the board is empty and the whole section switches off.** The
+client draws the flat inbox when `p0s` is empty — the same branch a cold daemon takes for
+a repaint or two — so the screen you get for having started nothing is the inbox this app
+had before the board existed, not an empty one.
+
+**The dispatch gate is untouched, and the two are meant to differ now.** Workability still
+means an *open* P0 above (`lib/underp0.js`): that gate asks "did anybody decide this work
+should happen", and raising a P0 is that decision whether or not you have got to it.
+Narrowing the gate to started epics would have stopped the advocate on five sixths of the
+tracker overnight, which is a rule about a screen reaching into the queue.
+
 ### The board is a grid, and tapping a card opens it full-tab
 
 The comment over `.p0-card` used to say these were the four or five things the week was
-about, and the board was a single vertical stack of full-width cards on that premise.
-This tracker carries about two dozen open owned P0 epics. At every width that produced
-one column of near-identical cards — a long scroll on a phone, and on a desktop a narrow
-ribbon down an empty page — and a tapped card unfolded its tree *inline*, between the
-board and the inbox list, which is both cramped and the whole of how bc-rfnr.9.9's scroll
-jump was possible.
+about, and the board was a single vertical stack of full-width cards on that premise. It
+has never been four or five. Until [bc-6s96](#the-board-is-the-epics-you-have-started) it
+was every open owned P0 — about two dozen on this tracker — and since bc-6s96 it is the
+ones you have started, which was nine. Either number is a column you scroll rather than
+scan on a phone, and on a desktop it is one narrow ribbon down an empty page whatever the
+count. And a tapped card unfolded its tree *inline*, between the board and the inbox
+list, which is both cramped and the whole of how bc-rfnr.9.9's scroll jump was possible.
 
 bc-grut is three changes, and each one is the reason for the next.
 
@@ -4062,7 +4110,7 @@ two things bc-grut adds. A **progress bar with `12 of 19 done` under it**, which
 number the open count can never give you: "9 open" says nothing about whether the epic is
 nine of ten or nine of sixty, and a proportion is the only thing on a card that can be
 taken in without being read. And an **`N ask you` pill** when anything under the epic is
-itself a question, because on a grid of two dozen cards that is the one field that means
+itself a question, because on a grid of cards read in one pass that is the one field that means
 *you* are the thing holding the epic up. Neither is counted through the status filter,
 which matters — see below. An epic with nothing filed under it gets "Nothing filed under
 it yet" instead of a bar at zero, because a bar at zero claims that nothing has landed
@@ -4236,7 +4284,7 @@ it there is exactly what moved it: a control over things that are not on screen 
 control you set and cannot see the effect of. The trees are in the tab now, so the board
 is precisely where its effect cannot be seen. What that buys as well is the collapsed
 card's own summary — `12 of 19 done`, `3 ask you` — which counts the whole tree and is
-unreachable by the filter, so nothing on a grid of two dozen cards moves because of a
+unreachable by the filter, so nothing on the grid moves because of a
 control that is not on the screen.
 
 **It defaults to not closed**, which is the whole reason it exists. `bc-rfnr` has 16
@@ -12946,6 +12994,18 @@ rather than an act, and the bead would close on work that had not landed — whi
 why a worker *waits* for its checks and then merges, rather than handing GitHub a
 standing instruction and exiting. Whatever closes a bead here is a merge that has
 already happened.
+
+**A failure after the merge is not a refusal.** `gh pr merge --delete-branch` is three
+acts — merge, delete the remote branch, delete the local one — and a non-zero exit says
+only that one of them went wrong. The last one goes wrong routinely: the daemon merges
+from the main checkout, every branch a worker pushed is checked out in one of its
+worktrees, and git will not delete a branch somebody is standing on. So the failure path
+reads the pull request back before believing the exit code, and a pull request that
+reads `MERGED` is a merge, however loudly `gh` exited. The card says what `gh` could not
+tidy and leaves the branch to `lib/tidy.js`. Untreated, this was bc-s2d8: *bc-g0tx was
+not answered — nothing was written and nothing was lost*, sent over #371, merged, with
+its remote branch already gone and its work bead left `in_progress` because the answer
+never ran. There is no sentence on this board it is worse to be wrong about.
 
 A delivery question closes on all four answers, including *request changes* — the
 question was *merge this?* and it has been answered. The next push files a new one, so

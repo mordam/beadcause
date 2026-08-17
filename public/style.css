@@ -5972,10 +5972,11 @@ a.pill { text-decoration: none; }
 /* The cards, as a grid (bc-grut).
 
    This used to be the section's own flex column, on the premise written under `.p0-card`
-   below: four or five epics, worth the vertical space. The tracker carries about two
-   dozen open owned P0s, so at every width that premise produced one column of
-   near-identical cards — a long scroll on a phone, and on a desktop a narrow ribbon down
-   an empty page. One across, two, then three, and the cards themselves did not have to
+   below: four or five epics, worth the vertical space. It has never been four or five —
+   every open owned P0 until bc-6s96, about two dozen here, and the ones you have started
+   since, which was nine on 2026-08-17. Either number is a column you scroll rather than
+   scan on a phone, and on a desktop it is one narrow ribbon down an empty page whatever
+   the count. One across, two, then three, and the cards themselves did not have to
    change shape to do it: they were always a column of short lines.
 
    `minmax(0, 1fr)` rather than `1fr`, which is the one line this rests on: a grid track's
@@ -6053,7 +6054,7 @@ a.pill { text-decoration: none; }
    the card: it is a footnote to the title, and a footnote as loud as the title is one
    you read instead of the title. */
 .p0-hint { font-size: 11.5px; color: var(--muted); }
-/* The same fact as a shape (bc-grut). A grid of two dozen cards is read in one pass and
+/* The same fact as a shape (bc-grut). A grid of cards is read in one pass and
    a proportion is the only thing on a card that can be taken in without being read; the
    numbers beside it are what say whether the proportion is of five beads or sixty.
 
@@ -6324,7 +6325,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   padding: 2px 15px 11px;
   border-bottom: 1px solid var(--line);
 }
-/* Bigger than it is on the board: there it is one card among two dozen and the id is what
+/* Bigger than it is on the board: there it is one card among several and the id is what
    you scan, here it is the whole screen's subject. */
 .p0-full-head .p0-title { font-size: 17px; font-weight: 600; line-height: 1.3; }
 /* The tree. Basis 0 so it takes what is left rather than bidding for its content's
