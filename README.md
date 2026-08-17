@@ -11127,6 +11127,37 @@ a judgement, because a bead can name a branch that landed and still want more th
 landed. "Keep it open" is a `closes: false` option, so it hands the bead straight back to
 `bd ready` with the finding on it.
 
+**What it may offer is narrower than what it may say, and that is bc-xl7n.52.** The sweep
+reads a bead's `notes` like every other field, and nothing checks that a branch named there
+belongs to the bead the text was found in — so when an advocate wrote a triage paragraph
+naming the branches its two children were sitting in, as evidence they were alive and
+should be left alone, the P0 that commissioned that survey acquired two cards offering to
+close *itself*. It has seven open descendants. The failure is correlated with the beads it
+is worst on: only a P0 gets an advocate, and only an advocate writes long notes surveying
+other beads' branches, so the more thorough the note the more close-offers its own root
+accrues.
+
+So **`close-it` is offered only where closing could not strand anything** — never on an
+epic, never over a live descendant at any depth, and never where the `bd export` shape
+could not be read, because "I cannot tell what is under this bead" is not "nothing is".
+Everything else is unchanged: the fact still goes on the thread, the card still says the
+branch is in `main`, and "keep it open" is still there. What goes is the one tap, and the
+card says in a sentence why it went. That is stricter than the tracker's own close gate in
+two ways, both on purpose — bd refuses a close over an open **child**, so a bead whose
+children are all closed over a live *grandchild* passes it, and bd has no opinion at all
+about an epic with nothing under it yet, which is exactly the standing root a survey is
+about to fill.
+
+The other half of that fix is on the phone, and without it the first half would have been a
+worse card rather than a better one. bd's gate is a refusal rather than an absence: it
+arrives as a 409 after the press, and a card that already knows one is coming
+[draws no answer button at all](#when-bd-will-not-close-the-bead). Those are
+the same beads — so a card left holding only a `closes: false` option would have been
+unanswerable, with `human` sitting on it until somebody closed the children. A card whose
+*every* option commissions is now the one shape that gate leaves alone, because
+`/api/respond` skips the close gate for a commission, and a typed answer on a card where
+any option would have commissioned rides the same path rather than closing on a guess.
+
 The label is also the whole of the saving. `bd ready` excludes `human`, so a flagged bead
 is out of the queue built moments later in the same tick and no session is opened on it —
 which is the cost this exists to avoid, collected without anybody having answered yet.

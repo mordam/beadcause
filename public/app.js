@@ -2945,7 +2945,7 @@
     // carry their own machinery, and `closeGate` already on the card means a refusal
     // has just been reported in full above — a second telling under it would be the
     // card saying the same thing twice.
-    const gated = !q.delivery && !q.closeGate ? q.gate : null;
+    const gated = !q.delivery && !q.closeGate && !allCommissions(q) ? q.gate : null;
     const boxPlaceholder = declining
       ? 'Optional — what should the next attempt do instead?'
       : q.delivery
@@ -2957,7 +2957,7 @@
       ? `Decline #${q.delivery.number} &amp; close`
       : q.delivery
       ? 'Request changes &amp; close'
-      : esc(answerLabel(pickedOption(q)));
+      : esc(answerLabel(pickedOption(q), q));
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
       ${failedNoteHtml(q)}
@@ -2982,6 +2982,31 @@
   }
 
   /**
+   * Does every option on this card hand the bead back rather than finish it?
+   *
+   * The gate below withdraws the answer button when bd is going to refuse the close, and
+   * that is right for the ordinary card, whose affirmative option closes. It is wrong for
+   * a card where *nothing* closes: `/api/respond` skips the gate entirely for a commission
+   * (`closes: false`), and a typed answer on a card where any option would have
+   * commissioned rides the same path — so on this shape there is no refusal coming and the
+   * button withdrawn is the only way to answer at all.
+   *
+   * bc-xl7n.52 is where that mattered. lib/inmain.js stopped offering "close it" on a bead
+   * with a live subtree, leaving a card whose one option is a commission — and those are
+   * exactly the beads bd gates, so without this the fix would have swapped a close nobody
+   * could press for a card nobody could answer, with the `human` label sitting on it until
+   * the children closed.
+   *
+   * A card with no options at all is **not** this: a typed answer there closes, and the
+   * gate is the honest thing to show. `some` is the wrong quantifier for the same reason —
+   * one commission beside a `close-it` still leaves a button that means the close.
+   */
+  const allCommissions = (q) => {
+    const options = q?.decision?.options || [];
+    return options.length > 0 && options.every((o) => o.closes === false);
+  };
+
+  /**
    * What the primary button will actually do, in its own words.
    *
    * *Answer & close* is the ordinary ending and stays the default. It becomes a lie
@@ -2993,11 +3018,20 @@
    * this label and this is the only place left that can say it. (Shut, the button
    * *is* the write again — optionLabel below is where the same sentence gets said.)
    *
+   * **With nothing picked it reads off the card instead**, which is the same sentence
+   * one step further back. A typed answer names no option, and on a card where any
+   * option would have commissioned the server treats it as one rather than closing on a
+   * guess (`ambiguous` in lib/server.js) — so on a card where they *all* commission,
+   * there is no reading under which the press closes anything, and *Answer & close* over
+   * it would name the one outcome that cannot happen. That is the shape lib/inmain.js
+   * now writes on a bead with a live subtree, and the shape the gate above lets through.
+   *
    * Plain text, not HTML — it goes through `esc()` when the card is drawn and
    * through `textContent` when paintPicked() repaints it.
    */
-  function answerLabel(chosen) {
-    return chosen?.closes === false ? 'Answer & commission' : 'Answer & close';
+  function answerLabel(chosen, q) {
+    if (chosen) return chosen.closes === false ? 'Answer & commission' : 'Answer & close';
+    return allCommissions(q) ? 'Answer & commission' : 'Answer & close';
   }
 
   /**
@@ -3615,7 +3649,7 @@
       else if (label) label.textContent = btn.dataset.label;
     }
     const primary = card?.querySelector('.freeform .primary[data-act="answer"]');
-    if (primary) primary.textContent = answerLabel(chosen);
+    if (primary) primary.textContent = answerLabel(chosen, q);
   }
 
   /**
