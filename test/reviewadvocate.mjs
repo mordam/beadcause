@@ -49,6 +49,9 @@ const {
   verdictFrom,
   checkVerdict,
   formatVerdict,
+  approvalNote,
+  approvalComment,
+  approvedReview,
   reviewAdvocatePrompt,
 } = await import(LIB('reviewadvocate.js'));
 const { AGENTS, baseline, mark } = await import(LIB('foundation.js'));
@@ -231,6 +234,90 @@ check('a comment that says nothing is refused, and a line is a line or nothing',
   assert.equal(checkVerdict({ ...VERDICT, comments: [{ id: 'c1', severity: 'question', what: '  ' }] }).verdict, null);
   const { verdict } = checkVerdict({ ...VERDICT, comments: [{ ...VERDICT.comments[0], line: 'eighty-eight' }] });
   assert.equal(verdict.comments[0].line, null, 'a line nothing can jump to is worse than none');
+});
+
+/* -------------------------------------------------------------- the approval */
+
+console.log('');
+
+const APPROVED = checkVerdict({ ...VERDICT, round: 2, approved: true, why: '', comments: [VERDICT.comments[1]] }).verdict;
+
+check('the review body on GitHub says an agent approved, and does not carry the record', () => {
+  const note = approvalNote(APPROVED, { owner: 'Adam', reviewer: 'NeanderthalMan', bead: 'zz-merge' });
+  assert.match(note, /an agent, not Adam/, 'the body beside the green tick does not say what approved');
+  assert.match(note, /`NeanderthalMan`/, 'the login is not named, so nothing says who that account is');
+  assert.match(note, /Adam has not read this diff/);
+  assert.match(note, /round 2/);
+  // One home for the machine block. A second copy on the pull request is a second thing a
+  // later round could parse, which is how two records of one review start to disagree.
+  assert.ok(!note.includes(VERDICT_OPEN), 'the verdict block is on the pull request as well as the bead');
+  assert.ok(!note.includes('```json'));
+});
+
+check('and it is the same headline the merge-bead carries, from one builder', () => {
+  // The sentence Adam asked for must not be true of one surface and missing from the other.
+  const head = (s) => s.split('\n')[0];
+  assert.equal(head(approvalNote(APPROVED, { owner: 'Adam' })), head(formatVerdict(APPROVED, { owner: 'Adam' })));
+});
+
+check('THE LAST COMMENT SAYS THE LOGIN IS NOT A PERSON, WHICH IS THE REQUIREMENT ITSELF', () => {
+  // "the last comment on the PR should describe who is actually approving (ie an agent, not
+  // me)". The review's own timeline entry says "NeanderthalMan approved these changes" —
+  // a name, with nothing on the page to say it is an agent's identity.
+  const text = approvalComment({ owner: 'Adam', reviewer: 'NeanderthalMan', bead: 'zz-merge' });
+  assert.match(text, /an agent's, not Adam's/);
+  assert.match(text, /`NeanderthalMan` is the account/);
+  assert.match(text, /review-advocate/, 'the comment does not name the kind that approved');
+  assert.match(text, /Nobody at a keyboard approved this/);
+  assert.match(text, /zz-merge/, 'nothing points at where the argument is recorded');
+});
+
+check('it is not the same text as the review body — the two answer different questions', () => {
+  const opts = { owner: 'Adam', reviewer: 'NeanderthalMan', bead: 'zz-merge' };
+  assert.notEqual(approvalComment(opts), approvalNote(APPROVED, opts));
+});
+
+check('and where a human approval is required too, it says the agent’s is not sufficient', () => {
+  // Adam's answer of 2026-08-17: an agent's approval is necessary but not sufficient where a
+  // space has human PR approvals switched on, and everywhere else it releases the merge.
+  const human = approvalComment({ owner: 'Adam', reviewer: 'NeanderthalMan', human: true });
+  assert.match(human, /necessary rather than sufficient/);
+  assert.ok(!/releases a pull request/.test(human), 'it tells Adam the agent released a PR he still has to admit');
+  assert.match(approvalComment({ owner: 'Adam', reviewer: 'NeanderthalMan' }), /releases a pull request/);
+});
+
+check('the review block records the approval, with an anchor a reader can check', () => {
+  const state = { round: 1, verdict: null, comments: [{ id: 'c2', body: 'this name reads as a boolean', answer: 'declined', note: 'it is a count' }] };
+  const next = approvedReview(state, {
+    reviewer: 'NeanderthalMan',
+    at: '2026-08-17T15:02:03Z',
+    url: 'https://github.com/mordam/beadcause/pull/42#pullrequestreview-909',
+    submitted: true,
+    round: 2,
+  });
+  assert.equal(next.verdict, 'approved', 'the one field the gate reads');
+  assert.equal(next.approvedBy, 'NeanderthalMan');
+  assert.equal(next.approvedAt, '2026-08-17T15:02:03Z');
+  assert.match(next.approvalUrl, /pullrequestreview-909/, 'the cheap answer is not checkable against GitHub');
+  assert.equal(next.round, 2);
+  // An approval means nothing blocking is left, not that every suggestion was taken.
+  assert.deepEqual(next.comments, state.comments, 'approving quietly resolved a declined suggestion');
+});
+
+check('AND A ONE-LOGIN MAC RECORDS THE APPROVAL RATHER THAN LOSING IT', () => {
+  // `reviewerFor` returning null is the ordinary answer everywhere except this Mac. The
+  // verdict approved; the only thing missing is GitHub's copy of it.
+  const next = approvedReview({ round: 1 }, { submitted: false, at: '2026-08-17T15:02:03Z', reviewer: 'NeanderthalMan' });
+  assert.equal(next.verdict, 'approved', 'a delivery dies over a second account nobody promised');
+  assert.equal(next.approvedBy, REVIEW_ADVOCATE, 'it credits a login that never reviewed anything');
+  assert.equal(next.reviewer, '');
+  assert.equal(next.approvalUrl, '', 'an approval with an anchor that was never submitted');
+  assert.equal(next.round, 1, 'a round the loop did not report was invented');
+});
+
+check('an approval in no round at all reads as a pull request nobody reviewed', () => {
+  assert.equal(approvedReview({}, { submitted: true, reviewer: 'x' }).round, 1);
+  assert.equal(approvedReview({ round: 3 }, { submitted: true, reviewer: 'x' }).round, 3);
 });
 
 /* ----------------------------------------------------------------- the brief */

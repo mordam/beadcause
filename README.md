@@ -13223,12 +13223,14 @@ rather than reject:
   looks exactly like agreement. A *missing* id is numbered instead, because bookkeeping is
   not worth a round.
 
-**What exists today is the kind, its verdict format, and the brief it argues from.** Nothing
-opens a window on a delivered pull request yet, and the merge queue does not wait for a
-verdict — a merge-bead still goes straight to the queue, and the flow diagram draws the
-reviewer beside that path rather than in it. The wiring, the round cap, the worker's
-hand-back and the approving review on GitHub are the rest of the epic; what landed first is
-the thing all four of them have to agree about, which is what a verdict *is*.
+**What exists today is the kind, its verdict format, the brief it argues from, and the
+approving review a verdict turns into** — which is [further down](#approving-it-and-saying-on-the-page-that-an-agent-did),
+because who is allowed to leave a review here has to be settled first. Nothing opens a
+window on a delivered pull request yet, and the merge queue does not wait for a verdict — a
+merge-bead still goes straight to the queue, and the flow diagram draws the reviewer beside
+that path rather than in it. The wiring, the round cap and the worker's hand-back are the
+rest of the epic; what landed first is the thing all three of them have to agree about,
+which is what a verdict *is*.
 
 ### The notification with nothing to answer
 
@@ -14152,6 +14154,83 @@ whole test. On a Mac with one login it returns **null**, which is an ordinary an
 not an error — one account cannot both open and approve, and a caller that meets a null
 records the approval on the bead and says plainly that no GitHub review was submitted,
 rather than failing a delivery over a second account nobody promised.
+
+### Approving it, and saying on the page that an agent did
+
+`approve(dir, number, { body, note })` in `lib/pr.js` is what turns a verdict into GitHub
+state. It is **the only write in that file made as somebody other than the account
+everything else runs as** — every other call goes out as the account `resolve` picked,
+because every other call is a read or a merge, and an approval cannot be either. The
+identity comes from `reviewerFor`, and `envOf` sends that account's token for these two
+calls and no others.
+
+It posts to the **reviews endpoint** rather than shelling `gh pr review --approve`, for a
+reason worth one sentence: the endpoint hands back the review it just created, so the
+answer carries an anchor to *the approval itself* — `…/pull/42#pullrequestreview-909` —
+rather than to the pull request the approval happens to be on. That is the field the
+merge-bead keeps, and it is what makes a cheap answer checkable by somebody who no longer
+has the bead. It is also the endpoint an inline review comment has to go through, so
+whatever needs one next extends a call that is already here.
+
+**Three things have to be true at once, and each of them fails differently.**
+
+**The approval is real.** Not a field on a bead claiming a review happened: a review, with
+a submitter, a timestamp and a permanent URL, on the page a person opens six months later.
+Proven live on 2026-08-17: `NeanderthalMan` — a `READ` collaborator — approved a pull
+request the owner account had opened, which is the first review beadcause has ever put on
+GitHub. Until that run, that a read collaborator may approve a pull request it did not
+author was documented GitHub behaviour and nothing more. It was proved on **#404**, a probe
+pull request opened for it and closed a minute later, because proving it on the branch that
+*adds* the reviewer would have meant putting a claim on real work that an agent had
+reviewed it when the only thing that had happened was a mechanism check. The approval and
+the comment are still on that closed pull request, which is what makes this paragraph
+checkable rather than a claim.
+
+**Nobody reading it concludes Adam approved it.** GitHub's own timeline says
+"NeanderthalMan approved these changes", which is a person's name as far as the page is
+concerned — and here it is not a person, it is the identity the reviewer speaks as. So two
+texts go on, both from `lib/reviewadvocate.js`, and they are deliberately different:
+
+| where | what it says | why it is not the other one |
+|---|---|---|
+| the review body — `approvalNote` | what the reviewer thought: the verdict's prose, the login it spoke as, and that Adam has not read this diff | it sits beside the green tick, so it is the minimum disclosure; the machine block is **not** on it, because a verdict has one home and a second copy is a second thing a later round could parse |
+| the last comment — `approvalComment` | what that login *is*: the account the ReviewAdvocate reviews as, chosen because GitHub will not take an approving review from the account that opened the pull request | it is at the bottom of the thread, where somebody scrolling lands, and Adam asked for it by name: *"the last comment on the PR should describe who is actually approving (ie an agent, not me)"* |
+
+The body is **required** — an approval submitted with nothing beside it is a bare green
+tick, indistinguishable from the owner glancing at a diff, so an empty one is refused
+before `gh` is reached rather than submitted. The comment is posted *after* the review, so
+it really is the last thing on the thread, and as the same identity that reviewed: a
+comment from the *owner* explaining that the reviewer is an agent would be a second
+identity vouching for the first, where from the reviewer it is the same voice that left
+the review.
+
+**And a Mac with one login is not a broken delivery.** `reviewerFor` returns null there,
+`approve` returns `{ submitted: false, reason }`, and `approvedReview` still records the
+approval on the merge-bead — crediting the *agent kind* rather than a login that never
+reviewed anything, with an empty `approvalUrl` as the tell that this approval was never on
+GitHub. Nothing is posted to the pull request in that case, deliberately: with no review
+on it there is no tick to be mistaken for a person's, and a comment disclaiming one would
+be disclaiming something that is not there.
+
+`submitted` and `noted` are independent, which is the last of the failures worth naming. A
+comment that fails to post *after* the review landed leaves `submitted: true` and a
+sentence about the comment — because the approval is on GitHub at that point, and a caller
+that read the pair as one atomic act would go on to record that a pull request with an
+approval on it has none.
+
+**What the merge-bead ends up with** is `approvedReview` folded through `withReviewBlock`:
+`verdict: approved`, the reviewer login, when, and the anchor. The point of writing it at
+all is that the gate then reads one field on a bead it has already loaded, rather than
+asking GitHub — per merge-bead, per tick — whether anybody approved. It does *not* mark the
+reviewer's comments resolved: approving means nothing blocking is left, not that every
+suggestion was taken, and a declined suggestion under an approval is the disagreement the
+next reviewer wants to see.
+
+The reviewing agent still has no `gh pr review` grant, and that is now the settled answer
+rather than a not-yet. An agent shelling that command in its own window would approve as
+whichever login `gh` happens to be on, which here is sometimes the author of the branch.
+The verdict is the agent's output; the review is submitted *for* it, by the daemon, under
+an identity it cannot choose.
 
 ### What it does to the two things that were already here
 
@@ -18170,7 +18249,12 @@ at all:
   cannot* authenticate against the work JIRA. Nobody has to remember to remove it.
 - **The `gh` login is wider than beadcause**, and is registered saying so. It is the
   credential every push, pull request and merge rides on, and it can see every repo that
-  GitHub account can.
+  GitHub account can. **There may be more than one, and here there are two** — the account
+  that writes, and a read-only second one that exists only to
+  [leave the approving review](#approving-it-and-saying-on-the-page-that-an-agent-did),
+  because GitHub will not accept one from the account that opened the pull request. The row
+  names which calls the second identity is used for, since a register that mentioned one
+  login would be describing a system that has two.
 - **The API token carries no identity**, which is the fact worth registering rather than
   the fact worth hiding. There is no list of who holds it and a photographed QR is a
   grant, so its row names possession as the authority and rotation as the only revocation.
