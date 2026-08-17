@@ -15412,6 +15412,51 @@ Both the close and the reopen appear in the scrollback as quiet divider lines. T
 belong in the history, but rendering them in an assistant bubble would read as
 something the agent said.
 
+### One refused edge does not cost the rest of the batch
+
+Creating from a chat proposal makes the beads first and wires them together afterwards,
+once every id is known. A `bd dep add` can be **refused** — bd holds one edge per pair in
+either direction, of any type, so a pair that already carries a `relates-to` cannot then
+be given a `blocks`, and `lib/mentions.js` draws that `relates-to` for free the moment
+either id appears in the other's prose.
+
+Until bc-arj0.19 the first refusal ended the create. Filing bc-khoe, `bd dep add
+bc-khoe.5 bc-45yl` was refused and the three dependencies declared after it were never
+attempted. Nothing looked wrong — nine beads, the right parents, the right text — and
+what was missing was structure on the beads furthest from the error, which named none of
+them. That is this epic's own failure mode by a new route: a dependency declared, and
+then existing only as prose in a description.
+
+So `lib/edges.js` applies the batch, and:
+
+- **Every declared edge is attempted.** A refusal is recorded against that edge and the
+  loop carries on. Nothing is rolled back either — beads has no transaction, and
+  un-writing four good edges because a fifth was impossible loses more structure than it
+  saves.
+- **Every failure is reported by id, as the command that would fix it** —
+  `bd dep add bc-khoe.5 bc-45yl — refused: <what bd said>`, with bd's own
+  `… failed in <workspace>:` prefix trimmed off because the line has already spelled the
+  command. An end that resolved to nothing has no id to paste and is reported as
+  `skipped — no such bead` instead.
+- **The batch is summarised in one paste** — `2 of 5 declared dependencies did not land;
+  the other 3 did. Paste to retry: bd dep add …; bd dep add …` — so retrying the lot,
+  once whatever made them impossible has been dealt with, is one line rather than a
+  reading exercise.
+- **The warnings keep the chat session open**, by the rule above, so the report is read
+  on the screen that produced it.
+- **A create that fails part-way still wires what it did make.** The beads that exist are
+  real, and the structure between them is no less true for a later card having failed to
+  become a bead. The request is still a `502` naming the create that failed.
+
+The JIRA ingest files the same shape of proposal and goes through the same module, so
+the two spellings of that warning cannot drift apart. A single edge applied on purpose —
+a delivery parking its bead behind a merge card, a supersede — deliberately does *not*:
+there a refusal is a real error and `bd.addDep` keeps throwing it.
+
+`test/edgebatch.mjs` (in `npm test`) holds it, and the refusing edge in it is the second
+of four rather than the last, because a batch whose bad edge is last passes on the broken
+code too.
+
 ### Keep typing while it is working
 
 Both chat surfaces used to treat a running turn as a reason to shut the composer
