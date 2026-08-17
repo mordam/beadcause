@@ -14938,6 +14938,28 @@ projection rather than a pass-through, because the verifier's result grows as th
 grows and `why` is prose. A ref with no commits is refused rather than published as a head
 of nothing.
 
+**A head is published under a posture, or it is a number with a timestamp on it.** The head
+is what an anchor witnesses, and an auditor holding an anchored head from a deployment that
+attested nothing can say the head existed by then — and nothing whatever about whether the
+thing that produced it could have rewritten the store underneath. `recordAttestedHead`
+writes the two together, **in that order and at one instant**: a posture record says nothing
+about the time before it was taken, so a head written first sits in the run-up gap and is
+unbacked no matter what follows it, and two reads of the clock either side of a git commit
+are not the same number.
+
+`recordPosture` is what it calls first, and it writes **only when the chain has stopped
+saying what this deployment can back up**. That is a question about the judgement rather
+than about the six fields, and the difference is the case a field comparison misses: an
+anchor that goes stale changes nothing at all about a posture, and `unbacked` judges a
+posture at the instant its own record was written, so one January record with anchoring in
+it would otherwise render the rest of the year as the January it was true for. The crossing
+appends exactly once — the moment the fresh record is on the chain, the posture in force is
+judged at its own new instant, the two agree again, and a daemon publishing hourly goes back
+to writing nothing. And there is deliberately no parameter anywhere on that path that
+*states* a posture value: `test/publication.mjs` reads the signature and fails the repo if
+one appears, which is the rule `test/posture.mjs` keeps over `observe`, kept a second time
+at the door into the chain.
+
 ### Continuously, not on a schedule
 
 A Type II window is only as good as its densest gap. A daily push means every day is a day
@@ -21762,7 +21784,9 @@ five weeks with anchoring off — a scope note an auditor can price — instead 
 into a clean quarter, which is what a posture held as current state rather than as history
 would produce. A `chain-head` published inside such a stretch is reported as unbacked,
 which is the acceptance in one line: a head published under a posture that cannot support a
-claim is a number, not a witness.
+claim is a number, not a witness. `recordAttestedHead` in `lib/publication.js` is the
+writer that keeps one from being published by accident: posture first, head second, one
+instant for both.
 
 ```
 UNVERIFIED — 2026-01-01T00:00:00.000Z to 2026-03-31T00:00:00.000Z
@@ -21793,9 +21817,10 @@ beadcause-attest verify export.json --from 2026-01-01T00:00:00Z --to 2026-03-31T
 ```
 
 **Expect `unverified` from every install today, and that is the correct output rather than
-a threshold to relax.** Nothing anchors yet — that is bc-3muu.10 — and a git ref in a
-directory its operator owns is enforced by the application and not by the store, which is
-what bc-3muu.3 changes by putting a copy of the head somewhere else. The number that must
+a threshold to relax.** Nothing submits an anchor yet — that is bc-3muu.14, and until
+something does, `anchoring` observes as unconfigured on every install — and a git ref in a
+directory its operator owns is enforced by the application and not by the store, which no
+amount of publishing changes as long as the store is the operator's own. The number that must
 never appear is a deployment reporting `verified` because nobody looked, and the one
 constant this file does not import is the retention floor: `OBSERVATION_MONTHS` is declared
 here rather than taken from `lib/evidence.js`, because a deployment that could lower the
