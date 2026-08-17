@@ -10314,7 +10314,7 @@ brief is still present around a group's quoted section.
 
 ### What a P0 advocate *is* — its foundation, and what one visit consists of
 
-[The advocate that comes back](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs)
+[The advocate that comes back](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs)
 is the machinery: three events, a cooldown, a sweep, a budget of its own. This is the other
 half — what the agent those windows open actually *is*. It lives in `lib/foundation.js` as
 the `epic-advocate` baseline, which is [what an agent is on every

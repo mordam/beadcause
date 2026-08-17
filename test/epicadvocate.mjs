@@ -135,8 +135,10 @@ check('AND THE REFUSALS COVER THE WRITES ITS OWN ALLOWLIST GRANTS', () => {
   // The pause label is a button on Adam's screen; this agent can add labels.
   assert.ok(allowedTools.includes('Bash(bd label add:*)'));
   assert.match(role, /may not silence yourself/i, 'nothing stops an advocate pausing its own P0');
-  // And the three that were already there stay there.
-  assert.match(role, /may not raise a P0, own one, or change who owns one/i);
+  // And the three that were already there stay there. The priority refusal is worded for an
+  // epic rather than for a P0 since bc-htoy: the advocate's epic carries whatever priority
+  // its owner gave it, so "raise a P0" named the one shape this refusal is no longer about.
+  assert.match(role, /may not change your epic's priority, own it, or change who owns it/i);
   assert.match(role, /may not merge, push, deploy, or open a window/i);
 });
 
