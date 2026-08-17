@@ -4676,7 +4676,8 @@ bead" is a question this page has the answer to before it is asked. What it cost
 subtlety worth stating plainly: **a board this page has not got is not a board with
 nothing on it.** The sweep is a `gh` call per repo behind its own minute, and the kind
 filter can switch it off entirely — so until it lands the block says it is reading, and
-never that no pull request exists. An open bead also counts as a reader of the board, so
+never that no pull request exists. A sweep that *failed* is a third answer again and says
+which, for the same reason the list under the board names the repos it could not read. An open bead also counts as a reader of the board, so
 the sweep runs while one is open whatever the filter says; without that the section would
 sit on "reading" for ever on a filter with pull requests hidden, which is worse than the
 call it was avoiding.

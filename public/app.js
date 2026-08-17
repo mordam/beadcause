@@ -6133,9 +6133,15 @@
     const nothing = prs && !prs.length && !row?.session?.pid && arc && !(arc.sessions || []).length && !arc.failed;
     const body = nothing
       ? `<div class="p0-hap-none">No pull request names ${esc(b.id)}, and no session has run on it.</div>`
-      : `<div class="p0-hap">${rows.join('')}${
-          prs ? '' : '<div class="p0-hap-none">Reading the pull request board…</div>'
-        }</div>`;
+      : `<div class="p0-hap">${rows.join('')}${prs ? '' : `<div class="p0-hap-none">${
+          // A sweep that failed says so rather than reading for ever. Same rule as the
+          // sentence above it and the same reason `boardTrouble` exists under the list:
+          // "we could not look" is a third answer, and the one branch that must never be
+          // allowed to look like either of the other two.
+          state.boardError
+            ? `Pull requests could not be read — ${esc(state.boardError)}`
+            : 'Reading the pull request board…'
+        }</div>`}</div>`;
     return `<div class="section-label">What happened to it</div>${body}`;
   }
 

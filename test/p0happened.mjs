@@ -221,13 +221,14 @@ const BOARD = {
 };
 
 /** The renderers, over a page state you hand them. */
-function page({ board = BOARD, arc = new Map(), beadopen = [], cards = [CARD] } = {}) {
+function page({ board = BOARD, arc = new Map(), beadopen = [], cards = [CARD], boardError = null } = {}) {
   const state = {
     rootboard: { owned: true, roots: cards, under: {} },
     p0open: new Set(['beadcause/bc-rfnr']),
     p0beadopen: new Set(beadopen),
     p0beadarc: arc,
     board,
+    boardError,
   };
   const context = vm.createContext({
     String,
@@ -376,6 +377,17 @@ check('and a board this page has not got is "reading", never "there is none"', (
   const html = page({ board: null, arc }).html('bc-rfnr.9.9');
   assert.ok(html.includes('Reading the pull request board…'), html.slice(0, 400));
   assert.ok(!html.includes('No pull request names'), 'the board claimed something it never looked at');
+});
+
+check('and a sweep that failed says so, rather than reading for ever', () => {
+  // Three answers, not two. `gh` missing or a repo that would not respond is a state the
+  // list itself already reports under its own empty case (`boardTrouble`); this block has
+  // to make the same distinction or it sits on "reading" until the phone is reloaded.
+  const arc = new Map([['beadcause/bc-rfnr.9.9', { sessions: [] }]]);
+  const html = page({ board: null, arc, boardError: 'gh is not installed' }).html('bc-rfnr.9.9');
+  assert.ok(html.includes('Pull requests could not be read — gh is not installed'), html.slice(0, 400));
+  assert.ok(!html.includes('Reading the pull request board'));
+  assert.ok(!html.includes('No pull request names'), 'a failed sweep claimed there was nothing to find');
 });
 
 check('an archive that has not landed does not make the pull requests wait', () => {
