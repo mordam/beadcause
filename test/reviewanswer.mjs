@@ -299,6 +299,25 @@ check('a review with nothing outstanding says so rather than inviting a push for
   assert.match(reviewAnswerPrompt('beadcause', ISSUE, SPEC, done), /Nothing is outstanding/);
 });
 
+check('an answer the reviewer kept open is shown as standing, not as a fresh ask', () => {
+  // The second-round shape: the reviewer was not persuaded, so it left the comment open with
+  // last round's answer on it. `commentsForWorker` skips it (it has an answer), and a brief
+  // that stopped there would tell a worker nothing was outstanding while the reviewer held two.
+  const second = {
+    ...STATE,
+    round: 2,
+    comments: [
+      { ...STATE.comments[0], answer: 'declined', note: 'it cannot be empty here' },
+      { ...STATE.comments[1], answer: 'clarify', note: 'which lock' },
+      STATE.comments[2],
+    ],
+  };
+  const text = reviewAnswerPrompt('beadcause', ISSUE, SPEC, second);
+  assert.match(text, /2 answers of yours the reviewer has not settled/);
+  assert.match(text, /you said: declined — it cannot be empty here/);
+  assert.match(text, /the later answer replaces the earlier one/);
+});
+
 check('the brief is a pure function of its arguments — no tracker, no checkout, no window', () => {
   assert.equal(reviewAnswerPrompt('beadcause', ISSUE, SPEC, STATE, { owner: 'Adam', maxRounds: 2 }), brief);
 });
