@@ -1,30 +1,37 @@
 #!/usr/bin/env node
 //
-// What the top bar costs on a phone, and whether the space picker's row is still the
-// only honest way to draw it.
+// What the top bar costs on a phone, and whether it is still one row.
 //
 //   node scripts/topbar-check.mjs [--out=DIR]
 //
-// The picker is a full-width row of its own inside `.topbar` (see `.spacebar` in
-// public/style.css), so six pages carry two rows of sticky chrome where they used to
-// carry one. bc-hne3 asked whether that is the right trade at 360px and decided the row
-// stays — but a decision made once about a number nobody measures again is a decision
-// that quietly stops being true. Two rows is a choice; three is an accident, and it is
-// the kind that arrives one icon at a time.
+// The picker had a full-width row of its own inside `.topbar` until bc-khoe.5, so six
+// pages carried two rows of sticky chrome where they used to carry one. bc-hne3 argued
+// that trade at 360px and decided the row stayed, because the first row was full at four
+// icon buttons. bc-khoe.5 emptied the first row instead — the buttons are rows in the
+// mark's menu (public/accountbar.js) — and the picker moved up beside the mark. So the
+// budget this file defends is **one** row, and two is now the failure rather than the
+// ceiling: a decision made once about a number nobody measures again is a decision that
+// quietly stops being true, and a row arrives one icon at a time.
 //
 // So this measures, in a headless Chrome the size of a cheap Android, on every page that
 // has a picker:
 //
-//   * the bar lays out in **at most two lines** — the budget bc-hne3 actually spent;
-//   * the picker is on the **last** line, **alone** and **full width** — its whole claim
-//     is that it is the frame for everything under it, and a picker sharing a row with
-//     three icon buttons is a filter;
-//   * its label is **not clipped** — neither the selected one nor the widest row in the
-//     dropdown, because a repo name cut to `beadca…` is the failure the row was bought
-//     to prevent;
+//   * the bar lays out in **exactly one line** — the mark, the page's title and the
+//     picker, and nothing else. Anything that pushes it to two has taken 43px of the
+//     screen back off the list, on every page at once;
+//   * the picker is **on that line**, sharing it — its whole claim used to be that it was
+//     the frame for everything under it and therefore wanted the width; what it is now is
+//     the narrow value of that frame, and the accent border is what still says something
+//     is being kept off the screen;
+//   * its label is **cut rather than wide**: at most twelve characters drawn, and past
+//     that nine and an ellipsis (`shorten` in public/spacebar.js). Both halves are
+//     asserted, because "it fits" and "it is the rule the code says it is" are different
+//     claims and only the second survives a font change;
+//   * and the **dropdown is untouched** — every row in it is a whole name, because that
+//     list is the one place the whole name is the point;
 //   * the bar **plus the tab bar** stays inside a **170px** budget on a 640px screen.
-//     159px is what it costs today. A third row is +43px and fails this on the spot,
-//     which is the whole point of the number being written down;
+//     116px is what it costs today, down from 159px. The number is the one bc-hne3 spent
+//     and it is kept deliberately: what it defends now is that the room stays spare;
 //   * the page **fits the screen at all** — that one is not about the bar, but this
 //     is the file that noticed. A page laying out wider than the viewport is shrink-
 //     fitted by the browser, so every measurement above it is in a different unit from
@@ -38,17 +45,16 @@
 //     page is made scrollable and scrolled before this one is asked, because a page
 //     with nothing in it cannot show you the bug.
 //
-// It also prints the arithmetic that made the decision, per page, and says so when the
-// premise has expired: if *every* page's first row grows enough room to hold the picker
-// at its full label width, then "the first row is already full" has stopped being true
-// and bc-hne3 is worth reopening. Every page and not any page, because three of the six
-// have room at 360px today — collapsing only where it fits is what makes the control a
-// title on one tab and a chip on the next. That is a notice and not a failure; the tree
-// is not broken by getting roomier, but somebody should see it.
+// It also prints the arithmetic, per page: how much of the row the mark and the title
+// take and how much is left for the picker. That used to be the premise behind bc-hne3's
+// decision and it is now the margin behind bc-khoe.5's — a page whose title grows until
+// there is no room left for a picker is the way this comes back, and it would come back
+// silently.
 //
 // Not part of `npm test`: it wants Chrome. Run it when you have touched the top bar, the
-// picker, or the icon buttons on any page that has one. `--out=DIR` writes a picture per
-// page per width, which is the one thing a column of numbers cannot tell you.
+// picker, the mark's menu or the icon buttons on any page that has one. `--out=DIR`
+// writes a picture per page per width, which is the one thing a column of numbers cannot
+// tell you.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -60,9 +66,11 @@ const PUBLIC = path.join(ROOT, 'public');
 const outDir = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* The bar plus the tab bar, on a 640px screen. Two rows is 159px today; one would be
-   116px. The slack is deliberate and small — enough for a font or a border to move,
-   nothing like enough for another row. */
+/* The bar plus the tab bar, on a 640px screen. One row is 116px since bc-khoe.5; the two
+   rows it replaced were 159px. The number is bc-hne3's and is kept rather than tightened:
+   the slack is what a font or a border may move inside, and shrinking the budget to
+   today's measurement would fail the repo for a 2px line-height. What stops a second row
+   arriving is the line count above, which is exact. */
 const CHROME_BUDGET = 170;
 
 if (!fs.existsSync(CHROME)) {
@@ -75,11 +83,18 @@ if (!fs.existsSync(CHROME)) {
 /* Six repos in two spaces, because the bar hides itself under two (`el.hidden` in
    public/spacebar.js) and because the widest row in the dropdown is what has to fit,
    not the shortest. The rows carry no numbers at all since bc-ka5y.1 — a repo name is
-   the whole of a label now — so what is measured here is what ships. */
-const WORKSPACES = ['beadcause', 'climative', 'adam.life', 'deluvia', 'ehatt', 'sophab'];
+   the whole of a label now — so what is measured here is what ships.
+
+   One of the six is deliberately over the twelve-character cut (bc-khoe.5). Every real
+   workspace on this Mac happens to be nine or ten, so a fixture built from them would
+   never once exercise the rule that keeps the picker narrow, and the check would go on
+   passing after the truncation was deleted. `climative-platform` is what an `architecture`
+   or a `climative-platform` checkout actually looks like, and it is the case the bead was
+   filed about. */
+const WORKSPACES = ['beadcause', 'climative-platform', 'adam.life', 'deluvia', 'ehatt', 'sophab'];
 const SPACES = [
   { name: 'Personal', workspaces: ['beadcause', 'adam.life', 'deluvia', 'ehatt', 'sophab'], count: 3, quiet: false },
-  { name: 'Work', workspaces: ['climative'], count: 2, quiet: false },
+  { name: 'Work', workspaces: ['climative-platform'], count: 2, quiet: false },
 ];
 const SPACEPAY = {
   spaces: SPACES,
@@ -183,9 +198,20 @@ const PROBE = `(() => {
   const sb = document.querySelector('.spacebar');
   const shown = !!(sb && !sb.hidden && getComputedStyle(sb).display !== 'none');
   const sel = sb && sb.querySelector('#space-pick');
+  const face = sb && sb.querySelector('.spacepick-shown');
+  /*
+    What is *drawn* and what is in the *list* are two different strings now — the face is
+    a span the script fills with a cut-down label and the select over it is invisible
+    (see .spacepick in public/style.css). So both are reported: the face for the bar's
+    width and the truncation rule, the options for the promise that the dropdown still
+    carries whole names.
+
+    The face's room is its content box, because the caret is drawn over its right-hand
+    padding.
+  */
   const label = (() => {
-    if (!sel) return null;
-    const c = getComputedStyle(sel);
+    if (!sel || !face) return null;
+    const c = getComputedStyle(face);
     const span = document.createElement('span');
     span.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:' + c.fontFamily +
       ';font-size:' + c.fontSize + ';font-weight:' + c.fontWeight + ';letter-spacing:' + c.letterSpacing;
@@ -194,21 +220,33 @@ const PROBE = `(() => {
     const texts = [...sel.options].map((o) => o.textContent);
     const widths = texts.map(w);
     const most = Math.max(...widths);
+    const shownText = face.textContent;
     const out = {
-      selected: w(sel.options[sel.selectedIndex].textContent),
-      selectedText: sel.options[sel.selectedIndex].textContent,
+      shownText,
+      shown: w(shownText),
+      /* Clipped is the browser's own answer, not a re-measurement: the face is sized to
+         its own content, so a span measured at ceil() precision is a pixel wider than the
+         box it is describing and every page reads as one pixel short. */
+      clipped: face.scrollWidth > face.clientWidth + 1,
+      /* What the picker says is selected, in its own words — 'everything' when nothing is,
+         which is not what the option row says. The face is cut from this. */
+      selectedText: String(window.beadcause?.space?.label?.() ?? sel.options[sel.selectedIndex].textContent),
+      optionText: sel.options[sel.selectedIndex].textContent,
       widest: most,
       widestText: texts[widths.indexOf(most)],
-      /* The caret is drawn over the right-hand padding, so the text's room is the
-         content box — which is what \`clientWidth\` minus the padding already is. */
-      room: Math.round(sel.clientWidth - parseFloat(c.paddingLeft) - parseFloat(c.paddingRight)),
+      /** Every option, so the check can say the list was left alone. */
+      options: texts,
+      /** The whole set of faces this picker can draw, one per option — the truncation
+       *  rule tested over the list rather than over whichever row happens to be on. */
+      faces: texts.map((t) => (t.length > 12 ? t.slice(0, 9) + '…' : t)),
+      room: Math.round(face.clientWidth - parseFloat(c.paddingLeft) - parseFloat(c.paddingRight)),
     };
     span.remove();
     return out;
   })();
 
   const brand = document.querySelector('.brand');
-  const acts = document.querySelector('.sheet-actions');
+  const acts = document.querySelector('.topbar .sheet-actions');
   const brandW = brand ? Math.round(brand.getBoundingClientRect().width) : 0;
   const actsW = acts && acts.getBoundingClientRect().width ? Math.round(acts.getBoundingClientRect().width) : 0;
   const tab = document.querySelector('.tabbar');
@@ -225,13 +263,13 @@ const PROBE = `(() => {
     gap,
     lines: lines.map((L) => ({ top: Math.round(L.top), h: Math.round(L.bottom - L.top), items: L.items })),
     picker: shown ? { w: Math.round(sb.getBoundingClientRect().width), h: Math.round(sb.getBoundingClientRect().height), label } : null,
-    /* What a picker joining the first row would have, and what it would need there —
-       the arithmetic bc-hne3 turned on. */
-    /* The bar's own box again, so this is in the same units as \`need\` on a page the
-       browser has scaled (see \`content\`). The trailing gap is the one a picker joining
-       this row would need in front of it. */
+    /* What the picker has left of the row once the brand has taken its share, and what
+       the face it is drawing actually needs there. The margin, per page — this is the
+       arithmetic bc-hne3 turned on, kept pointing the other way. */
+    /* The bar's own box, so this is in the same units as \`need\` on a page the browser
+       has scaled (see \`content\`). */
     spare: Math.round(bar.clientWidth - pad - brandW - (actsW ? actsW + gap : 0) - gap),
-    need: label ? label.widest + Math.round(parseFloat(getComputedStyle(sel).paddingLeft) + parseFloat(getComputedStyle(sel).paddingRight)) : null,
+    need: label && face ? label.shown + Math.round(parseFloat(getComputedStyle(face).paddingLeft) + parseFloat(getComputedStyle(face).paddingRight)) : null,
     brandW,
     actsW,
     tabH: tab ? Math.round(tab.getBoundingClientRect().height) : 0,
@@ -368,33 +406,52 @@ try {
         continue;
       }
 
-      // Two rows is the budget bc-hne3 spent. Three is what this file exists to catch.
-      if (m.lines.length <= 2) ok(`${at}: the bar is ${m.lines.length} line(s), ${m.barH}px`);
+      // One row. bc-khoe.5's whole claim, and the thing that comes back one icon at a time.
+      if (m.lines.length === 1) ok(`${at}: the bar is one line, ${m.barH}px`);
       else
         bad(
           `${at}: the bar is ${m.lines.length} lines, ${m.barH}px`,
           m.lines.map((L) => L.items.map((i) => `${i.cls || '(none)'} ${i.w}px`).join(' + ')).join('  /  ')
         );
 
-      // Last, alone, full width — the three halves of "it is a title, not a filter".
-      const last = m.lines[m.lines.length - 1];
-      const alone = last.items.length === 1 && /spacebar/.test(last.items[0].cls || '');
-      if (alone && Math.abs(m.picker.w - m.content) <= 2)
-        ok(`${at}: the picker has the last line to itself, full width (${m.picker.w}px of ${m.content}px)`);
+      // And the picker is on it, sharing it rather than owning it.
+      const first = m.lines[0];
+      const withBrand = first.items.some((i) => /spacebar/.test(i.cls || '')) && first.items.length > 1;
+      if (withBrand)
+        ok(`${at}: the picker shares the row (${first.items.map((i) => `${i.cls || '(none)'} ${i.w}px`).join(' + ')})`);
       else
         bad(
-          `${at}: the picker has the last line to itself, full width`,
-          `last line is ${last.items.map((i) => `${i.cls || '(none)'} ${i.w}px`).join(' + ')}; picker ${m.picker.w}px of ${m.content}px`
+          `${at}: the picker shares the first row with the brand`,
+          `first line is ${first.items.map((i) => `${i.cls || '(none)'} ${i.w}px`).join(' + ')}`
         );
 
-      // A name cut to `beadca…` is the failure the row was bought to prevent.
       const L = m.picker.label;
-      if (L.room >= L.widest) ok(`${at}: no label is clipped (${L.room}px of room, widest "${L.widestText}" ${L.widest}px)`);
-      else
-        bad(
-          `${at}: no label is clipped`,
-          `${L.room}px of room, but "${L.widestText}" needs ${L.widest}px (selected "${L.selectedText}" needs ${L.selected}px)`
-        );
+
+      /* The truncation rule, over every row the picker can select rather than over
+         whichever one happens to be on. Twelve characters through, nine and an ellipsis
+         past that — `shorten` in public/spacebar.js. Asserted against the rule and not
+         against a width, because a width is what a font change moves. */
+      const longest = L.options.reduce((a, b) => (b.length > a.length ? b : a), '');
+      const wrong = L.options.filter((t, i) => (t.length > 12 ? L.faces[i] !== t.slice(0, 9) + '…' : L.faces[i] !== t));
+      if (!wrong.length && L.faces.every((f) => f.length <= 12))
+        ok(`${at}: no face is over 12 characters (longest name "${longest}" would draw "${L.faces[L.options.indexOf(longest)]}")`);
+      else bad(`${at}: no face is over 12 characters`, `these do not follow the rule: ${wrong.join(', ')}`);
+
+      // And the one actually on the bar is the cut form of what the picker says is selected
+      // — `label()`, which answers 'everything' where the option row says 'All spaces'.
+      const want = L.selectedText.length > 12 ? `${L.selectedText.slice(0, 9)}…` : L.selectedText;
+      if (L.shownText === want) ok(`${at}: the bar draws "${L.shownText}" for "${L.selectedText}"`);
+      else bad(`${at}: the bar draws the cut form of the selection`, `it draws "${L.shownText}"; the rule says "${want}"`);
+
+      // What is drawn is not clipped on top of being cut — a face the layout has to
+      // ellipsise a second time is the rule failing to do its job.
+      if (!L.clipped) ok(`${at}: the face is not clipped ("${L.shownText}", ${L.room}px of room)`);
+      else bad(`${at}: the face is not clipped`, `"${L.shownText}" is ellipsised inside ${L.room}px`);
+
+      // The dropdown is the one place the whole name is the point.
+      const cut = L.options.filter((t) => /…$/.test(t));
+      if (!cut.length) ok(`${at}: every row in the dropdown is a whole name (${L.options.length} of them)`);
+      else bad(`${at}: every row in the dropdown is a whole name`, `cut in the list itself: ${cut.join(', ')}`);
 
       // One control, the same on every page — including how tall it is.
       pickerHeights.set(page, m.picker.h);
@@ -446,19 +503,58 @@ try {
       else if (!off.length)
         ok(`${at}: what pins under the bar sits against it (${st.pinned.map((b) => `${b.sel} at ${b.top}px`).join(', ')})`);
       else bad(`${at}: what pins under the bar sits against it`, `at scrollY ${st.scrollY}, ${misfits(st, off)}`);
+
+      /*
+        And the acceptance itself: the longest name in the config actually *selected*.
+
+        Everything above is measured on `All spaces`, which is ten characters and cuts to
+        nothing — so without this the whole truncation rule could be deleted and every
+        assertion in this file would still pass. Picked through the control rather than by
+        calling `space.set`, because what is being asked is what a person's tap does.
+      */
+      const picked = await evalJs(
+        s,
+        `(() => {
+           const sel = document.querySelector('#space-pick');
+           const opt = [...sel.options].reduce((a, b) => (b.textContent.length > a.textContent.length ? b : a));
+           sel.value = opt.value;
+           sel.dispatchEvent(new Event('change'));
+           return opt.textContent;
+         })()`
+      );
+      await sleep(250);
+      const long = await evalJs(s, PROBE);
+      const lat = `${at}, "${picked}" picked`;
+      const wanted = picked.length > 12 ? `${picked.slice(0, 9)}…` : picked;
+      if (long.picker && long.picker.label.shownText === wanted)
+        ok(`${lat}: the bar draws "${long.picker.label.shownText}"`);
+      else bad(`${lat}: the bar draws the cut form`, `it draws "${long.picker?.label?.shownText}"; the rule says "${wanted}"`);
+      if (long.lines.length === 1) ok(`${lat}: the bar is still one line, ${long.barH}px`);
+      else
+        bad(
+          `${lat}: the bar is still one line`,
+          long.lines.map((L) => L.items.map((i) => `${i.cls || '(none)'} ${i.w}px`).join(' + ')).join('  /  ')
+        );
+      if (long.picker && !long.picker.label.clipped) ok(`${lat}: and the face is not clipped on top of being cut`);
+      else bad(`${lat}: the face is not clipped on top of being cut`, `"${long.picker?.label?.shownText}" is ellipsised`);
     }
 
     /*
-      And the same thing again with the bar a row shorter, on the one page that has a
-      strip stuck to it.
+      And the same thing again with the picker gone, on the one page that has a strip
+      stuck to the bar.
 
-      `spacebar.js` hides the picker outright below two workspaces (`el.hidden`), which
-      takes the bar from 104px to 61px on the same build and the same page. That is the
-      whole reason the strip's offset is a variable and not a number: a `top: 104px`
-      hardcoded from a screenshot passes every assertion above and leaves a 43px hole
-      between the bar and the strip for anybody running one repo — who is, incidentally,
-      everybody on their first day. Measured here rather than reasoned about, because the
-      two heights are the two states this actually ships in.
+      `spacebar.js` hides the picker outright below two workspaces (`el.hidden`), and this
+      used to take the bar from 104px to 61px on the same build and the same page — which
+      is the whole reason the strip's offset is a variable and not a number: a `top: 104px`
+      hardcoded from a screenshot passed every assertion above and left a 43px hole between
+      the bar and the strip for anybody running one repo, who is, incidentally, everybody
+      on their first day.
+
+      Since bc-khoe.5 the two heights are the same, because the picker shares the mark's
+      row rather than owning one. That does not make this pass pointless — it makes it the
+      thing that would notice if the picker ever went back to being a row, and it is still
+      the only run in this file where the bar is drawn without one. Measured rather than
+      reasoned about, because these are the two states it actually ships in.
     */
     {
       const ONE = { ...SPACEPAY, workspaces: ['beadcause'], spaces: [{ name: 'Personal', workspaces: ['beadcause'], count: 3, quiet: false }] };
@@ -471,7 +567,19 @@ try {
       if (m.picker) {
         bad(`${at}: the picker hides itself`, `it is still drawn at ${m.picker.w}px — see el.hidden in public/spacebar.js`);
       } else {
-        ok(`${at}: the picker hides itself, and the bar is ${m.barH}px rather than ${shownBarH.get(size.width) ?? '?'}px`);
+        {
+          const was = shownBarH.get(size.width);
+          /* Same height either way since bc-khoe.5, and that is the answer rather than a
+             hole in the check: the picker is a control on the mark's row now, so hiding it
+             takes width off that row and no longer takes a row off the bar. It used to be
+             104px → 61px, which is the whole reason the strip below the bar offsets itself
+             from a variable and not from a number read off a screenshot. */
+          ok(
+            was === m.barH
+              ? `${at}: the picker hides itself, and the bar is ${m.barH}px — the same as with it, because it is not a row of its own any more`
+              : `${at}: the picker hides itself, and the bar is ${m.barH}px rather than ${was ?? '?'}px`
+          );
+        }
         await evalJs(
           s,
           `(() => { const d = document.createElement('div'); d.style.cssText = 'height:1500px'; d.dataset.topbarCheck = '1'; document.body.append(d); scrollTo(0, 400); return 1; })()`
@@ -480,8 +588,8 @@ try {
         const st = await evalJs(s, STUCK);
         const off = st.pinned.filter((b) => Math.abs(b.over) > 1);
         if (!off.length)
-          ok(`${at}: what pins under the shorter bar sits against it (${st.pinned.map((b) => `${b.sel} at ${b.top}px`).join(', ') || 'nothing pins'})`);
-        else bad(`${at}: what pins under the shorter bar sits against it`, misfits(st, off));
+          ok(`${at}: what pins under the picker-less bar sits against it (${st.pinned.map((b) => `${b.sel} at ${b.top}px`).join(', ') || 'nothing pins'})`);
+        else bad(`${at}: what pins under the picker-less bar sits against it`, misfits(st, off));
       }
     }
 
@@ -495,33 +603,33 @@ try {
   }
 
   /*
-    The arithmetic bc-hne3 turned on, restated every run. Printed per page, and then
-    judged once per width — because the question is not whether *a* page could hold the
-    picker inline (three of them can, at 360px, today). It is whether they *all* can:
-    a picker that collapses onto the first row where it fits and keeps its own row where
-    it does not is a control that changes shape as you move between tabs, which is the
-    four-controls-in-one-coat the picker was built to end. Only "every page has room"
-    makes collapsing free, and only then is the decision worth reopening.
+    The margin, restated every run. bc-hne3 printed this to ask whether the picker could
+    ever come up onto the first row; it is on that row now, so the same numbers say how
+    much room is left before it is pushed back off — and what would push it is a page
+    growing its *title*, which is the half of the row nobody measures on purpose.
+
+    A notice rather than a failure while there is any room at all: the line count above is
+    the assertion, and this is the thing that would have told you a week earlier.
   */
-  console.log('\n\x1b[1mthe first row, and what a picker would need on it\x1b[0m');
+  console.log('\n\x1b[1mthe row, and what is left of it for the picker\x1b[0m');
   for (const r of room)
     console.log(
-      `  · ${r.at}: ${r.spare}px spare (brand ${r.brandW} + actions ${r.actsW}), needs ${r.need}px — ${r.spare >= r.need ? `\x1b[33mroom to spare\x1b[0m` : `short by ${r.need - r.spare}px`}`
+      `  · ${r.at}: ${r.spare}px left (brand ${r.brandW}${r.actsW ? ` + actions ${r.actsW}` : ''}), the face takes ${r.need}px — ${r.spare >= r.need ? `${r.spare - r.need}px to spare` : `\x1b[31mover by ${r.need - r.spare}px\x1b[0m`}`
     );
   for (const size of SIZES) {
     const mine = room.filter((r) => r.width === size.width);
-    const tight = mine.filter((r) => r.spare < r.need);
+    const tight = mine.filter((r) => r.spare - r.need < 24);
     if (!tight.length)
       notices.push(
-        `\x1b[33m!\x1b[0m @${size.width}: every page with a picker could now hold it on the first row. "The first row is already full" has stopped being true — bc-hne3 is worth reopening.`
+        `· @${size.width}: every page has at least 24px of slack on the row. Nothing is close.`
       );
     else
       notices.push(
-        `· @${size.width}: ${tight.length} of ${mine.length} pages cannot hold the picker on the first row (${tight.map((r) => r.page).join(', ')}), so collapsing where it fits would move the control page to page. The row stays.`
+        `\x1b[33m!\x1b[0m @${size.width}: ${tight.length} of ${mine.length} pages have under 24px of slack (${tight.map((r) => r.page).join(', ')}) — one longer title and the bar is two rows again.`
       );
   }
 
-  console.log('\n\x1b[1mwhat that means for the decision\x1b[0m');
+  console.log('\n\x1b[1mhow close the row is to wrapping\x1b[0m');
   for (const n of notices) console.log(`  ${n}`);
 } finally {
   close();
