@@ -71,6 +71,19 @@ const FAKE_BD = path.join(tmp, 'bd');
  * `ready` honours `--exclude-label` for the same reason: the assertion that a filed
  * bead never reaches a queue has to survive a `bd` that is doing the filtering, since
  * that is the one that runs in production.
+ *
+ * **And `create` refuses a second edge to the same bead, which is bc-xl7n.65 and the one
+ * rule here that is modelled from a real refusal rather than from the docs.** bd holds
+ * one typed edge per pair; `--parent X` writes a `parent-child` one, so `--deps
+ * discovered-from:X` alongside it fails the whole create with
+ *
+ *     validation failed: dependency → X already exists with type "parent-child"
+ *     (requested "discovered-from"); remove it first with 'bd dep remove' then re-add
+ *
+ * That is not a corner: it is what `lib/homing.js` asks for every time the bead being
+ * worked is itself a root, and twenty-two beads landed parentless on the real tracker
+ * before anybody attributed it. A stub that quietly took both would go green over the
+ * bug, which is what the old one did.
  */
 fs.writeFileSync(
   FAKE_BD,
@@ -84,16 +97,33 @@ const one = (n, d) => { const i = args.indexOf(n); return i === -1 ? d : args[i 
 const many = (n) => { const out = []; for (let i = 0; i < args.length; i++) if (args[i] === n) out.push(...String(args[i + 1] || '').split(',')); return out.filter(Boolean); };
 const die = (m) => { process.stderr.write(m + '\\n'); process.exit(1); };
 
+const typeOf = (d) => (d.includes(':') ? d.slice(0, d.indexOf(':')) : 'blocks');
+const targetOf = (d) => (d.includes(':') ? d.slice(d.indexOf(':') + 1) : d);
+
 if (args[0] === 'create') {
   const title = one('--title', '');
   // The one create this world refuses, so a partial failure can be asserted: Dolt
   // losing a lock race looks exactly like this from here.
   if (/^BOOM/.test(title)) die('error: database is locked');
   const id = 'zz-n' + (Object.keys(w.issues).length + 1);
+  const parent = one('--parent', '');
+  // A parent bd will not take, for a reason out here nobody models: the second half of
+  // the refusal path, where the bead is re-filed with no parent and the session has to
+  // be told so rather than told where it was supposed to have gone.
+  if (/^REFUSE/.test(title) && parent) die('Error: cannot parent a task to ' + parent);
+  if (parent && !w.issues[parent]) die('Error: no issue found matching "' + parent + '"');
   const deps = many('--deps');
   for (const d of deps) {
-    const target = d.includes(':') ? d.slice(d.indexOf(':') + 1) : d;
+    const target = targetOf(d);
     if (!w.issues[target]) die('error: no issue found matching "' + target + '"');
+    // One edge per pair, typed — bd's own words, verbatim.
+    if (parent && target === parent && typeOf(d) !== 'parent-child') {
+      die(
+        'Error: validation failed: dependency ' + id + ' -> ' + target +
+          ' already exists with type "parent-child" (requested "' + typeOf(d) +
+          '"); remove it first with \\'bd dep remove\\' then re-add'
+      );
+    }
   }
   w.issues[id] = {
     id,
@@ -105,14 +135,29 @@ if (args[0] === 'create') {
     issue_type: one('--type', 'task'),
     priority: Number(one('--priority', '2')),
     labels: many('--label'),
-    dependencies: deps.map((d) => ({
-      id: d.includes(':') ? d.slice(d.indexOf(':') + 1) : d,
-      dependency_type: d.includes(':') ? d.slice(0, d.indexOf(':')) : 'blocks',
-    })),
+    parent: parent || '',
+    dependencies: deps.map((d) => ({ id: targetOf(d), dependency_type: typeOf(d) })),
     actor: one('--actor', ''),
   };
   save();
   process.stdout.write(JSON.stringify({ id }));
+  process.exit(0);
+}
+// The shape lib/ancestry.js reads: one JSON row per line, the parent link riding in
+// dependencies as a parent-child edge exactly as a real export carries it. Without
+// this the graph is empty, nothing is a root, and every filing in this suite would be
+// homed nowhere -- which is to say the whole of bc-rfnr.8 would go untested here.
+if (args[0] === 'export') {
+  const lines = all().map((i) =>
+    JSON.stringify({
+      ...i,
+      dependencies: [
+        ...(i.parent ? [{ issue_id: i.id, depends_on_id: i.parent, type: 'parent-child' }] : []),
+        ...(i.dependencies || []).map((d) => ({ issue_id: i.id, depends_on_id: d.id, type: d.dependency_type })),
+      ],
+    })
+  );
+  process.stdout.write(lines.join('\\n'));
   process.exit(0);
 }
 if (args[0] === 'ready') {
@@ -154,15 +199,30 @@ const issue = (id, extra = {}) => ({
   ...extra,
 });
 
-/** The bead a worker is working when it finds something, and one already-filed bead. */
+/**
+ * The bead a worker is working when it finds something, the root above it, and one
+ * already-filed bead.
+ *
+ * `zz-root` is the whole of lib/homing.js in this world: a P0 epic carrying `unsorted`,
+ * so it is both the root `zz-work` descends from *and* the backlog a filing with no
+ * usable `--from` falls into. Before bc-xl7n.65 this suite had no roots at all, so every
+ * bead it filed was homed nowhere and the parent path — the one that was broken in
+ * production for a fortnight — was never once executed here.
+ */
 const reset = () => {
   fs.writeFileSync(
     WORLD,
     JSON.stringify(
       {
         issues: {
-          'zz-work': issue('zz-work', { title: 'The bead the session was opened on' }),
-          'zz-old': issue('zz-old', { title: 'The router never proxies a WebSocket upgrade' }),
+          'zz-root': issue('zz-root', {
+            title: 'The unsorted backlog',
+            issue_type: 'epic',
+            priority: 0,
+            labels: ['unsorted'],
+          }),
+          'zz-work': issue('zz-work', { title: 'The bead the session was opened on', parent: 'zz-root' }),
+          'zz-old': issue('zz-old', { title: 'The router never proxies a WebSocket upgrade', parent: 'zz-root' }),
         },
       },
       null,
@@ -245,6 +305,45 @@ await check('the discovered-from edge is added once, and never over one the agen
   assert.deepEqual(withDiscoveredFrom(['blocks:zz-a'], ''), ['blocks:zz-a'], 'no --from, no edge invented');
 });
 
+await check('and it is never an edge to the bead\'s own parent, because bd holds one per pair', () => {
+  assert.deepEqual(
+    withDiscoveredFrom([], 'zz-root', { parent: 'zz-root' }),
+    [],
+    'a worker on a root files under that root — asking for both edges fails the whole create'
+  );
+  assert.deepEqual(
+    withDiscoveredFrom([], 'zz-work', { parent: 'zz-root' }),
+    [`${DISCOVERED_FROM}:zz-work`],
+    'while a worker on a child of a root still gets its trail back'
+  );
+  assert.deepEqual(
+    withDiscoveredFrom(['blocks:zz-root', 'blocks:zz-a'], 'zz-work', { parent: 'zz-root' }),
+    ['blocks:zz-a', `${DISCOVERED_FROM}:zz-work`],
+    'and a dep the agent wrote at the parent goes too — bd would refuse the create over it just as readily'
+  );
+  assert.deepEqual(
+    withDiscoveredFrom([], 'zz-work', {}),
+    [`${DISCOVERED_FROM}:zz-work`],
+    'no parent, nothing to collide with'
+  );
+});
+
+await check('bdReason finds what bd said, past the command it echoed back', async () => {
+  const { bdReason } = await import(LIB('filing.js'));
+  const real = new Error(
+    'bd create --title x --description line one\nline two failed in demo: Error: validation failed: dependency'
+  );
+  real.stderr = 'Warning: pending schema migrations\nError: validation failed: dependency -> zz-root already exists\n';
+  assert.equal(
+    bdReason(real),
+    'Error: validation failed: dependency -> zz-root already exists',
+    'a --description with newlines put the reason past the first line, where nothing ever read it'
+  );
+  const killed = new Error('bd export timed out in demo: still running after 120s, killed rather than broken');
+  killed.stderr = '';
+  assert.match(bdReason(killed), /timed out in demo/, 'and a child this process killed says nothing on stderr at all');
+});
+
 await check('the marker goes on first, and `human` never does', () => {
   const out = beadToIssue({ title: 'x', priority: 2, labels: ['api'] }, { from: 'zz-work' });
   assert.equal(out.labels[0], UNENDORSED, 'a reader of bd show sees why it is not being worked, first');
@@ -306,6 +405,56 @@ await check('the whole worker brief is honest about it: a real bead, held, and c
   assert.match(brief, /creates the bead for real/);
   assert.match(brief, new RegExp(UNENDORSED));
   assert.match(brief, /carry straight on with zz-work/);
+});
+
+/* ------------------------------------------- bc-xl7n.65: the worker who is on a root */
+
+await check('a bead filed while working a root lands UNDER that root, not beside it', () => {
+  const res = fileIt(
+    `- title: The census counts nothing
+  description: |
+    Nothing in the repo counts beads with no root above them.
+  rationale: Found while working zz-root.
+`,
+    ['-w', 'demo', '--from', 'zz-root']
+  );
+  assert.equal(res.status, 0, res.stderr);
+  const bead = world().issues[res.stdout.trim()];
+  assert.ok(bead, 'the bead exists');
+  assert.equal(
+    bead.parent,
+    'zz-root',
+    'this is the whole bug: `--parent zz-root` with `--deps discovered-from:zz-root` is refused by bd, ' +
+      'the parent is dropped rather than the discovery, and the bead lands held and undispatchable'
+  );
+  assert.deepEqual(bead.dependencies, [], 'the parent-child edge is the trail back, and bd will not hold both');
+  assert.match(bead.notes, /Filed by an agent while working zz-root/, 'the provenance is in the prose either way');
+  assert.doesNotMatch(res.stderr, /would not take/, 'and nothing was refused on the way in');
+  assert.doesNotMatch(res.stderr, /NO PARENT/, 'so the session is not told its discovery is stranded');
+});
+
+await check('the stub really does refuse both edges — otherwise the check above proves nothing', async () => {
+  await assert.rejects(
+    () => bd.create(ws, { title: 'Two edges to one bead', parent: 'zz-root', deps: [`${DISCOVERED_FROM}:zz-root`] }),
+    /already exists with type "parent-child"/,
+    'bd 1.2.1 holds one typed edge per pair, and this is the sentence it refuses with'
+  );
+});
+
+await check('when bd does refuse the parent, the session is told the bead is stranded', () => {
+  const res = fileIt(`- title: REFUSE this one a home\n  description: x\n`);
+  assert.equal(res.status, 0, 'the discovery is kept — losing it over the parent is the wrong way round');
+  const bead = world().issues[res.stdout.trim()];
+  assert.equal(bead.parent, '', 'the parent is what bd would not take');
+  assert.match(res.stderr, /would not take "REFUSE this one a home" under zz-root/);
+  assert.match(res.stderr, /cannot parent a task to zz-root/, 'and the reason bd gave, not the command it echoed');
+  assert.match(res.stderr, /is filed with NO PARENT/, 'said in the summary too, where the reassuring line used to be');
+  assert.match(res.stderr, new RegExp(bead.id), 'naming the bead, so adopting it is one command away');
+  assert.doesNotMatch(
+    res.stderr,
+    /^beadcause-file: filed under /m,
+    'and never "filed under zz-root" over a bead that is under nothing — that is what hid this for a fortnight'
+  );
 });
 
 /* ----------------------------------------------------------- the awkward inputs */

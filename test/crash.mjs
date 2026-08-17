@@ -602,6 +602,15 @@ await check('every swallowed failure in the poll cycle reports', () => {
       // enforced, and an unenforced retention rule reads exactly like an enforced one
       // from anywhere except the disk. bc-eqn1.7.
       'the agent-log disposal sweep',
+      // bc-1kwl.4's warm pass, and the one entry here whose catch is not inside `cycle`
+      // at all — the pass is detached, so this is the `.catch()` on a promise nothing
+      // awaits. It is held to the strictest bar in the list: `warmKeys` already names
+      // each producer's own failure and carries on, so what reaches this one is the
+      // warmer's own bookkeeping. It matters more than most because the symptom of
+      // getting it wrong is silent twice over — an unhandled rejection out of a
+      // detached promise takes the daemon with it, and short of that it leaves the
+      // re-entrancy guard latched, which is a warmer that has quietly stopped warming.
+      'the cache warmer',
       // The beat's own guard. Everything inside the cycle already catches; what reaches
       // this one is the cycle's bookkeeping failing, which is a bug by construction —
       // and an unhandled rejection out of a `setInterval` callback would take the
