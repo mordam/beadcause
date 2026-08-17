@@ -1347,6 +1347,11 @@
     { key: 'notes', label: 'Notes' },
     { key: 'labels', label: 'Labels', pills: true },
     { key: 'deps', label: 'Depends on', pills: 'id' },
+    // The files this bead says it expects to touch (bc-42ow). As pills, like labels,
+    // because a path is a token and not prose — and last of the six for the reason
+    // `proposalBody` prints it last: it is the one line here that says something about
+    // the *other* rows, so it reads best after you have read this one.
+    { key: 'files', label: 'Expects to touch', pills: true },
   ];
 
   /**

@@ -15945,8 +15945,9 @@ created. There is deliberately no second *are you sure?* screen after it — a
 confirmation you cannot change is only a delay.
 
 Tap a card and everything is editable in place: title, type, priority, description,
-acceptance, labels, and — as chips naming the other beads in the proposal — **parent**
-and **blocked by**. Remove a bead, or **＋** one the conversation missed. **Create N
+acceptance, labels, [the files it expects to
+touch](#a-card-says-which-files-its-bead-expects-to-touch), and — as chips naming the other
+beads in the proposal — **parent** and **blocked by**. Remove a bead, or **＋** one the conversation missed. **Create N
 beads** takes two taps, the same as answering a question, because creating six beads
 in a tracker off a pocket tap is not undoable in any way that matters.
 
@@ -15962,6 +15963,54 @@ dependencies exist before the bead that points at them. A `dependsOn` may also n
 bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on the one
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
+
+### A card says which files its bead expects to touch
+
+Under Labels there is one more field: **Files it expects to touch**. Type
+`lib/dms.js, lib/retry.js` into it, or let the agent propose them — a `files:` list on a
+bead in its `beads` block, read under `touches`, `paths` and `surface` as well, because the
+block is generated text and the cost of an unrecognised key is a declaration that silently
+is not there. The collapsed card shows `2 files` with the paths in its tooltip; the count
+rather than the paths because a repo-relative path is long and five of them would push the
+priority off a phone, and the one thing worth seeing at a glance is *that* this bead named a
+seam. An advocate's proposal card carries the same thing as **Expects to touch**.
+
+This is the field [the queue filter](#the-bead-whose-files-somebody-is-already-editing)
+reads, and it is the only place in beadcause anybody writes one. The moment is the point:
+a proposal is the one time somebody has the whole shape of the work in their head and
+nothing has been created yet, so "which files" is the same kind of claim as a title or a
+dependency and costs a sentence to make. Later it is a bead somebody has to go and edit.
+
+It is also the one field on a card that is about the **other** cards. Two beads in one
+proposal naming one file are two windows that must never open together — which is a
+judgement to make before pressing Create, by merging them, rather than a collision
+discovered at downmerge a day later.
+
+**Nothing is stored as a field, because `bd` has no such column.** The surface is written
+*into* the created bead's description, as the `beadfiles` block
+[described above](#the-bead-whose-files-somebody-is-already-editing) — by `withSurface` in
+`lib/beadfiles.js` and by nothing else, so a block written by the console and a block
+written by [a plan](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) cannot come to be
+spelled differently. It is normalised at the card and not at filing time, so `./lib/a.js`
+and `lib/a.js` are one path on the screen you are correcting rather than two paths that
+turn into one silently afterwards.
+
+**A bead that declares nothing is filed exactly as it always was**, description
+byte-for-byte, and dispatches exactly as every bead filed before this existed does. Nothing
+about a surface can refuse a filing, warn about one, or clamp one: a bad path is dropped
+and the bead is created. A declaration is a forecast written before anybody read the code,
+and the P0 this belongs to is explicit that a wrong one must dispatch rather than withhold —
+a field that could withhold work by being malformed would move the whole cost to the one
+place it must never be.
+
+The failure worth engineering against here is silent. A surface crosses five stages — the
+YAML an agent emits, the draft the server holds, the card the phone renders and edits, the
+YAML fed back to the agent next turn, and the `bd create` at the end — and a stage that
+drops it looks precisely like a stage that kept it: the card says `2 files`, the bead is
+filed with none, and the advocate reports nothing forever. So `node test/consolesurface.mjs`
+(in `npm test`) asserts round trips rather than stages, and its last group drives
+`POST /api/console/create` against a `bd` that records its argv and reads the surface back
+out of the `--description` that `bd` was really spawned with.
 
 ### A label is filed exactly as it was typed — only the refs are slugged
 
