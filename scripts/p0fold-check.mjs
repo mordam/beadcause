@@ -258,7 +258,12 @@ try {
   check('a thumb can find it', v.height >= 44, `${v.height}px`);
   check('the chevron is turned down while it is open', v.chevTurned);
   const rowsOpen = v.rows;
-  check('the questions under the epics are in the list', rowsOpen >= QUESTIONS.length, `${rowsOpen} rows`);
+  // Since bc-rfnr.9.7 they are *not*: every one of these questions hangs off an epic on
+  // the board, so it is a row in that epic's tree and the flat copy underneath is gone.
+  // What the heading carries instead is how many of them are asking you something, which
+  // is the number that has to survive the fold below.
+  check('no bead the board draws is drawn again underneath it', rowsOpen === 0, `${rowsOpen} rows`);
+  check('and the heading says how many are asking you', /\b2 ask you\b/.test(v.text), v.text);
   await shot('open');
 
   /* ---- one epic unfolded inside it, so the fold has something to not lose ---- */
@@ -283,11 +288,12 @@ try {
 
   /* ---- and the list underneath is exactly as it was ---- */
 
-  check('the questions under the epics are still in the list', v.rows === rowsOpen, `${rowsOpen} → ${v.rows}`);
-  check(
-    'including the one whose epic is now hidden',
-    await evalJs(`document.querySelector('#list').textContent.includes(${JSON.stringify(QUESTIONS[0].title)})`)
-  );
+  check('the list underneath is exactly as it was', v.rows === rowsOpen, `${rowsOpen} → ${v.rows}`);
+  // The count that has to survive a fold, and since bc-rfnr.9.7 it is two counts: how many
+  // epics are behind it and how many of them are waiting on an answer. A shut board is
+  // otherwise the only thing on the screen where a question could be, so a heading that
+  // dropped this is a week of unanswered questions with nothing saying they exist.
+  check('and the questions are counted on the shut line', /\b2 ask you\b/.test(v.text), v.text);
 
   /* ---- bringing it back brings back what was open in it ---- */
 

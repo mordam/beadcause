@@ -188,6 +188,12 @@ function board({ roots = [CARD], startable = CANDIDATES, picker = false, shut = 
       lift(APP, 'function p0ActsHtml(c, more'),
       lift(APP, 'function p0CardHtml(c)'),
       lift(APP, 'function p0FullHtml(c)'),
+      // bc-rfnr.9.7's two, which `p0SectionHtml` reached for when the flat list went:
+      // which cards the scope filters leave (the picker's `startable` goes through the
+      // same one, which is why it takes a list) and how many beads under them are asking
+      // you something. Without them the section is a `ReferenceError` rather than a board.
+      lift(APP, 'const p0AsksN = ('),
+      lift(APP, 'function p0Cards(list)'),
       lift(APP, 'function p0PickerHtml(rows)'),
       lift(APP, 'function p0SectionHtml()'),
       'p0SectionHtml();',

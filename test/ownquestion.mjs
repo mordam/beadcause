@@ -267,16 +267,20 @@ function lift(src, opener) {
   throw new Error(`unbalanced braces after ${opener}`);
 }
 
-/** The real filter, over a real payload. `board` is what `state.rootboard` would hold. */
-function drawn(rows, board) {
-  const context = vm.createContext({ Boolean, String, Object });
+/**
+ * The real filter, over a real payload. `board` is what `state.rootboard` would hold, and
+ * `open` what `state.open` would — the keys of any card that is up, which since
+ * bc-rfnr.9.7 is the one thing that keeps a bead the board is drawing in the list as well.
+ */
+function drawn(rows, board, open = []) {
+  const context = vm.createContext({ Boolean, String, Object, Set });
   vm.runInContext(
     [
       lift(APP, 'function isBoarded()'),
       lift(APP, 'function underOwnedRoots(rows)'),
       'globalThis.out = underOwnedRoots(ROWS);',
     ].join('\n'),
-    Object.assign(context, { ROWS: rows, state: { rootboard: board } })
+    Object.assign(context, { ROWS: rows, state: { rootboard: board, open: new Set(open) } })
   );
   return context.out.map((q) => q.key);
 }
@@ -363,25 +367,57 @@ try {
     // question descends from no P0 of yours.
     assert.deepEqual(
       drawn(payload.questions, board).sort(),
-      ['alpha/zz-asked', 'alpha/zz-done.1', 'alpha/zz-p0.9', 'beta/zz-beta-asked'].sort()
+      ['alpha/zz-asked', 'alpha/zz-done.1', 'beta/zz-beta-asked'].sort()
     );
   });
 
   await check('AND WITHOUT `unhomed` IT DOES NOT — which is the bug, stated as a test', () => {
-    // The same rows through the same function with the new map taken away. If this ever
-    // stops differing from the check above, the client stopped reading it.
-    assert.deepEqual(drawn(payload.questions, { ...board, unhomed: {} }), ['alpha/zz-p0.9']);
+    // The same rows through the same function with the new map taken away. Every row here
+    // is unhomed since bc-rfnr.9.7 took the `under` half of the list away, so this empties
+    // rather than falling back to one — if it ever stops differing from the check above,
+    // the client stopped reading the map.
+    assert.deepEqual(drawn(payload.questions, { ...board, unhomed: {} }), []);
   });
 
-  await check('a pull request still follows its beads, and `unhomed` cannot speak for it', () => {
+  await check('AND A BEAD THE BOARD IS DRAWING IS NOT DRAWN TWICE — bc-rfnr.9.7', () => {
+    // The change itself. `zz-p0.9` hangs off the P0 you own, so it is a row in that
+    // card's tree, and a flat copy of it underneath the board was the second list this
+    // bead deleted. It is still in `under` — the server did not stop saying so — which is
+    // what makes this an assertion about the client and not about the payload.
+    assert.equal(board.under['alpha/zz-p0.9'], 'zz-p0', 'the payload stopped homing it');
+    assert.ok(!drawn(payload.questions, board).includes('alpha/zz-p0.9'));
+  });
+
+  await check('unless its card is open, which is how a question in a tree gets answered', () => {
+    // `.card.open` is built out of an inbox row, so the row has to survive the filter for
+    // as long as the sheet is up — `p0AnswerHtml` offers the tap and `expand` opens it.
+    // Exactly the one key, and only while it is in `state.open`.
+    assert.deepEqual(drawn(payload.questions, board, ['alpha/zz-p0.9']).sort(), [
+      'alpha/zz-asked',
+      'alpha/zz-done.1',
+      'alpha/zz-p0.9',
+      'beta/zz-beta-asked',
+    ].sort());
+    // And it is the open key that does it, not the tap that opened it: another card being
+    // up leaves this one exactly where the board put it.
+    assert.ok(!drawn(payload.questions, board, ['alpha/zz-asked']).includes('alpha/zz-p0.9'));
+    // The rule is "a card that is open has a row", whoever's P0 the bead hangs off —
+    // `.card.open` is a full-screen sheet built out of one, and a sheet the reader opened
+    // over a row this function had filtered away would come up empty. That is reachable
+    // today by a notification, which deep-links straight into `expand`.
+    assert.ok(drawn(payload.questions, board, ['alpha/zz-theirs.1']).includes('alpha/zz-theirs.1'));
+  });
+
+  await check('a pull request stays only when it names no bead at all', () => {
     // Its key is `pr:<repo>#<n>`, which is no bead's id, so the server never marks one —
-    // and the client asks the PR rule first regardless, which is what this pins. A PR
-    // naming a bead under bob's P0 stays hidden; one naming nothing stays visible.
+    // and the client asks the PR rule first regardless, which is what this pins. Since
+    // bc-rfnr.9.7 a pull request naming *any* bead is a row about a bead: yours, drawn in
+    // its epic's tree, or somebody else's, which bc-rfnr.2 already hid.
     for (const key of Object.keys(board.unhomed)) {
       assert.ok(!key.includes('pr:'), `${key} is not a bead row and has no ancestry to claim`);
     }
     const pr = (n, beads) => ({ key: `pr:acme/thing#${n}`, workspace: 'alpha', pr: { beads } });
-    const rows = [pr(1, ['zz-theirs.1']), pr(2, [])];
+    const rows = [pr(1, ['zz-theirs.1']), pr(2, []), pr(3, ['zz-p0.9'])];
     const poisoned = { ...board, unhomed: { ...board.unhomed, 'pr:acme/thing#1': true } };
     assert.deepEqual(drawn(rows, poisoned), ['pr:acme/thing#2']);
   });
