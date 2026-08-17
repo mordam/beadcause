@@ -106,17 +106,23 @@
   </header>
 
   <!--
-    What is left of the inbox's own filter: which slice of the tracker, which bead, and
-    which rung within the pill you are on. Built by public/inboxfilter.js — one line at
-    rest saying what is selected, the chips on hover with a pointer and on a tap without
-    one.
+    The inbox's own filter, in two halves that share one row.
+
+    In front: the **scope** — Human, Both, Agent — as a segmented switch on the chrome
+    (public/filterpills.js, bc-khoe.24). It decides which sweep runs, so it decides what
+    Home is able to contain at all, and it is the one control here that must never be
+    behind anything.
+
+    Behind it: what is left of the collapsed panel — which bead, and which rung within
+    the pill you are on. Built by public/inboxfilter.js: one line at rest saying what is
+    selected, the chips on hover with a pointer and on a tap without one.
 
     It held three permanent rows once, coarsest first: the scope, then the space, then
     the workspace. The bottom two are the space picker in the top bar now. The **kinds**
     were in here too, as ten chips, and bc-khoe.2 promoted them out to the pill row above
     — ten categories of incoming thing is a navigation rather than a filter, and a
-    navigation you have to open something to see is one nobody uses. bc-khoe.3 is what
-    makes what remains follow the selected pill.
+    navigation you have to open something to see is one nobody uses. bc-khoe.26 is what
+    takes the rest of the panel apart the same way.
   -->
   <nav class="filters" id="filters" hidden></nav>
 
@@ -255,6 +261,12 @@
        inboxfilter.js, which mounts it rather than drawing one: without this file the
        inbox has no control on it at all. -->
   <script src="/filtermenu.js"></script>
+  <!-- The other half of that pair: the filters that are *not* behind a collapsed line,
+       drawn flat in the same row (bc-khoe.24). The scope switch is the one tenant today
+       and bc-khoe.26 moves the rest out here beside it. Before app.js, which hands it
+       the scope group as it boots; a page that drops this file keeps the panel and loses
+       the switch rather than losing the filter. -->
+  <script src="/filterpills.js"></script>
   <!-- The kinds table, and the scope and sub-filters behind one collapsed line. Before
        app.js, because app.js hands it the scope group and asks it whether each row is in
        view as it renders — and a page that drops it falls back to the unfiltered list

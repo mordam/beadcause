@@ -290,7 +290,7 @@ const CORE = [
         name: 'Pills',
         subtitle: 'Workspace, id, priority, status, held',
         viewport: { width: 480, height: 260 },
-        note: `An uppercase metadata badge — except <b>.pill.id</b>, which is a bead id and is neither uppercase nor a badge, and so has a rule of its own. <b>Only P0 and P1 carry colour</b>: they are the two worth a second look, and P2–P4 are deliberately plain, because a priority scale where every step shouts is a scale that says nothing. Status is the same bargain — <code>open</code> has no class at all, since it is the default state and colouring it would mean colouring almost every row.`,
+        note: `An uppercase metadata badge — except <b>.pill.id</b>, which is a bead id and is neither uppercase nor a badge, and so has a rule of its own. <b>Only P0 and P1 carry colour</b>: they are the two worth a second look, and P2–P4 are deliberately plain, because a priority scale where every step shouts is a scale that says nothing. Status is the same bargain — <code>open</code> has no class at all, since it is the default state and colouring it would mean colouring almost every row. The last two are a pull request's <i>stage</i> rather than a bead's status, and they carry <b>.pr-stage</b> as well: the app's own markup does (<code>prcard.js</code>), and without it the colour rules never match, so this card drew two grey pills and the contrast audit had nothing to measure them against.`,
         markup: `<div class="ds-stack">
   <div class="meta">
     <span class="pill">beadcause</span>
@@ -306,8 +306,8 @@ const CORE = [
     <span class="pill">Open</span>
     <span class="pill st-in_progress">In progress</span>
     <span class="pill st-blocked">Blocked</span>
-    <span class="pill st-review">In review</span>
-    <span class="pill st-live">Live</span>
+    <span class="pill pr-stage st-review">In review</span>
+    <span class="pill pr-stage st-live">Live</span>
     <span class="pill st-closed">Closed</span>
   </div>
 </div>`,

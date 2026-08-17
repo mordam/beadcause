@@ -1386,6 +1386,11 @@
     { key: 'notes', label: 'Notes' },
     { key: 'labels', label: 'Labels', pills: true },
     { key: 'deps', label: 'Depends on', pills: 'id' },
+    // The files this bead says it expects to touch (bc-42ow). As pills, like labels,
+    // because a path is a token and not prose — and last of the six for the reason
+    // `proposalBody` prints it last: it is the one line here that says something about
+    // the *other* rows, so it reads best after you have read this one.
+    { key: 'files', label: 'Expects to touch', pills: true },
   ];
 
   /**
@@ -4571,7 +4576,8 @@
    * The scope chips. The third column is what the settings panel used to spell out
    * under the switch; it rides along as the chip's `title` and its accessible name,
    * because three one-word chips are not self-explanatory and there is no longer a
-   * paragraph of prose to put it in.
+   * paragraph of prose to put it in — and out on the chrome (bc-khoe.24) there is not
+   * even a legend above them.
    */
   const SCOPE_CHIPS = [
     ['human', 'Human', 'Beads labelled human — the ones asking you something. This is the inbox.'],
@@ -4580,7 +4586,8 @@
   ];
 
   /**
-   * The scope, as a group of chips inside the filter menu.
+   * The scope, as a segmented switch on the chrome — the first of the filter pills
+   * (bc-khoe.24, public/filterpills.js).
    *
    * There used to be three rows in `#filters`, coarsest first: which slice of the
    * tracker, then which space, then which workspace within it. The bottom two are the
@@ -4591,9 +4598,20 @@
    * The scope stayed, because it is genuinely a different kind of control: it decides
    * what gets *fetched* — questions, or every live bead — while the picker decides
    * which repo any of it is about. Two axes, and only one of them belongs to the whole
-   * app. What has changed is that it no longer costs a permanent row: it shares the
-   * hover-open panel the kinds left behind (public/inboxfilter.js), because two
+   * app.
+   *
+   * It spent a while inside the panel the kinds left behind, on the argument that two
    * collapsing controls side by side would be the three rows again with extra steps.
+   * That was the wrong trade and bc-khoe.24 undoes it. This is the one control on the
+   * page that decides what Home is *able to contain* — `human` sweeps the questions,
+   * `agent` the live beads, `both` does both — so a screen that is empty because the
+   * scope is wrong is a screen whose cause was behind a line nobody opened. It is three
+   * chips on the row now, in front of what is left of the panel, and the armed one is
+   * legible without reaching for anything. `hidden`/`text` are not in play here: three
+   * options, one always armed, and every scope reachable from every other.
+   *
+   * The descriptor is unchanged, because filterpills.js takes the same one filtermenu.js
+   * does. Moving it was editing which list it is in.
    */
   const scopeGroup = {
     id: 'scope',
@@ -4849,11 +4867,14 @@
     f.survey({ kinds: kindsForScope(), counts, sub: { status } });
   }
 
-  /** Chips and the one line above them, repainted in place. Never rebuilds the panel. */
+  /** Chips and the one line beside them, repainted in place. Never rebuilds either. */
   function renderFilters() {
-    // Hidden only if the control never mounted — an empty nav with padding in it is a
-    // gap above the list that nothing explains.
+    // Hidden only if neither control mounted — an empty nav with padding in it is a
+    // gap above the list that nothing explains. Either one is enough: since bc-khoe.24
+    // the row holds the scope switch as well as the collapsed panel, and a page served
+    // without inboxfilter.js still has a scope to say which slice it is showing.
     filtersEl.hidden = !filtersEl.firstElementChild;
+    window.beadcause?.filterPills?.paint?.();
     window.beadcause?.inboxFilter?.paint?.();
   }
 
@@ -8968,14 +8989,19 @@
   /* ---------------------------------------------------------------- scope */
 
   /**
-   * Move the armed scope chip, and the line above it, without rebuilding the panel.
+   * Move the armed scope chip, and the summary line beside it, without rebuilding
+   * either control.
    *
    * The chips are painted by renderFilters(), but the switch below clears the list and
    * waits on `bd` rather than rendering — so on the tap itself there is nothing to
-   * repaint them. The control's own `paint()` also touches nothing structural, which
-   * is what lets it be called while the panel is open under a pointer.
+   * repaint them. Both `paint()`s touch nothing structural, which is what lets them be
+   * called while the panel next door is open under a pointer.
+   *
+   * Two calls since bc-khoe.24: the scope is a switch on the chrome (filterPills) and
+   * the panel behind it still has a line that has to keep up (inboxFilter).
    */
   function paintScope() {
+    window.beadcause?.filterPills?.paint?.();
     window.beadcause?.inboxFilter?.paint?.();
   }
 
@@ -9878,26 +9904,30 @@
   }
 
   /**
-   * Build the filter control, once, before the first fetch answers.
+   * Build the filter controls, once, before the first fetch answers.
    *
-   * Early on purpose: the line that says which slice you are looking at has to be on
+   * Early on purpose: the control that says which slice you are looking at has to be on
    * screen while `bd` is still being asked, which is exactly when a wide scope makes
-   * the wait long enough to wonder. The scope and the bead box are handed over; the two
-   * sub-filters are the control's own — see public/inboxfilter.js — so they share one
-   * panel instead of stacking two rows. **The kinds are not in here any more**: since
-   * bc-khoe.2 they are the pill row above, and what selecting one does still arrives
-   * back through `onChange` below, exactly as a chip's tap used to.
+   * the wait long enough to wonder.
    *
-   * A page served without the file still works: `renderFilters` and `inKind` both fall
-   * back to doing nothing, which is the unfiltered list this page has always drawn.
+   * **Two controls share the row, and which one a group goes in is the whole of
+   * bc-khoe.24.** The scope is a switch on the chrome (public/filterpills.js): it
+   * decides what gets fetched at all, so it is never behind anything. The bead box stays
+   * in the collapsed panel with the two sub-filters, which are the control's own — see
+   * public/inboxfilter.js. **The kinds are in neither**: since bc-khoe.2 they are the
+   * pill row above, and what selecting one does still arrives back through `onChange`
+   * below, exactly as a chip's tap used to.
+   *
+   * The panel is mounted first because filtermenu.js replaces the host's children and
+   * the pills prepend themselves in front of it; see `mount` in public/filterpills.js.
+   *
+   * A page served without either file still works: `renderFilters` and `inKind` both
+   * fall back to doing nothing, which is the unfiltered list this page has always drawn.
    */
   function mountFilters() {
     const f = window.beadcause?.inboxFilter;
-    if (!f) return;
-    f.mount(filtersEl, {
-      // The scope first, then the bead box: coarsest to narrowest, which is also the
-      // order the panel reads top to bottom.
-      groups: [scopeGroup, beadGroup],
+    f?.mount(filtersEl, {
+      groups: [beadGroup],
       // This page's half of "is the list narrowed". A picked bead hides most of the
       // screen, and the summary pill has to go bold over it like it does for everything
       // else. The kinds no longer contribute — the lit pill is where that is admitted
@@ -9914,7 +9944,13 @@
         loadBoard();
       },
     });
-    f.survey({ kinds: kindsForScope() });
+    // In front of the panel, and after it: see the note above about who replaces whose
+    // children. The scope is its own group and nothing else is on the row yet —
+    // bc-khoe.26 is what moves the bead box and the two sub-filters out here beside it.
+    window.beadcause?.filterPills?.mount?.(filtersEl, { groups: [scopeGroup] });
+    f?.survey({ kinds: kindsForScope() });
+    // Whichever of the two mounted is what unhides the row.
+    renderFilters();
   }
 
   bootToken();

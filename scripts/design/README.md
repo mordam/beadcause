@@ -163,6 +163,34 @@ Three things it must get right, each a way the naive version lies:
 Findings group by rule, not by card: one rule is wrong everywhere it is drawn, and fifty
 rows saying `.subtitle` is thin is one finding.
 
+**It exits non-zero when anything is under AA** (bc-15tu), which it did not before: it
+printed its findings, returned 0, and the rules it had already named stayed in the sheet
+while a bead carried them around instead. A check nothing can fail is a check nothing runs,
+and this one is cheap enough — one Chrome, 77 cards, both themes — to be run before any
+push that touches colour. `--all` is exempt: that mode is for reading the ratios of rules
+that pass, and it is not asking a question.
+
+**A card's own furniture is excluded, and its prose along with it.** `.ds-stack` and
+`.ds-label` wrap the app's markup, so only the wrapper is skipped and its children are
+still the component. `.ds-note` is different — it is the card's commentary, so everything
+inside it is skipped too. That half was missing, and it read as a real finding: a note
+carrying `<a href="#">` gives the anchor no class, the sliced sheet has no element rule
+for one, and the UA's default blue measured 2.05:1 on the dark page. A failing rule the
+app does not have is worse than no audit at all, because it is the one you learn to
+scroll past. It is also why the run measures around 1,300 text runs rather than the 1,660
+it used to — the difference is `<b>`, `<code>` and `<a>` inside the notes, which were
+never the app.
+
+**What no card draws, this cannot measure.** `.pr-stage.st-live` was under AA in the light
+scheme for as long as the rules bc-15tu was filed for, and never appeared in a single run:
+the pills card drew `pill st-live` where public/prcard.js draws `pill pr-stage st-live`, so
+the colour rule never matched, the card showed a grey pill, and the audit measured
+`--muted` and passed it. That is the hazard of a strict slice — markup that forgets a class
+produces a card that looks wrong *and* an audit that reports nothing — and it is worse than
+`coverage.mjs` can currently see, because coverage is decided one class at a time and both
+halves of that selector were covered separately. bc-ka5y.16 is the general form. The rule
+from the top of this file is the first defence: **markup is copied, never invented.**
+
 ## The regression baseline
 
 ```sh
