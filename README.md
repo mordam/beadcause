@@ -18106,7 +18106,9 @@ answered out of memory; one that spawned something paid for it. That needs no ed
 cache's call site, and it is honest about the case that matters — a miss is a miss whether
 the code around it thinks of itself as cached or not. A route that knows better can say so
 (the stale-while-revalidate layer answers from memory *and* refreshes behind it, and filed
-as cold it would make the fastest kind of request there is look like the slowest).
+as cold it would make the fastest kind of request there is look like the slowest). When
+several reads in one request each say something different, [the coldest one
+wins](#a-request-is-as-cold-as-its-coldest-read).
 
 **Nothing had to be threaded through for the subprocess half**, which is why it is an
 `AsyncLocalStorage` and not a parameter. `bd` is called from a few hundred places and they
@@ -18156,6 +18158,57 @@ child, so it is *warm* by the derivation — and it has no cold samples at all. 
 the list on the cold p95 would have dropped the only genuinely slow route on that page
 out of the one list whose job is to name slow routes. The list has always been the worse
 of the two; for a while the heading over it said `cold p95`, which is what bc-fg37 fixed.
+
+### A request is as cold as its coldest read
+
+The three words used to be a scalar that each read overwrote, which is exactly right
+while a route reads one key — and it stopped being right the moment the routes this
+instrument exists to judge began fanning out. One `/api/questions` calls the shared cache
+about **thirty** times: `questions:`, `foundation:` and `agentbeads:`, once each per
+workspace, and there are eleven workspaces on this Mac. They go out under one
+`Promise.all`, so thirty writes to one field landed in whatever order they came home in,
+and the word that survived was whichever read finished last.
+
+**A single request mixing temperatures is the designed state here, not an edge case.**
+The change detector re-sweeps `questions:` on its own tick with `refresh: true`, so the
+daemon keeps that key warm without any request paying for it — and `foundation:` and
+`agentbeads:` have no such tick and stand on the ten-second window alone. So the ordinary
+`/api/questions` is eleven warm reads racing twenty-two that may be cold, and which of
+the three families got to name the request was a coin toss.
+
+What that produced, off the live daemon on 2026-08-17:
+
+```
+[beadcause] slow GET /api/questions 47842ms stale — 47402ms of it waiting on 4 child process(es) (bd 86977ms of work), ours 440ms
+[beadcause] slow GET /api/questions 18419ms stale — 18364ms of it waiting on 4 child process(es) (bd 22857ms of work), ours 55ms
+```
+
+Those lines cannot be true. A stale hit answers out of memory and starts its refresh
+`detached`, so it is *incapable* of spending forty-seven seconds of the request's own
+wall clock — the number and the word next to it describe different requests. What
+actually happened is that the request paid a cold producer on at least one key and was
+then relabelled by a warmer read that came home later.
+
+**The direction is what makes it worth a fix rather than a footnote.** The mislabelling
+runs the flattering way: it moves the *worst* samples out of `cold` and into `stale`, the
+column this page calls the fastest kind of request there is. `overBudget` is filtered on
+those buckets, so the fan-out that made a route slow was also what excused it — and every
+figure quoted on this P0's children between the shared cache landing and this being fixed
+was read off them. Suspect in a known direction, which is worse than noisy.
+
+So `cache()` escalates instead of assigning: **cold beats stale beats warm**, and a read
+can only ever lower the temperature the request already holds. One comparison, no new
+field, and it says the honest thing — a single cold key in a fan-out *is* what the user
+waited for. It is done there rather than by having `allQuestions` report once at the end
+because the same shape is behind `/api/work` (`work:` per workspace) and `/api/prs`
+(`board:` plus `prs:` per checkout), and a per-caller fix would have to be re-derived at
+each of them and again at the next one. It does not touch the derivation: a route that
+declares `warm` is still believed over a subprocess count that would derive `cold`.
+
+**Expect the numbers to get worse on the day this lands, and that is the bug leaving.**
+Every fanned-out route moves samples back from `stale` into `cold`, so figures quoted
+before it are not comparable with figures quoted after — the earlier ones were flattered.
+Nothing about the app got slower.
 
 ### What it found the first time it ran
 
