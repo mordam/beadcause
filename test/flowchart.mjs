@@ -122,8 +122,19 @@ check('the agents that may write are the ones that should', () => {
   // `main` and closes two beads. It is pinned here rather than waved through because a
   // list that grows whenever somebody adds a foundation is not a guard — the point of
   // spelling the set out is that adding to it has to be a deliberate edit to this line.
+  //
+  // `review-advocate` is the fifth, and it is on this list for dispatch's reason rather
+  // than the merge queue's: its whole output is a verdict written as a comment on the
+  // merge-bead, and an agent whose document has nowhere to be written is an agent that ran
+  // and left nothing. What it may *not* do is the part worth pinning — no `bd create`, no
+  // `bd close`, no label verb, no push and no merge — and test/reviewadvocate.mjs is where
+  // that is asserted one verb at a time.
   const writers = map.agents.filter((a) => a.writes).map((a) => a.id).sort();
-  assert.deepEqual(writers, ['dispatch', 'epic-advocate', 'merge-advocate', 'worker'], `writers are now: ${writers.join(', ')}`);
+  assert.deepEqual(
+    writers,
+    ['dispatch', 'epic-advocate', 'merge-advocate', 'review-advocate', 'worker'],
+    `writers are now: ${writers.join(', ')}`
+  );
   assert.equal(map.agents.find((a) => a.id === 'advocate').writes, false, 'the repo advocate may not invent work');
   assert.equal(map.agents.find((a) => a.id === 'console').writes, false, 'the chat session is the review step');
 });

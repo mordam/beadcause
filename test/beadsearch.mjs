@@ -65,7 +65,7 @@ const BEADS = [
   { id: 'bc-0xil.1', title: 'The typeahead itself', status: 'open', workspace: 'beadcause' },
   { id: 'bc-0xil.2', title: 'The pill and its X', status: 'closed', workspace: 'beadcause' },
   { id: 'bc-0xil.10', title: 'The tenth child', status: 'open', workspace: 'beadcause' },
-  { id: 'bc-rfnr', title: 'The P0 board', status: 'open', workspace: 'beadcause' },
+  { id: 'bc-rfnr', title: 'The epic board', status: 'open', workspace: 'beadcause' },
   { id: 'sp-9a2', title: 'A hero opening that mentions 0xil in prose', status: 'open', workspace: 'sophab' },
   { id: 'bc-qid9', title: 'What a picked bead filters to', status: 'open', workspace: 'beadcause' },
 ];
@@ -594,11 +594,11 @@ await check('app.js mounts the box in the same panel as the kinds', () => {
   assert.match(app, /narrowed: \(\) => beadPicked\(\)/, 'the summary pill would stay quiet over a narrowed list');
 });
 
-await check('a picked bead replaces the P0 board’s narrowing rather than stacking on it', () => {
+await check('a picked bead replaces the epic board’s narrowing rather than stacking on it', () => {
   // Stacked, a search for a bead under somebody else's P0 — most of them — would answer
   // with an empty list and a pill on screen naming the bead it was hiding.
   const app = read('public/app.js');
-  assert.match(app, /const inBoard = beadPicked\(\) \? inBead\(inRepo\) : underOwnedP0s\(inRepo\)/);
+  assert.match(app, /const inBoard = beadPicked\(\) \? inBead\(inRepo\) : underOwnedRoots\(inRepo\)/);
 });
 
 await check('the empty state names the bead rather than sending you after the wrong control', () => {

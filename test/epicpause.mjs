@@ -93,7 +93,7 @@ const row = (id, over = {}) =>
 /**
  * A child row, with the parent edge written out.
  *
- * The dotted id is not enough here and that is not a fixture detail: `hasP0Above` walks
+ * The dotted id is not enough here and that is not a fixture detail: `hasRootAbove` walks
  * `index.parents`, which `indexFrom` builds from the dependency rows of the export, so a
  * child with no edge is an orphan and `withoutOrphans` takes it out of the queue before
  * anything in this file is reached. `withoutPausedEpics` reads the id instead, because it

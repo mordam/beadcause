@@ -77,16 +77,16 @@ const bead = (id, title) => ({
 });
 
 // One question, and it hangs off the P0 — with a board on, the list below it is that
-// P0's descendants and nothing else (`underOwnedP0s`), so a row that is not under one
+// P0's descendants and nothing else (`underOwnedRoots`), so a row that is not under one
 // would leave the screen looking broken for a reason that has nothing to do with this.
 const QUESTIONS = [{ ...toQuestion(WS, bead(`${P0}.1`, 'A child of the epic')), space: 'Work', comments: [] }];
 
-/** The card, as `p0Card` in lib/server.js builds it. `advocate` is what this file drives. */
+/** The card, as `rootCard` in lib/server.js builds it. `advocate` is what this file drives. */
 let advocate = null;
 const board = () => ({
   owned: true,
   under: { [`${WS}/${P0}.1`]: P0 },
-  p0s: [
+  roots: [
     {
       key: `${WS}/${P0}`,
       workspace: WS,
@@ -127,7 +127,7 @@ function serve() {
         workspaces: [WS],
         spaces: [{ name: 'Work', workspaces: [WS], quiet: false, muted: false, count: 1 }],
         filter: { space: 'all', workspace: 'all' },
-        p0board: board(),
+        rootboard: board(),
         summary: { sessions: 0, proposals: 0 },
         scope: 'human',
       });

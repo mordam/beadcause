@@ -139,7 +139,7 @@ const README = fs.readFileSync(path.join(HERE, '..', 'README.md'), 'utf8');
  * Table rows only — `| GET | \`/api/x\` | … |` — rather than every mention of a path in
  * 4,800 lines of prose. A route argued about in a paragraph is not a documented one.
  *
- * **Digits are in the path class**, and were not until `/api/p0s` (bc-rfnr.7). The
+ * **Digits are in the path class**, and were not until `/api/roots` (bc-rfnr.7). The
  * failure was the wrong way round and worth naming: a path this pattern cannot match is
  * one the README can never document, so the check failed on a row that was *there* and
  * would have gone on failing however the table was edited. A scan that can only see part

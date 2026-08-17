@@ -209,10 +209,10 @@ const getJson = async (p) => {
 async function boardWhenWarm() {
   for (let i = 0; i < 60; i += 1) {
     const payload = await getJson('/api/questions');
-    if ((payload.p0board?.p0s || []).length) return payload;
+    if ((payload.rootboard?.roots || []).length) return payload;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error('the P0 board never warmed up — no p0s after six seconds of asking');
+  throw new Error('the epic board never warmed up — no roots after six seconds of asking');
 }
 
 console.log('\na P0 card carries its own tree\n');
@@ -220,7 +220,7 @@ console.log('\na P0 card carries its own tree\n');
 try {
   const cold = await getJson('/api/questions');
   const payload = await boardWhenWarm();
-  const [card, ...rest] = payload.p0board.p0s;
+  const [card, ...rest] = payload.rootboard.roots;
   const tree = card.tree || [];
   const byId = new Map(tree.map((r) => [r.id, r]));
 
@@ -228,8 +228,8 @@ try {
     // The `wait: false` contract, and the state the client already reads as "do not
     // narrow anything". If this ever starts arriving warm, the export moved onto the
     // request path and bc-1kwl's page budget went with it.
-    assert.equal(cold.p0board.owned, true, 'the board is off entirely — cfg.me did not take');
-    assert.deepEqual(cold.p0board.p0s, [], 'the first payload waited for the tracker');
+    assert.equal(cold.rootboard.owned, true, 'the board is off entirely — cfg.me did not take');
+    assert.deepEqual(cold.rootboard.roots, [], 'the first payload waited for the tracker');
   });
 
   await check('the board is the P0s you own, and each one carries a tree', () => {
@@ -243,7 +243,7 @@ try {
     // Before this rule it drew a card indistinguishable from the one above it, and 42 of
     // them drew a screen you scroll rather than a week you read.
     assert.deepEqual(
-      payload.p0board.p0s.map((c) => c.id),
+      payload.rootboard.roots.map((c) => c.id),
       ['zz-p0'],
       'an unstarted P0 is still on the board'
     );
@@ -256,9 +256,9 @@ try {
     // at all", which is false here: zz-later is open. Marking it would put the row back on
     // the screen through the map that exists for beads nobody has homed, which is both a
     // lie about the tracker and this feature quietly not working.
-    assert.equal(payload.p0board.under['alpha/zz-later.1'], undefined, '`under` still names a P0 that is off the board');
+    assert.equal(payload.rootboard.under['alpha/zz-later.1'], undefined, '`under` still names a P0 that is off the board');
     assert.equal(
-      payload.p0board.unhomed['alpha/zz-later.1'],
+      payload.rootboard.unhomed['alpha/zz-later.1'],
       undefined,
       'a row under an unstarted P0 of yours was reclassified as having no P0 above it'
     );
@@ -274,8 +274,8 @@ try {
       tree.map((r) => r.id),
       ['zz-p0.1', 'zz-p0.1.1', 'zz-p0.10', 'zz-p0.2']
     );
-    assert.equal(payload.p0board.under['alpha/zz-p0.1.1'], undefined, 'the row map has grown a row it should not have');
-    assert.equal(payload.p0board.under['alpha/zz-p0.10'], 'zz-p0', '`under` stopped answering for the rows that do exist');
+    assert.equal(payload.rootboard.under['alpha/zz-p0.1.1'], undefined, 'the row map has grown a row it should not have');
+    assert.equal(payload.rootboard.under['alpha/zz-p0.10'], 'zz-p0', '`under` stopped answering for the rows that do exist');
   });
 
   await check('it nests in one pass: pre-order, a parent on every row, a depth on every row', () => {
@@ -325,7 +325,7 @@ try {
     // the app's one unforgivable failure — a question on a screen that will not show it.
     return getJson('/api/questions?scope=agent').then((agentScope) => {
       assert.deepEqual(agentScope.questions, [], 'this scope is supposed to sweep no questions');
-      const same = agentScope.p0board.p0s[0].tree.find((r) => r.id === 'zz-p0.10');
+      const same = agentScope.rootboard.roots[0].tree.find((r) => r.id === 'zz-p0.10');
       assert.equal(same.pending, true, 'the bead waiting on you went quiet when the scope changed');
     });
   });
@@ -349,8 +349,8 @@ try {
     // beta's cards and nothing else — a board that threw here would take the inbox with
     // it, on the one payload the phone parks on.
     assert.ok(exportsIn('beta') > 0, 'beta was never asked, so this proves nothing');
-    assert.deepEqual(payload.p0board.p0s.map((c) => c.workspace), ['alpha']);
-    assert.equal(payload.p0board.owned, true);
+    assert.deepEqual(payload.rootboard.roots.map((c) => c.workspace), ['alpha']);
+    assert.equal(payload.rootboard.owned, true);
     assert.ok(Array.isArray(payload.trouble), 'a repo that could not be read says so somewhere');
   });
 
@@ -360,7 +360,7 @@ try {
     const before = exportsIn('alpha');
     return getJson('/api/questions').then((again) => {
       assert.equal(exportsIn('alpha'), before, 'the tree was rebuilt from the tracker on the request path');
-      assert.equal(again.p0board.p0s[0].tree.length, tree.length, 'the second repaint drew a different tree');
+      assert.equal(again.rootboard.roots[0].tree.length, tree.length, 'the second repaint drew a different tree');
     });
   });
 } finally {

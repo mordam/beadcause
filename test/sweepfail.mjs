@@ -315,6 +315,11 @@ const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
 const port = await boundPort(servers);
 const call = async (pathname) => {
+  // The whole suite is about what one sweep sees, and every check here calls `plan()`
+  // to change what `bd` does next — so this must never answer from lib/cache.js's kept
+  // rows (bc-1kwl.7). Real requests get a warm answer for free; this one is testing the
+  // read underneath it.
+  app.forgetInbox();
   const res = await fetch(`http://127.0.0.1:${port}${pathname}`, {
     headers: { 'x-beadcause-token': cfg.token },
   });
