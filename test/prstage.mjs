@@ -225,12 +225,18 @@ console.log('\nthe tab that went, and the pill that came back');
    scrolls sideways and holds roughly nine pills, so a view costs one of them rather than
    a fifth of the screen's width. What is asserted here is the shape either way — one
    entry, in one table, pointing at all three of the board's paths. */
-await check('the pill row has a PRs pill, and it is the board’s three paths', () => {
+await check('the row still has a PRs pill, and the board’s three paths are still on it', () => {
+  // Both halves of this moved in bc-khoe.2 and the check is about the half that did not.
+  // `PRs` is a *kind* pill now — the pull requests and the finished branches in Home,
+  // not the board page — and the board's three paths went to the Advocates pill, which
+  // is the pill that points at the page they actually serve. What must not happen is
+  // either of them going missing: a `PRs` label with nothing behind it, or three paths
+  // that light no pill at all on a page you are plainly looking at.
   const bar = read('public/viewbar.js');
   const ids = [...bar.matchAll(/^\s*\{?\s*id: '(\w+)'/gm)].map((m) => m[1]);
-  assert.ok(ids.includes('prs'), `the row has no PRs pill: ${ids.join(', ')}`);
-  assert.ok(ids.includes('inbox'), `the row lost Home: ${ids.join(', ')}`);
-  assert.match(bar, /paths: \['\/prs', '\/pulls', '\/prs\.html'\]/, 'the pill does not answer to all three paths');
+  assert.ok(ids.includes('pr'), `the row has no PRs pill: ${ids.join(', ')}`);
+  assert.ok(ids.includes('epics'), `the row lost Home: ${ids.join(', ')}`);
+  assert.match(bar, /'\/prs', '\/pulls', '\/prs\.html'/, 'the board’s three paths light no pill');
   // And nothing is left of the bar that used to hold it.
   assert.ok(!fs.existsSync(path.join(ROOT, 'public/tabbar.js')), 'public/tabbar.js is back');
   assert.ok(!fs.existsSync(path.join(ROOT, 'scripts/tabbar-check.mjs')), 'scripts/tabbar-check.mjs is back');
