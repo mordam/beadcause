@@ -1418,6 +1418,65 @@ thread — the repeat finishes the close rather than saying the same sentence tw
 the newest, and only an exact match: the same words six comments up are a real answer,
 and `lib/answered.js` is what tells you about that on the card.
 
+##### And a zero exit is not a close
+
+Everything above is about a refusal — a sentence on stderr and a non-zero exit, which is
+something a caller can read, log, owe and retry. **bc-q6qc is the case where there is no
+sentence at all.** `bc-3muu.12` merged as #339, took the comment `finish` writes
+immediately before its close, and sat `in_progress` for a day. There was no `[bd] …
+closing over the claim guard` line, so nothing forced; no `[merge-queue] … but the work
+bead did not close` line and an empty `owed-closes.json`, so nothing threw. All three are
+written by code either side of that one call, and their absence is the measurement: `bd
+close` came back **0** and the row did not move. The merge-queue card said `merged 1`,
+the bead carried a comment saying it had merged, and the bead was open. That is bc-ec6's
+failure class — every layer reporting a close it never had — and it is the expensive one,
+because an assigned open bead is skipped by `bd ready`, so nothing crashes and nothing
+re-opens; the tracker just fills with landed work that reads as in flight.
+
+So the close is **asked about** rather than assumed. `Bd.assertClosed` reads the row back
+after every close — the plain one and the forced one alike — and throws if the bead is
+still live, which turns the invisible ending into the one all five call sites already
+handle: logged, written to `owed-closes.json`, and said on the bead in bd's own words. One
+`bd show` per merge is the whole price. `bin/deliver.js` carries the same check because it
+is a separate process shelling out to `bd` synchronously, and imports `LIVE_STATUSES` from
+lib/bd.js rather than restating it, so the two cannot disagree about what counts as open.
+
+**The sixth path — the answer — deliberately does not have it yet.** Not because the lie
+would be smaller there but because the *consequence* is: a question whose close silently
+did not happen stays in the inbox with its answer on the thread, which Adam sees within
+the hour and which `Bd.answerOnce` and `lib/answered.js` are both already built to
+survive, where a delivery's failure is invisible by construction. What it costs to change
+is honest fixtures in five suites whose fake `bd` serves a fixed row still reading `open`
+after closing it — which is worth doing, and is `bc-2uj4.8` rather than a doubled diff
+here.
+
+Two things it deliberately does **not** do, and both are the same instinct as the rest of
+this section:
+
+- **It never forces.** A refusal bd can explain buys a `--force`; a close bd said nothing
+  about is a close nobody can explain, and forcing would be a guess that also lifts open
+  children, live blockers and the epic gates. A silent non-close leaves as an *owed*
+  close instead. Closed, or loudly owed — never silently open.
+- **It fails towards believing the close.** A tracker that will not answer the `show`, a
+  row that has been renamed away, a status this codebase has never heard of: none of
+  those is evidence that the close did not happen. `LIVE_STATUSES` therefore names what
+  is **open** rather than what is done, because bd's done state is configurable and a
+  list of closed words would read a workspace using its own as an open bead — turning
+  every successful close there into a landed bead retried out of `owed-closes.json`
+  every thirty seconds for ever. An unfamiliar status reads as closed, which can only
+  ever miss this bug rather than invent it.
+
+The bead also proposed widening `isClaimGuard` to bd's other wording for a held claim —
+*held by "…" (in_progress); coordinate with the holder* — on the theory that a close had
+come back that way. **It had not.** Measured against bd 1.2.1: a close refused over a
+claim says *assignee is / actor is*, whether the bead is flat or dotted, whether it is a
+child of an epic, and whether the lease is live or six minutes expired; the *held by*
+sentence belongs to `bd update --assignee`, which is a reassign and not a close. The
+alternation is in the regex anyway, anchored on `cannot close` and on a quoted holder
+followed by `(in_progress)`, because it costs nothing and this exact sentence has already
+been reworded once (bc-9d37.12) — and because so anchored it cannot reach any of the
+refusals `--force` must never be reached for. `test/closeverify.mjs` pins both halves.
+
 The last three rows of the table are the exception to every sentence above — the two
 where beadcause refuses what bd closes, and the one underneath them that says what is
 *not* refused — and the section below is about them.
