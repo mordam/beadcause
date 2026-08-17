@@ -2963,6 +2963,15 @@ quoting the brief has ever run.** From outside, "told and declined" and "never t
 look identical, which is the same lesson as the roster command nobody ran, one level
 further out: there the brief did not name the capability, here the brief did not arrive.
 
+**It arrived the next day, and the measurement above is the reading of 2026-08-11 rather
+than the state now.** The `architecture` advocate surveyed on 2026-08-12, so there is one
+`<workspace>_advocate.log` on disk and one advocate memory in the store — and what that
+one memory says is *"treat the empty-queue claim as a hypothesis"*, which is the survey
+having been handed a premise it could disprove. See [the premise the survey could disprove
+in one command](#the-premise-the-survey-could-disprove-in-one-command). Nothing about the
+paragraph above is wrong except its tense: a silent agent still needs its code path
+checked before anything is read into the silence.
+
 ### Reading another agent, without being able to be one
 
 ```
@@ -11101,10 +11110,10 @@ even entered, and every one of them is a filter somebody added for its own incid
 - **it has no window open on this repo**, because an advocate that proposed new work
   while it was doing old work would be doing the easy half of its job;
 - **`bd ready` is empty** of anything it could take;
-- **and empty for no *reason*** — none of the eight holds fired. A queue emptied by a
+- **and empty for no *reason*** — none of the nine holds fired. A queue emptied by a
   hold is not a clear one: `heldByChildren`, `heldByRepo`, `heldByTwin`, `heldByPr`,
-  `heldByLive`, `heldByLease`, `heldByClaim` and `heldByNoP0` each stand for work that
-  *is* there and cannot be started yet, and an advocate that said "clear" over one and
+  `heldByLive`, `heldByLease`, `heldByClaim`, `heldByNoRoot` and `heldByPause` each stand
+  for work that *is* there and cannot be started yet, and an advocate that said "clear" over one and
   then filed new beads beside it would be burying the one sentence that says what to
   fix. This is the condition that does most of the stopping, and the card says which:
   *"nothing ready · 1 already in an open pull request"* is not the same sentence as
@@ -11140,6 +11149,63 @@ a time — a worker, a hold, the pause, the cooldown, the switch — and asserts
 The positive case is the point: `test/repoqueue.mjs` already covers a queue that must
 *not* propose over itself, and a gate only ever tested shut cannot tell "correctly
 closed" from "welded shut".
+
+### The premise the survey could disprove in one command
+
+Everything above is what the daemon means by an empty queue. What the survey agent was
+*told* was something else, and much simpler: *"Your queue is empty: there is no ready
+work left in this repo's beads tracker."*
+
+That is a claim about the tracker, and the tracker is one command away. The survey's `bd`
+is the read-only half but `bd ready` is very much in it, so the first thing the agent can
+do is check — and on the one real survey this Mac has run, it did. Its third line was
+*"The stated premise — an empty queue — doesn't match reality here; there are 49 ready
+beads"*; its write-up to Adam opened *"First, the premise was wrong."* It then spent its
+opening moves re-deriving what the daemon was already holding, and wrote itself a
+cross-repo memory — `advocate.verify-the-empty-queue-premise`, *"treat the empty-queue
+claim as a hypothesis"* — which is the prompt teaching an agent to distrust its own brief.
+That is a worse outcome than a vague sentence, because it generalises: the next survey
+arrives suspicious of everything else it is told too.
+
+**The premise was not even close, and the reason is that two of the subtractions are
+invisible from the agent's side.** `Bd.ready` forces the `QUEUE_EXCLUDED` labels on every
+caller — `human`, `unendorsed`, `ship`, `container`, plus anything marked
+`superseded-by:<id>` — and then `minPriority` takes out the backlog. The agent's own
+`bd ready` applies neither. On a tracker fed from JIRA, where every ingested ticket
+arrives `unendorsed` (see [an epic per ticket](#an-epic-per-ticket--filed-once-forever-and-held)), that
+gap is most of the graph. So *"no ready work left in the tracker"* is false whenever the
+queue was emptied by a filter rather than by the work being done — which is most of the
+time.
+
+So the sentence now claims only what is true — **my** queue is empty, after the filters —
+and the gap between the two lists is handed over rather than left to be discovered.
+`queueBrief` in lib/advocate.js is that paragraph: it names the four labels and why each
+one is not work, gives the priority floor with the number of beads sitting under it, and
+predicts the disagreement outright — *"your own `bd ready` will not agree with me … it is
+not a contradiction of this brief, so do not spend your opening moves proving it wrong"*.
+
+**It carries the counts, and that is what turns an apology into the most useful paragraph
+in the prompt.** A survey that knows thirty-seven beads are waiting on your endorsement
+can say *that* — or `bd label add` one of them to your inbox — instead of proposing a
+thirty-eighth beside them, which is a better answer to "is this genuinely finished" than
+anything it would have found by grepping. The two numbers come from `Bd.readyHeld` and
+`Bd.readyShip`, the same narrow calls the [monitor's ready count](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time) already uses;
+they are free here, where a screen refreshing every twenty seconds could not afford them,
+because a survey runs at most once per `proposeCooldownHours` and immediately precedes a
+ten-minute agent. Both are allowed to fail, and a failure costs the paragraph its numbers
+rather than the survey its run — `null` and `0` are kept apart all the way down, because
+*"nothing is waiting on you"* is a claim and *"I could not ask"* is not.
+
+**The nine holds get the opposite treatment: a promise rather than a list of zeros.** They
+are always empty when a survey runs — that is the gate two sections up — so the brief says
+so in one sentence and tells the agent nothing is hiding behind them, which is worth more
+than nine lines reading `0`. It is derived rather than asserted: `queueBrief` reads the
+lists, and a future caller reaching it without that gate would get the counts instead. The
+hold names live in one exported table, `QUEUE_HOLDS`, and `test/surveybrief.mjs` fails the
+repo for any `heldBy*` field of the agent record that has no row in it — so a tenth hold
+filter is a red test rather than a hold the survey is silently never told about. The bead
+that asked for this said "eight"; `heldByPause` had been added in between, and the list in
+this very section still said `heldByNoP0` after it was renamed.
 
 ### What you see, and where
 
