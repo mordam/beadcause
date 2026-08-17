@@ -5078,6 +5078,59 @@ order.
 `<button>` anywhere in `public/app.js` answers to the act any more — a second emitter of
 it would be the old control grown back somewhere else in the file.
 
+### And the card says it heard you before the brief arrives
+
+Opening a card is a fetch. `expand()` asks `/api/question` — or `/api/bead`, for a read-only
+agent bead — and only *when that comes back* does it open the card and repaint. On a laptop
+beside the daemon that is invisible. On a phone on a train it is a card that sits there
+doing nothing for a second, and **a tap with nothing to show for itself is a tap people
+make again**: the press tint above lasts exactly as long as the finger is down, so the
+moment it lifts there is no evidence the app heard anything at all. The second tap then
+lands on the card as it opens, on whatever is now under the thumb.
+
+So the tap is answered at once, by the card itself. `.card.opening` is a ring around the
+card it was tapped on, put on inside the tap's own handler — before the request is even
+made — and taken off by the repaint that opens the card. Three things about it are the
+whole design:
+
+- **It cannot arrive late.** The class is written by `paintOpening()`, DOM surgery on the
+  one node, the same choice the ⋮ menu makes and for a sharper version of its reason: a
+  `render()` would rebuild the list to add one class, and the reconciler would then rebuild
+  that card a second time when the fetch landed. `state.opening` holds the key as well, so
+  a poll repainting the list mid-fetch paints the mark back rather than losing it with the
+  node it was written on — the division of labour `state.menu` already had.
+- **Nothing moves.** It is an outline at `outline-offset: -2px`, drawn inside the card's
+  own border box, so the box and the words on it are pixel-identical across the tap. The
+  [draft edge](#an-unsent-draft-outlives-the-page) is an inset shadow for the same reason,
+  and the difference in *shape* between the two is deliberate: an edge down the left is a
+  standing property of the row — you did not finish, the tracker refused — and a ring is
+  something happening to it right now. A card can wear both, which is the ordinary case
+  rather than a corner.
+- **A card that is already open in all but name never flashes it.** If the list row already
+  carries the thread, `expand()` fetches nothing — and with nothing to await, the mark is
+  set, cleared and the card redrawn inside the one event, which a browser cannot paint the
+  middle of. That is not a timing trick: it is why the clear lives in `expand()` immediately
+  before `openOnly()` rather than back at the tap.
+
+The mark is cleared **whether or not the fetch worked**, which is the failure this feature
+could newly introduce. `expand()` swallows both of its refusals and opens the card on what
+the list already knew, so a mark cleared only on success would sit lit on a card that had
+finished with it until the page was reloaded. Under `prefers-reduced-motion: reduce` the
+ring stays and its slow pulse stops — the animation starts *at* the full ring rather than
+fading up to it, so switching it off leaves exactly the first frame.
+
+It belongs to the two card kinds that actually wait: the question card and the read-only
+agent bead, which share the one `toggle` branch. A pull request row and a JIRA row answer
+to their own acts, and both of those already put the sheet up first and fetch underneath
+it — they never sat inert, so there is nothing to mark.
+
+`node test/cardpending.mjs` (part of `npm test`) holds the half a browser is not needed
+for: both renderers run for real, `paintOpening()` is driven over a hand-made list to prove
+a second tap *moves* the mark rather than adding one, and the style is read for anything
+that could shift a pixel. `node scripts/pending-check.mjs` is where the timing itself is
+proved, in a real Chrome against a deliberately slow fixture — the click is dispatched and
+the class counted inside one evaluation, so no frame can have gone by in between.
+
 ## What a question is blocking
 
 A question whose answer nothing is waiting on is just a question. One that blocks

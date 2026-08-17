@@ -1223,6 +1223,46 @@ body {
 */
 .card.has-failed:not(.open) { box-shadow: inset 3px 0 0 var(--danger); }
 
+/*
+  And the card you have just tapped, for as long as what it needs is still on the wire.
+  bc-jair.
+
+  A shut card is opened by `expand()`, which awaits `/api/question` or `/api/bead` and
+  only *then* redraws the list. Until it landed the tap had nothing at all to show for
+  itself — and a tap with nothing to show for itself is one people make again, which on
+  a question card is two taps racing to open the same brief. `.card[data-act]:active`
+  above says "your finger is here"; this says "and it went", for as long as that is
+  still true.
+
+  An outline where the two rules above are inset edges, and the difference in shape is
+  the difference in kind: those two are a standing property of the row — you did not
+  finish, the tracker refused — and this is a thing happening to the card right now.
+  It also means a card can wear both at once, which is the ordinary case rather than a
+  corner: tapping a card that holds a draft must not have to choose between saying so
+  and saying it heard you.
+
+  `outline-offset: -2px` puts the ring inside the border box, so nothing on the card
+  moves and nothing is cut off by `.card`'s own `overflow: hidden`. A border, or a
+  wider one, would shove the text sideways under the thumb that tapped it — the same
+  reason the draft edge above is a shadow.
+
+  The pulse starts *at* the ring rather than fading up to it, so the first frame the
+  browser paints after the tap is the whole mark however slow the fetch turns out to
+  be. That is also what lets reduced motion be one line: switch the animation off and
+  what is left is exactly that first frame, held.
+*/
+.card.opening:not(.open) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  animation: card-opening 1.4s ease-in-out infinite;
+}
+@keyframes card-opening {
+  50% { outline-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card.opening:not(.open) { animation: none; }
+}
+
 .card-head { padding: 14px 15px 0; }
 
 .meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 8px; }
