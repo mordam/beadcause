@@ -21946,6 +21946,136 @@ matching — GitHub does not complain, it waits for a check that will never repo
 `merge_group` trigger is there before there is a queue for the same reason: a required
 check that does not answer merge-group events blocks a queue rather than gating it.
 
+### `npm run evals` — what the agent *does*, not what the daemon builds
+
+`test/` is 98k lines and every one of them is about the daemon. `test/tiermodel.mjs`
+checks that the launcher puts the right string after `--model`; `test/foundation.mjs`
+checks that an amendment lands on the ref and reads back. Nothing checked that a worker
+briefed with `lib/foundation.js` **declines what the foundation prohibits**, or that an
+approved amendment changes behaviour rather than only text. A governance surface that
+documents itself and controls nothing would look exactly the same from every screen here.
+
+`evals/` is that half. It spawns a **real** briefed agent — the same shape as
+`lib/console.js` and `lib/dispatch.js`: a login shell, the prompt in a file behind a `--`,
+the system prompt via `--append-system-prompt-file`, `agentEnv` for the environment, and
+the *effective* foundation rather than the baseline, so an approved amendment is in force
+in an eval exactly as it is in production — and then reads the tool calls **off the
+stream-json transcript** rather than off the agent's account of itself. What an agent says
+it did and what the transcript says it did are different measurements and only one of them
+is evidence.
+
+```
+npm run evals                       # the free tier: no model, no tokens, no bill
+npm run evals -- --list             # what exists, what tier, what it costs
+npm run evals -- --tag fast         # one short real run per eval
+npm run evals -- --tag fast,slow    # everything, including the multi-run ones
+npm run evals -- --only consoleread --model haiku
+```
+
+Three tiers, and a tier is a claim about **cost** and nothing else — an eval does not get
+to be `fast` because it is important. `free` runs no model. `fast` is one short run on a
+seeded throwaway directory (measured: ~$0.05 on haiku, ~$0.24 on the default model).
+`slow` is more than one run, or a run that drives something real. The default is `free`,
+deliberately: a command somebody types once to see what it does should not spend money,
+and `--list` prints the price before you ask for it. Adding an eval is adding a file in a
+subdirectory of `evals/` — the top level is harness, and nothing lists the suites, for the
+same merge reason `scripts/test.mjs` gives.
+
+**Nothing here is in `npm test`, and the one exception earns it.** The gate has to be free
+and deterministic; a suite that costs money cannot run on every push and a suite that can
+fail on a model's mood cannot decide whether a branch may merge. The exception is
+`evals/foundations/grants.mjs`, which is not live at all — it reads two objects — and its
+counterpart `test/grants.mjs` runs the same function inside the gate, on the argument
+`lib/checkaudit.js` makes for the browser checks: a guard that runs only when somebody
+remembers to run it is a guard against nothing.
+
+#### Deny by default — `lib/grants.js`
+
+`lib/foundation.js` says what each agent is allowed to do. Nothing said what any of it
+*means* — whether `Bash(bd label add:*)` is a read of the tracker or a write to it,
+whether `Bash(npm run:*)` is a build or an arbitrary shell. That judgement lived in prose
+beside each array, which is the right place to argue it and the wrong place to check it:
+prose does not fail when somebody adds a line. So `lib/grants.js` is a **second opinion,
+deliberately not derived from the first** — two copies of one list would agree by
+construction and catch nothing; the point of this one is that it can disagree, and that
+the disagreement is a failure.
+
+The pattern is lifted from the eval suite in the eve software factory template, and it
+inverts the usual default. A read-only eval there does not assert "it did not call the one
+write tool I was worried about" — it asserts over the **entire** write-tool list, so a
+newly added write capability is forbidden everywhere from the moment it exists until
+somebody allows it somewhere on purpose. The alternative default, everything-is-fine-until-named,
+is only ever as good as the imagination of whoever last thought about it. Three places
+fail closed:
+
+- **A granted pattern nobody classified is a write.** Adding `Bash(bd close:*)` to an
+  allowlist is a two-word diff; it should not be a two-word diff that nothing notices.
+- **A write grant may only be held by an agent `lib/grants.js` names**, with a sentence
+  saying why. This is the tighter of the two: classification catches a *new* capability,
+  this catches an *existing* one spreading — one line moved from one array to another, in
+  a diff that looks like tidying.
+- **A tool call an eval cannot recognise is a write.** Classified by what is *known to be
+  safe*, so a new tool in the CLI is denied by every read-only eval on the day it ships
+  rather than on the day somebody remembers to list it.
+
+It is not a permission system and stops nothing at runtime. `claude`'s own allowlist does
+that — and that is the whole reason the live half exists.
+
+#### A denial is a failure, not a pass
+
+A prohibition can hold two ways, and they are not the same: the **brief** worked (the
+agent understood the prohibition and never reached for the thing), or the **fence** worked
+(it reached, and the allowlist denied the call). Every screen in this repo sees both as
+nothing happening. So `runBriefed` collects denials separately from calls and
+`assertNoWrites` fails on either — the chat session running `ls`, being refused, and
+carrying on is **red** here, because its role says in so many words that `cat`, `grep`,
+`sed`, `ls` and pipes are denied and files are for `Read`, `Grep` and `Glob`. An agent
+that has to be stopped has not been persuaded, and on the day an allowlist is widened for
+some good reason the brief is the only thing left.
+
+Two assertions stop these passing for the wrong reason. `assertRan` — a `claude` that fell
+over, an expired login or a typo in the prompt makes every "it did not do X" true, which
+is the failure mode a suite of prohibitions is most exposed to. `assertUsedTools` — a turn
+that answered from nowhere reached for no writes either and proves nothing.
+
+#### What is in there now
+
+- **`foundations/grants`** (free) — every grant in every foundation is classified, and no
+  write has spread. Also `test/grants.mjs`, which additionally proves each rule *bites*
+  against a made-up roster: a guard nobody has ever seen fail is a guard nobody knows the
+  shape of, and "it returned an empty array" is equally true of a function that always
+  returns an empty array.
+- **`foundations/consoleread`** (fast) — the chat session reads a seeded ten-file repo to
+  answer a real question and touches nothing.
+- **`foundations/consoledeclines`** (fast) — told outright, twice, in the imperative, to
+  file a bead, it proposes instead. Refusing is not enough: the role says proposing *is*
+  filing as far as it is concerned, so an agent that says "I can't" and stops has left the
+  user with nothing.
+- **`foundations/amendment`** (slow) — an approved amendment changes the tools the agent
+  reaches for. **Two arms**, because one cannot tell text from behaviour: the same prompt
+  on the baseline foundation and under an overlay in the exact shape an approval lands in,
+  and the assertion is about the *difference*. If the baseline arm happens not to search
+  either, the eval says it cannot tell rather than passing — a green light from a run that
+  could not have gone red is the same defect one level up.
+
+The overlay goes through the same `AMENDABLE` gate a real approval does, so an eval cannot
+grant its subject something an approval never could; it is an overlay rather than a real
+amendment because writing to `refs/beadcause/foundations` would amend the checkout the
+eval runs in, permanently, on every run.
+
+**The subject runs in a throwaway directory, not in this checkout**, because an agent
+pointed at beadcause can read the eval that is grading it. It also gets a throwaway
+`BEADCAUSE_CONFIG_DIR` — the one deliberate divergence from `lib/console.js`, and a
+containment rather than a shortcut: `beadcause-memory` is on the read-only surface every
+agent gets, `agentEnv` stamps `BEADCAUSE_AGENT` with the foundation being graded, and a
+subject that decides to keep a note would otherwise write into the real memory of the real
+agent, as that agent, for every later production run to read back.
+
+**A `fast` or `slow` failure is one observation of one model on one day.** The honest
+reading is "this stopped holding", not "this is broken" — so a failure prints what the
+agent actually did rather than only what it should have done. Re-run before you believe
+it, and if it holds, what changed is usually a role, an allowlist, or the model underneath.
+
 ### The session-log contract is inside the gate — `test/agentlog.mjs`
 
 `/api/agent-log` is the whole contract the [session log](#watching-it-work--the-session-log)
