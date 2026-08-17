@@ -215,24 +215,6 @@
      */
     p0beaddetail: new Map(),
     /**
-     * Is the whole board folded away? bc-eevn.
-     *
-     * The opposite of `p0open` on both counts, and deliberately.
-     *
-     * **It is stored shut-side-true**, so the default — an absent key, an older page,
-     * a test's state object that predates the field — is the board *open*. The board is
-     * the point of bc-rfnr.2; a field whose falsy default hid it would be one typo away
-     * from an inbox that silently lost its epics.
-     *
-     * **And it is persisted, where `p0open` is not.** Which epic you have unfolded is
-     * where you are looking now; whether you want the board over your list at all is a
-     * standing preference, like the kind filter — you fold it because this phone is for
-     * answering questions, and having to fold it again at every reload is the fold not
-     * working. Read synchronously here rather than after the first poll, so the first
-     * frame is already the shape you left it in.
-     */
-    p0shut: localStorage.getItem('beadcause.p0shut') === '1',
-    /**
      * Which statuses the board's trees draw — one filter over every card. bc-rfnr.9.6.
      *
      * **One, and above the board rather than one per card.** Every tree on the screen is
@@ -243,7 +225,7 @@
      *
      * **Stored by id rather than as a set of statuses**, so an unknown value — a newer
      * page's option, a hand-edited key — falls back to the default in `p0StatusFilter`
-     * instead of drawing an empty board. Persisted like `p0shut` and unlike `p0open`:
+     * instead of drawing an empty board. Persisted, unlike `p0open`:
      * whether you are reading what is left or what has landed is a standing preference,
      * where which epic is unfolded is where you happen to be looking.
      */
@@ -251,7 +233,7 @@
     /**
      * Is the picker at the foot of the board open? bc-s8mc.
      *
-     * Page state and not persisted, like `p0open` and unlike `p0shut`: it is a thing you
+     * Page state and not persisted, like `p0open` and unlike `p0status`: it is a thing you
      * are doing rather than a way you like the board, and a picker still hanging open the
      * next morning would be the app remembering a decision you had already made. It is
      * closed by a successful start for the same reason — the answer to "which one" has
@@ -6047,13 +6029,17 @@
    * correction: the expansion inserts nothing into the flow above the list, so there is
    * no height for `capturePlace` to hold still and no scroll to jump.
    *
-   * **And the section itself folds (bc-eevn).** The heading is a second disclosure, one
-   * level up from the cards': it puts the whole board away, because on a phone four
-   * epics is the entire first screen and there are days when what you came for is the
-   * questions underneath. Two things keep that from being a way to lose the board — the
-   * count stays on the shut line, and the fold is display only, so the list below is
-   * narrowed to your epics' descendants exactly as it was. See `state.p0shut`, which is
-   * stored shut-side-true so that every default there has ever been reads as open.
+   * **And the section no longer folds (bc-khoe.28, undoing bc-eevn).** The heading was a
+   * disclosure one level up from the cards': it put the whole board away, on the argument
+   * that on a phone four epics is the entire first screen and there are days when what you
+   * came for is the questions underneath. The pill row is that argument's real answer —
+   * the questions are one tap away on their own pill now, and My Epics is the board and
+   * nothing else. So what the fold *used* to reveal is not below the board any more, and
+   * a fold on a view with one section in it is a control whose whole effect is to leave
+   * the screen blank. Persisted, as `beadcause.p0shut` was, it would have left it blank
+   * for good. The heading stays, and keeps both counts — how many epics, and how many
+   * beads under them are asking you something — because that line is what the board says
+   * at a glance; it is a heading now rather than a button.
    *
    * **And one status filter (bc-rfnr.9.6), which moved into the tab with the tree
    * (bc-grut).** It used to sit between the heading and the cards, and the argument for
@@ -6307,8 +6293,8 @@
     // Nothing started, and something that could be. The board is off — that is bc-6s96's
     // rule and the list below is drawn flat, untouched — but the one control that would
     // *end* that state has to be reachable, or the screen that says what the week is about
-    // is the one screen that cannot change it. Just the offer: no heading, no fold, no
-    // count of nothing.
+    // is the one screen that cannot change it. Just the offer: no heading, and no count
+    // of nothing.
     if (!mine.length) {
       return canStart.length
         ? `<section class="p0-board bare" aria-label="${P0_SECTION_LABEL}">${p0PickerHtml(canStart)}</section>`
@@ -6319,32 +6305,26 @@
     // with no way to tell which epic you were reading. The `p0` handler is what keeps the
     // set to one; this is only where the promise is spent.
     const open = mine.find((c) => state.p0open.has(c.key || `${c.workspace}/${c.id}`));
-    // Shut, the heading is the whole section — but it still carries the count, because a
-    // fold that hides *that there is anything folded* is a section you forget you own.
+    // The heading, and it is a heading rather than a control since bc-khoe.28 — the fold
+    // it used to be is gone with the list it used to reveal (see the section comment
+    // above, and `state.p0status` for the persisted preference this one no longer is).
     // The label is drawn once and used twice, so the thing a screen reader announces for
-    // the region and the thing printed on the control cannot drift apart.
+    // the region and the thing printed on the line cannot drift apart.
     //
-    // The tab goes away with the cards, like everything else the fold hides — and it is
-    // bc-eevn's rule rather than an exception to it: the fold leaves `state.p0open`
-    // alone, so unfolding brings back the epic you were reading. Shut-with-one-open is
-    // not a state a tap can reach either way, because the fold's own control is behind
-    // the tab whenever there is one.
-    const shut = !!state.p0shut;
-    // And the same count once more for the whole board, on the line that is the only
-    // thing left when it is folded away. bc-rfnr.9.7 again: the fold is a drawer, and a
-    // drawer you shut on Monday must still be able to tell you on Friday that four agents
-    // are waiting on an answer. It leads the number of epics rather than following it,
-    // because it is the one of the two you would act on.
+    // Both counts stay, and they are the whole reason the line is still here. How many
+    // epics, and how many beads under them are asking you something: bc-rfnr.9.7 put the
+    // second one on so that a board you had shut on Monday could still say on Friday that
+    // four agents were waiting, and it earns its place on an unfoldable board for the
+    // plainer reason that a question four levels down a folded tree is otherwise a number
+    // nothing on the screen carries. It leads the number of epics rather than following
+    // it, because it is the one of the two you would act on.
     const asks = p0AsksN(mine);
     return `<section class="p0-board" aria-label="${P0_SECTION_LABEL}">
-      <button type="button" class="p0-kind" data-act="p0-fold" aria-expanded="${shut ? 'false' : 'true'}">
-        <span class="chev" aria-hidden="true">›</span>
+      <h2 class="p0-kind">
         ${P0_SECTION_LABEL}
         ${asks ? `<span class="p0-kind-asks">${asks === 1 ? '1 asks you' : `${asks} ask you`}</span>` : ''}
         <span class="p0-kind-n">${mine.length}</span>
-      </button>${
-        shut ? '' : `<div class="p0-cards">${cards}</div>${p0PickerHtml(canStart)}${open ? p0FullHtml(open) : ''}`
-      }</section>`;
+      </h2><div class="p0-cards">${cards}</div>${p0PickerHtml(canStart)}${open ? p0FullHtml(open) : ''}</section>`;
   }
 
   function render(force = false) {
@@ -6394,6 +6374,46 @@
     surveyKinds(inBoard);
     const visible = inBoard.filter(inKind);
 
+    /**
+     * Which pill this render is, and therefore which of the two things on this page it
+     * draws. bc-khoe.28.
+     *
+     * Home draws every view on top of the same page, and until this bead it drew *both*
+     * halves on all of them: the board above and the list below, whichever pill was lit.
+     * So no pill showed only its own kind — Questions had the epic board over it, and My
+     * Epics, which is the empty selection (`current()` in public/inboxfilter.js), drew
+     * every row the sweep produced underneath a board that already held the same work in
+     * its trees.
+     *
+     * A view shows its own kind. **My Epics is the board**, and there is no list beneath
+     * it: each card already expands to its own tree, so the rows below were a second,
+     * flatter copy of what the cards hold. **A kind pill is the list**, and the board is
+     * not on the screen in any form — not collapsed to a heading, not a count. The four
+     * kind pills are slices of the list and the board is not one of them.
+     *
+     * `null` is the control never having loaded, and it draws both — the shape this page
+     * had before there was a pill row, which is the same fallback `inKind` makes for the
+     * same reason: a page served without public/inboxfilter.js must not be a page with
+     * half its content missing and nothing on screen saying why.
+     *
+     * Two things put a list back under the board, and neither is a hedge on the rule.
+     *
+     * **A picked bead**, which is the `inBoard` argument directly above stated once more:
+     * an explicit filter outranks an implicit one. The bead box is in the panel on every
+     * pill, so a search run from My Epics with no list to answer into would be a control
+     * that does nothing.
+     *
+     * **An open card**, which is not a list at all — `.card.open` is a full-screen sheet,
+     * and it is built out of a list row. That is the same exception `underOwnedRoots`
+     * makes ("the card that is up"), and it is load-bearing rather than tidy: `p0-answer`
+     * on a bead in a tree is the ordinary way to answer a question from the board, and it
+     * works by opening exactly that sheet. Without this clause the one control the board
+     * exists to lead you to would open nothing.
+     */
+    const view = window.beadcause?.inboxFilter?.current?.() ?? null;
+    const boardHere = view === null || view === 'epics';
+    const listHere = view === null || view !== 'epics' || beadPicked() || state.open.size > 0;
+
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
     // the day there is, it is the one thing that must not be scrolled past.
@@ -6420,7 +6440,12 @@
     // Above the sweep's own caveats and above the list: this is the thing the screen is
     // for. Below the shade and the foundation requests, which are decisions waiting on a
     // tap rather than a standing picture of the week.
-    const roots = p0SectionHtml();
+    // On My Epics alone, since bc-khoe.28. `boardHere` is the whole of that rule and it is
+    // applied here rather than inside `p0SectionHtml` so that the section keeps meaning
+    // "what the board would be" — `loadBoard` still sweeps for it under a kind pill,
+    // because the counts on the pill row and in the monitor are about what you are
+    // answerable for and not about which view happens to be up.
+    const roots = boardHere ? p0SectionHtml() : '';
     if (roots) chunks.push({ key: '@p0', html: roots });
     const missed = troubleHtml();
     if (missed) chunks.push({ key: '@trouble', html: missed });
@@ -6434,36 +6459,26 @@
     // `rows`, not `state.questions`: with no beads at all but a pull request open or a
     // conversation on the go, the list is not empty — and the first-run copy `emptyHtml`
     // writes would be sitting above a chat you are in the middle of.
-    if (!rows.length) {
+    //
+    // The whole of it is behind `listHere` since bc-khoe.28, empty state included. On My
+    // Epics the board is the view and a list of anything at all under it — a card, or a
+    // line saying there are no cards — is the second copy this bead removes. There is
+    // therefore no longer a branch of the empty state that says "on the board above":
+    // there is no board above a list any more on any pill, and copy that named one was
+    // the app pointing at something that is not on the screen.
+    if (!listHere) {
+      /* the board is the view */
+    } else if (!rows.length) {
       chunks.push({ key: '@empty', html: emptyHtml() });
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
-      // Which of the two filters emptied it. The kind filter is collapsed to one line
-      // by design, so an empty list that it caused has to name it — otherwise the
-      // reason the screen is blank is a word you have to hover to read.
+      // Which of the two filters emptied it. The kind filter is the lit pill above, so an
+      // empty list that it caused has to name it — otherwise the reason the screen is
+      // blank is a pill you have to look up at to read.
       const kinded = inRepo.length > 0;
-      // And since bc-rfnr.9.7 there is a third, which on a machine with epics is the
-      // ordinary state of this screen rather than a corner of it: the board took the
-      // beads. "Nothing waiting" printed under a board with four questions marked on it
-      // is the app contradicting the thing directly above it, and an empty line that is a
-      // lie is worse than no line at all — the whole argument `boardTrouble` makes.
-      // Counted off `p0Cards`, the same cards the section drew, so the two cannot differ.
-      // Not while a bead is picked, though: that filter *replaces* the board's narrowing
-      // (see `inBoard` above), so an empty list there is the pill's doing and `beadNudge`
-      // is the sentence that names the way out of it.
-      const boarded = Boolean(roots) && !beadPicked();
-      const asks = boarded ? p0AsksN(p0Cards()) : 0;
       chunks.push({
         key: '@empty',
-        html: boarded
-          ? `<div class="empty">${
-              asks
-                ? `${asks === 1 ? 'One question is' : `${asks} questions are`} waiting on the board above${
-                    where ? ` in ${esc(where)}` : ''
-                  }, and nothing else is.`
-                : `Nothing waiting${where ? ` in ${esc(where)}` : ''} — your epics are on the board above.`
-            }${boardTrouble()}</div>`
-          : `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
+        html: `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
           beadPicked() ? beadNudge() : kinded ? kindNudge() : widenNudge()
         }${boardTrouble()}</div>`,
       });
@@ -6519,8 +6534,9 @@
     // it can still hold a ticket you cancelled last week and want back, and a fold that
     // only existed when there was something else on screen would be unreachable exactly
     // when the list is quiet enough to go looking. One chunk, at the foot, counted by
-    // nothing — see `cancelledTicketsHtml`.
-    const cancelled = cancelledTicketsHtml();
+    // nothing — see `cancelledTicketsHtml`. Behind `listHere` all the same: it is a row of
+    // the list rather than a pane of the page, and My Epics draws no rows.
+    const cancelled = listHere ? cancelledTicketsHtml() : '';
     if (cancelled) chunks.push({ key: '@jira-cancelled', html: cancelled });
     paintList(chunks);
 
@@ -6566,6 +6582,11 @@
     // monitor quietly saying the opposite of what the phone is saying. The two sets cannot
     // overlap — a bead in a tree is out of the list unless its card is open, and an open
     // card is reported as itself rather than as a count.
+    //
+    // Both halves are counted on every pill, including the ones that draw only one of them
+    // (`boardHere`/`listHere`, bc-khoe.28). This is a claim about what is waiting on you
+    // rather than about what is on the screen: a monitor whose "N waiting" fell by four
+    // because a phone had tapped Chats would be reporting the phone, not the tracker.
     const listBeads = visible.filter((q) => !q.pr && !q.session && !q.jira).length;
     publishView(listBeads + (beadPicked() ? 0 : p0AsksN(p0Cards())));
   }
@@ -7456,41 +7477,10 @@
     }
 
     /**
-     * Fold the whole board away, or bring it back. bc-eevn.
-     *
-     * Written to `localStorage` on the tap rather than at some later save, because the
-     * next thing that happens to this page is usually a poll and there is no later:
-     * the only record that the fold happened is `state.p0shut`, and a reload before it
-     * was persisted is the fold undoing itself.
-     *
-     * It does **not** touch `state.p0open`. Folding the board is putting it away, not
-     * closing the epic you had open inside it — bring the board back and the tree you
-     * were reading is still unfolded, which is the behaviour a drawer has.
-     *
-     * And it does not touch the list below either. `underOwnedRoots` narrows the inbox to
-     * what descends from your epics whether or not the board is on screen: the board is
-     * a display of what you are answerable for, and hiding a display must not change
-     * what is in the list under it.
-     */
-    if (act === 'p0-fold') {
-      state.p0shut = !state.p0shut;
-      localStorage.setItem('beadcause.p0shut', state.p0shut ? '1' : '0');
-      // And through `keepTheScreenStill` as well, which bc-rfnr.9.9 asked of this branch
-      // on the grounds that it *shrinks* the board. It grows it too — every fold is a
-      // tap away from an unfold, and unfolding a board of four epics inserts the whole
-      // section above the list, which is the `act === 'p0'` jump with more in it. The
-      // shrinking direction wants the same treatment for its own reason: the control you
-      // tapped is the heading, the heading sits above everything that just disappeared,
-      // and holding the page offset is what keeps it under your thumb rather than
-      // sliding it down the screen to hold a card you were not looking at.
-      keepTheScreenStill(() => render(true));
-      return;
-    }
-
-    /**
      * Which statuses every tree on the board draws. bc-rfnr.9.6.
      *
-     * The same shape as the fold above and for the same reasons: a state write, a
+     * The same shape the board's fold had until bc-khoe.28 took it out, and for the same
+     * reasons: a state write, a
      * `localStorage` write on the tap because the next thing that happens to this page is
      * a poll and there is no later save, and a repaint. Nothing is poked in the DOM — the
      * board is one reconcile chunk that is replaced whole every 25 seconds, so a filter

@@ -206,7 +206,6 @@ function board({
     p0open: new Set(open),
     p0beadopen: new Set(beadopen),
     p0beaddetail: detail,
-    p0shut: false,
     // `all`, so bc-rfnr.9.6's status filter narrows nothing here. This suite is about what
     // a row expands *into*, and its fixture tree is deliberately a mix of open and closed
     // beads; under the board's own default those closed rows would simply be absent and

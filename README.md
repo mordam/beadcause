@@ -4031,7 +4031,7 @@ navigation nobody uses. Four rows went into two:
 
 | Pill | What it carries | What it absorbed |
 |---|---|---|
-| **My Epics** | Home with nothing narrowed — the P0 board and the work under it | — |
+| **My Epics** | Home with nothing narrowed — the P0 board, and nothing under it | — |
 | **Questions** | Everything waiting on a word from you | `proposal`, `jira`, `endorsement` |
 | **PRs** | Pull requests, and the finished branches waiting on a merge | `delivery` (Merges) |
 | **Chats** | The conversations you have open | — |
@@ -4045,6 +4045,36 @@ the second is a different page. They are in the table anyway, because the row is
 and a reader asking "what are the six" must not have to find two of them somewhere else,
 and `set()` refuses to select one — a place has no predicate, so selecting it would match
 no row at all and leave Home empty with a lit pill above it and nothing to read as the
+reason.
+
+**A view shows its own kind, and that is one line in `render` rather than six.** Home draws
+every view on top of the same page, and until bc-khoe.28 it drew *both* halves on all of
+them: the [P0 board](#epics-assigned-to-you-and-the-tree-each-one-carries) above, the card
+list below, whichever pill was lit. So no pill showed only its own kind — Questions had the
+epic board over it, and `My Epics`, being the empty selection, drew every row the sweep had
+produced underneath a board whose trees already held the same work. `render` asks
+`current()` which pill is lit and draws one of the two:
+
+- **`My Epics` is the board, and there is no list beneath it.** Each card already expands to
+  its own tree, so the rows below were a second, flatter copy of what the cards hold — the
+  argument bc-rfnr.9.7 made about your epics' descendants, finished. What that took out of
+  the list was the beads; what this takes out is the rest, and a question under nobody's
+  root is now on `Questions`, where it is the plainest example of a row a tree cannot hold.
+- **The board is not on the other four pills in any form** — not collapsed to a heading, not
+  a count. A board over a list of chats is the thing this bead is about.
+
+Two things put a list back under the board, and neither is a hedge on the rule. **A bead
+picked in the search box**, which is the same sentence `inBoard` already makes one line
+above — an explicit filter outranks an implicit one, and the box is in the panel on every
+pill, so a search run from `My Epics` with no list to answer into would be a control that
+does nothing. And **an open card**, which is not a list at all: `.card.open` is a
+full-screen sheet built out of a list row, so the clause is what makes `p0-answer` on a
+bead in a tree — the ordinary way to answer a question from the board — open anything.
+It is the same exception `underOwnedRoots` already makes for the card that is up.
+
+The control never loading draws both, which is the shape this page had before there was a
+pill row: a page served without `public/inboxfilter.js` must not be a page with half its
+content missing and nothing on screen saying why. Same fallback `inKind` takes, same
 reason.
 
 **The row carries a copy of the six, and the copy is checked.** `public/viewbar.js` is
@@ -4647,13 +4677,37 @@ which can be missing with the page looking right all session.
 The mark on a held-up row is read as a computed border style rather than as a class, so it
 fails on a stale stylesheet too, which is what [v62](docs/sw-cache/v62.md) is about.
 
-### And the section folds, under a heading that says what it is
+### Under a heading that says what it is, and no longer a fold
 
-The heading is a disclosure of its own (bc-eevn) — one button the width of the section,
+The heading was a disclosure of its own (bc-eevn) — one button the width of the section,
 `aria-expanded` on it, the same `.chev` every other fold on this app turns. Tap it and the
-cards go away. On a phone four epics with their controls *are* the first screen, and there
-are days when what you came to the inbox for is the questions underneath; before this the
-board could only be scrolled past.
+cards went away. The argument was that on a phone four epics with their controls *are* the
+first screen, and there are days when what you came to the inbox for is the questions
+underneath; before it, the board could only be scrolled past.
+
+**bc-khoe.28 took the fold out, and the reason is that its argument was answered by a
+better control.** The questions are one tap away on their own pill now, and `My Epics` is
+[the board and nothing else](#one-list-six-kinds--and-the-two-sub-filters) —
+so what the fold used to reveal is not underneath the board any more. On a board-only view
+its whole effect is to leave the screen blank, and it was persisted (`beadcause.p0shut`),
+so one tap would have left the app's landing screen blank until you found the line and
+tapped it again. The README's own three guarantees for keeping the fold honest — the count
+stays on the shut line, it is display only, it leaves `state.p0open` alone — all assumed a
+list underneath it. Without one there is nothing left for them to be true *of*.
+
+The alternative considered and rejected was to leave it and let shut mean "the heading is
+the whole of My Epics": one line with both counts, which is honest as far as it goes and
+costs nothing to keep. What decides against it is that this is where you land. A control
+whose only effect is to blank the view it is on, and which remembers having done so, is not
+a control — it is a way to lose the board, which is the exact thing every rule in this
+section was written to prevent.
+
+What is left is a heading: `<h2 class="p0-kind">`, no `aria-expanded`, no chevron, no
+`--tap` height and no pointer, because a line that says it can be pressed and cannot is
+worse than a plain label. **Both counts stay**, and they are now the whole reason the line
+is drawn: how many epics, and how many beads under them are asking you something. A
+question four levels down a tree nobody has opened is otherwise a number nothing on the
+screen carries.
 
 It says **"Epics assigned to you"**, not "Your P0s". Every card on it is a **root** carrying
 your `owner:<handle>` — an epic at any priority, or a P0 — and a heading that names a
@@ -4670,39 +4724,25 @@ the rule (`rootboard`, `roots`, `GET /api/roots`); the CSS class names did not �
 is a namespace prefix rather than a claim, and restyling four hundred selectors would buy
 nothing a reader can see.
 
-Three things keep the fold from being a way to lose the board:
+The "*N* ask you" count is the half of the old fold that survives it, and it survives for
+the reason it was added: now that
+[the trees are where a question is drawn](#the-board-is-the-inbox-and-the-list-under-it-is-what-a-tree-cannot-hold),
+a board heading with no "*N* ask you" on it is a week of unanswered questions with nothing
+on screen saying they exist. bc-rfnr.9.7 put it there so a board shut on Monday could still
+say so on Friday; there is no shut board now, and it still has no rival — every card on the
+board defaults to a folded tree.
 
-- **The count stays on the shut line — both counts, since bc-rfnr.9.7.** How many epics are
-  behind it, and how many beads under them are asking you something. A fold that hid the
-  fact there was anything behind it would leave a screen indistinguishable from one with no
-  epics on it, which is the single thing this section exists to prevent; and now that
-  [the trees are where a question is drawn](#the-board-is-the-inbox-and-the-list-under-it-is-what-a-tree-cannot-hold),
-  a shut board with no "*N* ask you" on it is a week of unanswered questions with nothing on
-  screen saying they exist.
-- **It is display only.** `underOwnedRoots` reads the board *data*, not whether the board is
-  drawn — so folding it changes nothing about the list underneath. A control that quietly
-  changed what was in the inbox would be worse than no control.
-- **It leaves `state.p0open` alone**, so the epic you had unfolded is still unfolded when
-  the board comes back. Putting a drawer away is not closing what is in it.
-
-Unlike which cards are open, the fold **is** persisted (`beadcause.p0shut` in
-`localStorage`, read synchronously at boot so the first frame is already the shape you
-left it in): which epic you have unfolded is where you are looking now, but whether you
-want the board over your list at all is a standing preference, like the kind filter. It is
-stored *shut*-side-true on purpose — an absent key, an older page, a state object written
-before the field existed all read as the board showing, which is the safe direction for a
-flag whose falsy default would otherwise hide the point of bc-rfnr.2.
-
-`node test/p0card.mjs` has the renderer and the handler's source; `node scripts/p0fold-check.mjs`
-is the half it cannot reach — a real tap in headless Chrome at 393×852, which is where the
-three failures that matter live. That the heading is inside `#list` at all, because every
-handler on this page is delegated from that element and one drawn outside it renders
-perfectly and does nothing. That the rows underneath are the same rows either side of the
-tap. And that a reload comes back shut, which no renderer test can see: the write to
-`localStorage` and the read at boot are separate ends, and either can be missing with the
-page looking right all session. The chevron is read as a computed transform rather than as
-markup, so it fails on a stale stylesheet too — which is what [v59](docs/sw-cache/v59.md)
-is about.
+Removing the fold takes a state field, a `localStorage` key and a tap branch with it, and
+the way that rots is a half-removal: a heading left as a `<button>` with an `aria-expanded`
+nothing writes, or a `state.p0shut` no longer read but still saved. `node test/p0card.mjs`
+asserts all three ends are gone — the `data-act`, the disclosure attribute, and the state
+with its key — as well as the two that stay, the heading's counts and every card, picker
+and open tab always being drawn with it. `node scripts/p0board-check.mjs` presses where the
+fold used to be, in headless Chrome at 393×852, and requires the board to be exactly as it
+was. `scripts/p0fold-check.mjs` is deleted with the feature it covered; its live claims —
+that the heading is inside `#list` where the delegated handler can see it, and that the
+rows either side of a board tap are the same rows — are now p0board-check's, which drives
+the pill row for real.
 
 ### The board is the inbox, and the list under it is what a tree cannot hold
 
@@ -4743,10 +4783,9 @@ them is optional:
 - **The row says so.** `pending` on a tree row draws an **asks you** pill and a solid
   leading edge on the row.
 - **The card and the heading count them.** A collapsed card carries "*N* ask you" beside its
-  id, and the section heading carries the total for the whole board — which is what makes it
-  survive the [fold](#and-the-section-folds-under-a-heading-that-says-what-it-is). A
-  question four levels down a tree that is shut by default is not findable; a number on the
-  line above it is.
+  id, and [the section heading](#under-a-heading-that-says-what-it-is-and-no-longer-a-fold)
+  carries the total for the whole board. A question four levels down a tree that is shut by
+  default is not findable; a number on the line above it is.
 - **The status filter cannot hide one.** A pending row is kept whatever
   [the filter](#one-status-filter-in-the-tab-with-the-tree-it-narrows) says. `Closed` is one tap, and
   before the list went it merely narrowed the trees — now it would take every open question
@@ -4761,10 +4800,13 @@ thread, the box and the dismissal. It is `expand(key)`, the same call the list's
 makes, and reimplementing any of that inside a tree row would be a second copy of the
 hardest screen in the app, drifting from the first from the day it landed.
 
-One line makes it possible: `underOwnedRoots` keeps a bead in the list for exactly as long as
-its card is open. `.card.open` is built out of an inbox row, so the row has to survive the
-filter or the sheet comes up empty; collapse it and the row drops back out, because the
-board is drawing it. The control is drawn only where there is a row to open —
+Two lines make it possible, and both are the same exception written at different heights.
+`underOwnedRoots` keeps a bead in the list for exactly as long as its card is open —
+`.card.open` is built out of an inbox row, so the row has to survive the filter or the
+sheet comes up empty; collapse it and the row drops back out, because the board is drawing
+it. And since bc-khoe.28, `listHere` draws a list on `My Epics` for exactly as long as
+there is an open card, because that view otherwise has none at all: the sheet is the whole
+of what is drawn, and closing it leaves the board alone on the screen again. The control is drawn only where there is a row to open —
 `/api/questions?scope=agent` sweeps no questions at all, so on that scope a pending bead is
 marked in the tree and has no button, which is the scope saying what it says rather than a
 button that does nothing.
