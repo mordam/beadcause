@@ -20499,6 +20499,79 @@ bar it is measured against by editing the file that declares the bar is doing th
 self-assessment this whole section refuses. If the two ever disagree, the disagreement is
 the finding.
 
+### Inside the boundary it evidences — `lib/servicescope.js`, `test/servicescope.mjs`
+
+The `lib/publishable.js` and `lib/operator.js` sections above settle what may leave the Mac
+and whose hands it lands in. This one is the consequence neither of them can avoid: **the
+service holds the continuity evidence for an audit, and a system that holds the evidence for
+an audit is inside it.** Its own access, availability, change management and logging get
+tested, by the same auditor, in the same engagement — and the cheapest moment to know which
+controls those are is while the service is still three open beads and a payload contract,
+rather than in a fieldwork week where the answer arrives as a finding.
+
+**There are two boundaries and they give opposite answers, which is why the file says both
+out loud.** The boundary of the *system described* is Energy Navigator / Insights: what a
+user entity reaches, submits to and receives from. The control-daemon is development-side
+machinery no user entity has heard of, so it is **carved out of the description**, exactly
+as the boundary record bc-4r10.2 is building already carves out beadcause and the Mac it
+runs on. The boundary of the *audit* is everything the auditor tests, and the
+control-daemon is squarely inside it — more deeply than the rest of the tooling, because
+the records it holds are the population a sample is drawn from. A carve-out is a statement
+about the description and carries no implication whatever about what gets tested. So
+`COMPONENTS` records the carve-out with a `bearsOn` naming the evidence path, and the
+enumeration below is the other half.
+
+**The subservice decision is a record even when the answer is *nobody*.** bc-3muu.9 put
+every deployment in the organisation's own hands, so no party performs part of its service
+commitments on its behalf and the carve-out-or-inclusive question does not arise — but a
+system description with nothing written under *subservice organisations* is
+indistinguishable from one where nobody looked. `methodFor` returns `not-a-subservice`
+with the arrangement it was read off beside it, and it is derived rather than declared:
+
+```js
+methodFor(shipped('climative', at));     // { decision: 'not-a-subservice', required: false, … }
+methodFor([local, hostedControl]);       // { decision: null, required: true, operators: ['vendor'], … }
+methodProblems([local, hostedControl], 'not-a-subservice');
+//  → 'vendor operates a deployment holding this organisation's evidence, so this is a
+//     subservice organisation and the description owes a carve-out or inclusive decision'
+```
+
+Both directions are refused, and the second one is the one nobody expects. Claiming
+`not-a-subservice` while somebody else holds the evidence removes a party from the
+description; recording a **method** while nobody else holds anything puts a party into it
+that does not exist, and an auditor asking to see the agreement with them — or the
+complementary user entity controls a carve-out owes — finds nothing. Those CUECs are
+written now, in `CARVE_OUT_CUECS`, while nobody is under time pressure: a CUEC invented
+during fieldwork describes what the customer happened to be doing rather than what they
+must do.
+
+**Its own controls are enumerated against the same corpus everything else uses** — 23 of
+them, across all three frameworks, each answering why the control applies to *a witness
+holding digests* rather than why it exists. Two are `enforced`, seven are `partial` and
+fourteen are `owed`, and every one of those names the bead that closes it, so `owed()` is a
+list rather than a feeling. The states mean something narrow: `enforced` is code in this
+release that refuses the thing the control is about and names the module — which the suite
+opens, because a module named here and moved there is a control that reads as built.
+**None of the three is an operating-effectiveness claim.** A Type II report says a control
+operated over a period, and only a running service across a real period produces that.
+
+**And the service must not be its own evidence.** The trap in a system that monitors other
+systems is to answer its own control questions with its own product. Making a silent or
+modified *instance* a finding (bc-3muu.5) is the witness watching its tenants; monitoring
+of the witness is a different control, and a service whose anomalies are visible only in
+the records it publishes about others has none — it just looks quiet. Nothing in the
+enumeration cites a control-daemon capability as the control over the control-daemon, and
+the suite asserts it.
+
+The file is a **leaf**, like `lib/publishable.js` and the boundary record: one import, no
+state read and none written, so a check, an installer, a report generator and the system
+description itself can each hold it. It deliberately does not import the control corpus —
+ids are held to the shape their framework uses and resolved against the corpus by the
+suite the moment `lib/controls.js` lands, alongside a second cross-check that spreads
+`COMPONENTS` into a real boundary record and asserts it still validates. Both print a loud
+`SKIP` until their neighbour exists, so they start working on somebody else's merge rather
+than on somebody remembering.
+
 ### Every document has an owner and a review date — `lib/documents.js`, `test/documents.mjs`
 
 The documentation here is unusually good and was entirely uncontrolled. This file is about
