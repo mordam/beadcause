@@ -18,10 +18,11 @@
  * So this file asks the two questions that failure turns on, of a fake `bd` that can be
  * told to lie in exactly that way:
  *
- *   1. **Does a silent non-close come back as an error?** It must, on both the plain path
- *      and the forced one, and for `close` and `closeAnswered` alike — because every
- *      caller of those already knows how to log a throw, `oweClose` it and say so on the
- *      bead, and none of them can do anything at all with a lie.
+ *   1. **Does a silent non-close come back as an error?** It must, on the plain path and
+ *      on the forced one alike — because every caller of `Bd.close` already knows how to
+ *      log a throw, `oweClose` it and say so on the bead, and none of them can do
+ *      anything at all with a lie. `Bd.closeAnswered` is deliberately left out, and the
+ *      case at the end of the first block is where that decision is written down.
  *   2. **Does it stay quiet when it should?** Three shapes must go through untouched: a
  *      real close, a tracker that will not answer the `show`, and a status this codebase
  *      has never heard of. Inventing a failure from any of those would park a landed bead
@@ -167,26 +168,26 @@ const closes = (list) => (list || []).filter((c) => c[0] === 'close');
 }
 
 {
-  // A question, not a work bead. Same lie, and it matters at least as much: a card whose
-  // close silently did not happen stays in the inbox having already been answered, which
-  // is the shape bc-jrvh's three identical answers came out of.
-  const { bd } = fakeBd('silentanswer', { after: 'open' });
-  const err = await threw(() => bd.closeAnswered(WS, 'zz-work', 'Answered via Beadcause'));
-  check(Boolean(err), 'an answered card whose close silently did not happen — throws', 'it returned normally');
-  check(/still open/.test(String(err?.message || '')), 'and says so in bd’s own word for the status', String(err?.message || ''));
+  // The other status a live bead comes back as, so the check is not pinned to the one
+  // word bc-3muu.12 happened to be stuck on.
+  const { bd } = fakeBd('silentopen', { before: 'open', after: 'open' });
+  const err = await threw(() => bd.close(WS, 'zz-work', 'Merged #339', { overClaim: true }));
+  check(Boolean(err), 'a bead left `open` rather than `in_progress` — throws just the same', 'it returned normally');
+  check(/still open/.test(String(err?.message || '')), 'and says so in bd’s own word for it', String(err?.message || ''));
 }
 
 {
-  // And the reclaim path of the same method: the claim guard refused, the assignee was
-  // cleared, the second close exited 0 — and the row still has not moved.
-  const { bd, calls } = fakeBd('silentanswerclaim', { refusal: CLAIM_REFUSAL, after: 'open' });
+  // **`closeAnswered` deliberately does not take this check**, and the assertion is here
+  // so the decision is visible rather than looking like a path somebody forgot. A
+  // question whose close silently did not happen stays in the inbox with its answer on
+  // the thread — a state Adam sees within the hour, and one `Bd.answerOnce` and
+  // lib/answered.js are both built to survive — where a delivery's is invisible by
+  // construction. What it costs to change is honest fixtures in five suites whose fake
+  // `bd` serves a row reading `open` after closing it; bc-2uj4.8 is that bead.
+  const { bd, calls } = fakeBd('answernoverify', { after: 'open' });
   const err = await threw(() => bd.closeAnswered(WS, 'zz-work', 'Answered via Beadcause'));
-  check(Boolean(err), 'a reclaimed close that exits 0 and closes nothing — throws', 'it returned normally');
-  check(
-    calls().some((c) => c[0] === 'update' && c.includes('--assignee')),
-    'and the reclaim it depends on still happened',
-    JSON.stringify(calls())
-  );
+  check(!err, 'an answered card is not verified — the answer path is unchanged', String(err?.message || ''));
+  check(!calls().some((c) => c[0] === 'show'), 'and costs no extra read', JSON.stringify(calls()));
 }
 
 /* ------------------------------------------------------- 2. and it stays quiet */

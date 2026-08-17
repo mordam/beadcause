@@ -1441,6 +1441,15 @@ handle: logged, written to `owed-closes.json`, and said on the bead in bd's own 
 is a separate process shelling out to `bd` synchronously, and imports `LIVE_STATUSES` from
 lib/bd.js rather than restating it, so the two cannot disagree about what counts as open.
 
+**The sixth path — the answer — deliberately does not have it yet.** Not because the lie
+would be smaller there but because the *consequence* is: a question whose close silently
+did not happen stays in the inbox with its answer on the thread, which Adam sees within
+the hour and which `Bd.answerOnce` and `lib/answered.js` are both already built to
+survive, where a delivery's failure is invisible by construction. What it costs to change
+is honest fixtures in five suites whose fake `bd` serves a fixed row still reading `open`
+after closing it — which is worth doing, and is `bc-2uj4.8` rather than a doubled diff
+here.
+
 Two things it deliberately does **not** do, and both are the same instinct as the rest of
 this section:
 
