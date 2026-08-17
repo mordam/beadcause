@@ -164,7 +164,9 @@
     Both are in the markup on every load and neither is drawn on every kind: ＋ belongs
     to the view now (bc-khoe.27.1), so the wrapper is hidden — along with `has-compose`,
     and along with the panel — on Questions and PRs, which have nothing to create. See
-    `paintCompose` in public/app.js and `compose` in public/inboxfilter.js.
+    `paintCompose` in app.js and `compose` in inboxfilter.js. (Written without the
+    leading slash on purpose: three suites find the script tags in this file by the
+    first `/app.js` in it, and a comment that says the path is a comment that moves it.)
   -->
   <div class="compose-wrap">
     <div id="compose-pick" class="compose-pick ws-pick" hidden>

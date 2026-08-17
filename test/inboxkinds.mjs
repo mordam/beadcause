@@ -1198,8 +1198,11 @@ console.log('\nthe page has to actually load it');
 
 await check('index.html loads it, and before app.js', () => {
   const html = read('public/index.html');
-  const mine = html.indexOf('/inboxfilter.js');
-  const app = html.indexOf('/app.js');
+  // The tags rather than the first mention of each path — index.html names both files
+  // in its prose, and prose order is not load order. See the same note in
+  // test/editmode.mjs, which this question was copied from and which failed on it.
+  const mine = html.indexOf('<script src="/inboxfilter.js">');
+  const app = html.indexOf('<script src="/app.js">');
   assert.ok(mine > 0, 'the inbox does not load the filter at all');
   assert.ok(mine < app, 'app.js runs before the control it mounts');
 });
