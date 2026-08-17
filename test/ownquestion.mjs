@@ -105,13 +105,29 @@ const question = (id, extra = {}) => row(id, { labels: ['human'], ...extra });
  * `zz-asked` is what this suite exists for: no parent at all, which is every bead
  * `/api/ask` has ever filed. `zz-theirs.1` is the control — under an open P0 that is not
  * yours, so it stays hidden and proves the narrowing is still on. `zz-done.1` is the case
- * nobody would have thought to stage: its P0 closed underneath it.
+ * nobody would have thought to stage: its P0 closed underneath it. `zz-later.1` is
+ * bc-6s96's: under a P0 that is yours and open and *not started*, so it is hidden like
+ * bob's rather than rescued like the orphan — the one case where the two maps have to
+ * disagree, and the row is in neither.
  */
 const EXPORT = [
-  row('zz-p0', { priority: 0, issue_type: 'epic', title: 'A P0 of yours', labels: [`owner:${ME}`] }),
+  row('zz-p0', {
+    status: 'in_progress',
+    priority: 0,
+    issue_type: 'epic',
+    title: 'A P0 of yours, started',
+    labels: [`owner:${ME}`],
+  }),
   question('zz-p0.9', { dependencies: [parentEdge('zz-p0.9', 'zz-p0')] }),
   row('zz-theirs', { priority: 0, issue_type: 'epic', labels: ['owner:bob@example.com'] }),
   question('zz-theirs.1', { dependencies: [parentEdge('zz-theirs.1', 'zz-theirs')] }),
+  row('zz-later', {
+    priority: 0,
+    issue_type: 'epic',
+    title: 'A P0 of yours you have not started yet',
+    labels: [`owner:${ME}`],
+  }),
+  question('zz-later.1', { dependencies: [parentEdge('zz-later.1', 'zz-later')] }),
   row('zz-done', {
     priority: 0,
     issue_type: 'epic',
@@ -141,6 +157,7 @@ const humanRow = (id, title) => ({
 const HUMAN_ALPHA = [
   humanRow('zz-p0.9', 'bead zz-p0.9'),
   humanRow('zz-theirs.1', 'bead zz-theirs.1'),
+  humanRow('zz-later.1', 'bead zz-later.1'),
   humanRow('zz-done.1', 'bead zz-done.1'),
   humanRow('zz-asked', 'Should the porch light go on a timer?'),
 ];
@@ -276,14 +293,21 @@ try {
   const board = payload.rootboard;
   const keys = payload.questions.map((q) => q.key);
 
-  await check('the fixture is the fixture: four questions in alpha and one in beta', () => {
+  await check('the fixture is the fixture: five questions in alpha and one in beta', () => {
     assert.deepEqual(
       keys.slice().sort(),
-      ['alpha/zz-asked', 'alpha/zz-done.1', 'alpha/zz-p0.9', 'alpha/zz-theirs.1', 'beta/zz-beta-asked'].sort(),
+      [
+        'alpha/zz-asked',
+        'alpha/zz-done.1',
+        'alpha/zz-later.1',
+        'alpha/zz-p0.9',
+        'alpha/zz-theirs.1',
+        'beta/zz-beta-asked',
+      ].sort(),
       'the sweep did not return what this suite is about to make claims over'
     );
     assert.equal(board.owned, true, 'the board is off entirely — cfg.me did not take');
-    assert.deepEqual(board.roots.map((c) => c.id), ['zz-p0'], 'the board is not the one P0 you own and have open');
+    assert.deepEqual(board.roots.map((c) => c.id), ['zz-p0'], 'the board is not the one root you own and have started');
   });
 
   await check('THE QUESTION YOU FILED WITH NO PARENT IS MARKED, AND `under` DOES NOT KNOW IT', () => {
@@ -301,6 +325,21 @@ try {
       board.unhomed['alpha/zz-theirs.1'],
       undefined,
       'a bead under bob’s P0 was called unhomed — the fix has become "show everything"'
+    );
+  });
+
+  await check('a question under a P0 of yours you have NOT STARTED is neither, and leaves the list', () => {
+    // bc-6s96, end to end and in one place: the row is in no map, so the client's own
+    // filter drops it. That is the decided cost of narrowing the board to what you have
+    // started — the question is not moved anywhere and it returns the moment the epic is
+    // claimed. The assertion that matters is the middle one: `unhomed` would have put it
+    // straight back on the screen while claiming no P0 sits above it, which is false.
+    assert.equal(board.under['alpha/zz-later.1'], undefined, 'it is under a P0 that is off the board');
+    assert.equal(board.unhomed['alpha/zz-later.1'], undefined, 'an unstarted P0 of yours is still a P0 above this row');
+    assert.equal(
+      drawn(payload.questions, board).includes('alpha/zz-later.1'),
+      false,
+      'the list did not follow the narrowed board'
     );
   });
 
