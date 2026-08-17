@@ -17413,6 +17413,7 @@ properties:
 | `foundation:<workspace>` | lib/server.js | 10s | One `bd list --label`, the foundation channel on its own |
 | `agentbeads:<workspace>` | lib/server.js | 10s | One `bd list --exclude-label human` |
 | `work:<workspace>` | lib/work.js | 10s | The four `bd` calls behind one workspace's row on `/api/work` |
+| `graph:<workspace>` | lib/graph.js | 60s | `bd graph --all --html` + `bd list --status` — the workspace-wide graph page only (bc-1kwl.12) |
 
 The first four windows are the ones each cache always had. Nothing here was retuned: the
 point was never that the answers were too old, it was that the sixteenth second cost a
@@ -17561,7 +17562,7 @@ Measured over three workspaces against a `bd` that logs every invocation:
 The two zeroes are the whole point. The six is one workspace's foundation channel, agent
 beads and four console calls, and the floor caps it at once per cycle.
 
-**Two keys are cold-only and own that rule themselves.** `queue:` because it is the most
+**Three keys are cold-only and own that rule themselves.** `queue:` because it is the most
 expensive sweep in the app — a `bd list --label` per workspace plus up to forty `bd show`s,
 48 seconds — so it is filled at boot and again after each verdict drops it, which is a
 person acting and the moment the screen is next opened. `board:` because it is the only
@@ -17571,6 +17572,13 @@ is kept for `board:` for the life of the process, so the steady-state addition i
 it does add is one board sweep per daemon start, which the release queue would have made five
 minutes later anyway — and those five minutes are the five right after a merge, when somebody
 is most likely to open the board to watch the thing they just merged go out.
+
+`graph:<workspace>` (bc-1kwl.12) is the third, and for the same reason `queue:` is: it is
+more expensive still — `bd graph --all --html` walks the whole dependency graph, up to two
+minutes on the worst workspace measured — so the `moved`-gated shape the recurring keys above
+use would mean re-running a two-minute `bd` call on nearly every busy afternoon's beat. It is
+warmed last, after `board:`, because it is the priciest sweep in the pass and every earlier
+step is one Dolt-write queue it would otherwise sit behind.
 
 **The pass runs beside the cycle, never inside it.** `warmSweep` does not await
 `warmKeys`, and that is not a shortcut: `beat` refuses to overlap itself, so an awaited
