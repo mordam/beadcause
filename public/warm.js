@@ -14,12 +14,15 @@
   are fetched in the background, so the tab you tap next is already warm.
 
   **Filled once is not the same as kept warm.** That background fill happens once per
-  document and the TTL below then ages what it fetched out — which is fine for a page
-  you pass through and wrong for the inbox, which is a page you sit on for hours. So a
-  warmed payload is *maintained* rather than merely stored: the inbox is parked on the
-  delta stream anyway, and an entry the log has not contradicted is as true as it was
-  when it was fetched, however old it is — `refresh()` says so and resets its clock for
-  no request at all. What an entry that *has* been contradicted costs is then decided
+  document, and what it fetched then sits there while the world moves under it — which
+  is fine for a page you pass through and wrong for the inbox, which is a page you sit
+  on for hours. So a warmed payload is *maintained* rather than merely stored: the inbox
+  is parked on the delta stream anyway, and an entry the log has not contradicted is as
+  true as it was when it was fetched, however old it is — `refresh()` says so and resets
+  its clock for no request at all. (That restamp used to be what stopped a quiet hour
+  ageing an entry out under a TTL. Nothing expires now, so what it buys today is the
+  other two things `at` decides: the background warm's floor, and which entry the store
+  gives up first when it is full.) What an entry that *has* been contradicted costs is decided
   per path, on what the request costs the daemon, and `/api/prs` is deliberately never
   re-asked here because it is a `gh` call per repo. See `MAINTAINED` in public/app.js
   for the table and the argument behind each row.
@@ -30,24 +33,52 @@
   scroll position, all of which then have to be put back by hand. `paint()` takes a
   keyed list of chunks and touches only the ones whose HTML actually differs.
 
-  Deliberately in `sessionStorage`, not `localStorage`. A tab switch is a navigation
-  inside one tab, which is exactly what sessionStorage survives — and closing the app
-  takes the cache with it, so bead text does not sit on the phone's disk between one
-  evening and the next. A cold start after that is a cold start, which is the case the
-  inbox-first boot is for.
+  **Across closing the app.** This was `sessionStorage` until bc-1kwl.14, on the argument
+  that a tab switch is a navigation inside one tab — which sessionStorage survives — and
+  that letting the cache die with the app kept bead text off the phone's disk between one
+  evening and the next. The first half is true and the second half was the wrong trade,
+  and Adam settled it on 2026-08-15: **bead text on disk between sessions is fine.** What
+  it was buying was a *reopen* that started from nothing, and a reopen from nothing is a
+  cold `/api/questions` — one `bd human list` per workspace, measured at 4.5s and 15 child
+  processes, of which 7ms is our own code. That is the wait this whole file exists to
+  remove, and it was being paid every single time the app was closed and opened again.
+
+  So the store is `localStorage`. Not IndexedDB and not the service worker's cache: both
+  are asynchronous, and the one thing that has to happen here is a *synchronous* read
+  before the first paint — `warmBoot()` in public/app.js draws the kept list in the same
+  frame the shell arrives in, and an `await` in front of that is a spinner again. What
+  localStorage costs by comparison is a smaller quota, which is what the bound below is
+  for. It is scoped to the origin and the app is one origin, so it survives a WebView
+  being torn down and rebuilt, which is what "closing the app" is on the phone.
+
+  **And no TTL.** There used to be a fifteen-minute one, on the grounds that a stale list
+  is more confusing than a spinner. It is gone, and the argument two paragraphs up is why:
+  the inbox is parked on `/api/poll`, an entry the log has not contradicted is as true as
+  it was when it was fetched, and an entry it *has* contradicted is corrected by the
+  catch-up that the kept `seq` makes possible — `/api/poll?since=<seq>` rather than a cold
+  sweep, and `resync: true` with the whole payload when the log cannot reach back that far.
+  Age was never the question. Whether the log has been followed since is, and the answer
+  is carried by the entry itself. `public/freshness.js` is what says how long ago anything
+  actually looked; a very old kept list is its case, and it needs no banner here.
+
+  What is left, now that nothing expires, is that the store only ever grows — so it has a
+  bound, and `BUDGET_BYTES` below is it.
 
   Nothing here is load-bearing. Every reader treats a miss as "no cache" and does what
-  it did before, and `sessionStorage` throwing — Safari's private mode, a full quota —
-  is a miss. A page that cannot warm is a page that is merely as fast as it was.
+  it did before, and `localStorage` throwing — Safari's private mode, a full quota — is a
+  miss. A page that cannot warm is a page that is merely as fast as it was.
 */
 (() => {
   'use strict';
 
   const PREFIX = 'beadcause.warm:';
-  // Older than this and it is not worth painting: you have been away long enough that
-  // a stale list is more confusing than a spinner. Well beyond a tab switch, which is
-  // the case this exists for, and well short of "the app was open all night".
-  const TTL_MS = 15 * 60 * 1000;
+  // The shape of a stored entry, and the only defence left now that entries do not
+  // expire. A fifteen-minute TTL made a version skew almost impossible — nothing could
+  // outlive a deploy by long enough to be read by different code. A durable entry is
+  // *guaranteed* to meet a newer build, so the build that wrote it has to say so, and
+  // anything that does not match is a miss rather than a payload of unknown vintage.
+  // Bump it whenever what goes into `data` changes shape in a way a reader would trip on.
+  const STORE_V = 2;
   // The floor on how often the background warm may re-ask for one path. Two of these
   // are a `bd` sweep, and a page load must not be able to turn into a sweep per view
   // just by being reloaded — so a path the warm has fetched this recently is left
@@ -140,18 +171,54 @@
 
   /* ------------------------------------------------------------------ storage */
 
+  /**
+   * The bound, and the whole of it.
+   *
+   * Nothing expires any more, so nothing prunes any more, so this file's only remaining
+   * limit was the browser's — and the way it used to meet that limit was `forget()`: a
+   * quota failure threw the entire store away. That was defensible while every entry was
+   * a fifteen-minute session-scoped one and the worst case was one cold tab. With durable
+   * entries it means a single oversized payload — a board with forty pull requests on it,
+   * fetched in the background for a screen nobody asked for — can take the inbox you are
+   * opening with it, which is precisely the wait this file exists to remove.
+   *
+   * So: **a byte budget, and eviction oldest-first, and the inbox goes last.**
+   *
+   * - **A budget rather than a count.** The entries here differ by two orders of magnitude
+   *   in size — `/api/admin` is a handful of counts and `/api/questions` is every open
+   *   bead's text — so "newest N" would bound the wrong quantity and still let one payload
+   *   fill the origin. 1.5 MB against a ~5 MB origin quota leaves room for the token, the
+   *   drafts and the send queue, which live in the same storage and are not ours to spend.
+   * - **Oldest `at` first.** `at` is when the entry was last known true, and `refresh()`
+   *   restamps it for free on every wake — so the entry nothing has restamped in longest
+   *   is the entry nothing is maintaining, which is the one to give up.
+   * - **The inbox last of all, whatever its age.** This is the rule the ordering above
+   *   cannot give on its own: from the console or the board the inbox's entry is written
+   *   *first* by the background warm and is therefore the oldest thing in the store, so
+   *   plain oldest-first would evict exactly the payload a reopen needs. It is the app's
+   *   front door, it is what a notification opens, and it is the only view whose cold path
+   *   is a `bd` sweep per workspace. It is given up only when there is nothing else left.
+   * - **A payload too big to ever fit evicts nothing at all.** Checked before the first
+   *   eviction rather than discovered after the last, so the pathological case — one
+   *   enormous write — fails alone instead of emptying the store on its way down.
+   */
+  const BUDGET_BYTES = 1.5 * 1024 * 1024;
+
   const store = (() => {
     try {
       // Touched rather than merely read: a storage that exists and throws on write is
       // the case that matters, and it only says so when written to.
       const probe = `${PREFIX}probe`;
-      sessionStorage.setItem(probe, '1');
-      sessionStorage.removeItem(probe);
-      return sessionStorage;
+      localStorage.setItem(probe, '1');
+      localStorage.removeItem(probe);
+      return localStorage;
     } catch {
       return null;
     }
   })();
+
+  /** The paths the store gives up last. See `BUDGET_BYTES`. */
+  const LAST_TO_GO = new Set(VIEWS.find((v) => v.id === 'inbox')?.paths || []);
 
   /** Every path we are holding, for the sweeps that clear or count them. */
   function keys() {
@@ -167,11 +234,18 @@
   /**
    * The cached payload for a path, or null.
    *
-   * Null covers every way this can fail — never stored, stored by a version that
-   * wrote a different shape, past its TTL, or unparseable — because every caller
-   * does the same thing with all four: fetch, the way it always did.
+   * Null covers every way this can fail — never stored, stored by a build that wrote a
+   * different shape, unparseable, or stamped in the future — because every caller does
+   * the same thing with all four: fetch, the way it always did.
+   *
+   * **Age is no longer one of them.** See the header: an entry the event log has not
+   * contradicted is as true as it was when it was fetched, and whether the log has been
+   * followed since is the caller's question rather than this one's. `age` still comes
+   * back, because `fresh()` below needs it for a quite different question — has this been
+   * *fetched* recently enough that the background warm may skip it — and because a caller
+   * that wants to make its own judgement should be able to.
    */
-  function read(path, { now = Date.now(), ttl = TTL_MS } = {}) {
+  function read(path, { now = Date.now() } = {}) {
     if (!store) return null;
     let raw;
     try {
@@ -188,10 +262,17 @@
       return null;
     }
     if (!entry || typeof entry !== 'object' || !('data' in entry)) return null;
+    if (entry.v !== STORE_V) {
+      // Written by a build that stored a different shape. Dropped rather than merely
+      // refused: it will never match again, and it is holding quota the current build
+      // has a use for.
+      drop(path);
+      return null;
+    }
     const age = now - (Number(entry.at) || 0);
-    if (age < 0 || age > ttl) {
-      // Dropped rather than merely refused: an entry this old is never going to
-      // become useful again, and leaving it there is quota spent on nothing.
+    if (age < 0) {
+      // A clock that went backwards. Not paintable-but-old — unorderable, which is what
+      // the eviction below sorts on, so it goes rather than corrupting that ordering.
       drop(path);
       return null;
     }
@@ -205,25 +286,99 @@
    * says — `/api/questions` carries one. Without it the entry is still paintable; it
    * just cannot be checked against the log, so whoever reads it refreshes anyway.
    *
-   * A quota failure clears everything and gives up rather than retrying: the entries
-   * we are holding are the reason there is no room, and a cache that spends every
-   * write failing is worse than no cache.
+   * **A write that does not fit evicts, and a write that can never fit fails alone.**
+   * This used to answer a quota failure with `forget()`, which is the one thing a durable
+   * store must not do — see `BUDGET_BYTES` for the ordering it uses instead. The failure
+   * mode is unchanged from the caller's side: `false` means "not held", every reader
+   * already treats that as a miss, and a page that cannot warm is merely as fast as it
+   * was. What has changed is that failing to hold *this* payload no longer costs the
+   * others.
    */
   function write(path, data, seq = 0) {
     if (!store || data == null) return false;
+    const key = PREFIX + path;
     let raw;
     try {
-      raw = JSON.stringify({ at: Date.now(), seq: Number(seq) || 0, data });
+      raw = JSON.stringify({ v: STORE_V, at: Date.now(), seq: Number(seq) || 0, data });
     } catch {
       return false; // something un-JSONable got in; not worth a second attempt
     }
-    try {
-      store.setItem(PREFIX + path, raw);
-      return true;
-    } catch {
-      forget();
+    // Before anything is given up for it. A payload larger than the whole budget would
+    // empty the store on its way to failing anyway, so it fails here instead, and the
+    // stale entry it was meant to replace goes with it — that one *is* superseded.
+    if (key.length + raw.length > BUDGET_BYTES) {
+      drop(path);
       return false;
     }
+    // Bounded by how many entries there are to give up, rather than by "until it fits".
+    // A storage whose `removeItem` throws — which is a thing Safari does under a full
+    // disk — would otherwise be an endless loop here, on the front of a page load, and a
+    // spinning app is a great deal worse than a cold one.
+    for (let tries = keys().length + 1; tries > 0; tries -= 1) {
+      if (held(path) + key.length + raw.length <= BUDGET_BYTES && put(key, raw)) return true;
+      // Either over our own budget or refused by the browser — the origin's quota is
+      // shared with the token, the drafts and the send queue, so ours can be inside its
+      // budget and still not fit. Same answer to both: give one up and try again.
+      if (!evict(path)) break;
+    }
+    drop(path);
+    return false;
+  }
+
+  /** How many characters our own entries are holding, ignoring one path we are replacing. */
+  function held(except) {
+    let n = 0;
+    for (const path of keys()) {
+      if (path === except) continue;
+      let raw;
+      try {
+        raw = store.getItem(PREFIX + path);
+      } catch {
+        continue;
+      }
+      n += PREFIX.length + path.length + (raw ? raw.length : 0);
+    }
+    return n;
+  }
+
+  function put(key, raw) {
+    try {
+      store.setItem(key, raw);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Give up exactly one entry to make room, and say whether there was one to give.
+   *
+   * The ordering is `BUDGET_BYTES`'s: oldest `at` first, and the inbox's own paths only
+   * once nothing else is left. `keep` is the path being written, which is never a
+   * candidate — evicting it would make room by throwing away the thing we are here to
+   * store, and the write would then succeed having achieved nothing.
+   */
+  function evict(keep) {
+    let worst = null;
+    for (const path of keys()) {
+      if (path === keep) continue;
+      const hit = read(path);
+      // Unreadable — foreign, superseded, from a build that stored a different shape.
+      // Dropped here rather than left to `read`'s own housekeeping, because the loop
+      // above only terminates if every `true` from this function really did free
+      // something, and two of `read`'s four miss paths do not remove anything.
+      if (!hit) {
+        drop(path);
+        return true;
+      }
+      const rank = [LAST_TO_GO.has(path) ? 1 : 0, hit.at];
+      if (!worst || rank[0] < worst.rank[0] || (rank[0] === worst.rank[0] && rank[1] < worst.rank[1])) {
+        worst = { path, rank };
+      }
+    }
+    if (!worst) return false;
+    drop(worst.path);
+    return true;
   }
 
   function drop(path) {
@@ -237,8 +392,12 @@
   /**
    * Throw the lot away.
    *
-   * Called when the credential is refused, which is the one moment a held payload
-   * stops being yours — and on a quota failure, above.
+   * Called when a held payload stops being yours: the credential refused, a sign-out, a
+   * device revoked, an account switched. That list matters more than it used to. These
+   * entries survive the app closing now, so "it will be gone by tomorrow" has stopped
+   * being true of anything here and every one of those moments has to say so out loud.
+   *
+   * It is deliberately **not** what a full store does any more. See `write`.
    */
   function forget() {
     for (const path of keys()) drop(path);
@@ -247,18 +406,20 @@
   /**
    * Bring a held payload up to date without asking for it again — and reset its clock.
    *
-   * The gap this closes: `prewarm` fills a path once per document and the TTL then ages
-   * the entry out fifteen minutes later, so an inbox left open — which is the way this
-   * app is actually used — had a *cold* Advocates tab for all but the first quarter of an
-   * hour, and nothing to re-warm it, because `prewarmed` never goes back to false. The
-   * entry was not wrong when it was dropped; it was merely old, and the delta stream
-   * knows the difference.
+   * The gap this closes: `prewarm` fills a path once per document, and `prewarmed` never
+   * goes back to false — so on an inbox left open, which is the way this app is actually
+   * used, whatever the background warm fetched in the first second is all any other tab
+   * was ever going to get. Under the old fifteen-minute TTL that was worse than merely
+   * unhelpful: the Advocates tab went *cold* a quarter of an hour in and nothing could put
+   * it back. The entry was not wrong when it was dropped; it was merely old, and the delta
+   * stream knows the difference. bc-1kwl.14 has since removed the TTL outright and the
+   * entry now survives the app closing, which is the same argument taken to its end.
    *
    * So: a page that is parked on `/api/poll` calls this on every wake. `mutate` folds
    * whatever the wake carried into the data — the advocate roster rides every wake
-   * whatever woke it — and the write underneath stamps `at` afresh, which is what stops
-   * a quiet hour ageing out a payload nothing has invalidated. It costs no request, and
-   * it is the only way an entry can stay young without one.
+   * whatever woke it — and the write underneath stamps `at` afresh. It costs no request,
+   * and it is the only way an entry is marked live without one: `at` is what the
+   * background warm's floor reads, and what the store's eviction order sorts on.
    *
    * Returning `mutate`'s `null` means "I cannot maintain this shape", and is a miss, not
    * a write: a payload from an older daemon that lacks the fields being folded in should
@@ -472,7 +633,8 @@
   window.beadcause = window.beadcause || {};
   window.beadcause.warm = {
     VIEWS,
-    TTL_MS,
+    STORE_V,
+    BUDGET_BYTES,
     PREWARM_FLOOR_MS,
     read,
     write,

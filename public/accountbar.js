@@ -393,6 +393,15 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return fail(data.error || `the daemon said ${res.status}`);
+      // Everything the warm layer is holding was fetched for the account you were in a
+      // second ago, and several of those payloads are narrowed server-side by which
+      // account you are — so they are not this one's to paint. Dropped before the reload
+      // rather than left to be corrected by the fetch behind it, because the whole
+      // promise of that layer is a *first frame* drawn from what is held, and a first
+      // frame of somebody else's inbox is the one thing it must never draw. It mattered
+      // less when the store died with the tab (public/warm.js); since bc-1kwl.14 it does
+      // not die, so every moment a held payload stops being yours has to say so.
+      window.beadcause?.warm?.forget?.();
       // Everything on this page was fetched for the account you were in a second ago —
       // see the header. The reload is the change taking effect, not a fallback.
       location.reload();
