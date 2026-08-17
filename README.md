@@ -9955,6 +9955,12 @@ not, a repaint seconds after a restart draws every held bead on the repo's own c
 gains the per-advocate split on the next one. No bead is ever missing; only its section
 is, and only briefly.
 
+These are the rows behind the pill on the same card and not a second sweep, which also
+decides what is in them: `bd ready --label unendorsed` minus the ship beads, so a held
+bead that is *blocked* is on the queue and not here. That is deliberate — a section
+disagreeing with the number six inches above it would be the worse of the two errors, and
+the complete list is one tap away.
+
 A row is a title, an id and a link, where the queue gives the same bead its whole
 description and the agent's argument. That asymmetry is deliberate and it is the queue's
 own reasoning turned around: the fat row exists because a decision made off a title is a
