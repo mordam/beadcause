@@ -11339,6 +11339,59 @@ The hand-back runs before the same tick's survey, so a bead freed this way is wo
 immediately rather than thirty seconds later — and where the dead window is still on
 screen, the live-session filter is what stops a second one opening over it.
 
+#### And then the tracker refused it — twenty beads, and four that never came back
+
+That last bullet was the bug rather than a caveat, and it took bd two minor versions and
+a month to show it. **bd 1.2.1 refuses to clear a claim from an actor that is not the
+holder:**
+
+    cannot reassign bc-xl7n.61: held by "neadamthal@gmail.com" (in_progress); coordinate
+      with the holder (bd mail neadamthal@gmail.com) — pass --force only if their claim is
+      abandoned (crashed agent, expired lease), or use bd reclaim
+
+On this path actor and assignee can never match, *by construction*. The window claimed
+the bead under the human's git identity — that is what the brief tells it to do, and what
+`bd ready` reads — and every write beadcause makes is stamped `beadcause`. So the write
+was not refused sometimes: it was refused every time, from the moment the version landed,
+and the three retries behind it could not help because nothing here is a race.
+
+Which turns "the next window tries again" into a sentence with nothing behind it. There
+**is** no next window: the bead is still `in_progress` and still assigned, so it is not in
+`bd ready`, so no advocate can see it, so the only thing that would ever have retried the
+hand-back was the hand-back that just failed. `grep "could not hand" ~/Library/Logs/`
+`beadcause.log` on 2026-08-17 found 20 distinct beads, against 39 windows that exited
+without closing one — roughly half of every dead window since the bump.
+
+**It partly self-heals, which is why nobody noticed.** Sixteen of the twenty closed anyway
+in the end, because a pull request landed or somebody reclaimed the bead by hand. Four did
+not: they sat `in_progress` under no window at all, one of them for two days, indexed
+nowhere and mentioned by nothing. A bead in that state is not *late* — it is gone, and the
+only trace of it is a line in a log.
+
+So the hand-back asks for `Bd.reopenAbandoned` rather than `Bd.reopen`, which is the same
+write with `--force` appended — but only after the plain one has come back refused, and
+only when *that* refusal is what came back. The flag is what the refusal itself prescribes
+for a claim that is abandoned, and this is the one caller that can be sure it is: it runs
+**because** the window is gone. `bin/plan.js`'s last act goes the same way, for the same
+reason and a shorter one — the claim it is releasing is its own.
+
+**Three things were deliberately left alone.** `Bd.reopen` still has no flag on it, because
+the review path in `lib/server.js` and `Bd.commission` reopen beads whose holder may still
+be typing, and there the guard is doing exactly the job it was added for; force belongs at
+the call site that has established otherwise, not in the shared write. The refusal is
+matched by its own regex (`REASSIGN_GUARD_RE`) rather than by widening the one that reads
+a refused *close*, because both hand `--force` to their caller and the two sentences share
+no wording — a regex that drifted across them would step over a live blocker or an epic's
+open children on the strength of a claim. And `--force` on `bd update` lifts the gates
+around moving an issue into a *done* status as well as this guard, so the argv it is
+attached to is pinned, whole, in `test/reassignguard.mjs` — the status it names can only
+ever be `open`.
+
+That suite asks the binary as well as the code: a stub can only confirm what `lib/bd.js`
+already believes, and *that the plain write is refused at all* is a claim about bd. Like
+`test/closegatereal.mjs` it runs against a fresh throwaway workspace, and skips loudly
+where `bd` is not installed.
+
 #### Closing the window — a session that has finished should not still be on screen
 
 The `exit` above only runs **when `claude` exits**, and a session that has finished its
