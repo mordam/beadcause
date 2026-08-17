@@ -13223,12 +13223,33 @@ rather than reject:
   looks exactly like agreement. A *missing* id is numbered instead, because bookkeeping is
   not worth a round.
 
-**What exists today is the kind, its verdict format, and the brief it argues from.** Nothing
-opens a window on a delivered pull request yet, and the merge queue does not wait for a
-verdict — a merge-bead still goes straight to the queue, and the flow diagram draws the
-reviewer beside that path rather than in it. The wiring, the round cap, the worker's
-hand-back and the approving review on GitHub are the rest of the epic; what landed first is
-the thing all four of them have to agree about, which is what a verdict *is*.
+**Two rounds, and then it is Adam's.** `MAX_REVIEW_ROUNDS` in `lib/mergebead.js` is two —
+review, answer, re-review, escalate — because "repeat until there are no unresolved
+comments" is unbounded as written, and a reviewer and a worker that genuinely disagree do
+not converge by being asked again: they burn a session per round per side, for ever, and
+from outside that is indistinguishable from the pull request being stuck. At the cap the
+unresolved comments **escalate rather than lapsing into an approval**, or the loop would
+reward a worker for holding out for two rounds. A reviewer that refuses outright does not
+wait for the cap at all — asking a worker to answer comments nobody will accept is a round
+spent on nothing. Either way the escalation is the merge-bead *becoming* the card, through
+the same `raiseMergeCard` a refused merge and an approval wait already go through: one
+bead, one blocker, one tap, for the reason in bc-ec6.
+
+**A verdict also records the commit it was given for.** The review state block carries the
+pull request's head sha at the moment the reviewer wrote it down — for every verdict, not
+only for an approval, since that is the only way a later round can tell whether the worker
+pushed anything in answer or answered in prose. It matters here more than it would
+elsewhere: this repo has no branch protection, so GitHub does not dismiss an approving
+review when new commits land, and without the sha an approval given for one diff would sit
+there gating the merge of another. Adam's rule is that only a **worker's** push sends it
+round again — a resolver bringing `main` into the branch is not a change to the proposal.
+
+**What does not exist yet is the gate.** Nothing opens a window on a delivered pull request,
+and the merge queue does not yet consult the verdict — a merge-bead still goes straight to
+the queue, and the flow diagram draws the reviewer beside that path rather than in it. The
+wiring, that gate, the worker's hand-back and the approving review on GitHub are the rest of
+the epic; what landed first is the thing all four of them have to agree about, which is what
+a verdict *is*.
 
 ### The notification with nothing to answer
 
