@@ -188,6 +188,8 @@ function board(p0s, open = [], shut = false, status = 'live') {
     workspace: 'all',
     spaces: [],
     p0opening: new Map(),
+    // bc-s8mc: the picker is shut in this suite. See the lift below.
+    p0picker: false,
     // Empty, always, in this suite: what a row expands *into* is test/p0bead.mjs's
     // (bc-rfnr.9.4). It is here because `p0RowHtml` asks whether its bead is open before
     // it draws the caret, and a board rendered without it throws rather than failing.
@@ -235,6 +237,11 @@ function board(p0s, open = [], shut = false, status = 'live') {
       lift(APP, 'function p0ActsHtml(c, more'),
       lift(APP, 'function p0CardHtml(c)'),
       lift(APP, 'function p0FullHtml(c)'),
+      // bc-s8mc's picker, at the foot of the section — lifted because `p0SectionHtml`
+      // calls it on every render and would otherwise throw. `state.p0picker` is false
+      // here, so what it draws in this suite is the closed offer and nothing else;
+      // what it draws open is test/p0start.mjs's.
+      lift(APP, 'function p0PickerHtml(rows)'),
       lift(APP, 'function p0SectionHtml()'),
       'p0SectionHtml();',
     ].join('\n'),
@@ -843,7 +850,7 @@ check('a title out of the tracker cannot write markup into the board', () => {
 
 check('the three no-op cases are untouched: no `me`, no P0s, an old payload', () => {
   assert.equal(board([]), '');
-  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state: { p0board: { owned: false, p0s: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map() } });
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state: { p0board: { owned: false, p0s: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map(), p0picker: false } });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -876,6 +883,11 @@ check('the three no-op cases are untouched: no `me`, no P0s, an old payload', ()
       lift(APP, 'function p0ActsHtml(c, more'),
       lift(APP, 'function p0CardHtml(c)'),
       lift(APP, 'function p0FullHtml(c)'),
+      // bc-s8mc's picker, at the foot of the section — lifted because `p0SectionHtml`
+      // calls it on every render and would otherwise throw. `state.p0picker` is false
+      // here, so what it draws in this suite is the closed offer and nothing else;
+      // what it draws open is test/p0start.mjs's.
+      lift(APP, 'function p0PickerHtml(rows)'),
       lift(APP, 'function p0SectionHtml()'),
     ].join('\n'),
     context

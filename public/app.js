@@ -248,6 +248,16 @@
      * where which epic is unfolded is where you happen to be looking.
      */
     p0status: localStorage.getItem('beadcause.p0status') || 'live',
+    /**
+     * Is the picker at the foot of the board open? bc-s8mc.
+     *
+     * Page state and not persisted, like `p0open` and unlike `p0shut`: it is a thing you
+     * are doing rather than a way you like the board, and a picker still hanging open the
+     * next morning would be the app remembering a decision you had already made. It is
+     * closed by a successful start for the same reason — the answer to "which one" has
+     * been given, and the card is on the way.
+     */
+    p0picker: false,
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -3603,38 +3613,25 @@
     badge.hidden = !n;
   }
 
-  /**
-   * The count in the chrome: what is waiting elsewhere.
-   *
-   * There used to be a second one — an **N waiting** pill in the top bar, counting
-   * the beads asking you something. It is gone (bc-ka5y.1), and the reason is that
-   * the list under it *is* that number: the rows on screen are the beads waiting on
-   * you, so the pill spent the widest part of the bar restating what you were already
-   * looking at, and cost a local-versus-served reconciliation every repaint to do it.
-   * Its tap was a shortcut to the `human` scope, which the scope chips in the filter
-   * panel still do.
-   *
-   * What is left already has a tab of its own, so it is a badge on that tab rather
-   * than a chip in the bar — the number and the way to act on it end up the same tap
-   * target.
-   */
-  function paintSummary() {
-    const s = state.summary || {};
-    // The tabs live at the foot of every page, but only this one has the numbers:
-    // they ride the inbox's poll. A page that never sets a badge shows none, which
-    // is better than a number it has no way to refresh.
-    //
-    // One badge, and it is the proposals. A badge means *needs you* — that is what
-    // makes it worth putting a number on a tab you are not looking at — and a running
-    // agent needs nothing; it is a fact about the machine. `summary.sessions` is still
-    // served and still worth reading, and it is read on the page itself, in the
-    // advocate console's tally ("N working · M to answer"), where it sits beside the
-    // repo it belongs to instead of standing for every repo at once.
-    const badge = window.beadcause?.tabBadge;
-    if (!badge) return;
-    const proposals = Number(s.proposals) || 0;
-    badge('advocates', proposals, `Advocates — ${proposals} proposal${proposals === 1 ? '' : 's'} waiting`);
-  }
+  /*
+    ## There is no count in the chrome any more (bc-khoe.1)
+
+    Two of these have now gone the same way. The first was an **N waiting** pill in the
+    top bar (bc-ka5y.1): the list under it *was* that number, so it spent the widest part
+    of the bar restating what you were already looking at. The second was `paintSummary`,
+    which hung the proposals count off the Advocates tab through `beadcause.tabBadge` —
+    and it goes with the bottom bar that carried it.
+
+    The argument against it is the one the pill lost on, plus one the pill did not have.
+    A badge is a number about a page you are **not** looking at, and it is only ever live
+    on the one page whose poll happens to carry it — the inbox's. Everywhere else the bar
+    drew no badge at all, which was the honest state and also a second thing to have
+    learned. What is left is `summary` on the payload, still served, still read where a
+    count belongs beside the thing it counts: the advocate console's tally.
+
+    The pill row draws no counts, on any pill, deliberately — see the header of
+    public/viewbar.js.
+  */
 
   /**
    * The option this card's answer is currently making, or null.
@@ -5045,7 +5042,19 @@
   // placeholder holds a fresh SVG after every repaint, and a log pane is replaced
   // line by line.
   const OPAQUE = '.diagram, svg, pre';
-  const docScroller = () => document.scrollingElement || document.documentElement;
+  /**
+   * The page's own scroller — which is not the document any more (bc-7utr, bc-khoe.1).
+   *
+   * The inbox is a viewport-height shell: the top bar, the pill row and the filter line
+   * are rows of a flex column and the list is the one element with `overflow-y: auto`
+   * (see `.pagescroll` in public/style.css). So `document.scrollingElement.scrollTop` is
+   * 0 for the whole visit, and putting it back after a repaint restores a number that
+   * was never anything else. The fallback is kept for the same reason the anchoring
+   * above measures instead of assuming: a page that somehow loses the class still keeps
+   * its place.
+   */
+  const docScroller = () =>
+    document.querySelector('.pagescroll') || document.scrollingElement || document.documentElement;
   let placeGen = 0;
 
   /** Something deliberate is moving the page. Stop putting it back. */
@@ -6006,11 +6015,26 @@
    * ambiguous, and pointing at a P0 card stops naming anything. `test/editmode.mjs` pins
    * exactly that for `p0-title`, which is why the title is in the face above rather than
    * written on each side of the card.
+   *
+   * **`↩ Take it off the board` (bc-s8mc) is on the card and not in the tab**, which is the
+   * one thing these two faces are allowed to disagree about. Board membership is a decision
+   * about the *board*, so the control for it belongs on the face that is part of one. In the
+   * tab the same tap would pull the layer you are reading out from under you — `open` is
+   * found in `mine`, so an epic taken off stops being drawn — and `state.p0open` would still
+   * be holding its key, which nothing prunes: starting it again in the same page session
+   * would fly the tab open with nobody having tapped a card.
    */
   function p0ActsHtml(c, more = '') {
     return `<div class="p0-acts${more}">
             ${p0Control(c)}
             <a class="p0-graph" href="${esc(`${graphUrl(c)}&open=1`)}">🕸 Graph</a>
+            ${
+              more
+                ? ''
+                : `<button type="button" class="p0-off" data-act="p0-unstart" data-ws="${esc(
+                    c.workspace
+                  )}" data-bead="${esc(c.id)}">↩ Take it off the board</button>`
+            }
           </div>`;
   }
 
@@ -6075,14 +6099,72 @@
     </div>`;
   }
 
+  /**
+   * The foot of the board: one button, and the P0s a tap on it would offer. bc-s8mc.
+   *
+   * **`startable` is the server's list and this draws it whole.** Which P0s may be offered
+   * is a question about the tracker — endorsed, not superseded, not a crash this app filed
+   * at P0 itself, open rather than blocked — and every one of those is read off the graph
+   * the board is already built from (`offerable` in lib/server.js). A client-side rule over
+   * the cards it happens to have would be a second answer to that question, drawn from a
+   * payload that deliberately carries only the *started* ones.
+   *
+   * **The count is on every row**, because it is most of what the choice is made on: "the
+   * one with sixty children left" is how the board itself is ordered, and an id and a title
+   * alone put the decision back on your memory of the tracker.
+   *
+   * The tap that opens this grows the board, which is *above* the inbox list — see
+   * `keepTheScreenStill`, which the handler wraps the repaint in. Without it the list's own
+   * place-restore scrolls the page down by exactly the height of what just opened, and the
+   * control you tapped leaves the screen.
+   */
+  function p0PickerHtml(rows) {
+    const on = !!state.p0picker;
+    const head = `<button type="button" class="p0-pick" data-act="p0-pick" aria-expanded="${on}"${
+      on ? ' aria-controls="p0picker"' : ''
+    }>${on ? '\u2715 Never mind' : '\uff0b Start an epic'}</button>`;
+    if (!on) return head;
+    // Nothing to offer is a sentence rather than an empty box, and it says which of the two
+    // reasons it is: a tracker where every P0 of yours is already started reads exactly
+    // like a picker that failed to load its list.
+    if (!rows.length) {
+      return `${head}<div class="p0-picker" id="p0picker"><div class="p0-none">Nothing to start — every P0 you own is either on the board already or not open.</div></div>`;
+    }
+    return `${head}<div class="p0-picker" id="p0picker" role="group" aria-label="P0s you own that have not been started">${rows
+      .map(
+        (r) => `<button type="button" class="p0-cand" data-act="p0-start" data-ws="${esc(r.workspace)}" data-bead="${esc(
+          r.id
+        )}">
+          <span class="p0-cand-head"><span class="pill id">${esc(r.id)}</span><span class="p0-open">${
+            r.open === 1 ? '1 open' : `${r.open || 0} open`
+          }</span></span>
+          <span class="p0-cand-title">${esc(r.title || '')}</span>
+        </button>`
+      )
+      .join('')}</div>`;
+  }
+
   function p0SectionHtml() {
     const board = state.p0board;
     if (!board?.owned) return '';
-    const mine = (board.p0s || []).filter(
-      (c) => (state.space === 'all' || spaceForWorkspace(c.workspace) === state.space) &&
-        (state.workspace === 'all' || c.workspace === state.workspace)
-    );
-    if (!mine.length) return '';
+    const inView = (c) =>
+      (state.space === 'all' || spaceForWorkspace(c.workspace) === state.space) &&
+      (state.workspace === 'all' || c.workspace === state.workspace);
+    const mine = (board.p0s || []).filter(inView);
+    // The same two filters over the picker’s list, because a picker that offered an epic
+    // from a workspace this screen is not showing would put a card on a board you would
+    // then have to switch spaces to see.
+    const canStart = (board.startable || []).filter(inView);
+    // Nothing started, and something that could be. The board is off — that is bc-6s96’s
+    // rule and the list below is drawn flat, untouched — but the one control that would
+    // *end* that state has to be reachable, or the screen that says what the week is about
+    // is the one screen that cannot change it. Just the offer: no heading, no fold, no
+    // count of nothing.
+    if (!mine.length) {
+      return canStart.length
+        ? `<section class="p0-board bare" aria-label="${P0_SECTION_LABEL}">${p0PickerHtml(canStart)}</section>`
+        : '';
+    }
     const cards = mine.map(p0CardHtml).join('');
     // At most one, because the tab is a fixed layer and a second would stack on the first
     // with no way to tell which epic you were reading. The `p0` handler is what keeps the
@@ -6105,7 +6187,7 @@
         ${P0_SECTION_LABEL}
         <span class="p0-kind-n">${mine.length}</span>
       </button>${
-        shut ? '' : `<div class="p0-cards">${cards}</div>${open ? p0FullHtml(open) : ''}`
+        shut ? '' : `<div class="p0-cards">${cards}</div>${p0PickerHtml(canStart)}${open ? p0FullHtml(open) : ''}`
       }</section>`;
   }
 
@@ -6268,7 +6350,6 @@
     paintList(chunks);
 
     paintRequestBadge();
-    paintSummary();
     renderFilters();
     // The live half of any delivery on screen. `ensurePr` is a no-op for a card it
     // has already fetched, so this costs one GitHub round trip per pull request for
@@ -6401,6 +6482,12 @@
 
   // One paint per frame at most. Scroll fires far faster than the screen redraws, and
   // every paint here reads geometry back out of the layout.
+  //
+  // `capture` is what keeps this listener working now that the list scrolls rather than
+  // the document (bc-7utr): a `scroll` event on an element does not bubble, so a
+  // bubble-phase listener on the window never hears it — but it is still dispatched down
+  // the capture path, window first. One listener, both shapes, and it also catches an
+  // open card scrolling its own brief.
   addEventListener(
     'scroll',
     () => {
@@ -6410,7 +6497,7 @@
         paintScrollPos();
       });
     },
-    { passive: true }
+    { passive: true, capture: true }
   );
 
   /* --------------------------------------------------------------- actions */
@@ -7013,6 +7100,68 @@
         // dead control saying nothing would be the wrong end of it.
         btn.disabled = false;
         btn.textContent = was;
+        toast(err.message, 'refused');
+      }
+      return;
+    }
+
+    /**
+     * Open the picker at the foot of the board, or shut it. bc-s8mc.
+     *
+     * `keepTheScreenStill` and not a plain `render(true)`, which is the whole of what makes
+     * this tap usable: the picker opens *above* the inbox list, `capturePlace` anchors the
+     * scroll on the first card in that list, and restoring it after a repaint that grew the
+     * board scrolls the page down by exactly the height of what just opened — the button
+     * you pressed leaving the screen, the list you were not looking at staying put. The
+     * offset is exact rather than approximate here, because everything inserted is below
+     * the anchor row and nothing above it changes height.
+     */
+    if (act === 'p0-pick') {
+      state.p0picker = !state.p0picker;
+      keepTheScreenStill(() => render(true));
+      return;
+    }
+
+    /**
+     * Start a P0 from the picker, or take one off the board. bc-s8mc.
+     *
+     * Both directions through one branch because they are one write in opposite
+     * directions, and both keyed on `data-bead` rather than `data-key` for the reason the
+     * advocate button above is: these are board controls, not inbox rows, and every branch
+     * below reads a bead key.
+     *
+     * **The refusal is the point.** The server answers 409 with a sentence for every state
+     * the picker's list — up to a poll old — could not have known about: the bead closed,
+     * somebody started it from the other device, it was superseded while you were reading.
+     * The acceptance criterion for this feature is that such a write is loud rather than a
+     * card that silently never appears, so the button comes back and the reason goes in a
+     * toast, exactly as the advocate launch does.
+     *
+     * **`load()` and not a hand-made card.** The daemon refreshed that workspace's graph
+     * inside the write, so the very next payload has the card with its tree and its counts
+     * on it — a card assembled here from the picker row would be a second renderer of the
+     * board's hardest shape, wrong in the counts until the real one landed. Every other
+     * device gets the same thing off its parked log request, woken by the `p0board` event.
+     */
+    if (act === 'p0-start' || act === 'p0-unstart') {
+      const on = act === 'p0-start';
+      const bead = btn.dataset.bead;
+      const was = btn.innerHTML;
+      btn.disabled = true;
+      btn.textContent = on ? 'Starting…' : 'Taking it off…';
+      try {
+        await api(on ? '/api/bead/start' : '/api/bead/unstart', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
+        });
+        // The question the picker asked has been answered; leaving it open would put the
+        // epic you just started back in front of you as something to start.
+        if (on) state.p0picker = false;
+        toast(on ? `${bead} is on the board` : `${bead} is off the board — ＋ Start an epic puts it back`);
+        await load();
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = was;
         toast(err.message, 'refused');
       }
       return;
@@ -9202,11 +9351,11 @@
         composeEl.focus();
       }
     });
-    // What tells the stylesheet to keep the foot of the list clear of the button, the
-    // same way `has-tabbar` keeps it clear of the bar. Set from here rather than
-    // written into the markup because it is a fact about this script having wired ＋
-    // up: on the stale-document load above there is no button, and reserving space
-    // under one would be a gap at the end of the list with nothing in it.
+    // What tells the stylesheet to keep the foot of the list clear of the button. Set
+    // from here rather than written into the markup because it is a fact about this
+    // script having wired ＋ up: on the stale-document load above there is no button,
+    // and reserving space under one would be a gap at the end of the list with nothing
+    // in it.
     document.body.classList.add('has-compose');
   }
 

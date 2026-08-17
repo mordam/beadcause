@@ -528,14 +528,19 @@
     root.querySelectorAll('.fc-nav button').forEach((b) => {
       b.setAttribute('aria-pressed', String(b.dataset.go === id));
     });
+    // Back to the top of the **scroller**, not of the window (bc-7utr): this page is a
+    // viewport-height shell and the document never scrolls, so `window.scrollTo` moved a
+    // number that was zero all along and a reader who had scrolled halfway down one flow
+    // stayed halfway down the next one.
+    const top = () => { const el = root.closest('.pagescroll') || document.querySelector('.pagescroll'); if (el) el.scrollTop = 0; };
     if (id === 'agents') {
       body.innerHTML = agentsSection();
-      window.scrollTo({ top: 0 });
+      top();
       return;
     }
     const flow = flowNow();
     body.innerHTML = flowSection(flow, step);
-    window.scrollTo({ top: 0 });
+    top();
     renderDiagram(flow);
   }
 

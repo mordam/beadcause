@@ -266,6 +266,58 @@ for (const { path: p, why } of NEVER_MADE) {
   else bad(`${p} 404s — ${why}`, `HTTP ${res.status}: something is serving a page this decision says does not exist`);
 }
 
+/*
+  And the other half of the same worry: a path that serves the right page but that the
+  pill row does not recognise (bc-khoe.1).
+
+  Every table above proves a shortcut still *opens* something. None of them proves the
+  navigation knows where you have landed — and the row marks the current view by matching
+  `location.pathname` against a pill's `paths`, so a phone opening the `/work` shortcut it
+  has had on its home screen for months would get the advocate console with **nothing on
+  the row current**. That reads as the page having lost its way in, on the exact devices
+  the aliases exist for.
+
+  So: for every page a pill points at, every alias of that page is claimed by exactly one
+  pill. Exactly one, because two pills claiming a path is two current pills on one screen —
+  and the pair this is really about is Advocates and PRs, which share a document and split
+  its nine paths between them. `.html` twins are excluded: `/prs.html` is genuinely on
+  people's home screens and is claimed, but `/endorse.html` belongs to a page that has no
+  pill at all, and the rule is about pages that have one.
+*/
+{
+  const src = fs.readFileSync(path.join(HERE, '..', 'public', 'viewbar.js'), 'utf8');
+  const pills = [...src.matchAll(/id: '([a-z]+)',[\s\S]{0,400}?paths: \[([^\]]*)\]/g)].map((m) => ({
+    id: m[1],
+    paths: [...m[2].matchAll(/'([^']+)'/g)].map((q) => q[1]),
+  }));
+  if (!pills.length) bad('the pill row keeps its paths in one table', 'could not read PILLS out of public/viewbar.js');
+  else {
+    const owner = new Map();
+    let clash = null;
+    for (const pill of pills) {
+      for (const one of pill.paths) {
+        if (owner.has(one)) clash = `${one} is claimed by both ${owner.get(one)} and ${pill.id}`;
+        owner.set(one, pill.id);
+      }
+    }
+    if (clash) bad('no path is claimed by two pills', clash);
+    else ok(`the row's ${owner.size} paths are claimed by ${pills.length} pills, one each`);
+
+    for (const page of PAGES) {
+      // The page a pill lives on is the one whose alias list holds that pill's own paths.
+      if (!page.paths.some((one) => owner.has(one))) continue;
+      const orphans = page.paths.filter((one) => !owner.has(one));
+      if (!orphans.length) ok(`every path of ${page.what} is on the row`);
+      else
+        bad(
+          `every path of ${page.what} is on the row`,
+          `${orphans.join(', ')} serve${orphans.length === 1 ? 's' : ''} it but no pill recognises ` +
+            `${orphans.length === 1 ? 'it' : 'them'} — arriving that way marks nothing as current`
+        );
+    }
+  }
+}
+
 for (const s of servers || []) s.close?.();
 app.stop?.();
 
