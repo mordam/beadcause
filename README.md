@@ -18954,6 +18954,66 @@ week, because nothing has ever retried its way out of one. It needs a person, so
 so in the title, at priority 4, in different words on the banner. Filing those two under
 one word is how a divergence sits for a fortnight under a label that says "retrying".
 
+**And a third word, for the failure that is neither.** A conflict is two machines
+disagreeing. A failure is the network. `stuck` is one machine that cannot move, and it
+exists because the other two words were both wrong about a real outage for a week.
+
+On 2026-08-17 the `architecture` workspace had not pulled in **73 logged ticks**, every
+one of them the same string, every one filed as `failed` — a word whose whole meaning is
+that the next interval may fix it. It could not. What it turned out to be is worth
+writing down, because every tool you would reach for to diagnose it says there is
+nothing wrong:
+
+```
+$ dolt status
+On branch main
+nothing to commit, working tree clean
+
+$ dolt merge origin/main
+error: local changes would be stomped by merge:
+        events
+ Please commit your changes before you merge.
+```
+
+`dolt status`, `dolt diff`, the `dolt_status` table and `dolt_diff_summary` all reported
+nothing, and forty samples over a minute never caught the working set dirty. The root
+hashes are what showed it: `WORKING` genuinely differed from `HEAD` while `STAGED`
+matched it, and the difference was **physical rather than logical** — the same rows,
+stored differently. Merge's guard compares roots, so it fires; every diff a person can
+run compares content, so they all say clean. The error asks you to commit changes that
+do not exist.
+
+Three things follow, and each is a rule rather than a note:
+
+- **It is not a race**, which was the leading theory. A plain `dolt merge` typed by hand
+  fails exactly as the daemon's `bd dolt pull` does, deterministically, against a clean
+  tree — so it is not a collision with the twenty agent sessions writing that graph.
+- **No interval fixes it**, so the screen stops saying it retries. A `stuck` row says
+  how many identical failures instead, and the push to the phone goes to priority 4 with
+  a title that says STUCK — the same rank as a conflict, because both need a person,
+  and a separate word because they need *different* things: a conflict needs a decision
+  about whose write wins, this needs a command typed.
+- **The merge had nothing to do.** `main..origin/main` was **zero commits**. The guard
+  fires before Dolt notices the merge is a no-op — so this can strand a workspace that
+  is not even behind, and pull-then-push returning on the first failure meant **208
+  local commits never reached the team** while a no-op pull failed in front of them.
+  A stuck pull therefore **still pushes**. Half a sync is worth having, and it is the
+  half that gets this Mac's beads out.
+
+Beadcause tries exactly one recovery on its own, and it is the one Dolt's own message
+names: `bd dolt commit`, then the pull once more. Committing *keeps* the changes, which
+is what makes it safe to do unattended on a tracker twenty sessions are writing into.
+The other way out — `dolt checkout <the table the error names>`, which is what actually
+cleared this one — **discards** the working set, so it stays a sentence in the
+notification for a person to type and is never something the daemon does.
+
+For any error that is *not* one of those shapes, the same promotion happens on a count
+instead: five byte-identical failures in a row and it stops calling itself transient.
+That threshold is knowingly the weaker half — the daemon restarted 505 times across the
+log this was measured on, and 85 of the 97 sync lines in it follow a restart, so an
+in-memory streak rarely reaches five. Recognising the *shape* on the first tick is what
+survives a restart, and is why the two rules exist side by side.
+
 The failure path is what `node test/sync.mjs` covers, and it is the half that is tested
 for a reason: a sync that works is provable by looking at a second Mac, and a sync that
 quietly stopped looks exactly like a quiet team.
