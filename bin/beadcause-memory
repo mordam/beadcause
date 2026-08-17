@@ -85,10 +85,10 @@ import {
   topics,
   agents,
 } from '../lib/memory.js';
-// The read half of tier 4 lives with the archive that holds it, not with the store that
-// stages it — see `readDebriefs`. lib/memory.js cannot import it back without a cycle,
-// so this is the one command that reaches two modules.
-import { archivedBeads, readDebriefs } from '../lib/sessionlog.js';
+// The read half of tier 4 lives with the archive that reports end up in, not with the
+// store that stages them — see `readDebriefs`, which reads both. lib/memory.js cannot
+// import it back without a cycle, so this is the one command that reaches two modules.
+import { debriefBeads, readDebriefs } from '../lib/sessionlog.js';
 import { recordRead } from '../lib/memoryuse.js';
 
 const argv = process.argv.slice(2);
@@ -302,7 +302,7 @@ async function main() {
       const dir = process.cwd();
       // Every bead that has an archive, narrowed to this one's family. Two git calls to
       // decide the candidate list, rather than one per bead in the tracker.
-      const family = debriefFamily(await archivedBeads(dir), { id: bead });
+      const family = debriefFamily(await debriefBeads(dir), { id: bead });
       const found = await readDebriefs(dir, family, {
         perBead: Number(flags.get('limit')) || 3,
       });
@@ -315,7 +315,13 @@ async function main() {
         return out(`no run at ${bead} or its siblings has left a report yet`, []);
       }
       return out(
-        found.map((d) => `── ${d.bead}  ${d.at}\n${d.text}`).join('\n\n'),
+        found
+          // `pending` is said out loud because it is the difference between a report that
+          // is safe where it is and one that is still waiting on an archive to fold it in.
+          // A reader who sees 58 of these knows something upstream has stopped, and a
+          // reader who wrote one a second ago knows why it is already readable.
+          .map((d) => `── ${d.bead}  ${d.at}${d.staged ? '  (pending archive)' : ''}\n${d.text}`)
+          .join('\n\n'),
         found
       );
     }

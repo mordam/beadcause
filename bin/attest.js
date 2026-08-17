@@ -14,14 +14,20 @@
  * It computes exactly what the daemon computes, with lib/posture.js's `report`, which is
  * the only way the two answers cannot quietly diverge.
  *
- * `posture` and `record` are the local half, for the operator and for the daemon that
- * will publish it once bc-3muu.3 has somewhere to publish to. Both go and look; neither
+ * `posture` and `record` are the local half, for the operator. Both go and look; neither
  * takes a value, and there is deliberately no flag that says what the answer should be.
  *
- * Expect `unverified` today, from any install. Nothing anchors yet (bc-3muu.10) and a git
- * ref in a directory its operator owns is enforced by the application rather than by the
- * store. That is the honest reading, and the reading this command exists to make hard to
- * avoid.
+ * **Neither of them writes, and `record` prints rather than publishes on purpose.** The
+ * publisher is `recordPosture` in lib/publication.js, which appends the same fields to the
+ * chain alongside the head they back. It is not called from here because reaching the chain
+ * means creating the common repository, and an attestation that altered what it was
+ * attesting would be measuring itself — the same reason this file creates nothing at all,
+ * stated in its lib/evidence.js exemption.
+ *
+ * Expect `unverified` today, from any install. Nothing submits an anchor yet (bc-3muu.14)
+ * and a git ref in a directory its operator owns is enforced by the application rather than
+ * by the store. That is the honest reading, and the reading this command exists to make
+ * hard to avoid.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,8 +75,10 @@ if (verb === 'posture') {
 
 if (verb === 'record') {
   const p = await observeHere();
-  // No `prev` to hand it: there is no store to read the previous record from until
-  // bc-3muu.3, so this is always a genesis record and says so by its seq.
+  // Always a genesis record, and it says so by its seq. Reading the previous record off
+  // the chain would mean opening the common repository, which this command may not do —
+  // what links a posture onto a chain is `recordPosture` in lib/publication.js, and this
+  // one is for looking at the posture rather than for publishing it.
   console.log(JSON.stringify(attest(null, p, { instance: flag('instance') || 'unenrolled' }), null, 2));
   process.exit(0);
 }
