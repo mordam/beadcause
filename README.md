@@ -4148,12 +4148,15 @@ PRs pill with no second axis would be a list of last month with this morning som
 inside it. Two rules keep that honest:
 
 - **The default is a narrowing nobody set, so the line says so.** At rest the control
-  reads `Human · unmerged`. On a screen with no pull requests on it at all, it says
-  nothing about them.
-- **A status outlives the pill that set it.** Pick `Live`, then widen back to `My Epics`,
-  and the chips go away while the narrowing does not — so the summary keeps naming it
-  (`Human · Live`). A list narrowed by something no longer on screen is the one thing this
-  control exists to prevent.
+  reads `Any bead · unmerged` — the scope moved out onto the row in front of it with
+  bc-khoe.24, so what leads the line now is the search box's own word for "everything".
+  On a screen with no pull requests on it at all, it says nothing about them.
+- **A status outlives the pill that set it, as long as the new pill can still hold a
+  pull request.** Pick `Live`, then widen back to `My Epics`, and the chips go away while
+  the narrowing does not — so the summary keeps naming it (`Any bead · Live`). A list
+  narrowed by something no longer on screen is the one thing this control exists to
+  prevent. Tap `Questions` instead and the rung is **dropped**, because there is no pull
+  request in that list for it to narrow; see [the filters that remain](#the-filters-that-remain-are-the-ones-the-selected-pill-can-use).
 
 `All Beads` has the other kind. `claimed`, `blocked` and `unclaimed` were three pills'
 worth of one thing in three states, and none of the three is history the way a merged pull
@@ -4192,6 +4195,67 @@ still notify you, and the lit pill is the standing reminder that the list is nar
 directions, and over every combination of the fields the payload can carry rather than
 only over the rows it writes), the row's copy of it, the scope rule, both sub-filters'
 defaults and the chrome on a pointer and a touchscreen.
+
+### The filters that remain are the ones the selected pill can use
+
+The kinds left the panel and three controls stayed behind it: the bead search, PR status
+and bead status. **Not one of the three is relevant to every pill**, and until bc-khoe.3
+the panel offered all of them under all of them. That is the complaint that made the kinds
+pills in the first place, one level down — a control that cannot change what is on screen
+is chrome you have to open something to discover is useless.
+
+So each row of `KINDS` in `public/inboxfilter.js` carries a **`filters`** list: the ids of
+the panel groups that pill can use, and nothing else in the file decides it.
+
+| Pill | What it can be narrowed by | Why not the rest |
+|---|---|---|
+| **My Epics** | the bead search | Home holds every kind, so both sub-filters *could* narrow it — and offering two second axes over a list that is mostly neither is the ten-chip panel again. What they still do here is confessed on the summary line instead. |
+| **Questions** | the bead search | A question is not a pull request and it is not one of the live beads nobody is asking you about. |
+| **PRs** | the bead search, PR status | The one pill with both: a pull request follows its beads, so the search narrows it too. |
+| **Chats** | *nothing* | A chat is in no tracker. It is under no bead, and it has no rung. |
+| **All Beads** | the bead search, bead status | — |
+| **History** | *nothing* | A page of its own, with a filter bar of its own. |
+
+**`Chats` is the case that was actually broken, not merely noisy.** `inBead` in
+`public/app.js` hides every row that is not a bead — deliberately, because a filter you
+typed should mean what it says — so a bead picked under `PRs` and then carried into
+`Chats` produced a screen with **nothing on it at all**, under a control that was still
+offering to narrow it further. Now the pick is dropped when the pill changes, the search
+box goes with it, and with nothing left to offer **the whole panel takes itself off the
+row** — a summary line that opens an empty box is worse chrome than no line.
+
+Three rules fall out of the one list, and the third is the one worth stating twice:
+
+- **The panel offers what the lit pill names.** `hidden()` on every group, the page's own
+  included — `public/inboxfilter.js` wraps a page group rather than writing onto it, so
+  `beadGroup` in `public/app.js` is the same descriptor `public/filterpills.js` would take.
+- **A selection the newly-lit pill cannot use is dropped**, which is `set()`'s existing
+  rule for a kind the new scope cannot produce, applied one level in. A sub-filter's
+  selection lives in `inboxfilter.js` and is dropped there; a page group's lives with the
+  page, so all this end can do is ask — `clear()` is optional, and a group without one
+  keeps what it had.
+- **Dropped means *cannot use*, not *cannot see*.** A rung chosen under `PRs` is still
+  biting under `My Epics`, because that list holds pull requests; it is dormant under
+  `Questions`, because that one does not. Only the second is dropped, and the summary line
+  is gated on the same question. Getting *that* backwards is the subtler bug of the two:
+  the counts a chip carries are taken **before** the kind filter — which is what makes a
+  pill's number the list it would open — so under `Questions` there are still four pull
+  requests counted and none of them on screen, and an ungated line reads `unmerged` over a
+  screen with no pull request on it. Naming a filter that is not filtering is the same lie
+  as hiding one that is.
+
+**The standing `unmerged` default does not move.** It is a fact about what Home *is*
+rather than about what you last tapped, so it still applies under every pill that can hold
+a pull request, and the summary line still says so. What changed is only that it stops
+being said where it cannot be true.
+
+The last of it is the empty state. A pill that empties the list now keeps its own sentence
+even when the P0 board is on screen: "your epics are on the board above" is a true
+sentence about the wrong thing when the reason the list below is empty is a lit pill, and
+the way out is a tap on the row rather than a look at the board. `node
+test/inboxkinds.mjs` pins the table, the drop in both directions, the summary line's gate,
+the panel hiding itself under `Chats`, and the warning a page gets for handing over a
+group no pill names.
 
 ### The scope is a control you can see
 
