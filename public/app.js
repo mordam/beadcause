@@ -157,18 +157,26 @@
     workspace: 'all',
     open: new Set(),
     /**
-     * Which P0 cards are showing their tree, by card key (`workspace/id`). bc-rfnr.9.2.
+     * Which P0 has its tab open, by card key (`workspace/id`). bc-rfnr.9.2, bc-grut.
      *
-     * Page state rather than DOM state, and that is the whole of how an open tree
+     * A Set holding **at most one** since bc-grut, which is an accordion in the same
+     * sense `state.open` is and for the same reason: an open epic is `p0FullHtml`, a
+     * fixed layer over the whole tab, and a second one would stack on the first. Kept a
+     * Set rather than turned into a string because every reader of it asks `has(key)`
+     * per card while drawing the board, and the one place that has to enforce the
+     * single is the tap. See the `p0` handler.
+     *
+     * Page state rather than DOM state, and that is the whole of how an open epic
      * survives a poll. The board is one reconcile chunk keyed `@p0` (see
      * `p0SectionHtml`), so every sweep that moves a single count replaces the whole
      * section's HTML — a `hidden` toggled on a node, or an `open` on a `<details>`,
      * would fold up under your thumb every 25 seconds. Rebuilt from this set on each
-     * render instead, so a repaint redraws exactly what was open.
+     * render instead, so a repaint redraws exactly what was open. What the rebuild
+     * cannot carry is where you had scrolled *inside* the tab; `capturePlace` does that.
      *
-     * Not persisted across a reload, unlike the filter: which epics are unfolded is
-     * where you are looking *now*, and a phone that comes back to four expanded trees
-     * is a screen you have to fold up before you can read it.
+     * Not persisted across a reload, unlike the filter: which epic you are reading is
+     * where you are looking *now*, and a phone that came back to a tab over the inbox
+     * would be a screen you had to dismiss before you could see what you opened it for.
      */
     p0open: new Set(),
     /**
@@ -5116,6 +5124,11 @@
     const place = {
       gen: ++placeGen,
       docTop: docScroller().scrollTop,
+      // The open epic's tab, which is its own scroller and is not a `.card` — so the
+      // anchor below cannot see it, and the board it lives in is one reconcile chunk
+      // that any moved count replaces whole. Without this a poll drops you back at the
+      // top of a sixty-row tree every 25 seconds. bc-grut.
+      p0Top: listEl.querySelector('.p0-full-body')?.scrollTop || 0,
       key: null,
       self: null,
       scrollTop: 0,
@@ -5190,6 +5203,10 @@
     // The list behind an open card scrolls too, and it is what you come back to
     // when the card is collapsed.
     docScroller().scrollTop = place.docTop;
+    // And the open epic's tab, before the early return below — a board with no inbox
+    // card under it to anchor on is exactly the screen a P0 tab is most often over.
+    const p0body = listEl.querySelector('.p0-full-body');
+    if (p0body && place.p0Top) p0body.scrollTop = place.p0Top;
     if (!place.key) return;
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(place.key)}"]`);
     // The anchor card is gone — answered, or filtered away. The page offset above
@@ -5481,22 +5498,27 @@
   }
 
   /**
-   * The filter itself: one row of chips above the cards, drawn as the segmented switch
+   * The filter itself: one row of chips above the tree, drawn as the segmented switch
    * the inbox's scope row already is (`.chip-row.scopes`), because it is the same kind of
-   * control — one of three, never none, and it changes what every list under it contains.
+   * control — one of three, never none, and it changes what the list under it contains.
    *
-   * **Each chip carries what it would leave you with**, counted over the cards actually on
-   * the board rather than over the payload, for the reason the kind chips carry theirs: a
-   * chip offering "Closed" on a board where nothing has landed is a control that sends you
-   * to an empty screen, and the count is what stops you tapping it to find out. Counted on
-   * the rows' own statuses and not through `p0Visible` — the ancestors it keeps are
-   * context, and counting them would have "Closed 12" over a tree with four closed beads
-   * in it.
+   * **Each chip carries what it would leave you with**, counted over the cards it is
+   * handed rather than over the payload, for the reason the kind chips carry theirs: a
+   * chip offering "Closed" over a tree where nothing has landed is a control that sends
+   * you to an empty screen, and the count is what stops you tapping it to find out.
+   * Counted on the rows' own statuses and not through `p0Visible` — the ancestors it keeps
+   * are context, and counting them would have "Closed 12" over a tree with four closed
+   * beads in it.
+   *
+   * It takes a list, and since bc-grut the list is always one card: the control lives in
+   * the tab now (`p0FullHtml`), so "Closed 0" has to mean *this* epic has delivered
+   * nothing rather than that the board has. The signature is left plural because the
+   * counting is the same either way and narrowing it would be one edit that buys nothing.
    */
   function p0StatusHtml(cards) {
     const on = p0StatusFilter().id;
     const rows = cards.flatMap((c) => c.tree || []);
-    return `<div class="chip-row scopes p0-status" role="group" aria-label="Which beads the trees show">${P0_STATUS_FILTERS.map(
+    return `<div class="chip-row scopes p0-status" role="group" aria-label="Which beads the tree shows">${P0_STATUS_FILTERS.map(
       (f) => {
         const n = rows.filter((r) => f.match(String(r.status || 'open'))).length;
         return `<button type="button" class="chip" data-act="p0-status" data-status="${esc(f.id)}" aria-pressed="${
@@ -5507,27 +5529,49 @@
   }
 
   /**
-   * The line under the title saying what a tap does, and how much there is.
+   * What is behind a collapsed card, in three numbers that do not move when you touch a
+   * control. bc-grut.
    *
-   * It carries the *total* where the count above it carries what is open, which is the
-   * one number the collapsed card was missing: "9 open" says nothing about whether the
-   * epic is nine of ten or nine of sixty. And it is the honest place to say a P0 has
-   * nothing under it at all — a card promising a tree and opening on one sentence is a
-   * worse read than a card that said so with its mouth shut.
+   * The line this replaces said what a *tap* would give you — "Tap for 7 of the 16 beads
+   * under it" — and that was the right line while the tree unfolded in place, directly
+   * under the status filter that narrowed it. It is the wrong line now that the tap opens
+   * a tab of its own: the filter went into the tab with the tree, so a summary counted
+   * through it would be a card whose numbers moved because of a control that is not on
+   * the screen, on a board where every other card stayed exactly as it was.
    *
-   * **Two numbers since bc-rfnr.9.6**, because the filter put a wedge between them: `shown`
-   * is what the tap will actually give you and `total` is what is filed. Promising 16 and
-   * opening on 7 is the hint lying about the one thing it exists to say — and the two
-   * ways of having nothing are different sentences, since "nothing filed under it yet" over
-   * an epic with nine closed children under a `Not closed` filter is the control's doing
-   * and not the tracker's.
+   * So the collapsed card counts the whole tree and nothing else. `done` over `total` is
+   * the number "N open" can never give you — nine open says nothing about whether the epic
+   * is nine of ten or nine of sixty — and `asks` is the one field on a grid of a dozen
+   * cards worth scanning *for*, because it is the only one that means you are the thing
+   * holding the epic up.
    */
-  function p0HintText(on, shown, total) {
-    if (on) return 'Tap to fold it up';
-    if (!total) return 'Nothing filed under it yet';
-    if (!shown) return 'Nothing under it matches the filter';
-    if (shown < total) return `Tap for ${shown} of the ${total} beads under it`;
-    return `Tap for ${total === 1 ? 'the one bead' : `all ${total} beads`} under it`;
+  function p0Progress(card) {
+    const tree = card.tree || [];
+    return {
+      total: tree.length,
+      done: tree.filter((r) => String(r.status) === 'closed').length,
+      asks: tree.filter((r) => r.pending).length,
+    };
+  }
+
+  /**
+   * That, drawn: a bar, and the two numbers under it.
+   *
+   * A bar because the board is a grid now and the eye takes a row of these in one
+   * pass — a proportion is a shape you read without reading, where "12 of 19 done" is a
+   * sentence you have to stop on. Both are drawn, because the shape on its own cannot say
+   * whether the epic is small or enormous, and that is half of what you are scanning for.
+   *
+   * An epic with nothing filed under it gets the sentence instead. A bar sitting at zero
+   * over an epic nobody has broken down yet is a claim that nothing has landed, where the
+   * truth is that nothing has been written down.
+   */
+  function p0ProgressHtml(card) {
+    const { total, done } = p0Progress(card);
+    if (!total) return '<span class="p0-hint">Nothing filed under it yet</span>';
+    const pct = Math.round((done / total) * 100);
+    return `<span class="p0-bar" role="img" aria-label="${done} of ${total} beads under it closed"><span class="p0-bar-fill" style="width:${pct}%"></span></span>
+            <span class="p0-hint">${done} of ${total} done</span>`;
   }
 
   /** A tree row's own key — the same `workspace/id` the server sends, and its fallback. */
@@ -5853,12 +5897,28 @@
    * (bc-rfnr.3) and is null until that lands — a placeholder saying "nothing" would be a
    * claim, where an absent line is honestly nothing yet.
    *
-   * **The summary is the control (bc-rfnr.9.2).** Everything above the tree is one
+   * **The summary is the control (bc-rfnr.9.2).** Everything above the acts row is one
    * `<button>` that opens the card, which is why the id and the title are no longer
    * anchors: an anchor inside a button is not valid, and the way to the graph moved to
    * `.p0-graph` beside the advocate. What is open lives in `state.p0open` and the section
    * is rebuilt from it every render — and that is not a style choice, it is the only
    * shape that survives the chunk above being replaced whole 25 seconds later.
+   *
+   * **The cards are a grid, and the tap takes the tab (bc-grut).** The comment under
+   * `.p0-card` used to say these were the four or five things the week was about, and it
+   * has never been four or five — every open owned P0 until bc-6s96, about two dozen here,
+   * and the ones you have started since. Either way the board was, at every width, one
+   * column of near-identical cards you scrolled rather than scanned. `.p0-cards` is a
+   * grid — one across on a phone, two on a tablet, three on a desktop — and the collapsed
+   * card is given something worth scanning across: how far along it is, and whether any
+   * of it is waiting on *you*.
+   *
+   * And the tree no longer unfolds between the board and the list. It opens as
+   * `p0FullHtml`, a fixed layer over the tab — the shape `.card.open` has always used for
+   * an inbox row, for the same reason: a sixty-row tree read inside a card in a grid cell
+   * is a page inside a page. It also ends bc-rfnr.9.9 by construction rather than by
+   * correction: the expansion inserts nothing into the flow above the list, so there is
+   * no height for `capturePlace` to hold still and no scroll to jump.
    *
    * **And the section itself folds (bc-eevn).** The heading is a second disclosure, one
    * level up from the cards': it puts the whole board away, because on a phone four
@@ -5868,13 +5928,15 @@
    * narrowed to your epics' descendants exactly as it was. See `state.p0shut`, which is
    * stored shut-side-true so that every default there has ever been reads as open.
    *
-   * **And one status filter over the lot of them (bc-rfnr.9.6).** It sits between the
-   * heading and the cards — above the board, not on it — because it is one question asked
-   * of every tree at once, and it goes away with the cards when the board is folded: a
-   * control over things that are not on screen is a control you set and cannot see the
-   * effect of. What it narrows is the *trees* and nothing else; the list under the board
-   * is `underOwnedP0s`'s business, and a bead you filtered out of a tree is still a
-   * question you are being asked.
+   * **And one status filter (bc-rfnr.9.6), which moved into the tab with the tree
+   * (bc-grut).** It used to sit between the heading and the cards, and the argument for
+   * putting it there was that a control over things that are not on screen is a control
+   * you set and cannot see the effect of. That argument is what moves it: the trees are
+   * in the tab now, so the board is exactly where its effect cannot be seen. The pick is
+   * still one pick, still persisted, and still applies to whichever epic you open next —
+   * what changed is only where you reach it. What it narrows is the *tree* and nothing
+   * else; the list under the board is `underOwnedP0s`'s business, and a bead you filtered
+   * out of a tree is still a question you are being asked.
    */
   /**
    * The one control on a P0 card, in its three states — and the point of bc-d6yk is that
@@ -5917,6 +5979,124 @@
       return false;
     }
     return true;
+  }
+
+  /** "3 ask you", and nothing at all at zero — the pill is the alarm, not the count. */
+  const p0AsksHtml = (n) =>
+    n ? `<span class="pill p0-asks">${n === 1 ? '1 asks you' : `${n} ask you`}</span>` : '';
+
+  /**
+   * Everything both faces of a card say about the epic — the counts, the title, and the
+   * advocate's sentence — drawn once.
+   *
+   * Shared rather than written twice because the collapsed card and the tab it opens are
+   * the same epic and have to agree about it to the number: a grid cell saying "4 open"
+   * over a tab saying five is two answers to one question, arriving from one object, which
+   * is the kind of wrong nobody debugs because neither number looks wrong on its own.
+   *
+   * `tail` is the only thing that differs, and it is the caret: the card is a control that
+   * goes somewhere and the tab is the place it went, so only one of them has a `›` on it.
+   */
+  function p0FaceHtml(c, asks, tail = '') {
+    return `<span class="p0-head"><span class="pill id">${esc(c.id)}</span>${p0AsksHtml(asks)}${
+      c.inFlight ? `<span class="p0-flight">${c.inFlight} in flight</span>` : ''
+    }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span>${tail}</span>
+            <span class="p0-title">${esc(c.title || '')}</span>
+            ${c.waitingOn ? `<span class="p0-waiting">${esc(c.waitingOn)}</span>` : ''}`;
+  }
+
+  /**
+   * The two ways out, likewise once — and `more` is how the tab asks for its own rules
+   * without a second `class="p0-acts"` in the file.
+   *
+   * That is not tidiness either. **Edit mode resolves an element you point at back to the
+   * line of source that drew it** (public/editmode.js), and it does that by finding the
+   * class name in this file: a class written in two places is one it has to report as
+   * ambiguous, and pointing at a P0 card stops naming anything. `test/editmode.mjs` pins
+   * exactly that for `p0-title`, which is why the title is in the face above rather than
+   * written on each side of the card.
+   *
+   * **`↩ Take it off the board` (bc-s8mc) is on the card and not in the tab**, which is the
+   * one thing these two faces are allowed to disagree about. Board membership is a decision
+   * about the *board*, so the control for it belongs on the face that is part of one. In the
+   * tab the same tap would pull the layer you are reading out from under you — `open` is
+   * found in `mine`, so an epic taken off stops being drawn — and `state.p0open` would still
+   * be holding its key, which nothing prunes: starting it again in the same page session
+   * would fly the tab open with nobody having tapped a card.
+   */
+  function p0ActsHtml(c, more = '') {
+    return `<div class="p0-acts${more}">
+            ${p0Control(c)}
+            <a class="p0-graph" href="${esc(`${graphUrl(c)}&open=1`)}">🕸 Graph</a>
+            ${
+              more
+                ? ''
+                : `<button type="button" class="p0-off" data-act="p0-unstart" data-ws="${esc(
+                    c.workspace
+                  )}" data-bead="${esc(c.id)}">↩ Take it off the board</button>`
+            }
+          </div>`;
+  }
+
+  /**
+   * One cell of the grid: everything about an epic that is worth a glance, and no tree.
+   *
+   * The caret is a `›` rather than the `▸`/`▾` pair it was, because the tap is no longer a
+   * disclosure — it goes somewhere, and comes back. `aria-haspopup="dialog"` says the same
+   * thing to a screen reader; `aria-expanded` stays beside it because the card genuinely
+   * does have an open and a shut state and losing that would leave the control silent
+   * about which one it is in.
+   */
+  function p0CardHtml(c) {
+    // The card's own key, with the same fallback the server's shape makes
+    // unnecessary — `p0Card` sends one — because it is the identity the open set is
+    // held by, and a card whose key came back undefined would open every card on the
+    // board at once.
+    const key = c.key || `${c.workspace}/${c.id}`;
+    const on = state.p0open.has(key);
+    const { asks } = p0Progress(c);
+    return `<div class="p0-card${on ? ' on' : ''}" data-key="${esc(key)}">
+          <button type="button" class="p0-tap" data-act="p0" data-p0="${esc(key)}" aria-haspopup="dialog" aria-expanded="${on}"${
+            on ? ` aria-controls="p0full-${cardId(key)}"` : ''
+          }>
+            ${p0FaceHtml(c, asks, '<span class="p0-caret" aria-hidden="true">›</span>')}
+            ${p0ProgressHtml(c)}
+          </button>
+          ${p0ActsHtml(c)}
+        </div>`;
+  }
+
+  /**
+   * The epic, filling the tab. bc-grut.
+   *
+   * Four rows, and they are `.card.open`'s four for the same reasons: a top bar carrying
+   * the only way back, a head that stays, a body that scrolls on its own, and the acts
+   * pinned to the bottom where a thumb is. A sixty-row tree is the one thing on this
+   * screen that is genuinely long, and reading it inside a grid cell — between a board
+   * above and an inbox below, both of which repaint — was the shape bc-grut is about.
+   *
+   * The way back is one control and it says `Board`, not a cross. There is nowhere else
+   * this can go: the tab was opened from the board, the board is still underneath it, and
+   * a cross would leave you guessing whether it closed the epic or the app.
+   *
+   * The status filter is drawn over **this card alone**, so its chip counts are counts of
+   * the tree in front of you. On the board it counted across every card, which was right
+   * when it sat above every card; here "Closed 0" has to mean this epic has delivered
+   * nothing, not that the board has.
+   */
+  function p0FullHtml(c) {
+    const key = c.key || `${c.workspace}/${c.id}`;
+    const { asks } = p0Progress(c);
+    return `<div class="p0-full" id="p0full-${cardId(key)}" role="dialog" aria-modal="true" aria-label="${esc(
+      `${c.id} — ${c.title || ''}`
+    )}">
+      <div class="p0-full-top">
+        <button type="button" class="p0-back" data-act="p0-close"><span aria-hidden="true">‹</span> Board</button>
+      </div>
+      <div class="p0-full-head">${p0FaceHtml(c, asks)}</div>
+      <div class="p0-full-body">${p0StatusHtml([c])}${p0TreeHtml(c)}</div>
+      ${p0ActsHtml(c, ' p0-full-acts')}
+    </div>`;
   }
 
   /**
@@ -5971,11 +6151,11 @@
       (state.space === 'all' || spaceForWorkspace(c.workspace) === state.space) &&
       (state.workspace === 'all' || c.workspace === state.workspace);
     const mine = (board.p0s || []).filter(inView);
-    // The same two filters over the picker's list, because a picker that offered an epic
+    // The same two filters over the picker’s list, because a picker that offered an epic
     // from a workspace this screen is not showing would put a card on a board you would
     // then have to switch spaces to see.
     const canStart = (board.startable || []).filter(inView);
-    // Nothing started, and something that could be. The board is off — that is bc-6s96's
+    // Nothing started, and something that could be. The board is off — that is bc-6s96’s
     // rule and the list below is drawn flat, untouched — but the one control that would
     // *end* that state has to be reachable, or the screen that says what the week is about
     // is the one screen that cannot change it. Just the offer: no heading, no fold, no
@@ -5985,54 +6165,30 @@
         ? `<section class="p0-board bare" aria-label="${P0_SECTION_LABEL}">${p0PickerHtml(canStart)}</section>`
         : '';
     }
-    const cards = mine
-      .map((c) => {
-        // The card's own key, with the same fallback the server's shape makes
-        // unnecessary — `p0Card` sends one — because it is the identity the open set is
-        // held by, and a card whose key came back undefined would make every card on the
-        // board expand and collapse together.
-        const key = c.key || `${c.workspace}/${c.id}`;
-        const on = state.p0open.has(key);
-        const tree = c.tree || [];
-        // What the tap will actually open, which since bc-rfnr.9.6 is not the same number
-        // as what is filed under the epic. Counted here rather than inside the hint so the
-        // hint stays a sentence about two numbers and nothing else.
-        const shown = p0Visible(tree).filter((r) => !r.context).length;
-        return `<div class="p0-card${on ? ' on' : ''}" data-key="${esc(key)}">
-          <button type="button" class="p0-tap" data-act="p0" data-p0="${esc(key)}" aria-expanded="${on}"${
-            on ? ` aria-controls="p0tree-${cardId(key)}"` : ''
-          }>
-            <span class="p0-head"><span class="pill id">${esc(c.id)}</span>${
-              c.inFlight ? `<span class="p0-flight">${c.inFlight} in flight</span>` : ''
-            }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span><span class="p0-caret" aria-hidden="true">${
-              on ? '▾' : '▸'
-            }</span></span>
-            <span class="p0-title">${esc(c.title || '')}</span>
-            ${c.waitingOn ? `<span class="p0-waiting">${esc(c.waitingOn)}</span>` : ''}
-            <span class="p0-hint">${p0HintText(on, shown, tree.length)}</span>
-          </button>
-          ${on ? p0TreeHtml(c) : ''}
-          <div class="p0-acts">
-            ${p0Control(c)}
-            <a class="p0-graph" href="${esc(`${graphUrl(c)}&open=1`)}">🕸 Graph</a>
-            <button type="button" class="p0-off" data-act="p0-unstart" data-ws="${esc(c.workspace)}" data-bead="${esc(
-              c.id
-            )}">↩ Take it off the board</button>
-          </div>
-        </div>`;
-      })
-      .join('');
+    const cards = mine.map(p0CardHtml).join('');
+    // At most one, because the tab is a fixed layer and a second would stack on the first
+    // with no way to tell which epic you were reading. The `p0` handler is what keeps the
+    // set to one; this is only where the promise is spent.
+    const open = mine.find((c) => state.p0open.has(c.key || `${c.workspace}/${c.id}`));
     // Shut, the heading is the whole section — but it still carries the count, because a
     // fold that hides *that there is anything folded* is a section you forget you own.
     // The label is drawn once and used twice, so the thing a screen reader announces for
     // the region and the thing printed on the control cannot drift apart.
+    //
+    // The tab goes away with the cards, like everything else the fold hides — and it is
+    // bc-eevn's rule rather than an exception to it: the fold leaves `state.p0open`
+    // alone, so unfolding brings back the epic you were reading. Shut-with-one-open is
+    // not a state a tap can reach either way, because the fold's own control is behind
+    // the tab whenever there is one.
     const shut = !!state.p0shut;
     return `<section class="p0-board" aria-label="${P0_SECTION_LABEL}">
       <button type="button" class="p0-kind" data-act="p0-fold" aria-expanded="${shut ? 'false' : 'true'}">
         <span class="chev" aria-hidden="true">›</span>
         ${P0_SECTION_LABEL}
         <span class="p0-kind-n">${mine.length}</span>
-      </button>${shut ? '' : p0StatusHtml(mine) + cards + p0PickerHtml(canStart)}</section>`;
+      </button>${
+        shut ? '' : `<div class="p0-cards">${cards}</div>${p0PickerHtml(canStart)}${open ? p0FullHtml(open) : ''}`
+      }</section>`;
   }
 
   function render(force = false) {
@@ -6848,8 +7004,18 @@
     // out from under it would leave the dialog answering for a chooser that is no
     // longer on screen.
     if (document.querySelector('.dialog-wrap')) return;
+    const hadMenu = Boolean(state.agentMenu || state.menu);
     if (state.agentMenu) closeAgentMenu();
     if (state.menu) closeMenu();
+    // The open epic's tab is a modal layer over the whole page and Escape is the only
+    // keyboard way out of it — the back button is reachable by Tab, but a reader who got
+    // there with a pointer has no key that does anything. Behind the menus rather than
+    // ahead of them, and only when neither was open, so one press never dismisses two
+    // things: a menu drawn over the tab is the nearer of the two. bc-grut.
+    if (!hadMenu && state.p0open.size) {
+      state.p0open.clear();
+      render(true);
+    }
   });
 
   /**
@@ -7002,7 +7168,7 @@
     }
 
     /**
-     * Open a P0's tree, or fold it up. bc-rfnr.9.2.
+     * Open a P0 into its own tab, or come back from one. bc-rfnr.9.2, bc-grut.
      *
      * On its own `data-p0` for the same reason the advocate button is on `data-bead`:
      * a P0 card is not an inbox row and `data-key` on the branches below means a bead
@@ -7010,16 +7176,42 @@
      * is a state write and a repaint, with no DOM poked directly at all. That is what
      * makes it survive the poll: the next sweep re-renders from the same set.
      *
+     * **The set holds at most one, and this is where that is true.** `p0FullHtml` is a
+     * fixed layer over the whole tab, so a second open epic would be a second sheet
+     * stacked on the first with nothing on either saying which you were reading. It is
+     * the same accordion `openOnly` keeps for `.card.open`, for the same reason, and it
+     * is enforced by clearing rather than by deleting one key — a set that somehow held
+     * two would otherwise stay holding one.
+     *
+     * The back button comes through here too (`p0-close`) and is the same write: there
+     * is nothing to open, so the clear is the whole of it.
+     *
+     * **Then focus follows the layer**, which delegation cannot do for you. Opening the
+     * tab leaves the keyboard on a button that is now behind a full-screen sheet, and
+     * coming back leaves it on a button that no longer exists — either way the next Tab
+     * starts from the top of the document. So the tab takes focus to its way out, and
+     * the way out gives it back to the card it came from.
+     *
      * `render(true)` because a tap is a tap: forced past the half-typed-answer guard,
      * the way the card toggles above already are.
      */
-    if (act === 'p0') {
-      const p0 = btn.dataset.p0;
+    if (act === 'p0' || act === 'p0-close') {
       closeMenu();
       closeAgentMenu();
-      if (state.p0open.has(p0)) state.p0open.delete(p0);
-      else state.p0open.add(p0);
+      const wasKey = [...state.p0open][0] || null;
+      const want = act === 'p0' && btn.dataset.p0 !== wasKey ? btn.dataset.p0 : null;
+      state.p0open.clear();
+      if (want) state.p0open.add(want);
       render(true);
+      const land = want
+        ? listEl.querySelector('.p0-full .p0-back')
+        : wasKey && listEl.querySelector(`.p0-card[data-key="${CSS.escape(wasKey)}"] .p0-tap`);
+      // `preventScroll` because `focus()` scrolls its element into view by default, and
+      // `restorePlace` has just finished putting the page exactly where it was. Coming
+      // back to a card that is off the top of the board would otherwise be the browser
+      // undoing that on the way out — the same class of jump as bc-rfnr.9.9, from the
+      // other end.
+      land?.focus({ preventScroll: true });
       return;
     }
 

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 //
-// One status filter over the whole epic board.
+// One status filter over the tree of the epic you have open.
 //
 //   node scripts/p0filter-check.mjs [--baseline] [--out=<dir>]
 //
-// bc-rfnr.9.6. The board's trees are filtered by one control between the heading and the
-// cards — Not closed · All · Closed — and test/p0card.mjs has the renderer and the
-// handler's source. What it cannot reach is the four ways this goes wrong in a browser
-// with every unit test still green:
+// bc-rfnr.9.6, moved into the tab by bc-grut. The control — Not closed · All · Closed —
+// sat between the heading and the cards while the trees were on the board; the trees open
+// full-tab now, so the filter went with them and every tap below has to open an epic
+// first. test/p0card.mjs has the renderer and the handler's source. What it cannot reach
+// is the four ways this goes wrong in a browser with every unit test still green:
 //
 //   • **The tap has to be delegated to at all.** Every handler on the inbox hangs off
 //     `#list` and resolves through `closest('[data-act]')`, so a control drawn outside
@@ -22,9 +23,13 @@
 //     chunk replaced whole every 25 seconds, and the preference is written to
 //     `localStorage` on the tap and read back in the state initialiser at boot: either
 //     end can be missing with the page looking right all session.
-//   • **Filtering the trees must not touch the list underneath.** `underOwnedP0s` narrows
+//   • **Filtering the tree must not touch the list underneath.** `underOwnedP0s` narrows
 //     the inbox off the board *data*; a filter that reached it would take questions off
 //     the screen with nothing saying where they went. Counted either side of every tap.
+//   • **And it must not reach the collapsed cards either** (bc-grut). The board's own
+//     summary — `2 of 5 done` — counts the whole tree on purpose, so that nothing on a
+//     grid of two dozen cards moves because of a control that is not on the screen. It is
+//     read either side of a tap on `Closed`, which is the tap that would move it.
 //
 // And one thing that is none of those: with `Closed` picked, the rows kept only to hold
 // a branch up have to be visibly different from the rows that matched. That mark is the
@@ -240,7 +245,9 @@ const SECTION = `(() => {
       tall: Math.round(box(c).height),
       tag: c.tagName,
       inList: c.closest('#list') !== null,
+      inFull: c.closest('.p0-full') !== null,
     })),
+    full: document.querySelectorAll('.p0-full').length,
     ids: rows.map((r) => r.querySelector('.p0-row-id')?.textContent || ''),
     via: rows
       .filter((r) => getComputedStyle(r).borderLeftStyle === 'dashed')
@@ -261,23 +268,28 @@ const press = async (sel) => {
 };
 
 /**
- * Open both cards, since the filter is about what is *in* a tree.
+ * Open one epic's tab, by its place on the grid — the filter is about what is in a tree,
+ * and since bc-grut a tree is only ever on the screen inside a tab.
  *
- * One at a time, re-querying between taps: the board is one reconcile chunk, so the first
- * tap's repaint replaces the section's HTML and every other node collected in the same
- * pass is detached by the time it is clicked. Collecting them up front and clicking the
- * list opens exactly one card and looks like the second tap being ignored.
+ * One at a time is the whole shape now rather than a caution about detached nodes: the
+ * tab is a fixed layer over the viewport, so a second one would stack on the first, and
+ * `state.p0open` is cleared on every tap for exactly that reason.
  */
-const openCards = async () => {
-  for (let i = 0; i < 4; i += 1) {
-    const more = await evalJs(`(() => {
-      const b = document.querySelector('.p0-card:not(.on) .p0-tap');
-      if (b) b.click();
-      return !!b;
-    })()`);
-    if (!more) return;
-    await sleep(400);
-  }
+const openCard = async (i) => {
+  const ok = await evalJs(`(() => {
+    const b = document.querySelectorAll('.p0-cards .p0-card .p0-tap')[${i}];
+    if (b) b.click();
+    return !!b;
+  })()`);
+  await sleep(400);
+  return ok;
+};
+
+/** Back to the board — the one control the tab offers, and the only way out by pointer. */
+const back = async () => {
+  const ok = await press('.p0-full .p0-back');
+  await sleep(400);
+  return ok;
 };
 
 try {
@@ -297,29 +309,23 @@ try {
   await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
   await waitFor(`document.querySelector('.p0-card') !== null`, 15000);
 
-  /* ---- collapsed, where the hint is the only thing saying how much is behind a tap ---- */
+  /* ---- collapsed, where the summary is the whole of what a card says ---- */
 
   let v = await evalJs(SECTION);
   check(
-    'a collapsed card promises what the tap will actually open, not what is filed',
-    v.hints.some((h) => /3 of the 5 beads/.test(h)),
+    'a collapsed card says how far along the epic is, counted over the whole tree',
+    v.hints.some((h) => /2 of 5 done/.test(h)) && v.hints.some((h) => /2 of 2 done/.test(h)),
     v.hints.join(' | ')
   );
-  check(
-    'and an epic the filter empties says that, rather than "nothing filed under it yet"',
-    v.hints.some((h) => /matches the filter/.test(h)) && !v.hints.some((h) => /Nothing filed/.test(h)),
-    v.hints.join(' | ')
-  );
-
-  await openCards();
+  check('and the board carries no filter of its own any more', v.chips.length === 0, `${v.chips.length} chips`);
+  const summary = v.hints.join(' | ');
 
   /* ---- the default: not closed, on a phone that has never been told otherwise ---- */
 
+  await openCard(0);
   v = await evalJs(SECTION);
-  // Two cards open and one control over both — the whole shape of the bead. Counted as
-  // open *cards* rather than as trees, because under this filter the second card's whole
-  // tree is excluded and it draws a sentence instead, which is the next check.
-  check('there is one filter over the board, not one per card', v.chips.length === 3 && v.open === 2, `${v.chips.length} chips over ${v.open} open cards`);
+  check('the tap opens one tab, over the board rather than inside it', v.full === 1 && v.open === 1 && v.trees === 1, `${v.full} tabs, ${v.trees} trees`);
+  check('there is one filter, and it is in the tab with the tree it narrows', v.chips.length === 3 && v.chips.every((c) => c.inFull), `${v.chips.length} chips, ${v.chips.filter((c) => c.inFull).length} in the tab`);
   check(
     'it offers not-closed, all and closed, and defaults to the first',
     v.chips.map((c) => c.id).join() === 'live,all,closed' && v.chips[0].on,
@@ -334,24 +340,48 @@ try {
   check('the closed ones are not', !v.ids.includes('a-p0.2.1'), v.ids.join(' '));
   // The closed parent is kept anyway, or its open child indents under the wrong bead.
   check('but a closed parent with an open child is held up, and marked', v.ids.includes('a-p0.1') && v.via.includes('a-p0.1'), `via: ${v.via.join(' ') || 'none'}`);
-  check('an epic the filter empties says so rather than reading as unbroken-down', v.none.some((t) => /matches the filter/.test(t)), v.none.join(' | '));
   const listRows = v.listRows;
   check('the question under the epic is in the list', listRows >= QUESTIONS.length, `${listRows} rows`);
   await shot('live');
+
+  // The other epic, whose whole tree this filter excludes. Its own tab, because only one
+  // is ever open — and the sentence has to be the filter's rather than the tracker's, or
+  // an epic with two closed children reads as one nobody has broken down.
+  await back();
+  await openCard(1);
+  v = await evalJs(SECTION);
+  check('an epic the filter empties says so rather than reading as unbroken-down', v.none.some((t) => /matches the filter/.test(t)), v.none.join(' | '));
+  await back();
+  await openCard(0);
 
   /* ---- closed: the delivered work, with its ancestors intact ---- */
 
   const tapped = await press('.p0-status [data-status="closed"]');
   await sleep(400);
   v = await evalJs(SECTION);
-  check('tapping Closed shows the closed descendants', tapped && v.ids.includes('a-p0.2.1') && v.ids.includes('b-p0.1'), v.ids.join(' '));
+  // The other epic's closed children are not asserted here any more: only one tab is ever
+  // open, so `b-p0.1` is not on the screen. That the pick reaches it is its own check below.
+  check('tapping Closed shows the closed descendants', tapped && v.ids.includes('a-p0.2.1'), v.ids.join(' '));
   check('with their ancestors intact, so nothing indents under the wrong bead', v.ids.includes('a-p0.2'), v.ids.join(' '));
   check('and those ancestors are drawn as context rather than as answers', v.via.includes('a-p0.2') && !v.via.includes('a-p0.2.1'), `via: ${v.via.join(' ')}`);
   check('a leaf that neither matched nor holds anything up is gone', !v.ids.includes('a-p0.3'));
-  check('it applies to every card at once', v.ids.includes('b-p0.2'), v.ids.join(' '));
   check('the list underneath is untouched', v.listRows === listRows, `${listRows} → ${v.listRows}`);
   check('and still overflows nothing', v.wide);
   await shot('closed');
+
+  // And the board behind it did not move. `2 of 5 done` is counted over the whole tree on
+  // purpose — a summary that answered to this control would be a grid of two dozen cards
+  // rewriting itself because of a chip inside one epic's tab. bc-grut.
+  check('the collapsed cards behind the tab say exactly what they said before the tap', v.hints.join(' | ') === summary, `${summary} → ${v.hints.join(' | ')}`);
+
+  // One pick, not one per card: it is `state.p0status`, asked once, and the next epic you
+  // open is drawn the way you last asked for.
+  await back();
+  await openCard(1);
+  v = await evalJs(SECTION);
+  check('and the pick follows you into the next epic you open', v.ids.includes('b-p0.1') && v.ids.includes('b-p0.2'), v.ids.join(' '));
+  await back();
+  await openCard(0);
 
   /* ---- a poll must not undo it ---- */
 
@@ -365,7 +395,11 @@ try {
   check('which is stored rather than remembered', (await evalJs(`localStorage.getItem('beadcause.p0status')`)) === 'closed');
   await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
   await waitFor(`document.querySelector('.p0-card') !== null`, 15000);
-  await openCards();
+  // Which epic was open is deliberately *not* persisted — a phone that came back to a tab
+  // over the inbox would be a screen you had to dismiss before you could see it — so the
+  // reload lands on the board and the tab is opened again to read the chips.
+  check('a reload comes back to the board rather than to the tab', (await evalJs(SECTION)).full === 0);
+  await openCard(0);
   v = await evalJs(SECTION);
   check('and the filter comes back where you left it', v.chips.find((c) => c.id === 'closed')?.on === true && v.ids.includes('a-p0.2.1'));
 
