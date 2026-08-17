@@ -49,7 +49,7 @@ process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 const { Bd } = await import(LIB('bd.js'));
-const { collectWork } = await import(LIB('work.js'));
+const { collectWork, forget } = await import(LIB('work.js'));
 
 /* ------------------------------------------------------------------- the stub bd */
 
@@ -144,6 +144,7 @@ await check('the console carries the tracker’s own closed count, verbatim', as
 });
 
 await check('and it costs no `bd` call that was not already being made', async () => {
+  forget('alpha'); // the previous check already warmed this key — see lib/cache.js
   clearCalls();
   await collectWork(bd, [workspace('alpha')], {}, []);
   const verbs = bdCalls()
@@ -160,6 +161,23 @@ await check('and it costs no `bd` call that was not already being made', async (
   // out of `ready`. Asserted as the exact multiset so that a *third* one still fails
   // here — the point was never the number three, it was that nothing is added lightly.
   assert.deepEqual(verbs, ['list', 'ready', 'ready', 'status'], `got ${JSON.stringify(bdCalls())}`);
+});
+
+/* -------------------------------------------------------------------- the cache */
+
+await check('a second sweep inside the window is served from memory, and refresh is not', async () => {
+  forget('alpha');
+  const first = await collectWork(bd, [workspace('alpha')], {}, []);
+  const world = JSON.parse(fs.readFileSync(WORLD, 'utf8'));
+  world[spaceDir('alpha')].summary.closed_issues = 999;
+  fs.writeFileSync(WORLD, JSON.stringify(world));
+  const again = await collectWork(bd, [workspace('alpha')], {}, []);
+  assert.equal(again[0].counts.closed, 586, 'the kept answer, not a second sweep of a workspace nothing dropped');
+  const fresh = await collectWork(bd, [workspace('alpha')], {}, [], { refresh: true });
+  assert.equal(fresh[0].counts.closed, 999, 'refresh really goes and looks');
+  world[spaceDir('alpha')].summary.closed_issues = 586;
+  fs.writeFileSync(WORLD, JSON.stringify(world));
+  forget('alpha');
 });
 
 await check('a bd too old to report it draws no pill, rather than claiming nothing is done', async () => {

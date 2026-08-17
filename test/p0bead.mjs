@@ -137,7 +137,7 @@ function lift(src, opener) {
 /* --------------------------------------------------------------- the fixtures */
 
 /**
- * One epic with four descendants, three levels deep — the shape `p0Card` sends. Two of
+ * One epic with four descendants, three levels deep — the shape `rootCard` sends. Two of
  * them are siblings so that "the expansion goes between a bead and its children" is a
  * claim about order rather than about the end of a list.
  */
@@ -145,7 +145,7 @@ const CARD = {
   key: 'beadcause/bc-rfnr',
   workspace: 'beadcause',
   id: 'bc-rfnr',
-  title: 'The inbox is a P0 board',
+  title: 'The inbox is a epic board',
   status: 'open',
   issue_type: 'epic',
   open: 4,
@@ -202,7 +202,7 @@ function board({
   asked = [],
 } = {}) {
   const state = {
-    p0board: { owned: true, p0s: cards, under: {} },
+    rootboard: { owned: true, roots: cards, under: {} },
     p0open: new Set(open),
     p0beadopen: new Set(beadopen),
     p0beaddetail: detail,
@@ -274,7 +274,9 @@ function board({
       lift(APP, 'function p0StatusFilter()'),
       lift(APP, 'function p0Visible(rows)'),
       lift(APP, 'function p0StatusHtml(cards)'),
-      lift(APP, 'function p0HintText(on, shown, total)'),
+      // bc-grut's collapsed summary, which `p0CardHtml` draws on every render.
+      lift(APP, 'function p0Progress(card)'),
+      lift(APP, 'function p0ProgressHtml(card)'),
       lift(APP, 'const p0RowKey = ('),
       lift(APP, 'const p0Step = ('),
       lift(APP, 'function p0RowHtml(card, row)'),
@@ -293,6 +295,13 @@ function board({
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),
       lift(APP, 'function p0Control(c)'),
+      // bc-grut: the section is a grid cell, the tab a tap opens, and the head they share.
+      lift(APP, 'const p0AsksHtml = '),
+      lift(APP, 'function p0FaceHtml(c, asks, tail'),
+      lift(APP, 'function p0ActsHtml(c, more'),
+      lift(APP, 'function p0CardHtml(c)'),
+      lift(APP, 'function p0FullHtml(c)'),
+      // bc-rfnr.9.7's two, which the section reaches for once the flat list is gone.
       lift(APP, 'const p0AsksN = ('),
       lift(APP, 'function p0Cards(list)'),
       // bc-s8mc's picker, at the foot of the section — lifted because `p0SectionHtml`

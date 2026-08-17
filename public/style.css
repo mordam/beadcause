@@ -6056,10 +6056,35 @@ a.pill { text-decoration: none; }
    here is where it sits: hard against the cards it filters and away from the heading
    above, so it reads as belonging to the board rather than to the section label. */
 .p0-status { flex-wrap: nowrap; margin: 0 0 2px; }
-/* A card, not a row: these are the four or five things the week is about and they are
-   worth the vertical space the rest of the list is rationed out of. Bordered on the
-   leading edge in the warn colour the P0 pill already uses, so the section reads as
-   urgent without a word spent saying so. */
+/* The cards, as a grid (bc-grut).
+
+   This used to be the section's own flex column, on the premise written under `.p0-card`
+   below: four or five epics, worth the vertical space. It has never been four or five —
+   every open owned P0 until bc-6s96, about two dozen here, and the ones you have started
+   since, which was nine on 2026-08-17. Either number is a column you scroll rather than
+   scan on a phone, and on a desktop it is one narrow ribbon down an empty page whatever
+   the count. One across, two, then three, and the cards themselves did not have to
+   change shape to do it: they were always a column of short lines.
+
+   `minmax(0, 1fr)` rather than `1fr`, which is the one line this rests on: a grid track's
+   automatic minimum is its content, and a bead title is one unbroken 60-character string
+   often enough that plain `1fr` lets a column bid wider than its share and pushes the
+   third card off the row. `0` says the track may be narrower than what is in it, and
+   `.p0-title` wraps inside it.
+
+   The breakpoints are widths at which a card is still readable rather than device names.
+   Below 640px two columns would put a bead id and a count on separate lines; below 960px
+   three would do the same. */
+.p0-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+@media (min-width: 640px) { .p0-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 960px) { .p0-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* A card, not a row: an epic is worth the vertical space the rest of the list is
+   rationed out of. Bordered on the leading edge in the warn colour the P0 pill already
+   uses, so the section reads as urgent without a word spent saying so.
+
+   A grid item stretches to its row, so two cards side by side are the same height
+   whatever their titles do — see `.p0-acts`, which takes the slack so the controls line
+   up across the row instead of floating at the end of each card's own text. */
 .p0-card {
   display: flex; flex-direction: column; gap: 4px;
   min-height: 44px;
@@ -6105,14 +6130,40 @@ a.pill { text-decoration: none; }
 /* A span since bc-rfnr.9.2 — it is inside the tap button now, and neither an anchor nor
    a second button can live in one. Sized above everything around it because it is the
    line you actually read. */
-.p0-title { font-size: 14px; line-height: 1.35; color: var(--text); text-decoration: none; }
+/* `overflow-wrap: anywhere` is the grid's other half (bc-grut), and `minmax(0, 1fr)`
+   without it buys nothing on the one title that matters. The track is narrow enough now
+   that an unbroken token — a path, a bead id, a branch name in a title — is wider than a
+   third of a desktop; the track holds its share and the *text* runs out of it instead, so
+   the page grows a horizontal scrollbar and every card on the board pays for one title.
+   `.p0-row-title` in the tree has carried the same rule since the indent was capped. */
+.p0-title {
+  font-size: 14px; line-height: 1.35;
+  color: var(--text); text-decoration: none;
+  min-width: 0; overflow-wrap: anywhere;
+}
 /* Only drawn when the advocate has written one (bc-rfnr.3). Quiet, because it is a
    status line under a title rather than a second title. */
 .p0-waiting { font-size: 12px; color: var(--muted); }
-/* What a tap does, and how many beads are behind it — the total, where `.p0-open` is
-   what is left. Quietest line on the card: it is an instruction, and an instruction as
-   loud as the title is one you read instead of the title. */
+/* How far along it is — the total, where `.p0-open` is what is left. Quietest line on
+   the card: it is a footnote to the title, and a footnote as loud as the title is one
+   you read instead of the title. */
 .p0-hint { font-size: 11.5px; color: var(--muted); }
+/* The same fact as a shape (bc-grut). A grid of cards is read in one pass and
+   a proportion is the only thing on a card that can be taken in without being read; the
+   numbers beside it are what say whether the proportion is of five beads or sixty.
+
+   `--line` under `--accent` rather than a border, so an epic with nothing landed is a
+   visible empty track rather than a card that appears to be missing a line. Four pixels:
+   enough to see across a column, not enough to read as a control you can drag. */
+.p0-bar {
+  display: block;
+  height: 4px;
+  margin: 3px 0 1px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+.p0-bar-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 
 /* The tree, revealed under the summary. Rules above it rather than a box around it: the
    card is already a box, and a second border inside it makes a 60-row epic read as a
@@ -6285,12 +6336,17 @@ button.p0-row {
   cursor: pointer;
 }
 
-/* The two ways out of a card, on one row under the tree: put an advocate on it, or go
-   and look at the graph. The advocate takes the room because it is the thing you can
+/* The two ways out of a card, on one row at the bottom of it: put an advocate on it, or
+   go and look at the graph. The advocate takes the room because it is the thing you can
    *do* here — a 36px target hidden between two counts is a target you miss — and the
    graph is the link the id pill used to be, moved down now the summary above it is one
-   tap target and cannot hold an anchor of its own. */
-.p0-acts { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin-top: 4px; }
+   tap target and cannot hold an anchor of its own.
+
+   `margin-top: auto` is what makes the row a *row* on a grid (bc-grut): the cards in a
+   line stretch to the tallest, and controls that sat right under each card's own last
+   line would step up and down across the board with the length of the titles. Pushed to
+   the bottom they land on one line, which is what makes three of them scannable at all. */
+.p0-acts { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin-top: auto; padding-top: 4px; }
 .p0-advocate {
   flex: 1 1 auto;
   min-height: 40px;
@@ -6388,6 +6444,92 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
    the board's own chrome — no heading, no fold, no count of nothing. */
 .p0-board.bare { margin-bottom: 10px; }
 .p0-board.bare .p0-pick { margin-top: 0; }
+
+/* The epic, filling the tab (bc-grut) — `p0FullHtml`.
+
+   Four rows, and they are `.card.open`'s four because they are the same problem: a head
+   that stays, a body that scrolls on its own, and the acts pinned to the bottom where a
+   thumb is. What is different is that this one takes that shape at *every* height rather
+   than only above 440px, because there is no composer here — nothing on this layer needs
+   to stay above a keyboard, so nothing is gained by falling back to scrolling whole.
+
+   `position: fixed` against the viewport, so it does not matter that it is drawn inside
+   the board's chunk inside `#list` — which it has to be, since every handler on this page
+   is delegated from that element and a control outside it renders perfectly and does
+   nothing. `z-index: 40` is `.card.open`'s: over the sticky top bar, under the toast.
+
+   An opaque `--bg` rather than a scrim: this is a place you went, not a dialog over a
+   place you were, and the inbox showing through under a sixty-row tree is the exact
+   cramped read bc-grut is about. */
+.p0-full {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  padding-top: env(safe-area-inset-top);
+}
+/* The only way back, and it says where it goes. A cross would leave you guessing whether
+   it closed the epic or the app; `‹ Board` names the screen underneath. `--tap` tall for
+   the same reason every other lone control on a phone is. */
+.p0-full-top { flex: none; display: flex; align-items: center; padding: 4px 12px 0; }
+.p0-back {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: var(--tap);
+  margin: 0; padding: 0 10px 0 0;
+  border: 0; background: none;
+  color: var(--accent);
+  font: inherit; font-size: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+/* The head stays put, and is capped, for `.card.open`'s reason: a five-line epic title
+   with an advocate's sentence under it could take a third of a phone before the tree
+   started, and the tree is what you opened. It scrolls inside its share instead. */
+.p0-full-head {
+  flex: none;
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 30dvh; overflow-y: auto;
+  padding: 2px 15px 11px;
+  border-bottom: 1px solid var(--line);
+}
+/* Bigger than it is on the board: there it is one card among several and the id is what
+   you scan, here it is the whole screen's subject. */
+.p0-full-head .p0-title { font-size: 17px; font-weight: 600; line-height: 1.3; }
+/* The tree. Basis 0 so it takes what is left rather than bidding for its content's
+   height, `min-height: 0` so it may shrink below it, and `contain` so reaching the end of
+   a tree stops rather than starting to scroll the inbox behind the layer. */
+.p0-full-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 15px 14px;
+}
+/* The filter is the first thing in the body and the tree comes straight after it, so the
+   rule the tree draws above itself on a card would be a second line under the chips. */
+.p0-full-body .p0-tree { margin: 8px 0 0; padding-top: 0; border-top: 0; }
+/* Pinned, and opaque, because the tree scrolls under this edge. `margin-top` back to 0
+   against `.p0-acts` above, whose `auto` is for a grid cell and would push this row off
+   the bottom of a flex column that is already the height of the screen. */
+.p0-full-acts {
+  flex: none;
+  margin: 0;
+  padding: 10px 15px calc(env(safe-area-inset-bottom) + 10px);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+/* On a desktop the tab is the whole window, and a tree indented off the left edge of a
+   1600px screen is the same complaint bc-grut opened with in the other direction. The
+   rows are centred by growing the side padding rather than by a wrapper element, so the
+   scroller stays the full height of the window and the scrollbar stays at its edge. */
+@media (min-width: 900px) {
+  .p0-full-top, .p0-full-head, .p0-full-body, .p0-full-acts {
+    padding-left: calc((100vw - 820px) / 2);
+    padding-right: calc((100vw - 820px) / 2);
+  }
+}
 
 /* ------------------------------------------------------------- edit mode
 

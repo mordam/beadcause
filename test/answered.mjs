@@ -277,6 +277,10 @@ const port = await boundPort(servers);
 cfg.port = port;
 cfg.baseUrl = `http://127.0.0.1:${port}`;
 const call = async (pathname, opts = {}) => {
+  // This suite stages a reopen by flipping `BD_CLOSED` behind the app's back, which
+  // is not a write any route sees — so a GET here must not answer from lib/cache.js's
+  // kept rows (bc-1kwl.7); every read is meant to be the tracker as it stands right now.
+  if ((opts.method || 'GET') === 'GET') app.forgetInbox();
   const res = await fetch(`http://127.0.0.1:${port}${pathname}`, {
     method: opts.method || 'GET',
     headers: { 'x-beadcause-token': cfg.token, 'content-type': 'application/json' },

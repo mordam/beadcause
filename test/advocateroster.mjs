@@ -73,7 +73,7 @@ console.log('\nAn EpicAdvocate belongs to its epic, not to its window\n');
 
 /* ------------------------------------------------------------------ the roster */
 
-check('every open, owned P0 has an advocate assigned', () => {
+check('every open, owned root has an advocate assigned', () => {
   const roster = assignedAdvocates([bead('bc-a'), bead('bc-b'), bead('bc-c')]);
   assert.deepEqual(
     roster.map((r) => r.id),
@@ -90,9 +90,9 @@ check('a closed epic has none — this is the rule the whole change exists for',
   );
 });
 
-check('and the three other noes are unchanged — not a P0, unowned, a crash', () => {
+check('and the three other noes are unchanged — not a root, unowned, a crash', () => {
   const roster = assignedAdvocates([
-    bead('bc-p2', { priority: 2 }),
+    bead('bc-task', { priority: 2, issue_type: 'task' }),
     bead('bc-nobody', { labels: [] }),
     bead('bc-crash', { labels: ['owner:adam@example.com', 'app-error'] }),
     bead('bc-real'),
@@ -104,8 +104,22 @@ check('and the three other noes are unchanged — not a P0, unowned, a crash', (
   );
   // Same predicate, asked one bead at a time: the roster must be that function over the
   // graph and nothing else, or the door and the board can disagree about who is assigned.
-  for (const b of [bead('bc-p2', { priority: 2 }), bead('bc-nobody', { labels: [] })])
+  for (const b of [bead('bc-task', { priority: 2, issue_type: 'task' }), bead('bc-nobody', { labels: [] })])
     assert.equal(wantsAdvocate(b), false);
+});
+
+check('AND A P2 EPIC IS ON THE ROSTER — bc-htoy', () => {
+  // The first no used to be "not a P0", and this row is what it cost: an epic somebody
+  // owns, open, not a crash, and refused an advocate for no reason but its priority. The
+  // roster is `wantsAdvocate` over the graph, so it is also where that would silently
+  // come back — a gate widened in lib/epicadvocate.js but not reflected here would mean
+  // the door opened windows on epics the agents screen said had no advocate.
+  const roster = assignedAdvocates([bead('bc-p2', { priority: 2 }), bead('bc-p4', { priority: 4 })]);
+  assert.deepEqual(
+    roster.map((r) => r.id),
+    ['bc-p2', 'bc-p4'],
+    'an owned open epic is advocatable at whatever priority it carries'
+  );
 });
 
 check('a Map is accepted, because that is what bd.graph() hands over', () => {

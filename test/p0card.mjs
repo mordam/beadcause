@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * A P0 card summarises collapsed and shows its tree expanded.
+ * A P0 card summarises in a grid cell and opens its tree over the whole tab.
  *
  *     npm test
  *     node test/p0card.mjs
@@ -61,6 +61,19 @@
  *    closed one), along with the default being not-closed, the pick surviving a repaint,
  *    the chips' counts, and the two different sentences an empty tree can have.
  *
+ * 9. **The cards are a grid and the tree takes the tab** (bc-grut), which is three claims
+ *    a renderer test can hold and one it cannot. It can hold that the collapsed card is
+ *    worth scanning — how far along, and whether any of it is asking *you* — and that
+ *    those numbers do not move when the status filter does, which is the whole reason the
+ *    filter went into the tab with the tree it narrows. It can hold that the tab is drawn
+ *    over the grid rather than inside it, which is what ends bc-rfnr.9.9 by construction:
+ *    an expansion that inserts nothing above the inbox list has no height for
+ *    `capturePlace` to hold still and no scroll to jump. And it can hold that at most one
+ *    is open, because a second fixed layer stacks on the first with nothing saying which
+ *    epic you are reading. What it cannot hold is the three-column layout itself — that is
+ *    `.p0-cards`, asserted as a rule below and measured for real by
+ *    `node scripts/p0grid-check.mjs` in a headless browser at three widths.
+ *
  * No browser, no `bd`, no network. The renderers touch no DOM — they return a string —
  * so they are sliced out of public/app.js and run in a `node:vm` with the four helpers
  * they borrow. See test/jirarow.mjs, whose `lift` this is.
@@ -93,7 +106,7 @@ const APP = read('public/app.js');
 const CSS = read('public/style.css');
 
 /**
- * One P0 with a tree six deep — the shape `p0Card` in lib/server.js sends, and the shape
+ * One P0 with a tree six deep — the shape `rootCard` in lib/server.js sends, and the shape
  * test/p0tree.mjs proves it sends. Depths 1..5 on purpose: 4 and 5 are the two that a
  * cap has to flatten and 3 is the last one that still steps.
  */
@@ -101,7 +114,7 @@ const CARD = {
   key: 'beadcause/bc-rfnr',
   workspace: 'beadcause',
   id: 'bc-rfnr',
-  title: 'The inbox is a P0 board',
+  title: 'The inbox is an epic board',
   status: 'open',
   issue_type: 'epic',
   open: 4,
@@ -169,9 +182,9 @@ function lift(src, opener) {
  * faithful stand-in for the poll repaint that the feature has to survive. `status` is
  * `state.p0status` the same way: what the chips write, and the only thing the filter is.
  */
-function board(p0s, open = [], shut = false, status = 'live') {
+function board(roots, open = [], shut = false, status = 'live') {
   const state = {
-    p0board: { owned: true, p0s, under: {} },
+    rootboard: { owned: true, roots, under: {} },
     p0open: new Set(open),
     p0shut: shut,
     p0status: status,
@@ -204,7 +217,10 @@ function board(p0s, open = [], shut = false, status = 'live') {
       lift(APP, 'function p0StatusFilter()'),
       lift(APP, 'function p0Visible(rows)'),
       lift(APP, 'function p0StatusHtml(cards)'),
-      lift(APP, 'function p0HintText(on, shown, total)'),
+      // bc-grut's collapsed summary: the counts a card carries when its tree is not on
+      // the screen, and the bar that draws them.
+      lift(APP, 'function p0Progress(card)'),
+      lift(APP, 'function p0ProgressHtml(card)'),
       lift(APP, 'const p0RowKey = ('),
       lift(APP, 'const p0Step = ('),
       lift(APP, 'function p0RowHtml(card, row)'),
@@ -218,6 +234,13 @@ function board(p0s, open = [], shut = false, status = 'live') {
       // a launch button by hand — and the local "just launched" note it reads.
       lift(APP, 'function openingHere(key)'),
       lift(APP, 'function p0Control(c)'),
+      // bc-grut: the section is three renderers now — a grid cell, the tab a tap opens,
+      // and the head both of them share so their counts cannot disagree.
+      lift(APP, 'const p0AsksHtml = '),
+      lift(APP, 'function p0FaceHtml(c, asks, tail'),
+      lift(APP, 'function p0ActsHtml(c, more'),
+      lift(APP, 'function p0CardHtml(c)'),
+      lift(APP, 'function p0FullHtml(c)'),
       // bc-rfnr.9.7's two: which cards the scope filters leave, and how many beads under
       // them are asking you something. The section calls both — the first for its own
       // list and the second for the count on the heading — so a board rendered without
@@ -252,18 +275,48 @@ function indentOf(html, id) {
 
 console.log('\nthe collapsed card');
 
-check('summarises: id, both counts, title, and how much is behind the tap', () => {
+check('summarises: id, the counts, the title, and how far along it is', () => {
   const html = board([CARD]);
   assert.match(html, /bc-rfnr/);
   assert.match(html, /4 open/);
   assert.match(html, /1 in flight/);
-  assert.match(html, /The inbox is a P0 board/);
-  // The total, which is the number the open count cannot give you: 4 of 5 left. Both
-  // numbers since bc-rfnr.9.6, because the default filter puts a wedge between them —
-  // the fifth bead is closed, so the tap opens four of the five that are filed.
-  assert.match(html, /Tap for 4 of the 5 beads under it/);
-  // And with nothing filtered out they are one number again.
-  assert.match(board([CARD], [], false, 'all'), /Tap for all 5 beads under it/);
+  assert.match(html, /The inbox is an epic board/);
+  // How far along, which is the number the open count cannot give you: "4 open" says
+  // nothing about whether the epic is four of five or four of sixty. bc-grut.
+  assert.match(html, /1 of 5 done/);
+  assert.match(html, /<span class="p0-bar-fill" style="width:20%">/);
+});
+
+check('and says how much of it is waiting on *you*, which is what a grid is scanned for', () => {
+  // One `pending` row in this tree. It is the only field on a card that means the epic
+  // is stopped on the person reading the board, so it is a pill rather than a number in
+  // a line of numbers — and at zero it is not drawn at all, because a pill saying none
+  // is a pill you learn to ignore.
+  assert.match(board([CARD]), /<span class="pill p0-asks">1 asks you<\/span>/);
+  assert.ok(!board([OTHER]).includes('p0-asks'), 'a card with nothing pending drew the pill anyway');
+  const two = { ...CARD, tree: CARD.tree.map((r) => ({ ...r, pending: true })) };
+  assert.match(board([two]), /5 ask you/);
+});
+
+check('the counts on the card and the counts in the tab are drawn once, so they cannot drift', () => {
+  // One renderer for the head line — a grid cell saying "4 open" over a tab saying five
+  // is two answers to one question arriving from one object.
+  const open = board([CARD], ['beadcause/bc-rfnr']);
+  assert.equal((open.match(/class="p0-head"/g) || []).length, 2, 'the card and its tab are not both drawn');
+  assert.equal((open.match(/>4 open</g) || []).length, 2);
+  // On the pill rather than on the words, because since bc-rfnr.9.7 there is a third
+  // reader of the same number: the fold heading says it too (`.p0-kind-asks`), so that it
+  // still says how many are waiting once the board is shut. That one is a count of the
+  // whole board and is checked on its own below; this pair is the card and its tab.
+  assert.equal((open.match(/class="pill p0-asks">1 asks you/g) || []).length, 2);
+});
+
+check('an epic with nothing under it says so instead of drawing a bar at zero', () => {
+  // A full-width empty track over an epic nobody has broken down yet is a claim that
+  // nothing has landed, where the truth is that nothing has been written down.
+  const bare = board([{ ...CARD, tree: [], open: 0 }]);
+  assert.match(bare, /Nothing filed under it yet/);
+  assert.ok(!bare.includes('p0-bar'), 'an epic with no tree drew a progress bar');
 });
 
 check('draws no tree at all, and none of its beads', () => {
@@ -276,6 +329,15 @@ check('draws no tree at all, and none of its beads', () => {
 check('the tap target is a button, so Enter and a screen reader work', () => {
   const html = board([CARD]);
   assert.match(html, /<button type="button" class="p0-tap" data-act="p0" data-p0="beadcause\/bc-rfnr"/);
+  // And it announces what it opens. Since bc-grut the tap is not a disclosure — it goes
+  // to a layer over the whole tab — so `aria-haspopup` is what a screen reader needs to
+  // say so before the sheet arrives. `aria-expanded` stays beside it: the card does have
+  // an open and a shut state, and dropping it leaves the control silent about which.
+  assert.match(html, /data-p0="beadcause\/bc-rfnr" aria-haspopup="dialog" aria-expanded="false"/);
+  assert.match(
+    board([CARD], ['beadcause/bc-rfnr']),
+    /data-p0="beadcause\/bc-rfnr" aria-haspopup="dialog" aria-expanded="true" aria-controls="p0full-/
+  );
 });
 
 check('waitingOn is drawn when the advocate has written one, and nothing when not', () => {
@@ -290,7 +352,32 @@ check('the graph is still one tap away, now that the summary is the control', ()
   assert.match(html, /data-act="advocate" data-ws="beadcause" data-bead="bc-rfnr"/);
 });
 
-console.log('\nexpanded');
+console.log('\nthe tab a tap opens');
+
+check('the tree opens as a layer over the tab, not as a block between the board and the list', () => {
+  // bc-grut, and the half of it that no assertion about the rows can see: the expansion
+  // used to be a sibling of the card, inside the board, which is what made bc-rfnr.9.9's
+  // scroll jump possible at all — six hundred pixels inserted above the inbox list.
+  const html = board([CARD], ['beadcause/bc-rfnr']);
+  const at = html.indexOf('class="p0-full"');
+  assert.notEqual(at, -1, 'the open epic did not draw its tab');
+  assert.ok(at > html.indexOf('class="p0-cards"'), 'the tab is drawn inside the grid rather than over it');
+  assert.ok(html.indexOf('class="p0-tree"') > at, 'the tree is drawn outside the tab');
+  // A dialog, with the way back inside it and nothing else offered as one.
+  assert.match(html, /role="dialog" aria-modal="true" aria-label="bc-rfnr — The inbox is an epic board"/);
+  assert.match(html, /<button type="button" class="p0-back" data-act="p0-close">/);
+  assert.ok(!html.includes('data-act="p0-close"><span aria-hidden="true">✕'), 'the way back is a cross');
+});
+
+check('and the collapsed card behind it keeps its own controls', () => {
+  // The card is still a card while the tab is over it: the advocate button is bc-rfnr.2's
+  // one control on the board and a tab that stole it would leave the board a list of
+  // titles. Both faces carry it, and both reach the same bead.
+  const html = board([CARD], ['beadcause/bc-rfnr']);
+  assert.equal((html.match(/data-act="advocate" data-ws="beadcause" data-bead="bc-rfnr"/g) || []).length, 2);
+  assert.equal((html.match(/class="p0-graph"/g) || []).length, 2);
+  assert.match(html, /class="p0-acts p0-full-acts"/);
+});
 
 check('every descendant is drawn, at every depth, in the order the server sent', () => {
   // `all` rather than the default, so this stays a claim about the *renderer* — the fifth
@@ -396,29 +483,69 @@ check('only the card whose key was tapped is open', () => {
   // Counted on the cards only. The section heading is a disclosure too since bc-eevn, and
   // an open board is a third `aria-expanded="true"` that says nothing about which card
   // was tapped — so this matches the attribute where it sits on a `data-p0` button.
-  assert.equal((html.match(/data-p0="[^"]+" aria-expanded="true"/g) || []).length, 1);
+  assert.equal((html.match(/data-p0="[^"]+" aria-haspopup="dialog" aria-expanded="true"/g) || []).length, 1);
+});
+
+check('and a state holding two draws one tab, because two would stack invisibly', () => {
+  // The tab is a fixed layer over the whole page. Two of them is the second one on top
+  // of the first with nothing on either saying which epic you are reading — so the
+  // renderer takes the first it finds and the handler is what keeps the set to one.
+  const html = board([CARD, OTHER], ['beadcause/bc-rfnr', 'beadcause/bc-p49x']);
+  assert.equal((html.match(/class="p0-full"/g) || []).length, 1);
+  const at = APP.indexOf("if (act === 'p0' || act === 'p0-close') {");
+  assert.notEqual(at, -1, 'the P0 tap handler no longer takes the back button too');
+  assert.match(APP.slice(at, at + 900), /state\.p0open\.clear\(\)/);
 });
 
 check('and the toggle writes state rather than poking the DOM', () => {
   // The one thing a rendered string cannot show: that the *tap* leaves no state anywhere
   // but the set. A branch that added a class to the card, or set `hidden` on the tree,
   // would pass every assertion above and fold up at the next poll.
-  const at = APP.indexOf("if (act === 'p0') {");
+  const at = APP.indexOf("if (act === 'p0' || act === 'p0-close') {");
   assert.notEqual(at, -1, 'the P0 tap handler is gone');
-  const branch = APP.slice(at, at + 1400);
+  const branch = APP.slice(at, at + 900);
   const body = branch.slice(0, branch.indexOf('\n    }'));
-  assert.match(body, /state\.p0open\.(add|delete)/);
-  // And it holds the page still across the repaint, bc-rfnr.9.9. The tree opens *above*
-  // the list, so `capturePlace`'s anchor holds the first card where it was by scrolling
-  // the page down by exactly the height of what appeared — and the card you tapped leaves
-  // the screen. Invisible in the HTML and obvious at 393×852; scripts/p0board-check.mjs
-  // is the half that measures it.
-  assert.match(body, /keepTheScreenStill\(\(\) => render\(true\)\)/);
-  assert.ok(!/classList|\.hidden|innerHTML|querySelector/.test(body), 'the tap is reaching into the DOM');
+  assert.match(body, /state\.p0open\.(add|clear)/);
+  assert.match(body, /render\(true\)/);
+  assert.ok(!/classList|\.hidden|innerHTML/.test(body), 'the tap is reaching into the DOM');
+  // The one DOM read it does make, and it is *after* the repaint rather than instead of
+  // one: opening the tab leaves the keyboard on a button behind a full-screen layer and
+  // closing it leaves the keyboard on a button that no longer exists, so focus is moved
+  // to the layer's way out and handed back to the card it came from. bc-grut.
+  assert.match(body, /\.p0-full \.p0-back/);
+  assert.match(body, /\.p0-tap/);
+  assert.ok(body.indexOf('render(true)') < body.indexOf('querySelector'), 'focus is moved before the repaint');
+});
+
+check('Escape is a way out of the tab, and never dismisses two things at once', () => {
+  // The back button is reachable by Tab; a reader who opened the tab with a pointer has
+  // no key that does anything without this. Behind the menus and only when neither was
+  // open, because a menu drawn over the tab is the nearer of the two.
+  const at = APP.indexOf("if (ev.key !== 'Escape') return;");
+  assert.notEqual(at, -1, 'the Escape handler is gone');
+  const body = APP.slice(at, at + 1200);
+  assert.match(body, /const hadMenu = Boolean\(state\.agentMenu \|\| state\.menu\)/);
+  assert.match(body, /if \(!hadMenu && state\.p0open\.size\)/);
+  assert.match(body, /state\.p0open\.clear\(\)/);
+});
+
+check('where you had scrolled inside the tab survives the poll that rebuilds it', () => {
+  // The tab is its own scroller and is not a `.card`, so `capturePlace`'s anchor cannot
+  // see it — and it lives inside the one reconcile chunk that any moved count on the
+  // board replaces whole. Without this, a 25-second poll drops you back at the top of a
+  // sixty-row tree. bc-grut.
+  assert.match(APP, /p0Top: listEl\.querySelector\('\.p0-full-body'\)\?\.scrollTop \|\| 0/);
+  const at = APP.indexOf('function restorePlace(place)');
+  assert.notEqual(at, -1, 'restorePlace is gone');
+  const fn = APP.slice(at, at + 1400);
+  assert.match(fn, /p0body\.scrollTop = place\.p0Top/);
+  // Before the early return for a board with no inbox card under it to anchor on, which
+  // is exactly the screen a P0 tab is most often over.
+  assert.ok(fn.indexOf('place.p0Top') < fn.indexOf('if (!place.key) return;'), 'the tab is restored after the early return');
 });
 
 check('the board is still one reconcile chunk, which is why the set has to exist', () => {
-  assert.match(APP, /chunks\.push\(\{ key: '@p0', html: p0s \}\)/);
+  assert.match(APP, /chunks\.push\(\{ key: '@p0', html: roots \}\)/);
 });
 
 console.log('\nthe section folds away');
@@ -437,7 +564,7 @@ check('the heading is the control, and it says what the section is', () => {
 check('shut, the cards are gone and the count is not', () => {
   const html = board([CARD, OTHER], [], true);
   assert.ok(!html.includes('p0-card'), 'a shut board is still drawing its cards');
-  assert.ok(!html.includes('The inbox is a P0 board'), 'a shut board is still drawing its titles');
+  assert.ok(!html.includes('The inbox is an epic board'), 'a shut board is still drawing its titles');
   // How many epics are behind the fold. Without it, a folded board is indistinguishable
   // from a screen with no epics on it — which is the one thing this section exists to
   // never be (bc-rfnr.2).
@@ -482,16 +609,16 @@ check('the tap writes the preference as well as the state, and pokes no DOM', ()
 });
 
 check('folding changes nothing about the list underneath', () => {
-  // `underOwnedP0s` is what narrows the inbox to your epics' descendants, and it reads
+  // `underOwnedRoots` is what narrows the inbox to your epics' descendants, and it reads
   // the board data rather than whether the board is on screen. A fold that narrowed the
   // list too would be a control that quietly empties the inbox.
-  const at = APP.indexOf('function underOwnedP0s(rows)');
-  assert.notEqual(at, -1, 'underOwnedP0s is gone');
+  const at = APP.indexOf('function underOwnedRoots(rows)');
+  assert.notEqual(at, -1, 'underOwnedRoots is gone');
   const fn = APP.slice(at, APP.indexOf('\n  }', at));
   assert.ok(!fn.includes('p0shut'), 'the inbox filter is reading whether the board is folded');
 });
 
-console.log('\none status filter over the whole board');
+console.log('\none status filter, in the tab with the tree it narrows');
 
 /**
  * A tree with the two awkward shapes in it, which `CARD` does not have.
@@ -605,18 +732,31 @@ check('the default survives a page that has never stored one, and an id it does 
   assert.match(APP, /p0status: localStorage\.getItem\('beadcause\.p0status'\) \|\| 'live'/);
 });
 
-check('one control, above the board — not one per card', () => {
-  const html = board([CARD, MIX], ['beadcause/bc-rfnr', 'beadcause/bc-mix']);
-  assert.equal(chips(html).length, 3, 'the board is not drawing exactly one filter');
-  // Above the cards, and below the heading that folds them: the order on the page is what
-  // makes it read as one control over the lot rather than as part of the first card.
+check('one control, at the top of the tab and above the tree it narrows', () => {
+  // It sat above the cards while the trees were on the board (bc-rfnr.9.6). The trees
+  // are in the tab now, so the board is exactly the place its effect cannot be seen —
+  // and a control over things that are not on screen is one you set and cannot read.
+  const html = board([MIX], ['beadcause/bc-mix']);
+  assert.equal(chips(html).length, 3, 'the open epic is not drawing exactly one filter');
   const at = html.indexOf('p0-status');
-  assert.ok(at !== -1 && at < html.indexOf('p0-card'), 'the filter is drawn inside or after the cards');
-  assert.ok(html.indexOf('p0-kind') < at, 'the filter is drawn above the section heading');
-  // And it narrows every tree at once, not the one it happens to sit nearest.
-  const closed = board([CARD, MIX], ['beadcause/bc-rfnr', 'beadcause/bc-mix'], false, 'closed');
-  assert.ok(closed.includes('bc-rfnr.9.2.1.1.1'), 'the first card ignored the filter');
-  assert.ok(closed.includes('bc-mix.2.1'), 'the second card ignored the filter');
+  assert.ok(at > html.indexOf('class="p0-full"'), 'the filter is drawn outside the tab');
+  assert.ok(at < html.indexOf('class="p0-tree"'), 'the filter is drawn below the tree it narrows');
+  // And nothing is left on the board itself, on a screen with nothing open.
+  assert.equal(chips(board([CARD, MIX])).length, 0, 'the board is still drawing a filter');
+});
+
+check('the pick is one pick, and whichever epic you open next obeys it', () => {
+  // Still `state.p0status`, still persisted, still asked once — what moved is only where
+  // you reach it. So it cannot be per-card by accident: opening either epic under the
+  // same stored pick gives the same answer.
+  assert.ok(
+    board([CARD, MIX], ['beadcause/bc-rfnr'], false, 'closed').includes('bc-rfnr.9.2.1.1.1'),
+    'the first epic ignored the stored pick'
+  );
+  assert.ok(
+    board([CARD, MIX], ['beadcause/bc-mix'], false, 'closed').includes('bc-mix.2.1'),
+    'the second epic ignored the stored pick'
+  );
 });
 
 check('selecting closed shows closed descendants with their ancestors intact', () => {
@@ -663,28 +803,36 @@ check('both directions of an excluded parent are held up', () => {
   assert.ok(!closed.includes('>bc-mix.3<'), 'a blocked leaf is drawn under the closed filter');
 });
 
-check('every chip says what it would leave you with, counted over the board', () => {
+check('every chip says what it would leave you with, counted over the epic in front of you', () => {
   const html = board([MIX, LANDED], ['beadcause/bc-mix']);
   const by = Object.fromEntries(chips(html).map((c) => [c.id, c.count]));
-  // Seven beads over the two cards: three closed on `MIX` and `LANDED`'s two, four live.
-  assert.equal(by.all, 7);
-  assert.equal(by.closed, 4);
+  // `MIX` alone — five beads, two of them closed. Counted across the board it would be
+  // seven and four, and "Closed 4" over a tree with two closed rows in it is the count
+  // doing the one thing it exists to prevent: sending you to a screen it promised had
+  // something on it. bc-grut.
+  assert.equal(by.all, 5);
+  assert.equal(by.closed, 2);
   assert.equal(by.live, 3);
+  assert.ok(!chips(html).some((c) => c.count === 7), "the chips are counting the board rather than the epic");
   // Counted on what matched, not on what is drawn — the ancestors kept for context are
-  // scaffolding, and counting them would put "4" over a tree with three closed rows.
-  assert.equal(by.closed, MIX.tree.concat(LANDED.tree).filter((r) => r.status === 'closed').length);
+  // scaffolding, and counting them would put "3" over a tree with two closed rows.
+  assert.equal(by.closed, MIX.tree.filter((r) => r.status === 'closed').length);
 });
 
-check('the hint under the title promises what the tap will actually open', () => {
-  assert.match(board([MIX]), /Tap for 3 of the 5 beads under it/);
-  assert.match(board([MIX], [], false, 'all'), /Tap for all 5 beads under it/);
-  // An epic the filter empties says that, rather than "nothing filed under it yet" — the
-  // one is the control's doing and the other is the tracker's, and they are not the same
-  // sentence to a reader deciding whether to break the epic down.
-  const empty = board([LANDED]);
-  assert.match(empty, /Nothing under it matches the filter/);
+check('the summary on the board does not move when the filter does', () => {
+  // The line under the title used to be counted through the filter — "Tap for 3 of the 5
+  // beads under it". With the control in the tab that would be a card whose numbers moved
+  // because of something not on the screen, on a grid where nothing else moved at all. So
+  // the collapsed card counts the whole tree and the filter cannot reach it. bc-grut.
+  for (const pick of ['live', 'all', 'closed']) {
+    assert.match(board([MIX], [], false, pick), /2 of 5 done/, `the card moved under \`${pick}\``);
+  }
+  // And an epic the filter empties still says so — inside the tab, where the control is,
+  // rather than "nothing filed under it yet", which is the tracker's fact and not the
+  // control's and is a different sentence to a reader deciding whether to break it down.
+  const empty = board([LANDED], ['beadcause/bc-done']);
+  assert.match(empty, /Nothing under bc-done matches the filter/);
   assert.ok(!empty.includes('Nothing filed under it yet'), 'a filtered-out tree reads as an epic nobody has broken down');
-  assert.match(board([LANDED], ['beadcause/bc-done']), /Nothing under bc-done matches the filter/);
 });
 
 check('the pick is page state, persisted — so it survives a repaint and a reload', () => {
@@ -709,20 +857,24 @@ check('the pick is page state, persisted — so it survives a repaint and a relo
 });
 
 check('it narrows the trees and nothing else — the list below is untouched', () => {
-  // `underOwnedP0s` is what the inbox is narrowed by. A bead you filtered out of a tree is
+  // `underOwnedRoots` is what the inbox is narrowed by. A bead you filtered out of a tree is
   // still a question you are being asked, and a status filter that reached the list would
   // hide it with nothing on screen to say where it went.
-  const at = APP.indexOf('function underOwnedP0s(rows)');
-  assert.notEqual(at, -1, 'underOwnedP0s is gone');
+  const at = APP.indexOf('function underOwnedRoots(rows)');
+  assert.notEqual(at, -1, 'underOwnedRoots is gone');
   assert.ok(!APP.slice(at, APP.indexOf('\n  }', at)).includes('p0status'), 'the inbox filter is reading the board filter');
 });
 
-check('the fold takes the filter with it', () => {
-  // A control over things that are not on screen is one you set and cannot see the effect
-  // of — and it is the cards it filters, so it goes where they go.
-  const html = board([CARD, MIX], [], true);
+check('the fold takes the tab, the filter and everything else with it', () => {
+  // The tab goes away with the cards like everything else the fold hides — and that is
+  // bc-eevn's rule rather than an exception to it, because unfolding brings back the epic
+  // that was open. Shut-with-one-open is not a state a tap can reach either way: the
+  // fold's own control is behind the tab whenever there is one.
+  const html = board([CARD, MIX], ['beadcause/bc-mix'], true);
   assert.equal(chips(html).length, 0, 'a shut board is still drawing its filter');
+  assert.ok(!html.includes('p0-full'), 'a shut board is still drawing an open tab over it');
   assert.match(html, /class="p0-kind-n">2</);
+  assert.ok(board([CARD, MIX], ['beadcause/bc-mix'], false).includes('p0-full'), 'unfolding lost the open epic');
 });
 
 check('a context row is dashed rather than dimmed again, so a closed one stays readable', () => {
@@ -761,7 +913,7 @@ check('a title out of the tracker cannot write markup into the board', () => {
 
 check('the three no-op cases are untouched: no `me`, no P0s, an old payload', () => {
   assert.equal(board([]), '');
-  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state: { p0board: { owned: false, p0s: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map(), p0picker: false } });
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state: { rootboard: { owned: false, roots: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map(), p0picker: false } });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -779,13 +931,21 @@ check('the three no-op cases are untouched: no `me`, no P0s, an old payload', ()
       lift(APP, 'function p0StatusFilter()'),
       lift(APP, 'function p0Visible(rows)'),
       lift(APP, 'function p0StatusHtml(cards)'),
-      lift(APP, 'function p0HintText(on, shown, total)'),
+      // bc-grut's collapsed summary: the counts a card carries when its tree is not on
+      // the screen, and the bar that draws them.
+      lift(APP, 'function p0Progress(card)'),
+      lift(APP, 'function p0ProgressHtml(card)'),
       lift(APP, 'function p0RowHtml(card, row)'),
       lift(APP, 'function p0TreeHtml(card)'),
       // bc-d6yk's three-state control, which the acts row now calls rather than writing
       // a launch button by hand — and the local "just launched" note it reads.
       lift(APP, 'function openingHere(key)'),
       lift(APP, 'function p0Control(c)'),
+      lift(APP, 'const p0AsksHtml = '),
+      lift(APP, 'function p0FaceHtml(c, asks, tail'),
+      lift(APP, 'function p0ActsHtml(c, more'),
+      lift(APP, 'function p0CardHtml(c)'),
+      lift(APP, 'function p0FullHtml(c)'),
       lift(APP, 'const p0AsksN = ('),
       lift(APP, 'function p0Cards(list)'),
       // bc-s8mc's picker, at the foot of the section — lifted because `p0SectionHtml`
@@ -816,6 +976,64 @@ check('the tap region is stripped back to text and keeps a phone-sized target', 
   const rule = CSS.slice(at, CSS.indexOf('}', at));
   assert.match(rule, /min-height: 44px/);
   assert.match(rule, /text-align: left/);
+});
+
+check('the cards are a grid that may be narrower than a bead title', () => {
+  // bc-grut. `minmax(0, 1fr)` rather than `1fr` is the line this rests on: a grid track's
+  // automatic minimum is its content, and a bead title is one unbroken 60-character
+  // string often enough that plain `1fr` lets a column bid wider than its share and
+  // pushes the third card off the row.
+  const at = CSS.indexOf('.p0-cards { display: grid;');
+  assert.notEqual(at, -1, 'public/style.css has no .p0-cards grid');
+  assert.match(CSS.slice(at, CSS.indexOf('}', at)), /grid-template-columns: minmax\(0, 1fr\)/);
+  // One across, two, then three — the acceptance of the bead, as three declarations.
+  assert.match(CSS, /@media \(min-width: 640px\) \{ \.p0-cards \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \} \}/);
+  assert.match(CSS, /@media \(min-width: 960px\) \{ \.p0-cards \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \} \}/);
+  // And the controls line up across a row rather than following each card's own last
+  // line, which is what `margin-top: auto` in a stretched grid item buys.
+  const acts = CSS.slice(CSS.indexOf('.p0-acts {'), CSS.indexOf('}', CSS.indexOf('.p0-acts {')));
+  assert.match(acts, /margin-top: auto/);
+  // And the other half of `minmax(0, 1fr)`, without which it buys nothing on the one title
+  // that matters: the track keeps its share and the *text* runs out of it instead, so the
+  // page grows a horizontal scrollbar and every card on the board pays for one bead title
+  // with a path or a branch name in it.
+  const title = CSS.slice(CSS.indexOf('.p0-title {'), CSS.indexOf('}', CSS.indexOf('.p0-title {')));
+  assert.match(title, /overflow-wrap: anywhere/);
+});
+
+check('the tab is a fixed layer with its own scroller, at every height', () => {
+  const at = CSS.indexOf('.p0-full {');
+  assert.notEqual(at, -1, 'public/style.css has no .p0-full');
+  const rule = CSS.slice(at, CSS.indexOf('}', at));
+  // Fixed against the viewport, so it does not matter that it is drawn inside the board's
+  // chunk inside `#list` — which it has to be, since every handler on this page is
+  // delegated from that element.
+  assert.match(rule, /position: fixed/);
+  assert.match(rule, /inset: 0/);
+  assert.match(rule, /z-index: 40/);
+  // Opaque. This is a place you went, not a dialog over a place you were, and the inbox
+  // showing through under a sixty-row tree is the cramped read bc-grut is about.
+  assert.match(rule, /background: var\(--bg\)/);
+  // The body scrolls, not the layer — and reaching the end of a tree stops rather than
+  // starting to scroll the list behind it.
+  const body = CSS.slice(CSS.indexOf('.p0-full-body {'), CSS.indexOf('}', CSS.indexOf('.p0-full-body {')));
+  assert.match(body, /flex: 1 1 0/);
+  assert.match(body, /min-height: 0/);
+  assert.match(body, /overscroll-behavior: contain/);
+  // And the acts row takes back the `auto` margin that is for a grid cell — in a flex
+  // column already the height of the screen it would push the row off the bottom.
+  const acts = CSS.slice(CSS.indexOf('.p0-full-acts {'), CSS.indexOf('}', CSS.indexOf('.p0-full-acts {')));
+  assert.match(acts, /margin: 0/);
+  assert.match(acts, /flex: none/);
+});
+
+check('the progress bar has a visible empty track, so nothing landed is not nothing drawn', () => {
+  const at = CSS.indexOf('.p0-bar {');
+  assert.notEqual(at, -1, 'public/style.css has no .p0-bar');
+  const rule = CSS.slice(at, CSS.indexOf('}', at));
+  assert.match(rule, /background: var\(--line\)/);
+  assert.match(rule, /overflow: hidden/);
+  assert.match(CSS, /\.p0-bar-fill \{[^}]*background: var\(--accent\)/);
 });
 
 check('the heading is a real tap target, and the count sits at the far end', () => {

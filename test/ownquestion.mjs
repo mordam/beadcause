@@ -6,7 +6,7 @@
  *     node test/ownquestion.mjs
  *
  * bc-i7tw. bc-rfnr.2 narrowed the inbox to what descends from a P0 you own, and the
- * narrowing is a single map: `p0board.under`, one entry per row, the id of the P0 it
+ * narrowing is a single map: `rootboard.under`, one entry per row, the id of the P0 it
  * hangs off. A row that is not in it is not drawn. That is right for a bead under
  * somebody else's epic — it is on their screen — and it is the app's one unforgivable
  * failure for a bead under *nothing*, because there is no other screen. `/api/ask` is
@@ -20,23 +20,23 @@
  * what a person filed is a decision about the tracker's shape rather than about a
  * screen — and because a fix at the filing seam is only ever as good as the graph cache
  * was at that moment. This is the other half and it needs neither: the server says which
- * rows hang off no P0 *at all* (`p0board.unhomed`), and the client draws those whatever
+ * rows hang off no P0 *at all* (`rootboard.unhomed`), and the client draws those whatever
  * the board says.
  *
  * Five properties, and the middle three are the ones a refactor takes away quietly:
  *
  * 1. **The parentless question is drawn**, with the board active and P0s owned. This is
- *    the acceptance criterion, and it is asserted through the *real* `underOwnedP0s`
+ *    the acceptance criterion, and it is asserted through the *real* `underOwnedRoots`
  *    lifted out of public/app.js over the *real* `/api/questions` payload — the two
  *    halves of the fix, joined, because either one alone still leaves the card missing.
  * 2. **A question under somebody else's open P0 is still hidden.** bc-rfnr.2 is not
  *    being undone. The two cases are one absence in `under` and the whole bug was
  *    treating them as one fact; a fix that showed both would be the flat list back.
  * 3. **A question under a P0 that has *closed* is drawn.** A closed P0 is not a root
- *    (lib/underp0.js) and its descendants stop being pulled onto the board with it, so
+ *    (lib/underroot.js) and its descendants stop being pulled onto the board with it, so
  *    an open question under a finished epic is under nothing — the exact shape
  *    lib/homing.js warns about, held forever and, until this, seen by nobody.
- * 4. **A workspace whose graph could not be read hides none of its rows.** `p0Board`'s
+ * 4. **A workspace whose graph could not be read hides none of its rows.** `rootBoard`'s
  *    own comment has claimed this since bc-rfnr.2 and it was not true: an unreadable
  *    workspace contributed no `under` entries, which is precisely how a row is hidden.
  *    `Bd.graph` swallowing a failure into an empty shape is what reaches this path.
@@ -48,7 +48,7 @@
  * `human list` with a JSON array, and fails `export` alone for one workspace — which is
  * how "this tracker could not be read" is staged beside a healthy one in the same run.
  * No browser: the client half is sliced out of public/app.js and run in a `node:vm`, the
- * way test/jirarow.mjs does it, because `underOwnedP0s` touches no DOM.
+ * way test/jirarow.mjs does it, because `underOwnedRoots` touches no DOM.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -234,10 +234,10 @@ const getJson = async (p) => {
 async function boardWhenWarm() {
   for (let i = 0; i < 60; i += 1) {
     const payload = await getJson('/api/questions');
-    if ((payload.p0board?.p0s || []).length) return payload;
+    if ((payload.rootboard?.roots || []).length) return payload;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error('the P0 board never warmed up — no p0s after six seconds of asking');
+  throw new Error('the epic board never warmed up — no roots after six seconds of asking');
 }
 
 /* ------------------------------------------------------------------ the client half */
@@ -268,7 +268,7 @@ function lift(src, opener) {
 }
 
 /**
- * The real filter, over a real payload. `board` is what `state.p0board` would hold, and
+ * The real filter, over a real payload. `board` is what `state.rootboard` would hold, and
  * `open` what `state.open` would — the keys of any card that is up, which since
  * bc-rfnr.9.7 is the one thing that keeps a bead the board is drawing in the list as well.
  */
@@ -277,10 +277,10 @@ function drawn(rows, board, open = []) {
   vm.runInContext(
     [
       lift(APP, 'function isBoarded()'),
-      lift(APP, 'function underOwnedP0s(rows)'),
-      'globalThis.out = underOwnedP0s(ROWS);',
+      lift(APP, 'function underOwnedRoots(rows)'),
+      'globalThis.out = underOwnedRoots(ROWS);',
     ].join('\n'),
-    Object.assign(context, { ROWS: rows, state: { p0board: board, open: new Set(open) } })
+    Object.assign(context, { ROWS: rows, state: { rootboard: board, open: new Set(open) } })
   );
   return context.out.map((q) => q.key);
 }
@@ -294,7 +294,7 @@ try {
   // row of beta's on the very first warm payload would be unhomed for the uninteresting
   // reason that nothing had been asked yet.
   const payload = await getJson('/api/questions');
-  const board = payload.p0board;
+  const board = payload.rootboard;
   const keys = payload.questions.map((q) => q.key);
 
   await check('the fixture is the fixture: five questions in alpha and one in beta', () => {
@@ -311,7 +311,7 @@ try {
       'the sweep did not return what this suite is about to make claims over'
     );
     assert.equal(board.owned, true, 'the board is off entirely — cfg.me did not take');
-    assert.deepEqual(board.p0s.map((c) => c.id), ['zz-p0'], 'the board is not the one P0 you own and have started');
+    assert.deepEqual(board.roots.map((c) => c.id), ['zz-p0'], 'the board is not the one root you own and have started');
   });
 
   await check('THE QUESTION YOU FILED WITH NO PARENT IS MARKED, AND `under` DOES NOT KNOW IT', () => {
@@ -348,7 +348,7 @@ try {
   });
 
   await check('a question under a P0 that has CLOSED is unhomed', () => {
-    // A closed P0 is not a root (lib/underp0.js) and the board stops pulling its
+    // A closed P0 is not a root (lib/underroot.js) and the board stops pulling its
     // descendants in with it, so this bead is genuinely under nothing — the shape
     // lib/homing.js names as held forever, and it was invisible as well.
     assert.equal(board.unhomed['alpha/zz-done.1'], true, 'an open question under a finished epic is drawn nowhere');
@@ -357,9 +357,9 @@ try {
   await check('A WORKSPACE WHOSE GRAPH COULD NOT BE READ HIDES NONE OF ITS ROWS', () => {
     // `Bd.graph` answers an empty shape rather than throwing, so beta reaches the row
     // loop with no beads and no P0s — and every row of a workspace nothing is known
-    // about must be shown, not dropped. `p0Board`'s comment has said so since bc-rfnr.2.
+    // about must be shown, not dropped. `rootBoard`'s comment has said so since bc-rfnr.2.
     assert.equal(board.unhomed['beta/zz-beta-asked'], true, 'a question in an unreadable workspace is hidden');
-    assert.deepEqual(board.p0s.map((c) => c.workspace), ['alpha'], 'beta contributed a card it cannot have');
+    assert.deepEqual(board.roots.map((c) => c.workspace), ['alpha'], 'beta contributed a card it cannot have');
   });
 
   await check('AND THE INBOX ACTUALLY DRAWS IT — the real filter, over the real payload', () => {
@@ -423,10 +423,10 @@ try {
   });
 
   await check('and none of it applies to an install that owns no P0 — the flat list, untouched', () => {
-    // The three no-op cases `underOwnedP0s` opens with. `unhomed` must not become a way
+    // The three no-op cases `underOwnedRoots` opens with. `unhomed` must not become a way
     // to narrow a screen that was never being narrowed.
     assert.deepEqual(drawn(payload.questions, { ...board, owned: false }).sort(), keys.slice().sort());
-    assert.deepEqual(drawn(payload.questions, { ...board, p0s: [] }).sort(), keys.slice().sort());
+    assert.deepEqual(drawn(payload.questions, { ...board, roots: [] }).sort(), keys.slice().sort());
   });
 } finally {
   for (const s of servers || []) s.close?.();
