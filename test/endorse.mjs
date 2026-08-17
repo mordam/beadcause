@@ -53,7 +53,7 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const { Bd } = await import(LIB('bd.js'));
 const { UNENDORSED, QUEUE_EXCLUDED, isHeld, assertEndorsed, endorse } = await import(LIB('endorse.js'));
 const { openWorkSession } = await import(LIB('session.js'));
-const { collectWork } = await import(LIB('work.js'));
+const { collectWork, forget: forgetWork } = await import(LIB('work.js'));
 const { createAdvocates } = await import(LIB('advocate.js'));
 
 /* ------------------------------------------------------------------- the stub bd */
@@ -271,6 +271,7 @@ await check("the advocate's queue and its ready count leave held beads out", asy
 });
 
 await check('the monitor counts a held bead as held, not as ready', async () => {
+  forgetWork('demo'); // isolate this sweep from whatever a prior check left warm
   const rows = await collectWork(bd, [ws], {}, []);
   const c = rows[0].counts;
   assert.equal(c.held, 1, 'reported in its own right, so the gap is explained');
@@ -283,6 +284,7 @@ await check('a bd too old for `ready --label` costs the held count, not the whol
   old.readyHeld = async () => {
     throw new Error('unknown flag: --label');
   };
+  forgetWork('demo'); // this `bd` is a different instance; the last check's kept answer is not its answer
   const rows = await collectWork(old, [ws], {}, []);
   assert.equal(rows[0].error, undefined, 'the workspace still reports');
   assert.equal(rows[0].counts.held, 0);

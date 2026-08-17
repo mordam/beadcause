@@ -16284,9 +16284,21 @@ properties:
 | `board:` | lib/prboard.js | 25s | The whole swept PR board — every repo, every rung |
 | `prs:<checkout>` | lib/prboard.js | 120s | One checkout's `gh` slug and pull requests |
 | `queue:<workspaces>` | lib/endorsequeue.js | 15s | Every held bead in the active account's repos, with provenance |
+| `questions:<workspace>` | lib/server.js | 10s | One `bd human list`, behind `allQuestions()` |
+| `foundation:<workspace>` | lib/server.js | 10s | One `bd list --label`, the foundation channel on its own |
+| `agentbeads:<workspace>` | lib/server.js | 10s | One `bd list --exclude-label human` |
+| `work:<workspace>` | lib/work.js | 10s | The four `bd` calls behind one workspace's row on `/api/work` |
 
-The windows are the ones each cache always had. Nothing here was retuned: the point was
-never that the answers were too old, it was that the sixteenth second cost a minute.
+The first four windows are the ones each cache always had. Nothing here was retuned: the
+point was never that the answers were too old, it was that the sixteenth second cost a
+minute. **The last four had no cache to inherit a window from** (bc-1kwl.7) — the two
+standing screens, the inbox and the advocate console, were swept fresh on every single
+request. Their ten seconds is the ledger's own window and the ledger's own argument: a
+bead that changed a moment ago is still ten seconds stale at worst, and the daemon's
+own poll cycle already keeps `questions:` warm on a faster clock than that — see the
+comment on `tick` in lib/server.js, which reads with `refresh: true` for exactly that
+reason. `foundation:`, `agentbeads:` and `work:` have no such tick and stand on the
+window alone, same as `board:`/`prs:`/`queue:` do.
 
 **Why the board has no scope and the queue does**, when the account chip narrows both: the
 board is swept for the whole Mac and narrowed *on the way out*, per request, so one cache
