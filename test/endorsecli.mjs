@@ -443,11 +443,20 @@ await check('there is no --all and no filter', async () => {
   assert.ok(!/'--label'|'--filter'|'--status'/.test(code), 'a filter arrived');
 });
 
-await check('the guard question is still marked open rather than quietly decided', async () => {
-  // bc-1f5o. When it is answered this assertion is what should be edited *with* the
-  // guard, so the TODO cannot outlive the decision or the decision the TODO.
+await check('the guard is prose, on purpose, and the file says whose decision that was', async () => {
+  // bc-1f5o, answered 2026-08-17: Adam-invoked only, no code refusal, the rule about
+  // initiative rather than identity. While the question was open this assertion required
+  // a `TODO(bc-1f5o)` marker, so the marker could not outlive the decision or the
+  // decision the marker; now that it is answered it holds the other half — that the file
+  // still says *why* there is no enforcement here, so the absence reads as a decision
+  // rather than as an oversight somebody should helpfully fix.
   const src = read('bin/endorse.js');
-  assert.match(src, /TODO\(bc-1f5o\)/, 'the open policy question lost its marker');
+  assert.ok(!/TODO\(bc-1f5o\)/.test(src), 'the TODO outlived the decision it was waiting on');
+  assert.match(src, /bc-1f5o/, 'nothing points at the bead the guard was decided on');
+  assert.match(src, /initiative, not identity/, 'the rule itself is not written down where the code is');
+  // And the enforcement is still absent, which is the decision — not an accident.
+  const code = codeOf('bin/endorse.js') + codeOf('lib/endorsecli.js');
+  assert.ok(!/agent-filed|filedBy|whoFiled/.test(code), 'a code refusal arrived that Adam declined');
 });
 
 daemon.close();

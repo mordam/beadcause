@@ -47,15 +47,27 @@
  * somebody typed is a list somebody read. A predicate that resolves to a list at 03:00
  * is the press that took the marker off twenty-five ship beads, wearing a different hat.
  *
- * ## The guard question is open
+ * ## The guard, and why it is not in this file
  *
- * TODO(bc-1f5o): *who* may run this is not decided. The four candidates are on that
- * bead — Adam-invoked only by convention, Adam-invoked plus a code refusal when the
- * session that filed the bead is the session clearing it, no guard at all, or widen the
- * existing per-workspace `autoEndorse` instead and build nothing. The recommendation
- * there is the second. Nothing below implements any of them: this command is the
- * mechanism, and the policy lands on top of it once Adam has answered. Do not invent one
- * here in the meantime — a guard nobody chose is a guard the next person routes around.
+ * bc-1f5o, answered by Adam on 2026-08-17: **Adam-invoked only, and no code refusal.**
+ *
+ * The rule is about **initiative, not identity**. No session may endorse on its own
+ * motion — including, especially, beads it filed itself. Any session may run this on ids
+ * Adam has named, and a session that filed the work is *not* disqualified from being the
+ * hand that clears it: once he has read the beads and named them, the human review the
+ * marker exists to force has already happened. His words were "you're the hand, not the
+ * judge".
+ *
+ * So the guard lives in the skill's prose (`~/.claude-personal/skills/endorse/SKILL.md`)
+ * and there is deliberately nothing here that enforces it. The recommendation on the bead
+ * was the heavier option — a refusal when the session that filed the bead is the session
+ * clearing it — and he chose the lighter one, because the signal it would key on is weak
+ * (`agent-filed` does not name *which* agent) and there is no evidence yet that prose is
+ * insufficient. If it turns out to be, the failure looks like a session endorsing its own
+ * filings unasked, and *that* is when the refusal goes in — not before.
+ *
+ * `autoEndorse` (lib/spaces.js) remains the separate, per-workspace answer to a different
+ * question: not "may this session endorse" but "does this workspace want the gate at all".
  */
 import path from 'node:path';
 import { Bd } from '../lib/bd.js';
