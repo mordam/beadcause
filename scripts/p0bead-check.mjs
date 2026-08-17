@@ -97,7 +97,7 @@ const detail = (id) => ({
     { id: `${id}-c1`, author: 'beadcause', text: 'Queued #243.', created_at: '2026-08-14T11:00:00.000Z' },
     { id: `${id}-c2`, author: 'worker (adam)', text: 'The pills wrapped onto a line of their own.', created_at: '2026-08-14T11:30:00.000Z' },
   ],
-  noP0: false,
+  noRoot: false,
   model: null,
 });
 
@@ -116,11 +116,11 @@ const bead = (id, title) => ({
 
 const QUESTIONS = [{ ...toQuestion(WS, bead('a-p0.7', 'A question under the epic')), space: 'Work', comments: [] }];
 
-/** The board, as `p0Card` in lib/server.js builds it — flat, pre-order, a depth each. */
+/** The board, as `rootCard` in lib/server.js builds it — flat, pre-order, a depth each. */
 const board = () => ({
   owned: true,
   under: { [`${WS}/a-p0.7`]: P0.id },
-  p0s: [
+  roots: [
     {
       key: `${WS}/${P0.id}`,
       workspace: WS,
@@ -165,7 +165,7 @@ function serve() {
         workspaces: [WS],
         spaces: [{ name: 'Work', workspaces: [WS], quiet: false, muted: false, count: QUESTIONS.length }],
         filter: { space: 'all', workspace: 'all' },
-        p0board: board(),
+        rootboard: board(),
         summary: { sessions: 0, proposals: 0 },
         scope: 'human',
       });

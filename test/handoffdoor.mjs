@@ -12,13 +12,18 @@
  * of what this pins, because both wrong answers look right from the outside:
  *
  * 1. **`POST /api/bead/advocate` refuses every handoff, and always has.** `wantsAdvocate`
- *    needs a P0 with an owner (an `owner:` label, lib/ownership.js); the skill files
- *    handoffs `--type=task --priority=1 --labels=handoff` and never claims them, *on
- *    purpose* — a handoff is the top of the next session's queue, not a
- *    P0 on the board. So that door is a 409 for every handoff there has ever been. This
- *    is asserted against `wantsAdvocate` itself rather than described, because the day
- *    somebody relaxes that gate is the day this door stops being needed and nothing else
- *    would say so.
+ *    needs a *root* — an epic at any priority, or a P0 — carrying an owner (an `owner:`
+ *    label, lib/ownership.js); the skill files handoffs `--type=task --priority=1
+ *    --labels=handoff` and never claims them, *on purpose* — a handoff is the top of the
+ *    next session's queue, not an epic on the board. So that door is a 409 for every
+ *    handoff there has ever been. This is asserted against `wantsAdvocate` itself rather
+ *    than described, because the day somebody relaxes that gate is the day this door stops
+ *    being needed and nothing else would say so.
+ *
+ *    **bc-htoy relaxed exactly half of it and this is where that was checked.** Epics no
+ *    longer need to be P0 to be owned or advocated — but a handoff is a `task`, so it is
+ *    still turned away, and the assertions below pin both halves: the widening reaches a
+ *    P1 epic and stops short of a P1 task.
  * 2. **`POST /api/session` would take it and brief it wrong**, which is worse. `promptFor`
  *    says "don't answer it on my behalf … we'll decide together" and ends by telling the
  *    session to `bd close` the bead `--reason "Answered in a Claude session"`. A successor
@@ -93,12 +98,29 @@ const handoffBead = (over = {}) => ({
 
 check('the advocate door refuses a handoff, on both counts', () => {
   const bead = handoffBead();
-  assert.equal(wantsAdvocate(bead), false, 'a P1 with no owner is not advocatable');
+  assert.equal(wantsAdvocate(bead), false, 'a P1 task with no owner is not advocatable');
   assert.equal(wantsAdvocate({ ...bead, priority: 0 }), false, 'still not — nobody owns it');
-  assert.equal(wantsAdvocate({ ...bead, labels: ['handoff', 'owner:adam'] }), false, 'still not — it is a P1');
+  assert.equal(
+    wantsAdvocate({ ...bead, labels: ['handoff', 'owner:adam'] }),
+    false,
+    'still not — it is a task, and bc-htoy widened the gate to epics rather than to everything owned'
+  );
   // And the pair together is what the skill would have to file to get in, which is the
-  // change bc-ol4d rejected: it would put every handoff on the P0 board, owned, forever.
+  // change bc-ol4d rejected: it would put every handoff on the board, owned, forever.
   assert.equal(wantsAdvocate({ ...bead, priority: 0, labels: ['handoff', 'owner:adam'] }), true);
+  // The other way in since bc-htoy, and the one that must *not* let a handoff through:
+  // being an epic is enough at any priority, so the type is now the whole of what turns
+  // this bead away. A regression that read the type loosely would show up right here.
+  assert.equal(
+    wantsAdvocate({ ...bead, type: 'epic', labels: ['handoff', 'owner:adam'] }),
+    true,
+    'a P1 epic with an owner is advocatable — that is bc-htoy'
+  );
+  assert.equal(
+    wantsAdvocate({ ...bead, issue_type: 'epic', labels: ['handoff', 'owner:adam'] }),
+    true,
+    'and by `issue_type` too, which is the spelling a bd export carries'
+  );
 });
 
 check('the handoff brief is not the discuss-a-question brief', () => {

@@ -479,7 +479,7 @@
    * withhold work (bc-hrno), and shown anyway, because whether that gate should ever be
    * turned on is a question only the pattern on this row can answer.
    *
-   * `heldByNoP0` is the ninth (bc-rfnr.7), and the only one that is not about contention
+   * `heldByNoRoot` is the ninth (bc-rfnr.7), and the only one that is not about contention
    * at all: every other pill on this row names two things wanting one bead, and this one
    * names a bead nothing has asked for. It is `p1` for `heldByRepo`'s reason — those two
    * are the holds that never clear on their own — and its tooltip names the beads,
@@ -488,7 +488,7 @@
    * `heldByPause` is the tenth (bc-lco2), and the only one somebody *chose*. Every other
    * pill on this row is a state the machine arrived at — two things wanting one bead, or
    * a bead nobody put on the board — and this one is a button that was pressed. `muted`
-   * rather than `p1` for exactly that reason: `heldByRepo` and `heldByNoP0` are loud
+   * rather than `p1` for exactly that reason: `heldByRepo` and `heldByNoRoot` are loud
    * because nothing will ever clear them and nobody knows it, and this one is already
    * known to whoever pressed it. The tooltip names the epic rather than only the bead,
    * because the epic is where the button back is.
@@ -512,7 +512,7 @@
     const onFiles = (a && a.heldByClaim) || [];
     const busyFiles = (a && a.filesBusy) || [];
     const stood = (a && a.stoodDown) || [];
-    const orphans = (a && a.heldByNoP0) || [];
+    const orphans = (a && a.heldByNoRoot) || [];
     const paused = (a && a.heldByPause) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
@@ -553,9 +553,9 @@
       // `p1` rather than `muted`, with `heldByRepo`: those are the two holds on this row
       // that no amount of waiting resolves. This one is waiting on somebody deciding
       // where the work belongs, and the tooltip names each bead so the decision can be
-      // made from the sheet the id takes you to. See lib/underp0.js.
+      // made from the sheet the id takes you to. See lib/underroot.js.
       orphans.length
-        ? `<span class="pill p1" title="${esc(orphans.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${orphans.length} with no P0 above ${orphans.length === 1 ? 'it' : 'them'}</span>`
+        ? `<span class="pill p1" title="${esc(orphans.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${orphans.length} with nothing decided above ${orphans.length === 1 ? 'it' : 'them'}</span>`
         : '',
       paused.length
         ? `<span class="pill muted" title="${esc(
@@ -662,8 +662,8 @@
    * There is more than one advocate per card and there has been since epic planning
    * landed, but the page only ever drew one of them. The **repo advocate** is the card
    * itself — its name is the heading, its state is the chip beside it — and an
-   * **EpicAdvocate** is a window opened on one P0 to write that epic's plan
-   * (`wantsAdvocate` in lib/epicadvocate.js: a P0 that is open, owned, and not a crash).
+   * **EpicAdvocate** is a window opened on one epic to write that epic's plan
+   * (`wantsAdvocate` in lib/epicadvocate.js: an epic or P0 that is open, owned, and not a crash).
    * Both decide what gets worked on; only one of them was visible, and the other was
    * indistinguishable from an ordinary session in "Working now".
    *
@@ -708,7 +708,7 @@
       `<p class="subtitle">${esc(
         epicsOf(a).length
           ? `${plural(epicsOf(a).length, 'epic')} below have an advocate assigned — one section each, for as long as the epic is open.`
-          : 'No epic has an advocate assigned. One is assigned per P0 that is open, owned and not a crash.'
+          : 'No epic has an advocate assigned. One is assigned per epic that is open, owned and not a crash.'
       )}</p>`
     );
   }
@@ -717,7 +717,7 @@
    * One section per epic with an advocate assigned.
    *
    * The lifetime is the whole design, and it is the graph's rather than a window's: a
-   * section appears when a P0 is open and owned, and it is gone when that epic **closes**
+   * section appears when an epic is open and owned, and it is gone when that epic **closes**
    * — not when a window exits. Before this, an EpicAdvocate *was* its window, so it
    * existed for the few minutes one was up: on 2026-08-13 twenty epics had an advocate
    * assigned in this repo, one had a window, and the console drew one row.

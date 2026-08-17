@@ -5,7 +5,7 @@
  *     npm test
  *     node test/homing.mjs
  *
- * bc-rfnr.8, and the other half of test/underp0.mjs. That one asserts the rule; this
+ * bc-rfnr.8, and the other half of test/underroot.mjs. That one asserts the rule; this
  * one asserts that the daemon stops filing beads that are born failing it.
  *
  * Seven properties, in the order they would break in:
@@ -33,7 +33,7 @@
  *    `Bd.create`, not reasoned about — a unit test of `homeFor` would pass just as
  *    happily against a filing path that never called it.
  * 6. **And the bead it files is workable.** The acceptance criterion itself, asserted as
- *    one line: `hasP0Above` over the tracker afterwards. Every other property here is a
+ *    one line: `hasRootAbove` over the tracker afterwards. Every other property here is a
  *    means to this one.
  * 7. **A tracker that could not be read says so** (bc-0i27.17), and is not confused with
  *    a tracker that answered "nothing here". Both are `{ parent: '', gated: false }` and
@@ -59,9 +59,9 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-homing-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { UNSORTED_LABEL, p0Over, unsortedP0, homeFor, homeIn } = await import(LIB('homing.js'));
+const { UNSORTED_LABEL, rootOver, unsortedRoot, homeFor, homeIn } = await import(LIB('homing.js'));
 const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
-const { hasP0Above } = await import(LIB('underp0.js'));
+const { hasRootAbove } = await import(LIB('underroot.js'));
 const { fileBeads } = await import(LIB('filing.js'));
 const { Bd, forgetParents } = await import(LIB('bd.js'));
 
@@ -105,23 +105,23 @@ const INDEX = indexFrom(LINES.join('\n'));
 /* ------------------------------------------------------------- which P0 is above */
 
 await check('a P0 is over itself, and over everything under it at any depth', () => {
-  assert.equal(p0Over(INDEX, 'zz-epic'), 'zz-epic');
-  assert.equal(p0Over(INDEX, 'zz-epic.1'), 'zz-epic');
-  assert.equal(p0Over(INDEX, 'zz-epic.1.1'), 'zz-epic');
+  assert.equal(rootOver(INDEX, 'zz-epic'), 'zz-epic');
+  assert.equal(rootOver(INDEX, 'zz-epic.1'), 'zz-epic');
+  assert.equal(rootOver(INDEX, 'zz-epic.1.1'), 'zz-epic');
 });
 
 await check('and nothing is over a bead nothing decided, or over a closed P0’s child', () => {
-  assert.equal(p0Over(INDEX, 'zz-loose'), null);
-  assert.equal(p0Over(INDEX, 'zz-done.1'), null, 'a closed P0 is not a root, so it is not a home either');
-  assert.equal(p0Over(INDEX, 'zz-never-heard-of-it'), null);
-  assert.equal(p0Over(INDEX, ''), null);
+  assert.equal(rootOver(INDEX, 'zz-loose'), null);
+  assert.equal(rootOver(INDEX, 'zz-done.1'), null, 'a closed P0 is not a root, so it is not a home either');
+  assert.equal(rootOver(INDEX, 'zz-never-heard-of-it'), null);
+  assert.equal(rootOver(INDEX, ''), null);
 });
 
 /* --------------------------------------------------------------- the backlog P0 */
 
 await check('the unsorted backlog is found by its label, and a closed one is not it', () => {
-  assert.equal(unsortedP0(INDEX), 'zz-pile');
-  assert.equal(unsortedP0(indexFrom(row('zz-done', { priority: 0, status: 'closed', labels: [UNSORTED_LABEL] }))), null);
+  assert.equal(unsortedRoot(INDEX), 'zz-pile');
+  assert.equal(unsortedRoot(indexFrom(row('zz-done', { priority: 0, status: 'closed', labels: [UNSORTED_LABEL] }))), null);
 });
 
 await check('two of them is a duplicate you can find, not two daemons filing into different piles', () => {
@@ -134,15 +134,15 @@ await check('two of them is a duplicate you can find, not two daemons filing int
       row('zz-also', { priority: 0, labels: ['Unsorted'] }),
     ].join('\n')
   );
-  assert.equal(unsortedP0(two), 'zz-also', 'sorted, so it is stable rather than export order');
-  assert.equal(unsortedP0(two), 'zz-also');
+  assert.equal(unsortedRoot(two), 'zz-also', 'sorted, so it is stable rather than export order');
+  assert.equal(unsortedRoot(two), 'zz-also');
 });
 
 await check('a label is not an owner and not a priority — only an open P0 catches anything', () => {
   const not = indexFrom(
     [row('zz-task', { priority: 1, labels: [UNSORTED_LABEL] }), row('zz-two', { priority: 2, labels: [UNSORTED_LABEL] })].join('\n')
   );
-  assert.equal(unsortedP0(not), null);
+  assert.equal(unsortedRoot(not), null);
 });
 
 /* ---------------------------------------------------------------- the whole rule */
@@ -248,7 +248,7 @@ await check('AN EXPORT THAT FAILED IS NOT "NOWHERE TO PUT IT" — IT SAYS SO, AN
 });
 
 await check('A WORKSPACE WITH NO P0 AT ALL IS NOT GATED, AND MUST NOT BE WARNED ABOUT', () => {
-  // `hasP0Above` fails open with no roots — a tracker nobody has raised a P0 in works
+  // `hasRootAbove` fails open with no roots — a tracker nobody has raised a P0 in works
   // exactly as it did before the gate existed. A parentless bead there is not held, so a
   // caller printing "nothing will work this until you adopt it" would be lying at every
   // single filing. `gated` is the difference, and it is the whole of why it exists.
@@ -335,7 +335,7 @@ await check('FILEBEADS PUTS THE BEAD UNDER THE P0 THE WORK THAT FOUND IT IS UNDE
 await check('AND THE BEAD IT FILED IS WORKABLE — the acceptance criterion, in one line', () => {
   const filed = last();
   assert.ok(filed, 'something was filed');
-  assert.equal(hasP0Above(world(), filed), true);
+  assert.equal(hasRootAbove(world(), filed), true);
 });
 
 await check('the bead says who chose the home, so moving it is not correcting a mistake', () => {

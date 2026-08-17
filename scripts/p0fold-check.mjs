@@ -14,7 +14,7 @@
 //     `#list` and resolves through `closest('[data-act]')`. A heading drawn outside that
 //     element renders perfectly and does nothing — which is the failure mode this repo has
 //     already paid for once, and it is invisible to a renderer test.
-//   • **Folding must not touch the list underneath.** `underOwnedP0s` narrows the inbox to
+//   • **Folding must not touch the list underneath.** `underOwnedRoots` narrows the inbox to
 //     your epics' descendants off the board *data*; a fold that reached the filter instead
 //     would empty the inbox, and the rows it took away would have no visible reason to be
 //     gone. Asserted by counting the rows either side of the tap.
@@ -88,18 +88,18 @@ const bead = (id, title) => ({
 
 // Two questions, one under each epic. They are the rows the fold must not disturb: with a
 // board on, the list below it is your epics' descendants and nothing else, so a fold that
-// reached `underOwnedP0s` would take both of these off the screen.
+// reached `underOwnedRoots` would take both of these off the screen.
 const QUESTIONS = P0S.map((p, i) => ({
   ...toQuestion(WS, bead(`${p.id}.${i + 1}`, `A child of ${p.id}`)),
   space: 'Work',
   comments: [],
 }));
 
-/** The board, as `p0Card` in lib/server.js builds it — trees and all, since bc-rfnr.9.1. */
+/** The board, as `rootCard` in lib/server.js builds it — trees and all, since bc-rfnr.9.1. */
 const board = () => ({
   owned: true,
   under: Object.fromEntries(QUESTIONS.map((q, i) => [`${WS}/${P0S[i].id}.${i + 1}`, P0S[i].id])),
-  p0s: P0S.map((p, i) => ({
+  roots: P0S.map((p, i) => ({
     key: `${WS}/${p.id}`,
     workspace: WS,
     id: p.id,
@@ -139,7 +139,7 @@ function serve() {
         workspaces: [WS],
         spaces: [{ name: 'Work', workspaces: [WS], quiet: false, muted: false, count: QUESTIONS.length }],
         filter: { space: 'all', workspace: 'all' },
-        p0board: board(),
+        rootboard: board(),
         summary: { sessions: 0, proposals: 0 },
         scope: 'human',
       });
