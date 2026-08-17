@@ -157,6 +157,30 @@
     workspace: 'all',
     open: new Set(),
     /**
+     * The card whose detail fetch is in the air, by key — at most one, `null` the rest
+     * of the time. bc-jair.
+     *
+     * A tap on a shut card used to do nothing you could see until the fetch came back:
+     * `expand()` awaits `/api/question` or `/api/bead` and only *then* opens the card,
+     * so on a slow link the row sat inert and the tap read as dropped — which is a tap
+     * people make again. This field is that half second, and `.card.opening` is what it
+     * looks like.
+     *
+     * Page state and not only a class on a node, for the reason `state.menu` is one: the
+     * poll can repaint the list underneath a fetch that has not landed, and a mark that
+     * existed only on the node the reconcile replaced would go with it. What puts it on
+     * inside the tap's own frame is `paintOpening()`, because a render() here would be
+     * forty cards rebuilt to add one class — and the point of this mark is that it is
+     * there *now*.
+     *
+     * Cleared by `expand()` itself, immediately before the card is opened, so the repaint
+     * that draws the card open never draws the mark on it as well. That is also the whole
+     * of why an already-cached card does not flash: nothing awaits on that path, so the
+     * set, the clear and the repaint all happen inside the one tap, and the browser never
+     * paints a frame in between.
+     */
+    opening: null,
+    /**
      * Which root has its tab open, by card key (`workspace/id`). bc-rfnr.9.2, bc-grut.
      *
      * A Set holding **at most one** since bc-grut, which is an accordion in the same
@@ -936,6 +960,21 @@
   const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
 
   /**
+   * The pending mark, for as long as this card's detail fetch is in the air. bc-jair.
+   *
+   * Both card renderers interpolate it so that a poll landing mid-fetch paints it back:
+   * `paintOpening()` writes the class inside the tap's own frame, but the node it writes
+   * on is one the next reconcile is free to replace. Same division of labour as the ⋮
+   * menu's `state.menu`, and the same reason for it.
+   *
+   * Shared between the two renderers where the title `<button>` beside it deliberately is
+   * not: `editmode.js` anchors a control by grepping this file for the markup that drew
+   * it, and what it anchors on is the `data-act` — nothing has ever anchored on the
+   * *class* an article wears. See the note on `shutCardAct`.
+   */
+  const openingCardClass = (q) => (state.opening === q.key ? ' opening' : '');
+
+  /**
    * The card's own top bar: everything that is *about* the card rather than an
    * answer to it.
    *
@@ -1347,6 +1386,11 @@
     { key: 'notes', label: 'Notes' },
     { key: 'labels', label: 'Labels', pills: true },
     { key: 'deps', label: 'Depends on', pills: 'id' },
+    // The files this bead says it expects to touch (bc-42ow). As pills, like labels,
+    // because a path is a token and not prose — and last of the six for the reason
+    // `proposalBody` prints it last: it is the one line here that says something about
+    // the *other* rows, so it reads best after you have read this one.
+    { key: 'files', label: 'Expects to touch', pills: true },
   ];
 
   /**
@@ -2925,7 +2969,9 @@
     // the anchor's chain-narrowing between this title and the one at the card's foot.
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
       q.failed ? ' has-failed' : ''
-    }${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(q.key)}" data-key="${esc(
+    }${q.awaitingAgent ? ' replied' : ''}${openingCardClass(
+      q
+    )}" id="card-${cardId(q.key)}" data-key="${esc(
       q.key
     )}"${shutCardAct(open)}>
       ${cardTopHtml(q)}
@@ -3379,9 +3425,9 @@
    */
   function agentCardHtml(q) {
     const open = state.open.has(q.key);
-    return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(
-      q.key
-    )}"${shutCardAct(open)}>
+    return `<article class="card agent-card${openingCardClass(
+      q
+    )}" id="card-${cardId(q.key)}" data-key="${esc(q.key)}"${shutCardAct(open)}>
       ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
@@ -3773,6 +3819,26 @@
   function paintDraftMark(key) {
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
     card?.classList.toggle('has-draft', Boolean(getDraft(key)));
+  }
+
+  /**
+   * Put the pending mark on the card being opened, and take it off every other one.
+   *
+   * DOM surgery rather than a render(), the same choice `closeMenu()` makes and for a
+   * sharper version of its reason: this runs inside the tap's own handler and has to be
+   * on screen at the next frame whatever the network is doing. A render() would rebuild
+   * the list to add one class — and the reconciler would then rebuild that same card a
+   * second time when the fetch landed.
+   *
+   * A sweep rather than a toggle on the one node, because a second tap can land on a
+   * different card while the first fetch is still going, and two cards both claiming to
+   * be opening is worse than the inert tap this replaced. `state.opening` holds at most
+   * one key, and this makes the DOM say the same thing.
+   */
+  function paintOpening() {
+    for (const el of listEl.querySelectorAll('.card.opening')) el.classList.remove('opening');
+    if (!state.opening) return;
+    listEl.querySelector(`.card[data-key="${CSS.escape(state.opening)}"]`)?.classList.add('opening');
   }
 
   /**
@@ -4510,7 +4576,8 @@
    * The scope chips. The third column is what the settings panel used to spell out
    * under the switch; it rides along as the chip's `title` and its accessible name,
    * because three one-word chips are not self-explanatory and there is no longer a
-   * paragraph of prose to put it in.
+   * paragraph of prose to put it in — and out on the chrome (bc-khoe.24) there is not
+   * even a legend above them.
    */
   const SCOPE_CHIPS = [
     ['human', 'Human', 'Beads labelled human — the ones asking you something. This is the inbox.'],
@@ -4519,7 +4586,8 @@
   ];
 
   /**
-   * The scope, as a group of chips inside the filter menu.
+   * The scope, as a segmented switch on the chrome — the first of the filter pills
+   * (bc-khoe.24, public/filterpills.js).
    *
    * There used to be three rows in `#filters`, coarsest first: which slice of the
    * tracker, then which space, then which workspace within it. The bottom two are the
@@ -4530,9 +4598,20 @@
    * The scope stayed, because it is genuinely a different kind of control: it decides
    * what gets *fetched* — questions, or every live bead — while the picker decides
    * which repo any of it is about. Two axes, and only one of them belongs to the whole
-   * app. What has changed is that it no longer costs a permanent row: it shares the
-   * hover-open panel the kinds left behind (public/inboxfilter.js), because two
+   * app.
+   *
+   * It spent a while inside the panel the kinds left behind, on the argument that two
    * collapsing controls side by side would be the three rows again with extra steps.
+   * That was the wrong trade and bc-khoe.24 undoes it. This is the one control on the
+   * page that decides what Home is *able to contain* — `human` sweeps the questions,
+   * `agent` the live beads, `both` does both — so a screen that is empty because the
+   * scope is wrong is a screen whose cause was behind a line nobody opened. It is three
+   * chips on the row now, in front of what is left of the panel, and the armed one is
+   * legible without reaching for anything. `hidden`/`text` are not in play here: three
+   * options, one always armed, and every scope reachable from every other.
+   *
+   * The descriptor is unchanged, because filterpills.js takes the same one filtermenu.js
+   * does. Moving it was editing which list it is in.
    */
   const scopeGroup = {
     id: 'scope',
@@ -4788,11 +4867,14 @@
     f.survey({ kinds: kindsForScope(), counts, sub: { status } });
   }
 
-  /** Chips and the one line above them, repainted in place. Never rebuilds the panel. */
+  /** Chips and the one line beside them, repainted in place. Never rebuilds either. */
   function renderFilters() {
-    // Hidden only if the control never mounted — an empty nav with padding in it is a
-    // gap above the list that nothing explains.
+    // Hidden only if neither control mounted — an empty nav with padding in it is a
+    // gap above the list that nothing explains. Either one is enough: since bc-khoe.24
+    // the row holds the scope switch as well as the collapsed panel, and a page served
+    // without inboxfilter.js still has a scope to say which slice it is showing.
     filtersEl.hidden = !filtersEl.firstElementChild;
+    window.beadcause?.filterPills?.paint?.();
     window.beadcause?.inboxFilter?.paint?.();
   }
 
@@ -7094,6 +7176,13 @@
         q.comments = q.comments || [];
       }
     }
+    // The pending mark's life ends here rather than back at the tap, and this line is
+    // what makes a cached card open without a flash of it: on the path above where
+    // nothing was fetched there was no `await` at all, so the mark is set and cleared
+    // inside the one tap and no frame is ever painted carrying it. Guarded on the key
+    // because a second tap can have moved the mark to another card while this fetch was
+    // in the air, and clearing it blind would strip a mark whose fetch is still going.
+    if (state.opening === key) state.opening = null;
     openOnly(key);
     if (opening) openOn = key;
     render(true);
@@ -7921,7 +8010,27 @@
         state.open.delete(key);
         render(true); // explicit user action
       } else {
-        await expand(key);
+        // The card says it heard you *before* the thing it needs arrives, which is the
+        // whole of bc-jair: `expand()` awaits a round trip, and a row that sits inert for
+        // it reads as a tap that missed. Marked here rather than inside `expand()`
+        // because this is the tap — a notification deep-link and a forced refresh call
+        // `expand()` too, and neither has a thumb waiting on a card.
+        state.opening = key;
+        paintOpening();
+        try {
+          await expand(key);
+        } finally {
+          // `expand()` clears the mark itself as it opens the card, and it swallows both
+          // of its own fetch failures, so on every ordinary path — landed, refused,
+          // cached — there is nothing left here to do. What this catches is the other
+          // one: a throw from somewhere `expand()` does not, leaving a card marked
+          // pending for as long as the page is up. Guarded on the key for the same
+          // reason `expand()` is: a second tap may have moved the mark on.
+          if (state.opening === key) {
+            state.opening = null;
+            paintOpening();
+          }
+        }
       }
       return;
     }
@@ -8880,14 +8989,19 @@
   /* ---------------------------------------------------------------- scope */
 
   /**
-   * Move the armed scope chip, and the line above it, without rebuilding the panel.
+   * Move the armed scope chip, and the summary line beside it, without rebuilding
+   * either control.
    *
    * The chips are painted by renderFilters(), but the switch below clears the list and
    * waits on `bd` rather than rendering — so on the tap itself there is nothing to
-   * repaint them. The control's own `paint()` also touches nothing structural, which
-   * is what lets it be called while the panel is open under a pointer.
+   * repaint them. Both `paint()`s touch nothing structural, which is what lets them be
+   * called while the panel next door is open under a pointer.
+   *
+   * Two calls since bc-khoe.24: the scope is a switch on the chrome (filterPills) and
+   * the panel behind it still has a line that has to keep up (inboxFilter).
    */
   function paintScope() {
+    window.beadcause?.filterPills?.paint?.();
     window.beadcause?.inboxFilter?.paint?.();
   }
 
@@ -9775,26 +9889,30 @@
   }
 
   /**
-   * Build the filter control, once, before the first fetch answers.
+   * Build the filter controls, once, before the first fetch answers.
    *
-   * Early on purpose: the line that says which slice you are looking at has to be on
+   * Early on purpose: the control that says which slice you are looking at has to be on
    * screen while `bd` is still being asked, which is exactly when a wide scope makes
-   * the wait long enough to wonder. The scope and the bead box are handed over; the two
-   * sub-filters are the control's own — see public/inboxfilter.js — so they share one
-   * panel instead of stacking two rows. **The kinds are not in here any more**: since
-   * bc-khoe.2 they are the pill row above, and what selecting one does still arrives
-   * back through `onChange` below, exactly as a chip's tap used to.
+   * the wait long enough to wonder.
    *
-   * A page served without the file still works: `renderFilters` and `inKind` both fall
-   * back to doing nothing, which is the unfiltered list this page has always drawn.
+   * **Two controls share the row, and which one a group goes in is the whole of
+   * bc-khoe.24.** The scope is a switch on the chrome (public/filterpills.js): it
+   * decides what gets fetched at all, so it is never behind anything. The bead box stays
+   * in the collapsed panel with the two sub-filters, which are the control's own — see
+   * public/inboxfilter.js. **The kinds are in neither**: since bc-khoe.2 they are the
+   * pill row above, and what selecting one does still arrives back through `onChange`
+   * below, exactly as a chip's tap used to.
+   *
+   * The panel is mounted first because filtermenu.js replaces the host's children and
+   * the pills prepend themselves in front of it; see `mount` in public/filterpills.js.
+   *
+   * A page served without either file still works: `renderFilters` and `inKind` both
+   * fall back to doing nothing, which is the unfiltered list this page has always drawn.
    */
   function mountFilters() {
     const f = window.beadcause?.inboxFilter;
-    if (!f) return;
-    f.mount(filtersEl, {
-      // The scope first, then the bead box: coarsest to narrowest, which is also the
-      // order the panel reads top to bottom.
-      groups: [scopeGroup, beadGroup],
+    f?.mount(filtersEl, {
+      groups: [beadGroup],
       // This page's half of "is the list narrowed". A picked bead hides most of the
       // screen, and the summary pill has to go bold over it like it does for everything
       // else. The kinds no longer contribute — the lit pill is where that is admitted
@@ -9811,7 +9929,13 @@
         loadBoard();
       },
     });
-    f.survey({ kinds: kindsForScope() });
+    // In front of the panel, and after it: see the note above about who replaces whose
+    // children. The scope is its own group and nothing else is on the row yet —
+    // bc-khoe.26 is what moves the bead box and the two sub-filters out here beside it.
+    window.beadcause?.filterPills?.mount?.(filtersEl, { groups: [scopeGroup] });
+    f?.survey({ kinds: kindsForScope() });
+    // Whichever of the two mounted is what unhides the row.
+    renderFilters();
   }
 
   bootToken();

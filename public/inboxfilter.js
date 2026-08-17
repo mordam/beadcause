@@ -14,8 +14,11 @@
   The remaining panel — `#filters`, one line at rest, opening on hover with a pointer
   and on a tap without one — is still here, and everything below about it still holds.
   It is `public/filtermenu.js` that draws it, shared with the History page's own; what
-  is left in it after this bead is the scope, the bead search, and the two sub-filters,
-  which narrow *within* the pill you are on rather than choosing between pills.
+  is left in it is the bead search and the two sub-filters, which narrow *within* the
+  pill you are on rather than choosing between pills. The scope went out onto the row in
+  front of it (bc-khoe.24, public/filterpills.js) for the same reason the kinds did, only
+  harder: it decides which sweep runs, so a scope nobody can see is a screen that is
+  empty for a reason that is off screen.
 
   The seam is `mount()` at the foot: this file hands filtermenu.js a list of groups and
   is asked, on every paint, what each one looks like right now. Nothing about the inbox
@@ -543,10 +546,11 @@
     line you have to open is a navigation nobody can see. They are the pill row now
     (public/viewbar.js), which is on screen without being reached for.
 
-    What is left in the panel is what a pill cannot be: the scope, the bead search, and
-    the two sub-filters below, which narrow *within* the pill you are on rather than
-    choosing between them. bc-khoe.3 is what makes the panel offer only the ones the
-    selected pill can use.
+    What is left in the panel is what a pill cannot be: the bead search, which wants a
+    dropdown under it, and the two sub-filters below, which narrow *within* the pill you
+    are on rather than choosing between them. The scope was here too until bc-khoe.24 and
+    is a segmented switch in front of this panel now (public/filterpills.js). bc-khoe.26
+    is what takes the rest of it apart the same way.
   */
 
   /**
@@ -618,12 +622,12 @@
   /**
    * Draw the control inside `host`, once.
    *
-   * `groups` are the page's own — the inbox puts the scope switch here, because a
-   * scope is a filter too and two collapsing controls side by side would be the three
-   * rows again with extra steps. Each is
+   * `groups` are the page's own — the inbox puts its bead search here. Each is
    * `{ id, legend, all?, multi?, options(), pick() }` — or a text group, or a typeahead;
    * see public/filtermenu.js — and stays owned by the page: filtermenu.js paints them and
-   * routes the taps, and knows nothing about what they mean.
+   * routes the taps, and knows nothing about what they mean. It is the same descriptor
+   * public/filterpills.js takes, which is what let the scope move from this list to that
+   * row without being rewritten.
    *
    * `opts.narrowed` is the other half of that ownership. This file answers "are the kinds
    * narrowed"; a page with a group of its own that hides rows has to say so, or the
@@ -638,8 +642,8 @@
       groups: allGroups,
       closeOnPick: opts.closeOnPick,
       // What "this list is showing less than everything" means for the inbox. Not "some
-      // chip is pressed": the scope switch always has exactly one, and `Both` is not a
-      // narrowing.
+      // chip is pressed": the scope switch — on the row in front of this panel since
+      // bc-khoe.24 — always has exactly one, and `Both` is not a narrowing.
       //
       // `opts.narrowed` is the page's own half, for the same reason `opts.groups` is: a
       // group the page owns narrows the page's list, and this file cannot know whether it

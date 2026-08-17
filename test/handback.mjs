@@ -152,7 +152,13 @@ async function arena({ beads = [], workers = [], comments = {}, sessions = [], c
     comments: async (_ws, id) => comments[id] || [],
     create: async () => 'new-1',
     addLabel: async () => {},
-    reopen: async (_ws, id) => {
+    // `reopenAbandoned`, not `reopen`: bd 1.2.1 refuses to clear a claim from an actor
+    // that is not the holder, which on this path is *every* hand-back, so the real one
+    // steps over that guard with `--force` once it has established the window is gone
+    // (bc-xl7n.85 — the argv and the escalation are test/reassignguard.mjs's). What this
+    // fake stands in for is the write landing; the point of the cases below is which
+    // endings reach for it.
+    reopenAbandoned: async (_ws, id) => {
       reopened.push(id);
       if (reopen) await reopen(id);
       const row = world.get(id);

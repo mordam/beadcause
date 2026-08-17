@@ -111,6 +111,10 @@
     first: true,
     /** The last board fetch's failure, if it failed. Cleared by the next one that works. */
     error: null,
+    /** How old the last board was, off `x-beadcause-kept` (lib/cache.js) — `null`
+     *  until an answer has landed, which is what keeps the mark off a first paint.
+     *  See `parseKept`. */
+    kept: null,
   };
 
   /* The row, the lamps, the ladder and the two time formats come from public/prcard.js —
@@ -120,6 +124,29 @@
      all, which is why both are in one `sw.js` cache version. */
   const card = window.beadcause.prCard;
   const { esc, plural, age, ago, graphUrl, lampsHtml, factsHtml, bodyHtml } = card;
+
+  /**
+   * How old the answer was, off the header the daemon puts on a kept response.
+   *
+   *     x-beadcause-kept: stale; age=41; refreshing
+   *
+   * Copied from public/history.js rather than shared — three lines twice is cheaper
+   * than a module only two pages would import. It matters more here than anywhere
+   * else it is drawn: this sweep is `gh` per repo, ~74s against a 25s window, so a
+   * board on a kept answer while the fresh one runs behind it is this page's
+   * *ordinary* state now, and this is what stops it quietly passing a minute-old
+   * board off as this second's (bc-1kwl.8).
+   */
+  function parseKept(value) {
+    if (!value) return null;
+    const parts = String(value).split(';').map((s) => s.trim());
+    const field = parts.find((s) => s.startsWith('age='));
+    return {
+      stale: parts[0] === 'stale',
+      ageSec: field ? Number(field.slice(4)) || 0 : 0,
+      refreshing: parts.includes('refreshing'),
+    };
+  }
 
   /* -------------------------------------------------------------------- one row */
 
@@ -413,6 +440,20 @@
       ? `<p class="board-foot bad board-quiet">Showing the board as of ${esc(ago(d.at))} — the last refresh did not answer.</p>`
       : '';
 
+    // The kept-answer mark (bc-1kwl.8) — a different situation from `stale` above: the
+    // daemon answered, with a cached sweep it is refreshing behind rather than a request
+    // that failed outright. Only drawn when the last fetch actually succeeded, or a
+    // failed refetch would be saying two different things about the same board in two
+    // different tones. As in public/history.js's `keptSuffix`, quiet on purpose: the
+    // whole point of serving a kept answer instantly is to not put a spinner over rows
+    // that are already there.
+    const kept =
+      !stale && state.kept?.stale
+        ? `<p class="board-foot board-quiet">Showing the board as of ${esc(
+            state.kept.ageSec < 60 ? `${Math.max(0, Math.round(state.kept.ageSec))}s` : `${Math.round(state.kept.ageSec / 60)}m`
+          )} ago${state.kept.refreshing ? ', refreshing' : ''}.</p>`
+        : '';
+
     const build = d.build
       ? `<p class="board-build">Running <code>${esc(d.build.short)}</code> from <code>${esc(
           d.build.dir.replace(/^.*\//, '')
@@ -439,9 +480,9 @@
     // The build line rides under the cards rather than in the header: it is the
     // footnote that defines the third lamp, and it only means something once you have
     // seen one.
-    if (cards || rest) return stale + cards + rest + build;
+    if (cards || rest) return stale + kept + cards + rest + build;
     const only = (d.repos || []).length ? ` in ${esc(window.beadcause?.space?.label?.() || 'this space')}` : '';
-    return `${stale}<div class="empty">${only ? `No repos${only}.` : 'No workspaces configured.'}</div>`;
+    return `${stale}${kept}<div class="empty">${only ? `No repos${only}.` : 'No workspaces configured.'}</div>`;
   }
 
   function render() {
@@ -688,6 +729,10 @@
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
       }
+      // Every answer carries it — the daemon serves a kept sweep immediately and
+      // refreshes it behind (lib/cache.js), and this is what lets `boardHtml` say so
+      // instead of drawing a kept board as though it were this second's.
+      state.kept = parseKept(res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-beadcause-kept') : null);
       state.data = await res.json();
       // Kept for the next document that wants it — this page, on the next tab tap.
       // The board is a `gh` call per repo behind a 25-second cache on the daemon, so
