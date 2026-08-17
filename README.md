@@ -3254,11 +3254,13 @@ this say before the advocate rewrote it" without anyone having remembered to ask
 Snapshots are debounced by two seconds and the reasons accumulate, because one
 advocate cycle rewrites `advocates.json` three or four times in a second and those
 are one event to whoever reads the history back. `status.json`, `restart.json`,
-`merge-sweeps.json`, `sweep-cards.json`, `coverage.json`, `logs/`
+`handovers.json`, `merge-sweeps.json`, `sweep-cards.json`, `coverage.json`, `logs/`
 and the check PNGs are ignored — churn, and not the thing you want a history of.
 `deploys/` is not, and the difference is the point: a deploy record is something somebody
 pressed Ship on, and a restart marker is one line the router overwrites on every swap
-which means nothing thirty seconds later. The coverage report is the same argument in a
+which means nothing thirty seconds later. [The trail beside it](#and-the-trail-the-release-board-reads)
+is the same argument at twenty rows: rewritten whole every time the port changes hands, so
+a commit per swap would be those same rows written twenty times over. The coverage report is the same argument in a
 larger size: a few hundred kilobytes rewritten whole by every [`npm run coverage`](#npm-run-coverage--which-files-the-suite-never-even-loads),
 true only of the commit stamped inside it, so a history of it would be one enormous diff
 per run saying nothing the run did not print.
@@ -8861,15 +8863,25 @@ Drawing them as one ladder would say that a branch waiting on CI and a merge wai
 deploy are the same kind of waiting. They are not: one is waiting on a decision nobody has
 made, the other on a clock that is already running.
 
-**Three of the release rungs are not tracked, and the payload says so rather than
-guessing.** `npm run swap` replaces the backend every open phone is talking to and writes
-nothing but `restart.json` — [deliberately](#a-swap-is-not-a-deploy-so-the-router-leaves-a-marker-of-its-own),
-because a swap wearing a deploy record would appear in the deploy history and in a push
-notification announcing a deploy nobody pressed Ship on. So *deployed to green*, *green
-verification* and *swapping to blue* come back with `state: "untracked"` on every entry,
-and **never `done`**, however far along the entry is. A ladder that quietly skipped from
-*deploying* to *live* would say the handover does not happen, where the truth is that
-nothing here can see it yet.
+**Three of the release rungs come off the router rather than the deploy journal.** `npm
+run swap` replaces the backend every open phone is talking to and writes no deploy record —
+[deliberately](#a-swap-is-not-a-deploy-so-the-router-leaves-a-marker-of-its-own), because a
+swap wearing one would appear in the deploy history and in a push notification announcing a
+deploy nobody pressed Ship on. So *deployed to green*, *green verification* and *swapping to
+blue* are drawn off [the handover trail](#and-the-trail-the-release-board-reads) instead, and
+each one arrives with the time it was observed at:
+
+```json
+{ "id": "verifying", "label": "Green verification", "state": "done", "at": "2026-08-17T09:41:22.104Z" }
+```
+
+Every rung of both ladders carries that `at`, and on the merge ladder every one of them is
+`null` — a merge rung is a *position*, and a release rung that the router observed is a
+*stamp*. Where there is no handover to read the three come back `state: "untracked"` and
+**never `done`**, however far along the entry is: a repo the router is not in front of, a
+swap older than the trail, a router that could not write it. A ladder that quietly skipped
+from *deploying* to *live* would say the handover does not happen, and one that filled the
+three in from the current stage would tick a green verification that nobody ran.
 
 **Two rules decide what exists at all.** A repo with nothing to release — no service, no
 webapp, no declared deploy — creates **no release entry**: nothing could ever move one
@@ -8900,8 +8912,9 @@ checkout that is not on this Mac — because a branch that cannot merge must not
 one that already has.
 
 `node test/queues.mjs` is the whole of it, and it reaches no tracker, no checkout and no
-network: every rung of both ladders from the states that produce it, the untracked three
-never drawn as done, a repo with no declared deploy carrying merge entries and no release
+network: every rung of both ladders from the states that produce it, the three handover
+rungs never drawn as done without a handover and never drawn from a handover belonging to
+another release, a repo with no declared deploy carrying merge entries and no release
 entries, and an entry that went live in the previous release still returned where one from
 two releases ago is not.
 
@@ -9553,6 +9566,61 @@ of it is you at a keyboard rather than a deploy.
 shapes of garbled one. The proof that a real router actually writes it is in
 `scripts/test-swap.js`, after the explicit `--swap` — a marker written by hand can only
 show what the rule does with one.
+
+### And the trail the release board reads
+
+The marker above answers one question — *was there a handover in the last thirty seconds* —
+and it is shaped for exactly that: one fact that overwrites itself, expiring by arithmetic.
+The [release queue](#the-two-queues-and-where-a-bead-is-in-either) asks a different one:
+*which* handover carried release 42, and when did each of its stages happen. That is a
+question about a handover which is no longer the last one, so it needs a second file, and
+`handovers.json` is it (lib/handover.js).
+
+**One record per handover, carrying three moments**: the backend was spawned on its green
+port, it answered its health check, and it was promoted. Those are the last three rungs of
+the release ladder, and the router is the only process on this Mac that ever sees any of
+them.
+
+**Written once, after the fact, and that costs something worth naming.** Because the record
+appears only when the swap has finished, the first two rungs are only ever drawn `done` —
+a card can never show you a verification in progress. What it buys is that every record here
+is a handover that actually happened. A record opened at the spawn would have to be closed
+by something, and the two ways a swap ends without a handover — a build that is
+[condemned](#the-router--why-you-never-restart-it), and one that is merely slow and is
+retried on a widening window — are exactly the cases where nothing comes back to close it.
+A rung reading "verifying" for a swap that died twenty minutes ago is the same over-claim
+`untracked` was drawn to avoid. A failed swap has its own trail and it is a loud one: the
+log, the 503 body, `npm run swap:status` and the console health line, all off one verdict.
+
+**Which release it belongs to is the journal's question, not the router's.** `restartingDeploy`
+in lib/deploy.js answers it, at the moment of the handover, and it is the same read the quiet
+window makes: the newest record that restarts this daemon and has not been settled into
+something that never ran. `unconfirmed` counts, and it has to — launchd takes the runner along
+with the daemon, so by the time the new router is handing over, the record of the deploy that
+caused it may already have been swept. `failed` and `lost` do not: nothing went live in
+either. **Null is the ordinary answer**, and it is not a gap: a swap the router did because
+`lib/` moved belongs to no deploy at all, and a release must not pick that up because it is
+the only handover there is.
+
+That read can over-claim in one window — an `unconfirmed` record from twenty minutes ago is
+still the newest one when you run `npm run swap` by hand — so the reader takes the
+**earliest** handover claiming a deploy, which is the real one. A window tight enough to
+exclude the hand-run case would also be tight enough to miss a build step that took longer
+than usual, and that failure is silent where this one is not.
+
+**Churn, so no history.** The file is rewritten whole and holds the last twenty handovers, so
+a commit per swap in the [config repo](#the-state-files-get-a-history-for-free) would be the
+same twenty rows written twenty times over; it is ignored there, and lib/evidence.js records
+it under `NOT_EVIDENCE` for the same reason. What shipped and whether it took is `deploys/`,
+which is kept. Twenty is also deliberately shorter than the forty deploy records it points
+into: a handover whose deploy has aged out of the journal is a row nobody can join to
+anything.
+
+`node test/handover.mjs` holds the reading rules — every garbled shape answering "no
+handover", the earliest claim winning, a moment nobody recorded left out rather than given a
+borrowed stamp — and `scripts/test-swap.js` is where a real router produces three real
+timestamps in order, on a green port that is not the public one, attributed to no deploy,
+with the deploy journal still empty afterwards.
 
 ### Why these are the one thing filed without the hold
 
