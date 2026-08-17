@@ -21949,8 +21949,9 @@ check that does not answer merge-group events blocks a queue rather than gating 
 ### `npm run evals` — what the agent *does*, not what the daemon builds
 
 `test/` is 98k lines and every one of them is about the daemon. `test/tiermodel.mjs`
-checks that the launcher puts the right string after `--model`; `test/foundation.mjs`
-checks that an amendment lands on the ref and reads back. Nothing checked that a worker
+checks that the launcher puts the right string after `--model`; `scripts/selftest.mjs`
+checks that an amendment survives as a commit on the ref and composes with the next.
+Nothing checked that a worker
 briefed with `lib/foundation.js` **declines what the foundation prohibits**, or that an
 approved amendment changes behaviour rather than only text. A governance surface that
 documents itself and controls nothing would look exactly the same from every screen here.

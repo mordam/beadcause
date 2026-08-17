@@ -2,7 +2,9 @@
  * An approved amendment changes what the agent *does*, not just what the foundation says.
  *
  * lib/amendment.js can already prove an amendment lands: the ref moves, the patch is on
- * it, `effective()` reads it back, and test/amendment.mjs asserts all of that. None of it
+ * it, `effective()` reads it back, and scripts/selftest.mjs asserts all of that — that an
+ * unamendable field is refused rather than filtered, and that an amendment survives as a
+ * commit and composes with the next. None of it
  * is evidence that the changed text reached a running model and altered a single tool
  * call — which is the only claim anybody actually cares about when they approve one. A
  * foundation that is amended and behaviourally inert is a governance surface that
