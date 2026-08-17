@@ -4110,8 +4110,8 @@ two things bc-grut adds. A **progress bar with `12 of 19 done` under it**, which
 number the open count can never give you: "9 open" says nothing about whether the epic is
 nine of ten or nine of sixty, and a proportion is the only thing on a card that can be
 taken in without being read. And an **`N ask you` pill** when anything under the epic is
-itself a question, because on a grid of cards read in one pass that is the one field that means
-*you* are the thing holding the epic up. Neither is counted through the status filter,
+itself a question, because on a grid of cards read in one pass that is the one field
+that means *you* are the thing holding the epic up. Neither is counted through the status filter,
 which matters — see below. An epic with nothing filed under it gets "Nothing filed under
 it yet" instead of a bar at zero, because a bar at zero claims that nothing has landed
 where the truth is that nothing has been written down.
@@ -4129,8 +4129,8 @@ descendant at any depth. A row says the bead's id and title, marks it **asks you
 is itself a question (`pending`), and names any status that is not `open` — sixty rows all
 saying `open` is the default restated sixty times. Closed work is struck through and faded
 where it is drawn at all; whether it is drawn is [the status
-filter](#one-status-filter-over-the-whole-board), which defaults to not and now lives in
-the tab with it. Each row is a disclosure of its own bead — see [the next
+filter](#one-status-filter-in-the-tab-with-the-tree-it-narrows), which defaults to not and
+lives in the tab with it. Each row is a disclosure of its own bead — see [the next
 section](#and-a-bead-in-the-tree-opens-where-it-stands). A P0 with nothing under it opens
 to a sentence saying so — an empty gap reads as a tree that failed to arrive.
 
@@ -4270,7 +4270,7 @@ approximate, because nothing above the row changes height — and calls `release
 after, so the restores `settlePlace` has queued for the next frame do not put the anchor's
 answer back.
 
-### One status filter over the whole board
+### One status filter, in the tab with the tree it narrows
 
 At the top of an open epic's tab sits one control — **Not closed · All · Closed** — and
 it decides what the tree under it draws. It is one *pick*, not one per card: `p0status` is
@@ -4284,8 +4284,8 @@ it there is exactly what moved it: a control over things that are not on screen 
 control you set and cannot see the effect of. The trees are in the tab now, so the board
 is precisely where its effect cannot be seen. What that buys as well is the collapsed
 card's own summary — `12 of 19 done`, `3 ask you` — which counts the whole tree and is
-unreachable by the filter, so nothing on the grid moves because of a
-control that is not on the screen.
+unreachable by the filter, so nothing on the grid moves because of a control that is not
+on the screen.
 
 **It defaults to not closed**, which is the whole reason it exists. `bc-rfnr` has 16
 descendants and nine of them have landed; a tree that drew all sixteen by default is an
