@@ -5114,6 +5114,73 @@ tabs that answer them**, not chips up here: the number and the way to act on it 
 as the same tap target, and neither is a count of the list you are looking at. See
 [the pill row](#getting-around--the-pill-row).
 
+### The dot at the left of the bar is an orbit while a view is loading
+
+There is a teal dot at the left of every top bar in this app, and for most of its life it
+did nothing. `.dot.busy` was a ring pulsing outward from it, ten page scripts toggled the
+class by hand, and **five of the fourteen pages that carry a dot never toggled it at all**
+— so on those the app simply went quiet between the tap and the screen. A phone on a tailnet from a train is
+exactly where that gap is longest and exactly where nothing was saying anything.
+
+It is an orbit now. A ring of seven small beads travels a circle seen from above its
+plane — so on screen an ellipse, 21px by 8 — and the half nearest you is larger and
+brighter while the half going round the back is smaller and dimmer. **Beads pass in front
+of the dot and then behind it**, which is the whole of what makes it read as one ring in a
+tilted plane rather than as a flat spinner drawn around a circle. It is the app's own noun
+doing the one job a loading signal has, and at 26px across it is a detail in the chrome
+rather than a spinner bolted onto it.
+
+**It is driven from one place, and that place is not the views.** `public/report.js` is
+the only file every page loads and the first script on all of them, because it wraps
+`window.fetch` to catch failures — so it also counts what is in flight and publishes the
+number as `window.beadcause.requests`. `public/orbit.js` subscribes and draws. That is
+what makes the signal universal without a line in any view: there are ten hand-written
+copies of `api()` across ten page scripts, and a per-view spinner would have meant ten
+places to add one and ten places to forget. A page that fetches anything at all now gets
+the orbit from its own load.
+
+**Two requests are deliberately not a load.** `/api/poll` is the delta stream's long poll
+and it *parks* for twenty-five seconds by design; counted, every standing view in the app
+would be permanently loading and the signal would never say anything again. `/api/presence`
+is the heartbeat behind the thumbs on the mirror — somebody else's finger on a timer, not
+this screen fetching. And a request has to be out for **140ms** before the ring appears at
+all, then stays for **600ms** once it has — about a fifth of a turn, far enough round for a bead
+to visibly cross the dot. Every cached view here answers in single figures,
+and a ring that flashed on for one frame of every tap would be noise the eye reads as a
+glitch rather than as work.
+
+**`.dot.busy` still works and its ten callers were not touched.** The stylesheet draws
+the orbit for that class as well as for the `loading` the shared watch sets, because two of
+those callers mean something a request count cannot see: the console and the agents page
+light the dot while an *agent* is thinking, which is not a fetch. Two reasons for one
+picture, and they are two classes rather than one so that neither can switch the other off.
+
+Under `prefers-reduced-motion` **the ring is drawn and does not turn**, which is a
+departure from what the rest of the app does under that preference. An animation that
+decorates an outcome is skipped — the answer's flight to the mark builds no elements at all
+(see [Where the answer goes](#where-the-answer-goes)) — but this one *is* the message, and
+skipping it would leave the five pages that never toggled `busy` with no loading signal at
+all, which is the hole it was opened to fill. A still ring that appears while the app is
+fetching and goes when it settles says the same thing once, without asking anybody to watch
+it.
+
+**The answer's flight to the mark is untouched by it**, which is the one collision worth
+checking: the orbit lives inside the dot and the flight lands on the app mark next to it,
+so the two never reach for the same element. `scripts/absorb-check.mjs` still passes 29/29
+with the orbit loaded on the inbox. The one place they would meet is `.dot.absorbing` — a
+`transform`, and therefore a stacking context, which for its 380ms would pull the far half
+of the ring in front of the dot. It cannot happen as things stand: absorb.js is loaded by
+the inbox alone and its first target is the mark image, with `.brand .dot` left in its list
+as a fallback for a top bar that has not existed since the bar became one row.
+
+The depth is done with two clipped layers rather than by animating `z-index` per bead: a
+near half and a far half, each holding a whole ring and each clipped to its own side of the
+dot's centre line, with the far one behind the dot and the near one in front. The clips are
+exactly complementary, so a bead crossing the line is drawn by one layer up to the line and
+by the other beyond it — nothing twice, nothing dropped. `scripts/orbit-check.mjs` proves
+in a real Chrome that the far half loses to the dot and the near half wins; `test/orbit.mjs`
+covers everything about *when* it is on screen, in a vm, with no browser.
+
 ### The card is the control — tap it anywhere to open it
 
 Every collapsed card used to carry a **Show details** button hard left in its top bar.
@@ -10193,6 +10260,15 @@ same line: `if (bad === true) window.beadcause?.report?.toast?.(msg)`, **last** 
 function, after the DOM writes, guarded at every `?.` so a page whose reporter did not
 load behaves exactly as it did the week before. The other three are wired in report.js
 and nowhere else, which is the whole argument for one shared file over a fifth copy.
+
+**It counts as well as watches, which is the one job it does that is not about failure.**
+Wrapping `fetch` a second time to answer a second question would mean two shims around the
+one function the whole app is built on, each transparent only for as long as the other
+stays polite — so the number of requests in flight is published from here too, as
+`window.beadcause.requests`, and the wrapper is otherwise unchanged in what it hands back.
+`public/orbit.js` is the only subscriber; see [the orbiting
+dot](#the-dot-at-the-left-of-the-bar-is-an-orbit-while-a-view-is-loading) for what it draws
+and for the two endpoints that deliberately do not count.
 
 **It is additive, and that is a constraint rather than a nicety.** The toast still
 appears, unchanged, whether or not a report can be sent — so nothing is awaited on a path
