@@ -11,15 +11,16 @@
 //     down by exactly the height of what just appeared, and the epic you tapped leaves the
 //     top of the screen. The rendered markup is identical either way. The only thing that
 //     tells you is `getBoundingClientRect().top` on the tapped element, before and after,
-//     which is how scripts/p0bead-check.mjs asserts the same fix one level down. It is
-//     asked of the fold as well, because unfolding the board is the same growth with the
-//     whole section in it.
+//     which is how scripts/p0bead-check.mjs asserts the same fix one level down. It used
+//     to be asked of the board's fold as well, on the grounds that unfolding is the same
+//     growth with the whole section in it; bc-khoe.28 removed the fold, so what is asked
+//     of the heading now is only that pressing where it was does nothing.
 //   • **bc-rfnr.9.7's claim is about two surfaces at once.** That a bead the board draws is
 //     not drawn again underneath it is half a line in `underOwnedRoots` and is asserted in
 //     test/ownquestion.mjs; what is not assertable there is that the *question* survived
-//     the removal — that it is marked on a card that is folded shut, that the mark is
-//     still there when the whole board is folded away, and that tapping through to it ends
-//     on a real answer box rather than on a control that does nothing.
+//     the removal — that it is marked on a card whose tree is folded shut, that the count
+//     is on the section heading as well, and that tapping through to it ends on a real
+//     answer box rather than on a control that does nothing.
 //
 //   • **bc-khoe.28 is a claim about two screens that share one page.** My Epics is the
 //     board and nothing under it; a kind pill is the list and no board over it. Neither
