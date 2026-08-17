@@ -786,6 +786,50 @@ The check that earns the suite is still the one nobody can do by reading: the cl
 combination of filter and workspace, because those two disagreeing in the direction
 "rings but is not shown" is a question you were told about and cannot find.
 
+#### The tap that used to undo itself
+
+Picking a repo wrote it to the server and then, sometimes, the picker snapped back to
+what was there before and every list under it re-filtered to the old repo. Intermittent,
+never on the tap you were watching for it, and it needed a specific ordering: a poll that
+was **already out when you tapped**.
+
+The guard that existed covers the payload that lands *during* the write. Every page skips
+adopting a filter while `space.writing()` is true, because that payload was assembled
+before the tap. What it cannot see is the poll that went out before the tap and is
+answered *after* the POST has resolved — `writing()` is false again by then, the payload
+carries the pre-tap filter, and adopting it is a repaint of the bar plus a notification to
+every page to go back where it was. The write succeeded; the screen said otherwise.
+
+The fix is one note in `public/spacebar.js` rather than a change at five call sites. A
+pick remembers the value it replaced, and while that note stands an adopted filter equal
+to *that exact value* is refused, because nothing but a payload older than the tap can be
+carrying it. Everything else clears the note as it arrives: our own value echoed back (the
+server has caught up), a third value (somebody moved it after the tap, which is newer than
+the tap), a failed write (nothing landed, so there is nothing to defend), or the bound
+passing. In practice the note is gone on the first poll after the write, and the bound is
+only a backstop.
+
+The cost is real and is stated rather than dodged: a deliberate switch **back** to the
+value you just replaced, made on the laptop inside that window, is ignored on the phone
+until the note clears. That is the trade against the alternative — a generation counter
+stamped on every fetch, which is correct in every ordering and costs a change at every
+page that polls, including the ones written next year. `PENDING_MS` bounds the wrong
+answer at 30 seconds; a missed call site would not have been bounded at all.
+
+One ordering is still open and is named in the source rather than hidden: tapping straight
+back to where you started — A, then B, then A — makes a payload carrying A
+indistinguishable from the echo of the second write, so the note clears and a payload
+still carrying B can land. It needs two taps and two polls inside about a second, and the
+only way to close it is a note that never clears on an echo, which would charge every
+cross-device change the full 30 seconds instead of one poll.
+
+Refusing a filter is not the same as ignoring it. The page that handed it over has very
+likely already mirrored it into its own state — `public/app.js` keeps `state.space` for a
+dozen readers — so the refusal notifies with what is *actually* selected, and the mirror
+is corrected in the same tick. Without that the bar would be right and the list beneath it
+wrong, which is a worse bug than the one being fixed. `test/spacebar.mjs` covers both
+orderings, the echo, the bound and the failed write against the real file in a vm.
+
 #### The row it cost, and why it no longer costs one
 
 The picker had a full-width row of its own until bc-khoe.5, so six pages carried two rows
