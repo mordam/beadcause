@@ -67,6 +67,25 @@ object Notifications {
 
     /** And the card foundation requests land in — separate, so neither hides the other. */
     private const val FOUNDATION_NOTIFICATION_ID = 4
+
+    /**
+     * A merge landing, a release going out, an epic finishing — one card of good news.
+     *
+     * Three sizes of the same thing (bc-ka5y.15), so one card rather than three, and it
+     * self-expires: nothing on it is waiting on you and nothing on it can be answered,
+     * so its whole job is to have been seen once.
+     */
+    private const val NEWS_NOTIFICATION_ID = 6
+
+    /**
+     * And the one that is not news: a deploy that failed, a tracker that stopped
+     * syncing.
+     *
+     * Its own card because it must not be swept up with the good news it looks nothing
+     * like, and because it is the only one here that has to stay until the state behind
+     * it clears. See [Tray.Entry.expires].
+     */
+    private const val STUCK_NOTIFICATION_ID = 7
     const val REPLY_RESULT_KEY = "beadcause.reply.text"
 
     /** Notification actions are one tap, unlike the app's two-tap confirm. */
@@ -161,6 +180,26 @@ object Notifications {
         }
         return PendingIntent.getActivity(
             ctx, key.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    /**
+     * And tapping a card that is not about a bead opens a page instead.
+     *
+     * A landing and a release have no row in the inbox to scroll to — the bead is
+     * closed, that is what the card is *saying* — so the useful destination is the pull
+     * request board, which is where the ntfy push these replace also pointed and where
+     * the Ship button lives. `data` still distinguishes the PendingIntents, because
+     * equality ignores extras.
+     */
+    private fun pageIntent(ctx: Context, path: String): PendingIntent {
+        val intent = Intent(ctx, MainActivity::class.java).apply {
+            data = Uri.parse("beadcause://page$path")
+            putExtra(MainActivity.EXTRA_PATH, path)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            ctx, path.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
 
@@ -315,6 +354,93 @@ object Notifications {
     }
 
     /**
+     * How long a card of good news stays in the shade before the platform clears it.
+     *
+     * Six hours: long enough that a landing at 3am is still there at breakfast, short
+     * enough that Tuesday's merges are not competing with Thursday's question. The
+     * number is a judgement rather than a measurement, and it is the only thing here
+     * that would be worth changing after living with it for a week.
+     */
+    private const val NEWS_TIMEOUT_MS = 6L * 60L * 60L * 1000L
+
+    /**
+     * Good news, in one card: a merge landed, a release went out, an epic finished.
+     *
+     * All three go through one function because the difference between them is entirely
+     * in the words the server already wrote — [Event.title] and [Event.text] arrive
+     * composed (lib/news.js), for the same reason the ntfy bodies they replace were
+     * composed on that side: the sentence explaining a refused deploy or a stuck tracker
+     * is the product of an argument that lives in the daemon, and a second copy of it in
+     * Kotlin would be a second copy to drift.
+     *
+     * **No action buttons, on any of them.** The only button a landed merge could offer
+     * is a revert, and a revert is not a thing to hand somebody on a lock screen with
+     * one line of context. That was `pushLanded`'s reasoning and it holds unchanged on
+     * a card this app draws itself.
+     */
+    fun news(ctx: Context, event: Event) {
+        val key = event.key ?: return
+        Tray.add(
+            ctx,
+            Tray.Entry(
+                key = key,
+                line = event.title.orEmpty().ifBlank { "Something landed" },
+                subtitle = newsSubtitle(event),
+                big = listOf(event.title.orEmpty(), event.text.orEmpty()).filter { it.isNotBlank() }.joinToString("\n"),
+                // No bead to answer and nothing to type into: `question` being null is
+                // what stops [renderTray] offering either.
+                question = null,
+                isReply = true,
+                chan = Tray.Chan.NEWS,
+                expires = NEWS_TIMEOUT_MS,
+            ),
+        )
+    }
+
+    /** "beadcause · landed", so the card says which of the three it is without expanding. */
+    private fun newsSubtitle(event: Event): String {
+        val what = when (event.type) {
+            "landed" -> "landed"
+            "released" -> "released"
+            "epic-done" -> "epic finished"
+            else -> event.type
+        }
+        return listOfNotNull(event.workspace?.takeIf { it.isNotBlank() }, what).joinToString(" · ")
+    }
+
+    /**
+     * Work is stuck — and the other half, which takes the card away again.
+     *
+     * The only class in this file that is a *state* rather than an arrival, which is
+     * what both halves are about. A deploy that failed and a tracker that is not syncing
+     * stay true until something changes, so the card stays too: no timeout, and the row
+     * only leaves when the daemon says the state cleared or you swipe it away.
+     *
+     * It is also the only one this app is allowed to be insistent about, which is why it
+     * is not a fourth line on the news card: news you have already read must never be
+     * able to push this off a summary.
+     */
+    fun stuck(ctx: Context, event: Event) {
+        val key = event.key ?: return
+        if (event.state == "clear") {
+            Tray.remove(ctx, key)
+            return
+        }
+        Tray.add(
+            ctx,
+            Tray.Entry(
+                key = key,
+                line = "⚠ ${event.title.orEmpty().ifBlank { "Something is stuck" }}",
+                subtitle = listOfNotNull(event.workspace?.takeIf { it.isNotBlank() }, event.source).joinToString(" · "),
+                big = listOf(event.title.orEmpty(), event.text.orEmpty()).filter { it.isNotBlank() }.joinToString("\n\n"),
+                question = null,
+                isReply = true,
+                chan = Tray.Chan.STUCK,
+            ),
+        )
+    }
+
+    /**
      * The whole tray, as one notification.
      *
      * One entry renders as the card it always was — a question with its buttons, or
@@ -325,7 +451,12 @@ object Notifications {
      */
     fun renderTray(ctx: Context, chan: Tray.Chan, entries: List<Tray.Entry>) {
         val mgr = NotificationManagerCompat.from(ctx)
-        val trayId = if (chan == Tray.Chan.FOUNDATION) FOUNDATION_NOTIFICATION_ID else TRAY_NOTIFICATION_ID
+        val trayId = when (chan) {
+            Tray.Chan.FOUNDATION -> FOUNDATION_NOTIFICATION_ID
+            Tray.Chan.NEWS -> NEWS_NOTIFICATION_ID
+            Tray.Chan.STUCK -> STUCK_NOTIFICATION_ID
+            else -> TRAY_NOTIFICATION_ID
+        }
         if (entries.isEmpty()) {
             mgr.cancel(trayId)
             return
@@ -335,23 +466,48 @@ object Notifications {
         val target = entries.firstOrNull { !it.isReply }?.question
         val questions = entries.count { !it.isReply }
 
-        // The foundation card stays on its own channel whatever is in it — a reply
-        // about a request is still part of that conversation, and moving it to the
-        // replies channel would put it back under the settings for work.
+        /**
+         * The foundation card stays on its own channel whatever is in it — a reply
+         * about a request is still part of that conversation, and moving it to the
+         * replies channel would put it back under the settings for work.
+         *
+         * **News and blockages borrow two channels rather than cutting their own, and
+         * that is deliberate rather than unfinished.** A channel's sound and vibration
+         * are taken from the first `createNotificationChannel` and are immutable
+         * forever after, so publishing `merged`/`released`/`epicdone`/`stuck` here with
+         * today's 75ms pip in them would burn those four ids: bc-ka5y.15.4, which cuts
+         * the five channels with the sounds bc-ka5y.15.3 is auditioning, would have to
+         * publish `_v2` of each on day one. So until the sounds exist, news lands on the
+         * replies channel (default importance, no buzz, which is exactly right for it)
+         * and a blockage lands on the questions channel (high importance, the pip and
+         * the single shake, which is the closest thing to insistent this app has).
+         */
         val androidChannel = when {
             chan == Tray.Chan.FOUNDATION -> CHANNEL_FOUNDATION
+            chan == Tray.Chan.NEWS -> CHANNEL_REPLIES
+            chan == Tray.Chan.STUCK -> CHANNEL_QUESTIONS
             questions == 0 -> CHANNEL_REPLIES
             else -> CHANNEL_QUESTIONS
         }
         val builder = NotificationCompat.Builder(ctx, androidChannel)
             .setSmallIcon(R.drawable.ic_notification)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setContentIntent(openIntent(ctx, newest.key))
+            .setCategory(if (chan == Tray.Chan.STUCK) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_MESSAGE)
+            // A card about a bead scrolls the inbox to it; one about a merge or a deploy
+            // has no bead left to scroll to and opens the pull request board instead.
+            .setContentIntent(
+                if (chan == Tray.Chan.NEWS || chan == Tray.Chan.STUCK) pageIntent(ctx, "/prs")
+                else openIntent(ctx, newest.key)
+            )
             .setAutoCancel(true)
             .setOngoing(false)
             // Only the arrival that caused this render should make a sound; a
             // re-render after answering one of four must not buzz for the other three.
             .setOnlyAlertOnce(false)
+
+        // Good news takes itself away; a blockage does not. See [Tray.Entry.expires] —
+        // the longest live entry wins, so a landing arriving on top of an older one does
+        // not shorten the card the older one is still sitting in.
+        entries.maxOf { it.expires }.takeIf { it > 0L }?.let { builder.setTimeoutAfter(it) }
 
         if (entries.size == 1) {
             builder
@@ -387,6 +543,16 @@ object Notifications {
         // Counted in the words of whichever channel this card is: "2 requests · 1
         // reply waiting" is a summary of the foundation card, and calling those
         // questions would undo the separation in the one line that summarises it.
+        //
+        // The two news cards get their own sentence rather than a noun swap, because
+        // "waiting" is wrong for both of them in opposite ways: nothing on the news card
+        // is waiting on you at all, and what is on the stuck card is not waiting either
+        // — it is already happening.
+        when (entries.first().chan) {
+            Tray.Chan.NEWS -> return "${entries.size} thing${if (entries.size == 1) "" else "s"} happened"
+            Tray.Chan.STUCK -> return "${entries.size} thing${if (entries.size == 1) " is" else "s are"} stuck"
+            else -> Unit
+        }
         val foundation = entries.first().chan == Tray.Chan.FOUNDATION
         val questions = entries.count { !it.isReply }
         val replies = entries.size - questions
@@ -467,8 +633,13 @@ object Notifications {
         // Drop the answered line first. If anything is still waiting, the re-rendered
         // tray IS the confirmation — and whatever SystemUI restores afterwards is a
         // card whose buttons belong to a question that is still open, which is safe.
+        //
+        // Narrowed to the two decks that hold things waiting on you: a landing from ten
+        // minutes ago sitting on the news card is not a confirmation of anything, and
+        // counting it here would swallow the "Answered" row on any morning something
+        // happened to merge.
         Tray.remove(ctx, key)
-        if (Tray.snapshot().isNotEmpty()) return
+        if (Tray.snapshot(Tray.Chan.WORK, Tray.Chan.FOUNDATION).isNotEmpty()) return
 
         val notification = NotificationCompat.Builder(ctx, CHANNEL_QUESTIONS)
             .setSmallIcon(R.drawable.ic_check)

@@ -280,6 +280,26 @@ data class Event(
      * either way — so a reason this shell has never heard of is logged and obeyed.
      */
     val reason: String?,
+    /**
+     * `"stuck"` or `"clear"`, on a `stuck` event and nothing else.
+     *
+     * The one event kind in this app that is a *state* rather than an arrival. A
+     * question, a reply and a landing all happened and stay happened; a deploy that
+     * failed or a tracker that stopped syncing is a condition, and the card that says so
+     * has to go away when the condition does. Same type, same key, `clear` instead of
+     * `stuck` — see lib/news.js.
+     *
+     * Null on every other type and from a server too old to send it, which is why the
+     * consumer treats *anything but* `"clear"` as still stuck: an unrecognised value
+     * leaves the warning up, and that is the safe direction for this one.
+     */
+    val state: String?,
+    /**
+     * Which subsystem is stuck — `"deploy"` or `"sync"`. Carried so a card can say so
+     * without parsing [title], and so a future kind of blockage is a new value here
+     * rather than a new event type. Nothing branches on it today.
+     */
+    val source: String?,
 )
 
 data class Poll(
@@ -340,6 +360,8 @@ private fun JSONObject.toEvent() = Event(
     quiet = optBoolean("quiet"),
     quietReason = optStringOrNull("quietReason"),
     reason = optStringOrNull("reason"),
+    state = optStringOrNull("state"),
+    source = optStringOrNull("source"),
 )
 
 private fun JSONObject.toQuestion(): Question {
