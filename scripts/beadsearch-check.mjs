@@ -11,9 +11,11 @@
 // exists once there is a layout, and every item below is one of those:
 //
 //   • **the dropdown must not push the panel around.** It is absolutely positioned so it
-//     draws *over* the kind chips; if it ever laid out in flow, the chips would slide
-//     down under the thumb reaching for them, and on a phone the panel would grow past
-//     the bottom of the screen.
+//     draws *over* whatever is below it in the panel; if it ever laid out in flow, the
+//     controls under it would slide down under the thumb reaching for them, and on a
+//     phone the panel would grow past the bottom of the screen. Measured as the panel's
+//     height not changing — it used to be measured against the kind chips, and bc-khoe.2
+//     moved those out onto the pill row.
 //   • **the × has to be a target.** The glyph is 15px. The button around it is 22 square,
 //     and a control that removes a filter is the worst one to miss — you are left with a
 //     narrowed list and a control that looks broken.
@@ -241,19 +243,24 @@ const GEOMETRY = `(() => {
   const input = wrap.querySelector('.filter-text');
   const list = wrap.querySelector('.suggest');
   const panel = document.querySelector('.filter-panel');
-  const chips = document.querySelector('.filter-panel .chip-row.kinds');
   const r = (el) => (el ? el.getBoundingClientRect() : null);
-  const ib = r(input), lb = r(list), pb = r(panel), cb = r(chips);
+  const ib = r(input), lb = r(list), pb = r(panel);
   return {
     fontPx: Math.round(parseFloat(getComputedStyle(input).fontSize)),
     listShown: !!(list && !list.hidden),
     listPosition: list ? getComputedStyle(list).position : null,
-    // Over the chips, not above them: the list's box overlaps the kind chips' box.
-    overlapsChips: !!(lb && cb && lb.bottom > cb.top && lb.top < cb.bottom),
     inputRight: ib ? Math.round(ib.right) : null,
     listRight: lb ? Math.round(lb.right) : null,
     panelRight: pb ? Math.round(pb.right) : null,
     panelBottom: pb ? Math.round(pb.bottom) : null,
+    // "Over, not above" is measured as the panel not growing. It used to be measured as
+    // the list's box overlapping the kind chips' row — and bc-khoe.2 promoted the kinds
+    // out of this panel and onto the pill row, so that box no longer exists and the
+    // assertion read false for the one reason it was never about. The panel's own height
+    // is the property that was always meant: an absolutely-positioned dropdown draws
+    // over whatever is under it and reflows nothing, whichever group happens to be
+    // under it that week.
+    panelH: pb ? Math.round(pb.height) : null,
     fits: !!(ib && pb && ib.right <= pb.right + 1 && ib.left >= pb.left - 1),
   };
 })()`;
@@ -351,9 +358,9 @@ try {
     offered.join(', ')
   );
   check(
-    'the list draws *over* the chips rather than pushing them down',
-    open?.listPosition === 'absolute' && open?.overlapsChips === true,
-    `position ${open?.listPosition}, overlaps=${open?.overlapsChips}`
+    'the list draws *over* the panel rather than pushing it open',
+    open?.listPosition === 'absolute' && open?.panelH === cold?.panelH,
+    `position ${open?.listPosition}, panel ${cold?.panelH}px -> ${open?.panelH}px`
   );
   check(
     'and it stays inside the panel, squared up with the box above it',
