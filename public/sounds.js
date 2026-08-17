@@ -39,11 +39,11 @@
    * `blip` is first and is not in the audition: it is the sound that already exists, the
    * one everything else is placed against, and the three that need naming are the three
    * that are new. A four-way blind test would also be a harder test than the phone ever
-   * sets — `blip` arrives on a channel that vibrates, so it never has to be told apart by
-   * ear alone.
+   * sets: the case that matters for the pip is a decision waiting on you, and there it
+   * arrives with a buzz, so it never has to be told apart by ear alone.
    */
   const SOUNDS = [
-    { id: 'blip', name: 'A question is waiting', detail: 'The pip that already exists — 75ms at C6, and the only voice that also buzzes.' },
+    { id: 'blip', name: 'A question is waiting', detail: 'The pip that already exists — 75ms at C6. On Decisions it arrives with a 40ms buzz; on replies and foundation requests it comes alone.' },
     { id: 'land', name: 'A merge landed', detail: '45ms at G6. Smaller than the pip on purpose: four in a row is the pipeline being audible.' },
     { id: 'drop', name: 'A release went out', detail: 'A water drop — 360ms, pitch rising, with a tail. Calm, and unmistakably not the pip.' },
     { id: 'chime', name: 'An epic completed', detail: 'Two notes, G5 up to C6, 480ms. The milestone, resolving onto the app’s own note.' },

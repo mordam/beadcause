@@ -15984,7 +15984,7 @@ bc-ka5y.15.4 to cut the channels that carry them:
 
 | File | For | What it is |
 |---|---|---|
-| `blip.wav` | A question is waiting | 75ms at C6. The only voice that also vibrates. |
+| `blip.wav` | A question is waiting | 75ms at C6. On Decisions it comes with a 40ms buzz. |
 | `land.wav` | A merge landed | 45ms at G6 — the pip, smaller. |
 | `drop.wav` | A release went out | 360ms. A water drop: pitch rising, then a soft tail. |
 | `chime.wav` | An epic completed | 480ms. Two notes, G5 up to C6. |
@@ -16011,8 +16011,9 @@ shuffled order, a guess each, then the reveal. Play a file called `drop.wav` and
 water drop whatever came out of the speaker — the label does the work the sound was supposed
 to do, which is why the acceptance criterion for a notification sound is naming it without
 looking. The named reference list is *below* the pads for the same reason. `blip` is on that
-list but not in the blind test: it is the sound everything else is placed against, and it
-arrives on the one channel that also buzzes, so it never has to be told apart by ear alone.
+list but not in the blind test: it is the sound everything else is placed against, and in
+the case that matters — a decision waiting on you — it arrives with a buzz, so it never has
+to be told apart by ear alone.
 
 Judge it on the phone, twice — once on a desk and once through a pocket, which is the only
 place any of this is really heard. The page plays at **media** volume while a real

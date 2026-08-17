@@ -309,8 +309,8 @@ check('every sound in the generator is on the page, and nothing else is', () => 
   const listed = [...js.matchAll(/\{ id: '([a-z]+)'/g)].map((m) => m[1]);
   assert.deepEqual(listed.slice().sort(), ['blip', ...NAMES].sort(), `the page lists ${listed.join(', ')}`);
   // blip is the reference rather than a fourth thing to name: it is the sound that already
-  // exists, and it arrives on the one channel that also vibrates, so it never has to be
-  // told apart by ear alone.
+  // exists, and in the case that matters — a decision waiting on you — it arrives with a
+  // buzz, so it never has to be told apart by ear alone.
   assert.ok(js.includes("SOUNDS.filter((s) => s.id !== 'blip')"), 'blip is in the blind test, which is a harder test than the phone ever sets');
 });
 
