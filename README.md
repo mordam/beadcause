@@ -16560,8 +16560,23 @@ a bead holding down. `warmDue` asks instead:
    twenty agent sessions writing, something has moved on nearly every five-second beat, and
    without the floor "warm what changed" is "warm everything, six times a minute".
 
-On an idle daemon with its keys filled, both are false for everything and the pass makes no
-`bd` call whatsoever.
+**Both questions are asked per key**, not per screen, and the producer is then handed only
+the workspaces that answered yes. That is the correction worth naming, because the obvious
+build gates a whole fan-out at once — and since these windows are ten seconds wide, by the
+time a pass runs *every* workspace's entry is past it, so one repo being written to would
+re-sweep nine.
+
+Measured over three workspaces against a `bd` that logs every invocation:
+
+| Pass | `bd` spawns |
+|---|---|
+| Boot — everything cold, all five things filled | 21 |
+| Idle, keys filled, nothing moved | **0** |
+| Windows expired, nothing moved | **0** |
+| Windows expired, one workspace moved | 6 |
+
+The two zeroes are the whole point. The six is one workspace's foundation channel, agent
+beads and four console calls, and the floor caps it at once per cycle.
 
 **Two keys are cold-only and own that rule themselves.** `queue:` because it is the most
 expensive sweep in the app — a `bd list --label` per workspace plus up to forty `bd show`s,

@@ -99,43 +99,37 @@ console.log('\nwarming the cache on the poll cycle and at boot\n');
 
 const { warmDue } = await import(LIB('server.js'));
 
-const KEYS = [
-  { ws: 'alpha', key: 'thing:alpha' },
-  { ws: 'beta', key: 'thing:beta' },
-];
 /** A `peek` over a plain table, which is all `warmDue` ever asks of one. */
 const peeking = (table) => (key) => table[key] || null;
+const due = (table, ws, opts = {}) =>
+  warmDue(`thing:${ws}`, ws, { peek: peeking(table), floorMs: 30_000, ...opts });
 
 await check('a key with nothing kept is warmed, whatever the clock says', () => {
-  assert.equal(warmDue(KEYS, { peek: peeking({}), now: 0, changed: new Set() }), true);
-  // And one cold key out of two is enough: these gate whole-fleet producers, and
-  // lib/cache.js skips the workspaces that are still fresh for nothing.
-  assert.equal(
-    warmDue(KEYS, { peek: peeking({ 'thing:alpha': { at: 0 } }), now: 0, changed: new Set() }),
-    true
-  );
+  assert.equal(due({}, 'alpha', { now: 0, changed: new Set() }), true);
 });
 
 await check('a kept key whose tracker has not moved is never warmed — at any age', () => {
-  const kept = { 'thing:alpha': { at: 0 }, 'thing:beta': { at: 0 } };
+  const kept = { 'thing:alpha': { at: 0 } };
   const anHour = 3_600_000;
-  assert.equal(warmDue(KEYS, { peek: peeking(kept), now: anHour, changed: new Set(), floorMs: 30_000 }), false);
+  assert.equal(due(kept, 'alpha', { now: anHour, changed: new Set() }), false);
 });
 
 await check('a kept key whose tracker moved is warmed once the floor has passed', () => {
-  const kept = { 'thing:alpha': { at: 0 }, 'thing:beta': { at: 0 } };
+  const kept = { 'thing:beta': { at: 0 } };
   const changed = new Set(['beta']);
-  assert.equal(warmDue(KEYS, { peek: peeking(kept), now: 29_000, changed, floorMs: 30_000 }), false);
-  assert.equal(warmDue(KEYS, { peek: peeking(kept), now: 30_000, changed, floorMs: 30_000 }), true);
+  assert.equal(due(kept, 'beta', { now: 29_000, changed }), false);
+  assert.equal(due(kept, 'beta', { now: 30_000, changed }), true);
 });
 
-await check('and a move in one workspace does not re-warm on account of another', () => {
-  const kept = { 'thing:alpha': { at: 0 }, 'thing:beta': { at: 100_000 } };
-  // beta is what moved, and beta was filled a moment ago. alpha is ancient and quiet.
-  assert.equal(
-    warmDue(KEYS, { peek: peeking(kept), now: 100_000, changed: new Set(['beta']), floorMs: 30_000 }),
-    false
-  );
+await check('and a move in one workspace never warms another — the gate is per key', () => {
+  // The correction this signature exists for. alpha is ancient and quiet, beta is what
+  // moved. A gate that answered for the pair would sweep alpha too, and since these
+  // windows are ten seconds wide it would sweep *every* quiet workspace, every time any
+  // one of them was written to.
+  const kept = { 'thing:alpha': { at: 0 }, 'thing:beta': { at: 0 } };
+  const changed = new Set(['beta']);
+  assert.equal(due(kept, 'alpha', { now: 3_600_000, changed }), false);
+  assert.equal(due(kept, 'beta', { now: 3_600_000, changed }), true);
 });
 
 /* ------------------------------------------------- the endorsement queue, cold-only */
