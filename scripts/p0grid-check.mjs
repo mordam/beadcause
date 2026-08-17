@@ -143,7 +143,7 @@ const board = () => ({
   owned: true,
   under: Object.fromEntries(QUESTIONS.map((q, i) => [`${WS}/a-p0.${i + 1}`, 'a-p0'])),
   unhomed: {},
-  p0s: P0S.map((p) => {
+  roots: P0S.map((p) => {
     const tree = treeFor(p);
     return {
       key: `${WS}/${p.id}`,
@@ -183,7 +183,7 @@ function serve() {
         workspaces: [WS],
         spaces: [{ name: 'Work', workspaces: [WS], quiet: false, muted: false, count: QUESTIONS.length }],
         filter: { space: 'all', workspace: 'all' },
-        p0board: board(),
+        rootboard: board(),
         summary: { sessions: 0, proposals: 0 },
         scope: 'human',
       });

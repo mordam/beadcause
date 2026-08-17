@@ -144,9 +144,9 @@ const CANDIDATES = [
  * The board, drawn for real out of a page state you hand it — test/p0card.mjs's harness
  * with the picker's own function added and `p0picker` in the state it reads.
  */
-function board({ p0s = [CARD], startable = CANDIDATES, picker = false, shut = false, space = 'all', workspace = 'all' } = {}) {
+function board({ roots = [CARD], startable = CANDIDATES, picker = false, shut = false, space = 'all', workspace = 'all' } = {}) {
   const state = {
-    p0board: { owned: true, p0s, startable, under: {} },
+    rootboard: { owned: true, roots, startable, under: {} },
     p0open: new Set(),
     p0beadopen: new Set(),
     p0opening: new Map(),
@@ -243,7 +243,7 @@ await check('NOTHING STARTED AND SOMETHING TO START DRAWS THE BARE OFFER, not an
   // the picker inside the section that would leave a new install with no way to start
   // anything from the phone at all: the one control that ends the state, unreachable
   // exactly while you are in it.
-  const html = board({ p0s: [] });
+  const html = board({ roots: [] });
   assert.match(html, /data-act="p0-pick"/, 'with nothing started there is no way to start anything');
   // And only the offer. The heading with a count of nothing on it, or the fold chip for a
   // board with no cards, would both be chrome around an empty room.
@@ -252,7 +252,7 @@ await check('NOTHING STARTED AND SOMETHING TO START DRAWS THE BARE OFFER, not an
 });
 
 await check('and with nothing started and nothing to start, the section is gone entirely', () => {
-  assert.equal(board({ p0s: [], startable: [] }), '', 'an empty section is drawn where the flat inbox belongs');
+  assert.equal(board({ roots: [], startable: [] }), '', 'an empty section is drawn where the flat inbox belongs');
 });
 
 await check('nothing to start, with a board, says which of the two reasons it is', () => {
@@ -271,7 +271,7 @@ await check('the picker folds away with the cards', () => {
 await check('a candidate from a workspace this screen is not showing is not offered', () => {
   // Otherwise the tap puts a card on a board you would then have to switch spaces to see,
   // which reads as the write having failed.
-  const html = board({ workspace: 'beta', picker: true, p0s: [{ ...CARD, workspace: 'beta', key: 'beta/zz-live' }] });
+  const html = board({ workspace: 'beta', picker: true, roots: [{ ...CARD, workspace: 'beta', key: 'beta/zz-live' }] });
   assert.doesNotMatch(html, /zz-next/, 'the picker ignored the workspace filter');
 });
 
@@ -418,10 +418,10 @@ const post = async (p, body) => {
 async function boardWhenWarm() {
   for (let i = 0; i < 60; i += 1) {
     const payload = await getJson('/api/questions');
-    if ((payload.p0board?.p0s || []).length) return payload;
+    if ((payload.rootboard?.roots || []).length) return payload;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error('the P0 board never warmed up — no p0s after six seconds of asking');
+  throw new Error('the root board never warmed up — no roots after six seconds of asking');
 }
 
 console.log('\nthe two writes behind it\n');
@@ -431,14 +431,14 @@ try {
 
   await check('THE LIST IS EXACTLY THE P0S OF YOURS THAT ARE OPEN AND NOT STARTED', () => {
     assert.deepEqual(
-      (warm.p0board.startable || []).map((c) => c.id),
+      (warm.rootboard.startable || []).map((c) => c.id),
       ['zz-next', 'zz-small'],
       'the picker would offer a bead the door refuses, or miss one it takes'
     );
   });
 
   await check('and each row carries what it draws: the count of what is left under it', () => {
-    const [next, small] = warm.p0board.startable;
+    const [next, small] = warm.rootboard.startable;
     assert.equal(next.open, 2, 'the closed child was counted, or the open ones were not');
     assert.equal(small.open, 0);
     assert.equal(next.key, 'alpha/zz-next');
@@ -451,12 +451,12 @@ try {
   await check('A CRASH THIS APP FILED IS NOT OFFERED AS AN EPIC', () => {
     // lib/errors.js files these at P0 *with an owner*, so on a bad week they are the
     // majority of the list — and each one is a tap the advocate door refuses by name.
-    const ids = warm.p0board.startable.map((c) => c.id);
+    const ids = warm.rootboard.startable.map((c) => c.id);
     assert.equal(ids.includes('zz-crash'), false, 'a stack trace is on offer as something to start');
   });
 
-  await check('nor is one that is held, superseded, blocked, closed, somebody else’s, or not a P0', () => {
-    const ids = warm.p0board.startable.map((c) => c.id);
+  await check('nor is one that is held, superseded, blocked, closed, somebody else’s, or not a root', () => {
+    const ids = warm.rootboard.startable.map((c) => c.id);
     for (const id of ['zz-held', 'zz-dupe', 'zz-blocked', 'zz-shut', 'zz-theirs', 'zz-p2', 'zz-live']) {
       assert.equal(ids.includes(id), false, `${id} is on offer`);
     }
@@ -483,12 +483,12 @@ try {
     // long, with the write having worked and the screen having nothing to say about it.
     const after = await getJson('/api/questions');
     assert.deepEqual(
-      after.p0board.p0s.map((c) => c.id).sort(),
+      after.rootboard.roots.map((c) => c.id).sort(),
       ['zz-live', 'zz-small'],
       'the card did not arrive — the graph cache was not refreshed by the write'
     );
     assert.equal(
-      after.p0board.startable.some((c) => c.id === 'zz-small'),
+      after.rootboard.startable.some((c) => c.id === 'zz-small'),
       false,
       'the epic you just started is still on offer as something to start'
     );
@@ -499,8 +499,8 @@ try {
     assert.equal(out.status, 200, JSON.stringify(out.body));
     assert.deepEqual(out.body, { workspace: 'alpha', id: 'zz-small', started: false, status: 'open' });
     const after = await getJson('/api/questions');
-    assert.deepEqual(after.p0board.p0s.map((c) => c.id), ['zz-live'], 'the card is still on the board');
-    assert.equal(after.p0board.startable.some((c) => c.id === 'zz-small'), true, 'it did not come back to the picker');
+    assert.deepEqual(after.rootboard.roots.map((c) => c.id), ['zz-live'], 'the card is still on the board');
+    assert.equal(after.rootboard.startable.some((c) => c.id === 'zz-small'), true, 'it did not come back to the picker');
   });
 
   await check('and it leaves the assignee alone, unlike a reopen', () => {
@@ -521,7 +521,7 @@ try {
     ['one the tracker says is blocked', '/api/bead/start', 'zz-blocked', 409, /blocked, not open/],
     ['one that has closed', '/api/bead/start', 'zz-shut', 409, /closed/],
     ['somebody else’s P0', '/api/bead/start', 'zz-theirs', 409, /not yours to put on the board/],
-    ['a bead that is not a P0 at all', '/api/bead/start', 'zz-p2', 409, /not a P0/],
+    ['a bead that is neither an epic nor a P0', '/api/bead/start', 'zz-p2', 409, /not an epic or a P0/],
     ['a bead that does not exist', '/api/bead/start', 'zz-ghost', 404, /no such bead/],
     ['a P0 that is not on the board', '/api/bead/unstart', 'zz-next', 409, /not on the board/],
   ];

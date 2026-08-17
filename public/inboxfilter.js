@@ -48,7 +48,7 @@
   `jira` is the third to take that deal (bc-0i27.3), and the first that was never a tab:
   the tickets assigned to you arrive off JIRA rather than off a `bd` sweep, and one row
   here is the whole of what makes them a section — a chip, a count, a word in the summary
-  line, and the space picker and the P0 board narrowing them exactly as they narrow
+  line, and the space picker and the epic board narrowing them exactly as they narrow
   everything else. Its price was the same one word, `!q.jira`, in the predicate below.
 
   `endorsement` is the fourth, and the first that took the deal with **no new fetch at

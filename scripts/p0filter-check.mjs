@@ -23,7 +23,7 @@
 //     chunk replaced whole every 25 seconds, and the preference is written to
 //     `localStorage` on the tap and read back in the state initialiser at boot: either
 //     end can be missing with the page looking right all session.
-//   • **Filtering the tree must not touch the list underneath.** `underOwnedP0s` narrows
+//   • **Filtering the tree must not touch the list underneath.** `underOwnedRoots` narrows
 //     the inbox off the board *data*; a filter that reached it would take questions off
 //     the screen with nothing saying where they went. Counted either side of every tap.
 //   • **And it must not reach the collapsed cards either** (bc-grut). The board's own
@@ -113,17 +113,17 @@ const bead = (id, title) => ({
 
 // One question, under the epic. It is the row the filter must not disturb: with a board
 // on, the list below it is your epics' descendants and nothing else, so a filter that
-// reached `underOwnedP0s` would take it off the screen.
+// reached `underOwnedRoots` would take it off the screen.
 const QUESTIONS = [{ ...toQuestion(WS, bead('a-p0.2', 'Open, with something delivered under it')), space: 'Work', comments: [] }];
 
 const row = (r) => ({ ...r, key: `${WS}/${r.id}`, pending: false });
 
-/** The board, as `p0Card` in lib/server.js builds it — trees and all, since bc-rfnr.9.1. */
+/** The board, as `rootCard` in lib/server.js builds it — trees and all, since bc-rfnr.9.1. */
 const board = () => ({
   owned: true,
   under: { [`${WS}/a-p0.2`]: 'a-p0' },
   unhomed: {},
-  p0s: [
+  roots: [
     { p0: P0, tree: TREE },
     { p0: DONE, tree: DONE_TREE },
   ].map(({ p0, tree }) => ({
@@ -163,7 +163,7 @@ function serve() {
         workspaces: [WS],
         spaces: [{ name: 'Work', workspaces: [WS], quiet: false, muted: false, count: QUESTIONS.length }],
         filter: { space: 'all', workspace: 'all' },
-        p0board: board(),
+        rootboard: board(),
         summary: { sessions: 0, proposals: 0 },
         scope: 'human',
       });

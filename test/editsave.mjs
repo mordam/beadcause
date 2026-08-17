@@ -15,7 +15,7 @@
  * quietly.
  *
  * 1. **The shape, because it is the acceptance.** One session bead, N children, all of
- *    it under a standing P0 that exists — a bead with no P0 above it is not workable
+ *    it under a standing root that exists — a bead with nothing decided above it is not workable
  *    (bc-rfnr.7), so a pass filed without a root is a pass filed into a hole. And the
  *    session bead has to be an `epic`: a *task* with children is ordinary worker
  *    dispatch, and a worker's one sanctioned ending closes the bead it was opened on,
