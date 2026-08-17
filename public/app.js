@@ -900,6 +900,20 @@
    *
    * Empty while the card is open, because an open card's way out is `↑ Collapse` and a
    * body that also collapsed would close the sheet on the first tap on a paragraph.
+   *
+   * Both card renderers also call this from their new title `<button>` (bc-rfnr.9.8),
+   * and that button's own markup is written out inline, in each renderer, rather than
+   * behind a shared helper the way `shutCardAct` itself is. The difference is
+   * `editmode.js`'s `byChain`: it disambiguates the card head's title from the one at
+   * the card's foot by checking that the title's own source line comes *after* the
+   * `.card-head` div that opens it, in the same block — true only while the button's
+   * markup is nested textually inside `cardHtml`/`agentCardHtml` themselves. A shared
+   * function's one definition would sit *before* both callers in the file, and the
+   * ancestor check would fail for both of them at once — caught live by
+   * scripts/editmode-check.mjs, as the title resolving to three ambiguous sites where it
+   * used to narrow to two. `shutCardAct` itself gets away with being shared because
+   * nothing ever anchors on the *article's* class, only on `data-act="toggle"`, which is
+   * a flat count across the file rather than a chain relative to an ancestor.
    */
   const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
 
@@ -2857,6 +2871,23 @@
     // carry none (links, boxes, a selection you are making). It is on the article only
     // while shut, because an open card's way out is `↑ Collapse` and a body that also
     // collapsed would close the sheet under the first tap on a paragraph.
+    //
+    // **The title is a real `<button>`, not the `<p class="q">` it used to be**
+    // (bc-rfnr.9.8): the article took the only *focusable* control away when it became
+    // the whole card's tap target, and `role="button"` on the article itself is invalid
+    // ARIA over the six interactive descendants a shut proposal card holds. `commentHtml`
+    // answers the same question for a thread message by making the author line the
+    // toggle instead of adding a chevron; this is that idiom applied to the title, the
+    // thing your eye already uses to decide whether to open a card. It shares
+    // `shutCardAct`'s literal for the reason given on that function, and carries its own
+    // `data-key` because once it is the button `closest('[data-act]')` finds, it is the
+    // button's own dataset the click handler reads. `tabindex="-1"` while open takes it
+    // out of the tab order without changing which element it is — open, there is
+    // nothing left for it to do, `↑ Collapse` is the way out, and a stray tab stop that
+    // does nothing would be worse than the heading it replaced. Unconditionally a
+    // `<button>`, never a `<p>`, and written inline here rather than behind a shared
+    // helper: see the note on `shutCardAct` for why factoring it out would have broken
+    // the anchor's chain-narrowing between this title and the one at the card's foot.
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
       q.failed ? ' has-failed' : ''
     }${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(q.key)}" data-key="${esc(
@@ -2877,7 +2908,9 @@
         ${addressPanelHtml(q)}
         ${arrivedQuietHtml(q)}
         ${activityHtml(q)}
-        <p class="q">${esc(q.question || q.title)}</p>
+        <button type="button" class="q"${shutCardAct(open)}${
+          open ? ' tabindex="-1"' : ''
+        } data-key="${esc(q.key)}">${esc(q.question || q.title)}</button>
         ${q.question && q.title !== q.question ? `<p class="subtitle">${esc(q.title)}</p>` : ''}
         ${(q.errors || []).map((e) => `<p class="subtitle bad">⚠ ${esc(e)}</p>`).join('')}
       </div>
@@ -3292,7 +3325,9 @@
           <time>${esc(relTime(q.since))}</time>
         </div>
         ${activityHtml(q)}
-        <p class="q">${esc(q.title)}</p>
+        <button type="button" class="q"${shutCardAct(open)}${
+          open ? ' tabindex="-1"' : ''
+        } data-key="${esc(q.key)}">${esc(q.title)}</button>
         ${
           q.actor || q.type
             ? `<p class="subtitle">${[q.type, q.actor].filter(Boolean).map(esc).join(' · ')}</p>`

@@ -1211,6 +1211,14 @@ body {
 }
 
 .q { font-size: 19px; font-weight: 630; line-height: 1.4; margin: 0 0 5px; letter-spacing: -0.012em; }
+/* The card's own title is a <button> now, shut and open alike (bc-rfnr.9.8) — the
+   browser's own button chrome has to come off before the rule above even applies: full
+   width and left-aligned like the paragraph it replaces, no background, border or
+   padding, and the font and colour it would otherwise reset to the platform default
+   instead of inheriting. The focus ring is left alone on purpose — it is the one visible
+   sign a keyboard has reached the card at all, and `tabindex="-1"` is what keeps it out
+   of the way once the card is open and the button has nothing left to do. */
+button.q { display: block; width: 100%; text-align: left; background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 .subtitle { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
 .subtitle.bad { color: var(--danger); }
 

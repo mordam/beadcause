@@ -411,7 +411,7 @@ try {
     `${toggle.source?.found} sites via ${toggle.source?.query}`
   );
 
-  const title = await evalJs(s, ANCHOR('.card[data-key] p.q'));
+  const title = await evalJs(s, ANCHOR('.card[data-key] .q'));
   check(
     'a bead`s own title comes back as tracker text',
     title.text?.from === 'data',
@@ -422,10 +422,13 @@ try {
     title.editable?.ok === false && /tracker/.test(title.editable?.why || ''),
     title.editable?.why
   );
-  // `<p class="q">` is written three times in public/app.js — the card's head, its foot
-  // and the agent card — so this is the third outcome the anchor has to be honest about:
-  // not one site, not none, but every candidate named and nothing offered as an edit.
-  // The chain is what narrows it: the `.card-head` around it rules the foot's out.
+  // `class="q"` is written three times in public/app.js — the card's head (a <button>
+  // since bc-rfnr.9.8), its foot (still a <p>) and the agent card's head — so this is the
+  // third outcome the anchor has to be honest about: not one site, not none, but every
+  // candidate named and nothing offered as an edit. The chain is what narrows it: the
+  // `.card-head` around it rules the foot's out. It only works because the button's own
+  // markup stays inline in each renderer rather than behind a shared helper — see the
+  // note on `shutCardAct` in public/app.js.
   const narrowed = (title.source?.tried || []).some((t) => String(t.kind).endsWith('+chain'));
   check(
     'an ambiguous element is narrowed by its chain rather than guessed at',
@@ -472,7 +475,7 @@ try {
       editing: document.body.classList.contains('editing'),
       banner: !!document.querySelector('.editbar'),
       caught: document.querySelector('#list').textContent.includes('reconsidered'),
-      seen: document.querySelector('.card[data-key] p.q')?.textContent || null,
+      seen: document.querySelector('.card[data-key] .q')?.textContent || null,
     })`
   );
   check('leaving the mode takes the banner and the tint with it', !thawed.editing && !thawed.banner, JSON.stringify(thawed));
