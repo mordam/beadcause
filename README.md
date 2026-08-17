@@ -3736,7 +3736,7 @@ the answer you can see.
 
 ### The agent halves are read, never written down
 
-The five agent kinds on that page — what each may run, whether it may write to the
+The seven agent kinds on that page — what each may run, whether it may write to the
 tracker, its timeout, its model, and the whole of its role prompt — come out of
 lib/foundation.js at render time. Nothing about an agent is restated in the model, and
 that is the point rather than an economy: a diagram carrying its own copy of an
@@ -12973,6 +12973,68 @@ this one — the two of those never reach the queue at all — or the bead was
 — the one kind of work a worker here may not merge, whatever the space says. It went from
 being every delivery to being the interesting ones.
 
+### The reviewer — a seventh agent kind, and the diff nobody reads
+
+Everything above judges a pull request by what *happened to it*: whether it conflicts,
+whether a check went red, whether the base was already red there. Nothing reads the diff.
+On a Mac where the author is an agent and the approver is a queue, the change itself is
+the one thing in the whole path that no second party has looked at.
+
+So there is a **ReviewAdvocate** — a seventh kind in `lib/foundation.js`, beside the merge
+queue rather than inside it. The difference between those two agents is their permissions
+and not their code path, which is what makes it a kind rather than a mode: the merge queue
+may push, may merge to `main`, and is the only thing here that closes a work bead. The
+reviewer may do none of that. It reads the diff, says what it thinks, and the one thing it
+may write is the comment its verdict goes in. A reviewer that could merge the branch it had
+just approved would be the same self-certification that was taken away from the worker,
+arrived at from the other end.
+
+**Its output is a verdict, and a verdict is a document.** The comments it raised, whether
+it approved, and — when it did not — why. `lib/reviewadvocate.js` owns that shape, which is
+what `protocolOwner` means and why the field points there. It is written the way an epic's
+plan is written: a fenced JSON block between `<!-- beadcause:verdict -->` markers, in a
+**comment** on the merge-bead, under a sentence a person can read. Comments are append-only,
+so a verdict cannot lose a race with the daemon rewriting `notes` in the same minute; the
+round before this one stays on the bead, which is the only record of what the reviewer
+objected to before the worker answered it; and every surface that draws a bead already draws
+comments, so a review is readable on the phone with no new screen at all.
+
+The markers are `beadcause:verdict` and deliberately **not** `beadcause:review` — that name
+belongs to the review *state* block on the merge-bead's `notes`, rewritten every round and
+outliving admission. Two documents under one marker is a parser that reads whichever field
+it happened to be handed.
+
+**Severity is a closed vocabulary, because the only reader that matters is a machine.**
+`blocking`, `suggestion`, `question`, and nothing else — an unrecognised one is refused
+rather than coerced, since defaulting it to `blocking` lets a typo hold a branch for ever
+and defaulting it to `suggestion` waves a real objection through. `blocking` is a promise:
+the reviewer will not approve while it stands, so it belongs to correctness, data loss, a
+security hole, a broken contract with a caller, or a test that does not test what it claims.
+Style and taste are suggestions, and something wrong in the code the change landed *next
+to* is a bead, not a review comment. The brief spends its longest paragraph on that, because
+an agent asked to review a diff will find something to say about every hunk of it, and a
+review that raises eleven comments costs a worker eleven answers and the pull request a
+round it cannot get back.
+
+Three shapes are refused outright, and each is a verdict something would act on *wrongly*
+rather than reject:
+
+- **Approved with a blocking comment on it.** The gate reads `approved` and the worker
+  reads the comments, so a verdict saying both merges the branch while telling its author it
+  must not. Which half to believe is not a default anything should pick.
+- **A refusal that never says why.** That is a round spent on a worker guessing.
+- **Two comments sharing an id.** The worker answers comments by id and the next round
+  matches its answers back, so one answer would silently resolve both — the failure that
+  looks exactly like agreement. A *missing* id is numbered instead, because bookkeeping is
+  not worth a round.
+
+**What exists today is the kind, its verdict format, and the brief it argues from.** Nothing
+opens a window on a delivered pull request yet, and the merge queue does not wait for a
+verdict — a merge-bead still goes straight to the queue, and the flow diagram draws the
+reviewer beside that path rather than in it. The wiring, the round cap, the worker's
+hand-back and the approving review on GitHub are the rest of the epic; what landed first is
+the thing all four of them have to agree about, which is what a verdict *is*.
+
 ### The notification with nothing to answer
 
 Every other push from beadcause is a decision arriving. This one is a decision that has
@@ -13851,6 +13913,51 @@ unknown, rather than reporting a conflict nothing established. That length is no
 preference but the size of a race in somebody else's bookkeeping, so it is a constant in
 `lib/pr.js` rather than a key here.
 
+### Seeing a review at all, and who is allowed to leave one
+
+Two facts about this particular repo sit underneath everything the review loop wants to
+do, and both are the kind that read as a bug in beadcause when you meet them from above.
+
+**`reviewDecision` cannot see an approval here, and it never will.** GitHub's
+`reviewDecision` answers *does this pull request satisfy its review requirement* — not
+*has anybody approved it*. A repo with no branch protection and no ruleset has no
+requirement, so the answer is the empty string with an approving review sitting on the
+pull request, exactly as it is with none. `mordam/beadcause` is that repo: measured
+2026-08-17, `repos/mordam/beadcause/branches/main/protection` is a 404,
+`.../rulesets` is `[]`, and `reviewDecision` is `""` on all thirty of the most recent
+pull requests, merged and open alike. So `requireApproval` above, which reads
+`reviewDecision`, is right everywhere the repo configures a requirement and blind on
+this one — and a gate that waited on it would look, from the outside, like a reviewer
+that reviewed and was ignored.
+
+The fix is to ask the reviews themselves. `latestReviews` — the most recent review from
+each reviewer, GitHub's own de-duplication — is in the field list `lib/pr.js` fetches,
+and every pull request now carries `reviews` (author, state, association, when) and
+`approvedBy` (the logins whose *latest* review is an approval, so a dismissed one stops
+counting). It costs nothing measurable: a forty-row `gh pr list` with the field and
+without it both came back in 3.5–4.3 seconds against this repo. Review *bodies* are
+deliberately not carried — a reviewing agent writes its comments where the worker will
+read them, and carrying the prose would put every review's full text into the board's
+list payload, which is the cost the board already strips the pull request's own
+description to avoid.
+
+**And the account that opens a pull request can never approve it.** GitHub refuses an
+approving review from the author, which is not a policy anyone here can turn off. There
+are two logins on this Mac — the owner with `ADMIN` on `mordam/beadcause`, and
+`NeanderthalMan`, a collaborator with `READ` — and `lib/pr.js` has always picked the
+first of those, because it picks the account that will *merge* and sweeps for one that
+can write. That is the right answer to its own question and the wrong one here: the
+account best qualified to merge is precisely the account that cannot approve.
+
+So there is a second lookup beside it, `reviewerFor(dir)`, choosing by **role** rather
+than by capability — an account that can see the repo and is *not* the one everything
+else runs as. `READ` is enough on purpose: a collaborator with read access may submit an
+approving review on a pull request it did not open, so being able to see the repo is the
+whole test. On a Mac with one login it returns **null**, which is an ordinary answer and
+not an error — one account cannot both open and approve, and a caller that meets a null
+records the approval on the bead and says plainly that no GitHub review was submitted,
+rather than failing a delivery over a second account nobody promised.
+
 ### What it does to the two things that were already here
 
 **A fourth ending.** The advocate reads three endings off a session that exits: closed,
@@ -14329,7 +14436,7 @@ implication at all about whether an auditor testing CC8.1 will want records out 
 carved-out thing.
 
 So a carved-out component may name what it still `bearsOn`, and beadcause names change
-management. All six agent kinds are carved out individually rather than as one row saying
+management. All seven agent kinds are carved out individually rather than as one row saying
 "beadcause agents", because *what non-human identity can change an in-scope repository* is
 a question asked per identity, and a single row answers it for none of them.
 
@@ -15435,6 +15542,51 @@ after a close are an invitation to create them twice.
 Both the close and the reopen appear in the scrollback as quiet divider lines. They
 belong in the history, but rendering them in an assistant bubble would read as
 something the agent said.
+
+### One refused edge does not cost the rest of the batch
+
+Creating from a chat proposal makes the beads first and wires them together afterwards,
+once every id is known. A `bd dep add` can be **refused** — bd holds one edge per pair in
+either direction, of any type, so a pair that already carries a `relates-to` cannot then
+be given a `blocks`, and `lib/mentions.js` draws that `relates-to` for free the moment
+either id appears in the other's prose.
+
+Until bc-arj0.19 the first refusal ended the create. Filing bc-khoe, `bd dep add
+bc-khoe.5 bc-45yl` was refused and the three dependencies declared after it were never
+attempted. Nothing looked wrong — nine beads, the right parents, the right text — and
+what was missing was structure on the beads furthest from the error, which named none of
+them. That is this epic's own failure mode by a new route: a dependency declared, and
+then existing only as prose in a description.
+
+So `lib/edges.js` applies the batch, and:
+
+- **Every declared edge is attempted.** A refusal is recorded against that edge and the
+  loop carries on. Nothing is rolled back either — beads has no transaction, and
+  un-writing four good edges because a fifth was impossible loses more structure than it
+  saves.
+- **Every failure is reported by id, as the command that would fix it** —
+  `bd dep add bc-khoe.5 bc-45yl — refused: <what bd said>`, with bd's own
+  `… failed in <workspace>:` prefix trimmed off because the line has already spelled the
+  command. An end that resolved to nothing has no id to paste and is reported as
+  `skipped — no such bead` instead.
+- **The batch is summarised in one paste** — `2 of 5 declared dependencies did not land;
+  the other 3 did. Paste to retry: bd dep add …; bd dep add …` — so retrying the lot,
+  once whatever made them impossible has been dealt with, is one line rather than a
+  reading exercise.
+- **The warnings keep the chat session open**, by the rule above, so the report is read
+  on the screen that produced it.
+- **A create that fails part-way still wires what it did make.** The beads that exist are
+  real, and the structure between them is no less true for a later card having failed to
+  become a bead. The request is still a `502` naming the create that failed.
+
+The JIRA ingest files the same shape of proposal and goes through the same module, so
+the two spellings of that warning cannot drift apart. A single edge applied on purpose —
+a delivery parking its bead behind a merge card, a supersede — deliberately does *not*:
+there a refusal is a real error and `bd.addDep` keeps throwing it.
+
+`test/edgebatch.mjs` (in `npm test`) holds it, and the refusing edge in it is the second
+of four rather than the last, because a batch whose bad edge is last passes on the broken
+code too.
 
 ### Keep typing while it is working
 
@@ -17725,9 +17877,9 @@ stops it going quietly stale.
 
 The obvious shape is a table of accounts with a row per agent, and it is wrong in a way
 that would survive review by being ticked. **Nothing this daemon spawns holds a
-credential of its own.** All six agent kinds run as the single Claude subscription signed
+credential of its own.** All seven agent kinds run as the single Claude subscription signed
 in on this Mac; there is no per-agent secret to rotate, nothing to disable one at a time,
-and a table implying otherwise describes six accounts that do not exist.
+and a table implying otherwise describes seven accounts that do not exist.
 
 So the register's rows are **grants, not accounts** — the thing that hands a principal
 its reach, chosen because it is the thing a review can actually revoke:
@@ -21553,6 +21705,88 @@ whose *name* is one that reaches the network is egress wherever it was found, be
 is kept out of its own sweep, since every link to a supplier's terms is a host it would
 otherwise report; that exemption is safe only while the file stays data, so its import list
 is pinned by the suite. Anything that could make a request has to come through there first.
+
+### Every store says where it came from and when it goes — `lib/datastores.js`, `test/datastores.mjs`
+
+Three registers already answer three different questions.
+[The evidence register](#nothing-is-kept-without-saying-for-how-long--libevidencejs-testevidencemjs)
+is keyed on what is *kept* — retention, integrity, who could alter it. The access register is
+keyed on *principals* — the grants that let a human, a device or an agent reach the system at
+all. [The supplier register](#every-third-party-is-named-and-a-sweep-fails-on-one-that-is-not--libsuppliersjs-testsuppliersmjs)
+is keyed on *third parties* and stops at the boundary. **None of the three answers the five
+questions Annex A.7 asks of a body of data**: where it came from, what it is used for, whether
+it is adequate for that use, who can reach it, and when it is disposed of.
+
+**So the fourth register's first job is to not become a fourth format.** It cites the other
+three rather than restating them — an evidence class by id, a supplier by id — and the
+coverage check fails the repo on a citation that resolves to nothing, on an evidence class
+nobody here classified, and on the specific failure a fourth register is most likely to
+produce: **a retention period that disagrees with the register that already stated one.** Two
+documents disagreeing about how long one store lives is worse than either answer, and the
+suite demonstrates that failure rather than asserting it cannot happen.
+
+**The coverage baseline is the evidence register rather than the filesystem**, and that is the
+choice worth defending. A sweep of `lib/` finds *modules*; what this register is about is
+*bodies of data*, and the inventory of those already exists one file over. So a new evidence
+class cannot land without somebody saying here whether it holds data about a person — which is
+exactly the question that otherwise gets answered once, at the start, and never again. Eight
+classes are excused into `NOT_SUBJECT` with a sentence each, because they record the daemon
+acting rather than anything it holds: a chain of digests, a set of shas, a config key that
+changed. An exemption for a class that is not there is itself a failure.
+
+**Personal data is located rather than denied, and the instinct to deny it is wrong in four
+places.** A bead names a colleague, an ingested ticket carries its reporter and often a
+customer, and a close reason quotes either — the largest concentration of it in the system,
+and it is in the *tracker*, which is not beadcause's own store, which is precisely why no
+register had it until this one. A screenshot carries whatever was on the screen, including the
+window nobody meant to capture, and it leaves as prompt content. An agent memory about how the
+operator likes work shaped is a statement about an identified individual, kept on purpose and
+readable by every agent kind. And the git identity — a name and an email — authors every commit
+in every ref, which is said once rather than repeated into fifteen fields that would then have
+to be kept agreeing. `personal.state` is a closed vocabulary of three and `none` is not a
+blank: a store claiming to hold none has to argue for it in a sentence somebody can disagree
+with.
+
+**Most of the answers are `permanent`, and that is a decision rather than a gap.** The disposal
+unit of a hash chain is the whole ref — removing the middle rewrites every sha after it, which
+is the property the chain exists for.
+[The run archive](#the-run-that-survives-its-own-reset--libagentarchivejs-testagentarchivemjs)
+found the one way out and it is a *split*: the record is chained and permanent, the body is a
+file beside it and is deleted at two years, and the deletion is itself a commit on the chain.
+That is available only where the two halves can be separated, and **they cannot be separated
+for a memory** — a memory *is* its body, so disposing of it leaves nothing saying a belief was
+ever held, and it explains session transcripts that are themselves permanent. What governs a
+store that never forgets is therefore what may be *written* to it and who may *read* it, both
+of which every entry now states outright, with disposal as a deliberate act against a named
+bead rather than a sweep. That closes the two "bc-eqn1.10 will decide this" sentences the
+evidence register had been carrying.
+
+**The contentless push is the one part of the file that is not a description.** A workspace in
+`ntfy.minimalWorkspaces`, or in a space set to `ntfyDetail: "minimal"`, has always got a
+notification with no question text, no option labels, no reply and no buttons — a nudge you tap
+through to the tailnet — because an `ntfy.sh` topic is a shared secret on a public relay and
+anybody who guesses the name receives the messages. That was a *feature*: nothing failed if it
+stopped working. `test/datastores.mjs` drives **every** exported `push*` in `lib/notify.js`
+against a minimal workspace with loaded fixtures and a stubbed `fetch`, and the published body
+must carry none of the text — then drives the same call against a `full` workspace, which must
+carry it, because a test that passes against a function that has silently stopped saying
+anything is a test of nothing. The list of pushers is read from the module's own exports, so a
+new notification cannot ship without being covered.
+
+**And it states its limit instead of overclaiming.** The deep link *has* to name the workspace
+and the bead or the tap lands nowhere, so minimal conceals what is being asked and not that
+something is being asked in a named repo; the tailnet hostname is the click target of every
+push regardless; the priority still tracks the bead's; and `Beadcause · asked again` is a
+permitted title, because giving the same answer twice from a lock screen is a real failure
+while the fact of a repeat leaks nothing. `LINK_ONLY` is that limit written as a rule, and the
+suite fails if a bead id ever migrates out of the click URL and into a title or a message.
+
+The register is itself
+[a controlled document](#every-document-has-an-owner-and-a-review-date--libdocumentsjs-testdocumentsmjs)
+with an owner and a twelve-month review, for the reason its own entries give: the wrong kind of
+wrong sentence here — "this store holds no personal data" — reads exactly as well after the
+store starts holding some. The coverage check catches a new store; only a date catches a store
+whose contents changed under a sentence that was true when it was written.
 
 ### Two greps that answer the wrong question — `test/grepargs.mjs`
 
