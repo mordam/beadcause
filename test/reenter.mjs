@@ -613,6 +613,7 @@ await check('a repo at its worker limit still gets an Epic Advocate', async () =
   // worth the most, because every window it has is already busy. Every other tick case in
   // this file runs an advocate with a slot to spare, so that state was reached only by a
   // string match on the arithmetic — a line that gets renamed, and did. See bc-t5k0.
+  //
   // A child of the enrolled epic rather than a bead of its own: the queue row has to be
   // under a root or `withoutOrphans` takes it out before any of this is reached, and it
   // has to be a task or it is a *planner*, which `maxWorkers` does not ration.
@@ -661,15 +662,15 @@ await check('the sweep is below the three lines that stop the tick', async () =>
   assert.ok(body.indexOf('if (a.paused) return note(a,') < at, 'paused means open no more sessions');
   assert.ok(body.indexOf('if (a.quiet) {') < at, 'quiet hours mean it too');
   // The fourth thing this used to assert — that `reenter` is above the queue, because an
-  // Epic Advocate takes no worker slot — is now the tick case above it, and deliberately
-  // not here. It was a string match on `const free = a.limit - a.workers.length`, and it
-  // has been wrong twice for the same reason: the line is arithmetic, arithmetic gets
-  // renamed, and neither rename broke anything. `a.workers.length` became
-  // `codersOf(a).length` and the suite went red over a correct edit (bc-xl7n.39); before
-  // that the same match had gone *silent* — `indexOf` returns -1, `at < -1` is false, and
-  // the failure read "it has become queue work" while nothing had (bc-t5k0). A static read
-  // cannot tell those two apart, and a check whose false alarm and whose real alarm print
-  // the same sentence is worse than no check. Driving a repo at its limit can.
+  // Epic Advocate takes no worker slot — is the tick case above, and deliberately not here.
+  // It was a string match on `const free = a.limit - a.workers.length`; `a.workers.length`
+  // became `codersOf(a).length` on main, `indexOf` returned -1, `at < -1` was false, and
+  // the suite went red saying "it has become queue work" while `reenter` sat exactly where
+  // it belongs. bc-xl7n.39 shortened the match and added a `queueAt > 0` guard, which turns
+  // the next rename into "re-point this check" rather than into a false regression report
+  // — honest, but still a red for a correct edit, and still no evidence about the property.
+  // Driving a repo at its limit costs one more tick, survives every rename, and is the only
+  // form of this that fails when `reenter` is *gated* on a slot rather than moved. bc-t5k0.
   //
   // What is left here is the part a behaviour test genuinely cannot reach in-process:
   // `OBSERVING` is read from the environment once at module load.
