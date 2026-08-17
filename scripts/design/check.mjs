@@ -90,8 +90,11 @@ const MUST = [
   ['decisions/card-shut.html', /\.card \{[^}]*border-radius: var\(--radius\)/],
   ['decisions/options.html', /\.option\.picked \{[^}]*background: var\(--accent\)/],
   ['decisions/pills.html', /\.pill\.id\b/],
-  ['chrome/tabbar.html', /\.tabbar \{[^}]*position: fixed/],
-  ['chrome/topbar.html', /\.topbar \{[^}]*position: sticky/],
+  ['chrome/viewbar.html', /\.viewpill \{[^}]*border-radius: 999px/],
+  /* `flex: none` rather than `position: sticky`, which is what this asked for until
+     bc-khoe.1 made every page an app shell: the bar is a row of a flex column now, and
+     there is nothing left for it to stick to. */
+  ['chrome/topbar.html', /\.topbar \{[^}]*flex: none/],
   ['chrome/pulse.html', /@keyframes pulse/],
   ['workrows/work-row.html', /\.work-row\b/],
   ['monitor/service.html', /\.svc\.bad\b/],

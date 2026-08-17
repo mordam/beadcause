@@ -66,27 +66,29 @@ console.log('\nthe Mirror is a pane, not a tab\n');
 
 /* -------------------------------------------------------------- not in the bar */
 
-// The bar's tab list is the one place a tab can be added, which is what makes this the
-// assertion that matters. `TABS` is a literal array of object literals, so the slice
-// between the declaration and the line that closes it is the whole list.
-const tabbar = decomment(read('tabbar.js'));
-const list = tabbar.match(/const TABS = \[([\s\S]*?)\n {2}\];/);
+// The row's pill list is the one place a view can be added, which is what makes this the
+// assertion that matters. `PILLS` is a literal array of object literals, so the slice
+// between the declaration and the line that closes it is the whole list. It was `TABS` in
+// public/tabbar.js until bc-khoe.1 deleted the bar along the bottom; the claim being made
+// is the same one against whichever navigation the app has.
+const viewbar = decomment(read('viewbar.js'));
+const list = viewbar.match(/const PILLS = \[([\s\S]*?)\n {2}\];/);
 
-check(() => assert.ok(list, 'could not find the TABS array in public/tabbar.js'), 'the bar still keeps its tabs in one list');
+check(() => assert.ok(list, 'could not find the PILLS array in public/viewbar.js'), 'the row still keeps its pills in one list');
 
 if (list) {
   check(
-    () => assert.doesNotMatch(list[1], /mirror/i, 'a Mirror tab is in the bottom bar — see README, "The Mirror is a pane, not a tab"'),
-    'no Mirror tab in the bottom bar'
+    () => assert.doesNotMatch(list[1], /mirror/i, 'a Mirror pill is in the row — see README, "The Mirror is a pane, not a tab"'),
+    'no Mirror pill in the row'
   );
 
-  // The reason a tab would be wrong is that the Mirror is not a place. Nothing else in
-  // the bar should acquire a path into it either — a tab pointed at /monitor is the
+  // The reason a pill would be wrong is that the Mirror is not a place. Nothing else in
+  // the row should acquire a path into it either — a pill pointed at /monitor is the
   // advocates page, which is correct, but one pointed at a mirror URL is the same
   // decision made in a different spelling.
   check(
-    () => assert.doesNotMatch(list[1], /['"]\/mirror/, 'a tab points at a /mirror URL'),
-    'and no tab points at a mirror URL'
+    () => assert.doesNotMatch(list[1], /['"]\/mirror/, 'a pill points at a /mirror URL'),
+    'and no pill points at a mirror URL'
   );
 }
 
@@ -116,7 +118,7 @@ check(
   'the Mirror is a chip in the advocates page\'s own tab row'
 );
 check(
-  () => assert.match(monitor, /<section id="mirror" class="work" hidden>/),
+  () => assert.match(monitor, /<section id="mirror" class="work pagescroll" hidden>/),
   'and the pane it swaps to is a .work section on that same page'
 );
 check(

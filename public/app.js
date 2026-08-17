@@ -240,6 +240,16 @@
      * where which epic is unfolded is where you happen to be looking.
      */
     p0status: localStorage.getItem('beadcause.p0status') || 'live',
+    /**
+     * Is the picker at the foot of the board open? bc-s8mc.
+     *
+     * Page state and not persisted, like `p0open` and unlike `p0shut`: it is a thing you
+     * are doing rather than a way you like the board, and a picker still hanging open the
+     * next morning would be the app remembering a decision you had already made. It is
+     * closed by a successful start for the same reason — the answer to "which one" has
+     * been given, and the card is on the way.
+     */
+    p0picker: false,
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -900,6 +910,20 @@
    *
    * Empty while the card is open, because an open card's way out is `↑ Collapse` and a
    * body that also collapsed would close the sheet on the first tap on a paragraph.
+   *
+   * Both card renderers also call this from their new title `<button>` (bc-rfnr.9.8),
+   * and that button's own markup is written out inline, in each renderer, rather than
+   * behind a shared helper the way `shutCardAct` itself is. The difference is
+   * `editmode.js`'s `byChain`: it disambiguates the card head's title from the one at
+   * the card's foot by checking that the title's own source line comes *after* the
+   * `.card-head` div that opens it, in the same block — true only while the button's
+   * markup is nested textually inside `cardHtml`/`agentCardHtml` themselves. A shared
+   * function's one definition would sit *before* both callers in the file, and the
+   * ancestor check would fail for both of them at once — caught live by
+   * scripts/editmode-check.mjs, as the title resolving to three ambiguous sites where it
+   * used to narrow to two. `shutCardAct` itself gets away with being shared because
+   * nothing ever anchors on the *article's* class, only on `data-act="toggle"`, which is
+   * a flat count across the file rather than a chain relative to an ancestor.
    */
   const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
 
@@ -2857,6 +2881,23 @@
     // carry none (links, boxes, a selection you are making). It is on the article only
     // while shut, because an open card's way out is `↑ Collapse` and a body that also
     // collapsed would close the sheet under the first tap on a paragraph.
+    //
+    // **The title is a real `<button>`, not the `<p class="q">` it used to be**
+    // (bc-rfnr.9.8): the article took the only *focusable* control away when it became
+    // the whole card's tap target, and `role="button"` on the article itself is invalid
+    // ARIA over the six interactive descendants a shut proposal card holds. `commentHtml`
+    // answers the same question for a thread message by making the author line the
+    // toggle instead of adding a chevron; this is that idiom applied to the title, the
+    // thing your eye already uses to decide whether to open a card. It shares
+    // `shutCardAct`'s literal for the reason given on that function, and carries its own
+    // `data-key` because once it is the button `closest('[data-act]')` finds, it is the
+    // button's own dataset the click handler reads. `tabindex="-1"` while open takes it
+    // out of the tab order without changing which element it is — open, there is
+    // nothing left for it to do, `↑ Collapse` is the way out, and a stray tab stop that
+    // does nothing would be worse than the heading it replaced. Unconditionally a
+    // `<button>`, never a `<p>`, and written inline here rather than behind a shared
+    // helper: see the note on `shutCardAct` for why factoring it out would have broken
+    // the anchor's chain-narrowing between this title and the one at the card's foot.
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
       q.failed ? ' has-failed' : ''
     }${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(q.key)}" data-key="${esc(
@@ -2877,7 +2918,9 @@
         ${addressPanelHtml(q)}
         ${arrivedQuietHtml(q)}
         ${activityHtml(q)}
-        <p class="q">${esc(q.question || q.title)}</p>
+        <button type="button" class="q"${shutCardAct(open)}${
+          open ? ' tabindex="-1"' : ''
+        } data-key="${esc(q.key)}">${esc(q.question || q.title)}</button>
         ${q.question && q.title !== q.question ? `<p class="subtitle">${esc(q.title)}</p>` : ''}
         ${(q.errors || []).map((e) => `<p class="subtitle bad">⚠ ${esc(e)}</p>`).join('')}
       </div>
@@ -2945,7 +2988,7 @@
     // carry their own machinery, and `closeGate` already on the card means a refusal
     // has just been reported in full above — a second telling under it would be the
     // card saying the same thing twice.
-    const gated = !q.delivery && !q.closeGate ? q.gate : null;
+    const gated = !q.delivery && !q.closeGate && !allCommissions(q) ? q.gate : null;
     const boxPlaceholder = declining
       ? 'Optional — what should the next attempt do instead?'
       : q.delivery
@@ -2957,7 +3000,7 @@
       ? `Decline #${q.delivery.number} &amp; close`
       : q.delivery
       ? 'Request changes &amp; close'
-      : esc(answerLabel(pickedOption(q)));
+      : esc(answerLabel(pickedOption(q), q));
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
       ${failedNoteHtml(q)}
@@ -2982,6 +3025,31 @@
   }
 
   /**
+   * Does every option on this card hand the bead back rather than finish it?
+   *
+   * The gate below withdraws the answer button when bd is going to refuse the close, and
+   * that is right for the ordinary card, whose affirmative option closes. It is wrong for
+   * a card where *nothing* closes: `/api/respond` skips the gate entirely for a commission
+   * (`closes: false`), and a typed answer on a card where any option would have
+   * commissioned rides the same path — so on this shape there is no refusal coming and the
+   * button withdrawn is the only way to answer at all.
+   *
+   * bc-xl7n.52 is where that mattered. lib/inmain.js stopped offering "close it" on a bead
+   * with a live subtree, leaving a card whose one option is a commission — and those are
+   * exactly the beads bd gates, so without this the fix would have swapped a close nobody
+   * could press for a card nobody could answer, with the `human` label sitting on it until
+   * the children closed.
+   *
+   * A card with no options at all is **not** this: a typed answer there closes, and the
+   * gate is the honest thing to show. `some` is the wrong quantifier for the same reason —
+   * one commission beside a `close-it` still leaves a button that means the close.
+   */
+  const allCommissions = (q) => {
+    const options = q?.decision?.options || [];
+    return options.length > 0 && options.every((o) => o.closes === false);
+  };
+
+  /**
    * What the primary button will actually do, in its own words.
    *
    * *Answer & close* is the ordinary ending and stays the default. It becomes a lie
@@ -2993,11 +3061,20 @@
    * this label and this is the only place left that can say it. (Shut, the button
    * *is* the write again — optionLabel below is where the same sentence gets said.)
    *
+   * **With nothing picked it reads off the card instead**, which is the same sentence
+   * one step further back. A typed answer names no option, and on a card where any
+   * option would have commissioned the server treats it as one rather than closing on a
+   * guess (`ambiguous` in lib/server.js) — so on a card where they *all* commission,
+   * there is no reading under which the press closes anything, and *Answer & close* over
+   * it would name the one outcome that cannot happen. That is the shape lib/inmain.js
+   * now writes on a bead with a live subtree, and the shape the gate above lets through.
+   *
    * Plain text, not HTML — it goes through `esc()` when the card is drawn and
    * through `textContent` when paintPicked() repaints it.
    */
-  function answerLabel(chosen) {
-    return chosen?.closes === false ? 'Answer & commission' : 'Answer & close';
+  function answerLabel(chosen, q) {
+    if (chosen) return chosen.closes === false ? 'Answer & commission' : 'Answer & close';
+    return allCommissions(q) ? 'Answer & commission' : 'Answer & close';
   }
 
   /**
@@ -3292,7 +3369,9 @@
           <time>${esc(relTime(q.since))}</time>
         </div>
         ${activityHtml(q)}
-        <p class="q">${esc(q.title)}</p>
+        <button type="button" class="q"${shutCardAct(open)}${
+          open ? ' tabindex="-1"' : ''
+        } data-key="${esc(q.key)}">${esc(q.title)}</button>
         ${
           q.actor || q.type
             ? `<p class="subtitle">${[q.type, q.actor].filter(Boolean).map(esc).join(' · ')}</p>`
@@ -3526,38 +3605,25 @@
     badge.hidden = !n;
   }
 
-  /**
-   * The count in the chrome: what is waiting elsewhere.
-   *
-   * There used to be a second one — an **N waiting** pill in the top bar, counting
-   * the beads asking you something. It is gone (bc-ka5y.1), and the reason is that
-   * the list under it *is* that number: the rows on screen are the beads waiting on
-   * you, so the pill spent the widest part of the bar restating what you were already
-   * looking at, and cost a local-versus-served reconciliation every repaint to do it.
-   * Its tap was a shortcut to the `human` scope, which the scope chips in the filter
-   * panel still do.
-   *
-   * What is left already has a tab of its own, so it is a badge on that tab rather
-   * than a chip in the bar — the number and the way to act on it end up the same tap
-   * target.
-   */
-  function paintSummary() {
-    const s = state.summary || {};
-    // The tabs live at the foot of every page, but only this one has the numbers:
-    // they ride the inbox's poll. A page that never sets a badge shows none, which
-    // is better than a number it has no way to refresh.
-    //
-    // One badge, and it is the proposals. A badge means *needs you* — that is what
-    // makes it worth putting a number on a tab you are not looking at — and a running
-    // agent needs nothing; it is a fact about the machine. `summary.sessions` is still
-    // served and still worth reading, and it is read on the page itself, in the
-    // advocate console's tally ("N working · M to answer"), where it sits beside the
-    // repo it belongs to instead of standing for every repo at once.
-    const badge = window.beadcause?.tabBadge;
-    if (!badge) return;
-    const proposals = Number(s.proposals) || 0;
-    badge('advocates', proposals, `Advocates — ${proposals} proposal${proposals === 1 ? '' : 's'} waiting`);
-  }
+  /*
+    ## There is no count in the chrome any more (bc-khoe.1)
+
+    Two of these have now gone the same way. The first was an **N waiting** pill in the
+    top bar (bc-ka5y.1): the list under it *was* that number, so it spent the widest part
+    of the bar restating what you were already looking at. The second was `paintSummary`,
+    which hung the proposals count off the Advocates tab through `beadcause.tabBadge` —
+    and it goes with the bottom bar that carried it.
+
+    The argument against it is the one the pill lost on, plus one the pill did not have.
+    A badge is a number about a page you are **not** looking at, and it is only ever live
+    on the one page whose poll happens to carry it — the inbox's. Everywhere else the bar
+    drew no badge at all, which was the honest state and also a second thing to have
+    learned. What is left is `summary` on the payload, still served, still read where a
+    count belongs beside the thing it counts: the advocate console's tally.
+
+    The pill row draws no counts, on any pill, deliberately — see the header of
+    public/viewbar.js.
+  */
 
   /**
    * The option this card's answer is currently making, or null.
@@ -3615,7 +3681,7 @@
       else if (label) label.textContent = btn.dataset.label;
     }
     const primary = card?.querySelector('.freeform .primary[data-act="answer"]');
-    if (primary) primary.textContent = answerLabel(chosen);
+    if (primary) primary.textContent = answerLabel(chosen, q);
   }
 
   /**
@@ -4968,7 +5034,19 @@
   // placeholder holds a fresh SVG after every repaint, and a log pane is replaced
   // line by line.
   const OPAQUE = '.diagram, svg, pre';
-  const docScroller = () => document.scrollingElement || document.documentElement;
+  /**
+   * The page's own scroller — which is not the document any more (bc-7utr, bc-khoe.1).
+   *
+   * The inbox is a viewport-height shell: the top bar, the pill row and the filter line
+   * are rows of a flex column and the list is the one element with `overflow-y: auto`
+   * (see `.pagescroll` in public/style.css). So `document.scrollingElement.scrollTop` is
+   * 0 for the whole visit, and putting it back after a repaint restores a number that
+   * was never anything else. The fallback is kept for the same reason the anchoring
+   * above measures instead of assuming: a page that somehow loses the class still keeps
+   * its place.
+   */
+  const docScroller = () =>
+    document.querySelector('.pagescroll') || document.scrollingElement || document.documentElement;
   let placeGen = 0;
 
   /** Something deliberate is moving the page. Stop putting it back. */
@@ -5841,14 +5919,72 @@
     return true;
   }
 
+  /**
+   * The foot of the board: one button, and the P0s a tap on it would offer. bc-s8mc.
+   *
+   * **`startable` is the server's list and this draws it whole.** Which P0s may be offered
+   * is a question about the tracker — endorsed, not superseded, not a crash this app filed
+   * at P0 itself, open rather than blocked — and every one of those is read off the graph
+   * the board is already built from (`offerable` in lib/server.js). A client-side rule over
+   * the cards it happens to have would be a second answer to that question, drawn from a
+   * payload that deliberately carries only the *started* ones.
+   *
+   * **The count is on every row**, because it is most of what the choice is made on: "the
+   * one with sixty children left" is how the board itself is ordered, and an id and a title
+   * alone put the decision back on your memory of the tracker.
+   *
+   * The tap that opens this grows the board, which is *above* the inbox list — see
+   * `keepTheScreenStill`, which the handler wraps the repaint in. Without it the list's own
+   * place-restore scrolls the page down by exactly the height of what just opened, and the
+   * control you tapped leaves the screen.
+   */
+  function p0PickerHtml(rows) {
+    const on = !!state.p0picker;
+    const head = `<button type="button" class="p0-pick" data-act="p0-pick" aria-expanded="${on}"${
+      on ? ' aria-controls="p0picker"' : ''
+    }>${on ? '\u2715 Never mind' : '\uff0b Start an epic'}</button>`;
+    if (!on) return head;
+    // Nothing to offer is a sentence rather than an empty box, and it says which of the two
+    // reasons it is: a tracker where every P0 of yours is already started reads exactly
+    // like a picker that failed to load its list.
+    if (!rows.length) {
+      return `${head}<div class="p0-picker" id="p0picker"><div class="p0-none">Nothing to start — every P0 you own is either on the board already or not open.</div></div>`;
+    }
+    return `${head}<div class="p0-picker" id="p0picker" role="group" aria-label="P0s you own that have not been started">${rows
+      .map(
+        (r) => `<button type="button" class="p0-cand" data-act="p0-start" data-ws="${esc(r.workspace)}" data-bead="${esc(
+          r.id
+        )}">
+          <span class="p0-cand-head"><span class="pill id">${esc(r.id)}</span><span class="p0-open">${
+            r.open === 1 ? '1 open' : `${r.open || 0} open`
+          }</span></span>
+          <span class="p0-cand-title">${esc(r.title || '')}</span>
+        </button>`
+      )
+      .join('')}</div>`;
+  }
+
   function p0SectionHtml() {
     const board = state.p0board;
     if (!board?.owned) return '';
-    const mine = (board.p0s || []).filter(
-      (c) => (state.space === 'all' || spaceForWorkspace(c.workspace) === state.space) &&
-        (state.workspace === 'all' || c.workspace === state.workspace)
-    );
-    if (!mine.length) return '';
+    const inView = (c) =>
+      (state.space === 'all' || spaceForWorkspace(c.workspace) === state.space) &&
+      (state.workspace === 'all' || c.workspace === state.workspace);
+    const mine = (board.p0s || []).filter(inView);
+    // The same two filters over the picker's list, because a picker that offered an epic
+    // from a workspace this screen is not showing would put a card on a board you would
+    // then have to switch spaces to see.
+    const canStart = (board.startable || []).filter(inView);
+    // Nothing started, and something that could be. The board is off — that is bc-6s96's
+    // rule and the list below is drawn flat, untouched — but the one control that would
+    // *end* that state has to be reachable, or the screen that says what the week is about
+    // is the one screen that cannot change it. Just the offer: no heading, no fold, no
+    // count of nothing.
+    if (!mine.length) {
+      return canStart.length
+        ? `<section class="p0-board bare" aria-label="${P0_SECTION_LABEL}">${p0PickerHtml(canStart)}</section>`
+        : '';
+    }
     const cards = mine
       .map((c) => {
         // The card's own key, with the same fallback the server's shape makes
@@ -5879,6 +6015,9 @@
           <div class="p0-acts">
             ${p0Control(c)}
             <a class="p0-graph" href="${esc(`${graphUrl(c)}&open=1`)}">🕸 Graph</a>
+            <button type="button" class="p0-off" data-act="p0-unstart" data-ws="${esc(c.workspace)}" data-bead="${esc(
+              c.id
+            )}">↩ Take it off the board</button>
           </div>
         </div>`;
       })
@@ -5893,7 +6032,7 @@
         <span class="chev" aria-hidden="true">›</span>
         ${P0_SECTION_LABEL}
         <span class="p0-kind-n">${mine.length}</span>
-      </button>${shut ? '' : p0StatusHtml(mine) + cards}</section>`;
+      </button>${shut ? '' : p0StatusHtml(mine) + cards + p0PickerHtml(canStart)}</section>`;
   }
 
   function render(force = false) {
@@ -6055,7 +6194,6 @@
     paintList(chunks);
 
     paintRequestBadge();
-    paintSummary();
     renderFilters();
     // The live half of any delivery on screen. `ensurePr` is a no-op for a card it
     // has already fetched, so this costs one GitHub round trip per pull request for
@@ -6188,6 +6326,12 @@
 
   // One paint per frame at most. Scroll fires far faster than the screen redraws, and
   // every paint here reads geometry back out of the layout.
+  //
+  // `capture` is what keeps this listener working now that the list scrolls rather than
+  // the document (bc-7utr): a `scroll` event on an element does not bubble, so a
+  // bubble-phase listener on the window never hears it — but it is still dispatched down
+  // the capture path, window first. One listener, both shapes, and it also catches an
+  // open card scrolling its own brief.
   addEventListener(
     'scroll',
     () => {
@@ -6197,7 +6341,7 @@
         paintScrollPos();
       });
     },
-    { passive: true }
+    { passive: true, capture: true }
   );
 
   /* --------------------------------------------------------------- actions */
@@ -6790,6 +6934,68 @@
         // dead control saying nothing would be the wrong end of it.
         btn.disabled = false;
         btn.textContent = was;
+        toast(err.message, 'refused');
+      }
+      return;
+    }
+
+    /**
+     * Open the picker at the foot of the board, or shut it. bc-s8mc.
+     *
+     * `keepTheScreenStill` and not a plain `render(true)`, which is the whole of what makes
+     * this tap usable: the picker opens *above* the inbox list, `capturePlace` anchors the
+     * scroll on the first card in that list, and restoring it after a repaint that grew the
+     * board scrolls the page down by exactly the height of what just opened — the button
+     * you pressed leaving the screen, the list you were not looking at staying put. The
+     * offset is exact rather than approximate here, because everything inserted is below
+     * the anchor row and nothing above it changes height.
+     */
+    if (act === 'p0-pick') {
+      state.p0picker = !state.p0picker;
+      keepTheScreenStill(() => render(true));
+      return;
+    }
+
+    /**
+     * Start a P0 from the picker, or take one off the board. bc-s8mc.
+     *
+     * Both directions through one branch because they are one write in opposite
+     * directions, and both keyed on `data-bead` rather than `data-key` for the reason the
+     * advocate button above is: these are board controls, not inbox rows, and every branch
+     * below reads a bead key.
+     *
+     * **The refusal is the point.** The server answers 409 with a sentence for every state
+     * the picker's list — up to a poll old — could not have known about: the bead closed,
+     * somebody started it from the other device, it was superseded while you were reading.
+     * The acceptance criterion for this feature is that such a write is loud rather than a
+     * card that silently never appears, so the button comes back and the reason goes in a
+     * toast, exactly as the advocate launch does.
+     *
+     * **`load()` and not a hand-made card.** The daemon refreshed that workspace's graph
+     * inside the write, so the very next payload has the card with its tree and its counts
+     * on it — a card assembled here from the picker row would be a second renderer of the
+     * board's hardest shape, wrong in the counts until the real one landed. Every other
+     * device gets the same thing off its parked log request, woken by the `p0board` event.
+     */
+    if (act === 'p0-start' || act === 'p0-unstart') {
+      const on = act === 'p0-start';
+      const bead = btn.dataset.bead;
+      const was = btn.innerHTML;
+      btn.disabled = true;
+      btn.textContent = on ? 'Starting…' : 'Taking it off…';
+      try {
+        await api(on ? '/api/bead/start' : '/api/bead/unstart', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
+        });
+        // The question the picker asked has been answered; leaving it open would put the
+        // epic you just started back in front of you as something to start.
+        if (on) state.p0picker = false;
+        toast(on ? `${bead} is on the board` : `${bead} is off the board — ＋ Start an epic puts it back`);
+        await load();
+      } catch (err) {
+        btn.disabled = false;
+        btn.innerHTML = was;
         toast(err.message, 'refused');
       }
       return;
@@ -8558,17 +8764,34 @@
    *
    * Returns whether anything was drawn, because the caller's next move depends on it:
    * with a warm list up there is no hurry, and without one there is nothing at all.
+   *
+   * **Wrapped, since bc-1kwl.14, and that is not belt-and-braces.** The entry survives the
+   * app closing now and never expires, so it is not merely possible but *certain* that a
+   * build eventually reads a payload an older build wrote. `warm.js` refuses the ones it
+   * can recognise as foreign (`STORE_V`), and what is left is a payload of the right
+   * vintage whose contents `adopt` does not like — which used to be a throw in the first
+   * fifty lines of this IIFE, taking `loadBoard()` and `loadAgents()` down with it and
+   * leaving a blank screen behind. A held payload is worth a first frame and nothing else
+   * on this page is allowed to depend on it, so it is dropped and this is a cold start.
    */
   function warmBoot() {
-    // The pull requests first, and unconditionally: they are a second payload with a
-    // warm entry of its own, and whether the questions were kept says nothing about
-    // whether the board was. `adopt` renders, so this only has to be in `state` before it.
-    warmBoard();
-    const hit = window.beadcause?.warm?.read?.(questionsPath(state.scope));
-    if (!Array.isArray(hit?.data?.questions)) return false;
-    seqIs(hit.seq);
-    adopt(hit.data);
-    return true;
+    try {
+      // The pull requests first, and unconditionally: they are a second payload with a
+      // warm entry of its own, and whether the questions were kept says nothing about
+      // whether the board was. `adopt` renders, so this only has to be in `state` before it.
+      warmBoard();
+      const hit = window.beadcause?.warm?.read?.(questionsPath(state.scope));
+      if (!Array.isArray(hit?.data?.questions)) return false;
+      seqIs(hit.seq);
+      adopt(hit.data);
+      return true;
+    } catch (err) {
+      // Dropped rather than left: it would fail identically on the next reopen, and an
+      // app that cannot be reopened is worse than one that is slow to.
+      window.beadcause?.warm?.drop?.(questionsPath(state.scope));
+      window.beadcause?.report?.error?.(`warm boot: ${err?.message || err}`, { where: 'warmBoot' });
+      return false;
+    }
   }
 
   /**
@@ -8588,11 +8811,19 @@
    * Every warmed path this page can keep young, and what a wake is able to do for each.
    *
    * The hole this closes is `prewarm`'s, in public/warm.js: it fills each path *once per
-   * document* and the TTL then ages what it fetched out fifteen minutes later, and
-   * `prewarmed` never goes back to false. On a page you pass through that is fine. On the
-   * inbox — the page you leave open all day, which is how this app is actually used —
-   * every warmed path is cold for all but the first quarter of an hour, with nothing able
-   * to put it back. bc-xxzz closed it for `/api/work` alone; this table is the rest of it.
+   * document* and `prewarmed` never goes back to false, so whatever the background warm
+   * fetched in the first second is all any other tab was ever going to get. On a page you
+   * pass through that is fine. On the inbox — the page you leave open all day, which is
+   * how this app is actually used — nothing else was ever going to touch those entries.
+   * bc-xxzz closed it for `/api/work` alone; this table is the rest of it.
+   *
+   * **What this table is for changed shape in bc-1kwl.14 without changing a row.** When
+   * the warm layer had a fifteen-minute TTL, the damage was an entry going *cold* a
+   * quarter of an hour in with nothing able to put it back, and half of what a wake buys
+   * was simply keeping that from happening. Nothing expires now, and the durable entry
+   * survives the app closing — so the damage is the other one: a payload the log has
+   * already contradicted, sat there indefinitely, painted as the first frame of a tab.
+   * The rows below are unchanged because they were always deciding the right question.
    *
    * **What makes an old entry still true is the log, not its age.** This page is parked on
    * `/api/poll`, so an entry the log has not contradicted is as true as it was when it was
@@ -8621,8 +8852,11 @@
    *   already sweeps it on its own minute *when the kind filter wants pull requests*
    *   (`loadBoard`), which is exactly when it is drawing them; when the filter does not,
    *   the free restamp above is all this path gets. So the board is warm for as long as it
-   *   is provably unchanged, and once a board event has gone by it keeps its own age and
-   *   the TTL takes it — which is where it started.
+   *   is provably unchanged, and once a board event has gone by the entry keeps its own
+   *   age and stops being restamped — which is all the difference there is to make, now
+   *   that age no longer expires anything. What corrects it is the board's own sweep on
+   *   arrival: `warmBoot` in public/prs.js paints the held rows and `load()` runs behind
+   *   it, every time, so the stale frame lasts exactly as long as a `gh` sweep does.
    *
    * Every branch fails soft. No warm layer, no held entry to maintain, a fetch that
    * throws: all of them leave one cold tab, which is exactly where this began.
@@ -8673,9 +8907,10 @@
       // page that may never be opened — the exact bill /endorse stopped paying when its
       // own 45-second timer went (bc-bsgn). What it gets is the free half: held young for
       // as long as the log says nothing has been filed, revoked, amended or asked about,
-      // and the moment one of those lands the entry keeps its own age and the TTL takes
-      // it. That is what makes arriving at the queue instant more than fifteen minutes
-      // after this document loaded, which on a phone left open all day is every arrival.
+      // and the moment one of those lands the entry stops being restamped and is left to
+      // the sweep /endorse runs on arrival anyway. That is what makes arriving at the
+      // queue instant hours after this document loaded, which on a phone left open all
+      // day is every arrival.
       path: '/api/unendorsed',
       fold: (queue) => (Array.isArray(queue?.beads) ? queue : null),
       moved: (events) => window.beadcause?.stream?.queueMoved?.(events) !== false,
@@ -8924,11 +9159,11 @@
         composeEl.focus();
       }
     });
-    // What tells the stylesheet to keep the foot of the list clear of the button, the
-    // same way `has-tabbar` keeps it clear of the bar. Set from here rather than
-    // written into the markup because it is a fact about this script having wired ＋
-    // up: on the stale-document load above there is no button, and reserving space
-    // under one would be a gap at the end of the list with nothing in it.
+    // What tells the stylesheet to keep the foot of the list clear of the button. Set
+    // from here rather than written into the markup because it is a fact about this
+    // script having wired ＋ up: on the stale-document load above there is no button,
+    // and reserving space under one would be a gap at the end of the list with nothing
+    // in it.
     document.body.classList.add('has-compose');
   }
 
@@ -9027,9 +9262,9 @@
       // The poll answered, so the credential is good and the daemon is up: the one
       // moment it is safe to go and warm the other four tabs.
       warmOthers();
-      // And to keep them warm rather than leaving them to age out under a TTL nothing
-      // was putting back — this is the wake every other view is maintained from, and
-      // `MAINTAINED` is where what that means per path is argued.
+      // And to keep them *true* rather than merely stored — this is the wake every other
+      // view is maintained from, and `MAINTAINED` is where what that means per path is
+      // argued.
       warmViews(data, events, resync);
       // Null means the park timed out with nothing but presence traffic — the quiet
       // case, and the whole point: no sweep ran on the daemon and nothing repaints

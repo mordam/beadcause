@@ -26,15 +26,17 @@
 //      loses all of them, and a stamp is something the app knows nothing about, so
 //      it cannot agree with a bug in the thing it is checking.
 //   5. The Advocates tab is warm *and stays warm* while you sit on the inbox. The
-//      background fill happens once per document and the TTL then drops what it
-//      fetched, so an inbox left open — which is how this app is used — had a cold
+//      background fill happens once per document and `prewarmed` never goes back to
+//      false, so an inbox left open — which is how this app is used — had a cold
 //      Advocates tab for all but its first fifteen minutes, with nothing able to put
 //      it back (bc-xxzz). The claims are about requests, not seconds: the roster
 //      arriving on a wake restamps the held payload for free, an event that `bd`
 //      would answer differently re-asks once, and neither can happen inside the
-//      floor. The TTL itself is fifteen minutes and no check can sit out a quarter of
-//      an hour — what is measurable, and what actually broke, is whether the entry's
-//      clock advances at all while nothing is being fetched.
+//      floor. (Written when a fifteen-minute TTL was what dropped an unrestamped
+//      entry. bc-1kwl.14 removed the TTL, so what a restamp buys now is the floor and
+//      the store's eviction order — but the measurable fact is the same one, and it is
+//      still the one that actually broke: whether the entry's clock advances at all
+//      while nothing is being fetched.)
 //   6. And so are the board and the switches — every *other* warmed path, which bc-xxzz
 //      left with the same hole (bc-27er). Same shape of claim and same unit: three
 //      stamps move across the idle window for no request at all; an event that moved
@@ -45,6 +47,14 @@
 //      `MAINTAINED` in public/app.js. To measure it at all the inbox's kind filter is
 //      set to `Questions` partway through, because an inbox drawing PR cards sweeps
 //      `/api/prs` on its own minute and every count here would be unattributable.
+//   7. Closing the app and opening it again does not go back to the beginning. This is
+//      bc-1kwl.14 and it is the one claim above that is not about a *tab*: the store is
+//      `localStorage` now, so what a close takes is the session-scoped half and the kept
+//      inbox is still there. Asserted as three separate things, because a fast reopen
+//      alone would prove nothing — the list is up well inside a sweep, no sweep was
+//      asked for while it went up, and the refresh behind it is `/api/poll?since=<the
+//      seq the kept payload was true at>`. That last one is what makes painting an old
+//      list safe rather than merely quick.
 //
 // `--baseline` serves the committed public/app.js and public/warm.js instead of the
 // working copies, which is how you check that a failure here is a real one. What
@@ -53,7 +63,14 @@
 // claim's five lines — the two it still passes are the ones that say a *moved* entry is
 // left alone, which a baseline that maintains nothing satisfies by doing nothing. They
 // are guards against the next change, not evidence for this one. A baseline that fails
-// nothing at all is a stale comparison rather than a pass, and the run says so.
+// nothing at all is a stale comparison rather than a pass, and the run says so. On the
+// branch that wrote 7 it failed all three of that claim's lines and nothing else — a
+// reopen that took 1075ms against 1111ms cold, one `/api/questions` asked for on the way
+// to the first frame, and `since=5` resumed against a kept seq of `0`, which is the old
+// behaviour printed. Everything that reads a held entry reads *either* store for exactly
+// this reason: HEAD's warm layer is session-scoped and the working copy's is not, and a
+// reader that knew only one of them would report "nothing held" against the baseline and
+// make claims 5 and 6 unreadable in the run they exist to be compared against.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -118,6 +135,14 @@ function bump(event = { type: 'commented' }) {
 }
 
 const counts = { questions: 0, poll: 0, pollSweeps: 0, work: 0, admin: 0, consoles: 0, prs: 0 };
+/**
+ * The `since` on every `/api/poll`, in order.
+ *
+ * Claim 7 is not "the reopen was fast" — a fast reopen could mean a fast fixture, the
+ * same trap claim 1 exists for. It is that the reopen *resumed the event log from where
+ * the kept payload left off*, and the only place that is visible is the query string.
+ */
+const sinces = [];
 
 /** What `/api/work` answers — the shape lib/server.js sends, cut to what is read here. */
 const work = () => ({
@@ -220,6 +245,7 @@ function serve() {
     if (p === '/api/poll') {
       counts.poll += 1;
       const since = Number(url.searchParams.get('since') || 0);
+      sinces.push(since);
       const wait = Math.min(Number(url.searchParams.get('wait') || 25), 30) * 1000;
       if (since >= seq && wait > 0) {
         // Park, exactly as lib/events.js does: resolve when something moves, or time
@@ -378,8 +404,61 @@ try {
   // about which document filled that entry, and a navigation landing mid-warm would
   // make the answer depend on the fixture's latency rather than on the code.
   await sleep(2600);
-  const kept = await evalJs(s, `Object.keys(sessionStorage).filter((k) => k.startsWith('beadcause.warm:'))`);
+  // Both stores, and that is for `--baseline` alone: HEAD's warm layer is session-scoped
+  // and the working copy's is not, so a reader that knew only one of them would report
+  // "nothing held" for the baseline and make claims 5 and 6 unreadable in the run they
+  // exist to be compared against. The working copy only ever answers from `localStorage`
+  // — claim 7 below is what asserts that, and it asserts it the only way that means
+  // anything, by taking the session-scoped half away and asking again.
+  const anyStore = (expr) => `(localStorage.${expr} ?? sessionStorage.${expr})`;
+  const kept = await evalJs(
+    s,
+    `[...Object.keys(localStorage), ...Object.keys(sessionStorage)].filter((k) => k.startsWith('beadcause.warm:'))`
+  );
   check('and it keeps what it drew, for the next document', (kept || []).length > 0, JSON.stringify(kept));
+
+  /* 7. the app is closed and opened again — bc-1kwl.14
+
+     The one claim here that is not about a *tab*. Closing the app throws away everything
+     session-scoped and keeps everything on the disk, which is exactly what the line below
+     does — so a store in `sessionStorage` is gone at this point and a store in
+     `localStorage` is not. That is the whole of the change, and it is why `--baseline`
+     fails this and only this: HEAD's warm layer is session-scoped, so its reopen is a
+     cold `/api/questions`, 4.5s of one `bd human list` per workspace, paid every single
+     time the app was closed and opened.
+
+     Three assertions, because "fast" on its own proves nothing. The list has to be up
+     well inside a sweep; no sweep may have been asked for while it went up; and the
+     refresh behind it has to be `/api/poll?since=<the seq the kept payload was true at>`
+     — the resume, which is the thing that makes painting an old list safe at all. */
+  const keptSeq = await evalJs(
+    s,
+    `Number(JSON.parse(localStorage.getItem('beadcause.warm:/api/questions?scope=human') || 'null')?.seq) || 0`
+  );
+  const sweepsBeforeReopen = counts.questions;
+  const pollsBeforeReopen = sinces.length;
+  // Everything a close takes with it, and nothing else. The in-memory half goes with the
+  // document on the navigation below.
+  await evalJs(s, `sessionStorage.clear()`);
+  const reopened = await timeToCards(s, `${BASE}/?t=${TOKEN}`);
+  check(
+    'the app closed and opened again paints the inbox from disk, not from a sweep',
+    reopened !== null && reopened < SWEEP_MS,
+    `${reopened}ms against ${cold}ms cold`
+  );
+  check(
+    'and no sweep was asked for on the way to that first frame',
+    reopened !== null && reopened < SWEEP_MS && counts.questions === sweepsBeforeReopen,
+    `${counts.questions - sweepsBeforeReopen} /api/questions during the reopen`
+  );
+  // Give the poll a moment to leave; it is started off the same warm boot, not awaited.
+  for (let i = 0; i < 60 && sinces.length === pollsBeforeReopen; i++) await sleep(50);
+  const resumedAt = sinces.slice(pollsBeforeReopen);
+  check(
+    'and the refresh behind it is /api/poll?since=<the kept seq> — a catch-up, not a re-sweep',
+    keptSeq > 0 && resumedAt.length > 0 && resumedAt[0] === keptSeq,
+    `since=${resumedAt[0]} against a kept seq of ${keptSeq}`
+  );
 
   /* Take pull requests out of the inbox's kind filter, for the rest of the run.
      The inbox draws PR cards of its own when the filter wants them, and then it sweeps
@@ -419,13 +498,13 @@ try {
   // Read the held advocates payload before the idle window, so claim 5 can say whether
   // the quiet wake at the end of it restamped the entry or merely left it to age.
   const heldWork = async () =>
-    JSON.parse((await evalJs(s, `sessionStorage.getItem('beadcause.warm:/api/work')`)) || 'null');
+    JSON.parse((await evalJs(s, anyStore(`getItem('beadcause.warm:/api/work')`))) || 'null');
   const workBefore = await heldWork();
   const workAsksAtRest = counts.work;
   // And the same reading for the other three, which is the whole of claim 6: a stamp that
   // moves while the request count does not is an entry the log alone kept alive.
   const stampOf = async (path) =>
-    Number(JSON.parse((await evalJs(s, `sessionStorage.getItem('beadcause.warm:${path}')`)) || 'null')?.at) || 0;
+    Number(JSON.parse((await evalJs(s, anyStore(`getItem('beadcause.warm:${path}')`))) || 'null')?.at) || 0;
   const restStamps = {
     admin: await stampOf('/api/admin'),
     consoles: await stampOf('/api/consoles'),
@@ -543,8 +622,10 @@ try {
   /* And the same event seen from the board's side. An advocate is one of the five things
      that can move a lamp on it (`BOARD_EVENTS` in public/stream.js), so the held board is
      one the log has just contradicted — and a stamp put forward here would be a fresh
-     clock over a payload we know to be wrong. It keeps its own age and the TTL takes it,
-     which is exactly where the board started. */
+     clock over a payload we know to be wrong. It keeps its own age instead, which now
+     means it is the first entry the store gives up when it is full and the last one the
+     background warm will treat as fresh; what actually corrects it is the sweep /prs runs
+     on arrival, every time. */
   const movedStamps = { admin: await stampOf('/api/admin'), prs: await stampOf('/api/prs') };
   check(
     'an event that moved them stops the restamp rather than being papered over',

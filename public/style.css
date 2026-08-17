@@ -65,22 +65,98 @@ html, body {
   overscroll-behavior-y: contain;
 }
 
+/*
+  ## Every page is an app shell, not a document (bc-7utr, landed in bc-khoe.1)
+
+  The chrome used to be `position: sticky` (the top bar) and `position: fixed` (the bar
+  along the bottom) on a document that scrolled, and on a phone neither of them stayed
+  still. Both are laid out against the *layout* viewport while what you are looking at is
+  the *visual* one, and on iOS those two are not the same rectangle: the URL bar
+  collapses as you scroll down and grows back as you scroll up, which moves the layout
+  viewport under a fixed element, and a rubber-band overscroll translates the whole page
+  — fixed children included. The bottom bar slid half off the screen; the top bar
+  drifted for the same reason. No arithmetic fixes that, because the numbers are right
+  and the rectangle they are measured against is the one that moves.
+
+  So the document does not scroll. `body` is exactly one viewport tall and clipped, a
+  flex column of `.topbar`, `.viewbar` and the page's own scroller — and the only thing
+  that scrolls is the last one (`.pagescroll` below). Nothing is positioned against a
+  viewport that moves, because no viewport moves: with no document scroll there is no
+  URL-bar collapse and no rubber-band to translate anything. The chat session
+  (`.console-body`), the terminal (`.term-body`) and the graph already worked this way
+  for their own reasons; this is that shape, made the rule.
+
+  `100dvh` rather than `100vh` because the two differ by the collapsible chrome, and
+  `dvh` is the one that means "what is on screen now" — the same reason every other
+  height in this file is in it. `overflow: hidden` on `html` as well as `body` is what
+  takes the last rubber-band away: with only `body` clipped, iOS still bounces the root.
+
+  test/shell.mjs is what keeps this shape; scripts/topbar-check.mjs measures it in a
+  real Chrome at both phone widths.
+*/
+html { height: 100%; overflow: hidden; }
+
 body {
-  padding: 0 env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 24px) env(safe-area-inset-left);
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
+/*
+  The one element on a page that scrolls. It is marked in the HTML rather than inferred
+  from a content class, because "the scrolling region" and "the list" are not the same
+  claim — the reader (public/doc.html) wraps two elements in one scroller, and the
+  foundations screen has a `.thread` inside a `.pagescroll` that scrolls on its own.
+  Anything that has to *not* scroll away goes outside it: the top bar, the pill row, the
+  inbox's filter line, the advocate console's chip row.
+
+  `min-height: 0` is load-bearing. A flex item's default `min-height: auto` is its
+  content, so without this the scroller grows to fit the list instead of scrolling it and
+  pushes everything else off the screen — which is the original bug back again, wearing a
+  different mechanism.
+*/
+.pagescroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* A flick that reaches the end of the list must not become a gesture on whatever is
+     behind this page — the drawer's host page, or the browser's own pull-to-refresh. */
+  overscroll-behavior: contain;
+}
+
+/*
+  And the trap that comes with it, which cost a screenshot to find.
+
+  `.list`, `.work` and `.thread` are all `display: flex; flex-direction: column` — and a
+  flex item's default is `flex-shrink: 1`. While the scroller was content-sized that
+  never bit, because there was no definite height to fit into; the moment it became a row
+  of a viewport-height shell, the browser started shrinking the cards to make the whole
+  list fit one screen. Normally the automatic minimum size (`min-height: auto`) stops
+  that at the item's content — but `.card` is `overflow: hidden`, and an item that clips
+  has an automatic minimum of **zero**. So every card squashed to a fraction of its
+  height and clipped its own contents, and the page still scrolled and still looked like
+  a list.
+*/
+.pagescroll > * { flex-shrink: 0; }
+
 .topbar {
-  position: sticky;
-  top: 0;
+  /* In flow, as the first row of the shell above — not sticky. There is nothing for it
+     to stick to any more, and a sticky bar was the drift bc-7utr was filed about. */
+  flex: none;
   z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  /* The space picker is a full-width third child (see .spacebar), so the bar wraps to
-     two lines on the pages that have one and stays a single line on the pages that do
-     not. It is its own row because the first one is already full — measured, not
-     assumed, and the arithmetic is in .spacebar below. `scripts/topbar-check.mjs` is
-     what keeps a third row from arriving without anybody deciding to spend it. */
+  /* One line on every page since bc-khoe.5: a mark in a gear, the page's own title, and
+     the space picker, with everything that used to be a loose icon button now a row in the
+     mark's menu. `flex-wrap` stays because wrapping is the honest failure — a bar that
+     overflows instead would put a control off the side of the phone where nothing can
+     reach it — but a second line is now a bug rather than a budget, and
+     `scripts/topbar-check.mjs` fails the repo for one. The arithmetic is in .spacebar. */
   flex-wrap: wrap;
   gap: 12px;
   padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
@@ -104,8 +180,12 @@ body {
 /* The app mark where the word used to be. The artwork carries its own dark
    rounded tile — it is the home-screen icon — so it needs no plate under it and
    reads the same in both schemes. `display: flex` on the h1 kills the inline
-   baseline gap that would otherwise push it a couple of pixels off the dot. */
-.brand h1.mark { display: flex; }
+   baseline gap that would otherwise push it a couple of pixels off the dot.
+
+   `overflow: visible` is against the `hidden` that `.brand h1` sets above: that ellipsis
+   belongs to a page *title*, and this h1 holds the menu button with a gear badge in its
+   corner (see .markmenu). Clipped, the badge loses its outer edge. */
+.brand h1.mark { display: flex; overflow: visible; }
 .brand h1.mark img {
   width: 26px; height: 26px; border-radius: 7px; display: block;
   /* The artwork's own tile is #0b0f14, which in the dark scheme *is* the page —
@@ -148,6 +228,12 @@ body {
   to decide which card you are reading, so its height has to be the same open or shut.
 */
 .filters {
+  /* A row of the shell rather than the first thing in the list (bc-7utr), so it no
+     longer scrolls away — which is what paintScrollPos() in app.js already assumed: it
+     takes the lower of this nav's bottom edge and the top bar's as the line a card has
+     to clear to count as the one you are reading. `flex: none` because the height of
+     this line is fixed either way and the scroller under it is what takes the slack. */
+  flex: none;
   display: flex;
   padding: 10px 16px 6px;
 }
@@ -408,76 +494,52 @@ body {
 /*
   The space picker — public/spacebar.js, in the top bar of every standing view.
 
-  A row of its own inside the bar, and the widest thing on the screen, because what it
-  says is the frame for everything under it: on every page in the app, the list, the
-  counts and the empty state are about the one repo named here. It reads like a title
-  rather than like a filter for that reason.
+  It sits on the first row, beside the mark, and it is the widest thing on that row
+  because what it says is the frame for everything under it: on every page in the app,
+  the list and the empty state are about the one repo named here.
 
-  A native <select> with the arrow drawn by hand. `appearance: none` is what lets it
-  take the surface, the radius and the hairline every other control on the bar has —
-  without it, iOS and Android each impose their own chrome and the bar has a
-  platform-shaped hole in it — and the wheel or menu that opens on tap is still the
-  operating system's own, which no scripted dropdown gets to be.
+  A native <select> with the arrow drawn by hand. `appearance: none` is what lets it take
+  the surface, the radius and the hairline every other control on the bar has — without it
+  iOS and Android each impose their own chrome and the bar has a platform-shaped hole in
+  it — and the wheel or menu that opens on tap is still the operating system's own, which
+  no scripted dropdown gets to be.
 
-  ## The row it costs, and why it keeps it (bc-hne3)
+  ## It had a row of its own until bc-khoe.5, and the argument is worth keeping
 
-  A row of sticky chrome on a phone is worth arguing about, so it was measured rather
-  than argued: `scripts/topbar-check.mjs` at 360×640, six workspaces, the inbox's
-  "3 waiting" chip drawn.
+  A row of sticky chrome on a phone is worth arguing about, so bc-hne3 measured it rather
+  than argued it: `scripts/topbar-check.mjs` at 360×640 with six workspaces. The row was
+  **43px** — a 31px control and the bar's 12px gap — taking the bar from 61px to 104px and
+  the bar plus the tab bar from 116px to 159px, 18% → 25% of a 640px screen.
 
-  The row is **43px** — a 31px control and the bar's own 12px gap. The bar goes 61px →
-  104px, and the bar plus the tab bar goes 116px → 159px, which is 18% → 25% of a
-  640px screen. That is the real price. Against it: the two levels of the selection,
-  the count, and the accent border that says five other repos are being held off this
-  screen, all of which are how you know what the list under them is about.
+  It kept that row because the first one could not hold it, and that was arithmetic rather
+  than taste. 360px less the bar's 32px of padding is 328px; the brand was 133px and the
+  icon buttons 172px, so with the bar's gaps the row was already a pixel over full before a
+  picker was mentioned. Every way round it was tried and each one broke something: a
+  collapse-when-it-fits basis made the control a title on three pages and a clipped chip on
+  a fourth, hiding it on scroll down meant a fixed translated header on six pages, and
+  folding it into the brand left a control whose current value was invisible.
 
-  **The first row cannot hold it, and that is arithmetic.** 360px less the bar's 32px
-  of padding is 328px. On the inbox the brand is 133px with the "3 waiting" chip in it,
-  and the icon buttons are 172px — four of them at their 40px minimum with 4px between,
-  the fifth (open-in-Chrome) being 0px wide because it is not drawn on a phone. With the
-  bar's two 12px gaps that is 329px, so the row is already one pixel *over* full before
-  a picker is mentioned. Inline, the picker needs 184px — 148px for its widest row
-  (`Personal — all · 3`: 106px of text in 42px of padding) and 36px for the count and
-  its gap. Even with the chip taken away, 88px is left and it is 96px short, so what
-  would ship is a dropdown ellipsing its own repo name.
+  What changed is the number on the other side. bc-khoe.5 emptied the first row instead of
+  trying to squeeze past it: the loose icon buttons are rows in the mark's menu
+  (public/accountbar.js), the account chip's address is a line inside that menu, and what
+  is left up there is a 26px mark in a gear. The picker takes the rest — and pays for the
+  fit with its *label* rather than with the bar, drawing at most twelve characters while
+  the dropdown keeps every full name (see `shorten` in public/spacebar.js). That is the
+  one thing bc-hne3 refused to spend, and the reason it is affordable now is that the value
+  is still on screen: `beadcause` reads whole, `climative-…` reads as narrowed-to-something,
+  and the accent border below says something is being kept off the screen either way.
 
-  Three ways out were tried against the real pages. None of them survives the numbers:
+  `scripts/topbar-check.mjs` is now the check that the bar is **one** row, and it fails the
+  repo for two. The old budget it was written to defend — 170px of chrome — is unchanged
+  and is met with room to spare; what it defends now is that the room stays spare.
 
-  - **Collapse into the first row when it fits** (`flex: 1 1 <basis>` instead of
-    `1 0 100%`, so wrapping does the deciding). Hiding the "3 waiting" chip while a
-    repo is picked does *not* buy the inbox back: measured, it stays two lines with
-    the chip gone, because the icon buttons are 172 of the 328 on their own. A
-    150px basis collapses `/console`, `/monitor` and `/endorse` only — and on
-    `/monitor` the select lands at 122px against a 123px label, clipped on arrival. A
-    basis wide enough for the label (190px) collapses nothing at 360px. So the offer
-    is: the picker keeps its row on the inbox, the PR board and the foundations
-    screen, moves and shrinks on the other three, and clips on one. One control that
-    is the same on every page is most of what the picker bought (see the header of
-    public/spacebar.js); a control that is a title here and a chip there is four
-    controls again, wearing one name.
-  - **Hide it on scroll down, bring it back on scroll up.** The bar is `position:
-    sticky`, so it is in flow: shrinking it while you are scrolled into the list moves
-    every card up 43px under your thumb. Doing it honestly means a fixed, translated
-    header on six pages — and the row is back the moment you scroll up, which is the
-    moment you were reading it anyway.
-  - **Fold it into the brand — tap the mark to change repo.** The only one that gets
-    one row at 360px, and it pays with the thing the picker is for: the repo name is
-    exactly what does not fit beside four icon buttons, so what is left is a control
-    whose current value is invisible. An app that looks identical showing everything
-    and showing one sixth of it is one you stop trusting (see `.narrowed` below).
-
-  So the row stays, and what settles it is how far the first row would have to be
-  cleared to hold the picker instead. Measured at 360px: two of the four icon buttons
-  gone leaves 87px; two gone *and* the chip hidden leaves 176px, which is still 8px
-  short of the 184px; it takes **three of the four buttons and the chip** to clear it,
-  at 220px. That is not a layout trick, it is emptying the bar — and if the icons ever
-  do get thinned that far, `scripts/topbar-check.mjs` says so in as many words.
-
-  Note the control is already 31px against the 40px every icon button on the bar has,
-  which is the other reason not to shave the row: the height is the tap target.
+  Note the control is 31px against the 40px every icon button has. The height is the tap
+  target, so it is not shaved further.
 */
 .spacebar {
-  flex: 1 0 100%;
+  /* `1 1 auto`, so it takes what the mark leaves and no more. It was `1 0 100%` — a row
+     of its own — until bc-khoe.5. */
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -487,21 +549,66 @@ body {
    would lay out as a flex row of nothing. */
 .spacebar[hidden] { display: none; }
 
-.spacepick { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
-.spacepick select {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 100%;
-  min-width: 0;
+/*
+  Three boxes in one control: the label you read, the caret, and the `<select>` laid over
+  both of them invisibly.
+
+  The select is what you actually tap — it keeps the accessible name, the keyboard, and
+  the platform's own wheel or menu — and it is `opacity: 0` rather than absent because what
+  it *shows* is the wrong string. A native select draws its selected option, and the option
+  is the whole repo name; on a row shared with the mark that is a bar with nothing left on
+  it. So the visible half is a span the script fills with a cut-down label, and the
+  dropdown you open still lists every name in full (`shorten` in public/spacebar.js).
+
+  `width: max-content` on the shown span is the other half of "narrow": the control is as
+  wide as its label and no wider, so a one-repo day does not leave a full-width box with
+  nine characters in it.
+*/
+.spacepick { position: relative; display: flex; align-items: center; min-width: 0; max-width: 100%; }
+.spacepick-shown {
+  display: block;
+  width: max-content;
+  max-width: 100%;
   /* Room on the right for the caret that is drawn over it. */
   padding: 7px 30px 7px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
   color: var(--text);
-  font: 620 14px/1.2 inherit;
+  /* Longhands rather than the `font:` shorthand every other control here uses. The
+     shorthand resets `line-height` from whatever the page's own is, and this box's height
+     *is* the bar's height now that they share a row — 40px against 33px is 7px of chrome
+     on every screen, arrived at by a property nobody wrote down. */
+  font-weight: 620;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+  /* A belt to `shorten`'s braces: the character rule is what keeps the bar one row, and
+     this is what keeps a font substitution from making a liar of it. */
+  overflow: hidden;
   text-overflow: ellipsis;
+}
+.spacepick select {
+  /* Over the whole control, invisible, and still the thing under the thumb. `inset: 0`
+     rather than a width, so it grows with the label rather than being told about it. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
   cursor: pointer;
+}
+/* The focus ring the invisible select cannot draw. `:focus-visible` and not `:focus`, so
+   a tap does not leave a ring behind on a phone. */
+.spacepick:has(select:focus-visible) .spacepick-shown {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .spacepick-caret {
   position: absolute;
@@ -517,7 +624,7 @@ body {
   identical whether it is showing you everything or one sixth of it is an app you will
   eventually mistrust.
 */
-.spacebar.narrowed .spacepick select {
+.spacebar.narrowed .spacepick-shown {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
@@ -562,62 +669,73 @@ body {
 }
 
 /*
-  The account switcher — the address at the right-hand end of the bar, and the menu the
-  page's own top-right buttons now live in. See public/accountbar.js.
+  The app menu — the mark in a gear at the left-hand end of the bar, and everything the
+  bar used to hold loose behind it. See public/accountbar.js.
 
-  It is an ordinary flex item on the *first* row, deliberately, and that is the whole of
-  how it fits the two-row budget `scripts/topbar-check.mjs` measures: the picker below is
-  `flex: 1 0 100%` and takes a row of its own, and a third row is what that check exists
-  to refuse. It can afford the width because it takes some back — up to four loose icon
-  buttons that used to sit here are rows in the menu now.
-*/
-/*
-  `flex: 1 1 0` rather than `auto`, and that is the line that keeps the bar on one row.
+  It lives inside `.brand`, right after the pulse dot, and it is `flex: 0 0 auto`: it is
+  26px of mark and it must never be the thing that gives way. What gives way beside it is
+  the page title, which already ellipsises, and the space picker's label, which is cut to
+  twelve characters by the script rather than by the layout.
 
-  `.topbar` is `flex-wrap: wrap`, and a wrapping flex line **wraps before it shrinks**: an
-  item whose content is 178px wide is placed at 178px and pushed to a second row if the
-  line is full, however shrinkable it is. Two pages have a title that wide — /session and
-  /beadsession draw a bead's whole summary line up here — so an `auto` basis put the chip
-  on a row of its own there and cost 46px of sticky chrome on the two screens that are
-  nothing but transcript. A basis of 0 has no content width to wrap on: it takes what is
-  left of the row, and the address inside it ellipsises into whatever that turns out to
-  be. See `scripts/say-check.mjs`, which measures the transcript underneath.
+  `position: relative` is the whole reason this wrapper exists at all — the menu is
+  absolute and hangs off it. `.brand` itself cannot be that anchor: it is shared with a
+  title, and a menu measured from the brand's box would move whenever the title did.
 */
 .accountbar {
   position: relative;
-  display: flex; align-items: center; justify-content: flex-end;
-  flex: 1 1 0; min-width: 0;
+  display: flex; align-items: center;
+  flex: 0 0 auto;
 }
+
+/*
+  The trigger. Two shapes for one control: on the inbox it is the app mark with a gear
+  badge on its corner, and on every other page — where the bar draws a title instead of a
+  mark — it is the gear alone, in the same place and at the same size.
+
+  The badge sits *outside* the mark's rounded tile on purpose. Over it, at 26px, it is a
+  smudge on artwork that is already three glyphs in a box; beside it, at the bottom-right
+  corner, it reads as a badge, which is the thing every phone already means by a small
+  glyph in that corner.
+*/
+.markmenu {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  /* Bigger than the artwork so the badge has somewhere to be, and so the tap target is
+     not 26px on the one control that opens everything else. */
+  width: 34px; height: 34px;
+  padding: 0;
+  border: 0; background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.markmenu-gear {
+  position: absolute;
+  right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  /* The page's own ground, not a surface colour: the badge overlaps the mark's tile and
+     the ring is what separates the two. */
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--muted);
+  font-size: 9px; line-height: 1;
+}
+/* No mark to badge — the gear is the control, at the size the mark would have been. */
+.markmenu-bare {
+  font-size: 17px;
+  color: var(--muted);
+}
+.markmenu:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
 
 /* Emptied by the hoist rather than removed, because the monitor puts a tally back into
    it on every poll. With nothing left in it, its gap would otherwise draw a hole. */
 .topbar .sheet-actions.hoisted:empty { display: none; }
 
-.accountchip {
-  display: flex; align-items: center; gap: 6px;
-  /* Shrinkable to almost nothing, deliberately: the bar wraps to a second row when its
-     first is full, and a second row is 43px of sticky chrome on every page — which is
-     what `scripts/topbar-check.mjs` and `scripts/say-check.mjs` both measure. The address
-     is the half that gives way, because it is the one thing here that is still readable
-     truncated: a chip saying `you@work…` still says which account, and a page that lost
-     43px of transcript to say it in full has spent the wrong thing. */
-  min-width: 0;
-  max-width: min(46vw, 260px);
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 1px solid var(--line); border-radius: 999px;
-  background: var(--surface); color: var(--text);
-  font: 600 13px/1.2 inherit;
-  cursor: pointer;
-}
-.accountchip-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.accountchip-caret { color: var(--muted); font-size: 10px; }
-/* No account configured: the chip is drawing this Mac's address rather than a choice
-   anybody has made, and it should not look like a live selection. */
-.accountchip.unset { color: var(--muted); }
-
 .accountmenu {
-  position: absolute; top: calc(100% + 8px); right: 0;
+  /* Left-anchored, because the trigger is at the left-hand end of the bar now. Measured
+     from `.accountbar`, whose box is the trigger's — see above. */
+  position: absolute; top: calc(100% + 10px); left: 0;
   /* Above the bar itself, which is sticky at 20 — a menu behind its own chip is the one
      way this can fail while looking like it worked. */
   z-index: 30;
@@ -636,11 +754,32 @@ body {
   border: 0; border-radius: 9px;
   background: none; color: var(--text);
   font: 600 14px/1.2 inherit; text-align: left;
+  /* Anchors are rows too (Admin, and every hoisted `<a>`), and a row that is a link must
+     not look like one. */
+  text-decoration: none;
   cursor: pointer;
 }
 .accountmenu-row:hover { background: var(--surface-2); }
 .accountmenu-glyph { width: 22px; text-align: center; color: var(--muted); }
-.accountmenu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accountmenu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The address, under "Switch account". It was a chip on the bar until bc-khoe.5 — see
+   public/accountbar.js — and this is where it went: the row that says which account you
+   are in is the row that changes it. */
+.accountmenu-switch .accountmenu-label { display: flex; flex-direction: column; gap: 2px; }
+.accountmenu-sub {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--muted);
+  /* Longhands, not `font: 500 12px/1.2 inherit`. That shorthand is what the three rules
+     above and below this one are written as and it is **invalid** — `inherit` is not a
+     legal family inside the shorthand, so the whole declaration is dropped and the box
+     silently keeps the page's own font. It cost 7px of bar height here before it was
+     caught (`.spacepick-shown`, same mistake, measured at 40px against the 33px it says).
+     bc-khoe.15 is filed for the ones this bead did not own. */
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.accountmenu-row[hidden] { display: none; }
 /* The hoisted buttons keep their own glyph and lose the plate around it: inside a menu
    the row is the target, and a button-inside-a-button reads as two things to press.
 
@@ -737,7 +876,10 @@ body {
 .accountform-repo { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--prose); cursor: pointer; }
 .accountform-error { margin: 10px 0 0; color: var(--danger); font-size: 13px; }
 
-.list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 12px; }
+/* The bottom 12px is the gap after the last card. It used to be 0 because the body
+   reserved the bottom bar's whole height under the list; the list is the scroller now
+   and ends where the screen does, so the breathing room has to be its own. */
+.list { padding: 12px 12px 12px; display: flex; flex-direction: column; gap: 12px; }
 
 /*
   The foundation channel — agents asking to change what they are.
@@ -1211,6 +1353,14 @@ body {
 }
 
 .q { font-size: 19px; font-weight: 630; line-height: 1.4; margin: 0 0 5px; letter-spacing: -0.012em; }
+/* The card's own title is a <button> now, shut and open alike (bc-rfnr.9.8) — the
+   browser's own button chrome has to come off before the rule above even applies: full
+   width and left-aligned like the paragraph it replaces, no background, border or
+   padding, and the font and colour it would otherwise reset to the platform default
+   instead of inheriting. The focus ring is left alone on purpose — it is the one visible
+   sign a keyboard has reached the card at all, and `tabindex="-1"` is what keeps it out
+   of the way once the card is open and the button has nothing left to do. */
+button.q { display: block; width: 100%; text-align: left; background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 .subtitle { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
 .subtitle.bad { color: var(--danger); }
 
@@ -3075,7 +3225,9 @@ button.work-row {
 
 /* The graph tab. The canvas fills what's left under the topbar; the card and the
    sheet float over it, so neither of them can push the graph around. */
-.graph-body { overflow: hidden; height: 100dvh; display: flex; flex-direction: column; }
+/* The column, the clip and the height are `body`'s now (bc-7utr) — this page wanted them
+   before every page had them. Nothing is left that is only true here, so the rule is
+   gone; `.graph-main` below is what takes the room the canvas draws in. */
 .graph-main { flex: 1; min-height: 0; position: relative; }
 #canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 /* `display: grid` beats the UA's [hidden] rule, and this one covers the whole
@@ -3471,7 +3623,18 @@ button.work-row {
   underneath is the one being withheld. Centred and short: there are two controls on
   it and one of them is folded away.
 */
-.login-body { display: grid; place-items: center; min-height: 100dvh; padding: 24px; }
+/* The one page that is neither a shell nor a document: a single card, centred. It has to
+   undo the body's `display: flex` and its clip — a sign-in card can be taller than a
+   landscape phone, and with the root clipped there would be no way to reach the button.
+   `place-items` rather than `place-content` on purpose: the row sizes to the card, so
+   tall content overflows downward and scrolls instead of being centred half off the top. */
+.login-body {
+  display: grid;
+  place-items: center;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 24px;
+}
 .login { width: 100%; max-width: 380px; text-align: center; }
 .login-mark { margin-bottom: 14px; }
 .login h1 { margin: 0 0 4px; font-size: 22px; }
@@ -3555,7 +3718,7 @@ button.work-row {
 @media (orientation: landscape) {
   .topbar { padding: calc(env(safe-area-inset-top) + 6px) 16px 6px; }
   .filters { padding: 8px 16px 2px; }
-  .list { padding: 10px 12px 0; }
+  .list { padding: 10px 12px 10px; }
   /* 62vh of a landscape screen is nearly all of it. */
   .md img, .brief img { max-height: 80vh; }
 }
@@ -3659,15 +3822,15 @@ button.work-row {
    than a long document, because a composer that scrolls away with the
    conversation is a composer you have to hunt for on every turn. */
 
-.console-body {
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding-bottom: 0;
-}
+/* The shape itself is `body`'s now — every page in the app is a viewport-height column
+   (bc-7utr). What is left here is the one thing that is only true of this page and the
+   foundations screen: the bottom row is a composer with its own home-indicator gap, so
+   the body must not hold one as well. */
+.console-body { padding-bottom: 0; }
 
-.launcher { flex: 1; overflow-y: auto; padding: 18px 16px 40px; max-width: 780px; margin: 0 auto; width: 100%; }
+/* The launcher and the thread are both `.pagescroll` in the HTML; what is left here is
+   only the column they draw in. */
+.launcher { padding: 18px 16px calc(env(safe-area-inset-bottom) + 40px); max-width: 780px; margin: 0 auto; width: 100%; }
 .launcher .section-label { margin-top: 22px; }
 .lede { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0 0 4px; }
 .recent { display: flex; flex-direction: column; gap: 2px; }
@@ -4504,13 +4667,10 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    keyboard, not under it — `dvh` plus the visual-viewport resize in term.js are
    what keep it there when the keyboard opens. */
 
-.term-body {
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding-bottom: 0;
-}
+/* The column is `body`'s shape now (bc-7utr). The key row carries the home-indicator gap
+   itself — it is the bottom row and it is full of tap targets — so the body must not
+   hold one too. */
+.term-body { padding-bottom: 0; }
 
 .screen-wrap {
   flex: 1;
@@ -4645,13 +4805,14 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    bottom 53 and the bar's was top 0, bottom 104. Nothing of it was on screen, and it
    was carrying the whole cost of being sticky for none of the benefit.
 
-   `--topbar-h` is the bar's height, published by public/montabs.js from a
-   `ResizeObserver` on `.topbar` — see the block there for why the number cannot be
-   written here. Short version: it is 104px with the space picker's row and 61px
-   without, the picker hides itself under two workspaces, and the bar also carries
-   `env(safe-area-inset-top)` and wraps. The fallback is the two-row bar, so a page
-   that somehow loses that script is 43px wrong in the uncommon case rather than a
-   whole bar wrong in the common one.
+   **And that whole mechanism is gone (bc-khoe.1).** The offset used to be
+   `var(--topbar-h)`, a number public/montabs.js measured off `.topbar` with a
+   `ResizeObserver` because it is 104px with the space picker's row and 61px without and
+   the picker hides itself under two workspaces — a fact about the payload, not a
+   constant. Under the app shell there is nothing to offset: this strip is a **row of the
+   column**, in flow between the pill row and the pane, and the thing it used to hide
+   behind is the row above it. `position: sticky` goes with the number, because the
+   viewport no longer scrolls and there is nothing that could scroll this away.
 
    The 14px used to be a bottom margin, and a margin is transparent — under a strip
    that now actually stays put, that was a 14px band of the list sliding through
@@ -4659,8 +4820,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    which is the same gap drawn in `var(--bg)`; the border-bottom moves down by it,
    which is what a border under a bar with room beneath it should do anyway. */
 .mon-tabs {
-  position: sticky;
-  top: var(--topbar-h, 104px);
+  flex: none;
   z-index: 3;
   padding: 8px 14px 14px;
   background: var(--bg);
@@ -4783,113 +4943,93 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mir-links { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 14px; }
 .mir-links a { color: var(--accent); font-size: 13.5px; font-weight: 600; text-decoration: none; }
 
-/* ── The tab bar ──────────────────────────────────────────────────────────────
+/* ── The pill row ─────────────────────────────────────────────────────────────
 
-   The standing views, one bar, on every one of them — see public/tabbar.js for
-   why. It sits at the bottom because that is where a thumb is, and the safe-area
-   padding is its own rather than the body's: it is `position: fixed`, so it is
-   laid out against the viewport and the body's inset padding never reaches it.
+   One row of views across the top of every page — see public/viewbar.js for what it
+   replaced and why. It is the second row of the app shell, under `.topbar`, so it is in
+   flow rather than pinned: nothing here is laid out against a viewport, because the
+   document does not scroll.
 
-   `--tabbar-h` is the bar without that inset. Everything that has to sit clear of
-   the bar — the foot of a scrolling page, a toast — adds the inset back itself,
-   which is why it appears in the sums below and not in the variable. */
+   **`.viewbar` and `.viewpill`, not `.pillrow` and `.pill`.** `.pill` in this file is
+   the uppercase metadata badge with twenty modifiers under it, and `.pill-row` is the
+   flex-wrapping row those badges sit in — so the obvious names were both taken by
+   something unrelated, and a navigation called `.pillrow` full of `.pill`s would have
+   restyled every badge in the app. See the header of public/viewbar.js.
 
-:root { --tabbar-h: 54px; }
+   `--viewbar-h` is the height of one pill, which is also the row's tap target. 44px is
+   the floor a thumb needs, and the number the bottom bar's own browser check held it to
+   before both were deleted (bc-khoe.9 writes the row's replacement). The row costs
+   44 + 8px of its own padding against the bottom bar's 54 plus the home indicator it was
+   holding clear — so the chrome this spends is less than the chrome it deletes, on a
+   change whose whole argument is that a phone's screen is mostly chrome already. */
 
-.tabbar {
-  position: fixed;
-  z-index: 25;
-  left: 0; right: 0; bottom: 0;
+:root { --viewbar-h: 44px; }
+
+.viewbar {
+  flex: none;
+  z-index: 19;
   display: flex;
-  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid var(--line);
+  gap: 6px;
+  padding: 4px 12px;
+  /* Opaque, unlike the top bar. The bar is translucent because it used to have a page
+     scrolling under it; nothing has ever scrolled under this one — the scroller starts
+     below it — so a blur here would be a filter over a solid colour. */
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  /* Sideways, never down. There will be roughly nine of these once bc-khoe.2, .4 and .7
+     have landed, and a row that wraps to a second line is the thing this epic exists to
+     stop. The scrollbar is hidden because a phone draws none anyway and on the Mac a
+     trough under five pills reads as the row being broken. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  /* A sideways flick that runs out of pills must not become the browser's back
+     gesture. */
+  overscroll-behavior-x: contain;
 }
+.viewbar::-webkit-scrollbar { display: none; }
 
-.tab-item {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.viewpill {
+  /* `flex: none` twice over: a pill must not be squeezed to fit — that is what the
+     sideways scroll is for — and must not stretch to fill a row with room to spare,
+     which would make five pills on a Mac read as five tabs. */
+  flex: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  min-height: var(--tabbar-h);
-  padding: 5px 2px;
+  gap: 6px;
+  min-height: var(--viewbar-h);
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
   color: var(--muted);
   text-decoration: none;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.01em;
+  white-space: nowrap;
   -webkit-tap-highlight-color: transparent;
 }
-.tab-icon { font-size: 19px; line-height: 1.1; position: relative; }
-.tab-label { line-height: 1; }
+.viewpill-icon { font-size: 15px; line-height: 1; }
 
-/* Six tabs is 60px each at 360px — the common Android width — and "Advocates" does
-   not fit that at 10.5px. Rather than shorten a label that is already one word, the
-   type steps down when there is a sixth item to make room for. Keyed off the bar's
-   own contents so adding or removing a tab needs nothing here. */
-.tabbar:has(.tab-item:nth-child(6)) .tab-item { font-size: 9.5px; letter-spacing: 0; padding-inline: 1px; }
-.tabbar:has(.tab-item:nth-child(6)) .tab-icon { font-size: 18px; }
-
-/* How many proposals are waiting — on the tab that answers them, so the number and
-   the way to act on it are one tap target. It hangs off the icon rather than the item
-   so it lands on the glyph and not out at the edge of a tab that is a fifth of the
-   screen wide. */
-.tab-badge {
-  position: absolute;
-  top: -3px; left: 62%;
-  min-width: 16px; height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
+/* Current. Colour alone would be the only mark, and colour alone is not a mark — so the
+   accent is doubled by filling the pill and moving its border, which reads in both
+   schemes and without colour vision. `aria-current` is the same claim, said to a reader
+   that cannot see either. */
+.viewpill[aria-current="page"] {
+  border-color: var(--accent);
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: 10px; font-weight: 700; line-height: 16px;
-  text-align: center;
-  /* The bar is translucent and the list scrolls under it; without this ring a badge
-     can sit on top of a card's own text and read as part of it. */
-  box-shadow: 0 0 0 2px var(--bg);
-}
-.tab-badge[hidden] { display: none; }
-
-/* Current. Colour alone would be the only mark, and colour alone is not a mark —
-   so the accent is doubled by a rule along the top edge of the tab, which reads
-   in both schemes and without colour vision. */
-.tab-item[aria-current="page"] { color: var(--accent); }
-.tab-item[aria-current="page"]::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 24%; right: 24%;
-  height: 2px;
-  border-radius: 0 0 2px 2px;
-  background: var(--accent);
 }
 
-/* Keep the foot of a scrolling page clear of the bar. Beats the plain `body` rule
-   at the top of this file, which reserved only the home indicator. */
-.has-tabbar { padding-bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 16px); }
-
-/* The chat session is not a document that scrolls under a fixed bar — it is a fixed
-   column of bar, thread and composer, and a composer is the one thing that must
-   never be covered. So on that page the tab bar stops being fixed and becomes the
-   last row of the column, and the composer hands it the home-indicator gap it was
-   holding itself. */
-.console-body.has-tabbar { padding-bottom: 0; }
-.console-body .tabbar { position: static; flex: none; }
-.console-body.has-tabbar .composer { padding-bottom: 10px; }
-
-/* The toast is bottom-anchored, so every one of these lifts by the bar. The
-   chat session's already clears its composer; it now clears the bar under it too. */
-.has-tabbar .toast { bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 18px); }
-.console-body.has-tabbar .toast { bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 84px); }
-
-/* Height is the scarce axis on a phone on its side — the same reason the top bar
-   thins out up there. */
+/* Height is the scarce axis on a phone on its side — the same reason the top bar thins
+   out up there. The 44px tap floor is not what gets spent; the row's padding and the
+   type are. */
 @media (orientation: landscape) {
-  :root { --tabbar-h: 44px; }
-  .tab-icon { font-size: 17px; }
+  .viewbar { padding: 3px 12px; }
+  .viewpill { font-size: 12.5px; padding: 0 11px; }
 }
 
 /* ── ＋, and the conversations it starts ──────────────────────────────────────
@@ -4905,15 +5045,14 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    in the list still clears it exactly as it clears the bar.
 
    z-index 24 is deliberate and sits between two things: above the list (which scrolls
-   under it) and below both the tab bar (25) and an open card (40, `position: fixed;
-   inset: 0`). An answer takes the whole screen and must not have a create button
-   sitting on top of it. */
+   under it) and below an open card (40, `position: fixed; inset: 0`). An answer takes
+   the whole screen and must not have a create button sitting on top of it. */
 
 .compose-wrap {
   position: fixed;
   z-index: 24;
   right: calc(env(safe-area-inset-right) + 14px);
-  bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 14px);
+  bottom: calc(env(safe-area-inset-bottom) + 14px);
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -4952,12 +5091,15 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .compose-pick .section-label { margin: 0 0 6px; padding-top: 0; border-top: 0; }
 .compose-pick .chip-row { flex-wrap: wrap; }
 
-/* Room at the foot of the list for the button sitting over it. On top of the tab
-   bar's own reservation, because both are there at once — see .has-tabbar. */
-.has-compose.has-tabbar { padding-bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 76px); }
+/* Room at the foot of the list for the button sitting over it. On the **scroller**
+   rather than on the body, which is where it was while the body was the thing that
+   scrolled: under the app shell the body is exactly one viewport tall, so padding there
+   would shorten the screen by 76px and leave a gap under the last card either way. The
+   class stays on the body, because what it records is that app.js wired ＋ up at all. */
+.has-compose .pagescroll { padding-bottom: 76px; }
 /* And the toast, which is bottom-centred and would otherwise land under it on a
    narrow phone. */
-.has-compose.has-tabbar .toast { bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 78px); }
+.has-compose .toast { bottom: calc(env(safe-area-inset-bottom) + 78px); }
 
 /* A conversation, as one row in the inbox.
 
@@ -6114,7 +6256,7 @@ button.p0-row {
    *do* here — a 36px target hidden between two counts is a target you miss — and the
    graph is the link the id pill used to be, moved down now the summary above it is one
    tap target and cannot hold an anchor of its own. */
-.p0-acts { display: flex; align-items: stretch; gap: 6px; margin-top: 4px; }
+.p0-acts { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin-top: 4px; }
 .p0-advocate {
   flex: 1 1 auto;
   min-height: 40px;
@@ -6154,6 +6296,65 @@ a.p0-advocate {
    this is a control. */
 a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 
+/* ------------------------------------------------- starting an epic from the board
+
+   bc-s8mc. Three controls, and what they have in common is that every one of them writes
+   to the tracker — so they are drawn as buttons that look like the board's other buttons
+   rather than as chips, which on this screen mean a filter you can undo by looking away.
+
+   The picker sits at the *foot* of the board, under the cards, because it is the answer to
+   "and what else could be here" — a question you ask after reading what is. Full width and
+   quiet: it is an offer, not the thing the section is for. */
+.p0-off {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit; font-size: 12.5px;
+  cursor: pointer;
+}
+.p0-off:disabled { opacity: 0.6; cursor: default; }
+.p0-pick {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.p0-pick[aria-expanded='true'] { color: var(--text); border-style: solid; background: var(--surface); }
+.p0-picker { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+/* One row per P0 you could start: the same two-line shape a card has — identity and count
+   on the first line, the title on the second — so the list reads as a board of cards that
+   are not there yet rather than as a menu of ids. */
+.p0-cand {
+  display: flex; flex-direction: column; gap: 4px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.p0-cand:disabled { opacity: 0.6; cursor: default; }
+.p0-cand-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.p0-cand-title { min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.35; }
+/* Nothing started yet: the section is the offer and nothing else, so it carries none of
+   the board's own chrome — no heading, no fold, no count of nothing. */
+.p0-board.bare { margin-bottom: 10px; }
+.p0-board.bare .p0-pick { margin-top: 0; }
+
 /* ------------------------------------------------------------- edit mode
 
    The app as the thing you point at (bc-p49x.1). Two controls and one tint, and all
@@ -6173,7 +6374,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   position: fixed;
   z-index: 24;
   left: calc(env(safe-area-inset-left) + 14px);
-  bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 14px);
+  bottom: calc(env(safe-area-inset-bottom) + 14px);
   display: flex; align-items: center; justify-content: center;
   width: 44px; height: 44px;
   border-radius: 50%;

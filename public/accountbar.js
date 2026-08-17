@@ -1,7 +1,7 @@
 /*
-  The account switcher — who you are being, at the right-hand end of every top bar.
+  The app menu — everything the top bar used to hold loose, behind the mark.
 
-  ## Why the address is the control
+  ## What the trigger is, and why it is the mark
 
   Beadcause reads every tracker on the Mac, and until accounts existed that meant the
   inbox, the board, the pull requests and the space picker showed work and not-work in
@@ -10,10 +10,21 @@
   is currently about — see lib/accounts.js for the model and for why it is a view scope
   rather than a credential.
 
-  The control is the address itself because the address is the answer. A chip saying
-  "Personal" would need a second surface to say which identity that files as; the email
-  is both at once, and it is the same string the daemon stamps on anything you file from
-  here (`accountHandles`).
+  The control was the address itself for a while, as a chip at the right-hand end of the
+  bar: the email says both which identity you are in and what the daemon will stamp on
+  anything you file (`accountHandles`), where a chip saying "Personal" would need a second
+  surface to say the same thing. bc-khoe.5 took the chip out anyway, and the reason is the
+  row rather than the address. The space picker had a full-width row of its own under a
+  first row that was full, so every standing view carried two rows of sticky chrome; the
+  picker is beside the mark now and the chip's width is what paid for it. The address did
+  not go — it is the second line of **Switch account**, one tap in, which is where it was
+  usually being read from anyway.
+
+  So the trigger is **the mark, in a gear**. It is the one thing already at that end of
+  every bar, it is where a settings affordance is on every phone the app is trying to look
+  like, and the gear is what says the tap does something other than go home. On a page with
+  no mark — every page but the inbox draws a title there instead — the button is the gear
+  on its own, in the same place, so the menu is never somewhere new.
 
   ## What is inside it, and why the buttons moved
 
@@ -26,9 +37,18 @@
   wiring the button the person taps. That is the one invariant here worth stating
   outright — a clone would leave every page's chrome dead in a way that looks fine.
 
+  **Refresh is in here too now**, and it is the one row that costs something: ⟳ was kept
+  loose in the bar until bc-khoe.5 because it is the most-pressed control in the app, and
+  it is two taps from here. That was the trade the bead asked for and it is worth saying
+  out loud rather than burying — the bar it bought is one row on every screen.
+
+  **Admin is a row this file draws rather than one it hoists**, because only the advocate
+  console ever had a door to it up there. It is skipped on /admin itself and on any page
+  that hoisted an `/admin` link of its own — see `admin()`.
+
   ## Switching, and adding
 
-  "Switch accounts" opens the picker: one row per account, the active one ticked, and a
+  "Switch account" opens the picker: one row per account, the active one ticked, and a
   ＋ that opens the form behind it — an address, a name, and the workspaces (and, for the
   one workspace that is forty checkouts, the repos) that account can see. Both write to
   the server: the selection to `state.json` beside the inbox filter, the accounts to
@@ -100,37 +120,72 @@
 
   /* ------------------------------------------------------------------ the chrome */
 
-  // Its own element rather than a child of `.sheet-actions`, because on a page whose top
-  // bar has no actions at all there is nothing to be a child of — and because the chip
-  // must stay put while the actions above it are being moved into the menu.
+  /*
+    Inside `.brand`, at the left-hand end, rather than an element of its own at the right:
+    the trigger is the mark, and the mark is already there. `.accountbar` is the positioned
+    box the menu hangs off — the menu is absolute, and `.brand` itself is shared with a
+    page title that must stay free to ellipsise.
+
+    Two shapes, and which one a page gets is decided by whether it has a mark.
+
+      the inbox    <h1 class="mark"><button class="markmenu"><img …><span>⚙</span></button></h1>
+      every other  <button class="markmenu markmenu-bare">⚙</button>
+
+    The `<h1>` stays *outside* the button on purpose. A heading is flow content and a
+    button takes phrasing, so wrapping the other way round is markup no parser owes us
+    anything for — and keeping the `h1` where it was is what keeps `.brand h1.mark img`
+    matching, which is the selector public/absorb.js flies every absorbed bead into and
+    the one the mark's own styling is written against.
+  */
+  const brand = bar.querySelector('.brand') || bar;
   const el = document.createElement('div');
   el.className = 'accountbar';
   el.innerHTML = `
-    <button type="button" class="accountchip" id="account-chip" aria-haspopup="menu" aria-expanded="false">
-      <span class="accountchip-who" id="account-who">…</span>
-      <span class="accountchip-caret" aria-hidden="true">▾</span>
-    </button>
     <div class="accountmenu" id="account-menu" role="menu" hidden>
       <div class="accountmenu-actions" id="account-actions"></div>
-      <button type="button" class="accountmenu-row" id="account-switch" role="menuitem">
+      <a class="accountmenu-row" id="account-admin" role="menuitem" href="/admin" hidden>
+        <span class="accountmenu-glyph" aria-hidden="true">⏸</span>
+        <span class="accountmenu-label">Admin</span>
+      </a>
+      <button type="button" class="accountmenu-row accountmenu-switch" id="account-switch" role="menuitem">
         <span class="accountmenu-glyph" aria-hidden="true">⇄</span>
-        <span class="accountmenu-label">Switch accounts</span>
+        <span class="accountmenu-label">Switch account<span class="accountmenu-sub" id="account-who">…</span></span>
       </button>
     </div>`;
-  /* Ahead of the space picker, never after it, and the reason is arithmetic rather than
-     taste: `.spacebar` is `flex: 1 0 100%` and takes a row of the bar to itself, so a
-     sibling appended after it lands on a *third* row — which is exactly what
-     `scripts/topbar-check.mjs` exists to refuse. This file is loaded before
-     public/spacebar.js on every page, so at this point there is usually nothing to
-     insert before; the query is for the page that ever loads them the other way round. */
-  const picker = bar.querySelector('.spacebar');
-  if (picker) bar.insertBefore(el, picker);
-  else bar.append(el);
 
-  const chip = el.querySelector('#account-chip');
+  /** The mark's own heading, on the one page that has one. */
+  const markHead = brand.querySelector('h1.mark');
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = markHead ? 'markmenu' : 'markmenu markmenu-bare';
+  chip.id = 'account-chip';
+  chip.setAttribute('aria-haspopup', 'menu');
+  chip.setAttribute('aria-expanded', 'false');
+  chip.setAttribute('aria-label', 'Menu — accounts, admin, and what this page can do');
+  if (markHead) {
+    // The image itself, moved into the button and the button left inside the heading, so
+    // the alt text is still what the `<h1>` says the page is.
+    const img = markHead.querySelector('img');
+    if (img) chip.append(img);
+    chip.insertAdjacentHTML('beforeend', '<span class="markmenu-gear" aria-hidden="true">⚙</span>');
+    markHead.append(chip);
+    el.insertBefore(markHead, el.firstChild);
+  } else {
+    chip.textContent = '⚙';
+    el.insertBefore(chip, el.firstChild);
+  }
+
+  /* After the pulse dot and before whatever the page calls itself. The dot is the app's
+     "something is happening" light and belongs against the left edge; on the inbox this
+     puts the mark back exactly where it already was. */
+  const dot = brand.querySelector('.dot');
+  if (dot && dot.parentNode === brand) dot.after(el);
+  else brand.insertBefore(el, brand.firstChild);
+
   const who = el.querySelector('#account-who');
   const menu = el.querySelector('#account-menu');
   const actions = el.querySelector('#account-actions');
+  const adminRow = el.querySelector('#account-admin');
 
   /**
    * Move the page's own top-right buttons into the menu.
@@ -148,17 +203,22 @@
   function hoist() {
     const row = document.querySelector('.topbar .sheet-actions');
     if (!row) return;
+    /* ⟳ used to be exempt, and is not any more (bc-khoe.5). It was kept in the bar
+       because it is the control pressed most often and the least worth two taps — and,
+       the reason that would not have been guessed, because it was the last piece of text
+       on the inbox the app itself had written in exactly one place. Edit mode is
+       *retyping the app's own words* (public/editmode.js) and it freezes the screen, so
+       nothing behind a tap-to-open menu can be reached from inside it, and hoisting this
+       one as well once left that screen with nothing retypable on it at all.
+
+       Both halves are answered now rather than argued away. The bar is one row and has
+       no loose buttons on it at all, so an exemption would have been a single icon
+       floating between the mark and the picker — which is the shape the row was
+       flattened to get rid of. And `scripts/editgesture-check.mjs` opens this menu
+       through `beadcause.account.menu()` before it goes looking for something to retype,
+       so the labels in here are what it finds; the check that noticed the hole is the
+       check that now covers it. The cost stands as filed: refresh is two taps. */
     for (const btn of [...row.querySelectorAll('.icon-btn')]) {
-      // ⟳ stays in the bar, and it is the only one that does. Two reasons, and the second
-      // is the one that would not have been guessed: it is the control pressed most often
-      // and by far the least worth two taps — and it is the last piece of text on the
-      // inbox that the app itself wrote in exactly one place. Edit mode is *retyping the
-      // app's own words* (public/editmode.js), and it freezes the screen: a tap points at
-      // an element instead of acting on it, so nothing inside a menu that has to be
-      // opened by tapping can ever be reached. Hoisting this one as well left that screen
-      // with nothing retypable on it at all — silently, because the feature still worked
-      // everywhere else. `scripts/editgesture-check.mjs` is what noticed.
-      if (btn.id === 'refresh') continue;
       const item = document.createElement('span');
       item.className = 'accountmenu-row accountmenu-item';
       item.setAttribute('role', 'menuitem');
@@ -186,6 +246,22 @@
     // Emptied, not removed: pages measure their own header and one of them (the monitor)
     // puts a tally back into it on every poll.
     row.classList.add('hoisted');
+  }
+
+  /**
+   * Whether the standing **Admin** row is drawn.
+   *
+   * Two pages answer no, for different reasons. On /admin it would be a row that goes
+   * where you already are. And on a page carrying a door of its own — the advocate
+   * console's ⚙, which is an `<a href="/admin">` and has been hoisted into this very menu
+   * a moment ago — it would be the second Admin row in one menu, which reads as two
+   * different places. The page's own wins because it is the one with the longer label and
+   * the one every existing check names.
+   */
+  function admin() {
+    const here = /^\/admin(\.html)?\/?$/.test(location.pathname);
+    const already = actions.querySelector('a[href="/admin"], a[href="/admin.html"]');
+    adminRow.hidden = Boolean(here || already);
   }
 
   /* -------------------------------------------------------------------- the menu */
@@ -393,6 +469,15 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return fail(data.error || `the daemon said ${res.status}`);
+      // Everything the warm layer is holding was fetched for the account you were in a
+      // second ago, and several of those payloads are narrowed server-side by which
+      // account you are — so they are not this one's to paint. Dropped before the reload
+      // rather than left to be corrected by the fetch behind it, because the whole
+      // promise of that layer is a *first frame* drawn from what is held, and a first
+      // frame of somebody else's inbox is the one thing it must never draw. It mattered
+      // less when the store died with the tab (public/warm.js); since bc-1kwl.14 it does
+      // not die, so every moment a held payload stops being yours has to say so.
+      window.beadcause?.warm?.forget?.();
       // Everything on this page was fetched for the account you were in a second ago —
       // see the header. The reload is the change taking effect, not a fallback.
       location.reload();
@@ -415,12 +500,20 @@
   /* --------------------------------------------------------------- coming in */
 
   function paint() {
-    const label = state.account || state.me || 'Add account';
-    who.textContent = label;
+    /* The address is the second line of **Switch account** rather than a chip on the bar
+       (see the header). Which means it is one tap from every screen instead of nought, and
+       the row it is on is the row that changes it — the two things you want the address
+       for are "which am I" and "not this one", and they are now the same target. */
+    const label = state.account || state.me || 'no account yet';
+    /* "not set" leads, because with nothing configured what is drawn is the address this
+       Mac already files as rather than a choice anybody made, and the line ellipsises from
+       the right — so the half that says which it is has to be the half that survives. The
+       chip that used to draw this said the same thing by going grey, which is a distinction
+       nobody has ever read off a colour. */
+    who.textContent = state.account ? label : `not set · ${label}`;
     chip.title = state.account
-      ? `${label} — switch accounts, and everything this page can do`
+      ? `${label} — accounts, admin, and what this page can do`
       : 'No account configured — every workspace is in scope';
-    chip.classList.toggle('unset', !state.account);
   }
 
   /**
@@ -467,6 +560,7 @@
   }
 
   hoist();
+  admin();
   paint();
   load();
 

@@ -43,6 +43,15 @@ const BASELINE = process.argv.includes('--baseline');
 const KEEP = process.argv.includes('--keep');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* Where the page is scrolled to, and how to put it back at the top — both asked of the
+   element that actually scrolls rather than of the window. `.pagescroll` is the app
+   shell's one scrolling row (bc-khoe.1); the `document.scrollingElement` fallback keeps
+   this working against a page that is still a document. */
+const SCROLLTOP_EXPR =
+  "Math.round((document.querySelector('.pagescroll') || document.scrollingElement).scrollTop)";
+const SCROLLTOP = `(${SCROLLTOP_EXPR})`;
+const TOP = "((document.querySelector('.pagescroll') || document.scrollingElement).scrollTop = 0, 1)";
+
 if (!fs.existsSync(CHROME)) {
   console.error(`Google Chrome not found at ${CHROME}`);
   process.exit(1);
@@ -300,10 +309,16 @@ try {
   await sleep(400);
   check('the ✏️ takes a tap from a thumb', await evalJs(s, `document.body.classList.contains('editing')`));
 
-  /* 1. the scroll — the case a gesture layer breaks first */
-  const wasAt = await evalJs(s, `window.scrollY`);
+  /* 1. the scroll — the case a gesture layer breaks first.
+
+     The offset is the **scroller's**, not the window's (bc-khoe.1): every page is a
+     viewport-height shell now, the list is the one element with `overflow-y: auto`, and
+     `window.scrollY` is 0 for the whole visit. Read the wrong one and this passes as
+     `0 → 0` — a swipe that scrolled nothing and a gesture layer that ate it look
+     identical from there, which is the exact failure this check exists to catch. */
+  const wasAt = await evalJs(s, SCROLLTOP);
   await swipe(s, { x: 200, y: 600 }, { x: 200, y: 260 });
-  const after = await evalJs(s, `({ y: window.scrollY, picked: !!document.querySelector('.editpick'), note: !!document.querySelector('.editnote') })`);
+  const after = await evalJs(s, `({ y: ${SCROLLTOP_EXPR}, picked: !!document.querySelector('.editpick'), note: !!document.querySelector('.editnote') })`);
   check(
     'the list still scrolls under a thumb in edit mode',
     after.y > wasAt + 20,
@@ -311,11 +326,14 @@ try {
   );
   check('and a scroll picks nothing up and asks nothing', !after.picked && !after.note);
   check('and files nothing', (await changes(s)).length === 0);
-  await evalJs(s, `window.scrollTo(0, 0)`);
+  await evalJs(s, TOP);
   await sleep(300);
 
   /* 2. describe — a hold on a card, and a sentence about it */
-  await hold(s, await at(s, '.card[data-key] p.q'));
+  // A shut card's title is a real <button class="q"> now, not a <p> (bc-rfnr.9.8) — `.q`
+  // rather than `p.q` finds it either way, and it is still the only `.q` in a shut card's
+  // DOM (the foot's is drawn only inside the brief, which a shut card never renders).
+  await hold(s, await at(s, '.card[data-key] .q'));
   const asked = await evalJs(s, `document.querySelector('.editnote')?.textContent || null`);
   check('a hold asks what the thing under your thumb should do instead', Boolean(asked && /instead/i.test(asked)), asked ? `"${asked.slice(0, 60)}…"` : 'no note box');
   const refused = await evalJs(s, `document.querySelector('[data-act="edit-note-add"]')?.disabled === true`);
@@ -329,7 +347,7 @@ try {
   );
 
   /* 3. point — a hold, a drag, and what it landed against */
-  const from = await at(s, '.card[data-key] p.q');
+  const from = await at(s, '.card[data-key] .q');
   const cards = await evalJs(s, `document.querySelectorAll('.card[data-key]').length`);
   const to = await evalJs(
     s,
@@ -353,9 +371,9 @@ try {
   );
 
   /* 4. retype — the one literal edit, and the one refusal that matters most */
-  await evalJs(s, `window.scrollTo(0, 0)`);
+  await evalJs(s, TOP);
   await sleep(200);
-  await tap(s, await at(s, '.card[data-key] p.q'));
+  await tap(s, await at(s, '.card[data-key] .q'));
   const said = await evalJs(s, `document.querySelector('.editbar-say')?.textContent || ''`);
   check(
     'a tap on a bead’s own title is refused, because that is the tracker',

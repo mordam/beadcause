@@ -1164,17 +1164,13 @@ export const SURFACES = [
       {
         path: 'utility/badges.html',
         name: 'Badges',
-        subtitle: 'On a tab, on an icon button',
-        viewport: { width: 420, height: 200 },
-        note: `A count on the thing you tap, never beside it. Both cap at <b>9+</b>, and both are <code>hidden</code> at zero — zero is not a state worth drawing, and a badge that says 0 reads as a badge that failed to load.`,
+        subtitle: 'On an icon button',
+        viewport: { width: 420, height: 160 },
+        note: `A count on the thing you tap, never beside it. It caps at <b>9+</b> and is <code>hidden</code> at zero — zero is not a state worth drawing, and a badge that says 0 reads as a badge that failed to load. There was a second badge here, on a tab of the bar along the bottom; both the bar and the badge went in bc-khoe.1, and the <a href="#">pill row</a> that replaced it carries <b>no counts at all</b> — a badge is only ever live on the one page whose poll happens to fetch it.`,
         markup: `<div class="ds-stack">
   <div class="sheet-actions">
     <a href="#" class="icon-btn">⚖️<span class="badge">3</span></a>
     <a href="#" class="icon-btn">⚖️<span class="badge">9+</span></a>
-  </div>
-  <div class="meta">
-    <span class="tab-icon">🛰<span class="tab-badge">2</span></span>
-    <span class="tab-icon">📥<span class="tab-badge">9+</span></span>
   </div>
 </div>`,
       },

@@ -8,11 +8,15 @@
  * is hammering it and another is parked on a long poll. If any of those requests
  * fails, the claim is false.
  *
- * The other thing only a real swap can prove is the restart marker (bc-kttd): a swap is
- * not a deploy, writes nothing into the deploy journal, and would otherwise leave the
- * error-reporting quiet window blind to the one restart that happens most often here.
- * test/deployquiet.mjs owns what the *rule* does with a marker; this file is the only
- * place that shows a marker being written by the process that swapped.
+ * The other thing only a real swap can prove is what it writes down, and there are two
+ * files. The restart marker (bc-kttd) is the one the error-reporting quiet window reads: a
+ * swap is not a deploy and writes nothing into the deploy journal, so without it the
+ * reconnect after every swap filed a P0 per screen. The handover trail (bc-khoe.8) is the
+ * one the release board reads — three moments in one record, so *deployed to green*, *green
+ * verification* and *swapping to blue* are observed stages instead of untracked ones.
+ * test/deployquiet.mjs and test/handover.mjs own what the *rules* do with records somebody
+ * wrote by hand; this file is the only place either one is produced by the process that
+ * swapped, in the order a real swap produces them.
  *
  * Hermetic by construction: a scratch `BEADCAUSE_CONFIG_DIR`, an ephemeral port,
  * ntfy off, advocates off, and `bd` pointed at a stub that prints `[]`. Nothing here
@@ -429,6 +433,49 @@ try {
     'and why, so the dropped-report log line says which swap did it',
     `reason: ${JSON.stringify(marker.reason)}`
   );
+
+  // bc-khoe.8. The marker above answers "was there a handover in the last thirty seconds";
+  // the release board asks which handover carried which release, and when each of its three
+  // stages happened. That is a second file, and this is the only place a real router writes
+  // one — test/handover.mjs owns what the reader does with a trail somebody wrote by hand,
+  // and cannot show that the process which swapped produced these three timestamps in this
+  // order.
+  const trail = await waitFor(
+    'the router to record the handover',
+    async () => {
+      const recs = JSON.parse(fs.readFileSync(path.join(dir, 'handovers.json'), 'utf8'))?.handovers;
+      return recs?.find((h) => h.pid === pid3) || null;
+    },
+    10000
+  ).catch((err) => ({ error: err.message }));
+  const greenAt = Date.parse(trail.spawnedAt || '');
+  const healthyAt = Date.parse(trail.healthyAt || '');
+  const handedAt = Date.parse(trail.at || '');
+  check(
+    Number.isFinite(greenAt) && Number.isFinite(healthyAt) && Number.isFinite(handedAt),
+    'the swap is recorded as three observed moments, not one',
+    JSON.stringify(trail)
+  );
+  check(
+    greenAt <= healthyAt && healthyAt <= handedAt,
+    'spawned on green, then answering, then serving — in that order',
+    `${trail.spawnedAt} → ${trail.healthyAt} → ${trail.at}`
+  );
+  check(
+    trail.port > 0 && trail.port !== port,
+    'on the internal green port, which is not the one the phone talks to',
+    `green ${trail.port}, public ${port}`
+  );
+  // The acceptance this bead is really about: a hand-run swap files nothing. Three rungs of
+  // the release ladder now have times under them and the deploy history is still empty, so
+  // nothing announces a deploy nobody pressed Ship on.
+  check(
+    trail.deploy === null,
+    'and attributed to no deploy, because nobody pressed Ship',
+    `deploy: ${JSON.stringify(trail.deploy)}`
+  );
+  const journal = fs.existsSync(path.join(dir, 'deploys')) ? fs.readdirSync(path.join(dir, 'deploys')) : [];
+  check(journal.length === 0, 'a swap still writes nothing into the deploy journal', journal.join(' '));
 
   const statusOut = await run([path.join(ROOT, 'bin', 'router.js'), '--status'], env);
   check(statusOut.code === 0 && /active\s+pid/.test(statusOut.out), '`router.js --status` reports what is running', statusOut.out);

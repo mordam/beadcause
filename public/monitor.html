@@ -41,6 +41,10 @@
            is a navigation and should long-press, middle-click and open in a tab like
            one. The Admin tab in the bottom bar stays — this is a second way in from
            the one page whose settings sit beside it, not a replacement for it. -->
+      <!-- Hoisted into the mark's menu at load like every other icon button here, and
+           kept in the markup because it is *this page's* door: accountbar.js draws a
+           standing Admin row of its own on every page and stands down when it finds one
+           already hoisted, so what a person sees is one Admin row either way. -->
       <a id="gear" class="icon-btn" href="/admin" aria-label="Admin — pause everything, terminals, sign out" title="Admin">⚙</a>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
     </div>
@@ -79,7 +83,7 @@
     <button class="chip" data-tab="mirror" data-pane="mirror" data-view="" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>
   </nav>
 
-  <main id="mon" class="work">
+  <main id="mon" class="work pagescroll">
     <div class="empty">Asking every workspace…</div>
   </main>
 
@@ -87,11 +91,11 @@
        as a page of its own: this page's top bar carries the pulse, the ⟳ and the
        observer mark already, and the board's script shares all three rather than drawing
        a second set. -->
-  <section id="prs" class="work" hidden>
+  <section id="prs" class="work pagescroll" hidden>
     <div class="empty">Asking every repo…</div>
   </section>
 
-  <section id="mirror" class="work" hidden>
+  <section id="mirror" class="work pagescroll" hidden>
     <div class="empty">Looking for a device…</div>
   </section>
 
@@ -109,10 +113,11 @@
        that has stopped repainting — which no page can report from inside its own render.
        Before stream.js, which stamps it on every answer. See public/freshness.js. -->
   <script src="/freshness.js"></script>
-  <!-- The account switcher in the top bar — which of your lives every screen is about,
-       and the menu the page's own top-right buttons live in. Before the page's own
-       script, because it *moves* those buttons rather than copying them: a page that
-       wires one by id afterwards is still wiring the element the thumb lands on. See
+  <!-- The app menu — the mark in a gear at the left of the top bar, and everything the
+       bar used to hold loose behind it: this page's own top-right buttons, Admin, and
+       which of your lives every screen is about. Before the page's own script, because
+       it *moves* those buttons rather than copying them: a page that wires one by id
+       afterwards is still wiring the element the thumb lands on. See
        public/accountbar.js. -->
   <script src="/accountbar.js"></script>
   <!-- What this page already has, from the last time you were on it: the payload it
@@ -127,7 +132,7 @@
        had, the other keeps it true. -->
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
-  <script src="/tabbar.js"></script>
+  <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one
        rebuilt the APK. On every standing view, because the "Update app" button belongs to

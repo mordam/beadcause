@@ -35,7 +35,7 @@
        no filter bar rather than an empty box where one should be. -->
   <nav class="filters" id="hist-filters" hidden></nav>
 
-  <main class="work">
+  <main class="work pagescroll">
     <!-- The whole list, drawn by history.js. Everything below is replaced on every
          repaint, so nothing that has to survive one may live in here. -->
     <div id="history">
@@ -53,10 +53,11 @@
        that has stopped repainting — which no page can report from inside its own render.
        Before stream.js, which stamps it on every answer. See public/freshness.js. -->
   <script src="/freshness.js"></script>
-  <!-- The account switcher in the top bar — which of your lives every screen is about,
-       and the menu the page's own top-right buttons live in. Before the page's own
-       script, because it *moves* those buttons rather than copying them: a page that
-       wires one by id afterwards is still wiring the element the thumb lands on. See
+  <!-- The app menu — the mark in a gear at the left of the top bar, and everything the
+       bar used to hold loose behind it: this page's own top-right buttons, Admin, and
+       which of your lives every screen is about. Before the page's own script, because
+       it *moves* those buttons rather than copying them: a page that wires one by id
+       afterwards is still wiring the element the thumb lands on. See
        public/accountbar.js. -->
   <script src="/accountbar.js"></script>
   <!-- Which repo the ledger is of. Before history.js, which registers its rebuild on
@@ -64,7 +65,7 @@
        /api/history takes exactly one workspace, so "which workspaces am I looking at"
        is not a filter over the response here, it is the request. -->
   <script src="/spacebar.js"></script>
-  <script src="/tabbar.js"></script>
+  <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one
        rebuilt the APK. On every standing view, because the "Update app" button belongs to

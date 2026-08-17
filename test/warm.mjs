@@ -14,15 +14,21 @@
  *
  * Everything here fails silently if it breaks, which is why it is a suite:
  *
- * 1. **The store hands back what went in, and nothing else.** A cache that returns a
- *    payload from before the TTL, or half of one, or one written by a version that
- *    stored a different shape, is a screen showing something that is not true — and it
- *    looks exactly like a screen showing something that is. Every failure has to read
- *    as a miss, because a miss is the case every caller already handles.
+ * 1. **The store hands back what went in, and nothing else.** A cache that returns half
+ *    a payload, or one written by a build that stored a different shape, is a screen
+ *    showing something that is not true — and it looks exactly like a screen showing
+ *    something that is. Every failure has to read as a miss, because a miss is the case
+ *    every caller already handles. Age is deliberately *not* one of those failures any
+ *    more (bc-1kwl.14): the store is `localStorage`, it survives the app closing, and
+ *    nothing in it expires — which is the whole of why a reopen is a `/api/poll?since=`
+ *    catch-up rather than a cold `bd` sweep per workspace.
  *
- * 2. **A quota or a private window must not take the app with it.** `sessionStorage`
+ * 2. **A quota or a private window must not take the app with it.** `localStorage`
  *    throws on write in more browsers than it does not, and the file's whole promise is
- *    that a page which cannot warm is merely as fast as it was yesterday.
+ *    that a page which cannot warm is merely as fast as it was yesterday. With nothing
+ *    expiring, the bound is the only thing keeping the store finite — so the ordering it
+ *    evicts in is asserted here in the direction that matters: **a full store may never
+ *    give up the inbox**, which is the one entry a reopen is for.
  *
  * 3. **The reconciler keeps what did not change.** `plan()` is the decision half of
  *    the repaint, and getting it wrong is invisible in the direction that matters: a
@@ -46,7 +52,7 @@
  *    *no calls to `bd`*, against a `bd` that records every invocation.
  *
  * The client half runs the real `public/warm.js` in a vm with a hand-made
- * `sessionStorage`, the way test/queue.mjs runs the real send queue: a rewrite of the
+ * `localStorage`, the way test/queue.mjs runs the real send queue: a rewrite of the
  * logic as a test-only module could pass this while the phone shipped something else.
  * `paint()` itself is a named skip at the end — it is a dozen lines of `insertBefore`
  * over what `plan` returns, and testing it here would mean shipping a DOM.
@@ -97,13 +103,13 @@ console.log('\nwarm layer');
 
 /**
  * The real file, in a room with the two things it touches at load: a `window` to hang
- * itself off and a `sessionStorage` to keep things in.
+ * itself off and a `localStorage` to keep things in.
  *
  * The storage is a Map with the browser's own quirks put back — `getItem` answers null
  * rather than undefined for a miss, `key(i)` is how the file enumerates — plus a switch
  * to make writing throw, which is the case the whole no-op path exists for.
  */
-function load({ quota = Infinity, brokenStorage = false } = {}) {
+function load({ quota = Infinity, brokenStorage = false, deafRemove = false } = {}) {
   const bag = new Map();
   const storage = {
     get length() {
@@ -116,12 +122,14 @@ function load({ quota = Infinity, brokenStorage = false } = {}) {
       if (bag.size >= quota && !bag.has(k)) throw new Error('QuotaExceededError');
       bag.set(k, String(v));
     },
-    removeItem: (k) => void bag.delete(k),
+    // `deafRemove` is the storage that will not let go of anything — Safari under a
+    // full disk. Eviction then frees nothing, and the write loop has to end anyway.
+    removeItem: (k) => void (deafRemove ? null : bag.delete(k)),
   };
   const window = { beadcause: {} };
   const ctx = vm.createContext({
     window,
-    sessionStorage: storage,
+    localStorage: storage,
     document: { hidden: false },
     setTimeout,
     clearTimeout,
@@ -155,12 +163,31 @@ await check('a path never written reads as a miss, not as an empty payload', () 
   assert.equal(warm.read('/api/work'), null);
 });
 
-await check('past its TTL it is a miss — and it is dropped rather than left taking up room', () => {
+await check('age alone is never a miss — a week later the list is still painted, and still knows its seq', () => {
+  const { warm } = load();
+  warm.write('/api/questions?scope=human', { questions: [{ key: 'beadcause/bc-1' }] }, 41);
+  // A week is well past the fifteen minutes this used to expire at, and past any
+  // plausible "away from the app" too. It is the reopen this bead is about.
+  const week = Date.now() + 7 * 24 * 60 * 60 * 1000;
+  const hit = warm.read('/api/questions?scope=human', { now: week });
+  assert.equal(hit.seq, 41, 'without the kept seq a reopen has nothing to catch up from and sweeps cold');
+  assert.deepEqual(plain(hit.data), { questions: [{ key: 'beadcause/bc-1' }] });
+});
+
+await check('the store is localStorage — which is what survives the app being closed', () => {
+  // Asserted against the file rather than through it: the vm room hands it whatever
+  // globals the room has, so a warm.js that quietly went back to sessionStorage would
+  // pass every behavioural check above by being handed the same fake either way.
+  const src = read('public/warm.js').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.match(src, /localStorage\.setItem/, 'a sessionStorage store dies with the app, which is the bug');
+  assert.doesNotMatch(src, /\bsessionStorage\b/);
+});
+
+await check('an entry from a build that stored a different shape is a miss, and is dropped', () => {
   const { warm, bag } = load();
-  warm.write('/api/work', { workspaces: [] });
-  // Reading with a `now` far enough into the future is the same entry, aged.
-  assert.equal(warm.read('/api/work', { now: Date.now() + warm.TTL_MS + 1 }), null);
-  assert.equal(bag.size, 0, 'an entry that can never be useful again must not keep its quota');
+  bag.set('beadcause.warm:/api/work', JSON.stringify({ v: warm.STORE_V - 1, at: Date.now(), seq: 3, data: { old: true } }));
+  assert.equal(warm.read('/api/work'), null, 'a durable entry outlives the build that wrote it — that is the point of the stamp');
+  assert.equal(bag.size, 0, 'it will never match again, so it must not keep the quota');
 });
 
 await check('an entry from the future is a miss too — a clock that went backwards is not a cache', () => {
@@ -209,13 +236,91 @@ await check('a browser that refuses the storage says so, and every call is a saf
   warm.forget(); // must not throw
 });
 
-await check('a full quota throws the lot away rather than failing every write forever', () => {
+await check('a full quota gives up one entry at a time rather than throwing the lot away', () => {
   const { warm, bag } = load({ quota: 2 });
   warm.write('/api/work', { workspaces: [] });
   warm.write('/api/admin', { scopes: [] });
   assert.equal(bag.size, 2);
+  assert.equal(warm.write('/api/prs', { repos: [] }), true, 'room is made, not refused');
+  assert.equal(bag.size, 2, 'exactly one was given up for exactly one');
+  assert.ok(warm.read('/api/prs'), 'the write that made the room is the one that is held');
+});
+
+await check('the oldest entry is the one given up — the one nothing has restamped', () => {
+  const { warm } = load({ quota: 2 });
+  warm.write('/api/prs', { repos: [] });
+  warm.write('/api/admin', { scopes: [] });
+  // `refresh` restamps `at` for no request at all, which is exactly how a maintained
+  // entry says it is still being followed. The board is left alone, so it is the oldest.
+  warm.refresh('/api/admin', (d) => d);
+  warm.write('/api/consoles', { consoles: [] });
+  assert.equal(warm.read('/api/prs'), null, 'the entry nothing is maintaining is the one to lose');
+  assert.ok(warm.read('/api/admin'));
+  assert.ok(warm.read('/api/consoles'));
+});
+
+await check('a full store gives up the inbox last, whatever its age', () => {
+  const { warm } = load({ quota: 2 });
+  // Written first, so it is the *oldest* entry in the store — which is exactly what the
+  // background warm does from any other page (`VIEWS` puts the inbox at the front), and
+  // is why plain oldest-first would evict the one payload a reopen needs.
+  warm.write('/api/questions?scope=human', { questions: [{ key: 'beadcause/bc-1' }] }, 41);
+  warm.write('/api/admin', { scopes: [] });
+  warm.write('/api/prs', { repos: [] });
+  const kept = warm.read('/api/questions?scope=human');
+  assert.ok(kept, 'the inbox is the app front door and the only view whose cold path is a bd sweep per workspace');
+  assert.equal(kept.seq, 41);
+  assert.equal(warm.read('/api/admin'), null, 'something else went instead');
+});
+
+await check('and it gives up the inbox at the widened scope last too, which is the same screen', () => {
+  const { warm } = load({ quota: 2 });
+  // `VIEWS` names `?scope=human`, which is what a notification opens. A device left on
+  // `both` holds the same screen under a different key, and protecting only the default
+  // would leave exactly that device paying the cold sweep this is all about.
+  warm.write('/api/questions?scope=both', { questions: [{ key: 'beadcause/bc-1' }] }, 12);
+  warm.write('/api/consoles', { consoles: [] });
+  warm.write('/api/prs', { repos: [] });
+  assert.ok(warm.read('/api/questions?scope=both'));
+  assert.equal(warm.read('/api/consoles'), null);
+});
+
+await check('one oversized payload fails alone — it does not empty the store on the way down', () => {
+  const { warm } = load();
+  warm.write('/api/questions?scope=human', { questions: [{ key: 'beadcause/bc-1' }] }, 41);
+  warm.write('/api/admin', { scopes: [] });
+  const huge = { repos: ['x'.repeat(warm.BUDGET_BYTES + 1)] };
+  assert.equal(warm.write('/api/prs', huge), false);
+  assert.ok(warm.read('/api/questions?scope=human'), 'last week’s board must not take the inbox you are opening');
+  assert.ok(warm.read('/api/admin'));
+});
+
+await check('the budget is honoured before the browser complains, not only after', () => {
+  const { warm } = load();
+  // Two payloads that fit individually and not together: no `setItem` ever throws here,
+  // so the only thing that can bound this store is the file's own accounting.
+  const big = (n) => ({ blob: 'x'.repeat(Math.floor(warm.BUDGET_BYTES * 0.6)), n });
+  warm.write('/api/prs', big(1));
+  warm.write('/api/unendorsed', big(2));
+  assert.equal(warm.read('/api/prs'), null, 'nothing expires any more, so the budget is the whole bound');
+  assert.ok(warm.read('/api/unendorsed'));
+});
+
+await check('a storage that will not let go of anything gives up rather than spinning', () => {
+  // Eviction frees nothing here, so the only thing between this and an endless loop on
+  // the front of a page load is the write's own bound. A spinning app is a great deal
+  // worse than a cold one, and this is the shape that would produce one.
+  const { warm } = load({ quota: 2, deafRemove: true });
+  warm.write('/api/work', { workspaces: [] });
+  warm.write('/api/admin', { scopes: [] });
   assert.equal(warm.write('/api/prs', { repos: [] }), false);
-  assert.equal(bag.size, 0, 'the entries we hold are the reason there is no room');
+});
+
+await check('a write that cannot be held drops the stale entry it was replacing', () => {
+  const { warm } = load();
+  warm.write('/api/prs', { repos: ['old'] });
+  assert.equal(warm.write('/api/prs', { repos: ['x'.repeat(warm.BUDGET_BYTES + 1)] }), false);
+  assert.equal(warm.read('/api/prs'), null, 'the payload it was superseding is not the one to paint');
 });
 
 await check('something un-JSONable is refused without clearing anything', () => {
@@ -321,10 +426,11 @@ await check('it warms the other views and never the one it is on', async () => {
   warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
   await tick(20);
   assert.ok(!t.asked.includes('/api/questions?scope=human'), 'the inbox does not warm its own payload');
-  // Tabs first, and `/api/work` at the head of them: the advocates board is the
-  // heaviest payload and the only other tab a thumb can reach from here, and this is a
-  // sequential loop, so its place in the queue is how long that tab stays cold.
-  assert.deepEqual(t.asked, ['/api/work', '/api/admin', '/api/consoles', '/api/unendorsed', '/api/prs']);
+  // Pills first, in the row's own order, and `/api/work` at the head of them: the
+  // advocates roster is the heaviest payload of the three cheap ones and the pill next
+  // to Home, and this is a sequential loop, so its place in the queue is how long that
+  // view stays cold. /admin and the chat session come last because neither is a pill.
+  assert.deepEqual(t.asked, ['/api/work', '/api/prs', '/api/unendorsed', '/api/admin', '/api/consoles']);
 });
 
 await check('a path two views share is fetched once, not twice', async () => {
@@ -337,9 +443,9 @@ await check('a path two views share is fetched once, not twice', async () => {
   assert.deepEqual(t.asked, [
     '/api/questions?scope=human',
     '/api/work',
+    '/api/unendorsed',
     '/api/admin',
     '/api/consoles',
-    '/api/unendorsed',
   ]);
   assert.equal(new Set(t.asked).size, t.asked.length, 'a `bd` sweep must not be paid for twice');
 });
@@ -351,6 +457,77 @@ await check('what is already fresh is left alone', async () => {
   warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
   await tick(20);
   assert.ok(!t.asked.includes('/api/work'), 'fetched inside the floor is not fetched again');
+});
+
+/**
+ * Push a held entry's clock back. What a close and a reopen the next morning is: the
+ * payload is still on the disk and nothing about it is inside the background warm's
+ * floor any more.
+ */
+function age(bag, path, ms) {
+  const key = `beadcause.warm:${path}`;
+  const entry = JSON.parse(bag.get(key));
+  entry.at -= ms;
+  bag.set(key, JSON.stringify(entry));
+}
+
+await check('a held board and a held queue are left alone whatever their age — a reopen is not a `gh` sweep', async () => {
+  const { warm, bag } = load();
+  // Everything a durable store comes back from a close still holding, aged an hour past
+  // the floor. This *is* the reopen: `prewarm` runs once per document, and a reopen is a
+  // new document, so before bc-1kwl.15 it went and fetched all five of these again.
+  const payload = { workspaces: [], scopes: [], consoles: [], beads: [], repos: [] };
+  for (const p of ['/api/work', '/api/admin', '/api/consoles', '/api/unendorsed', '/api/prs']) {
+    warm.write(p, payload);
+    age(bag, p, 60 * 60 * 1000);
+  }
+  const t = tracker();
+  warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
+  await tick(20);
+  // The two the app has already decided are never worth a background re-ask: `gh` once
+  // per repo, and a `bd list` per workspace with a `bd show` per row. Both were being
+  // spent on every single app open, to replace a payload already on the disk.
+  assert.ok(!t.asked.includes('/api/prs'), 'a `gh` call per repo, for a board already held');
+  assert.ok(!t.asked.includes('/api/unendorsed'), 'a `bd` sweep and a `bd show` per row, for a queue already held');
+  // And nothing else changed: the one `bd` sweep a tab is actually drawn from, and the
+  // two in-memory reads, are still refreshed. Held is not the same as current for those,
+  // and this is what stops Advocates arriving an hour old.
+  assert.deepEqual(t.asked, ['/api/work', '/api/admin', '/api/consoles']);
+});
+
+await check('and one that is not held is still fetched — a new device, or one that evicted the board', async () => {
+  const { warm } = load();
+  const t = tracker();
+  warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
+  await tick(20);
+  // The boundary of the rule above. `holdOnly` is "do not *replace* one", never "do not
+  // fill one" — the first run on a phone, and the run after the byte budget gave the
+  // board up, are exactly when this loop is the only thing that can warm those pages.
+  assert.ok(t.asked.includes('/api/prs'), 'the board is never filled at all');
+  assert.ok(t.asked.includes('/api/unendorsed'), 'the queue is never filled at all');
+});
+
+await check('the paths the background warm will not replace are the ones the inbox will not re-ask for', () => {
+  const { warm } = load();
+  const holdOnly = plain(warm.VIEWS).filter((v) => v.holdOnly).flatMap((v) => plain(v.paths));
+  // Sorted, because the order of `VIEWS` is the order the background warm walks it in and
+  // belongs to whoever is arranging the pill row — bc-khoe.1 moved the board up past the
+  // two pages that are not pills and this read the old order out of a literal. Which two
+  // paths are too expensive to re-ask for is the claim here; where they sit in the queue
+  // is not.
+  assert.deepEqual(holdOnly.slice().sort(), ['/api/prs', '/api/unendorsed']);
+  // `MAINTAINED` in public/app.js decides the same question for the other warmer, and the
+  // two answers have to agree. A path one of them refuses to re-ask while the other
+  // sweeps it on every reopen is the expensive half of that decision still being paid,
+  // by a route nobody is looking at — which is the whole of what bc-1kwl.15 found.
+  const refetchFalse = [...read('public/app.js').matchAll(/path: '([^']+)',[\s\S]{0,2000}?refetch: (true|false),/g)]
+    .filter((m) => m[2] === 'false')
+    .map((m) => m[1]);
+  assert.deepEqual(
+    refetchFalse.slice().sort(),
+    holdOnly.slice().sort(),
+    'the two warmers disagree about which paths are too expensive to re-ask for'
+  );
 });
 
 await check('what it fetched is kept, with the sequence off the payload', async () => {
@@ -387,7 +564,7 @@ await check('a screen that has gone dark stops it — a phone in a pocket warms 
   // Same room as `load`, with a document that says the page is hidden.
   const ctx = vm.createContext({
     window: { beadcause: {} },
-    sessionStorage: {
+    localStorage: {
       get length() {
         return bag.size;
       },
@@ -435,20 +612,18 @@ await check('a held payload can be brought up to date, and comes back with the u
   assert.equal(hit.seq, 11, "the entry's own sequence is kept when none is given");
 });
 
-await check('and its clock is reset, which is the half that stops a quiet hour ageing it out', () => {
+await check('and its clock is reset, which is what the re-ask floor and the eviction order read', () => {
   const { warm, bag } = load();
   warm.write('/api/work', { workspaces: [] });
-  // Age it to one minute short of the TTL by rewriting the stamp the file wrote.
+  // Aged by rewriting the stamp the file wrote — well past the fifteen minutes this used
+  // to expire at, and past the re-ask floor either way.
   const key = 'beadcause.warm:/api/work';
   const aged = JSON.parse(bag.get(key));
-  aged.at = Date.now() - (warm.TTL_MS - 60_000);
+  aged.at = Date.now() - 20 * 60 * 1000;
   bag.set(key, JSON.stringify(aged));
+  assert.equal(warm.fresh('/api/work'), false, 'outside the floor, so the background warm would go and ask');
   assert.ok(warm.refresh('/api/work', (w) => w), 'still readable, so still maintainable');
-  // Past where the old stamp would have expired, the entry is still there.
-  assert.ok(
-    warm.read('/api/work', { now: Date.now() + 120_000 }),
-    'a wake that carried no change must still keep the entry alive'
-  );
+  assert.equal(warm.fresh('/api/work'), true, 'and the wake put it back, for no request at all');
 });
 
 await check('a sequence can be handed in with the update', () => {
@@ -483,14 +658,20 @@ await check('a mutate that throws is a miss, not an exception out of the poll ha
   );
 });
 
-await check('past its TTL there is nothing to refresh — an entry that old is gone, not renewed', () => {
+await check('a screen dark for a week is renewed rather than thrown away — the log is what decides', () => {
   const { warm, bag } = load();
-  warm.write('/api/work', { workspaces: [] });
+  warm.write('/api/work', { workspaces: [] }, 7);
   const key = 'beadcause.warm:/api/work';
   const aged = JSON.parse(bag.get(key));
-  aged.at = Date.now() - warm.TTL_MS - 1;
+  aged.at = Date.now() - 7 * 24 * 60 * 60 * 1000;
   bag.set(key, JSON.stringify(aged));
-  assert.equal(warm.refresh('/api/work', (w) => w), false, 'a screen dark for an hour has to be re-fetched');
+  // This used to be false: an entry past fifteen minutes was gone and the caller had to
+  // re-fetch. That is the whole cost bc-1kwl.14 removed — a phone in a pocket overnight
+  // is not a reason to sweep `bd` across seven workspaces, only the log is.
+  assert.equal(warm.refresh('/api/work', (w) => w), true);
+  const back = warm.read('/api/work');
+  assert.ok(back.age < 1000, 'and it is restamped, which is what the eviction order reads');
+  assert.equal(back.seq, 7, 'the log position survives the restamp, or the catch-up has nowhere to start');
 });
 
 /* -------------------------------------------------------------- the wiring */
@@ -525,38 +706,41 @@ await check('the service worker ships it, or a cached page has no warm layer', (
   assert.ok(/const CACHE = 'beadcause-v(2[3-9]|[3-9]\d)'/.test(sw), 'CACHE was not bumped past v22');
 });
 
-await check('every tab the bar draws has a view — and two views are deliberately not tabs', () => {
+await check('every pill the row draws has a view — and two views are deliberately not pills', () => {
   const { warm } = load();
-  // The tab entries are written both inline and across several lines, so the match
-  // has to reach over whatever sits between the id and the href it belongs to.
-  const ids = [...read('public/tabbar.js').matchAll(/\bid: '([a-z]+)',[\s\S]{0,80}?href:/g)].map((m) => m[1]);
-  // Keyed off a tab rather than off a count: the bar has lost two of its five since this
-  // was written, and a count here fails as "unreadable" every time it legitimately shrinks.
-  assert.ok(ids.includes('inbox'), `could not read the tab list out of tabbar.js: ${ids.join(', ')}`);
+  // The pill entries are written both inline and across several lines, so the match has
+  // to reach over whatever sits between the id and the href it belongs to.
+  const ids = [...read('public/viewbar.js').matchAll(/\bid: '([a-z]+)',[\s\S]{0,80}?href:/g)].map((m) => m[1]);
+  // Keyed off a view rather than off a count: this navigation has changed size three
+  // times, and a count here fails as "unreadable" every time it legitimately does again.
+  assert.ok(ids.includes('inbox'), `could not read the pill list out of viewbar.js: ${ids.join(', ')}`);
   const views = plain(warm.VIEWS).map((v) => v.id);
-  // The direction that matters: a tab with no view is a tab that stays cold, which is
+  // The direction that matters: a pill with no view is a view that stays cold, which is
   // invisible until you are on a phone wondering why one is slower than the others.
-  for (const tab of ids) assert.ok(views.includes(tab), `${tab} is a tab with no view — it stays cold`);
-  // The other direction stopped being an equality when the bar lost two tabs: the PR board
-  // (bc-l8jp.6) and the chat session (bc-l8jp.5) are both still standing pages, reached
-  // from a PR card, a chat row or the ＋, so both are still warmed. The endorsement queue
-  // is the third of exactly that kind and was simply missed (bc-bsgn) — it has never had
-  // a tab either (its doors are the 🗳 in the inbox's top bar and the advocate console's
-  // `N held for endorsement` pill), and it is the most expensive boot of the three. These
-  // are the *only* views allowed to have no tab — anything else here would be a payload
-  // warmed for a page nobody can get to.
-  assert.deepEqual(views.filter((v) => !ids.includes(v)), ['console', 'endorse', 'prs']);
-  // And the tabs' own order still follows the bar, so the warm fills them in thumb order.
+  for (const pill of ids) assert.ok(views.includes(pill), `${pill} is a pill with no view — it stays cold`);
+  // The other direction is not an equality, and all three exceptions are deliberate. The
+  // endorsement queue has never been on the navigation (bc-j0zl, "never a sixth tab") and
+  // bc-khoe.2 folds it into a Questions pill rather than giving it one; /admin lost its
+  // place in bc-khoe.1, being the screen you least want to hit by accident, and bc-khoe.5
+  // puts it in the gear menu; the chat session has had none since bc-l8jp.5, because it
+  // is created from ＋ and listed as a row in Home. All three are standing pages somebody
+  // arrives at in one tap, so all three are still warmed. These are the *only* views
+  // allowed to have no pill; anything else here would be a payload warmed for a page
+  // nobody can get to.
+  assert.deepEqual(views.filter((v) => !ids.includes(v)), ['endorse', 'admin', 'console']);
+  // And the pills' own order still follows the row, so the warm fills them in the order a
+  // thumb reaches them.
   assert.deepEqual(views.filter((v) => ids.includes(v)), ids);
-  // Every tab before every page that is not one (bc-xxzz). The background warm is
-  // sequential, so this list's order is the order things become warm in — and with the
-  // bar's order alone, Advocates sat behind `/api/prs`, which is a `gh` call per repo.
-  // A view a thumb can reach in one tap must not wait on one it cannot.
-  const lastTab = views.reduce((n, v, i) => (ids.includes(v) ? i : n), -1);
+  // Every pill before every page that is not one (bc-xxzz). The background warm is
+  // sequential, so this list's order is the order things become warm in, and a view a
+  // thumb can reach in one tap must not wait on one it cannot. bc-khoe.1 is what moved
+  // `/api/prs` and `/api/unendorsed` — the two most expensive entries here — up past
+  // /admin and the chat session, because the row made both of them one tap away.
+  const lastPill = views.reduce((n, v, i) => (ids.includes(v) ? i : n), -1);
   const firstOther = views.findIndex((v) => !ids.includes(v));
   assert.ok(
-    firstOther === -1 || firstOther > lastTab,
-    `${views[firstOther]} is warmed before a tab is — the tabs come first, and this list is the warm order`
+    firstOther === -1 || firstOther > lastPill,
+    `${views[firstOther]} is warmed before a pill is — the pills come first, and this list is the warm order`
   );
   // A view may warm nothing, and exactly one does. `paths: []` satisfies the loop above
   // without prefetching a byte, so it is the obvious way to *silence* this check rather

@@ -26,7 +26,7 @@
     </div>
   </header>
 
-  <main id="eq" class="work">
+  <main id="eq" class="work pagescroll">
     <div class="empty">Asking every workspace…</div>
   </main>
 
@@ -40,10 +40,11 @@
        that has stopped repainting — which no page can report from inside its own render.
        Before stream.js, which stamps it on every answer. See public/freshness.js. -->
   <script src="/freshness.js"></script>
-  <!-- The account switcher in the top bar — which of your lives every screen is about,
-       and the menu the page's own top-right buttons live in. Before the page's own
-       script, because it *moves* those buttons rather than copying them: a page that
-       wires one by id afterwards is still wiring the element the thumb lands on. See
+  <!-- The app menu — the mark in a gear at the left of the top bar, and everything the
+       bar used to hold loose behind it: this page's own top-right buttons, Admin, and
+       which of your lives every screen is about. Before the page's own script, because
+       it *moves* those buttons rather than copying them: a page that wires one by id
+       afterwards is still wiring the element the thumb lands on. See
        public/accountbar.js. -->
   <script src="/accountbar.js"></script>
   <!-- The queue you were last shown, drawn before this page's own request has left.
@@ -55,7 +56,7 @@
        visit: one paints what you already had, the other keeps it true. -->
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
-  <script src="/tabbar.js"></script>
+  <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one
        rebuilt the APK. On every standing view, because the "Update app" button belongs to

@@ -22,6 +22,12 @@
 // touches a bead. `--baseline` serves the committed copies instead — baseline navigates
 // for every switch, so it must fail everything but the reload.
 //
+// The tail of this is a second change over the same ground (bc-bk2g): what is half-typed
+// in the composer is now written to `localStorage` per chat, so it outlives the document
+// rather than only the switch. That half needs a *real* navigation to prove — a unit
+// test can hand the same fake storage map to two boots, which is the right shape, but
+// only a browser tears down every variable in the page for real.
+//
 // One thing here is deliberately routed the long way round. Every switch writes the
 // address, so the back gesture walks back through them — but the list is still the only
 // surface you can switch *from*, so the history a phone actually builds is chat, list,
@@ -246,6 +252,16 @@ const openLauncher = async (query = '') => {
   throw new Error('the launcher never rendered');
 };
 
+/** A real navigation straight into one conversation — a reload, a bookmark, a card link. */
+const gotoChat = async (id) => {
+  await s.send('Page.navigate', { url: `${BASE}/console?id=${id}` });
+  for (let i = 0; i < 60; i++) {
+    await sleep(200);
+    if (await evalJs(s, `!!document.querySelector('#thread .msg')`)) return;
+  }
+  throw new Error(`${id} never rendered`);
+};
+
 /** What is on screen: which view, which chat, and what the address says. */
 const WHERE = `({
   view: document.querySelector('#launcher').hidden ? 'thread' : 'launcher',
@@ -372,16 +388,47 @@ try {
   );
 
   /* ---- and the URL is still the durable name for where you are ---- */
-  await s.send('Page.navigate', { url: `${BASE}/console?id=chat-b` });
-  for (let i = 0; i < 60; i++) {
-    await sleep(200);
-    if (await evalJs(s, `!!document.querySelector('#thread .msg')`)) break;
-  }
+  await gotoChat('chat-b');
   const reloaded = await evalJs(s, WHERE);
   check(
     'a reload lands on the conversation the address names',
     reloaded.view === 'thread' && reloaded.first.startsWith('Only one thing'),
     JSON.stringify(reloaded)
+  );
+
+  /* ---- and what was half-typed outlived the document itself ---- */
+  // The assertions here are the ones no unit test can make. test/composerdraft.mjs runs
+  // the real console.js twice over the same fake `localStorage` map, which is the right
+  // shape — but only a real browser can say that a real navigation, which tears down
+  // the page and every variable in it, leaves the words on a real disk.
+  //
+  // Four lines rather than one, because the height is half of what a restore owes: a
+  // paragraph that comes back in a one-line box is a paragraph you have to click into
+  // to discover you still have.
+  const LONG = 'a paragraph\nworth keeping\nacross a reload\nand a fourth line';
+  await evalJs(
+    s,
+    `(() => { const b = document.querySelector('#say'); b.value = ${JSON.stringify(
+      LONG
+    )}; b.dispatchEvent(new Event('input')); })()`
+  );
+  const tallBefore = await evalJs(s, `document.querySelector('#say').getBoundingClientRect().height`);
+
+  // Out to the *other* conversation first, which is what makes this a test of the
+  // keying as well: chat-a was left holding "half a thought" before the back gesture,
+  // and the in-memory map that held it died with the document on the navigation above.
+  await gotoChat('chat-a');
+  const keptA = await evalJs(s, WHERE);
+  check('a draft that was never sent survives the page going away', keptA.said === 'half a thought', JSON.stringify(keptA.said));
+
+  await gotoChat('chat-b');
+  const keptB = await evalJs(s, WHERE);
+  check('and each conversation gets its own back, never the other one’s', keptB.said === LONG, JSON.stringify(keptB.said));
+  const tallAfter = await evalJs(s, `document.querySelector('#say').getBoundingClientRect().height`);
+  check(
+    'restored at the height of what is in it, not as a one-line box',
+    Math.abs(tallAfter - tallBefore) < 2 && tallAfter > 40,
+    `${tallAfter}px restored vs ${tallBefore}px when typed`
   );
 } finally {
   for (const res of parked) res.destroy();

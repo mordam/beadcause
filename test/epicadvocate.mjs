@@ -73,11 +73,12 @@ const p0 = (extra = {}) => ({
 
 check('it is a fifth kind, not a mode — with a foundation and a mark of its own', () => {
   assert.ok(AGENTS.includes(EPIC_ADVOCATE), 'epic-advocate is not in AGENTS, so nothing can own a conversation as one');
-  // Six since bc-r941 added `merge-advocate`. The number is asserted rather than the
-  // membership because that is what makes a *new* kind fail here — lib/foundation.js's
-  // own note says a kind added without a mark should fail a check rather than quietly
-  // ship as a generic 🤖, and this is that check.
-  assert.equal(AGENTS.length, 6);
+  // Seven since bc-36xx.1 added `review-advocate` (six before it, when bc-r941 added
+  // `merge-advocate`). The number is asserted rather than the membership because that is
+  // what makes a *new* kind fail here — lib/foundation.js's own note says a kind added
+  // without a mark should fail a check rather than quietly ship as a generic 🤖, and this
+  // is that check.
+  assert.equal(AGENTS.length, 7);
   const b = baseline(EPIC_ADVOCATE);
   assert.equal(b.id, EPIC_ADVOCATE);
   assert.ok(b.role && b.role.length > 200, 'a kind with no role is a mode with extra steps');
@@ -98,6 +99,53 @@ check('AND ITS PERMISSIONS ARE THE WHOLE ARGUMENT FOR IT BEING ONE', () => {
   // And since bc-goo.12 it is a tier 3 subject too — the experiment starved on the repo
   // advocate alone, whose runs are gated behind a cooldown and an unanswered proposal.
   assert.equal(epic.ownsRepo, true);
+});
+
+/* ------------------------------------------------- the foundation as a document
+   (bc-xl7n.8.1)
+
+   A role is not prose nobody depends on: it is what this agent is told on *every* run,
+   and the failures it is the only guard against are the ones where doing the forbidden
+   thing works. Two of these are the writes the allowlist grants and the sentence is the
+   whole of the restraint — `bd update` can set a status, so "may not close" is the only
+   thing between an advocate and closing the epic it is answerable for; `bd label
+   remove` can strip `unendorsed`, which *is* the endorsement tap. The rest is the
+   carrier map, without which "write everything down on the bead" names one of four
+   places and the other three fill up with copies of the same sentence. */
+
+check('THE ROLE NAMES ALL FOUR CARRIERS, NOT JUST THE BEAD', () => {
+  const { role } = baseline(EPIC_ADVOCATE);
+  assert.match(role, /waiting-on block in `notes`/, 'the line the P0 card draws is not named as a carrier');
+  assert.match(role, /`beads` block in a comment/, 'the plan is not named as a carrier');
+  assert.match(role, /\*\*Labels\*\*/, 'nothing says which facts have to be machine-readable');
+  assert.match(role, /beadcause-memory debrief/, 'a re-entrant agent is not told where a visit report goes');
+  // And that they are distinguished. Four names in a list is not a carrier map; the
+  // failure this guards is one conclusion written into all four.
+  assert.match(role, /four different\s+things/, 'the four are named but never told apart');
+});
+
+check('AND THE REFUSALS COVER THE WRITES ITS OWN ALLOWLIST GRANTS', () => {
+  const { role, allowedTools } = baseline(EPIC_ADVOCATE);
+  // `bd close` is absent, `bd update` is not, and a status is a field.
+  assert.ok(!allowedTools.includes('Bash(bd close:*)'));
+  assert.ok(allowedTools.includes('Bash(bd update:*)'));
+  assert.match(role, /may not close anything/i, 'nothing stops it closing the P0 it is answerable for');
+  // The endorsement refusal, aimed at the write that exists rather than at filing.
+  assert.ok(allowedTools.includes('Bash(bd label remove:*)'));
+  assert.match(role, /carrying\s+`unendorsed`/, 'the endorsement refusal does not name the label it is about');
+  // The pause label is a button on Adam's screen; this agent can add labels.
+  assert.ok(allowedTools.includes('Bash(bd label add:*)'));
+  assert.match(role, /may not silence yourself/i, 'nothing stops an advocate pausing its own P0');
+  // And the three that were already there stay there.
+  assert.match(role, /may not raise a P0, own one, or change who owns one/i);
+  assert.match(role, /may not merge, push, deploy, or open a window/i);
+});
+
+check('and it says how it is re-entered, in the terms the sweep actually uses', () => {
+  const { role } = baseline(EPIC_ADVOCATE);
+  assert.match(role, /closes, is filed, or stalls/, 'the three events are not named');
+  assert.match(role, /never when a child\s+merely starts/, 'the event that is deliberately excluded is not named');
+  assert.match(role, /enrolment/i, 'nothing tells it that erasing its own sentence un-enrols the P0');
 });
 
 check('its brief and its protocol are owned by files that exist', () => {
@@ -173,7 +221,53 @@ check('the brief names the P0, its owner, and what it may not do', () => {
   assert.match(text, /adam@example\.com/, 'the brief does not say who it is answerable to');
   assert.match(text, /may not endorse/i, 'nothing stops it agreeing to its own work');
   assert.match(text, /priority or the owner/i, 'nothing stops it promoting its own P0');
+  assert.match(text, /may not close anything/i, 'nothing stops it closing the P0 it is answerable for');
   assert.match(text, /--parent zz-p0/, 'a child filed anywhere else is a bead nothing will work');
+});
+
+/* ------------------------------------------- what the reason asks of it (bc-xl7n.8.1)
+
+   The sweep hands this window one prose sentence saying what moved, and the brief used
+   to say nothing at all about what to do with it. The stall is the one worth the words:
+   a child left `in_progress` by a window that died is out of `bd ready` for good, and
+   nothing — no advocate, no worker, no queue — looks at it again. Releasing the claim is
+   inside this agent's allowlist, so the only thing missing was the sentence. */
+
+check('WITH CHILDREN, THE BRIEF READS THE REASON AS ONE OF THREE SHAPES', () => {
+  const kids = [{ id: 'zz-p0.1', title: 'one', status: 'in_progress', priority: 1 }];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam', {
+    reason: 'zz-p0.1 has been in progress for over 1h with nothing on this Mac in a window on it',
+  });
+  assert.match(text, /A child closed\./, 'a close asks nothing in particular of it');
+  assert.match(text, /A child was filed\./, 'a filing asks nothing in particular of it');
+  assert.match(text, /A child stalled/, 'a stall asks nothing in particular of it');
+});
+
+check('AND A STALL NAMES THE WRITE THAT PUTS THE BEAD BACK IN THE QUEUE', () => {
+  const kids = [{ id: 'zz-p0.1', title: 'one', status: 'in_progress', priority: 1 }];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam');
+  assert.match(text, /--status open --assignee ""/, 'a dead window’s claim holds the bead out of every queue for good');
+  assert.match(text, /invisible to `bd\s+ready`/, 'nothing says why an unreleased claim matters');
+  // And it is not a reflex: the work may exist on a branch, in which case the bead is
+  // exactly where it should be and the queue's own pull-request filter is holding it.
+  assert.match(text, /branch or an open pull request/, 'it is told to release a claim without looking for the work first');
+});
+
+check('a fresh P0 with no children is not given the three shapes at all', () => {
+  // There is nothing to have moved. A section that is noise on a first visit is a
+  // section that stops being read on the visits where it matters.
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
+  assert.ok(!text.includes('A child stalled'), 'a P0 with no children is briefed on child events');
+});
+
+check('AND A DECISION IT CANNOT MAKE HAS A DOOR THAT REACHES A PHONE', () => {
+  // It has `bd create` and `bd label add` and nothing else that reaches Adam. A question
+  // left in a comment is a question nobody is shown; one filed without `human` is picked
+  // up as work by the next worker window.
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
+  assert.match(text, /labelled `human`/, 'a question it files reaches nobody');
+  assert.match(text, /`decision` block/, 'the question arrives with no options to tap');
+  assert.match(text, /recommended: true/, 'and with no recommendation, which is the cheapest thing it can give');
 });
 
 check('with no children it is told to plan; with children it is told to take stock', () => {
@@ -324,7 +418,7 @@ check('THE BRIEF ASKS FOR A DEBRIEF, AND NAMES IT AS THE THIRD THING', () => {
   assert.match(text, /beadcause-memory debrief "/, 'the P0 advocate is never asked for a report on its visit');
   const at = text.indexOf('beadcause-memory debrief');
   assert.ok(at > text.indexOf(WAITING_CLOSE), 'the report is asked for before the sentence the card draws');
-  assert.ok(at < text.indexOf('Two things you may not do'), 'and it is not the last word — the refusals are');
+  assert.ok(at < text.indexOf('Three things you may not do'), 'and it is not the last word — the refusals are');
 });
 
 check('AND IT IS HANDED WHAT ITS PREVIOUS VISITS LEFT', () => {
