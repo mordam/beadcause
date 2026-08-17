@@ -12704,6 +12704,18 @@ why a worker *waits* for its checks and then merges, rather than handing GitHub 
 standing instruction and exiting. Whatever closes a bead here is a merge that has
 already happened.
 
+**A failure after the merge is not a refusal.** `gh pr merge --delete-branch` is three
+acts — merge, delete the remote branch, delete the local one — and a non-zero exit says
+only that one of them went wrong. The last one goes wrong routinely: the daemon merges
+from the main checkout, every branch a worker pushed is checked out in one of its
+worktrees, and git will not delete a branch somebody is standing on. So the failure path
+reads the pull request back before believing the exit code, and a pull request that
+reads `MERGED` is a merge, however loudly `gh` exited. The card says what `gh` could not
+tidy and leaves the branch to `lib/tidy.js`. Untreated, this was bc-s2d8: *bc-g0tx was
+not answered — nothing was written and nothing was lost*, sent over #371, merged, with
+its remote branch already gone and its work bead left `in_progress` because the answer
+never ran. There is no sentence on this board it is worse to be wrong about.
+
 A delivery question closes on all four answers, including *request changes* — the
 question was *merge this?* and it has been answered. The next push files a new one, so
 the inbox carries one card per attempt rather than one card that quietly changes
