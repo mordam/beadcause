@@ -13533,6 +13533,66 @@ in some GUIs — everything else ignores them. And nothing is pushed unless you 
 `git push origin 'refs/beadcause/*:refs/beadcause/*'` and `refs/notes/beadcause` are
 explicit acts, and on a shared repo they should stay that way.
 
+### The agent a session *ending* starts — reading the archive back for repeated work
+
+Every other agent here is started by work. A bead goes ready and an advocate opens a
+window on it; a comment arrives and dispatch answers it; a ticket lands and the ingester
+decomposes it. The audit agent (lib/sessionaudit.js) is started by a session **finishing**,
+and it asks the one question none of the others can: *what did that agent do by hand that
+code should have done?*
+
+The reason it is worth an agent is that nothing else was ever going to notice. A worker
+session opens by reading its bead, its comments, its debriefs, whatever memory looks
+relevant and whatever the last attempt left on the branch — several minutes of the same
+reads, done in a different order every time, before a line of the actual work. One session
+doing that is a session doing its job. Fifty sessions doing it fifty ways is a command
+nobody has written, and the only place all fifty exist is the archive above.
+
+**A finding is a repeated shape, not a one-off**, and the floor is enforced in code rather
+than asked for in the prompt — "cite three sessions" is exactly the instruction a model
+satisfies by citing three, so a finding whose beads are not among the ones the run actually
+read is dropped with the reason recorded. A pattern the library **already covers** is not a
+candidate either: it is a *miss*, the command existed and went unused, and the work there
+is adoption rather than code. Misses are recorded on the run and nothing is filed for them.
+
+What is filed is one bead per finding, through the ordinary filing seam and therefore
+[held](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time) — `unendorsed`,
+`agent-filed`, clamped to P2, and workable by nothing until you say so. Each carries the
+sessions it was seen in, what the command would take and return, and
+**what shipping it would take**: both bin registrations, the `test/<name>.mjs`, the README
+section, and the `Bash(b7e-<verb>:*)` allowlist entry if agents are meant to call it. That
+list is written once in lib/sessionaudit.js rather than rediscovered per finding, because
+it is a fact about this repo and the registration everybody forgets is the one that stops
+the whole test sweep at suite one.
+
+**Exactly once, from a ledger rather than from memory.** `refs/beadcause/audits` in the
+audited checkout is one chained commit per run — `run.json` for what happened this time,
+`state.json` for the cumulative answer every later run asks:
+
+```bash
+git log refs/beadcause/audits                       # every audit, newest first
+git cat-file -p refs/beadcause/audits:run.json      # what the last one read and filed
+```
+
+A daemon that restarts has forgotten every audit it ever ran and the ref has not, which is
+what makes re-running safe in both directions: a session commit already in `audited` is not
+read again, and a finding naming a command already filed is dropped even when somebody
+forces a run over the same sessions.
+
+The cost is a `claude -p` reading up to twelve transcripts, so three things bound it, all
+config: `sessionAuditEvery` unread sessions have to pile up before a run is worth starting
+(five, which is also the scale a repeated shape is visible at), `sessionAuditCooldownMinutes`
+is the floor between runs whatever the arrivals, and one runs at a time across every
+workspace. The transcripts reach the agent as files in a temporary directory handed over
+with `--add-dir` and removed afterwards — never inside the checkout, whose tree a delivery's
+dirty guard is watching — because the read-only allowlist has `Read` and `Grep` and no
+`git` at all.
+
+It runs as the chat session's foundation rather than a kind of its own. What it needs is
+exactly the read-only surface every other reading agent has, and [a new
+kind](#what-an-agent-is--and-how-it-asks-to-be-different) owes five registrations that would each say something
+already true of `console`.
+
 ### Which requirement a change was for — `refs/beadcause/requirements`
 
 Climative records acceptance criteria as **requirements**: `resources/reqs/{product,technical}/*.yaml`
@@ -20256,6 +20316,10 @@ to be one.
 | `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
+| `advocates.sessionAudit` | [read those archives back when a session ends](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work), looking for work agents did by hand that a command should have done, and file each repeated shape as a held candidate bead (default `true`). `false` and nothing runs — the archives are still written, and nothing ever reads more than one of them |
+| `advocates.sessionAuditEvery` | how many unread archives have to pile up before a run is worth its `claude -p` (default 5). Also what makes a run's input worth reading: one session at a time can only ever show a one-off, and a finding is a repeated shape |
+| `advocates.sessionAuditCooldownMinutes` | the floor between runs whatever the arrivals (default 60), so a morning that finishes nine sessions does not become nine agents |
+| `advocates.sessionAuditMax` | how many archived sessions one run reads (default 12, clamped 3–40). Every one of them is marked read afterwards, whether or not it contributed to a finding |
 | `advocates.agentRepo` | which arm of the [tier 3 experiment](#tier-3--a-repo-one-agent-owns-and-the-experiment-that-is-the-point-of-it) each run of an agent that owns a private repo gets: `alternate` (the default) flips per workspace and agent, `blind`/`index` pin one, and `off` withdraws the affordance and the write grant with it. Named under `advocates` because the advocate was the first agent to have one; the Epic Advocate and the worker read the same key. `npm run agentrepo` is what reads the result back |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
 | `advocates.closeGraceSeconds` | how long an idle session gets between reaching its ending and the first signal (default 90) |
