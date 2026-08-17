@@ -13576,6 +13576,37 @@ rather than an epic is dispatchable directly, so a session really can be working
 one — the bead is filed again with no parent and the refusal is reported. Nothing here
 chose that parent; losing a discovery over it would be the wrong way round.
 
+**And the provenance edge is never written to the bead's own parent, which is the one
+thing above that was quietly failing.** bd holds **one typed edge per pair** and refuses a
+second of a different type, so `--parent X` alongside `--deps discovered-from:X` fails the
+whole create:
+
+    validation failed: dependency → X already exists with type "parent-child"
+    (requested "discovered-from"); remove it first with 'bd dep remove' then re-add
+
+That is not a corner. It is exactly what the rule above asks for **every time the work
+that found the bead is itself a root**, since a root counts as being above itself — a
+worker opened on a P0 hits it on its first discovery, a worker opened on a child of one
+never does. So the create failed, the fallback dropped the parent rather than lose the
+find, and the bead landed with nothing above it: held, refused at the door, and reported
+to the session that filed it as *filed under X*. Every one of the twenty-two `agent-filed`
+beads sitting parentless on 2026-08-17 was this, and the three passes over that pile ruled
+out a Dolt lock, a failed `bd export` and bd's hierarchy rules in turn, all wrongly. The
+**parent-child edge wins and the `discovered-from` goes**: it loses nothing, because a
+parent link to the bead you were working is the same trail drawn more prominently, and the
+notes say *filed by an agent while working X* either way.
+
+**What a refusal says is now what bd said.** `Bd.run` builds its error as `bd <every
+argument> failed in <ws>: <reason>`, and a `create` carries `--description` — so the
+message's first line is the start of the command and the reason is somewhere past the
+description's first newline. Reporting that first line, which is what this seam did for a
+fortnight, showed a session its own title echoed back with *Filing it with no parent
+instead* bolted on, and never once the sentence that would have named the bug. bd's own
+words are on `stderr` and that is what is read now. The summary line beneath it is written
+from **what landed** rather than from what was decided: a bead whose parent was refused is
+named, with the word `NO PARENT`, instead of being covered by a *filed under X* that was
+true of the intention and false of the bead.
+
 **But nothing is silent either, and for a while one thing was.** Fail-open is not the
 same promise as fail-quiet, and the difference is a bead that vanished. Three
 `beadcause-file` calls minutes apart in one session, same workspace, same `--from`: the
@@ -13610,6 +13641,10 @@ for a bead no queue carries is held by nothing.
 
 `test/homing.mjs` covers it, including the property the whole thing is for, asserted
 against the tracker after a real `fileBeads`: the bead it just filed has a P0 above it.
+`test/filing.mjs` covers the collision from the other end — its stub `bd` refuses two
+edges to one bead in bd's own words, so a bead filed while working a root has to actually
+land under it, and the inverse holds: take the parent out of `withDiscoveredFrom` and that
+check goes red.
 
 **`beadcause-propose` — a question first, a bead only if you say so.** Nothing is
 created until you press the button. That is the right shape when the bead itself is
