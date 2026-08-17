@@ -2845,6 +2845,38 @@ quoted after it, from the one copy in `lib/memory.js` — which means an amendme
 `role` can change what a work session is without being able to delete the paragraph
 that tells it it has a memory at all.
 
+### `PATH` and the commands baked into a brief both name the main checkout, never a worktree
+
+`agentExports`' `PATH` prefix above is this repo's own `bin/` — but *whose* `bin/`
+mattered less until nearly every session doing code work was itself running from a
+worktree under `.claude/worktrees/`. `BIN` in `lib/foundation.js` used to be computed
+once, from wherever the currently-running `foundation.js` happened to have loaded
+from, and the daemon almost always loads from the main checkout. The one case it does
+not is exactly the dangerous one: a worker session is a **fresh login shell**, long-lived
+and independent of the daemon the moment `osascript` types the command in, and the
+ship/prune sweep retires a worktree the instant its branch is an ancestor of `main` —
+with no regard for a live session still holding a `PATH` into it. A session that hits
+this loses `beadcause-memory` off `PATH` mid-run, at the exact moment it is meant to
+hand work back (bc-xl7n.61). `lib/session.js`'s `DELIVER_CMD`/`FILE_CMD`/`ASK_CMD`/
+`PROPOSE_CMD`/`SUPERSEDE_CMD`/`CHECKIN_CMD`/`PLAN_CMD` — the absolute paths a brief
+types out in full rather than trusting to `PATH` — had the same bug for the same
+reason: they were built from `ROOT`, "wherever this process loaded from", the one time
+that is wrong being the one time it matters.
+
+So both resolve through `mainCheckout` instead: `BIN` becomes the main checkout's
+`bin/`, and `lib/session.js`'s `MAIN` (not `ROOT` — `ROOT` is still right for the
+`applescript` paths beside it, which this process itself runs) is the checkout a brief's
+commands are built against. Both are a `git` call and so cannot resolve synchronously
+at import — and both are a **top-level `await`**, not a fire-and-forget `.then()` that
+corrects the module-level binding whenever the subprocess happens to finish. The first
+version of this fix used `.then()` and broke `test/land.mjs`'s byte-identical-brief
+assertions the same day it was written: `workPromptFor` is called more than once for
+the same bead a few `await`s apart, and when a call landed before `BIN`/`MAIN` had
+resolved and another after, the two produced different strings for what a worker is
+told are identical briefs. A top-level `await` makes ESM's own module graph do the
+waiting — nothing that imports `lib/foundation.js` or `lib/session.js` runs a line past
+it until the value is final, so every caller in the process sees one answer.
+
 ### Which of the two, and the one question that decides it
 
 **Would this still be true in a different repo?** That is the whole test, and the
