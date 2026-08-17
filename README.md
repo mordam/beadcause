@@ -8614,6 +8614,75 @@ exactly as it was found, that a rebuild fires only for the paths that moved, tha
 `startDeploy` returns while its command is still running, and that a runner with a dead
 pid settles to `unconfirmed` or `lost` and never to `ok`.
 
+### The two queues, and where a bead is in either
+
+Everything above this line is a stage of something, and until `GET /api/queues` there was
+nowhere that said so. The merge queue wrote *attempts*, *downmerging*, *resolving* and
+*refused* into a merge-bead's notes. The deploy journal wrote `queued · pulling ·
+building · deploying · ok · failed · unconfirmed · lost` into a file per deploy. The
+release queue batched merged-and-not-live work per repo behind the settle window. Three
+files, three clocks; ask any one of them where a bead is and you get a third of an answer.
+
+**They are two queues and not one long one**, because they are entered by different
+events, drained by different agents, and nothing is ever in both:
+
+- **The merge queue** — one entry per bead with an unmerged branch, entered the moment its
+  pull request joins the queue (a worker files a merge-bead and stops) and left by the
+  merge. Its stages are **queued for merge · downmerging · resolving conflicts · gate
+  tests · resolving issues**.
+- **The release queue** — entered when a pull request **merges**, never before. Several
+  merges batch into one release at the end of the settle window, because one restart makes
+  all of them live at once. Its stages are **merged · building · deploying · deployed to
+  green · green verification · swapping to blue · live**.
+
+Drawing them as one ladder would say that a branch waiting on CI and a merge waiting on a
+deploy are the same kind of waiting. They are not: one is waiting on a decision nobody has
+made, the other on a clock that is already running.
+
+**Three of the release rungs are not tracked, and the payload says so rather than
+guessing.** `npm run swap` replaces the backend every open phone is talking to and writes
+nothing but `restart.json` — [deliberately](#a-swap-is-not-a-deploy-so-the-router-leaves-a-marker-of-its-own),
+because a swap wearing a deploy record would appear in the deploy history and in a push
+notification announcing a deploy nobody pressed Ship on. So *deployed to green*, *green
+verification* and *swapping to blue* come back with `state: "untracked"` on every entry,
+and **never `done`**, however far along the entry is. A ladder that quietly skipped from
+*deploying* to *live* would say the handover does not happen, where the truth is that
+nothing here can see it yet.
+
+**Two rules decide what exists at all.** A repo with nothing to release — no service, no
+webapp, no declared deploy — creates **no release entry**: nothing could ever move one
+along, so its merge entry simply disappears when the pull request merges, which is all
+that is true about it from here. And an entry leaves the board **one release after** it
+went live, not the moment it did: the moment a deploy lands is the moment you want to look
+at what it carried, so an entry released by the current release or the one before it is
+still returned and one released two releases ago is gone. `ago` is on the wire — `0` for
+the release that is live now, `null` while a merge is still waiting for one — because "this
+went out in the release before last" is a different sentence from "this is not live".
+
+A merge that is **live with no record of the release that carried it** is history rather
+than a queue entry, and it is left off. This is the same hole the release ledger's
+[watermark](#the-release-queue--the-number-over-ship) fills, met from the other side: the
+board carries three weeks of merged pull requests and the deploy journal keeps forty
+records, so a first run finds every one of those merges live in the build that is running
+and nothing that says which deploy did it. Calling that the current release would put three
+weeks of work on the board at once, and the rule is *one release past the one that made it
+live* — which is not something you can say about an entry nothing can place.
+
+**Nothing is swept for.** The board is the same 25-second `gh` sweep `/api/prs` shares, the
+journal is a directory read, and the merge-beads are gathered behind the same cheap
+`bd.graph()` question the queue's own tick asks before it spends a subprocess, kept for
+twenty seconds. A phone polling this and the board together pays for one sweep, not two.
+A merge-bead whose repo is not on the board comes back under `orphans` rather than being
+dropped — an account that does not name that repo, a `gh` that would not answer, a
+checkout that is not on this Mac — because a branch that cannot merge must not look like
+one that already has.
+
+`node test/queues.mjs` is the whole of it, and it reaches no tracker, no checkout and no
+network: every rung of both ladders from the states that produce it, the untracked three
+never drawn as done, a repo with no declared deploy carrying merge entries and no release
+entries, and an entry that went live in the previous release still returned where one from
+two releases ago is not.
+
 ## The endorsement queue — a group tap, or a row at a time
 
 A worker that trips over work no longer stops to ask. It files the bead there and then
@@ -16986,6 +17055,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. One card per **repo** — `key` is `beadcause` or `climative/athena-service`, and it is what every row and every button below is addressed by, because a pull request number is only unique inside a repo. `workspace` is still accepted everywhere `key` is and means the same thing for a workspace that is one repo; see [why](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them). Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
 | POST | `/api/pr/merge` | `{key, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. Only *edited* files refuse it: untracked residue is stepped past and named, because this checkout is shared with every session on the Mac and one stray `.DS_Store` used to stop all of them. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
 | POST | `/api/pr/ship` | `{key, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
+| GET | `/api/queues` | `?refresh=1` | [the two queues](#the-two-queues-and-where-a-bead-is-in-either), keyed by repo: `{at, repos[], orphans[], counts, unavailable, errors[], observing}`. Each repo carries `merge[]` — one entry per bead with an unmerged branch, from the moment its PR joined the queue — and `release[]`, one per merged PR in the batch it will ship with. Every entry names its bead, its pull request and its `stage`, plus `rungs[]`: the whole ladder with each rung `done` · `now` · `pending` · **`untracked`**, which is what the three stages nothing records yet come back as and is never `done`. A repo with no declared deploy and no visible build returns merge entries and **no release entries**. A release entry is kept one release past the one that made it live (`ago`), then it is gone. Reads nothing of its own: the 25-second board `/api/prs` shares, the deploy journal, and merge-beads kept 20s behind the same `bd.graph()` gate the queue's own tick uses |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
 | POST | `/api/pr/comment` | `{key, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
 | GET | `/api/pr/detail` | `?key=&number=&refresh=1` | `{row, pr, agent, unavailable}` — what [the full view](#tapping-one-opens-it-full-screen) is drawn from. `row` is the board's (the lamps and the rung, from the 25-second sweep, computed once in lib/prstage.js); `pr` is `gh` **now**, for the description the board strips, the datetimes and the mergeability the buttons are drawn from; `agent` is which session wrote it, from the archive in the repo's own refs. Every failure is an answer rather than a 500, exactly as `/api/pr` has it |
