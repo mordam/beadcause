@@ -19,11 +19,12 @@
  *    state a real pass of lib/mergequeue.js would have left, or the deploy record
  *    lib/deploy.js would have written, and asserts the rung that follows from it. A stage
  *    derived from something nothing records is a guess with a label on it.
- * 2. **The untracked three are never `done`.** `npm run swap` writes no deploy record on
- *    purpose, so *deployed to green*, *green verification* and *swapping to blue* cannot
- *    be observed until bc-khoe.8 records the router's handover. A ladder that filled them
- *    in from the current stage would tick "green verification" over a verification nobody
- *    ran, which is the exact claim that bead exists to make true rather than assume.
+ * 2. **The last three are `done` only where a handover says so.** `npm run swap` writes no
+ *    deploy record on purpose, so *deployed to green*, *green verification* and *swapping
+ *    to blue* come off the router's own trail (lib/handover.js, bc-khoe.8) — and where
+ *    there is no trail to read they stay `untracked` rather than falling back to the
+ *    position the entry has reached. A ladder that filled them in from the current stage
+ *    would tick "green verification" over a verification nobody ran.
  * 3. **A repo with nothing to release gets no release entries at all**, and its merge
  *    entry disappears on merge rather than becoming something nothing could ever drain.
  * 4. **An entry leaves one release after it went live.** Off by one in either direction is
@@ -204,7 +205,7 @@ check('every merge rung carries the sentence a card draws under it', () => {
 
 /* -------------------------------------------------------------- the release ladder */
 
-console.log('\nthe release ladder — and the three rungs nothing records yet\n');
+console.log('\nthe release ladder — and the three rungs only a handover can fill\n');
 
 check('a merge nobody has fetched is not in the release queue at all', () => {
   // `shippedState`'s rule: a deploy fast-forwards to origin/<base>, so a merge this Mac
@@ -247,19 +248,37 @@ check('the running build is the strongest answer, and only beadcause can give it
   assert.equal(releaseStageOf(row({ deployed: true }), [deploy({ status: 'unconfirmed' })]), 'live');
 });
 
-check('the three rungs nothing records come back untracked, and never done', () => {
-  const untracked = RELEASE_STAGES.filter((s) => s.tracked === false).map((s) => s.id);
-  assert.deepEqual(untracked, ['green', 'verifying', 'swapping']);
-  // From every rung of the ladder, including the last one.
+check('the three handover rungs are untracked until a handover says otherwise', () => {
+  const byHandover = RELEASE_STAGES.filter((s) => s.handover).map((s) => s.id);
+  assert.deepEqual(byHandover, ['green', 'verifying', 'swapping']);
+  // From every rung of the ladder, including the last one: a release the router recorded no
+  // handover for stays untracked however far along it is, because the position it has
+  // reached is not evidence that a health check ran.
   for (const id of RELEASE_STAGE_IDS) {
     const rungs = rungsFor(RELEASE_STAGES, id);
-    for (const r of rungs.filter((x) => untracked.includes(x.id))) {
+    for (const r of rungs.filter((x) => byHandover.includes(x.id))) {
       assert.equal(r.state, 'untracked', `${r.id} reads ${r.state} at stage ${id}`);
+      assert.equal(r.at, null, `${r.id} carries a time nobody observed`);
     }
   }
 });
 
-check('a tracked rung behind the current one is done, ahead of it is pending', () => {
+check('and each one is done, with its own time, when the handover recorded it', () => {
+  const observed = { green: iso(9), verifying: iso(8), swapping: iso(7) };
+  const rungs = rungsFor(RELEASE_STAGES, 'live', observed);
+  const by = Object.fromEntries(rungs.map((r) => [r.id, r]));
+  for (const id of ['green', 'verifying', 'swapping']) {
+    assert.equal(by[id].state, 'done', `${id} reads ${by[id].state}`);
+    assert.equal(by[id].at, observed[id]);
+  }
+  // A rung the handover could not say anything about is still untracked, and is not filled
+  // in from the two either side of it.
+  const partial = rungsFor(RELEASE_STAGES, 'live', { swapping: iso(7) });
+  assert.equal(partial.find((r) => r.id === 'verifying').state, 'untracked');
+  assert.equal(partial.find((r) => r.id === 'swapping').state, 'done');
+});
+
+check('a positional rung behind the current one is done, ahead of it is pending', () => {
   const rungs = rungsFor(RELEASE_STAGES, 'deploying');
   const by = Object.fromEntries(rungs.map((r) => [r.id, r.state]));
   assert.equal(by.merged, 'done');
@@ -270,13 +289,106 @@ check('a tracked rung behind the current one is done, ahead of it is pending', (
 
 check('a merge entry hands back the same ladder shape as a release entry', () => {
   // One card renderer draws both (bc-khoe.7). A card that had to know which queue it was
-  // in to read its own payload would be two renderers wearing one name.
+  // in to read its own payload would be two renderers wearing one name — so the `at` the
+  // handover puts on a release rung is on every merge rung too, as null.
   const m = mergeEntry(merge(), null);
   assert.deepEqual(
     m.rungs.map((r) => Object.keys(r).sort()),
-    m.rungs.map(() => ['id', 'label', 'note', 'state'])
+    m.rungs.map(() => ['at', 'id', 'label', 'note', 'state'])
   );
-  assert.ok(m.rungs.every((r) => r.state !== 'untracked'), 'every merge rung is observed');
+  const r = releaseEntry(row(), card(), [], {});
+  assert.deepEqual(
+    r.rungs.map((x) => Object.keys(x).sort()),
+    r.rungs.map(() => ['at', 'id', 'label', 'note', 'state'])
+  );
+  assert.ok(m.rungs.every((r) => r.state !== 'untracked'), 'no merge rung waits on a handover');
+  assert.ok(
+    m.rungs.every((r) => r.at === null),
+    'and none of them is observed, so none carries a time'
+  );
+});
+
+/* ------------------------------------------------------------------ the handover */
+
+console.log('\nthe handover — the three rungs the deploy journal cannot see\n');
+
+/** A handover, as lib/handover.js records one at the promotion. */
+const handover = (over = {}) => ({
+  at: iso(4),
+  spawnedAt: iso(6),
+  healthyAt: iso(5),
+  build: 'ab12cd34ef56',
+  pid: 5150,
+  port: 51999,
+  reason: 'lib/ moved on disk',
+  deploy: 'd1',
+  ...over,
+});
+
+check('a release the router handed over puts a time under all three rungs', () => {
+  const rec = deploy({ id: 'd1', status: 'ok' });
+  const h = handover({ deploy: 'd1' });
+  const e = releaseEntry(row(), card(), [rec], {}, [h]);
+  assert.equal(e.stage, 'live');
+  const by = Object.fromEntries(e.rungs.map((r) => [r.id, r]));
+  assert.deepEqual(
+    ['green', 'verifying', 'swapping'].map((id) => [by[id].state, by[id].at]),
+    [
+      ['done', h.spawnedAt],
+      ['done', h.healthyAt],
+      ['done', h.at],
+    ]
+  );
+  // And the record itself, because which backend took over on which port is the sentence
+  // you want when a swap is what you are looking into.
+  assert.deepEqual(e.handover, { at: h.at, build: h.build, pid: h.pid, port: h.port });
+});
+
+check('a handover for another release says nothing about this one', () => {
+  // The attribution is by deploy id, never by "the last swap that happened". The router
+  // swaps on its own whenever `lib/` moves, so there are more handovers than releases.
+  const e = releaseEntry(row(), card(), [deploy({ id: 'd1' })], {}, [handover({ deploy: 'd-somebody-else' })]);
+  assert.equal(e.handover, null);
+  assert.equal(e.rungs.find((r) => r.id === 'swapping').state, 'untracked');
+});
+
+check('a swap the router did on its own is attributed to no release at all', () => {
+  // `deploy: null` is the ordinary case — `npm run swap` by hand, and every automatic one.
+  // A release must not pick one of those up because it happens to be the only handover
+  // there is.
+  const e = releaseEntry(row(), card(), [deploy({ id: 'd1' })], {}, [handover({ deploy: null })]);
+  assert.equal(e.handover, null);
+});
+
+check('the handover is the stronger evidence when the journal has not settled yet', () => {
+  // A beadcause deploy SIGKILLs the runner that asked for it, so the record sits at
+  // `deploying` from the kickstart until something sweeps it — while the new backend is
+  // already the one every phone is talking to. `deploying` there is a sentence about
+  // bookkeeping; the handover is a sentence about the port.
+  const rec = deploy({ id: 'd1', status: 'deploying', startedAt: iso(6) });
+  assert.equal(releaseStageOf(row(), [rec]), 'deploying');
+  assert.equal(releaseStageOf(row(), [rec], [handover({ deploy: 'd1' })]), 'swapping');
+  // It stops at swapping: what is *running* is a question for the board and the ledger.
+  assert.equal(releaseStageOf(row({ deployed: true }), [rec], [handover({ deploy: 'd1' })]), 'live');
+});
+
+check('a handover cannot advance a release no deploy is carrying', () => {
+  // Nothing in flight, so there is no deploy for a handover to be attributed to, and a
+  // merge waiting for the settle window must not read as one that is being swapped in.
+  assert.equal(releaseStageOf(row(), [], [handover({ deploy: 'd1' })]), 'merged');
+  const settled = deploy({ id: 'd1', status: 'failed', startedAt: iso(6) });
+  assert.equal(releaseStageOf(row(), [settled], [handover({ deploy: 'd1' })]), 'merged');
+});
+
+check('the whole answer carries the times, so a card needs nothing else', () => {
+  const rec = deploy({ id: 'd1', status: 'ok' });
+  const out = queues(
+    { repos: [card({ prs: [row()] })] },
+    { merges: [], deploys: [rec], ledger: {}, handovers: [handover({ deploy: 'd1' })] }
+  );
+  const entry = out.repos[0].release[0];
+  assert.equal(entry.rungs.filter((r) => r.state === 'untracked').length, 0, 'nothing is untracked once it is observed');
+  assert.equal(entry.handover.pid, 5150);
 });
 
 /* --------------------------------------------------------------------- the entries */
