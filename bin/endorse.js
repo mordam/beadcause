@@ -100,6 +100,7 @@ const first = (err) => String(err?.message || err || '').split('\n')[0];
 if (has('--help', '-h')) {
   console.log(
     'usage: beadcause-endorse <bead> [<bead> ...] [-w <workspace>] [--dir <checkout>] [--dry-run]\n' +
+      '                         [--url <daemon>]\n' +
       '\n' +
       'Takes the `unendorsed` marker off beads an agent filed, through the daemon, so the\n' +
       'endorsement queue on every other device drops them at the same moment. Every bead is\n' +
