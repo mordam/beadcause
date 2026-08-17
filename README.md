@@ -16439,8 +16439,9 @@ request. Their ten seconds is the ledger's own window and the ledger's own argum
 bead that changed a moment ago is still ten seconds stale at worst, and the daemon's
 own poll cycle already keeps `questions:` warm on a faster clock than that — see the
 comment on `tick` in lib/server.js, which reads with `refresh: true` for exactly that
-reason. `foundation:`, `agentbeads:` and `work:` have no such tick and stand on the
-window alone, same as `board:`/`prs:`/`queue:` do.
+reason. `foundation:`, `agentbeads:` and `work:` have no such tick and stood on the
+window alone until bc-1kwl.4 — which is a different question from how old an answer may
+be, and is [below](#the-other-half--filling-a-key-before-anybody-asks).
 
 **Why the board has no scope and the queue does**, when the account chip narrows both: the
 board is swept for the whole Mac and narrowed *on the way out*, per request, so one cache
@@ -16528,6 +16529,64 @@ one repo serving another repo's rows. So a refresh carries the generation it sta
 and may only *write* if that is still the current one. It still finishes, and still answers
 whoever was waiting on it — a ⟳ that raced a drop asked a real question and gets a real
 answer; what it may not do is become the value the next reader sees.
+
+### The other half — filling a key before anybody asks
+
+Everything above takes the wait out of every read **but the first one**. Past the window a
+kept answer comes back now and the producer runs behind it; the only request that still
+waits on `bd` or `gh` is one that finds a key with nothing kept for it at all. So once
+bc-1kwl.3 and bc-1kwl.7 had put the standing screens on the layer, the whole of what was
+left of the latency budget was cold keys — and a cold key is not a rare event, because
+every key in the process is cold again the moment the daemon restarts, which for beadcause
+is **every merge**.
+
+bc-1kwl.4 is the poll cycle filling them. The daemon is already awake on a clock, already
+reading these very trackers; `warmKeys` in lib/server.js rides that beat and produces for
+the keys behind the screens a notification sends somebody to. First paint after an hour in
+a pocket is then a JSON read of memory, including the first one after a deploy.
+
+**The gate is two questions, and neither of them is "is it stale".** That is the part worth
+reading, because the obvious build is wrong in a way that undoes bc-1kwl.5. These windows
+are ten seconds wide and a cycle is thirty, so *warm every cycle* means every producer
+re-run every cycle, forever, for screens nobody is looking at — the exact daemon load
+"[noticing in five seconds](#noticing-in-five-seconds--and-not-sweeping-to-find-out)" spent
+a bead holding down. `warmDue` asks instead:
+
+1. **Is anything kept for it?** If not, warm it, whatever the clock says. This is the only
+   state that can make a request wait, and it is the state at boot.
+2. **Has its tracker been written to since?** `bd` is the only source these keys have, so a
+   manifest that has not moved means a fresh sweep would return *the same bytes*. Age alone
+   is never a reason to ask. When it has moved, a floor of one cycle applies — on a Mac with
+   twenty agent sessions writing, something has moved on nearly every five-second beat, and
+   without the floor "warm what changed" is "warm everything, six times a minute".
+
+On an idle daemon with its keys filled, both are false for everything and the pass makes no
+`bd` call whatsoever.
+
+**Two keys are cold-only and own that rule themselves.** `queue:` because it is the most
+expensive sweep in the app — a `bd list --label` per workspace plus up to forty `bd show`s,
+48 seconds — so it is filled at boot and again after each verdict drops it, which is a
+person acting and the moment the screen is next opened. `board:` because it is the only
+warmed key that reaches the network, and the acceptance says daemon `gh` traffic with nobody
+looking must not rise. Cold-only makes that literally true: after the first sweep something
+is kept for `board:` for the life of the process, so the steady-state addition is none. What
+it does add is one board sweep per daemon start, which the release queue would have made five
+minutes later anyway — and those five minutes are the five right after a merge, when somebody
+is most likely to open the board to watch the thing they just merged go out.
+
+**The pass runs beside the cycle, never inside it.** `warmSweep` does not await
+`warmKeys`, and that is not a shortcut: `beat` refuses to overlap itself, so an awaited
+warm would put a sweep for a screen nobody is looking at in front of the next `tick`, which
+is the thing that puts a question on a phone. Detaching costs two things back — a guard, so
+a pass that runs longer than a beat does not have a second started on top of it every five
+seconds, and a `catch`, because an unhandled rejection out of a timer kills the daemon and
+would leave the warmer switched off for the life of the process. Within a pass the order is
+by cost and each step is awaited, so a warm is one thing queueing on Dolt's single writer
+rather than four.
+
+`test/warmcycle.mjs` is the gate. It counts producer calls rather than timing anything, for
+the same reason test/cache.mjs does: a warmer that fills the right keys and asks twice for
+them has failed at the only thing it was built for.
 
 ## Wireframes you can move — `design/`
 
