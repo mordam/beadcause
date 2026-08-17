@@ -38,11 +38,13 @@
 //
 // ## The pill list is read, never repeated
 //
-// `PILLS` in `public/viewbar.js` is the one place a view is added, and three beads after
-// this one change it — bc-khoe.2 (the six kinds), bc-khoe.4 (Advocates, Mirror) and
-// bc-khoe.7 (Releases). A list copied into this file would make each of those a check
-// edit as well, and a check that has to be edited to keep passing is a check that gets
-// edited rather than believed. So the array is read out of the source the way
+// `PILLS` in `public/viewbar.js` is the one place a view is added, and it keeps moving:
+// bc-khoe.2 replaced four pills with seven while this file was being written, and
+// bc-khoe.4 (Advocates, Mirror) and bc-khoe.7 (Releases) each change the set again. A
+// list copied into this file would make every one of those a check edit as well, and a
+// check that has to be edited to keep passing is a check that gets edited rather than
+// believed — the same run that took the row from four pills to seven was green here
+// without a line of this file changing. So the array is read out of the source the way
 // `test/mirrorpane.mjs` reads it, and everything below is derived from it: which pills
 // there should be, in what order, and — from each pill's own `paths` — which one should
 // be lit on the page being looked at.
@@ -293,13 +295,17 @@ const SIZES = [
  *
  * The current pill being scrolled into view is a promise about an **overflowing** row: on
  * a row with room to spare `scrollLeft` is 0, every pill is visible, and the assertion
- * passes whether or not `reveal()` exists at all. The row is heading for about nine pills
- * (bc-khoe.2, .4 and .7) and will overflow a 360px phone on its own; today it holds four
- * and may not. Rather than write an assertion that is vacuous now and meaningful later —
- * which is an assertion nobody can tell has stopped working — the row is put in the state
- * it is promising something about, by giving it less width than it needs. What that
- * stands in for is the nine-pill row on a real phone, and the arithmetic `reveal()` does
- * is the same either way.
+ * passes whether or not `reveal()` exists at all. The row does overflow a phone today and
+ * the assertion at 360 and 393 is a real one — but that is a property of how many pills
+ * happen to be in the list, not a property of the row, and one bead removing one pill
+ * would turn every one of those into a green line about nothing. An assertion that is
+ * vacuous *and looks exactly like an assertion that is not* is the worst thing in a check.
+ *
+ * So the row is put into the state it is promising something about, by giving it less
+ * width than it needs, and this pass **fails if the row turns out to fit** — the
+ * precondition is asserted rather than hoped for. It is not a phone; it stands in for the
+ * phone the row is heading towards as bc-khoe.4 and bc-khoe.7 add to it, and the
+ * arithmetic `reveal()` does is the same either way.
  */
 const PINCH = { width: 240, height: 640 };
 
