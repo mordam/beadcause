@@ -18165,7 +18165,7 @@ The three words used to be a scalar that each read overwrote, which is exactly r
 while a route reads one key — and it stopped being right the moment the routes this
 instrument exists to judge began fanning out. One `/api/questions` calls the shared cache
 about **thirty** times: `questions:`, `foundation:` and `agentbeads:`, once each per
-workspace, and there are eleven workspaces on this Mac. They go out under one
+workspace, against the ten workspaces configured here. They go out under one
 `Promise.all`, so thirty writes to one field landed in whatever order they came home in,
 and the word that survived was whichever read finished last.
 
