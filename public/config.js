@@ -896,9 +896,17 @@
   /* Draw whatever the picker already says before the first request lands: with no space
      selected that is the "pick a space" line, which is the final answer rather than a
      placeholder, and with one it is "Reading this space…". */
-  render();
-  load();
-  tellPresence();
+  if (!token) {
+    // The whole page is behind the token, where on the console this card was one pane of
+    // four and could afford to answer "no settings" in the daemon's words. Said plainly
+    // instead, and said before anything is fetched: a screen of controls under a 401 is a
+    // screen that looks broken rather than one that looks locked.
+    out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
+  } else {
+    render();
+    load();
+    tellPresence();
+  }
 
   /* What `scripts/space-check.mjs` drives to prove a repaint landing under your thumb
      cannot take a half-typed channel id away — the same door

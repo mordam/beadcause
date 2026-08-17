@@ -188,6 +188,7 @@ const ROUTES = {
   '/flow': '/flow.html',
   '/requirements': '/requirements.html',
   '/admin': '/admin.html',
+  '/config': '/config.html',
 };
 
 function serve() {
@@ -257,6 +258,7 @@ const PAGES = [
   { url: '/flow', file: 'flow.html' },
   { url: '/requirements', file: 'requirements.html' },
   { url: '/admin', file: 'admin.html' },
+  { url: '/config', file: 'config.html' },
 ];
 
 /**
