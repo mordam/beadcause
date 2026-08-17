@@ -6571,6 +6571,46 @@ button.p0-row {
   font-size: 12px;
 }
 .p0-rel-title { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
+/* What happened to this bead — the pull requests that name it and its session
+   (bc-rfnr.9.5). A column of rows rather than the wrapping row `.p0-rel` uses, because
+   these carry three things each (a number or a glyph, a title, and where it got to) and
+   the third one wraps: laid out as a wrapping row they would interleave, and you could
+   not tell which rung belonged to which pull request. */
+.p0-hap { display: flex; flex-direction: column; gap: 4px; }
+/* Both a `<button>` and an `<a>` and a `<div>` in the same list, so every inherited
+   control style is reset here: the three states differ in what they *do*, and a reader
+   must not be able to tell them apart by weight or colour before they know which is
+   which. Full width and left-aligned, since a bead can have four pull requests and a row
+   that centred its title would put four titles in four different places. */
+.p0-hap-row {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 12px; text-align: left; text-decoration: none;
+  cursor: pointer;
+}
+/* Not a control at all: the two states that are a `<div>` say something and offer
+   nothing, which is the whole of this bead's "never a link into an empty pane". */
+div.p0-hap-row { cursor: default; opacity: 0.75; }
+.p0-hap-row.is-checking, .p0-hap-row.is-none { color: var(--muted); }
+/* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex parent or
+   the live-session row draws nothing at all where its dot belongs — measured, and it is a
+   row whose whole subject is that a window is running. `inline-flex` rather than `flex`
+   so the emoji the other rows use still sits on the text baseline beside it. */
+.p0-hap-glyph { display: inline-flex; align-items: center; min-height: 12px; flex: none; font-size: 12px; }
+.p0-hap-row .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+/* `1 1 100%` for the same reason `.p0-rel-row` uses it one block up — a title beside the
+   rung wraps into the rung's column and reads as part of it. */
+.p0-hap-title { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.p0-hap-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
+/* The sentence for a bead nothing has happened to, which is most of them. Muted and
+   without a box, so it reads as an answer rather than as a row that failed to draw. */
+.p0-hap-none { font-size: 12px; color: var(--muted); }
 /* The way out to the graph, on the bead you tapped rather than on the card above it.
    It is where this row used to send you, and it stays reachable: the expansion is this
    bead, and the graph is everything around it. */
