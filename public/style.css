@@ -221,11 +221,20 @@ body {
 
 /*
   One line, always. `#filters` held three stacked rows of chips once — the scope, then
-  the spaces, then the workspaces — and now holds a single collapsed control (see
-  public/inboxfilter.js) whose panel is *absolutely positioned*, so opening it draws
-  over the list instead of pushing it down. That matters twice: the cards under the
-  pointer do not move as you reach for a chip, and paintScrollPos() measures this nav
-  to decide which card you are reading, so its height has to be the same open or shut.
+  the spaces, then the workspaces — and now holds two controls side by side: the scope
+  switch, flat on the chrome (public/filterpills.js, bc-khoe.24), and behind it the
+  collapsed panel with what is left of the filter in it (public/inboxfilter.js). The
+  panel is *absolutely positioned*, so opening it draws over the list instead of pushing
+  it down. That matters twice: the cards under the pointer do not move as you reach for
+  a chip, and paintScrollPos() measures this nav to decide which card you are reading,
+  so its height has to be the same open or shut.
+
+  **Nothing here may set `overflow`.** The obvious answer to two controls on a narrow
+  phone is the sideways scroll `.viewbar` has — and it is the wrong one: a scroll
+  container on either axis makes the other one `auto` too, so the panel that is supposed
+  to draw *over* the list would be clipped to the 34px line it hangs off. The width is
+  taken out of the summary instead, which already ellipsises, and the switch never
+  shrinks.
 */
 .filters {
   /* A row of the shell rather than the first thing in the list (bc-7utr), so it no
@@ -235,9 +244,25 @@ body {
      this line is fixed either way and the scroller under it is what takes the slack. */
   flex: none;
   display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 10px 16px 6px;
 }
-.filter-menu { position: relative; max-width: 100%; }
+/*
+  The filters that are not behind anything. One row today and it is the scope; bc-khoe.26
+  brings the rest of the panel out beside it, which is why this is a flex row of groups
+  rather than a rule on the one group in it.
+
+  `flex: none` is the half that matters on a 360px phone: the switch is three fixed words
+  and the line beside it is prose that can be cut, so the summary is what gives up the
+  width. A switch squeezed to fit would put its last segment on a second line, and a
+  segmented control that wraps is three chips again.
+*/
+.filterpills { flex: none; display: flex; align-items: center; gap: 8px; }
+/* `min-width: 0` and not `max-width: 100%` alone: a flex item's floor is its content, so
+   without this the summary refuses to shrink, pushes the row past the viewport, and the
+   ellipsis inside `.sel` never gets to do its job. */
+.filter-menu { position: relative; min-width: 0; max-width: 100%; }
 /*
   What the control says when nobody is reaching for it: the scope and the kinds, in
   words, on one line. Shaped like a chip because that is what it replaced, and wide
@@ -280,6 +305,21 @@ body {
 /* `display: flex` beats the UA's [hidden] rule, so the attribute needs saying again —
    without this the panel is open from the moment the page loads. */
 .filter-panel[hidden] { display: none; }
+/*
+  On the inbox the panel hangs off its *right* edge, and that is bc-khoe.24's doing.
+
+  The panel is 260px wide at its narrowest and it is positioned against `.filter-menu`,
+  which used to be the first thing on the row and 16px from the left edge — so `left: 0`
+  put it comfortably on the screen. The scope switch leads now, which pushes the menu to
+  x=240 on a 360px phone, and a left-anchored panel from there runs 140px off the side of
+  the screen. Right-anchored it opens leftwards, back under the switch, and fits.
+
+  Scoped to `#filters` and not written on `.filter-panel` itself, because it is only safe
+  where the menu is the *last* thing on its row: the History tab's panel (`#hist-filters`)
+  is the first, and right-anchoring that one would push it off the other edge instead.
+  bc-khoe.26 takes this whole panel apart, and this rule goes with it.
+*/
+#filters .filter-panel { left: auto; right: 0; }
 /*
   The 6px gap above the panel, made part of the control. Without it, moving the mouse
   from the summary to a chip crosses ordinary page and fires a pointerleave; with it
@@ -407,17 +447,23 @@ body {
 }
 .chip-row::-webkit-scrollbar { display: none; }
 /*
-  The scope leads, and it is a different *kind* of control from the two rows under
-  it: those filter the rows already fetched, this one changes what gets fetched at
+  The scope leads, and it is a different *kind* of control from the filters beside
+  it: those narrow the rows already fetched, this one changes what gets fetched at
   all. So it is set apart — squarer, tighter, banded together like one segmented
-  switch rather than three independent chips — and a rule under it draws the line
-  between "which slice of the tracker" and "which part of that slice".
+  switch rather than three independent chips.
+
+  Since bc-khoe.24 it is not in the panel at all: being the control that decides what
+  the page can contain is exactly why it is the one that must not be behind a line you
+  reach for. The look did not change with the move — it is the same switch, in front of
+  the panel instead of inside it — and the P0 board's status filter borrows it (`.p0-status`
+  in public/app.js) because it is the same kind of choice.
+
+  `flex-wrap: nowrap` is what makes it one object: a segmented control with its last
+  segment on a row of its own is three chips again. It was scoped to `.filter-panel`
+  until bc-khoe.24 and is not any more, because the switch has two homes now and the
+  rule is about the switch rather than about either of them.
 */
-.chip-row.scopes { gap: 0; }
-/* The switch is one object and must not break across lines, whatever the panel's
-   width — a segmented control with its last segment on a row of its own is three
-   chips again. */
-.filter-panel .chip-row.scopes { flex-wrap: nowrap; }
+.chip-row.scopes { gap: 0; flex-wrap: nowrap; }
 .chip-row.scopes .chip {
   border-radius: 0;
   border-left-width: 0;
