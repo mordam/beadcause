@@ -2492,8 +2492,9 @@ turns later, in a way that looks like the agent being unhelpful. Those change by
 editing the file in a release, which is a human writing code.
 
 Amendable: `purpose`, `role`, `model`, `tools`, `allowedTools`, `env`, `timeoutMs`,
-`permissionMode`. A request naming anything else is **rejected, not filtered** —
-silently dropping half a request would apply an amendment you did not approve.
+`permissionMode`, and the five **card** fields the section below adds. A request naming
+anything else is **rejected, not filtered** — silently dropping half a request would apply
+an amendment you did not approve.
 
 ### The loop
 
@@ -2621,6 +2622,132 @@ channel would have looked identical in the shade and given you nothing to hold.
 parsed.** A malformed request still arrives in the foundation channel carrying its
 error, rather than falling back into the work feed where nobody is looking for a
 constitutional decision.
+
+## The AI system registry — what each of these is for, and what it would be wrong to use it for
+
+ISO/IEC 42001 asks, per AI system, for the intended use, the reasonably foreseeable
+misuse, the populations affected, the human oversight measure, the model, and the
+limitations somebody has to be told about. Beadcause had most of that already and called
+it something else. An allowlist is an oversight measure. `writes: false` is an oversight
+measure. A twelve-hour cooldown is an oversight measure. What was missing was the
+declarative half: nowhere did anything say, in a sentence, *what an agent was for* or
+*what it would be wrong to use it for*.
+
+So five fields on every foundation — `intendedUse`, `foreseeableMisuse`, `affects`,
+`oversight`, `limitations` — and the six agent kinds each carry all five. That is
+`CARD_FIELDS` in `lib/foundation.js`.
+
+**They are foundation fields rather than a register beside the code, and that is the whole
+design.** A register kept next to the thing it describes is a document somebody has to
+remember to update, and it stops being true on the first busy week. These sit inside the
+amendment chain, so a change to what an agent is documented as is a commit on
+`refs/beadcause/foundations` carrying its justification and the bead it came from —
+exactly like a change to an allowlist. Intended use drifting with nothing to show for it
+is the finding this exists to prevent, and a field *outside* `AMENDABLE` is a field that
+can drift in a release with nothing on the ref to record it. That is why they are in the
+amendable set rather than protected beside `id` and `writes`.
+
+All five are prose, including `affects`. A list would invite `add:` — one more population
+appended without re-arguing who else is on it — and the useful content here is not who but
+*how*: "the colleague named as the blocker in a proposal did not take part in the
+conversation that named them" is the sentence, and it does not fit in a list entry.
+
+### An amendment that outdates a card is refused
+
+The half that makes this evidence rather than a document. `CARD_IMPLICATIONS` is the
+table, and each row is an argument rather than a pairing:
+
+| moving this | owes a sentence in |
+|---|---|
+| `model` | `limitations` |
+| `tools`, `allowedTools` | `intendedUse` **or** `foreseeableMisuse` |
+| `permissionMode` | `oversight` |
+
+Nearly everything a card can honestly promise about what an agent will and will not
+manage is a statement about the model underneath it, so moving the model and leaving the
+limitations alone asserts the two are unrelated. A tool grant is the only way an agent's
+reach actually changes: either it is now doing more than the card said it was for, or
+there is a new way for it to go wrong, and naming one of the two is the bar.
+`permissionMode` *is* an oversight measure — it decides whether a person is in the loop
+for each tool call — so a card whose oversight sentence survives a change to it is
+describing a control that is no longer there.
+
+`purpose`, `role`, `env` and `timeoutMs` are deliberately ungated. A role is prose about
+how to behave that the card's own prose does not restate, and a gate on everything is a
+gate people route around by writing a card sentence that says nothing.
+
+It is checked **per moved field, not per patch**. An amendment moving `model` and
+`permissionMode` at once owes both `limitations` and `oversight`; a union would let one
+sentence about the model stand in for a deleted control.
+
+**And the refusal names both halves**, because a refusal a maintainer cannot act on is a
+refusal somebody eventually turns off:
+
+```
+refused: the system card does not change with it: `allowedTools` implicates
+`intendedUse` or `foreseeableMisuse`. Set the named card field in the same amendment, or
+narrow the request so it does not move allowedTools.
+```
+
+It is enforced in **two** places on purpose, and only one of them is the enforcement.
+`foundation.validate` — the funnel every write goes through — is what actually stops it,
+so no future caller of `amend` can walk past a gate that lived only in a parser. The
+second is `parseAmendment`, which refuses the block at the point the *agent* is still the
+audience: refused there, the agent is told in its own transcript which field it moved and
+which sentence it owes, and can re-file with it. Let it through and the same refusal
+arrives on your phone as a 422 while you are tapping approve. The parse refusal is
+**errored and complete**, the way a request naming a protected field already is: the
+scope, the justification and the delta all survive, so nothing about what the agent wanted
+is dropped on the floor.
+
+The reflection prompt an agent gets now prints its own card back to it alongside its
+allowlist, and states the rule with the table filled in from `CARD_IMPLICATIONS` — one
+copy of the mapping, so the prompt cannot describe a gate different from the one that
+runs.
+
+### And beadcause itself is a registered system
+
+Not only its agents. Six kinds of agent do work; the daemon, the phone app and the loop
+connecting them are the system those agents are part of, and an auditor asking "what is
+this thing, and what is it for" is not asking about the worker.
+
+It has **no `BASELINES` entry**, and that was the judgement worth writing down. A seventh
+key in that map would put `beadcause` in `AGENTS` — and every reader of `AGENTS` (the
+activity matcher, the chat launcher, the amendment parser, `POST /api/console`) would
+then be wrong, in a way that fails as a runtime surprise rather than as an error anybody
+sees. So it is a **sibling record** in `lib/systemcard.js`, resolved by the same reader:
+`systemCard(id)` answers for `beadcause` and for any agent kind without the caller
+knowing which it asked about, and `AGENTS` still means agent kinds afterwards.
+
+```js
+systemCard('beadcause')     // the system's own card
+systemCard('worker')        // the worker's, off its baseline
+await systemCards(dir)      // all seven, with approved amendments applied
+registryGaps()              // empty, or the cards missing a field
+```
+
+**Beadcause's own card is not amendable, and that is stronger than amendable rather than
+weaker.** An agent's card is amendable because there is an agent that could ask, and
+because a field outside the chain could drift. Nothing *is* beadcause, so there is nobody
+to file that request; changing what the system is for is a commit to that file, reviewed
+by a person. Said out loud because "not in the chain" otherwise reads as an oversight.
+
+What it does not carry is `tools`, `allowedTools` or a model: those are facts about a
+process that runs, and beadcause is the thing that opens the processes. Its model line
+says `source: 'per-agent'` and points at the six cards below it, rather than drawing a
+blank — a card declining to answer the model question is worse than one that says where
+the answer is. For an agent the same line is honest in the other direction: `model: null`
+means nobody has said anything about *this agent* specifically and the run is routed from
+the bead's complexity tier, so the card answers with the model an unrated bead lands on
+and `routed: true` to say that is a default rather than a decision. `FALLBACK_MODEL` is
+imported from `lib/complexity.js` and never restated — a mapping is a decision, and a
+second copy of a decision goes stale silently because both copies keep rendering.
+
+`test/systemcard.mjs` holds both properties: every registered system resolves to a card
+with all five fields on it (so a seventh agent kind with no card fails there rather than
+shipping as a blank row on a screen), and the gate refuses, by name, in every direction it
+is meant to. All three guards were mutation-tested — delete the throw, delete the parse
+refusal, blank a card field, confirm red, restore.
 
 ## What an agent remembers, and how agents tell each other things
 
@@ -15343,10 +15470,12 @@ Delivering a message *into* the turn already running is deliberately not this. T
 needs a persistent `--input-format stream-json` process instead of the one-shot
 `claude -p --resume` per turn, and is its own piece of work.
 
-The queue lives in the page, like the half-typed text in the composer beside it: a
-reload loses what has not gone yet. Everything that *has* gone is on the server and in
-the transcript, which is the line worth keeping — a message is either visibly waiting
-on your screen or really sent, and never both or neither.
+The queue lives in the page: a reload loses what has not gone yet. Everything that
+*has* gone is on the server and in the transcript, which is the line worth keeping — a
+message is either visibly waiting on your screen or really sent, and never both or
+neither. The half-typed text in the composer beside it used to live in the page too,
+and no longer does; see [an unsent draft outlives the
+page](#an-unsent-draft-outlives-the-page).
 
 The queue itself is `public/sendqueue.js`, shared by both callers rather than written
 twice — including the pending strip, which `queue.attach({ el, box })` draws and wires
@@ -15375,6 +15504,58 @@ the same `409` the daemon does: the textarea is enabled, the send button is tapp
 the placeholder is unchanged, the box keeps focus, and both messages land as one turn
 with the fixture never once having been pushed through. `--baseline` serves the
 committed copies of both files, which fail it.
+
+### An unsent draft outlives the page
+
+Words that were *sent* and failed have been safe since the send queue landed: they sit
+above the composer in your own words, they can be tapped back into the box, and the
+strip says what is happening to them. Words that never left the box had none of that.
+They existed in the textarea and in `chat.say` and nowhere else, and both die with the
+page — so a reload, a crash, a backgrounded tab the phone evicts, or a client that
+re-mounts the page on a retry took the paragraph you were half-way through, with no
+recovery and no warning that there had been anything to recover. That asymmetry was
+the bug: the longer and more considered the message, the more there was to lose.
+
+So the composer's contents are written to `localStorage` on the keystroke, per chat,
+and read back when that chat is next drawn. Four things about it are the design:
+
+- **On the keystroke, not at some later save.** The same rule the inbox's answer boxes
+  follow (`setDraft` in `public/app.js`): the next thing that happens to this page may
+  be that it stops existing, and a save scheduled for a moment later is a save that
+  does not happen.
+- **`localStorage`, not the `sessionStorage` `public/warm.js` uses.** `sessionStorage`
+  is scoped to the tab, and a tab that is gone is precisely the case this exists for.
+  warm.js's rule — no fetched bead prose sitting on the phone's disk overnight — is
+  about somebody else's words; this is your own typing, which is the thing you would
+  be angriest to lose.
+- **Keyed by chat id, in one map under one key.** Two conversations can never restore
+  into each other, switching between chats is unaffected, and pruning is a rewrite of
+  one JSON object rather than a walk over every key in `localStorage`.
+- **Sending clears it, before the queue is handed the words.** From that moment the
+  words belong to the send queue, which is what puts them back in the box if the
+  delivery fails; a kept draft that survived a delivery would restore *beside* the
+  message it had already sent.
+
+A draft is dropped after a fortnight, on the next read. A sentence typed that long ago
+and never sent is not a draft any more — it is a surprise waiting in a chat you had
+forgotten — and the stamp is also what keeps a map of drafts from becoming a hoard.
+
+The restore runs `autoGrow`, so a four-line draft comes back four lines tall rather
+than as a one-line box you have to click into to discover the rest of. Storage being
+denied — private mode, a WebView with it switched off — is caught and ignored
+throughout: the composer works for that visit and forgets on the next, exactly as the
+chat tab strip beside it does.
+
+`test/composerdraft.mjs` (in `npm test`) runs the real `public/console.js` in a `vm`
+against a hand-made document, the way `test/chattabs.mjs` runs the same page's tab
+strip: type and reload, send and reload, two chats side by side, a stale entry, a map
+written by something else, and storage that refuses every write. A "reload" there is a
+second boot of the same file over the same storage map, which is the right shape and
+still not the real thing — so `node scripts/switch-check.mjs` closes it in a headless
+Chrome at phone size: a draft typed into one chat, a real `Page.navigate` to another
+and back, each conversation getting its own words back and the box restored at the
+height it was left at rather than as a one-line strip. `--baseline` fails exactly those
+three and passes everything above them.
 
 ### An old proposal says what became of it
 
