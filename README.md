@@ -4033,28 +4033,81 @@ contributes no cards and hides nothing, for the same reason. `node test/p0tree.m
 holds all of that, including the one assertion that separates the feature from `under`
 renamed: a descendant with no pending question is in the tree.
 
-### Tapping a P0 card opens it
+### The board is a grid, and tapping a card opens it full-tab
 
-The card is a summary you can open. Collapsed it is what the week is about — the id, how
-much is in flight, how much is open, the title, the advocate's sentence if there is one,
-and a line saying how many beads are behind the tap. That last number is the *total*,
-where the count above it is what is left: "9 open" tells you nothing about whether the
-epic is nine of ten or nine of sixty. Since bc-rfnr.9.6 it is two numbers whenever the
-status filter is narrowing anything — "Tap for 7 of the 16 beads under it" — because the
-line promises what the tap will actually open, and a filter is exactly what puts a wedge
-between what is filed and what you will get.
+The comment over `.p0-card` used to say these were the four or five things the week was
+about, and the board was a single vertical stack of full-width cards on that premise.
+This tracker carries about two dozen open owned P0 epics. At every width that produced
+one column of near-identical cards — a long scroll on a phone, and on a desktop a narrow
+ribbon down an empty page — and a tapped card unfolded its tree *inline*, between the
+board and the inbox list, which is both cramped and the whole of how bc-rfnr.9.9's scroll
+jump was possible.
 
-Tap it and the tree unfolds in place, indented under each parent, one row per descendant
-at any depth. A row says the bead's id and title, marks it **asks you** when it is itself
-a question (`pending`), and names any status that is not `open` — sixty rows all saying
-`open` is the default restated sixty times. Closed work is struck through and faded where
-it is drawn at all; whether it is drawn is [the board's status
-filter](#one-status-filter-over-the-whole-board), which defaults to not. Each row is a
-disclosure of its own bead — see [the next
-section](#and-a-bead-in-the-tree-opens-where-it-stands). A P0 with nothing under it
-expands to a sentence saying so — an empty gap reads as a tree that failed to arrive.
+bc-grut is three changes, and each one is the reason for the next.
 
-Two things about it are less obvious than they look.
+**The cards are a grid**: `.p0-cards`, one across on a phone, two from 640px, three from
+960px. The cards did not have to change shape to do it — they were always a column of
+short lines — but the track sizing did: `minmax(0, 1fr)` rather than `1fr`, because a
+grid track's automatic minimum is its content and a bead title is one unbroken
+60-character string often enough that plain `1fr` lets a column bid wider than its share
+and pushes the third card off the row. `.p0-acts` takes `margin-top: auto` at the same
+time, so the advocate button and the graph link land on one line across the row instead
+of following each card's own last line of text; a grid item stretches to its row, and
+controls that stepped up and down with the length of the titles are the thing that makes
+three cards side by side unreadable.
+
+**A collapsed card says enough to be worth scanning across.** The id, how much is in
+flight, how much is open, the title, the advocate's sentence if there is one — and then
+two things bc-grut adds. A **progress bar with `12 of 19 done` under it**, which is the
+number the open count can never give you: "9 open" says nothing about whether the epic is
+nine of ten or nine of sixty, and a proportion is the only thing on a card that can be
+taken in without being read. And an **`N ask you` pill** when anything under the epic is
+itself a question, because on a grid of two dozen cards that is the one field that means
+*you* are the thing holding the epic up. Neither is counted through the status filter,
+which matters — see below. An epic with nothing filed under it gets "Nothing filed under
+it yet" instead of a bar at zero, because a bar at zero claims that nothing has landed
+where the truth is that nothing has been written down.
+
+**And the tap takes the whole tab.** `p0FullHtml` is a fixed layer over the viewport with
+the four rows `.card.open` has always used for an inbox row: a top bar carrying the only
+way back, a head that stays, a body that scrolls on its own, and the acts pinned to the
+bottom where a thumb is. The way back says `‹ Board` rather than a cross, because a cross
+leaves you guessing whether it closed the epic or the app. It takes that shape at *every*
+height, unlike `.card.open` which falls back to scrolling whole below 440px — there is no
+composer here, so nothing on the layer needs to stay above a keyboard.
+
+Inside it the tree is what it always was: indented under each parent, one row per
+descendant at any depth. A row says the bead's id and title, marks it **asks you** when it
+is itself a question (`pending`), and names any status that is not `open` — sixty rows all
+saying `open` is the default restated sixty times. Closed work is struck through and faded
+where it is drawn at all; whether it is drawn is [the status
+filter](#one-status-filter-over-the-whole-board), which defaults to not and now lives in
+the tab with it. Each row is a disclosure of its own bead — see [the next
+section](#and-a-bead-in-the-tree-opens-where-it-stands). A P0 with nothing under it opens
+to a sentence saying so — an empty gap reads as a tree that failed to arrive.
+
+**This ends bc-rfnr.9.9 by construction rather than by correction.** That bug is the
+board's own tap scrolling the page out from under you: `capturePlace` anchors on the first
+`.card` in the list and faithfully holds it still, so six hundred pixels inserted *above*
+the list moved the page down by six hundred pixels. A layer over the tab inserts nothing
+into the flow at all, so there is no height to hold still and no scroll to jump.
+
+What the layer does need is the other half of that: `capturePlace` now records
+`.p0-full-body`'s own `scrollTop` and `restorePlace` puts it back. The tab is a scroller
+that is not a `.card`, so the anchor cannot see it, and it lives inside the one reconcile
+chunk that any moved count on the board replaces whole — without this a 25-second poll
+drops you back at the top of a sixty-row tree.
+
+**At most one is open at a time**, which the `p0` handler enforces by clearing the set
+rather than deleting one key. It is the accordion `openOnly` keeps for `.card.open` and
+for the same reason: a second fixed layer stacks on the first with nothing on either
+saying which epic you are reading. Escape closes it — behind the two menus and only when
+neither was open, so one press never dismisses two things — and focus follows the layer in
+both directions, to the way out when it opens and back to the card it came from when it
+shuts, because delegation cannot do that for you and the alternative is a Tab that starts
+again at the top of the document.
+
+Two things about the tree itself are less obvious than they look.
 
 **The indent is capped at three steps.** The rows arrive flat with a `depth` each, and
 the client turns that into `margin-left: calc(var(--d) * 13px)` — a margin rather than a
@@ -4069,17 +4122,31 @@ so every other card pays for it too.
 drawn as *one* reconcile chunk (`warm.paint` keys it `@p0`), because every count on it
 comes from one sweep — so any repaint that moves a single number replaces the whole
 section's HTML. An `open` attribute on a `<details>`, or a `hidden` toggled on a node,
-would therefore fold up under your thumb every 25 seconds. The set of open card keys lives
-in the page's state, the section is rebuilt from it on every render, and the tap does
-nothing but write to the set and repaint. It is not persisted across a reload, unlike the
-filter: which epics are unfolded is where you are looking *now*, and a phone that came back
-to four expanded trees would be a screen you had to fold up before you could read it.
+would therefore fold up under your thumb every 25 seconds. The open card key lives in the
+page's state, the section is rebuilt from it on every render, and the tap does nothing but
+write to the set and repaint. It is not persisted across a reload, unlike the filter:
+which epic you are reading is where you are looking *now*, and a phone that came back to a
+tab over the inbox would be a screen you had to dismiss before you could see what you
+opened it for.
 
 `node test/p0card.mjs` runs the real renderer out of `public/app.js` in a `node:vm` — no
 browser, no `bd` — over a fixture nested five deep: that a collapsed card draws no tree at
-all, that an expanded one draws every descendant in the server's order, that the indent
-steps and then stops, that only the tapped card opens, that the same state renders the
-same board twice, and that the tap handler writes state rather than reaching into the DOM.
+all and does draw its progress and its `asks you`, that an open one draws every descendant
+in the server's order, that the indent steps and then stops, that only the tapped card
+opens and only one tab is ever drawn, that the card's numbers do not move when the filter
+does, that the same state renders the same board twice, and that the tap handler writes
+state rather than reaching into the DOM.
+
+`node scripts/p0grid-check.mjs` is everything in that list that is a *measurement* rather
+than a string, over six epics in headless Chrome at 393px, 760px and 1280px: that one row
+is one card, then two, then three; that the controls line up across a row rather than
+following each card's own last line; that the tab's four edges are the viewport's four
+edges, which is the one thing a `position: fixed` inside `#list` can lose to any ancestor
+with a `transform` on it while every rule and every attribute stays right; that a bead
+title with no spaces in it does not push its neighbours off the row, which is the whole
+reason the track is `minmax(0, 1fr)`; and — bc-rfnr.9.9, read the way that bug was
+measured — that the card you tapped has the same `top` after the tab has opened and closed
+again as it had before you touched it.
 
 ### And a bead in the tree opens where it stands
 
@@ -4157,11 +4224,20 @@ answer back.
 
 ### One status filter over the whole board
 
-Between the heading and the cards sits one control — **Not closed · All · Closed** — and
-it decides what every tree on the board draws. Not one per card: every tree on the screen
-is answering the same question at the same time, so a control per card would be four taps
-to ask it once, and then four trees that could each be showing something different with
-the only record of which on the cards themselves.
+At the top of an open epic's tab sits one control — **Not closed · All · Closed** — and
+it decides what the tree under it draws. It is one *pick*, not one per card: `p0status` is
+a single page-state field, persisted, so whichever epic you open next is drawn the way you
+last asked for. A pick per card would be a control you set again on every epic, and four
+trees that could each be showing something different with the only record of which on the
+cards themselves.
+
+**It sat between the heading and the cards until bc-grut**, and the argument for putting
+it there is exactly what moved it: a control over things that are not on screen is a
+control you set and cannot see the effect of. The trees are in the tab now, so the board
+is precisely where its effect cannot be seen. What that buys as well is the collapsed
+card's own summary — `12 of 19 done`, `3 ask you` — which counts the whole tree and is
+unreachable by the filter, so nothing on a grid of two dozen cards moves because of a
+control that is not on the screen.
 
 **It defaults to not closed**, which is the whole reason it exists. `bc-rfnr` has 16
 descendants and nine of them have landed; a tree that drew all sixteen by default is an
@@ -4172,8 +4248,9 @@ combinations of three checkboxes mean nothing anybody wants to ask.
 
 **And closed work is one tap away rather than gone.** A closed child is how you read what
 a P0 has *delivered*, which is the one thing the "N open" count on the card can never tell
-you. Each chip carries what it would leave you with, counted over the cards on the board,
-so `Closed 0` says there is nothing behind that tap before you take it.
+you. Each chip carries what it would leave you with — counted over the epic in front of
+you since bc-grut, where it used to be counted across every card on the board — so
+`Closed 0` says *this* epic has delivered nothing before you tap to find out.
 
 The part that fails silently is the ancestors. The rows arrive flat with a `depth` drawn
 as an indent, so a row's place in the tree is carried entirely by what is above it: drop
@@ -4192,7 +4269,7 @@ Three smaller decisions, each of which had a wrong way that looked fine:
   are being asked, and a status filter that reached the list would hide it with nothing on
   screen saying where it went.
 - **The pick is page state, persisted** (`beadcause.p0status`), like the fold and unlike
-  which cards are open. The board is one reconcile chunk replaced whole every 25 seconds,
+  which card is open. The board is one reconcile chunk replaced whole every 25 seconds,
   so a filter applied by hiding nodes would come undone under your thumb; and whether you
   are reading what is left or what has landed is a standing preference. An id the page
   does not know — a newer option, a hand-edited key — reads as the default rather than
@@ -4204,12 +4281,13 @@ Three smaller decisions, each of which had a wrong way that looked fine:
 `node test/p0card.mjs` covers it in the same `node:vm` as the rest of the board, over a
 fixture with both awkward shapes in it: a closed parent with an open child, and an open
 parent with a closed one. `node scripts/p0filter-check.mjs` is the half no renderer test
-can see — a real tap in headless Chrome at 393×852: that the chips are inside `#list` at
-all, since every handler on this page is delegated from that element and one drawn outside
-it renders perfectly and does nothing; that three chips fit one line on a phone; that the
-list under the board has exactly the rows it had either side of every tap; and that a
-reload comes back where you left it, which is two separate ends — the write on the tap and
-the read at boot — either of which can be missing with the page looking right all session.
+can see — a real tap in headless Chrome at 393×852, on an epic opened first because the
+chips are in its tab: that the chips are inside `#list` at all, since every handler on this
+page is delegated from that element and one drawn outside it renders perfectly and does
+nothing; that three chips fit one line on a phone; that the list under the board has
+exactly the rows it had either side of every tap; and that a reload comes back where you
+left it, which is two separate ends — the write on the tap and the read at boot — either of
+which can be missing with the page looking right all session.
 The mark on a held-up row is read as a computed border style rather than as a class, so it
 fails on a stale stylesheet too, which is what [v62](docs/sw-cache/v62.md) is about.
 

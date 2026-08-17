@@ -247,7 +247,9 @@ function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map()
       lift(APP, 'function p0StatusFilter()'),
       lift(APP, 'function p0Visible(rows)'),
       lift(APP, 'function p0StatusHtml(cards)'),
-      lift(APP, 'function p0HintText(on, shown, total)'),
+      // bc-grut's collapsed summary, which `p0CardHtml` draws on every render.
+      lift(APP, 'function p0Progress(card)'),
+      lift(APP, 'function p0ProgressHtml(card)'),
       lift(APP, 'const p0RowKey = ('),
       lift(APP, 'const p0Step = ('),
       lift(APP, 'function p0RowHtml(card, row)'),
@@ -260,6 +262,12 @@ function board({ open = ['beadcause/bc-rfnr'], beadopen = [], detail = new Map()
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),
       lift(APP, 'function p0Control(c)'),
+      // bc-grut: the section is a grid cell, the tab a tap opens, and the head they share.
+      lift(APP, 'const p0AsksHtml = '),
+      lift(APP, 'function p0FaceHtml(c, asks, tail'),
+      lift(APP, 'function p0ActsHtml(c, more'),
+      lift(APP, 'function p0CardHtml(c)'),
+      lift(APP, 'function p0FullHtml(c)'),
       lift(APP, 'function p0SectionHtml()'),
       'p0SectionHtml();',
     ].join('\n'),
