@@ -11197,7 +11197,7 @@ rather than the survey its run — `null` and `0` are kept apart all the way dow
 *"nothing is waiting on you"* is a claim and *"I could not ask"* is not.
 
 **The nine holds get the opposite treatment: a promise rather than a list of zeros.** They
-are always empty when a survey runs — that is the gate two sections up — so the brief says
+are always empty when a survey runs — that is the gate in the section above — so the brief says
 so in one sentence and tells the agent nothing is hiding behind them, which is worth more
 than nine lines reading `0`. It is derived rather than asserted: `queueBrief` reads the
 lists, and a future caller reaching it without that gate would get the counts instead. The
@@ -11205,7 +11205,7 @@ hold names live in one exported table, `QUEUE_HOLDS`, and `test/surveybrief.mjs`
 repo for any `heldBy*` field of the agent record that has no row in it — so a tenth hold
 filter is a red test rather than a hold the survey is silently never told about. The bead
 that asked for this said "eight"; `heldByPause` had been added in between, and the list in
-this very section still said `heldByNoP0` after it was renamed.
+the section above still said `heldByNoP0` a rename later.
 
 ### What you see, and where
 
