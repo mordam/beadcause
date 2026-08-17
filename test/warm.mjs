@@ -528,20 +528,18 @@ await check('a held payload can be brought up to date, and comes back with the u
   assert.equal(hit.seq, 11, "the entry's own sequence is kept when none is given");
 });
 
-await check('and its clock is reset, which is the half that stops a quiet hour ageing it out', () => {
+await check('and its clock is reset, which is what the re-ask floor and the eviction order read', () => {
   const { warm, bag } = load();
   warm.write('/api/work', { workspaces: [] });
-  // Age it to one minute short of the TTL by rewriting the stamp the file wrote.
+  // Aged by rewriting the stamp the file wrote — well past the fifteen minutes this used
+  // to expire at, and past the re-ask floor either way.
   const key = 'beadcause.warm:/api/work';
   const aged = JSON.parse(bag.get(key));
-  aged.at = Date.now() - (warm.TTL_MS - 60_000);
+  aged.at = Date.now() - 20 * 60 * 1000;
   bag.set(key, JSON.stringify(aged));
+  assert.equal(warm.fresh('/api/work'), false, 'outside the floor, so the background warm would go and ask');
   assert.ok(warm.refresh('/api/work', (w) => w), 'still readable, so still maintainable');
-  // Past where the old stamp would have expired, the entry is still there.
-  assert.ok(
-    warm.read('/api/work', { now: Date.now() + 120_000 }),
-    'a wake that carried no change must still keep the entry alive'
-  );
+  assert.equal(warm.fresh('/api/work'), true, 'and the wake put it back, for no request at all');
 });
 
 await check('a sequence can be handed in with the update', () => {
