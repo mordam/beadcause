@@ -6,7 +6,7 @@
 //
 // `scripts/warm-check.mjs` asks this of the inbox and only the inbox — its claim 7 is
 // bc-1kwl.14, and the store it proved durable is one store for every view. This is the
-// rest of it (bc-1kwl.15): the advocate console, the chat launcher and the PR board,
+// rest of it (bc-1kwl.15): the advocates monitor, the chat launcher and the PR board,
 // each closed and reopened, each measured against its own cold load.
 //
 // A close is `sessionStorage.clear()` and then a navigation. That is what a close
@@ -53,8 +53,8 @@
 // numbers are the old behaviour printed: a launcher reopen sweeping both, a monitor reopen
 // sweeping the board *twice*, and even the board's own reopen — which has never re-fetched
 // its own path, because `prewarm` skips the view it is on — going and re-sweeping the
-// endorsement queue behind it. Three reopens, four expensive sweeps, nothing on any screen
-// that was not already on the disk.
+// endorsement queue behind it. Three reopens, five sweeps beyond the two a page is drawing,
+// and not a row on any screen that was not already on the disk.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
