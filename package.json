@@ -22,6 +22,7 @@
     "beadcause-merge": "bin/merge.js",
     "beadcause-checkin": "bin/checkin.js",
     "beadcause-plan": "bin/plan.js",
+    "beadcause-promotework": "bin/promotework.js",
     "beadcause-attic": "bin/attic.js",
     "beadcause-requirements": "bin/requirements.js",
     "beadcause-access": "bin/access.js",

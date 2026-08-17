@@ -10060,6 +10060,60 @@ things a board sorts on — a `promote` label against `ship`, and a `chore` type
 `task` — because two things called a release bead, settling on different evidence, is a
 board that lies.
 
+### What to test is asked of the tracker, not read off the bead — `beadcause-promotework`
+
+A promotion bead's body is written once, at the moment it is filed, and cannot grow. That
+is right for an epic whose plan is its final word, and wrong for the shape this daemon
+actually produces: an advocate is re-entered on child events precisely so it can file what
+the first plan missed, so an epic goes on closing work for days after its plan completes.
+
+Measured on bc-9d37 (2026-08-17). Its promotion bead was filed on 08-14 naming four beads.
+By 08-15 the epic had closed nine pieces of work, and the most visible behaviour change it
+has — a handed-back sweep card over a merged pull request settling by itself — was among
+the five that landed afterwards. The **image** promoted is right regardless; it is `main`'s
+merge build and carries everything. What was wrong is what the release agent would be told
+to **exercise in UAT**, and a promotion that tests the wrong things and *passes* is worse
+than one that fails.
+
+So the body is the reason the card exists, and the test plan is derived when somebody
+promotes:
+
+    beadcause-promotework -w beadcause -e bc-9d37      the epic
+    beadcause-promotework -w beadcause -b bc-9d37.10   the promotion bead, which names it
+
+One place decides what an epic's work was and it is the tracker, which cannot go stale. The
+filed body says so in as many words and prints that command with the epic already in it —
+the snapshot it *also* carries is dated and labelled as a snapshot, because a body with no
+list at all is a card nobody can judge at a glance. `landedWork` in lib/promote.js is the
+single derivation both ends call.
+
+Three things it deliberately does, each of which is a way of being wrong on purpose:
+
+- **It over-includes.** Ship beads, promotion beads, containers and superseded ones are cut
+  — nothing was built for any of them — and nothing else is. There is no label separating
+  landed work from a card the daemon filed and Adam answered: bc-xl7n.15 (*#244 left 1
+  conflicting pull request behind it*) and bc-xl7n.35 (*a sweep card whose record is dropped
+  can never close*) are both closed under bc-9d37 and both carry `inbox`, and only the
+  second was built. bc-9d37 therefore derives 29 rows where fourteen are its own work. The
+  titles separate them in a glance; the alternative is silently testing four of nine and
+  passing.
+- **`unendorsed` is not an exclusion, though it reads like the strongest one there is.**
+  bc-9d37.12 and bc-9d37.14 are closed, still carry it, and are two of that epic's nine —
+  a session working a neighbour fixed them and nothing takes the label off. Cutting it
+  would drop two of the beads this whole thing exists to stop dropping. An *open*
+  `unendorsed` bead is excluded, where it means the opposite: a discovery nothing will open
+  a window on, not work in flight.
+- **A tracker that will not answer is a refusal, not an empty list.** `bd export` times out
+  under load and `Bd.graph` hands back an empty index carrying `.error`; printing that as
+  "nothing to test" is the same lie in a new place. The command exits 5 and says why, and
+  filing falls back to the plan's list with the failure written into the body.
+
+It prints what it left out and why, and — separately — anything still open under the epic,
+which is bc-4bet.2's defect (a promotion filed over work that has not landed) showing up in
+front of the last reader in a position to stop a release over it. `node
+test/promotework.mjs` covers the derivation, both exclusion decisions above, the refusal,
+and what the filed body says.
+
 **And the mechanical grouping did not go away; it became the fallback.** Where planning is
 switched off (`planEpics: false`), and where an epic's planning has failed
 `maxAttemptsPerBead` times, the epic is handed to one worker as a batch exactly as it was
