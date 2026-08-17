@@ -17,13 +17,20 @@
     </div>
     <button id="doc-close" class="icon-btn" aria-label="Close tab">✕</button>
   </header>
-  <main id="doc" class="doc md">
-    <div class="empty">Loading…</div>
-  </main>
-  <!-- Publishing this document to Confluence. Hidden and empty until the daemon says
-       there is a Confluence to publish to — an install without one draws no button at
-       all rather than a button that explains itself away. -->
-  <footer id="doc-publish" class="publish" hidden></footer>
+  <!-- The reader is the one page whose scroller holds two elements rather than one, and
+       that is why `.pagescroll` is a wrapper here instead of a class on the <main>. The
+       publish footer has to scroll *with* the document — it is the last thing on the page
+       on purpose, read after the document and never pressed instead of scrolling — and a
+       bar pinned to the bottom of the shell is exactly what it must not be. -->
+  <div class="pagescroll">
+    <main id="doc" class="doc md">
+      <div class="empty">Loading…</div>
+    </main>
+    <!-- Publishing this document to Confluence. Hidden and empty until the daemon says
+         there is a Confluence to publish to — an install without one draws no button at
+         all rather than a button that explains itself away. -->
+    <footer id="doc-publish" class="publish" hidden></footer>
+  </div>
 
   <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
        exception, a rejected promise, a failed fetch, any red toast. Ahead of every

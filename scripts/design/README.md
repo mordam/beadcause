@@ -49,7 +49,7 @@ else) are the authored part. Each entry is:
 | `note` | why the component is the way it is, not what it looks like |
 | `markup` | the app's own markup, with synthetic content in it |
 | `extraCss` | spec-sheet styling for foundations cards, which have no app classes |
-| `bodyClass` | when a rule keys off `body.has-tabbar` and friends |
+| `bodyClass` | when a rule keys off `body.console-body` and friends |
 
 The first line of every built file is `<!-- @dsCard group="…" -->`, which is what the
 Design System pane builds its card index from. No explicit `register_assets` call is
@@ -84,7 +84,7 @@ byte for byte.
 `check.mjs` reads the built files and `audit.mjs` reads the sheet; neither has ever seen
 a card *render*, which is the one claim a design system actually makes. `shots.mjs`
 drives the repo's own headless-Chrome harness (`scripts/helpers/chrome.mjs`, the same one
-`tabbar-check.mjs` uses) over `design-bundle/`, screenshots each card light **and** dark
+`topbar-check.mjs` uses) over `design-bundle/`, screenshots each card light **and** dark
 into `design-shots/`, and probes the computed styles.
 
 The screenshots are for a person. The probes are the gate, because a screenshot of a

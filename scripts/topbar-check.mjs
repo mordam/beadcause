@@ -6,7 +6,7 @@
 //   node scripts/topbar-check.mjs [--out=DIR]
 //
 // The picker is a full-width row of its own inside `.topbar` (see `.spacebar` in
-// public/style.css), so six pages carry two rows of sticky chrome where they used to
+// public/style.css), so six pages carry two rows of pinned chrome where they used to
 // carry one. bc-hne3 asked whether that is the right trade at 360px and decided the row
 // stays — but a decision made once about a number nobody measures again is a decision
 // that quietly stops being true. Two rows is a choice; three is an accident, and it is
@@ -22,21 +22,27 @@
 //   * its label is **not clipped** — neither the selected one nor the widest row in the
 //     dropdown, because a repo name cut to `beadca…` is the failure the row was bought
 //     to prevent;
-//   * the bar **plus the tab bar** stays inside a **170px** budget on a 640px screen.
-//     159px is what it costs today. A third row is +43px and fails this on the spot,
-//     which is the whole point of the number being written down;
+//   * the bar **plus the pill row** stays inside a **170px** budget on a 640px screen.
+//     A third row of the bar is +43px and fails this on the spot, which is the whole
+//     point of the number being written down. (The pill row replaced a 54px bar along
+//     the bottom in bc-khoe.1, so the chrome this budget covers went *down*;)
 //   * the page **fits the screen at all** — that one is not about the bar, but this
 //     is the file that noticed. A page laying out wider than the viewport is shrink-
 //     fitted by the browser, so every measurement above it is in a different unit from
 //     the width it is being judged at. /monitor was 376px at a 360px screen until
 //     bc-3ui6, and the symptom is not a horizontal scrollbar — it is the whole console
 //     drawn at 96% and draggable sideways, which reads as a font being slightly off;
-//   * and **nothing else sticks underneath it**. The bar is sticky at z-index 20, so a
-//     second sticky box on the same page that pins at `top: 0` pins itself out of
-//     sight: /monitor's Advocates/PRs/Mirror strip did exactly that, and the pane swap
-//     was gone from the first scroll until you scrolled back to the top (bc-ugd4). The
-//     page is made scrollable and scrolled before this one is asked, because a page
-//     with nothing in it cannot show you the bug.
+//   * and **the chrome does not move when you scroll**. That one used to be "nothing
+//     else sticks underneath it", because the bar was `position: sticky` at z-index 20
+//     and a second sticky box pinning at `top: 0` pinned itself out of sight —
+//     /monitor's Advocates/PRs/Mirror strip did exactly that (bc-ugd4). bc-khoe.1
+//     changed the shape rather than the arithmetic: every page is a viewport-height
+//     shell, the bar and the pill row are rows of a flex column, and the one element
+//     marked `.pagescroll` is the only thing that scrolls. So what is asked here now is
+//     the thing bc-7utr was filed about — scroll the scroller and the two rows are in
+//     exactly the same place, and the *document* has not moved at all. A sticky box
+//     pinning to the window is still reported, because reintroducing one is how the old
+//     bug comes back.
 //
 // It also prints the arithmetic that made the decision, per page, and says so when the
 // premise has expired: if *every* page's first row grows enough room to hold the picker
@@ -60,9 +66,8 @@ const PUBLIC = path.join(ROOT, 'public');
 const outDir = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* The bar plus the tab bar, on a 640px screen. Two rows is 159px today; one would be
-   116px. The slack is deliberate and small — enough for a font or a border to move,
-   nothing like enough for another row. */
+/* The bar plus the pill row, on a 640px screen. The slack is deliberate and small —
+   enough for a font or a border to move, nothing like enough for another row. */
 const CHROME_BUDGET = 170;
 
 if (!fs.existsSync(CHROME)) {
@@ -211,7 +216,7 @@ const PROBE = `(() => {
   const acts = document.querySelector('.sheet-actions');
   const brandW = brand ? Math.round(brand.getBoundingClientRect().width) : 0;
   const actsW = acts && acts.getBoundingClientRect().width ? Math.round(acts.getBoundingClientRect().width) : 0;
-  const tab = document.querySelector('.tabbar');
+  const row = document.querySelector('.viewbar');
 
   return {
     bar: true,
@@ -234,39 +239,47 @@ const PROBE = `(() => {
     need: label ? label.widest + Math.round(parseFloat(getComputedStyle(sel).paddingLeft) + parseFloat(getComputedStyle(sel).paddingRight)) : null,
     brandW,
     actsW,
-    tabH: tab ? Math.round(tab.getBoundingClientRect().height) : 0,
+    rowH: row ? Math.round(row.getBoundingClientRect().height) : 0,
     vh: innerHeight,
   };
 })()`;
 
 /*
-  What is still on screen once the page has been scrolled.
+  What is still on screen once the page has been scrolled — and what "scrolled" even
+  means now.
 
-  `position: sticky` pins a box at *its own* `top`, and on a page whose scroll container
-  is the viewport, `top: 0` is the top of the window — which is behind the bar, not below
-  it. Nothing about that is visible until there is enough content to scroll, which is why
-  it survived every measurement above: the fixture's payloads are empty, so the pages are
-  a screen tall and `scrollTo` does nothing. A spacer is appended before this runs, so
-  what is being measured is the geometry rather than the fixture.
+  Until bc-khoe.1 the page *was* the scroller and the bar was `position: sticky`, which
+  pins a box at *its own* `top`; on a page whose scroll container is the viewport, `top:
+  0` is the top of the window, which is behind the bar rather than below it. That was
+  bc-ugd4. The shape is different now: `body` is one viewport tall and clipped, `.topbar`
+  and `.viewbar` are rows of a flex column, and the one element marked `.pagescroll` is
+  the only thing with `overflow-y: auto`. Nothing is laid out against a viewport, so
+  nothing can be carried by one.
+
+  So this returns three things: where the two rows are, whether the *document* has moved
+  at all, and any box still pinning itself to the window with `position: sticky`. The
+  first two are what bc-7utr asked for and what a phone actually feels — the bar staying
+  absolutely still through a URL-bar collapse is the same geometry as it staying still
+  through a scroll of the region under it. The third is a tripwire: a sticky box pinned
+  to the window is how the old bug gets back in, and one appearing here means somebody
+  has put the document scroller back.
 
   Only boxes that are actually **pinned** count — `rect.top` equal to their resolved
-  `top`, within a pixel. A sticky box being carried out of view by the end of its
-  containing block passes through the bar's band on its way, and that is content
-  scrolling under a translucent bar, which is what the bar is for. It also means a strip
-  sticky inside some *other* scroll container is skipped rather than mis-flagged, because
-  its `top` is measured from that container's box and not from the window's.
-
-  What comes back per box is one signed number: how far the bar's bottom edge is past
-  its top. Zero is right. Positive is the bug bc-ugd4 was filed for — that much of it is
-  underneath the bar. Negative is the bug you get from *fixing* that one with a constant:
-  `top: 104px` read off a screenshot leaves a 43px hole the day the space picker hides
-  itself and the bar is 61px. Both directions are failures, and asking for only the first
-  is how the second ships.
+  `top`, within a pixel — so a strip sticky inside some *other* scroll container (the
+  agents page's `.agent-tabs`, inside `.launcher`) is skipped rather than mis-flagged,
+  because its `top` is measured from that container's box and not from the window's.
 */
-const STUCK = `(() => {
+const SHELLPROBE = `(() => {
   const bar = document.querySelector('.topbar');
   if (!bar) return { bar: false };
+  const row = document.querySelector('.viewbar');
+  /* The first .pagescroll that is actually **on screen**. /monitor marks three — one per
+     pane — and two of them are \`hidden\` at any moment, so taking the first would measure
+     a box with no height and report a page that cannot scroll. */
+  const sc = [...document.querySelectorAll('.pagescroll')].find((el) => el.getBoundingClientRect().height) || null;
+  const doc = document.scrollingElement || document.documentElement;
   const br = bar.getBoundingClientRect();
+  const rr = row ? row.getBoundingClientRect() : null;
   const name = (el) => el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') +
     (typeof el.className === 'string' && el.className.trim() ? '.' + el.className.trim().split(/\\s+/).join('.') : '');
   const pinned = [];
@@ -279,17 +292,35 @@ const STUCK = `(() => {
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) continue;
     if (Math.abs(r.top - want) > 1) continue;
-    pinned.push({
-      sel: name(el),
-      top: Math.round(r.top),
-      h: Math.round(r.height),
-      /* Negative is a hole between the bar and it; positive is how much of it the bar
-         is sitting on top of. One number, because they are the two directions of the
-         same mistake. */
-      over: Math.round(Math.min(br.bottom, r.bottom) - r.top),
-    });
+    pinned.push({ sel: name(el), top: Math.round(r.top), h: Math.round(r.height) });
   }
-  return { bar: true, scrollY: Math.round(scrollY), barBottom: Math.round(br.bottom), pinned };
+  return {
+    bar: true,
+    docTop: Math.round(doc.scrollTop),
+    winY: Math.round(window.scrollY),
+    scroller: sc ? name(sc) : null,
+    scrollerTop: sc ? Math.round(sc.scrollTop) : null,
+    barTop: Math.round(br.top),
+    barBottom: Math.round(br.bottom),
+    rowTop: rr ? Math.round(rr.top) : null,
+    rowBottom: rr ? Math.round(rr.bottom) : null,
+    pinned,
+  };
+})()`;
+
+/* Make the one element that scrolls actually scrollable, and scroll it. The spacer goes
+   inside `.pagescroll` rather than on `<body>`, which is where it went while the body was
+   the scroller: under the shell the body is clipped at one viewport and a spacer on it is
+   simply invisible, so the check would pass by measuring a page that never moved. */
+const SCROLLIT = `(() => {
+  const sc = [...document.querySelectorAll('.pagescroll')].find((el) => el.getBoundingClientRect().height);
+  if (!sc) return 0;
+  const d = document.createElement('div');
+  d.style.cssText = 'height:1500px';
+  d.dataset.topbarCheck = '1';
+  sc.append(d);
+  sc.scrollTop = 400;
+  return Math.round(sc.scrollTop);
 })()`;
 
 /* Every page with a picker. The admin page is deliberately not one (it acts on every
@@ -323,11 +354,7 @@ const ok = (name) => console.log(`  \x1b[32m✓\x1b[0m ${name}`);
 const misfits = (st, off) =>
   `the bar ends at ${st.barBottom}px and ` +
   off
-    .map((b) =>
-      b.over > 0
-        ? `${b.sel} is pinned at ${b.top}px, ${b.over} of its ${b.h}px behind the bar`
-        : `${b.sel} is pinned at ${b.top}px, ${-b.over}px below the bar with a hole between them`
-    )
+    .map((b) => `${b.sel} is pinned to the window at ${b.top}px — the document scroller is back`)
     .join('; ');
 const bad = (name, detail) => {
   failures += 1;
@@ -401,10 +428,10 @@ try {
       if (page === '/monitor') shownBarH.set(size.width, m.barH);
 
       // The budget. It is a phone: the list is what the screen is for.
-      const chrome = m.barH + m.tabH;
+      const chrome = m.barH + m.rowH;
       const pct = Math.round((chrome / m.vh) * 100);
-      if (chrome <= CHROME_BUDGET) ok(`${at}: sticky chrome ${chrome}px (${pct}% of ${m.vh}px), budget ${CHROME_BUDGET}px`);
-      else bad(`${at}: sticky chrome within ${CHROME_BUDGET}px`, `bar ${m.barH}px + tab bar ${m.tabH}px = ${chrome}px, ${pct}% of the screen`);
+      if (chrome <= CHROME_BUDGET) ok(`${at}: pinned chrome ${chrome}px (${pct}% of ${m.vh}px), budget ${CHROME_BUDGET}px`);
+      else bad(`${at}: pinned chrome within ${CHROME_BUDGET}px`, `bar ${m.barH}px + pill row ${m.rowH}px = ${chrome}px, ${pct}% of the screen`);
 
       // The premise, restated every run. Not a failure — see the header.
       room.push({ at, page, width: size.width, spare: m.spare, need: m.need, brandW: m.brandW, actsW: m.actsW });
@@ -429,36 +456,45 @@ try {
         fs.writeFileSync(path.join(outDir, `topbar-${page === '/' ? 'inbox' : page.slice(1)}-${size.width}.png`), Buffer.from(data, 'base64'));
       }
 
-      /* Last, because it scrolls the page and hangs a spacer off the body. The spacer
-         goes on `<body>`, which is what these pages scroll — the two with a `.launcher`
-         of their own do not scroll at all here, and are reported as such rather than
-         passed silently, because "nothing was behind the bar" and "nothing moved" are
-         not the same answer. */
-      await evalJs(
-        s,
-        `(() => { const d = document.createElement('div'); d.style.cssText = 'height:1500px'; d.dataset.topbarCheck = '1'; document.body.append(d); scrollTo(0, 400); return 1; })()`
-      );
+      /* Last, because it hangs a spacer inside the scroller and scrolls it. Where the
+         two rows are is read *before* and *after*, because "the bar is at 0" proves
+         nothing on a page that never moved — what bc-7utr is about is the difference. */
+      const before = await evalJs(s, SHELLPROBE);
+      const moved = await evalJs(s, SCROLLIT);
       await sleep(250);
-      const st = await evalJs(s, STUCK);
-      const off = st.pinned ? st.pinned.filter((b) => Math.abs(b.over) > 1) : [];
-      if (!st.scrollY) ok(`${at}: nothing pins under the bar (the page does not scroll under it)`);
-      else if (!st.pinned.length) ok(`${at}: nothing else pins to the window at scrollY ${st.scrollY}`);
-      else if (!off.length)
-        ok(`${at}: what pins under the bar sits against it (${st.pinned.map((b) => `${b.sel} at ${b.top}px`).join(', ')})`);
-      else bad(`${at}: what pins under the bar sits against it`, `at scrollY ${st.scrollY}, ${misfits(st, off)}`);
+      const st = await evalJs(s, SHELLPROBE);
+      if (!moved) ok(`${at}: the page has no .pagescroll to scroll — nothing here can move`);
+      else {
+        const still =
+          st.barTop === before.barTop && st.barBottom === before.barBottom &&
+          st.rowTop === before.rowTop && st.rowBottom === before.rowBottom;
+        if (still) ok(`${at}: the bar and the pill row do not move (scroller at ${st.scrollerTop}px, bar ${st.barTop}–${st.barBottom}, row ${st.rowTop}–${st.rowBottom})`);
+        else
+          bad(
+            `${at}: the bar and the pill row do not move`,
+            `at ${st.scrollerTop}px down ${st.scroller}, the bar went ${before.barTop}–${before.barBottom} → ${st.barTop}–${st.barBottom} and the row ${before.rowTop}–${before.rowBottom} → ${st.rowTop}–${st.rowBottom}`
+          );
+        /* And the document itself did not move, which is the declaration all of the
+           above rests on — a page that scrolls as a document can pass the comparison
+           above on a desktop Chrome and still drift under a collapsing iOS URL bar. */
+        if (!st.docTop && !st.winY) ok(`${at}: the document does not scroll (${st.scroller} is the only thing that does)`);
+        else bad(`${at}: the document does not scroll`, `document.scrollingElement is at ${st.docTop}px and window.scrollY is ${st.winY}`);
+      }
+      const off = st.pinned || [];
+      if (!off.length) ok(`${at}: nothing pins itself to the window`);
+      else bad(`${at}: nothing pins itself to the window`, misfits(st, off));
     }
 
     /*
       And the same thing again with the bar a row shorter, on the one page that has a
-      strip stuck to it.
+      strip under it.
 
       `spacebar.js` hides the picker outright below two workspaces (`el.hidden`), which
-      takes the bar from 104px to 61px on the same build and the same page. That is the
-      whole reason the strip's offset is a variable and not a number: a `top: 104px`
-      hardcoded from a screenshot passes every assertion above and leaves a 43px hole
-      between the bar and the strip for anybody running one repo — who is, incidentally,
-      everybody on their first day. Measured here rather than reasoned about, because the
-      two heights are the two states this actually ships in.
+      takes the bar from 104px to 61px on the same build and the same page. That used to
+      be the whole reason the strip's offset was a variable rather than a number, and
+      bc-khoe.1 removed the offset with the sticky positioning it belonged to — but the
+      two heights are still the two states this actually ships in, and the row under the
+      bar still has to sit against it in both. Measured rather than reasoned about.
     */
     {
       const ONE = { ...SPACEPAY, workspaces: ['beadcause'], spaces: [{ name: 'Personal', workspaces: ['beadcause'], count: 3, quiet: false }] };
@@ -472,16 +508,22 @@ try {
         bad(`${at}: the picker hides itself`, `it is still drawn at ${m.picker.w}px — see el.hidden in public/spacebar.js`);
       } else {
         ok(`${at}: the picker hides itself, and the bar is ${m.barH}px rather than ${shownBarH.get(size.width) ?? '?'}px`);
-        await evalJs(
-          s,
-          `(() => { const d = document.createElement('div'); d.style.cssText = 'height:1500px'; d.dataset.topbarCheck = '1'; document.body.append(d); scrollTo(0, 400); return 1; })()`
-        );
+        const before = await evalJs(s, SHELLPROBE);
+        await evalJs(s, SCROLLIT);
         await sleep(250);
-        const st = await evalJs(s, STUCK);
-        const off = st.pinned.filter((b) => Math.abs(b.over) > 1);
-        if (!off.length)
-          ok(`${at}: what pins under the shorter bar sits against it (${st.pinned.map((b) => `${b.sel} at ${b.top}px`).join(', ') || 'nothing pins'})`);
-        else bad(`${at}: what pins under the shorter bar sits against it`, misfits(st, off));
+        const st = await evalJs(s, SHELLPROBE);
+        /* The pill row sits against the shorter bar, and stays there through a scroll.
+           A hole between the two is what a hardcoded offset used to buy on the day the
+           picker hid itself, and it is still the shape of the mistake worth catching. */
+        if (st.rowTop === st.barBottom && st.rowTop === before.rowTop)
+          ok(`${at}: the pill row sits against the shorter bar at ${st.rowTop}px and stays there`);
+        else
+          bad(
+            `${at}: the pill row sits against the shorter bar and stays there`,
+            `the bar ends at ${st.barBottom}px, the row starts at ${st.rowTop}px (was ${before.rowTop}px before the scroll)`
+          );
+        const off = st.pinned || [];
+        if (off.length) bad(`${at}: nothing pins itself to the window`, misfits(st, off));
       }
     }
 

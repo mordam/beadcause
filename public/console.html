@@ -55,7 +55,7 @@
     repos and enough sessions the list below is the thing you came to read, and in
     one pile it never groups the way you think.
   -->
-  <main id="launcher" class="launcher" hidden>
+  <main id="launcher" class="launcher pagescroll" hidden>
     <p class="lede">Talk through what the next bead should be. Nothing is filed until
       you have read the proposal and pressed the button.</p>
     <div class="repo-tabs">
@@ -79,7 +79,7 @@
     <div id="recent" class="recent" role="tabpanel"></div>
   </main>
 
-  <main id="thread" class="thread" aria-live="polite" hidden>
+  <main id="thread" class="thread pagescroll" aria-live="polite" hidden>
     <div class="empty">Loading…</div>
   </main>
 
@@ -159,7 +159,7 @@
        had, the other keeps it true. -->
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
-  <script src="/tabbar.js"></script>
+  <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one
        rebuilt the APK. On every standing view, because the "Update app" button belongs to

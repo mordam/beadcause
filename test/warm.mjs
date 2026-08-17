@@ -321,10 +321,11 @@ await check('it warms the other views and never the one it is on', async () => {
   warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
   await tick(20);
   assert.ok(!t.asked.includes('/api/questions?scope=human'), 'the inbox does not warm its own payload');
-  // Tabs first, and `/api/work` at the head of them: the advocates board is the
-  // heaviest payload and the only other tab a thumb can reach from here, and this is a
-  // sequential loop, so its place in the queue is how long that tab stays cold.
-  assert.deepEqual(t.asked, ['/api/work', '/api/admin', '/api/consoles', '/api/unendorsed', '/api/prs']);
+  // Pills first, in the row's own order, and `/api/work` at the head of them: the
+  // advocates roster is the heaviest payload of the three cheap ones and the pill next
+  // to Home, and this is a sequential loop, so its place in the queue is how long that
+  // view stays cold. /admin and the chat session come last because neither is a pill.
+  assert.deepEqual(t.asked, ['/api/work', '/api/prs', '/api/unendorsed', '/api/admin', '/api/consoles']);
 });
 
 await check('a path two views share is fetched once, not twice', async () => {
@@ -337,9 +338,9 @@ await check('a path two views share is fetched once, not twice', async () => {
   assert.deepEqual(t.asked, [
     '/api/questions?scope=human',
     '/api/work',
+    '/api/unendorsed',
     '/api/admin',
     '/api/consoles',
-    '/api/unendorsed',
   ]);
   assert.equal(new Set(t.asked).size, t.asked.length, 'a `bd` sweep must not be paid for twice');
 });
@@ -525,38 +526,41 @@ await check('the service worker ships it, or a cached page has no warm layer', (
   assert.ok(/const CACHE = 'beadcause-v(2[3-9]|[3-9]\d)'/.test(sw), 'CACHE was not bumped past v22');
 });
 
-await check('every tab the bar draws has a view — and two views are deliberately not tabs', () => {
+await check('every pill the row draws has a view — and two views are deliberately not pills', () => {
   const { warm } = load();
-  // The tab entries are written both inline and across several lines, so the match
-  // has to reach over whatever sits between the id and the href it belongs to.
-  const ids = [...read('public/tabbar.js').matchAll(/\bid: '([a-z]+)',[\s\S]{0,80}?href:/g)].map((m) => m[1]);
-  // Keyed off a tab rather than off a count: the bar has lost two of its five since this
-  // was written, and a count here fails as "unreadable" every time it legitimately shrinks.
-  assert.ok(ids.includes('inbox'), `could not read the tab list out of tabbar.js: ${ids.join(', ')}`);
+  // The pill entries are written both inline and across several lines, so the match has
+  // to reach over whatever sits between the id and the href it belongs to.
+  const ids = [...read('public/viewbar.js').matchAll(/\bid: '([a-z]+)',[\s\S]{0,80}?href:/g)].map((m) => m[1]);
+  // Keyed off a view rather than off a count: this navigation has changed size three
+  // times, and a count here fails as "unreadable" every time it legitimately does again.
+  assert.ok(ids.includes('inbox'), `could not read the pill list out of viewbar.js: ${ids.join(', ')}`);
   const views = plain(warm.VIEWS).map((v) => v.id);
-  // The direction that matters: a tab with no view is a tab that stays cold, which is
+  // The direction that matters: a pill with no view is a view that stays cold, which is
   // invisible until you are on a phone wondering why one is slower than the others.
-  for (const tab of ids) assert.ok(views.includes(tab), `${tab} is a tab with no view — it stays cold`);
-  // The other direction stopped being an equality when the bar lost two tabs: the PR board
-  // (bc-l8jp.6) and the chat session (bc-l8jp.5) are both still standing pages, reached
-  // from a PR card, a chat row or the ＋, so both are still warmed. The endorsement queue
-  // is the third of exactly that kind and was simply missed (bc-bsgn) — it has never had
-  // a tab either (its doors are the 🗳 in the inbox's top bar and the advocate console's
-  // `N held for endorsement` pill), and it is the most expensive boot of the three. These
-  // are the *only* views allowed to have no tab — anything else here would be a payload
-  // warmed for a page nobody can get to.
-  assert.deepEqual(views.filter((v) => !ids.includes(v)), ['console', 'endorse', 'prs']);
-  // And the tabs' own order still follows the bar, so the warm fills them in thumb order.
+  for (const pill of ids) assert.ok(views.includes(pill), `${pill} is a pill with no view — it stays cold`);
+  // The other direction is not an equality, and all three exceptions are deliberate. The
+  // endorsement queue has never been on the navigation (bc-j0zl, "never a sixth tab") and
+  // bc-khoe.2 folds it into a Questions pill rather than giving it one; /admin lost its
+  // place in bc-khoe.1, being the screen you least want to hit by accident, and bc-khoe.5
+  // puts it in the gear menu; the chat session has had none since bc-l8jp.5, because it
+  // is created from ＋ and listed as a row in Home. All three are standing pages somebody
+  // arrives at in one tap, so all three are still warmed. These are the *only* views
+  // allowed to have no pill; anything else here would be a payload warmed for a page
+  // nobody can get to.
+  assert.deepEqual(views.filter((v) => !ids.includes(v)), ['endorse', 'admin', 'console']);
+  // And the pills' own order still follows the row, so the warm fills them in the order a
+  // thumb reaches them.
   assert.deepEqual(views.filter((v) => ids.includes(v)), ids);
-  // Every tab before every page that is not one (bc-xxzz). The background warm is
-  // sequential, so this list's order is the order things become warm in — and with the
-  // bar's order alone, Advocates sat behind `/api/prs`, which is a `gh` call per repo.
-  // A view a thumb can reach in one tap must not wait on one it cannot.
-  const lastTab = views.reduce((n, v, i) => (ids.includes(v) ? i : n), -1);
+  // Every pill before every page that is not one (bc-xxzz). The background warm is
+  // sequential, so this list's order is the order things become warm in, and a view a
+  // thumb can reach in one tap must not wait on one it cannot. bc-khoe.1 is what moved
+  // `/api/prs` and `/api/unendorsed` — the two most expensive entries here — up past
+  // /admin and the chat session, because the row made both of them one tap away.
+  const lastPill = views.reduce((n, v, i) => (ids.includes(v) ? i : n), -1);
   const firstOther = views.findIndex((v) => !ids.includes(v));
   assert.ok(
-    firstOther === -1 || firstOther > lastTab,
-    `${views[firstOther]} is warmed before a tab is — the tabs come first, and this list is the warm order`
+    firstOther === -1 || firstOther > lastPill,
+    `${views[firstOther]} is warmed before a pill is — the pills come first, and this list is the warm order`
   );
   // A view may warm nothing, and exactly one does. `paths: []` satisfies the loop above
   // without prefetching a byte, so it is the obvious way to *silence* this check rather

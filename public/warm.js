@@ -62,25 +62,23 @@
   /**
    * Every standing view, and the payload each one boots from.
    *
-   * **The order is the order they are warmed in, and it is the tabs first.** The
-   * background warm is deliberately sequential (see `prewarm`), so a view near the end
-   * of this list waits out every sweep before it — and this list used to be in the tab
-   * bar's order from back when the bar had five tabs. Two of those have since gone
-   * (bc-l8jp.5, bc-l8jp.6), which left the *only two* views a thumb can reach in one tap
-   * queued behind two that it cannot: `/api/prs` is a `gh` call per repo, and Advocates
-   * sat fourth waiting for it. So the tabs come first now, and the pages reached from a
-   * row on the inbox come after them. One list, one place to add a view — the same
-   * argument as `TABS` in tabbar.js, and the two have to stay in step: a view added
-   * there and forgotten here is a tab that is still cold, which is invisible until
-   * you are on a phone wondering why one tab is slower than the other two.
+   * **The order is the order they are warmed in, and it is the pills first, in the
+   * row's own order.** The background warm is deliberately sequential (see `prewarm`),
+   * so a view near the end of this list waits out every sweep before it. The rule is
+   * that a view a thumb can reach **in one tap** must not wait on one it cannot:
+   * `/api/prs` is a `gh` call per repo and `/api/unendorsed` is a `bd` sweep of every
+   * workspace, and both of those are now one tap away, so both moved up past the two
+   * pages that are not. One list, one place to add a view — the same argument as `PILLS`
+   * in public/viewbar.js, and the two have to stay in step: a view added there and
+   * forgotten here is a pill that is still cold, which is invisible until you are on a
+   * phone wondering why one is slower than the others.
    *
-   * A **view** is not the same thing as a tab, though, and two entries here prove it:
-   * the board lost its tab in bc-l8jp.6 and the chat session lost its in bc-l8jp.5, and
-   * both are still standing pages — reached from a PR card, a chat row or the ＋, all of
-   * them on the inbox — that still boot from `/api/prs` and `/api/consoles` and are
-   * therefore still worth warming. If anything the taps that reach them matter more now
-   * than they did on the bar. What belongs here is a page somebody arrives at, not a
-   * place on a bar.
+   * A **view** is not the same thing as a pill, and two entries here prove it. /admin
+   * lost its place on the navigation in bc-khoe.1 — it is the screen you least want to
+   * hit by accident, and bc-khoe.5 puts it in the gear menu — and the chat session never
+   * had one after bc-l8jp.5, because it is created from ＋ and listed in Home. Both are
+   * still standing pages somebody arrives at, so both are still warmed. What belongs
+   * here is a page somebody arrives at, not a place on a row.
    *
    * `/api/prs` is deliberately **not** listed under `inbox`, even though the inbox now
    * draws a card per pull request off it. A path under a view is a path that view does not
@@ -91,21 +89,14 @@
    */
   const VIEWS = [
     { id: 'inbox', paths: ['/api/questions?scope=human'] },
-    // The heaviest of the three tabs and the one this order is for: `/api/work` is two
-    // `bd` calls per workspace, so it is the tab that most needs to be warm — and the
-    // one whose entry the inbox goes on to *maintain* off the stream rather than merely
-    // fill once. See `refresh` below and `MAINTAINED` in public/app.js.
+    // The heaviest of the first three pills and the one this order is for: `/api/work` is
+    // two `bd` calls per workspace, so it is the view that most needs to be warm — and
+    // the one whose entry the inbox goes on to *maintain* off the stream rather than
+    // merely fill once. See `refresh` below and `MAINTAINED` in public/app.js.
     { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
-    // `/api/work` was under /admin too, because /admin fetched it — for the single
-    // `observing` boolean, which the delta stream now carries on every wake (bc-rk2o).
-    // It is off this list rather than merely unused: a path under a view is a path that
-    // view does not warm for the others, and leaving it here would have left /monitor
-    // cold every time you arrived from /admin. /admin still *reads* a held `/api/work`
-    // for its first frame; it is simply no longer the page that fills it.
-    //
-    // The ledger (bc-nib3.2) is here in tab order and is the one view that warms
-    // **nothing** — a recorded decision rather than a gap, because a tab missing from
-    // this list is a tab that stays cold and nobody notices until they are on a phone
+    // The ledger (bc-nib3.2) is here in the row's order and is the one view that warms
+    // **nothing** — a recorded decision rather than a gap, because a pill missing from
+    // this list is a pill that stays cold and nobody notices until they are on a phone
     // wondering why one is slower than the others.
     //
     // Every path above is a constant, which is the whole mechanism: the list is fetched
@@ -120,22 +111,30 @@
     // about what has already happened, where an instant first frame of slightly stale
     // rows buys less than it does anywhere else.
     { id: 'history', paths: [] },
-    { id: 'admin', paths: ['/api/admin'] },
-    // Below the bar: both are reached from a row on the inbox rather than from a tab,
-    // so they are warmed after the tabs are — and `/api/prs` last of all, because it is
-    // a `gh` call per repo and the slowest thing on this list.
-    { id: 'console', paths: ['/api/consoles'] },
-    // The endorsement queue, and the same kind of view as the two either side of it: no
-    // tab, reached in one tap from the 🗳 in the inbox's top bar or from the advocate
-    // console's `N held for endorsement` pill. It is second to last because it is the
-    // second most expensive thing on this list — `/api/unendorsed` is a `bd` sweep of
-    // every workspace and then a `bd show` per row for the provenance line
-    // (lib/endorsequeue.js) — and not last only because `/api/prs` shells out to `gh`
-    // once per repo. Warming it is the whole of why arriving at that page is instant:
-    // it is the one screen in the app whose rows are the full bead, so the wait in
-    // front of it was the longest of any view here.
-    { id: 'endorse', paths: ['/api/unendorsed'] },
+    // The last of the four pills, and the most expensive thing on this list: `/api/prs`
+    // shells out to `gh` once per repo. It is here rather than last because bc-khoe.1
+    // made it one tap away, and a view a thumb can reach in one tap must not wait on one
+    // it cannot.
     { id: 'prs', paths: ['/api/prs'] },
+    // Below the row. None of these three is a pill, and all three are still reached in
+    // one tap from somewhere else — the queue from the 🗳 in the inbox's top bar or the
+    // advocate console's `N held for endorsement` pill, /admin from the ⚙ on /monitor
+    // until bc-khoe.5's gear menu exists, a conversation from a row in Home or the ＋.
+    //
+    // The queue is the second most expensive boot in the app — `/api/unendorsed` is a
+    // `bd` sweep of every workspace and then a `bd show` per row for the provenance line
+    // (lib/endorsequeue.js) — and warming it is the whole of why arriving there is
+    // instant: it is the one screen whose rows are the full bead.
+    { id: 'endorse', paths: ['/api/unendorsed'] },
+    //
+    // `/api/work` was under /admin once, because /admin fetched it — for the single
+    // `observing` boolean, which the delta stream now carries on every wake (bc-rk2o).
+    // It is off this list rather than merely unused: a path under a view is a path that
+    // view does not warm for the others, and leaving it here would have left /monitor
+    // cold every time you arrived from /admin. /admin still *reads* a held `/api/work`
+    // for its first frame; it is simply no longer the page that fills it.
+    { id: 'admin', paths: ['/api/admin'] },
+    { id: 'console', paths: ['/api/consoles'] },
   ];
 
   /* ------------------------------------------------------------------ storage */

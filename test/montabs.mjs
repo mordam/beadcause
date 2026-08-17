@@ -308,39 +308,35 @@ check('a page served without presence.js still swaps its panes', () => {
   assert.deepEqual(t.shown(), ['prs']);
 });
 
-/* ------------------------------------------------- where the strip sticks (bc-ugd4)
+/* ------------------------------- where the strip sticks, and why it no longer does
  *
- * `.mon-tabs` is sticky at `var(--topbar-h)`, and this file is what makes that number
- * true. It was `top: 0` — inherited from a strip whose scroll container starts below
- * the bar — and on this page `0` is the top of the window, which is behind a sticky
- * `.topbar`: the whole strip pinned itself out of sight on the first scroll.
+ * `.mon-tabs` was sticky at `var(--topbar-h)` and this file published that number off a
+ * `ResizeObserver` on `.topbar` (bc-ugd4). The height could not be written into the
+ * stylesheet because it is not one number: the bar is 104px with the space picker's row
+ * and 61px without it, and the picker takes itself away below two workspaces — on the
+ * same build, the same page, mid-visit, from one payload to the next.
  *
- * The height cannot be written into the stylesheet because it is not one number. The
- * bar is 104px with the space picker's row and 61px without it, and the picker takes
- * itself away below two workspaces — on the same build, the same page, mid-visit, from
- * one payload to the next. So the interesting check is not the first publish, it is the
- * second: a fix that only ran at boot would be correct until the moment the thing it is
- * measuring changed, which is the moment it matters.
+ * bc-khoe.1 removed both halves, because there is nothing left to offset. Every page is
+ * a viewport-height shell: `.topbar` and `.viewbar` are rows of a flex column, this
+ * strip is the row under them, and the viewport does not scroll at all. The assertion is
+ * the inverse of what it was — nothing here writes a variable — because a strip in flow
+ * that offsets itself by the bar's height sits a whole bar too low, and a variable
+ * nobody reads is dead code that reads as a fix. public/style.css's half of the same
+ * claim is in test/css.mjs.
  */
 
-check('the bar’s height is published for the strip to stick at', () => {
+check('nothing is published for the strip to stick at, because it is in flow', () => {
   const t = load({ bar: 104 });
-  assert.equal(t.vars.get('--topbar-h'), '104px');
-  assert.ok(t.watching(), 'the ResizeObserver is not watching .topbar');
+  assert.equal(t.vars.size, 0, `montabs.js set ${[...t.vars.keys()].join(', ')}`);
+  assert.ok(!t.watching(), 'the ResizeObserver is back — the strip is a row of the shell now');
 });
 
-check('and republished when the space picker takes its row away', () => {
+check('and no observer was ever created to resize', () => {
   const t = load({ bar: 104 });
-  t.resize(61);
-  assert.equal(t.vars.get('--topbar-h'), '61px');
-  t.resize(104);
-  assert.equal(t.vars.get('--topbar-h'), '104px');
-});
-
-check('a zero is not published — the stylesheet’s fallback beats sticking at the top of the screen', () => {
-  const t = load({ bar: 104 });
-  t.resize(0);
-  assert.equal(t.vars.get('--topbar-h'), '104px');
+  // `resize` drives the fake observer this harness hands the script; with nothing
+  // observing there is nothing to fire, which is the state being asserted.
+  assert.throws(() => t.resize(61), /fire/);
+  assert.equal(t.vars.size, 0);
 });
 
 check('a page with no top bar, and a browser with no ResizeObserver, still get their chips', () => {

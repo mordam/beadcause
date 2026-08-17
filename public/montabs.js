@@ -1,10 +1,15 @@
-/* The second row of tabs, on the one page that has one.
+/* The chip row on the one page that has one, and the last of the app's second bars.
  *
- * The bar along the bottom moves between *pages*; this row swaps a *pane* on
- * monitor.html, and the two are drawn alike because they are both rows of things you
- * tap. What separates them is tabbar.js's rule — a bottom tab is a claim that a page is
- * somewhere you live — and everything here is a **mode** of the page you already watch
- * work from: the same space's repos and sessions, seen another way.
+ * The pill row across the top of every page moves between *pages*; this row swaps a
+ * *pane* on monitor.html, and the two are drawn alike because they are both rows of
+ * things you tap. What separates them is that everything here is a **mode** of the page
+ * you already watch work from: the same space's repos and sessions, seen another way.
+ *
+ * **This file is on its way out and the bead that ends it is bc-khoe.4**, which folds
+ * Advocates and Mirror into the pill row and re-points the standing-down below at the
+ * page's own lifecycle. bc-khoe.1 deleted the bottom bar and this file's `--topbar-h`
+ * observer and stopped there, deliberately: a chip row that still works is a smaller
+ * thing to hand over than half a fold-in.
  *
  * There are three of them now, which is why this file exists at all.
  *
@@ -44,46 +49,27 @@
   if (!tabsEl) return;
 
   /*
-   * Where the strip sticks, published as `--topbar-h` for style.css to stick it at.
+   * There used to be a `ResizeObserver` here, and what it was for is worth knowing
+   * before somebody puts it back (bc-ugd4, deleted in bc-khoe.1).
    *
-   * The row has to be sticky — the advocates list is long enough that by the time you
-   * are halfway down it there is nothing on screen saying which of the three panes you
-   * are in, and no way back to the other two without scrolling to the top first. Until
-   * bc-ugd4 it was sticky at `top: 0`, inherited from `.agent-tabs` on the foundations
-   * page, where zero is correct because that strip's scroll container is a `.launcher`
-   * that already starts below the top bar. Here the scroll container is the viewport,
-   * and the top of the viewport is behind a sticky `.topbar`: the strip pinned itself
-   * under the bar and was gone from the first scroll onwards.
+   * The strip was `position: sticky` at `top: var(--topbar-h)`, and this file published
+   * that variable by measuring `.topbar`. It could not be a constant in the stylesheet:
+   * the bar is 104px with the space picker's row and 61px without, and the picker hides
+   * itself whenever the daemon is watching fewer than two workspaces — so on the same
+   * build, the same page, the height is a fact about the *payload*. It also carries
+   * `env(safe-area-inset-top)`, which is zero in a browser and not zero in the installed
+   * app on a notched phone, and the bar is `flex-wrap: wrap`, so a narrow enough screen
+   * can rewrap it at any moment. An observer answered all four without knowing about any
+   * of them.
    *
-   * The number cannot be a constant in the stylesheet, which is the whole reason this
-   * is JavaScript. The bar is 104px with the space picker's row and 61px without it,
-   * and the picker hides itself whenever the daemon is watching fewer than two
-   * workspaces (`el.hidden` in public/spacebar.js) — so on the same build, the same
-   * page, the height is a fact about the payload. It also carries
-   * `env(safe-area-inset-top)`, which is zero in a browser and is not zero in the
-   * installed app on a notched phone, and the bar is `flex-wrap: wrap`, so a narrow
-   * enough screen can rewrap it into a different number of rows at any moment.
-   *
-   * A `ResizeObserver` on the bar answers all four of those without knowing about any
-   * of them: what it publishes is the bar's own measured height, whatever made it that.
-   * That is why this is not spacebar.js setting the variable as it shows and hides
-   * itself — that fix would be true for the one cause somebody thought of, and silently
-   * wrong for the next one. It lives here rather than in a file of its own because
-   * exactly one strip on one page sticks underneath the bar; if a second ever does,
-   * this block is what moves.
+   * None of that is true any more, because there is nothing to stick to. Every page is an
+   * app shell now (bc-khoe.1): `body` is one viewport tall and clipped, the top bar and
+   * the pill row are rows of a flex column, and this strip is the row under them. The
+   * viewport does not scroll, so nothing can scroll it away and no offset has to be
+   * measured. If a future change makes some strip sticky under moving chrome again, this
+   * is the block that comes back — but a variable nothing reads is worse than no
+   * variable, because it reads as load-bearing.
    */
-  const bar = document.querySelector('.topbar');
-  if (bar && typeof ResizeObserver === 'function') {
-    const publish = () => {
-      const h = bar.getBoundingClientRect().height;
-      /* A zero is the bar mid-teardown or a `display: none` somebody is animating
-         through, not a bar that has no height. Keeping the last true value beats
-         sticking the strip at the top of the screen for a frame. */
-      if (h) document.documentElement.style.setProperty('--topbar-h', `${h}px`);
-    };
-    new ResizeObserver(publish).observe(bar);
-    publish();
-  }
 
   /** Which chip was up last time. */
   const KEY = 'beadcause.mon.tab';
@@ -96,7 +82,7 @@
      whatever was up last time — they are on the phone's home screen and in the
      notifications the ship path sends, and a notification that opened the advocates
      roster instead would be the link quietly not working. The server maps all three
-     onto monitor.html; see serveStatic in lib/server.js and tabbar.js's `paths`. */
+     onto monitor.html; see serveStatic in lib/server.js and viewbar.js's `paths`. */
   const PR_PATHS = ['/prs', '/pulls', '/prs.html'];
 
   const chips = [...tabsEl.querySelectorAll('[data-tab]')];
