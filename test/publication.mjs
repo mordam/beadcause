@@ -5,8 +5,8 @@
 //   npm test                         (runs it alongside the other suites)
 //   node test/publication.mjs        (on its own)
 //
-// bc-3muu.3. Three claims, and the middle one is the reason the other two are worth
-// having:
+// bc-3muu.3, and bc-3muu.12 where the posture meets the chain. Four claims, and the
+// second is the reason the rest are worth having:
 //
 //  1. **The local chain is append-only and says so twice.** Git's answer — linear, intact,
 //     one root — and the payload's answer, every record naming the digest of the one
@@ -22,6 +22,12 @@
 //     than promised: `lib/witness.js` is read, and the repo fails if it ever imports one
 //     of the three functions in `lib/publishable.js` that mint a record. A far end that
 //     cannot construct one can only store, refuse and attest.
+//  4. **A head is published under a posture, or it is a number with a timestamp on it.**
+//     `recordAttestedHead` writes the two together and in that order, because a posture
+//     record says nothing about the time before it was taken. The case worth the suite is
+//     the one a field comparison misses: an anchor that goes stale restates the posture
+//     without a single field changing, so a deployment that anchored once in January does
+//     not render the rest of the year as the January it was true for.
 //
 // Everything runs against a throwaway `BEADCAUSE_CONFIG_DIR` and an in-process ledger.
 // Nothing here touches the real ~/.config/beadcause, and nothing goes near a network.
@@ -40,13 +46,23 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-publication-'));
 process.env.BEADCAUSE_CONFIG_DIR = tmp;
 
 // Imported after the env is set: CONFIG_DIR resolves once, at module load.
-const { PUBLICATION_REF, append, chain, localHead, publish, recordChainHead, verifyChain } = await import(
-  '../lib/publication.js'
-);
+const {
+  PUBLICATION_REF,
+  append,
+  chain,
+  localHead,
+  postureInForce,
+  publish,
+  recordAttestedHead,
+  recordChainHead,
+  recordPosture,
+  verifyChain,
+} = await import('../lib/publication.js');
 const { EMPTY_LEDGER, compare, ledgerHead, ledgerProblems, receiptProblems, witness, witnessProblems } = await import(
   '../lib/witness.js'
 );
 const { recordDigest } = await import('../lib/publishable.js');
+const { POSTURE_FIELDS, report } = await import('../lib/posture.js');
 const { blankComments, claimed, verifyRef } = await import('../lib/evidence.js');
 
 const git = (...args) => execFileSync('git', ['-C', tmp, ...args], { encoding: 'utf8' }).trim();
@@ -406,7 +422,118 @@ await check('a ref with no commits is refused rather than published as a head of
   await assert.rejects(() => recordChainHead(tmp, 'refs/beadcause/neverexisted'), /no commits/);
 });
 
-/* ------------------------------------------------------------ 6. the register */
+/* ------------------------------------ 6. the posture the head is published under */
+//
+// bc-3muu.12 built the observation and the judgement; what it had nowhere to put them was
+// the chain, which did not exist yet. This is the pair. A `chain-head` is what gets
+// anchored, and an anchored head whose deployment attested nothing is a number with a
+// timestamp on it — the head existed by then, and nothing at all about whether the thing
+// that produced it could have rewritten the store underneath.
+
+// A deployment with nothing wrong with it, assembled out of places to look rather than
+// values — a store nobody running this can write to, a clean checkout, a witness that
+// answers, and a register of one permanently-retained sampled class. `observe` is what
+// turns those into the six fields; nothing here can state one.
+const SOUND_REGISTER = [{ sampled: true, retention: 'permanent' }];
+const store = path.join(tmp, 'readonly-store');
+fs.mkdirSync(store);
+fs.chmodSync(store, 0o500);
+process.on('exit', () => {
+  try {
+    fs.chmodSync(store, 0o700);
+  } catch {
+    /* already gone */
+  }
+});
+
+const checkout = path.join(tmp, 'checkout');
+fs.mkdirSync(checkout);
+for (const args of [
+  ['init', '-q'],
+  ['config', 'user.email', 'test@example.invalid'],
+  ['config', 'user.name', 'test'],
+  ['commit', '-q', '--allow-empty', '-m', 'the build this deployment reports'],
+]) {
+  execFileSync('git', ['-C', checkout, ...args], { encoding: 'utf8' });
+}
+
+const ANCHORED = '2026-08-16T09:00:00.000Z';
+const deployment = () => ({ cwd: checkout, store, witness: () => ({ at: ANCHORED }), register: SOUND_REGISTER });
+const FIRST = '2026-08-16T10:00:00.000Z';
+const SAME_DAY = '2026-08-16T14:00:00.000Z';
+const STALE = '2026-08-17T20:00:00.000Z'; // 35 hours after the anchor, past MAX_ANCHOR_AGE_HOURS
+
+await check('a head is published under the posture attesting it, in that order and at one instant', async () => {
+  git('update-ref', 'refs/beadcause/attested', git('rev-list', '-1', PUBLICATION_REF));
+  const out = await recordAttestedHead(tmp, 'refs/beadcause/attested', { deployment: deployment(), at: FIRST });
+
+  assert.equal(out.posture.changed, true, 'a chain that has attested nothing gets a posture');
+  assert.equal(out.posture.record.kind, 'posture');
+  assert.equal(out.head.record.kind, 'chain-head');
+  assert.equal(out.head.record.seq, out.posture.record.seq + 1, 'the posture goes first, or the head sits in the run-up gap');
+  assert.equal(out.posture.record.at, out.head.record.at, 'and both are stamped once, because a segment covers from <= t');
+  assert.equal(out.posture.record.provenance, 'matched', 'the checkout is the build it reports');
+  assert.equal(out.posture.record.storage, 'storage', 'and the store is not writable by whoever is running this');
+});
+
+await check('the head is backed, and the report says so with nothing left over', async () => {
+  const rep = report(await chain(), { from: FIRST, to: '2026-08-16T11:00:00.000Z' });
+  assert.deepEqual(rep.heads, [], 'no head published under a posture that cannot support a claim');
+  assert.equal(rep.verdict, 'verified', rep.why.join('\n'));
+});
+
+await check('an unchanged posture is not restated, and the head still lands under the one in force', async () => {
+  const before = refCommits();
+  const out = await recordAttestedHead(tmp, 'refs/beadcause/attested', { deployment: deployment(), at: SAME_DAY });
+
+  assert.equal(out.posture.changed, false, 'nothing observed differently and the judgement has not moved');
+  assert.equal(out.posture.commit, null, 'so nothing was written');
+  assert.equal(out.posture.record.at, FIRST, 'and the record still in force is the one that came back');
+  assert.equal(refCommits(), before + 1, 'one commit for the head, and none for a posture nobody needed');
+
+  const rep = report(await chain(), { from: FIRST, to: SAME_DAY });
+  assert.deepEqual(rep.heads, [], 'a posture holds until another replaces it, so the second head is backed by the first');
+  assert.equal(rep.verdict, 'verified', rep.why.join('\n'));
+});
+
+await check('an anchor going stale restates the posture with no field changed, and the head after it is not backed', async () => {
+  const out = await recordAttestedHead(tmp, 'refs/beadcause/attested', { deployment: deployment(), at: STALE });
+
+  assert.equal(out.posture.changed, true, 'nothing changed and time passed, which is the case a field comparison misses');
+  const held = (await postureInForce()).posture;
+  for (const f of POSTURE_FIELDS) assert.equal(out.posture.record[f], held[f], `${f} is what it was`);
+
+  const rep = report(await chain(), { from: STALE, to: '2026-08-17T21:00:00.000Z' });
+  assert.equal(rep.verdict, 'unverified', 'the anchor witnesses only the head it saw');
+  assert.equal(rep.heads.length, 1, 'and the head published under it is reported unbacked rather than left implied');
+  assert.equal(rep.heads[0].ref, 'refs/beadcause/attested');
+  assert.ok(
+    rep.why.some((w) => w.includes('hours before this')),
+    `the reason is the staleness rather than a posture check failing: ${rep.why.join(' / ')}`
+  );
+
+  const segs = rep.segments.filter((s) => s.from === STALE);
+  assert.equal(segs.length, 1);
+  assert.deepEqual(segs[0].changed, [], 'and it renders as a change in what can be backed, not in what was observed');
+});
+
+await check('the crossing restates once, not on every head after it', async () => {
+  const before = refCommits();
+  const out = await recordPosture({ ...deployment(), at: '2026-08-17T21:00:00.000Z' });
+  assert.equal(out.changed, false, 'the posture in force is now judged at its own new instant, and the two agree again');
+  assert.equal(refCommits(), before, 'so a daemon publishing hourly goes back to writing nothing');
+});
+
+await check('a posture is observed and never stated, at the door into the chain as well as at the observer', () => {
+  const source = blankComments(fs.readFileSync(path.join(ROOT, 'lib', 'publication.js'), 'utf8'));
+  const at = source.indexOf('export async function recordPosture');
+  const params = source.slice(at, source.indexOf('\n', at));
+  for (const field of POSTURE_FIELDS) {
+    assert.ok(!params.includes(field), `recordPosture takes ${field}, and a posture that can be handed in is not observed`);
+  }
+});
+
+/* ------------------------------------------------------------ 7. the register */
 
 await check('the register claims lib/publication.js, so its retention is stated somewhere', () => {
   assert.equal(claimed().get('lib/publication.js'), 'REGISTER[publication-chain]');
