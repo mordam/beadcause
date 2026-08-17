@@ -215,6 +215,14 @@ body {
   Nothing is drawn when neither holds, and it is `display` rather than `opacity` because
   an idle phone should not be compositing fourteen elements a frame for something nobody
   can see.
+
+  One interaction is worth naming rather than discovering. `.dot.absorbing` — absorb.js's
+  thump, below — animates a `transform` on this element, and a transform is a stacking
+  context, so for the 380ms it runs the far half of the ring would be trapped in front of
+  the dot rather than behind it. It cannot happen today: absorb.js is loaded by the inbox
+  alone, its first target is `.brand h1.mark img`, and that is what the inbox has — the
+  `.brand .dot` entry in its target list is a fallback for a top bar that has not existed
+  since bc-khoe.5. If the dot ever becomes the flight target again, this is where to look.
 */
 .orbit {
   display: none;

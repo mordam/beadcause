@@ -5081,6 +5081,15 @@ all, which is the hole it was opened to fill. A still ring that appears while th
 fetching and goes when it settles says the same thing once, without asking anybody to watch
 it.
 
+**The answer's flight to the mark is untouched by it**, which is the one collision worth
+checking: the orbit lives inside the dot and the flight lands on the app mark next to it,
+so the two never reach for the same element. `scripts/absorb-check.mjs` still passes 29/29
+with the orbit loaded on the inbox. The one place they would meet is `.dot.absorbing` — a
+`transform`, and therefore a stacking context, which for its 380ms would pull the far half
+of the ring in front of the dot. It cannot happen as things stand: absorb.js is loaded by
+the inbox alone and its first target is the mark image, with `.brand .dot` left in its list
+as a fallback for a top bar that has not existed since the bar became one row.
+
 The depth is done with two clipped layers rather than by animating `z-index` per bead: a
 near half and a far half, each holding a whole ring and each clipped to its own side of the
 dot's centre line, with the far one behind the dot and the near one in front. The clips are
