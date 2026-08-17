@@ -49,7 +49,10 @@
   frame the shell arrives in, and an `await` in front of that is a spinner again. What
   localStorage costs by comparison is a smaller quota, which is what the bound below is
   for. It is scoped to the origin and the app is one origin, so it survives a WebView
-  being torn down and rebuilt, which is what "closing the app" is on the phone.
+  being torn down and rebuilt, which is what "closing the app" is on the phone — and the
+  proof that it does is already in the app: the pairing token has lived in `localStorage`
+  since the first version, and a phone that is still paired this morning is a phone whose
+  WebView kept it overnight. Nothing here had to be assumed about the platform.
 
   **And no TTL.** There used to be a fifteen-minute one, on the grounds that a stale list
   is more confusing than a spinner. It is gone, and the argument two paragraphs up is why:
