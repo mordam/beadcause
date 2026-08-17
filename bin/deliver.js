@@ -881,8 +881,7 @@ async function landHere(landed, { external = false } = {}) {
      * guard is what refused; anything else still travels out to `oweClose` below exactly
      * as it did. `isClaimGuard` is imported from lib/bd.js rather than re-written here so
      * the two processes cannot disagree about what that refusal looks like.
-     */
-    /**
+     *
      * And the other half, which is not about a refusal at all: **a zero exit is not a
      * close.** bc-q6qc — a merged bead took the comment written immediately before its
      * close and stayed `in_progress` for a day, with nothing in the log, nothing in
