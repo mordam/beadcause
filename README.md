@@ -13945,14 +13945,91 @@ rather than reject:
   looks exactly like agreement. A *missing* id is numbered instead, because bookkeeping is
   not worth a round.
 
-**What exists today is the kind, its verdict format, the brief it argues from, and the
+**What exists today is the kind, its verdict format, the brief it argues from, the
 approving review a verdict turns into** — which is [further down](#approving-it-and-saying-on-the-page-that-an-agent-did),
-because who is allowed to leave a review here has to be settled first. Nothing opens a
-window on a delivered pull request yet, and the merge queue does not wait for a verdict — a
-merge-bead still goes straight to the queue, and the flow diagram draws the reviewer beside
-that path rather than in it. The wiring, the round cap and the worker's hand-back are the
-rest of the epic; what landed first is the thing all three of them have to agree about,
-which is what a verdict *is*.
+because who is allowed to leave a review here has to be settled first — **and the worker's
+side of the round**, below. Nothing opens a window on a delivered pull request yet, and the
+merge queue does not wait for a verdict — a merge-bead still goes straight to the queue, and
+the flow diagram draws the reviewer beside that path rather than in it. The wiring and the
+round cap are the rest of the epic; what landed first is the thing all of them have to agree
+about, which is what a verdict *is*.
+
+### The worker answers — one window per round, and it may not resolve anything
+
+A reviewer that raises comments needs somebody to raise them *to*, and the session that
+wrote the branch has been gone for an hour. So the worker is **reopened per round**: the
+ReviewAdvocate posts its verdict and exits, and a window is opened again on the work bead,
+on the same branch, with the unresolved comments in its brief (`reviewAnswerPrompt`,
+`lib/reviewanswer.js`; `openReviewAnswerSession` is the door). It answers, pushes, and exits too. No
+process sits through a round.
+
+That is not a reversal of [the decision that took the merge away from workers](#landing-work--a-branch-a-pull-request-and-a-merge-queue).
+Its actual claim was that nothing *outside a session* may hold work in its head, and it
+survives here by making the round durable rather than the process: the review block on the
+merge-bead is the conversation, and every window that touches it reads it from there. It has
+to be that way round, because this daemon restarts itself on its own merges several times a
+day — "the worker is still sitting there waiting" was always a claim about a process that
+routinely dies.
+
+**Three answers, and there is no fourth that means done.** `changed`, `clarify`, `declined`
+— the vocabulary the review block already carries. What the worker may *not* write is
+`resolved`: that field is the reviewer's, and `beadcause-answer` refuses an answer carrying
+it rather than dropping it quietly, because a session whose `resolved` was ignored believes
+a thread is closed that is still open. The worker replies and pushes; the reviewer reads the
+replies next round and settles the ones it accepts.
+
+That is also what makes *"any declined comments or further changes must be raised to the
+ReviewAdvocate for scrutiny"* true by construction rather than by a second mechanism. A
+declined comment is one the worker did not resolve **and cannot**, so it arrives in front of
+the reviewer next round on its own; so does a `changed`, because a change somebody made is a
+change somebody has to check. `commentsForReviewer` selects exactly that population, and
+nothing has to remember to escalate.
+
+**The answers go in through a command, not by hand.**
+
+```sh
+beadcause-answer -w beadcause -b bc-dxrt <<'EOF'
+- id: c1
+  answer: changed
+  note: split the parse out so the empty case is one branch
+- id: c2
+  answer: declined
+  note: the caller already holds the lock, so a second one would deadlock
+EOF
+```
+
+`notes` is one field with two state blocks in it and the merge queue rewrites its own every
+tick, so a session composing YAML into it by hand has four things to get right and the
+fourth is somebody's review. The command reads the block, applies the answers and writes the
+field back through the same cutter every other writer uses. It refuses — with a sentence,
+because the caller is an agent that can fix it and run the command again — an id the review
+does not carry, an answer outside the three words, a decline with no reason, two answers to
+one comment, and an answer to a comment the reviewer has already settled. It takes the
+**merge-bead** or the **work bead**, since the id in a worker's head is its own.
+
+**A reply costs nothing on its own.** Nothing here writes `round`, which counts the
+*reviewer's* passes — so a worker that answers three times without pushing anything has not
+spent a round, and the cap is a cap on reviews rather than on words. What it does check is
+the opposite mistake: a `changed` whose commits are still sitting in the worktree is the
+worst outcome the command has, because the reviewer then reads the branch as it was and
+spends the round disagreeing with something already fixed. When git can answer, an unpushed
+commit stops a `changed` (`--anyway` overrides); when it cannot, the check is skipped rather
+than failed, because not knowing is not evidence.
+
+**Nothing in this path reopens the bead in the tracker, and that is deliberate.** The
+delivery parks the work bead behind the merge-bead, so it is not in `bd ready` and no
+advocate tick can pick it up while a review is running — the window is opened directly, the
+way a resolver is. The path that *does* have to reopen is the one where you answer a
+delivery card with **Changes requested**, and it has to go through `bd.reopenAbandoned`: a
+delivered worker's claim is still on the bead, its window is long gone, and a plain reopen is
+refused by `bd`. That refusal, logged and then contradicted by the very next line saying the
+bead was back in the queue, is how one bead sat frozen and unqueueable for two hours.
+
+And the delivering worker is told all of this **before** it stops, in the paragraph
+`landSection` adds to every auto-merge brief: that something reads the diff, that this bead
+may be opened again on the same branch, and that answering is those three words. A session
+reopened on work it thought was finished, on a branch it does not remember, opens a second
+branch — and then there are two.
 
 ### The notification with nothing to answer
 
