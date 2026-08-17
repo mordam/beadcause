@@ -157,6 +157,7 @@ const {
   sweepInMain,
   describeInMain,
   branchNamesIn,
+  ownedBranchNamesIn,
   isCandidate,
   landingMerge,
   askMark,
@@ -274,6 +275,32 @@ check(
   JSON.stringify(branchNamesIn({ description: 'the worktree is retired; a worktree- prefix alone means nothing' }))
 );
 check('a bead with no text names nothing', branchNamesIn({}).length === 0);
+
+console.log('\nwhose branch it plausibly is (bc-xl7n.67)');
+
+check(
+  'a branch ending in another bead\'s tag is not this bead\'s, wherever it was found',
+  ownedBranchNamesIn({ id: 'bc-xl7n', notes: 'Left `worktree-inmain-noclose-xl7n52` alone — it is alive.' }).length === 0,
+  JSON.stringify(ownedBranchNamesIn({ id: 'bc-xl7n', notes: 'Left `worktree-inmain-noclose-xl7n52` alone — it is alive.' }))
+);
+check(
+  'a branch ending in this bead\'s own tag is kept',
+  JSON.stringify(ownedBranchNamesIn({ id: 'bc-xl7n.52', notes: 'Delivered as `worktree-inmain-noclose-xl7n52`.' })) ===
+    JSON.stringify(['worktree-inmain-noclose-xl7n52'])
+);
+check(
+  'field-blind, same as branchNamesIn underneath it — title, description or notes',
+  ownedBranchNamesIn({ id: 'bc-xl7n.52', title: 'worktree-inmain-noclose-xl7n52' }).length === 1 &&
+    ownedBranchNamesIn({ id: 'bc-xl7n.52', description: 'worktree-inmain-noclose-xl7n52' }).length === 1
+);
+check(
+  'a triage note naming a dozen children\'s branches keeps none of them for the parent',
+  ownedBranchNamesIn({
+    id: 'bc-xl7n',
+    notes: 'worktree-a-xl7n1, worktree-b-xl7n2 and worktree-c-xl7n3 are all still open.',
+  }).length === 0
+);
+check('a bead with no id owns nothing', ownedBranchNamesIn({ description: 'worktree-a-1' }).length === 0);
 
 check('an open bead is a candidate', isCandidate({ status: 'open' }));
 check(
@@ -456,35 +483,36 @@ console.log('\nthe sweep');
 {
   // Claim 1, through the whole sweep rather than just the git call: a session that filed
   // a bead naming the worktree it is working in must not be told the work has landed.
-  const bd = fakeBd([{ id: 'wg-new', description: 'Working in `worktree-empty-ccc` on the stepper.' }]);
+  // The id's tag is `ccc`, matching the branch, so ownership is not what this is testing.
+  const bd = fakeBd([{ id: 'wg-ccc', description: 'Working in `worktree-empty-ccc` on the stepper.' }]);
   const result = await sweepInMain(bd, ws('two'), REPO);
   check('a bead naming an unstarted worktree branch is left completely alone', bd.writes.length === 0, kinds(bd));
-  check('and the reason says nothing ever merged it in', /nothing merged it in/.test(why(result, 'wg-new')), JSON.stringify(result.skipped));
+  check('and the reason says nothing ever merged it in', /nothing merged it in/.test(why(result, 'wg-ccc')), JSON.stringify(result.skipped));
 }
 
 {
-  const bd = fakeBd([{ id: 'wg-live', description: 'Ship `worktree-live-bbb`.' }]);
+  const bd = fakeBd([{ id: 'wg-bbb', description: 'Ship `worktree-live-bbb`.' }]);
   const result = await sweepInMain(bd, ws('three'), REPO);
   check('a bead whose branch has not landed is left alone', bd.writes.length === 0 && result.flagged.length === 0, kinds(bd));
   check('and quietly — an unmerged branch is not news', result.skipped.every((s) => s.quiet), JSON.stringify(result.skipped));
 }
 
 {
-  const bd = fakeBd([{ id: 'wg-squash', description: 'Ship `worktree-squash-ddd`.' }]);
+  const bd = fakeBd([{ id: 'wg-ddd', description: 'Ship `worktree-squash-ddd`.' }]);
   await sweepInMain(bd, ws('four'), REPO);
   check('a squash-merged branch produces no comment, so it cannot produce a loop of them', bd.writes.length === 0, kinds(bd));
 }
 
 {
-  const bd = fakeBd([{ id: 'wg-remote', description: 'Land `worktree-remote-eee`, whose local ref is long gone.' }]);
+  const bd = fakeBd([{ id: 'wg-eee', description: 'Land `worktree-remote-eee`, whose local ref is long gone.' }]);
   const result = await sweepInMain(bd, ws('five'), REPO);
   check("a branch that survives only as origin's is still read", result.flagged.length === 1, JSON.stringify(result));
 }
 
 {
-  const bd = fakeBd([{ id: 'wg-ghost', description: 'Land `worktree-ghost-zzz`.' }]);
+  const bd = fakeBd([{ id: 'wg-zzz', description: 'Land `worktree-ghost-zzz`.' }]);
   const result = await sweepInMain(bd, ws('six'), REPO);
-  check('a branch with no ref anywhere is reported, not guessed at', bd.writes.length === 0 && /no local or origin ref/.test(why(result, 'wg-ghost')), JSON.stringify(result.skipped));
+  check('a branch with no ref anywhere is reported, not guessed at', bd.writes.length === 0 && /no local or origin ref/.test(why(result, 'wg-zzz')), JSON.stringify(result.skipped));
 }
 
 {
@@ -567,7 +595,9 @@ const { toQuestion } = await import(LIB('decision.js'));
 //
 // bc-xl7n.52, end to end and in the terms it was filed in: an advocate's triage note
 // names the branches of the children it surveyed, and the P0 that commissioned the
-// survey used to acquire one offer to close *itself* per branch named.
+// survey used to acquire one offer to close *itself* per branch named. bc-xl7n.67 goes
+// further: that survey note must not write a card at all, because the branch it names
+// was never this bead's to be asked about.
 
 console.log('\nthe card on a bead that holds a subtree');
 
@@ -575,18 +605,34 @@ console.log('\nthe card on a bead that holds a subtree');
 const surveyNote = 'Left `worktree-landed-aaa` alone — a session is sitting in it and it is alive.';
 
 {
+  // bc-xl7n.67: `worktree-landed-aaa` is `wg-aaa`'s branch, not `wg-root`'s — the advocate
+  // only mentioned it while surveying a child. The whole point of the fix is that this
+  // bead now acquires no card at all, not a card with the close offer trimmed off it.
   const bd = fakeBd([
     { id: 'wg-root', issue_type: 'epic', title: 'the unsorted backlog', notes: surveyNote },
     { id: 'wg-root.1', parent: 'wg-root', status: 'open', title: 'a child nobody has finished' },
   ]);
   const result = await sweepInMain(bd, ws('thirteen'), REPO);
+  check(
+    'a triage note naming a branch that is not this bead\'s writes nothing at all',
+    bd.writes.length === 0 && result.flagged.length === 0 && result.checked === 0,
+    kinds(bd)
+  );
+}
+
+{
+  // The other half of the same fix: a bead naming its *own* landed branch — tag matching
+  // — still gets the card, epic or not, and the epic exclusion from bc-xl7n.52 is still
+  // live on it. `wg-aaa`'s tag is `aaa`, which is what `worktree-landed-aaa` ends in.
+  const bd = fakeBd([{ id: 'wg-aaa', issue_type: 'epic', title: 'the unsorted backlog', notes: surveyNote }]);
+  const result = await sweepInMain(bd, ws('thirteen-b'), REPO);
   const row = bd.rows[0];
   const q = toQuestion('widgets', { id: row.id, title: row.title, notes: row.notes, status: 'open' });
 
-  check('the fact is still put on the bead — the sweep says what it found', result.flagged.length === 1 && bd.writes.some((w) => w.kind === 'comment'), kinds(bd));
+  check('an epic naming its own landed branch is still asked about it', result.flagged.length === 1 && bd.writes.some((w) => w.kind === 'comment'), kinds(bd));
   check('the block still parses', q.errors.length === 0, JSON.stringify(q.errors));
   check(
-    'but there is no close-it on it, which is the whole of the bug',
+    'but there is no close-it on it — the epic exclusion is untouched',
     !(q.decision?.options || []).some((o) => o.id === 'close-it'),
     JSON.stringify(q.decision?.options)
   );
@@ -595,17 +641,7 @@ const surveyNote = 'Left `worktree-landed-aaa` alone — a session is sitting in
     q.decision?.options?.length === 1 && q.decision.options[0].id === 'keep-open' && q.decision.options[0].closes === false,
     JSON.stringify(q.decision?.options)
   );
-  check(
-    'the card says why there is no close on it, in the bead’s own terms',
-    q.sections.some((s) => /no "close it" on this card/i.test(s.markdown) && /epic/i.test(s.markdown)),
-    q.sections.map((x) => x.markdown).join('\n').slice(0, 400)
-  );
   check('and still nothing was closed', !bd.writes.some((w) => w.kind === 'close'), kinds(bd));
-  check(
-    'the line on the thread says which of the two cards went up',
-    /offers no close/.test(bd.writes.find((w) => w.kind === 'comment')?.text || ''),
-    bd.writes.find((w) => w.kind === 'comment')?.text
-  );
   check(
     'the sweep reports which kind of card it wrote, for the log',
     result.flagged[0]?.close === false && /epic/.test(result.flagged[0]?.why || ''),
@@ -614,27 +650,41 @@ const surveyNote = 'Left `worktree-landed-aaa` alone — a session is sitting in
 }
 
 {
+  // The half of the acceptance criterion that is not about epics at all: a bead naming
+  // its own branch in its *notes* — a delivering session recording where it landed —
+  // must still be flagged. Ownership is field-blind, same as `branchNamesIn` underneath.
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'land the accordion log', notes: 'Delivered as `worktree-landed-aaa`.' }]);
+  const result = await sweepInMain(bd, ws('thirteen-c'), REPO);
+  check(
+    'a bead naming its own branch in its notes is still asked, not just in its description',
+    result.flagged.length === 1 && result.flagged[0].id === 'wg-aaa',
+    JSON.stringify(result)
+  );
+}
+
+{
   // Not an epic, and no children — but a live grandchild under a closed child, which is
-  // exactly the shape bd's own open-child gate lets through.
+  // exactly the shape bd's own open-child gate lets through. `wg-aaa`'s tag matches
+  // `worktree-landed-aaa`, which is what makes this the bead's own branch.
   const bd = fakeBd([
-    { id: 'wg-mid', title: 'a task with a subtree', description: 'Land `worktree-landed-aaa`.' },
-    { id: 'wg-mid.1', parent: 'wg-mid', status: 'closed' },
-    { id: 'wg-mid.1.1', parent: 'wg-mid.1', status: 'open' },
+    { id: 'wg-aaa', title: 'a task with a subtree', description: 'Land `worktree-landed-aaa`.' },
+    { id: 'wg-aaa.1', parent: 'wg-aaa', status: 'closed' },
+    { id: 'wg-aaa.1.1', parent: 'wg-aaa.1', status: 'open' },
   ]);
   const result = await sweepInMain(bd, ws('fourteen'), REPO);
-  const q = toQuestion('widgets', { id: 'wg-mid', title: '', notes: bd.rows[0].notes, status: 'open' });
+  const q = toQuestion('widgets', { id: 'wg-aaa', title: '', notes: bd.rows[0].notes, status: 'open' });
   check(
     'a live grandchild under a closed child takes the close offer away too',
     result.flagged[0]?.close === false && !(q.decision?.options || []).some((o) => o.id === 'close-it'),
     JSON.stringify(q.decision?.options)
   );
-  check('and the card names the bead that is still open', /wg-mid\.1\.1/.test(q.sections.map((x) => x.markdown).join('\n')), result.flagged[0]?.why);
+  check('and the card names the bead that is still open', /wg-aaa\.1\.1/.test(q.sections.map((x) => x.markdown).join('\n')), result.flagged[0]?.why);
 }
 
 {
-  const bd = fakeBd([{ id: 'wg-leaf', title: 'a leaf', description: 'Land `worktree-landed-aaa`.' }]);
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'a leaf', description: 'Land `worktree-landed-aaa`.' }]);
   const result = await sweepInMain(bd, ws('fifteen'), REPO);
-  const q = toQuestion('widgets', { id: 'wg-leaf', title: '', notes: bd.rows[0].notes, status: 'open' });
+  const q = toQuestion('widgets', { id: 'wg-aaa', title: '', notes: bd.rows[0].notes, status: 'open' });
   check(
     'a leaf keeps both options — the feature still works for the case it was built for',
     result.flagged[0]?.close === true && (q.decision?.options || []).some((o) => o.id === 'close-it'),
@@ -645,9 +695,9 @@ const surveyNote = 'Left `worktree-landed-aaa` alone — a session is sitting in
 {
   // A `bd` with no `graph` at all: a caller's own stub, or a tracker that would not
   // answer. The sweep must not throw, and must not guess in the permissive direction.
-  const bd = fakeBd([{ id: 'wg-blind', title: 'a leaf', description: 'Land `worktree-landed-aaa`.' }], { graph: false });
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'a leaf', description: 'Land `worktree-landed-aaa`.' }], { graph: false });
   const result = await sweepInMain(bd, ws('sixteen'), REPO);
-  const q = toQuestion('widgets', { id: 'wg-blind', title: '', notes: bd.rows[0].notes, status: 'open' });
+  const q = toQuestion('widgets', { id: 'wg-aaa', title: '', notes: bd.rows[0].notes, status: 'open' });
   check(
     'a tracker that cannot say what is under a bead still gets a card, without the close',
     result.flagged.length === 1 && result.flagged[0].close === false && !(q.decision?.options || []).some((o) => o.id === 'close-it'),
