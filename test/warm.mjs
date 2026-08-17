@@ -273,6 +273,18 @@ await check('a full store gives up the inbox last, whatever its age', () => {
   assert.equal(warm.read('/api/admin'), null, 'something else went instead');
 });
 
+await check('and it gives up the inbox at the widened scope last too, which is the same screen', () => {
+  const { warm } = load({ quota: 2 });
+  // `VIEWS` names `?scope=human`, which is what a notification opens. A device left on
+  // `both` holds the same screen under a different key, and protecting only the default
+  // would leave exactly that device paying the cold sweep this is all about.
+  warm.write('/api/questions?scope=both', { questions: [{ key: 'beadcause/bc-1' }] }, 12);
+  warm.write('/api/consoles', { consoles: [] });
+  warm.write('/api/prs', { repos: [] });
+  assert.ok(warm.read('/api/questions?scope=both'));
+  assert.equal(warm.read('/api/consoles'), null);
+});
+
 await check('one oversized payload fails alone — it does not empty the store on the way down', () => {
   const { warm } = load();
   warm.write('/api/questions?scope=human', { questions: [{ key: 'beadcause/bc-1' }] }, 41);

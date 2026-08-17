@@ -217,8 +217,17 @@
     }
   })();
 
-  /** The paths the store gives up last. See `BUDGET_BYTES`. */
-  const LAST_TO_GO = new Set(VIEWS.find((v) => v.id === 'inbox')?.paths || []);
+  /**
+   * Whether a path is one the store gives up last. See `BUDGET_BYTES`.
+   *
+   * Matched on the route rather than on the whole key, because the inbox's entry is keyed
+   * by the scope it was drawn at — `?scope=human` is the one `VIEWS` names and the one a
+   * notification opens, and `?scope=both` is the same screen with the filter widened. A
+   * device left on `both` reopens onto that entry, and protecting only the default would
+   * quietly leave exactly that device paying the cold sweep this bead is about.
+   */
+  const LAST_TO_GO = new Set((VIEWS.find((v) => v.id === 'inbox')?.paths || []).map((p) => p.split('?')[0]));
+  const lastToGo = (path) => LAST_TO_GO.has(path.split('?')[0]);
 
   /** Every path we are holding, for the sweeps that clear or count them. */
   function keys() {
@@ -371,7 +380,7 @@
         drop(path);
         return true;
       }
-      const rank = [LAST_TO_GO.has(path) ? 1 : 0, hit.at];
+      const rank = [lastToGo(path) ? 1 : 0, hit.at];
       if (!worst || rank[0] < worst.rank[0] || (rank[0] === worst.rank[0] && rank[1] < worst.rank[1])) {
         worst = { path, rank };
       }
