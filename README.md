@@ -4749,6 +4749,38 @@ Four things that had to be got right, and each of them was a real failure first:
   in `bd show`'s dependencies and drawn above the description; the incoming copy is dropped
   from the list below rather than grouped, the same way children are.
 
+**And when a declared dependency lands on the same pair, the declared edge wins.** bd
+holds one row per *ordered* pair and refuses a second type on it, which turned the good
+habit into the bug: a proposal that says *why* it waits on `bc-x` names `bc-x`, the hook
+draws the see-also as the description is written, and the dependency the proposal actually
+declared is then refused for ever — `already exists with type "relates-to" (requested
+"blocks"); remove it first`. That is exactly the shape of proposal this app asks people to
+write. So the collision is settled by precedence rather than by ordering the two writes:
+a `relates-to` came from a word appearing in a paragraph and a `blocks` came from somebody
+deciding, so the mention is taken off and the declared edge goes in its place. Ordering
+would only have hidden it — the sweep above runs on its own, long after the bead was
+filed, on a pair nobody is writing.
+
+Three things that fall out of that, and the middle one is the one a passing test would
+have lied about:
+
+- **Never the other way round.** A prose mention does not demote anything, because it
+  never reaches the question: `planFor` skips any pair the graph already joins. And only a
+  see-also may be displaced — `discovered-from` above all, because provenance is an older
+  fact than whatever wants the pair now, which is the same trade `lib/adoptsweep.js` makes
+  from the other side.
+- **Both ends of it.** `bd dep relate` writes two rows and bd refuses per *ordered* pair,
+  so dropping only the row bd named lets the retry through and leaves the pair holding a
+  `blocks` one way and a `relates-to` the other — two rows saying different things about
+  the same two beads, printed under two headings on the card. The far row is read before
+  it is deleted, so a pair that holds a mention one way and something older the other
+  keeps the older one.
+- **A refusal is asked once.** The retry test in `Bd.run` is a substring match on `lock`,
+  and bd's sentence ends `(requested "blocks")` — so every refused edge looked exactly
+  like Dolt lock contention and spent five spawns and four seconds of backoff proving what
+  the first millisecond already knew. Fine while a refused edge was an accident; not fine
+  on `/api/console/create`, which is a tap on a phone.
+
 One thing it does not fix, deliberately: the `blocks N` pill at first paint is
 `dependent_count` straight from bd, which counts every edge pointing at a bead — children
 already, and now see-alsos too. It is replaced by the real rows the moment
@@ -4756,7 +4788,10 @@ already, and now see-alsos too. It is replaced by the real rows the moment
 
 Checked by `test/mentions.mjs` (the module, the hook against a fake `bd` that records its
 argv, and the two client-side spellings in source) and by `test/graphwaits.mjs`, which is
-where the `relates-to` spelling is held to not blocking anything.
+where the `relates-to` spelling is held to not blocking anything. The precedence rule has
+its own two: `test/declarededge.mjs` against a fake `bd` that remembers its own edges, and
+`test/declarededgereal.mjs`, which files a bead whose description names the bead it depends
+on against the real binary and asks bd what is left.
 
 ### The glass in the middle
 
