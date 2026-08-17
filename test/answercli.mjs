@@ -244,6 +244,14 @@ check(
   JSON.stringify(world().issues['zz-merge'].comments)
 );
 
+reset();
+answer('zz-merge', '- id: c1\n  answer: clarify\n  note: which lock did you mean\n');
+check(
+  'a reply with no change in it says so — words are an answer, and not a new thing to review',
+  (world().issues['zz-merge'].comments || []).some((c) => /words only/.test(c)),
+  JSON.stringify(world().issues['zz-merge'].comments)
+);
+
 /* -------------------------------------------------------------- naming the work bead */
 
 reset();

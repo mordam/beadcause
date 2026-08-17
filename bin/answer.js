@@ -178,7 +178,12 @@ if (changed.length && unpushed && !anyway) {
 
 const next = withAnswers(state, answers);
 const notes = withReviewBlock(row.notes, next);
-const comment = answerComment(answers, { round: state.round, sha, pushed: changed.length ? unpushed === 0 : null });
+// "Words only" is taken off the *answers* rather than off git: a reply with no `changed` in
+// it has changed nothing by the worker's own account, which is true whether or not this is a
+// checkout git would talk about. Reading it off the commit count instead would report a
+// clean branch as having pushed nothing, and an unreadable one as the same — two different
+// facts arriving as one sentence.
+const comment = answerComment(answers, { round: state.round, sha, pushed: changed.length ? null : false });
 
 if (dryRun) {
   console.log(`would answer ${answers.length} comment${answers.length === 1 ? '' : 's'} on ${row.id} (#${spec.number})`);
