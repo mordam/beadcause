@@ -257,6 +257,28 @@ const PAGES = [
   { url: '/admin', file: 'admin.html' },
 ];
 
+/**
+ * The pages the deleted bottom bar was on.
+ *
+ * The one list in this file that is written down rather than derived, and it is written
+ * down because it is *history*: what `public/tabbar.js` was pulled into before bc-khoe.1
+ * removed it. History does not move, so nothing here can go stale — and without it the
+ * page list above is only self-consistent. A page could drop `/viewbar.js` and be dropped
+ * from `PAGES` in the same edit, and every assertion in this file would go on passing
+ * about the pages that were left, which is precisely the state the bar's own check would
+ * have had to be in to stop mattering.
+ */
+const REACHED = [
+  'index.html',
+  'monitor.html',
+  'history.html',
+  'admin.html',
+  'console.html',
+  'endorse.html',
+  'flow.html',
+  'requirements.html',
+];
+
 /* 360×640 is the cheap Android this app is for and the width every trade in this epic was
    argued at; 393×852 is the phone in the hand. Both, because a rule that holds at one
    width holds by accident. */
@@ -426,6 +448,15 @@ console.log(`\n\x1b[1mthe row's own list\x1b[0m`);
     if (stale.length)
       bad('every page named below still loads /viewbar.js', `named in PAGES but no longer drawing the row: ${stale.join(', ')}`);
   }
+  /* And every page the bottom bar was on is still one of them. Without this the guard
+     above is only self-consistent — see the note on REACHED. */
+  const dropped = REACHED.filter((f) => !covered.has(f));
+  if (!dropped.length) ok('and every page the deleted bottom bar was on is still among them');
+  else
+    bad(
+      'every page the deleted bottom bar was on is still driven',
+      `${dropped.join(', ')} no longer appears — the bar was the only way off these, so one of them going uncovered is how a page becomes a dead end without anybody noticing`
+    );
   ok(`the row's list has ${IDS.length} pills: ${IDS.join(', ')} — read from public/viewbar.js, not repeated here`);
 }
 
