@@ -1160,8 +1160,12 @@ await check('a view shows its own kind — the board on My Epics, the list on th
   // page with half its content missing and nothing on screen saying why, which is the same
   // fallback `inKind` makes two paragraphs up.
   assert.ok(/const boardHere = view === null \|\| view === 'epics'/.test(app), 'the board is not gated on the view');
+  // `boardOnly` is counted off the cards and not off the pill, which is bc-6s96 surviving
+  // this bead: with nothing started the section switches off, and a My Epics that drew
+  // neither a card nor a list would be a blank page on a fresh install.
+  assert.ok(/const boardOnly = view === 'epics' && p0Cards\(\)\.length > 0/.test(app), 'an empty board still hides the list');
   assert.ok(
-    /const listHere = view === null \|\| view !== 'epics' \|\| beadPicked\(\) \|\| state\.open\.size > 0/.test(app),
+    /const listHere = !boardOnly \|\| beadPicked\(\) \|\| state\.open\.size > 0/.test(app),
     'the list is not gated on the view'
   );
   // And the gate is spent where the chunks are pushed. The board is `''` under a kind

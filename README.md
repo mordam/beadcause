@@ -4063,12 +4063,16 @@ produced underneath a board whose trees already held the same work. `render` ask
 - **The board is not on the other four pills in any form** — not collapsed to a heading, not
   a count. A board over a list of chats is the thing this bead is about.
 
-Two things put a list back under the board, and neither is a hedge on the rule. **A bead
-picked in the search box**, which is the same sentence `inBoard` already makes one line
-above — an explicit filter outranks an implicit one, and the box is in the panel on every
-pill, so a search run from `My Epics` with no list to answer into would be a control that
-does nothing. And **an open card**, which is not a list at all: `.card.open` is a
-full-screen sheet built out of a list row, so the clause is what makes `p0-answer` on a
+Three things put a list back under the board, and none is a hedge on the rule. **A board
+with no cards on it**, which is bc-6s96 unchanged: with nothing started the section
+switches off and Home is the flat list it has always been, the bare "start one" offer
+included — that offer is a control on an empty screen rather than a board, and a `My Epics`
+drawing neither a card nor a list would be a blank page on the one install most likely to
+see it. **A bead picked in the search box**, which is the same sentence `inBoard` already
+makes one line above — an explicit filter outranks an implicit one, and the box is in the
+panel on every pill, so a search run from `My Epics` with no list to answer into would be a
+control that does nothing. And **an open card**, which is not a list at all: `.card.open` is
+a full-screen sheet built out of a list row, so the clause is what makes `p0-answer` on a
 bead in a tree — the ordinary way to answer a question from the board — open anything.
 It is the same exception `underOwnedRoots` already makes for the card that is up.
 

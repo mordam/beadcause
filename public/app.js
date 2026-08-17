@@ -6396,7 +6396,13 @@
      * same reason: a page served without public/inboxfilter.js must not be a page with
      * half its content missing and nothing on screen saying why.
      *
-     * Two things put a list back under the board, and neither is a hedge on the rule.
+     * Three things put a list back under the board, and none is a hedge on the rule.
+     *
+     * **A board with no cards on it**, which is bc-6s96 unchanged: with nothing started the
+     * section switches off and Home is the flat list it has always been. `boardOnly` is
+     * therefore counted off `p0Cards()` rather than off the pill — the bare "start one"
+     * offer is a control on an empty screen, not a board, and a My Epics that drew neither
+     * a card nor a list would be a blank page on the one install most likely to see it.
      *
      * **A picked bead**, which is the `inBoard` argument directly above stated once more:
      * an explicit filter outranks an implicit one. The bead box is in the panel on every
@@ -6412,7 +6418,8 @@
      */
     const view = window.beadcause?.inboxFilter?.current?.() ?? null;
     const boardHere = view === null || view === 'epics';
-    const listHere = view === null || view !== 'epics' || beadPicked() || state.open.size > 0;
+    const boardOnly = view === 'epics' && p0Cards().length > 0;
+    const listHere = !boardOnly || beadPicked() || state.open.size > 0;
 
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
