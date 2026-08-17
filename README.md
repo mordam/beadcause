@@ -4123,7 +4123,9 @@ priority 0, and `in_progress` rather than merely open ([why](#the-board-is-the-e
 what is left under it (`open`, `inFlight`), what it is waiting on once a P0 advocate has
 written one (`lib/epicadvocate.js`, and the 🧭 button on the card is
 [`POST /api/bead/advocate`](#http-api)), and, since bc-rfnr.9.1, **`tree`: every
-descendant of that P0 at any depth**.
+descendant of that P0 at any depth**. Since bc-s8mc it also carries `startable` — the P0s
+of yours that are *not* on the board and could be, which is what [the picker at its
+foot](#starting-an-epic-from-the-board-and-taking-one-off) draws.
 
 The tree is not the row filter seen from the other end, and that is the whole reason it
 exists. `p0board.under` is a fact about the *inbox rows* — one string per row naming the
@@ -4173,10 +4175,10 @@ renamed: a descendant with no pending question is in the tree.
 ### The board is the epics you have started
 
 A card is drawn for a P0 you own **whose status is `in_progress`**. Raising a P0 does not
-put it on the board; starting it does, and `bd update <id> --claim` is the whole of how
-today. A picker for starting one of the others without leaving the inbox is bc-s8mc and is
-not built yet — until it is, the P0s that are off the board are reached the way every other
-bead is, through search and the bead sheet.
+put it on the board; starting it does — from the phone, with [the picker at the foot of
+the board](#starting-an-epic-from-the-board-and-taking-one-off), or on the Mac with `bd
+update <id> --claim`. The P0s that are off the board are still reached the way every other
+bead is as well, through search and the bead sheet.
 
 The rule used to be *not closed*, and the count is the argument. bc-6s96 measured the
 board across all nine workspaces on 2026-08-16: **~42** owned P0s not closed against
@@ -4215,6 +4217,62 @@ means an *open* P0 above (`lib/underp0.js`): that gate asks "did anybody decide 
 should happen", and raising a P0 is that decision whether or not you have got to it.
 Narrowing the gate to started epics would have stopped the advocate on five sixths of the
 tracker overnight, which is a rule about a screen reaching into the queue.
+
+### Starting an epic from the board, and taking one off
+
+The board is what you have started, so there has to be a way to start something without
+leaving the inbox — otherwise the one screen that says what the week is about is the one
+screen that cannot change it, and the answer to "this is what I am on today" is a laptop.
+**A `+ Start an epic` button sits at the foot of the board.** It opens a picker of the P0s
+you own that are open and have not been started, each with the same "N open" count the
+cards carry, in the same order the board uses — most still open first, because a picker
+sorted by id would put whichever epic was filed first at the top for ever. Choosing one
+writes `status: in_progress` and it is a card on the next poll.
+
+**A status write, deliberately, and not a phone-local pin.** One source of truth: the
+advocates, `bd list`, the console, the other Mac and the screen in your hand all agree,
+and `bd show` says `Started:` afterwards. A pin would have been cheaper and would have
+made the board a thing only this phone believed.
+
+**The reverse is on the card** — `↩ Take it off the board`, back to `open`, which is the
+same tap undone. It leaves the assignee alone: who is on the work is a different fact from
+what leads your screen, and a screen decision must not quietly erase it. It is also *not*
+[pausing the epic's advocate](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo), which stops dispatch under a P0 and leaves
+it started — the two are different axes and compose. Nothing is lost either way: an epic
+taken off is open, owned and one tap from the picker again.
+
+**Four beads are never offered**, and each is a tap that would have been refused
+downstream: an `unendorsed` one (nobody has said the work should happen — the answer to it
+is the endorsement queue), a superseded one (the job is somewhere else), a **crash**
+(`lib/errors.js` files every daemon crash at P0 with an owner, so a bad week would fill the
+picker with stack traces — a stack trace is not an epic, the same sentence the advocate
+launch makes), and a `blocked` one (the tracker says it cannot move, so a card claiming the
+week is about it would be the screen contradicting the graph). `bd` is still there for the
+case where you mean it.
+
+**Every refusal is loud and on screen.** `POST /api/bead/start` answers 409 with a
+sentence for each of those and for the races the picker cannot see — the bead closed, or
+started from the other device, since the list you are looking at was drawn — and the
+button says it rather than leaving you with a card that never appears. The rules are
+checked again at the door rather than trusted from the client for exactly that reason: the
+picker's list is up to one poll old.
+
+**And it appears without a reload.** The write refreshes that workspace's `Bd.graph`
+entry, so the next payload is built from a graph that knows — without it the card would
+take up to a minute to turn up, the write having worked and the screen having nothing to
+say about it. The phone that tapped re-polls immediately; every other device is woken by a
+`p0board` event on its parked log request. `node test/p0start.mjs` holds both halves — the
+picker's list and the two writes, against a fake `bd` that really changes its mind.
+
+**And one thing about it is only visible in a browser.** The picker opens at the foot of
+the board, which is *above* the inbox list — and `capturePlace` anchors the page's scroll
+on the first card in that list, so a repaint that grew the board scrolls the page down by
+exactly the height of what just opened: the button you pressed leaves the screen. The fix
+is `keepTheScreenStill`, the same one bc-rfnr.9.4 needed one surface along, and nothing in
+the HTML shows whether it is there. `node scripts/p0start-check.mjs` is the half a string
+cannot reach — a real tap in headless Chrome at 393×852, reading `getBoundingClientRect()`
+before and after. Measured with the call taken out: the button moved from 467px to 318px
+under the thumb.
 
 ### Tapping a P0 card opens it
 
@@ -18051,6 +18109,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/bead/adopt` | `{workspace, id, parent}` | moves a bead under `parent` — the fix for the one hold that never clears itself, offered on the sheet of any bead with **no P0 above it**. Answers `{parent, workable}`, where `workable` is the gate's own answer after the write rather than a promise about it. A parent with no P0 above *it* is a 409 naming that, since the adoption would not make the bead workable; an empty `parent` detaches instead, which is how an adoption into the wrong epic is undone. The cached graph is refreshed on the way out, so the next advocate tick acts on the new shape |
 | GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it, and a `closeReason` cut to 240 characters on a word boundary — two lines of the row hold 226 at the widest, and the whole sentence is on the sheet the row links to. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
 | GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
+| POST | `/api/bead/start` | `{workspace, id}` | **puts a P0 on the board** — writes `status: in_progress`, which is the one thing the board reads (bc-s8mc). The picker at the foot of the board is the client, and `p0board.startable` is what it draws. Refusals are all 409 with a sentence, because a write bd rejects has to be visible rather than a card that silently never appears: not a P0, not carrying your `owner:` label, closed, already started, `blocked`, `unendorsed`, superseded, or a crash bead this app filed at P0 itself. Checked here as well as in the picker's own filter — the list on the phone is up to a poll old, and the bead somebody closed in between is exactly the tap that would otherwise go through. Not guarded by `OBSERVING`: like the verdict routes, this is you deciding rather than the daemon acting. The graph cache for that workspace is refreshed on the way out and a `p0board` event is emitted, which is what makes the card arrive on the next poll on every device rather than a minute later |
+| POST | `/api/bead/unstart` | `{workspace, id}` | **takes it off again** — back to `status: open`, the exact reverse, and a 409 for a bead that is not on the board. The assignee is left alone, unlike `Bd.reopen`: taking an epic off the board is a decision about what leads your screen, and who is on the work is not that tap's to erase. Distinct from [pausing an epic's advocate](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo), which leaves it started and stops dispatch under it |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
 | POST | `/api/bead/adjust` | `{workspace, ids[], edits, endorse?}` | the ✎ of the proposal card, aimed at a bead that exists. `edits` may name `title, type, priority, description, acceptance, labels`, through the same clamps a proposed bead goes through; the two labels the daemon owns (`unendorsed`, `agent-filed`) are not yours to set. **Keeps the marker** unless `endorse: true`. A title may not be given to a group |

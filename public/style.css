@@ -6256,7 +6256,7 @@ button.p0-row {
    *do* here — a 36px target hidden between two counts is a target you miss — and the
    graph is the link the id pill used to be, moved down now the summary above it is one
    tap target and cannot hold an anchor of its own. */
-.p0-acts { display: flex; align-items: stretch; gap: 6px; margin-top: 4px; }
+.p0-acts { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin-top: 4px; }
 .p0-advocate {
   flex: 1 1 auto;
   min-height: 40px;
@@ -6295,6 +6295,65 @@ a.p0-advocate {
    rather than added to the shared rule above, because that rule's list is of *rows* and
    this is a control. */
 a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+
+/* ------------------------------------------------- starting an epic from the board
+
+   bc-s8mc. Three controls, and what they have in common is that every one of them writes
+   to the tracker — so they are drawn as buttons that look like the board's other buttons
+   rather than as chips, which on this screen mean a filter you can undo by looking away.
+
+   The picker sits at the *foot* of the board, under the cards, because it is the answer to
+   "and what else could be here" — a question you ask after reading what is. Full width and
+   quiet: it is an offer, not the thing the section is for. */
+.p0-off {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit; font-size: 12.5px;
+  cursor: pointer;
+}
+.p0-off:disabled { opacity: 0.6; cursor: default; }
+.p0-pick {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.p0-pick[aria-expanded='true'] { color: var(--text); border-style: solid; background: var(--surface); }
+.p0-picker { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+/* One row per P0 you could start: the same two-line shape a card has — identity and count
+   on the first line, the title on the second — so the list reads as a board of cards that
+   are not there yet rather than as a menu of ids. */
+.p0-cand {
+  display: flex; flex-direction: column; gap: 4px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.p0-cand:disabled { opacity: 0.6; cursor: default; }
+.p0-cand-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.p0-cand-title { min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.35; }
+/* Nothing started yet: the section is the offer and nothing else, so it carries none of
+   the board's own chrome — no heading, no fold, no count of nothing. */
+.p0-board.bare { margin-bottom: 10px; }
+.p0-board.bare .p0-pick { margin-top: 0; }
 
 /* ------------------------------------------------------------- edit mode
 
