@@ -4178,8 +4178,13 @@ not "do not tell me about questions". The accepted consequence is that a hidden 
 still notify you, and the lit pill is the standing reminder that the list is narrowed.
 `node test/inboxkinds.mjs` covers the table (every row matches exactly one kind, in both
 directions, and over every combination of the fields the payload can carry rather than
-only over the rows it writes), the row's copy of it, the scope rule, both sub-filters'
-defaults and the chrome on a pointer and a touchscreen.
+only over the rows it writes), the row's copy of it, the scope rule and the widening that
+is its exception, both sub-filters' defaults and the chrome on a pointer and a
+touchscreen. The widening is also driven end to end, in a real Chrome, by
+`node scripts/viewbar-check.mjs` — tap `All Beads` on `Human` and the pill stays lit, the
+switch beside it moves to `Both` and `/api/questions?scope=both` goes out — because the
+three files that have to agree on it are the row, the filter and the page, and no vm
+holds all three.
 
 ### The scope is a control you can see
 
