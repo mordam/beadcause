@@ -133,12 +133,28 @@
    * one sweep still serves both screens.
    */
   const VIEWS = [
+    // **The order is the pill row's, and since bc-khoe.2 the row is not one pill per
+    // entry.** Six of the seven pills are the inbox's kinds and four of those are Home
+    // under a different narrowing, so `inbox` is first because it is what four pills
+    // reach — including the one you land on. test/warm.mjs holds this list to the row
+    // through that mapping rather than by matching ids, because the ids stopped being
+    // the same words when the kinds arrived on the row.
     { id: 'inbox', paths: ['/api/questions?scope=human'] },
-    // The heaviest of the first three pills and the one this order is for: `/api/work` is
-    // two `bd` calls per workspace, so it is the view that most needs to be warm — and
-    // the one whose entry the inbox goes on to *maintain* off the stream rather than
-    // merely fill once. See `refresh` below and `MAINTAINED` in public/app.js.
-    { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
+    // The third pill, and the most expensive thing on this list: `/api/prs` shells out to
+    // `gh` once per repo. It moved up past `/api/work` in bc-khoe.2 for the reason
+    // bc-khoe.1 moved it up past /admin — a view a thumb reaches sooner must not wait on
+    // one it reaches later — and PRs is the third pill where Advocates is now the
+    // seventh. It is also the one entry whose pill does not *navigate*: tapping PRs on
+    // Home narrows the list in place and calls `loadBoard`, which reads this entry, so a
+    // cold one is a visible wait on a tap that never left the page.
+    //
+    // And it is one of the two `holdOnly` entries, which is a rule about the *background*
+    // warm and nothing else: fill this path when nothing is held for it, and never go and
+    // replace one that is. The two so marked are the two most expensive paths on this
+    // list, and they are the two the order above cannot help — moving a `gh`-per-repo
+    // sweep earlier in the queue does not make it cheaper, it only makes it sooner. See
+    // `prewarm`.
+    { id: 'prs', paths: ['/api/prs'], holdOnly: true },
     // The ledger (bc-nib3.2) is here in the row's order and is the one view that warms
     // **nothing** — a recorded decision rather than a gap, because a pill missing from
     // this list is a pill that stays cold and nobody notices until they are on a phone
@@ -156,18 +172,11 @@
     // about what has already happened, where an instant first frame of slightly stale
     // rows buys less than it does anywhere else.
     { id: 'history', paths: [] },
-    // The last of the four pills, and the most expensive thing on this list: `/api/prs`
-    // shells out to `gh` once per repo. It is here rather than last because bc-khoe.1
-    // made it one tap away, and a view a thumb can reach in one tap must not wait on one
-    // it cannot.
-    //
-    // It is also one of the two `holdOnly` entries, which is a rule about the *background*
-    // warm and nothing else: fill this path when nothing is held for it, and never go and
-    // replace one that is. The two so marked are the two most expensive paths on this
-    // list, and they are the two the order above cannot help — moving a `gh`-per-repo
-    // sweep earlier in the queue does not make it cheaper, it only makes it sooner. See
-    // `prewarm`.
-    { id: 'prs', paths: ['/api/prs'], holdOnly: true },
+    // The last pill, and still the heaviest `bd` on the list: `/api/work` is two calls
+    // per workspace, and it is the one whose entry the inbox goes on to *maintain* off
+    // the stream rather than merely fill once. See `refresh` below and `MAINTAINED` in
+    // public/app.js. It was second until bc-khoe.2 put five kind pills to its left.
+    { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
     // Below the row. None of these three is a pill, and all three are still reached in
     // one tap from somewhere else — the queue from the 🗳 in the inbox's top bar or the
     // advocate console's `N held for endorsement` pill, /admin from the ⚙ on /monitor

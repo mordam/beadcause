@@ -3956,50 +3956,88 @@ And the picker stops reporting a confident zero: a space holding an unreadable r
 draws `⚠` beside whatever count it does have. The number is still the best answer
 available. It just stops being presented as a fact.
 
-### One list, seven kinds — and the sub-filter for pull requests
+### One list, six kinds — and the two sub-filters
 
-The inbox is not one list. An advocate asking to create beads, a worker asking you to
+Home is not one list. An advocate asking to create beads, a worker asking you to
 merge, a plain question, a **pull request**, a **JIRA ticket** assigned to you, a bead
-**held for endorsement**, and —
-under `Both` and `Agent` — the live beads nobody is asking you about, are seven different
-jobs that happen to arrive at the same address. `KINDS` in `public/inboxfilter.js` is the table that names them, and it is
-the only place that knows which row is which: one row of it buys a chip, a count, a
-predicate and a place in the summary line. The chips live in the same collapsed
-hover-open control as the scope switch, because two collapsing controls side by side
-would be the three permanent chip rows again with extra steps.
+**held for endorsement**, and — under `Both` and `Agent` — the live beads nobody is asking
+you about, are different jobs that happen to arrive at the same address. `KINDS` in
+`public/inboxfilter.js` is the table that names them, and it is the only place that knows
+which row is which: one row of it buys a pill, a count, a predicate and a place in the
+summary line.
 
-Each kind carries a `side` — which scope can fetch it. `human` sweeps questions, `agent`
-sweeps live beads, and a chip for something the current scope cannot contain would be a
-control that does nothing, so it is not offered and a selection the new scope cannot
-produce is dropped rather than kept and ignored. `any` is the third value: a pull request
-comes off `gh`, a chat session off no sweep at all and a JIRA ticket off JIRA, so for none
-of the three is there a scope that could have failed to fetch one.
+**There were ten of these and they were chips inside a collapsed panel.** bc-khoe.2
+promoted them out and amalgamated them to six. The argument is the one the whole [pill
+row](#getting-around--the-pill-row) is built on: ten categories of *incoming thing* is a
+navigation rather than a filter, and a navigation you have to open something to see is a
+navigation nobody uses. Four rows went into two:
 
-**Endorsements are the cheapest row the table has ever taken**, and the only one that
-added a chip without adding a fetch. A bead an agent filed mid-task carries the
-`unendorsed` marker and nothing may open a session on it until you say so — but it is an
-ordinary open bead as far as `bd list` is concerned, so it was *already* in the agent
-sweep, drawing as one more **Unclaimed**. Splitting it out cost one row here, a `held`
-flag on the row that `agentBeads` in `lib/server.js` computes with a label test, and
-`!q.held` in the three predicates it is being taken out of. Nothing new is queried, which
-is what made it affordable: the count is a free by-product of a sweep the poller already
-makes, exactly like the other chips, where a badge in the chrome would have cost a
-`bd list --label unendorsed` per workspace on every poll. That bill is why [the 🗳️ in the
-top bar carried no number](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time) — and
-now the icon is gone too, because a door in the chrome to a list the inbox is already
-carrying is a fifth place to look for something in front of you. The page it led to is
-still there and still reached from the rows themselves.
+| Pill | What it carries | What it absorbed |
+|---|---|---|
+| **My Epics** | Home with nothing narrowed — the P0 board and the work under it | — |
+| **Questions** | Everything waiting on a word from you | `proposal`, `jira`, `endorsement` |
+| **PRs** | Pull requests, and the finished branches waiting on a merge | `delivery` (Merges) |
+| **Chats** | The conversations you have open | — |
+| **History** | The ledger — a page of its own | — |
+| **All Beads** | Every live bead nobody is asking you about | `claimed`, `blocked`, `unclaimed`, as a sub-filter |
 
-**The chip is on the `agent` side, and that is about where the rows come from rather than
-what they are.** A held bead is a decision waiting on you, which by every other measure
-puts it under `Human` — but the human sweep is `bd human list`, a query on a different
-label, and it has never returned one. Making the chip work under `Human` means paying for
-a second query per workspace per poll, which is the bill above, so it is a decision rather
-than an oversight; `bc-w156.4` is where it is being asked.
+**Two of the six are places rather than slices.** A kind with a `test` is a predicate over
+the rows the list holds, and the four of those partition it — every row answers exactly
+one. `My Epics` and `History` have no predicate: the first is Home with nothing selected,
+the second is a different page. They are in the table anyway, because the row is six pills
+and a reader asking "what are the six" must not have to find two of them somewhere else,
+and `set()` refuses to select one — a place has no predicate, so selecting it would match
+no row at all and leave Home empty with a lit pill above it and nothing to read as the
+reason.
 
-**A held bead also says so on its own card.** Under `All kinds` it would otherwise sit in
-a list of forty looking exactly like an open one, and "open" is the one thing it is not,
-so the status pill gets a neighbour reading `held for endorsement` — a link, deep-linked
+**The row carries a copy of the six, and the copy is checked.** `public/viewbar.js` is
+loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
+table at paint time. `test/inboxkinds.mjs` holds the two lists to the same six ids, labels
+and icons, in the same order. A checked copy is not a second place that knows; an
+unchecked one is. What is deliberately *not* copied is where a pill goes: the table knows
+what a kind is and the row knows the URLs, so there is no href written down twice — which
+is the drift the check above exists to catch, made unnecessary rather than caught.
+
+**On Home a kind pill is a `<button>`, not a link.** Five of the six point at the page you
+are already on, so as links they would each be a full document load — a refetch of every
+workspace, a rebuild of forty cards, an open card thrown away — to change which rows of a
+list already in hand get drawn. Off Home they are `<a href="/?kind=…">`, read once at load,
+and the service worker matches with `ignoreSearch` so a query on the shell's own path
+still resolves to the precached document offline. Which pill is lit is therefore not
+always a fact about the path: off Home it is, and on Home the *filter* is the answer,
+pushed at the row through `window.beadcause.views.mark()`.
+
+**The selected kind no longer makes the summary line bold**, and that is the reverse of
+what the panel did while the kinds were in it. A narrowing has to be admitted to somewhere
+on screen; the lit pill is where, and it is on screen without being reached for. A line
+that went bold for every pill but the leftmost would be bold nearly always, which is a
+signal that has stopped signalling.
+
+Each kind carries a `side` — which scope can fetch it — and after the amalgamation exactly
+one still has a real one. `bead` is `agent`, because the agent sweep is the only thing that
+returns a live bead nobody is asking you about, and a pill for something the current scope
+cannot contain would be a control that does nothing: it is not offered, and a selection the
+new scope cannot produce is dropped rather than kept and ignored. Everything else is `any`.
+That is straightforward for a pull request (off `gh`) and a chat session (off no sweep at
+all); **`Questions` is `any` for a different reason**, and it is the one place the
+amalgamation changed the meaning of a field. A plain question comes off the human sweep and
+a held bead off the agent one, so *both* scopes can produce a row of that kind and neither
+can be called the one that fetches it.
+
+**Endorsements were the cheapest row the table ever took**, and the only one that added a
+chip without adding a fetch. A bead an agent filed mid-task carries the `unendorsed` marker
+and nothing may open a session on it until you say so — but it is an ordinary open bead as
+far as `bd list` is concerned, so it was *already* in the agent sweep, drawing as one more
+**Unclaimed**. Splitting it out cost one row, a `held` flag that `agentBeads` in
+`lib/server.js` computes with a label test, and `!q.held` in the predicates it was taken
+out of. It has no pill of its own now — bc-j0zl recorded "never a sixth tab" and bc-khoe.2
+folded it into `Questions` rather than spending a pill on it — but the `held` flag and its
+predicate are exactly where they were: `!q.held` is what keeps a held bead out of **All
+Beads**, and `q.agent ? Boolean(q.held) : true` is what lets it into **Questions**.
+
+**A held bead also says so on its own card.** Under an unnarrowed Home it would otherwise
+sit in a list of forty looking exactly like an open one, and "open" is the one thing it is
+not, so the status pill gets a neighbour reading `held for endorsement` — a link, deep-linked
 to that bead on the endorsement page, in the same words the advocate console's pill uses.
 The four verdicts stay on that page: an agent card is read-only on purpose, and the
 decision *is* reading the bead.
@@ -4012,32 +4050,38 @@ second half is the half that gets forgotten. See [Endorse all could reach
 one](#a-ship-bead-is-not-a-proposal-and-endorse-all-could-reach-one) for what it cost the
 last time it was spelled out twice.
 
-**Three of the seven are not beads**, and that is the table earning its keep rather than a
-special case. A pull request, a chat session and a JIRA ticket each cost exactly one row
-here — a chip, a count, a predicate and a word in the summary line — plus one word in the
-`question` kind's predicate, which is the only one written as *none of the above* and
-therefore the only one that silently absorbs anything new. Leave `!q.jira` out of it and
-every ticket assigned to you draws under **Questions**, is counted in the Questions chip,
-and appears on a screen you narrowed to the beads asking you something. Nothing about
-that looks broken; it looks like an inbox with more questions in it. See [the tickets
+**Three of the things this list holds are not beads at all**, and that is the table
+earning its keep rather than a special case. A pull request, a chat session and a JIRA
+ticket each cost exactly one row when they arrived — a chip, a count, a predicate and a
+word in the summary line. Folding two of them into a neighbour cost the same table nothing
+it did not already have: the predicates moved, the rows went, and the rest of the app went
+on asking `kindOf` and `matches` the same two questions. See [the tickets
 themselves](#the-tickets-as-a-section-of-the-inbox).
 
-**Pull requests are the one kind with a second axis.** Selecting `PRs` reveals a status
-sub-filter over [the ladder](#the-ladder-in-one-place) — `review · merged · pushed ·
-deployed · live` — and with nothing chosen the inbox shows only what has **not merged**.
-A merged pull request is history, and history should be asked for: five are open right
-now and thirty have merged in the last three weeks, so a PR chip with no second axis
-would be a list of last month with this morning somewhere inside it. Two rules keep that
-honest:
+**PRs and All Beads each have a second axis, and their defaults are deliberately
+opposite.** Selecting `PRs` reveals a status sub-filter over [the ladder](#the-ladder-in-one-place)
+— `review · merged · pushed · deployed · live` — and with nothing chosen the list shows
+only what has **not merged**. A merged pull request is history, and history should be
+asked for: five are open right now and thirty have merged in the last three weeks, so a
+PRs pill with no second axis would be a list of last month with this morning somewhere
+inside it. Two rules keep that honest:
 
 - **The default is a narrowing nobody set, so the line says so.** At rest the control
-  reads `Human · All kinds · unmerged` — the status group says `unmerged` where every
-  other group says `All`. On a screen with no pull requests on it at all, it says nothing
-  about them.
-- **A status outlives the chip that set it.** Pick `Live`, then widen back to `All
-  kinds`, and the chips go away while the narrowing does not — so the summary keeps
-  naming it (`Human · All kinds · Live`). A list narrowed by something no longer on
-  screen is the one thing this control exists to prevent.
+  reads `Human · unmerged`. On a screen with no pull requests on it at all, it says
+  nothing about them.
+- **A status outlives the pill that set it.** Pick `Live`, then widen back to `My Epics`,
+  and the chips go away while the narrowing does not — so the summary keeps naming it
+  (`Human · Live`). A list narrowed by something no longer on screen is the one thing this
+  control exists to prevent.
+
+`All Beads` has the other kind. `claimed`, `blocked` and `unclaimed` were three pills'
+worth of one thing in three states, and none of the three is history the way a merged pull
+request is — so the group has **no fallback**: nothing chosen means every rung, and the
+summary line says nothing about it until you choose one, because a line reporting a filter
+that is not filtering is noise around the one that is. `inSub` and `subSaid` in
+`public/inboxfilter.js` are where the two behaviours part, and both directions are pinned
+in `test/inboxkinds.mjs` — getting this backwards is an All Beads pill that shows nothing
+at all, which reads as a broken sweep rather than as a filter.
 
 A closed pull request gets **no card at all**: it is not on the way anywhere, and a rung
 the sub-filter deliberately does not offer must not be able to reach the list. The board
@@ -4051,14 +4095,22 @@ and never merged into `state.questions`: nearly everything reading that array is
 beads — the kind filter's counts, the epic board, the answer path — and a pull request is
 none of them.
 
+**Four retired kind ids are written down on every phone in the house.** `proposal`,
+`delivery`, `jira` and `endorsement` were selectable until bc-khoe.2 and the selection
+lives in `localStorage['beadcause.kinds']`. `set()` has always dropped an id the table
+does not know, so the upgrade lands on an unnarrowed Home rather than on an empty screen —
+and both halves of that are pinned rather than assumed, because "the filter silently hid
+everything" is indistinguishable from "the sweep stopped working".
+
 **A kind filter does not change what rings your phone.** The space picker's does — it is
 stored on the server and the push path reads it — and this deliberately does not: it
-lives in `localStorage`, on the device, because "I am reading merges this hour" is not
-"do not tell me about questions". The accepted consequence is that a hidden kind can
-still notify you, and the summary line is the standing reminder that the list is
-narrowed. `node test/inboxkinds.mjs` covers the table (every row matches exactly one
-kind, in both directions), the scope rule, the sub-filter's defaults and the chrome on
-both a pointer and a touchscreen.
+lives in `localStorage`, on the device, because "I am reading pull requests this hour" is
+not "do not tell me about questions". The accepted consequence is that a hidden kind can
+still notify you, and the lit pill is the standing reminder that the list is narrowed.
+`node test/inboxkinds.mjs` covers the table (every row matches exactly one kind, in both
+directions, and over every combination of the fields the payload can carry rather than
+only over the rows it writes), the row's copy of it, the scope rule, both sub-filters'
+defaults and the chrome on a pointer and a touchscreen.
 
 ### Finding one bead
 
@@ -4094,7 +4146,7 @@ under none at all, and stacked, the commonest search on a shared tracker would e
 empty list with a pill on screen naming the bead it was hiding. An explicit filter
 outranks an implicit one.
 
-**Nothing is stored.** The kind chips live in `localStorage` because "I read merges" is a
+**Nothing is stored.** The kind pills' selection lives in `localStorage` because "I read merges" is a
 standing preference; a picked bead is not one, and an inbox that opened narrowed to a bead
 you had forgotten about would be worse than one that opened wide. It is also why the box
 empties itself on a pick: the question it asked has been answered, and the next word you
@@ -5401,14 +5453,15 @@ So there is one row now, under the top bar on every page the bottom bar was on:
   │ ● Beadcause                              🗳  ⌨️  ⟳ │
   │ Personal ▾                                    3 ▸    │
   ├──────────────────────────────────────────────────────┤
-  │ [🏠 Home]  📣 Advocates   📜 History   🚢 PRs        │  ← scrolls sideways
+  │ [🎯 My Epics] ❓ Questions 🚢 PRs 💬 Chats 📜 …      │  ← scrolls sideways
   └──────────────────────────────────────────────────────┘
 ```
 
-Four pills today, on eight pages. The three standing views — Home, Advocates, History —
-plus the board; the other five pages that used to load the bottom bar (`/admin`,
-`/console`, `/endorse`, `/flow`, `/requirements`) draw the row with **nothing on it
-current**, which is their way off a page that would otherwise be reachable only by the
+Seven pills today, on eight pages: the [six kinds](#one-list-six-kinds--and-the-two-sub-filters)
+bc-khoe.2 promoted out of the inbox's filter panel — My Epics, Questions, PRs, Chats,
+History, All Beads — plus Advocates. The other five pages that used to load the bottom bar
+(`/admin`, `/console`, `/endorse`, `/flow`, `/requirements`) draw the row with **nothing on
+it current**, which is their way off a page that would otherwise be reachable only by the
 browser's back gesture.
 
 **A pill is an `<a href>`; the current one is a `<span>`.** Tapping where you already are
@@ -5417,13 +5470,22 @@ rebuild the same screen. It is marked twice over — `aria-current="page"` for a
 cannot see the accent, and the filled pill for one that can — because colour alone is not
 a mark.
 
-**The row scrolls sideways and never wraps.** There are four pills today and there will be
-roughly nine once the kinds become pills, Advocates and Mirror fold
-in and Releases arrives. A row that wrapped to a second line on a 360px phone would spend
-a row of a screen that is mostly chrome already, which is the thing this change exists to
-stop. The selected pill is scrolled into view on load — done by arithmetic on the two
-rectangles rather than with `scrollIntoView`, which is allowed to scroll every ancestor
-and would quietly move the list under it.
+**And on Home a kind pill is a `<button>`, which is the same argument one step further.**
+Five of the seven point at Home, so on Home they all point at the page you are on: as
+links they would each be a full document load to change which rows of a list already in
+hand get drawn. Off Home they are ordinary links — `/?kind=pr`, read once at load — so the
+pill behaves the same way from anywhere and only the mechanism differs. Which one is lit
+follows from that: off Home it is the path, and on Home five pills share one path so the
+*filter* is the answer, pushed at the row by `public/inboxfilter.js` rather than read by
+it. The row is on twelve pages and the filter on one; a row that read the selection itself
+would have to know the storage key, which is the second place that knows what a kind is.
+
+**The row scrolls sideways and never wraps.** There are seven pills today and there will
+be roughly nine once Advocates and Mirror fold in and Releases arrives. A row that wrapped
+to a second line on a 360px phone would spend a row of a screen that is mostly chrome
+already, which is the thing this change exists to stop. The selected pill is scrolled into
+view on load — done by arithmetic on the two rectangles rather than with `scrollIntoView`,
+which is allowed to scroll every ancestor and would quietly move the list under it.
 
 **No counts and no badges, on any pill.** Advocates used to carry one — how many proposals
 were waiting — and it went with the bar. A badge is a number about a page you are *not*
@@ -5436,22 +5498,23 @@ for all of them.
 **What is not a pill, and why.** `/admin` is the screen you least want under a stray
 thumb, so it loses the rightmost tab it had — and it does not need one: since bc-khoe.5 it
 is a row in the menu the top bar's gear-wrapped mark opens, on every page rather than only
-the one that happened to carry a ⚙. The chat session
-has had no place on the navigation since bc-l8jp.5, because it was the one entry that was
-also the way to *create* something — the conversations you have open are rows in Home and
-starting one is the ＋ there. The endorsement queue's absence is a recorded decision
-(bc-j0zl, [never a sixth tab](#where-it-lives-and-the-tab-it-is-not)), and bc-khoe.2 folds
-it into a **Questions** pill rather than giving it one of its own. `/flow` and
+the one that happened to carry a ⚙. **A create** has had no place on the navigation since
+bc-l8jp.5: `Chats` is a pill now, but it is the pill for the conversations you already
+have open, and starting one is still the ＋ on Home — a pill goes somewhere, it does not do
+anything. The endorsement queue's absence is a recorded decision (bc-j0zl, [never a sixth
+tab](#where-it-lives-and-the-tab-it-is-not)), and bc-khoe.2 honoured it: a bead held for
+endorsement is a row under **Questions** rather than a pill of its own. `/flow` and
 `/requirements` are pages you read when you are new to the system or arguing about it, not
 pages you check. A page can be reachable, load-bearing, and not a view.
 
-**The board is a pill again.** bc-l8jp.6 took `/prs` off the bottom bar on the rule that a
-tab was a claim a page is somewhere you *live*, and a fifth of a five-tab bar is a lot to
-claim for a screen you glance at twice a day; bc-d4d5 then found that taking it off had
-left nothing at all pointing at it, and made it a chip on the advocates page. The row ends
-that argument by removing the thing it was about: a view costs one pill out of nine here
-rather than a fifth of the screen. `/prs`, `/pulls` and `/prs.html` are the pill's paths
-and all three still land on the advocates page with its board chip up.
+**The board is not a pill, and the word `PRs` now means something else.** bc-l8jp.6 took
+`/prs` off the bottom bar on the rule that a tab was a claim a page is somewhere you
+*live*; bc-d4d5 then found that taking it off had left nothing at all pointing at it, and
+made it a chip on the advocates page; bc-khoe.1 gave it a pill back. bc-khoe.2 needed the
+label — **PRs** is the kind pill now, the pull requests and the finished branches *in
+Home* — so the board's three paths (`/prs`, `/pulls`, `/prs.html`) moved to the Advocates
+pill, which is the pill that points at the page they actually serve. The board is two taps
+rather than one, and bc-khoe.4 is where the console comes apart and that is re-decided.
 
 ⟳ stays in the top bar of the views that have it: it acts on the view you
 are looking at rather than taking you off it. ⌨️ (the terminal) and ⚖️ (the
@@ -5520,7 +5583,10 @@ collapse.
 
 `node scripts/tabbar-check.mjs` — ~750 lines of cover for the deleted bar — went with it.
 bc-khoe.9 writes the row's own replacement, deriving the expected pills from
-`public/viewbar.js`'s own list rather than repeating it.
+`public/viewbar.js`'s own list rather than repeating it. Until it lands, the static half
+of the row is checked in `npm test`: `node test/inboxkinds.mjs` holds the row's six kind
+pills to the kinds table they are a copy of, and `node test/prstage.mjs` holds the board's
+three paths to whichever pill is claiming them.
 
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
 real server for every URL a phone might still have on its home screen and checks which
@@ -5644,7 +5710,7 @@ towards a chip, the tap that pins the panel open, the `pointerdown` that closes 
 the tap lands on the row underneath rather than after. Each of those is a decision somebody
 made once after using the thing on a phone, and none of them is visible by reading the
 second copy. So the inbox kept its half — which kinds of thing it carries, the counts, the
-[PR sub-filter](#one-list-seven-kinds--and-the-sub-filter-for-pull-requests) — and the panel
+[PR sub-filter](#one-list-six-kinds--and-the-two-sub-filters) — and the panel
 became shared. `test/inboxkinds.mjs` passed over the seam unchanged, which is the whole
 evidence that the split moved no behaviour.
 
@@ -9684,8 +9750,8 @@ was a deletion:
   tapped.
 - **🗳️ in the inbox's top bar is gone** (bc-w156). It was a door in the chrome to a list
   the inbox turned out to be carrying already: held beads ride the agent sweep like any
-  other open bead, so they now have [an Endorsements chip of their
-  own](#one-list-seven-kinds--and-the-sub-filter-for-pull-requests) rather than a fifth
+  other open bead, so they are now rows under the
+  [Questions pill](#one-list-six-kinds--and-the-two-sub-filters) rather than a fifth
   destination to remember. Nothing replaced the icon.
 
 That icon carried **no badge**, deliberately, and it was the one thing on this page that
@@ -19450,7 +19516,7 @@ The tickets assigned to you arrive as **rows in the inbox**, under a `JIRA` chip
 their own, and never mixed into the questions. Not a screen and not a tab: the inbox is
 already the one list that sorts incoming work, and a sixth tab claiming a ticket queue
 is somewhere you *live* would cost a fifth of the bar to say something untrue. What it
-cost instead was one row in [the kinds table](#one-list-seven-kinds--and-the-sub-filter-for-pull-requests),
+cost instead was one row in [the kinds table](#one-list-six-kinds--and-the-two-sub-filters),
 which is where a chip, a count and a place in the summary line come from for free.
 
 A row says the ticket key, the summary, the status and when it last moved — enough to

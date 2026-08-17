@@ -4976,10 +4976,11 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
      below it — so a blur here would be a filter over a solid colour. */
   background: var(--bg);
   border-bottom: 1px solid var(--line);
-  /* Sideways, never down. There will be roughly nine of these once bc-khoe.2, .4 and .7
-     have landed, and a row that wraps to a second line is the thing this epic exists to
-     stop. The scrollbar is hidden because a phone draws none anyway and on the Mac a
-     trough under five pills reads as the row being broken. */
+  /* Sideways, never down. There are seven of these since bc-khoe.2 and there will be
+     roughly nine once .4 and .7 have landed, and a row that wraps to a second line is
+     the thing this epic exists to stop. The scrollbar is hidden because a phone draws
+     none anyway and on the Mac a trough under seven pills reads as the row being
+     broken. */
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -5011,7 +5012,22 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   letter-spacing: 0.01em;
   white-space: nowrap;
   -webkit-tap-highlight-color: transparent;
+  /* Three of the shapes this class is worn by and one of them is a `<button>` — the kind
+     pills on Home, which move a filter rather than loading a page (bc-khoe.2). A button
+     does not inherit the page's font the way an `<a>` and a `<span>` do; it takes the
+     UA's, so without this one declaration the five pills on Home draw in Helvetica at
+     13px beside two that do not, which reads as a rendering bug rather than as a missing
+     rule. `font-family` on its own and not the `font` shorthand: a shorthand ending in
+     `inherit` is invalid and the whole declaration is dropped (bc-khoe.15).
+     `appearance: none` is for Safari, which otherwise draws its own rounded box behind
+     the one above. */
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
 }
+/* A link is a pointer already; a button is not, and a row where two of seven pills
+   change the cursor and five do not is the same complaint as the font above. */
+button.viewpill { cursor: pointer; }
 .viewpill-icon { font-size: 15px; line-height: 1; }
 
 /* Current. Colour alone would be the only mark, and colour alone is not a mark — so the
