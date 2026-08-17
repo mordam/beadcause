@@ -15,7 +15,7 @@
 //     asked of the fold as well, because unfolding the board is the same growth with the
 //     whole section in it.
 //   • **bc-rfnr.9.7's claim is about two surfaces at once.** That a bead the board draws is
-//     not drawn again underneath it is half a line in `underOwnedP0s` and is asserted in
+//     not drawn again underneath it is half a line in `underOwnedRoots` and is asserted in
 //     test/ownquestion.mjs; what is not assertable there is that the *question* survived
 //     the removal — that it is marked on a card that is folded shut, that the mark is
 //     still there when the whole board is folded away, and that tapping through to it ends
@@ -154,7 +154,7 @@ const detail = (id) => ({
   model: null,
 });
 
-/** The board, as `p0Card` in lib/server.js builds it — flat, pre-order, a depth each. */
+/** The board, as `rootCard` in lib/server.js builds it — flat, pre-order, a depth each. */
 const board = () => ({
   owned: true,
   // The question under the epic is homed; the loose one is in neither map's `under` and in
@@ -162,7 +162,7 @@ const board = () => ({
   // be. See the header.
   under: { [`${WS}/${ASKS}`]: P0.id },
   unhomed: Object.fromEntries(LOOSE_IDS.map((id) => [`${WS}/${id}`, true])),
-  p0s: [
+  roots: [
     {
       key: `${WS}/${P0.id}`,
       workspace: WS,
@@ -201,7 +201,7 @@ function serve() {
         workspaces: [WS],
         spaces: [{ name: 'Work', workspaces: [WS], quiet: false, muted: false, count: QUESTIONS.length }],
         filter: { space: 'all', workspace: 'all' },
-        p0board: board(),
+        rootboard: board(),
         summary: { sessions: 0, proposals: 0 },
         scope: 'human',
       });

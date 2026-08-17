@@ -414,7 +414,7 @@ check('the tap is `expand` and nothing else — the inbox card is not rebuilt in
 });
 
 check('and the row it opens is kept in the list for exactly as long as the card is up', () => {
-  // The seam that makes the sheet possible at all: `underOwnedP0s` removes every bead the
+  // The seam that makes the sheet possible at all: `underOwnedRoots` removes every bead the
   // board draws, and would remove this one out from under `expand` a millisecond after it
   // ran. test/ownquestion.mjs drives the filter itself; this is the line existing.
   assert.match(APP, /if \(state\.open\?\.has\(q\.key\)\) return true;/);

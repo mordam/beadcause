@@ -5814,7 +5814,7 @@
    * first from the day it landed. `expand(key)` is what the list's own toggle calls, and
    * `.card.open` is a full-screen sheet — so it does not matter that the row it is built
    * from is not on the screen underneath, only that it is in `state.questions`, which
-   * `underOwnedP0s` keeps it out of the *list* without touching.
+   * `underOwnedRoots` keeps it out of the *list* without touching.
    *
    * **Drawn only where there is a row to open**, which is the honest half. `byKey` finds a
    * question on the payload this page asked for, and `/api/questions?scope=agent` sweeps
@@ -6154,7 +6154,7 @@
    */
   function p0CardHtml(c) {
     // The card's own key, with the same fallback the server's shape makes
-    // unnecessary — `p0Card` sends one — because it is the identity the open set is
+    // unnecessary — `rootCard` sends one — because it is the identity the open set is
     // held by, and a card whose key came back undefined would open every card on the
     // board at once.
     const key = c.key || `${c.workspace}/${c.id}`;
@@ -6429,7 +6429,7 @@
       // Not while a bead is picked, though: that filter *replaces* the board's narrowing
       // (see `inBoard` above), so an empty list there is the pill's doing and `beadNudge`
       // is the sentence that names the way out of it.
-      const boarded = Boolean(p0s) && !beadPicked();
+      const boarded = Boolean(roots) && !beadPicked();
       const asks = boarded ? p0AsksN(p0Cards()) : 0;
       chunks.push({
         key: '@empty',
@@ -7424,7 +7424,7 @@
      * promise about the screen you are about to leave.
      *
      * The row this opens is kept in the list for exactly as long as the card is open — see
-     * `underOwnedP0s`. Collapse and it drops back out, because the board is drawing it.
+     * `underOwnedRoots`. Collapse and it drops back out, because the board is drawing it.
      */
     if (act === 'p0-answer') {
       closeMenu();
