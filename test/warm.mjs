@@ -458,6 +458,72 @@ await check('what is already fresh is left alone', async () => {
   assert.ok(!t.asked.includes('/api/work'), 'fetched inside the floor is not fetched again');
 });
 
+/**
+ * Push a held entry's clock back. What a close and a reopen the next morning is: the
+ * payload is still on the disk and nothing about it is inside the background warm's
+ * floor any more.
+ */
+function age(bag, path, ms) {
+  const key = `beadcause.warm:${path}`;
+  const entry = JSON.parse(bag.get(key));
+  entry.at -= ms;
+  bag.set(key, JSON.stringify(entry));
+}
+
+await check('a held board and a held queue are left alone whatever their age — a reopen is not a `gh` sweep', async () => {
+  const { warm, bag } = load();
+  // Everything a durable store comes back from a close still holding, aged an hour past
+  // the floor. This *is* the reopen: `prewarm` runs once per document, and a reopen is a
+  // new document, so before bc-1kwl.15 it went and fetched all five of these again.
+  const payload = { workspaces: [], scopes: [], consoles: [], beads: [], repos: [] };
+  for (const p of ['/api/work', '/api/admin', '/api/consoles', '/api/unendorsed', '/api/prs']) {
+    warm.write(p, payload);
+    age(bag, p, 60 * 60 * 1000);
+  }
+  const t = tracker();
+  warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
+  await tick(20);
+  // The two the app has already decided are never worth a background re-ask: `gh` once
+  // per repo, and a `bd list` per workspace with a `bd show` per row. Both were being
+  // spent on every single app open, to replace a payload already on the disk.
+  assert.ok(!t.asked.includes('/api/prs'), 'a `gh` call per repo, for a board already held');
+  assert.ok(!t.asked.includes('/api/unendorsed'), 'a `bd` sweep and a `bd show` per row, for a queue already held');
+  // And nothing else changed: the one `bd` sweep a tab is actually drawn from, and the
+  // two in-memory reads, are still refreshed. Held is not the same as current for those,
+  // and this is what stops Advocates arriving an hour old.
+  assert.deepEqual(t.asked, ['/api/work', '/api/admin', '/api/consoles']);
+});
+
+await check('and one that is not held is still fetched — a new device, or one that evicted the board', async () => {
+  const { warm } = load();
+  const t = tracker();
+  warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
+  await tick(20);
+  // The boundary of the rule above. `holdOnly` is "do not *replace* one", never "do not
+  // fill one" — the first run on a phone, and the run after the byte budget gave the
+  // board up, are exactly when this loop is the only thing that can warm those pages.
+  assert.ok(t.asked.includes('/api/prs'), 'the board is never filled at all');
+  assert.ok(t.asked.includes('/api/unendorsed'), 'the queue is never filled at all');
+});
+
+await check('the paths the background warm will not replace are the ones the inbox will not re-ask for', () => {
+  const { warm } = load();
+  const holdOnly = plain(warm.VIEWS).filter((v) => v.holdOnly).flatMap((v) => plain(v.paths));
+  assert.deepEqual(holdOnly, ['/api/unendorsed', '/api/prs']);
+  // `MAINTAINED` in public/app.js decides the same question for the other warmer, and the
+  // two answers have to agree. A path one of them refuses to re-ask while the other
+  // sweeps it on every reopen is the expensive half of that decision still being paid,
+  // by a route nobody is looking at — which is the whole of what bc-1kwl.15 found.
+  const refetchFalse = [...read('public/app.js').matchAll(/path: '([^']+)',[\s\S]{0,2000}?refetch: (true|false),/g)]
+    .filter((m) => m[2] === 'false')
+    .map((m) => m[1]);
+  assert.deepEqual(
+    refetchFalse.slice().sort(),
+    holdOnly.slice().sort(),
+    'the two warmers disagree about which paths are too expensive to re-ask for'
+  );
+});
+
 await check('what it fetched is kept, with the sequence off the payload', async () => {
   const { warm } = load();
   const t = tracker();

@@ -5928,6 +5928,45 @@ be unattributable. Against `--baseline` three of those five lines fail — the t
 are the ones asserting a moved entry is left alone, which a baseline that maintains nothing
 satisfies by doing nothing at all.
 
+### The other three views reopen too — and what durability quietly cost
+
+The store the inbox proved durable is **one store, for every view**, so the moment it
+became `localStorage` the advocate monitor, the chat launcher and the PR board started
+reopening from the disk as well. None of them needed a line: each has read its held
+payload at the top of its own boot since long before any of this — `warmBoot()` in
+`public/monitor.js` and `public/prs.js`, the read at the head of `showLauncher()` in
+`public/console.js` — and what those reads had never survived was the app being closed.
+Measured against a fixture whose sweep is 900ms, each of the three now paints in **under a
+fifth of a second** where its cold load takes just over a second.
+
+What did need a line is the consequence nobody had gone back for. The **background warm**
+runs once per *document*, so it runs again on every reopen, and it was written when a
+reopen found an empty store: fetching all five paths was then the only way any tab was
+ever warm. With the store durable that fetch is a second copy of five payloads already on
+the disk — and two of them are the app's most expensive requests, `/api/prs` at a `gh`
+call per repo and `/api/unendorsed` at a `bd list` per workspace with a `bd show` per row.
+Measured on the live daemon (bc-1kwl.1) that is 74s and 48s: **two minutes of the Mac's
+day, in the background of every single app open, for nothing on any screen.** So those two
+paths are marked `holdOnly` in `VIEWS`, and the background warm fills one only when
+nothing is held for it — never to replace one that is.
+
+That is the same answer [the maintenance table already
+gives](#and-every-other-warmed-path-decided-one-at-a-time) for the same two paths, and the
+point is that it now has to be given twice: two warmers, one decision. What corrects a
+held board or a held queue is unchanged and is what always corrected it — the page that
+boots from one sweeps it on arrival, behind the frame it painted from the disk. A path
+with nothing held is still fetched, so the first run on a new device, and the run after
+the byte budget gave an entry up, are exactly as they were.
+
+`node scripts/reopen-check.mjs` is the gate: three reopens, each against its own cold
+load, with every request counted and attributed to the view that made it. Two of the
+sweeps it counts are legitimate and always were — the board's own arrival, and the
+monitor's **Ship** strip, which draws a number a press acts on and may not be answered
+from a held payload — so the counts are per view rather than summed, or a total would hide
+which one moved. Under `--baseline` three of its seven claims fail, and their numbers are
+the old behaviour printed: three reopens, four expensive sweeps, nothing on any screen
+that was not already on the disk.
+
 ### A repaint that leaves alone what did not change
 
 The other half is inside one document. The inbox rebuilt its whole list with
