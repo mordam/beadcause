@@ -61,9 +61,8 @@ const check = async (name, fn) => {
 
 console.log('a shared tracker that is no longer shared');
 
-const { syncOnce, createSyncer, describeSync, isConflict, syncEnabled, syncEveryMs, SYNC_FLOOR_SECONDS } = await import(
-  LIB('sync.js')
-);
+const { syncOnce, createSyncer, describeSync, isConflict, isStuck, syncEnabled, syncEveryMs, SYNC_FLOOR_SECONDS, STUCK_AFTER } =
+  await import(LIB('sync.js'));
 
 const WS = (name) => ({ name, dir: `/nowhere/${name}/.beads` });
 const DIR = (name) => `/nowhere/${name}`;
@@ -304,6 +303,205 @@ await check('a workspace still syncing from the last tick is skipped, not starte
   assert.deepEqual(after.skipped, [], 'and the guard lifts once the first one finishes');
 });
 
+/* ------------------------------------------------- stuck, which is not the same as failed */
+
+const STOMP = 'merge origin/main: Error 1105: error: local changes would be stomped by merge:\n\tevents\n Please commit your changes before you merge.';
+
+await check('the refusal that will never clear is read as stuck on the very first tick', async () => {
+  // Measured on bc-y3qk.5: 73 logged ticks of this exact string, every one of them
+  // filed as `failed` — a word that promises the next interval may fix it. It cannot.
+  // A plain `dolt merge` typed by hand fails identically against a verifiably clean
+  // tree, so the state on the next tick is the state on this one.
+  //
+  // First tick and not the fifth, because the daemon restarts constantly (505 times in
+  // the log this came from) and an in-memory streak almost never gets to five. A shape
+  // that is recognisable on sight is the only kind of recognition that survives that.
+  const out = await syncOnce(fakeBd({ pull: new Error(STOMP) }), WS('team'));
+  assert.equal(out.state, 'stuck');
+  assert.equal(out.phase, 'pull');
+});
+
+await check('the shapes Dolt refuses a dirty working set in are all read as stuck', () => {
+  for (const text of [
+    'error: local changes would be stomped by merge:',
+    'Please commit your changes before you merge.',
+    'local changes would be stomped by merge: events',
+  ]) {
+    assert.ok(isStuck(text), `"${text}" is stuck`);
+  }
+});
+
+await check('and an ordinary network failure is not stuck, nor is a conflict', () => {
+  for (const text of ['connection refused', 'Permission denied (publickey)', 'merge conflict in issues', '']) {
+    assert.ok(!isStuck(text), `"${text}" is not stuck`);
+  }
+  // The two words stay apart: a conflict is two people's work disagreeing and needs a
+  // decision about whose wins; a stuck sync is one machine unable to move.
+  assert.ok(!isConflict(STOMP), 'the stomp refusal is not a merge conflict');
+});
+
+await check('a stuck sync never describes itself as retrying, and says how long instead', () => {
+  const line = describeSync({ state: 'stuck', phase: 'pull', error: 'stomped by merge', streak: 73 });
+  assert.match(line, /STUCK/);
+  assert.match(line, /73 identical failures/);
+  assert.doesNotMatch(line, /retr/i, 'the word that was wrong for a week');
+});
+
+await check('a stuck pull still pushes — the half that gets this Mac’s beads out', async () => {
+  // The costliest line of the whole outage. `pull` then `push` returned on the first
+  // failure, so a pull that was refused a *no-op merge* (`main..origin/main` was zero
+  // commits) stood in front of the push, and 208 local commits never reached the team.
+  // A stuck pull means the remote was reachable and the local merge refused, so the
+  // push is both viable and the one that matters.
+  const bd = fakeBd({ pull: new Error(STOMP) });
+  const out = await syncOnce(bd, WS('team'));
+  assert.ok(bd.calls.includes('push:team'), 'it pushed anyway');
+  assert.equal(out.state, 'stuck', 'and is still honest that it is not pulling');
+  assert.equal(out.pushed, true);
+  assert.match(describeSync(out), /beads did get out/);
+});
+
+await check('but an ordinary failed pull still does not push behind it', async () => {
+  // Unchanged, and deliberately: a `failed` pull is usually the network, so a push
+  // behind it is a second two-minute timeout bought for nothing.
+  const bd = fakeBd({ pull: new Error('connection refused') });
+  const out = await syncOnce(bd, WS('team'));
+  assert.equal(out.state, 'failed');
+  assert.ok(!bd.calls.includes('push:team'));
+});
+
+await check('a push that fails behind a stuck pull does not hide the stuck pull', async () => {
+  const out = await syncOnce(fakeBd({ pull: new Error(STOMP), push: new Error('Permission denied (publickey)') }), WS('team'));
+  assert.equal(out.state, 'stuck');
+  assert.equal(out.phase, 'pull', 'the pull is the thing that needs a person');
+  assert.ok(!out.pushed);
+});
+
+/* ------------------------------------------------------------ the one recovery it may try */
+
+/** `bd` with the recovery call lib/sync.js reaches for on a stuck pull. */
+const recoverableBd = ({ commits = true, clearsIt = true } = {}) => {
+  const calls = [];
+  let committed = false;
+  return {
+    calls,
+    async doltRemote() {
+      return { name: 'origin', url: 'u' };
+    },
+    async doltPull() {
+      calls.push('pull');
+      if (committed && clearsIt) return;
+      throw new Error(STOMP);
+    },
+    async doltCommit() {
+      calls.push('commit');
+      if (!commits) throw new Error('nothing to commit');
+      committed = true;
+    },
+    async doltPush() {
+      calls.push('push');
+    },
+  };
+};
+
+await check('a stuck pull is committed and retried once — the remedy Dolt itself names', async () => {
+  // "Please commit your changes before you merge." Committing *keeps* the changes,
+  // which is what makes it safe to do unattended on a tracker twenty agent sessions
+  // are writing into. Discarding them would also clear the refusal and is not a thing
+  // a daemon may decide.
+  const bd = recoverableBd();
+  const out = await syncOnce(bd, WS('team'));
+  assert.deepEqual(bd.calls, ['pull', 'commit', 'pull', 'push']);
+  assert.equal(out.state, 'ok', 'and it came back without anybody typing anything');
+});
+
+await check('it tries that exactly once, and does not loop on it', async () => {
+  const bd = recoverableBd({ clearsIt: false });
+  const out = await syncOnce(bd, WS('team'));
+  assert.equal(bd.calls.filter((c) => c === 'commit').length, 1);
+  assert.equal(bd.calls.filter((c) => c === 'pull').length, 2);
+  assert.equal(out.state, 'stuck');
+});
+
+await check('when committing cannot clear it, the outcome says so rather than suggesting it again', async () => {
+  // The case this was measured against: there was nothing to commit, because the
+  // working root differed from HEAD *physically* and no diff could see it.
+  const out = await syncOnce(recoverableBd({ commits: false }), WS('team'));
+  assert.equal(out.state, 'stuck');
+  assert.equal(out.recovery, 'commit-failed');
+});
+
+await check('a bd with no recovery call at all is simply not asked for one', async () => {
+  // Every fake in this suite predates `doltCommit`, and an adapter that has not got it
+  // must degrade to the old behaviour rather than throwing inside the poll cycle.
+  const out = await syncOnce(fakeBd({ pull: new Error(STOMP) }), WS('team'));
+  assert.equal(out.state, 'stuck');
+});
+
+/* ------------------------------------------------ the general rule: N of the same thing */
+
+await check('five identical failures stop being called transient', async () => {
+  // For every error that is not a shape `isStuck` knows on sight. A dropped network
+  // really does clear, so the first few say so; ten minutes of a byte-identical
+  // sentence is not a blip whatever it is.
+  const s = createSyncer({ bd: fakeBd({ pull: new Error('connection refused') }) });
+  for (let i = 1; i < STUCK_AFTER; i += 1) {
+    await s.sweep([WS('team')]);
+    assert.equal(s.get('team').state, 'failed', `tick ${i} is still just a failure`);
+  }
+  const out = await s.sweep([WS('team')]);
+  assert.equal(s.get('team').state, 'stuck');
+  assert.equal(s.get('team').streak, STUCK_AFTER);
+  assert.equal(out.changed.length, 1, 'and crossing the line is news');
+  assert.equal(out.changed[0].state, 'stuck');
+});
+
+await check('a failure whose reason moved has not been failing the same way', async () => {
+  // Otherwise a wandering series of unrelated blips adds up to an escalation naming an
+  // error that is no longer happening.
+  let text = 'connection refused';
+  const s = createSyncer({ bd: fakeBd({ pull: () => { throw new Error(text); } }) });
+  for (let i = 0; i < STUCK_AFTER - 1; i += 1) await s.sweep([WS('team')]);
+  text = 'Permission denied (publickey)';
+  await s.sweep([WS('team')]);
+  assert.equal(s.get('team').streak, 1, 'the count starts again');
+  assert.equal(s.get('team').state, 'failed');
+});
+
+await check('becoming stuck is announced once, and then it is quiet', async () => {
+  // The whole complaint on bc-y3qk.4 is a phone buzzing on every transition. This adds
+  // one more transition per incident and must not add a second.
+  const s = createSyncer({ bd: fakeBd({ pull: new Error(STOMP) }) });
+  const first = await s.sweep([WS('team')]);
+  assert.equal(first.changed[0].transition, 'broke');
+  for (let i = 0; i < 20; i += 1) {
+    assert.deepEqual((await s.sweep([WS('team')])).changed, [], 'still stuck is not news');
+  }
+  assert.equal(s.trouble().length, 1, 'but it stays on the screen for as long as it is true');
+});
+
+await check('a stuck workspace recovers like any other, and clears the pane', async () => {
+  let broken = true;
+  const bd = fakeBd({ pull: () => { if (broken) throw new Error(STOMP); } });
+  const s = createSyncer({ bd });
+  await s.sweep([WS('team')]);
+  assert.equal(s.get('team').state, 'stuck');
+  broken = false;
+  const out = await s.sweep([WS('team')]);
+  assert.equal(out.changed[0].transition, 'recovered');
+  assert.deepEqual(s.trouble(), []);
+});
+
+await check('a stuck row reaches trouble(), flagged apart from a conflict', async () => {
+  const s = createSyncer({ bd: fakeBd({ pull: new Error(STOMP) }) });
+  await s.sweep([WS('team')]);
+  const [row] = s.trouble();
+  assert.equal(row.stuck, true);
+  assert.equal(row.conflict, false, 'a screen must not call this a conflict');
+  assert.equal(row.streak, 1);
+  assert.equal(row.error.includes('stomped by merge'), true);
+});
+
 /* ----------------------------------------------------------------- the cadence */
 
 await check('the cadence is a setting, not a constant', () => {
@@ -390,7 +588,14 @@ await check('a divergence pushes to the phone, and a conflict pushes harder', ()
   assert.match(NOTIFY, /export async function pushSyncTrouble/);
   assert.match(NOTIFY, /export async function pushSyncedAgain/);
   const push = NOTIFY.slice(NOTIFY.indexOf('export async function pushSyncTrouble'), NOTIFY.indexOf('export async function pushSyncedAgain'));
-  assert.match(push, /conflicted\.length \? 4 : 3/, 'a conflict outranks a retryable failure');
+  // A conflict and a stuck sync both need a person at a keyboard; a retryable failure
+  // does not. The two loud ones share the priority and keep separate titles, because
+  // they are different jobs: one is a decision about whose write wins, the other is a
+  // command to type.
+  assert.match(push, /needsHands \? 4 : 3/, 'the two that need a person outrank a retryable failure');
+  assert.match(push, /conflicted\.length \|\| stuck\.length/, 'and that is what needsHands means');
+  assert.match(push, /tracker STUCK/, 'a stuck tracker says so in the title');
+  assert.match(push, /will not clear on its own/, 'and does not promise a retry');
   assert.match(push, /OBSERVING/, 'and an observer instance stays silent, like every other push');
   // The fix it prints has to be a directory that exists. A workspace is not necessarily
   // under `~/beads` — Climative's lives inside the `architecture` checkout — so the path

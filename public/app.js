@@ -2563,22 +2563,39 @@
     const rows = (state.syncTrouble || []).filter((t) => t && t.workspace);
     if (!rows.length) return '';
     const conflicts = rows.filter((t) => t.conflict);
+    const stuck = rows.filter((t) => t.stuck);
+    // What each row is *waiting on*, which is the only part of this pane a person acts
+    // on. "retrying the pull" was on screen for 73 identical ticks of an error that no
+    // interval was ever going to clear (bc-y3qk.5) — so a stuck row says how many times
+    // instead, and never the word retrying.
+    const held = (t) => {
+      if (t.conflict) return 'needs somebody to say which version wins';
+      if (t.stuck) {
+        const n = t.streak || 1;
+        return `the same error ${n === 1 ? 'that will not clear' : `${n} times running`} — needs a command typed${
+          t.pushed ? ', though this Mac’s beads did get out' : ''
+        }`;
+      }
+      return `retrying ${t.phase ? `the ${t.phase}` : ''}`.trim();
+    };
     const line = (t) =>
       `<li><b>${esc(t.workspace)}</b> — ${esc(t.error || 'the sync failed')}
-        <span class="trouble-held">${esc(
-          t.conflict ? 'needs somebody to say which version wins' : `retrying ${t.phase ? `the ${t.phase}` : ''}`.trim()
-        )}</span></li>`;
+        <span class="trouble-held">${esc(held(t))}</span></li>`;
     return `<div class="trouble trouble-sync" role="status">
       <strong>${
         conflicts.length
           ? `${conflicts.length === 1 ? 'A tracker has' : `${conflicts.length} trackers have`} conflicted`
-          : `${rows.length === 1 ? 'A tracker is' : `${rows.length} trackers are`} not syncing`
+          : stuck.length
+            ? `${stuck.length === 1 ? 'A tracker is' : `${stuck.length} trackers are`} stuck`
+            : `${rows.length === 1 ? 'A tracker is' : `${rows.length} trackers are`} not syncing`
       }</strong>
       <ul>${rows.map(line).join('')}</ul>
       <span class="trouble-note">${
         conflicts.length
           ? 'Two machines wrote the same bead and Dolt cannot merge them. This will not clear on its own.'
-          : 'This list is right about this Mac. Anything written on another machine since it broke is not on it.'
+          : stuck.length
+            ? 'The retry is not getting anywhere, so this will not clear on its own. Beadcause has already tried committing the working set; what is left needs a person.'
+            : 'This list is right about this Mac. Anything written on another machine since it broke is not on it.'
       }</span>
     </div>`;
   }
