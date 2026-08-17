@@ -739,11 +739,13 @@ await check('every pill the row draws is warmed — and three views are delibera
    *
    * **This stopped being an identity in bc-khoe.2** and the map is the whole of what
    * changed here. The row used to be one pill per page, so a pill id and a view id were
-   * the same word; six of the seven pills are now the inbox's *kinds*, and four of those
+   * the same word; six of the eight pills are now the inbox's *kinds*, and four of those
    * six are Home under a different narrowing — one page, one payload, one warm entry.
    * `PRs` is the exception among them and it is not an exception to the rule: tapping it
    * is the first thing on Home that wants a board at all (`loadBoard` in public/app.js),
-   * so its first frame comes off `/api/prs` exactly as the board page's does.
+   * so its first frame comes off `/api/prs` exactly as the board page's does. Releases
+   * (bc-khoe.7) is the one pill added since, and it is an identity again for the ordinary
+   * reason the old ones were: a page of its own, with a payload of its own.
    *
    * The check the map serves is unchanged: a pill whose payload nothing warms is a view
    * that stays cold, which is invisible until you are on a phone wondering why one is
@@ -757,6 +759,7 @@ await check('every pill the row draws is warmed — and three views are delibera
     pr: 'prs',
     history: 'history',
     advocates: 'advocates',
+    releases: 'releases',
   };
   const views = plain(warm.VIEWS).map((v) => v.id);
   for (const pill of ids) {
