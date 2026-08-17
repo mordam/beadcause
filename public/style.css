@@ -76,11 +76,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  /* The space picker is a full-width third child (see .spacebar), so the bar wraps to
-     two lines on the pages that have one and stays a single line on the pages that do
-     not. It is its own row because the first one is already full — measured, not
-     assumed, and the arithmetic is in .spacebar below. `scripts/topbar-check.mjs` is
-     what keeps a third row from arriving without anybody deciding to spend it. */
+  /* One line on every page since bc-khoe.5: a mark in a gear, the page's own title, and
+     the space picker, with everything that used to be a loose icon button now a row in the
+     mark's menu. `flex-wrap` stays because wrapping is the honest failure — a bar that
+     overflows instead would put a control off the side of the phone where nothing can
+     reach it — but a second line is now a bug rather than a budget, and
+     `scripts/topbar-check.mjs` fails the repo for one. The arithmetic is in .spacebar. */
   flex-wrap: wrap;
   gap: 12px;
   padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
@@ -104,8 +105,12 @@ body {
 /* The app mark where the word used to be. The artwork carries its own dark
    rounded tile — it is the home-screen icon — so it needs no plate under it and
    reads the same in both schemes. `display: flex` on the h1 kills the inline
-   baseline gap that would otherwise push it a couple of pixels off the dot. */
-.brand h1.mark { display: flex; }
+   baseline gap that would otherwise push it a couple of pixels off the dot.
+
+   `overflow: visible` is against the `hidden` that `.brand h1` sets above: that ellipsis
+   belongs to a page *title*, and this h1 holds the menu button with a gear badge in its
+   corner (see .markmenu). Clipped, the badge loses its outer edge. */
+.brand h1.mark { display: flex; overflow: visible; }
 .brand h1.mark img {
   width: 26px; height: 26px; border-radius: 7px; display: block;
   /* The artwork's own tile is #0b0f14, which in the dark scheme *is* the page —
@@ -408,76 +413,52 @@ body {
 /*
   The space picker — public/spacebar.js, in the top bar of every standing view.
 
-  A row of its own inside the bar, and the widest thing on the screen, because what it
-  says is the frame for everything under it: on every page in the app, the list, the
-  counts and the empty state are about the one repo named here. It reads like a title
-  rather than like a filter for that reason.
+  It sits on the first row, beside the mark, and it is the widest thing on that row
+  because what it says is the frame for everything under it: on every page in the app,
+  the list and the empty state are about the one repo named here.
 
-  A native <select> with the arrow drawn by hand. `appearance: none` is what lets it
-  take the surface, the radius and the hairline every other control on the bar has —
-  without it, iOS and Android each impose their own chrome and the bar has a
-  platform-shaped hole in it — and the wheel or menu that opens on tap is still the
-  operating system's own, which no scripted dropdown gets to be.
+  A native <select> with the arrow drawn by hand. `appearance: none` is what lets it take
+  the surface, the radius and the hairline every other control on the bar has — without it
+  iOS and Android each impose their own chrome and the bar has a platform-shaped hole in
+  it — and the wheel or menu that opens on tap is still the operating system's own, which
+  no scripted dropdown gets to be.
 
-  ## The row it costs, and why it keeps it (bc-hne3)
+  ## It had a row of its own until bc-khoe.5, and the argument is worth keeping
 
-  A row of sticky chrome on a phone is worth arguing about, so it was measured rather
-  than argued: `scripts/topbar-check.mjs` at 360×640, six workspaces, the inbox's
-  "3 waiting" chip drawn.
+  A row of sticky chrome on a phone is worth arguing about, so bc-hne3 measured it rather
+  than argued it: `scripts/topbar-check.mjs` at 360×640 with six workspaces. The row was
+  **43px** — a 31px control and the bar's 12px gap — taking the bar from 61px to 104px and
+  the bar plus the tab bar from 116px to 159px, 18% → 25% of a 640px screen.
 
-  The row is **43px** — a 31px control and the bar's own 12px gap. The bar goes 61px →
-  104px, and the bar plus the tab bar goes 116px → 159px, which is 18% → 25% of a
-  640px screen. That is the real price. Against it: the two levels of the selection,
-  the count, and the accent border that says five other repos are being held off this
-  screen, all of which are how you know what the list under them is about.
+  It kept that row because the first one could not hold it, and that was arithmetic rather
+  than taste. 360px less the bar's 32px of padding is 328px; the brand was 133px and the
+  icon buttons 172px, so with the bar's gaps the row was already a pixel over full before a
+  picker was mentioned. Every way round it was tried and each one broke something: a
+  collapse-when-it-fits basis made the control a title on three pages and a clipped chip on
+  a fourth, hiding it on scroll down meant a fixed translated header on six pages, and
+  folding it into the brand left a control whose current value was invisible.
 
-  **The first row cannot hold it, and that is arithmetic.** 360px less the bar's 32px
-  of padding is 328px. On the inbox the brand is 133px with the "3 waiting" chip in it,
-  and the icon buttons are 172px — four of them at their 40px minimum with 4px between,
-  the fifth (open-in-Chrome) being 0px wide because it is not drawn on a phone. With the
-  bar's two 12px gaps that is 329px, so the row is already one pixel *over* full before
-  a picker is mentioned. Inline, the picker needs 184px — 148px for its widest row
-  (`Personal — all · 3`: 106px of text in 42px of padding) and 36px for the count and
-  its gap. Even with the chip taken away, 88px is left and it is 96px short, so what
-  would ship is a dropdown ellipsing its own repo name.
+  What changed is the number on the other side. bc-khoe.5 emptied the first row instead of
+  trying to squeeze past it: the loose icon buttons are rows in the mark's menu
+  (public/accountbar.js), the account chip's address is a line inside that menu, and what
+  is left up there is a 26px mark in a gear. The picker takes the rest — and pays for the
+  fit with its *label* rather than with the bar, drawing at most twelve characters while
+  the dropdown keeps every full name (see `shorten` in public/spacebar.js). That is the
+  one thing bc-hne3 refused to spend, and the reason it is affordable now is that the value
+  is still on screen: `beadcause` reads whole, `climative-…` reads as narrowed-to-something,
+  and the accent border below says something is being kept off the screen either way.
 
-  Three ways out were tried against the real pages. None of them survives the numbers:
+  `scripts/topbar-check.mjs` is now the check that the bar is **one** row, and it fails the
+  repo for two. The old budget it was written to defend — 170px of chrome — is unchanged
+  and is met with room to spare; what it defends now is that the room stays spare.
 
-  - **Collapse into the first row when it fits** (`flex: 1 1 <basis>` instead of
-    `1 0 100%`, so wrapping does the deciding). Hiding the "3 waiting" chip while a
-    repo is picked does *not* buy the inbox back: measured, it stays two lines with
-    the chip gone, because the icon buttons are 172 of the 328 on their own. A
-    150px basis collapses `/console`, `/monitor` and `/endorse` only — and on
-    `/monitor` the select lands at 122px against a 123px label, clipped on arrival. A
-    basis wide enough for the label (190px) collapses nothing at 360px. So the offer
-    is: the picker keeps its row on the inbox, the PR board and the foundations
-    screen, moves and shrinks on the other three, and clips on one. One control that
-    is the same on every page is most of what the picker bought (see the header of
-    public/spacebar.js); a control that is a title here and a chip there is four
-    controls again, wearing one name.
-  - **Hide it on scroll down, bring it back on scroll up.** The bar is `position:
-    sticky`, so it is in flow: shrinking it while you are scrolled into the list moves
-    every card up 43px under your thumb. Doing it honestly means a fixed, translated
-    header on six pages — and the row is back the moment you scroll up, which is the
-    moment you were reading it anyway.
-  - **Fold it into the brand — tap the mark to change repo.** The only one that gets
-    one row at 360px, and it pays with the thing the picker is for: the repo name is
-    exactly what does not fit beside four icon buttons, so what is left is a control
-    whose current value is invisible. An app that looks identical showing everything
-    and showing one sixth of it is one you stop trusting (see `.narrowed` below).
-
-  So the row stays, and what settles it is how far the first row would have to be
-  cleared to hold the picker instead. Measured at 360px: two of the four icon buttons
-  gone leaves 87px; two gone *and* the chip hidden leaves 176px, which is still 8px
-  short of the 184px; it takes **three of the four buttons and the chip** to clear it,
-  at 220px. That is not a layout trick, it is emptying the bar — and if the icons ever
-  do get thinned that far, `scripts/topbar-check.mjs` says so in as many words.
-
-  Note the control is already 31px against the 40px every icon button on the bar has,
-  which is the other reason not to shave the row: the height is the tap target.
+  Note the control is 31px against the 40px every icon button has. The height is the tap
+  target, so it is not shaved further.
 */
 .spacebar {
-  flex: 1 0 100%;
+  /* `1 1 auto`, so it takes what the mark leaves and no more. It was `1 0 100%` — a row
+     of its own — until bc-khoe.5. */
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -487,21 +468,66 @@ body {
    would lay out as a flex row of nothing. */
 .spacebar[hidden] { display: none; }
 
-.spacepick { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
-.spacepick select {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 100%;
-  min-width: 0;
+/*
+  Three boxes in one control: the label you read, the caret, and the `<select>` laid over
+  both of them invisibly.
+
+  The select is what you actually tap — it keeps the accessible name, the keyboard, and
+  the platform's own wheel or menu — and it is `opacity: 0` rather than absent because what
+  it *shows* is the wrong string. A native select draws its selected option, and the option
+  is the whole repo name; on a row shared with the mark that is a bar with nothing left on
+  it. So the visible half is a span the script fills with a cut-down label, and the
+  dropdown you open still lists every name in full (`shorten` in public/spacebar.js).
+
+  `width: max-content` on the shown span is the other half of "narrow": the control is as
+  wide as its label and no wider, so a one-repo day does not leave a full-width box with
+  nine characters in it.
+*/
+.spacepick { position: relative; display: flex; align-items: center; min-width: 0; max-width: 100%; }
+.spacepick-shown {
+  display: block;
+  width: max-content;
+  max-width: 100%;
   /* Room on the right for the caret that is drawn over it. */
   padding: 7px 30px 7px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
   color: var(--text);
-  font: 620 14px/1.2 inherit;
+  /* Longhands rather than the `font:` shorthand every other control here uses. The
+     shorthand resets `line-height` from whatever the page's own is, and this box's height
+     *is* the bar's height now that they share a row — 40px against 33px is 7px of chrome
+     on every screen, arrived at by a property nobody wrote down. */
+  font-weight: 620;
+  font-size: 14px;
+  line-height: 1.2;
+  white-space: nowrap;
+  /* A belt to `shorten`'s braces: the character rule is what keeps the bar one row, and
+     this is what keeps a font substitution from making a liar of it. */
+  overflow: hidden;
   text-overflow: ellipsis;
+}
+.spacepick select {
+  /* Over the whole control, invisible, and still the thing under the thumb. `inset: 0`
+     rather than a width, so it grows with the label rather than being told about it. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
   cursor: pointer;
+}
+/* The focus ring the invisible select cannot draw. `:focus-visible` and not `:focus`, so
+   a tap does not leave a ring behind on a phone. */
+.spacepick:has(select:focus-visible) .spacepick-shown {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .spacepick-caret {
   position: absolute;
@@ -517,7 +543,7 @@ body {
   identical whether it is showing you everything or one sixth of it is an app you will
   eventually mistrust.
 */
-.spacebar.narrowed .spacepick select {
+.spacebar.narrowed .spacepick-shown {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
@@ -562,62 +588,73 @@ body {
 }
 
 /*
-  The account switcher — the address at the right-hand end of the bar, and the menu the
-  page's own top-right buttons now live in. See public/accountbar.js.
+  The app menu — the mark in a gear at the left-hand end of the bar, and everything the
+  bar used to hold loose behind it. See public/accountbar.js.
 
-  It is an ordinary flex item on the *first* row, deliberately, and that is the whole of
-  how it fits the two-row budget `scripts/topbar-check.mjs` measures: the picker below is
-  `flex: 1 0 100%` and takes a row of its own, and a third row is what that check exists
-  to refuse. It can afford the width because it takes some back — up to four loose icon
-  buttons that used to sit here are rows in the menu now.
-*/
-/*
-  `flex: 1 1 0` rather than `auto`, and that is the line that keeps the bar on one row.
+  It lives inside `.brand`, right after the pulse dot, and it is `flex: 0 0 auto`: it is
+  26px of mark and it must never be the thing that gives way. What gives way beside it is
+  the page title, which already ellipsises, and the space picker's label, which is cut to
+  twelve characters by the script rather than by the layout.
 
-  `.topbar` is `flex-wrap: wrap`, and a wrapping flex line **wraps before it shrinks**: an
-  item whose content is 178px wide is placed at 178px and pushed to a second row if the
-  line is full, however shrinkable it is. Two pages have a title that wide — /session and
-  /beadsession draw a bead's whole summary line up here — so an `auto` basis put the chip
-  on a row of its own there and cost 46px of sticky chrome on the two screens that are
-  nothing but transcript. A basis of 0 has no content width to wrap on: it takes what is
-  left of the row, and the address inside it ellipsises into whatever that turns out to
-  be. See `scripts/say-check.mjs`, which measures the transcript underneath.
+  `position: relative` is the whole reason this wrapper exists at all — the menu is
+  absolute and hangs off it. `.brand` itself cannot be that anchor: it is shared with a
+  title, and a menu measured from the brand's box would move whenever the title did.
 */
 .accountbar {
   position: relative;
-  display: flex; align-items: center; justify-content: flex-end;
-  flex: 1 1 0; min-width: 0;
+  display: flex; align-items: center;
+  flex: 0 0 auto;
 }
+
+/*
+  The trigger. Two shapes for one control: on the inbox it is the app mark with a gear
+  badge on its corner, and on every other page — where the bar draws a title instead of a
+  mark — it is the gear alone, in the same place and at the same size.
+
+  The badge sits *outside* the mark's rounded tile on purpose. Over it, at 26px, it is a
+  smudge on artwork that is already three glyphs in a box; beside it, at the bottom-right
+  corner, it reads as a badge, which is the thing every phone already means by a small
+  glyph in that corner.
+*/
+.markmenu {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  /* Bigger than the artwork so the badge has somewhere to be, and so the tap target is
+     not 26px on the one control that opens everything else. */
+  width: 34px; height: 34px;
+  padding: 0;
+  border: 0; background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.markmenu-gear {
+  position: absolute;
+  right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  /* The page's own ground, not a surface colour: the badge overlaps the mark's tile and
+     the ring is what separates the two. */
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--muted);
+  font-size: 9px; line-height: 1;
+}
+/* No mark to badge — the gear is the control, at the size the mark would have been. */
+.markmenu-bare {
+  font-size: 17px;
+  color: var(--muted);
+}
+.markmenu:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
 
 /* Emptied by the hoist rather than removed, because the monitor puts a tally back into
    it on every poll. With nothing left in it, its gap would otherwise draw a hole. */
 .topbar .sheet-actions.hoisted:empty { display: none; }
 
-.accountchip {
-  display: flex; align-items: center; gap: 6px;
-  /* Shrinkable to almost nothing, deliberately: the bar wraps to a second row when its
-     first is full, and a second row is 43px of sticky chrome on every page — which is
-     what `scripts/topbar-check.mjs` and `scripts/say-check.mjs` both measure. The address
-     is the half that gives way, because it is the one thing here that is still readable
-     truncated: a chip saying `you@work…` still says which account, and a page that lost
-     43px of transcript to say it in full has spent the wrong thing. */
-  min-width: 0;
-  max-width: min(46vw, 260px);
-  min-height: 34px;
-  padding: 6px 10px;
-  border: 1px solid var(--line); border-radius: 999px;
-  background: var(--surface); color: var(--text);
-  font: 600 13px/1.2 inherit;
-  cursor: pointer;
-}
-.accountchip-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.accountchip-caret { color: var(--muted); font-size: 10px; }
-/* No account configured: the chip is drawing this Mac's address rather than a choice
-   anybody has made, and it should not look like a live selection. */
-.accountchip.unset { color: var(--muted); }
-
 .accountmenu {
-  position: absolute; top: calc(100% + 8px); right: 0;
+  /* Left-anchored, because the trigger is at the left-hand end of the bar now. Measured
+     from `.accountbar`, whose box is the trigger's — see above. */
+  position: absolute; top: calc(100% + 10px); left: 0;
   /* Above the bar itself, which is sticky at 20 — a menu behind its own chip is the one
      way this can fail while looking like it worked. */
   z-index: 30;
@@ -636,11 +673,32 @@ body {
   border: 0; border-radius: 9px;
   background: none; color: var(--text);
   font: 600 14px/1.2 inherit; text-align: left;
+  /* Anchors are rows too (Admin, and every hoisted `<a>`), and a row that is a link must
+     not look like one. */
+  text-decoration: none;
   cursor: pointer;
 }
 .accountmenu-row:hover { background: var(--surface-2); }
 .accountmenu-glyph { width: 22px; text-align: center; color: var(--muted); }
-.accountmenu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accountmenu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The address, under "Switch account". It was a chip on the bar until bc-khoe.5 — see
+   public/accountbar.js — and this is where it went: the row that says which account you
+   are in is the row that changes it. */
+.accountmenu-switch .accountmenu-label { display: flex; flex-direction: column; gap: 2px; }
+.accountmenu-sub {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--muted);
+  /* Longhands, not `font: 500 12px/1.2 inherit`. That shorthand is what the three rules
+     above and below this one are written as and it is **invalid** — `inherit` is not a
+     legal family inside the shorthand, so the whole declaration is dropped and the box
+     silently keeps the page's own font. It cost 7px of bar height here before it was
+     caught (`.spacepick-shown`, same mistake, measured at 40px against the 33px it says).
+     bc-khoe.15 is filed for the ones this bead did not own. */
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.accountmenu-row[hidden] { display: none; }
 /* The hoisted buttons keep their own glyph and lose the plate around it: inside a menu
    the row is the target, and a button-inside-a-button reads as two things to press.
 

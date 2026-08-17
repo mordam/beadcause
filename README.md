@@ -511,28 +511,39 @@ other account's questions, pull requests, chats, tickets, advocates and spaces a
 behind a filter you can widen — they are not on the screen, and the picker does not offer
 them.
 
-**The address is the control.** It sits at the right-hand end of the top bar on every
-page; tapping it opens a menu holding that page's own actions — refresh, the endorsement
-queue, foundations, the gear — and **Switch accounts**, which opens the picker. The
-picker has a ＋ for adding one: an address, a name, and a tick per workspace.
+**The mark is the control.** It sits at the left-hand end of the top bar on every page,
+wrapped in a gear; tapping it opens a menu holding that page's own actions — refresh,
+foundations, open-in-Chrome — plus **Admin** and **Switch account**, which opens the
+picker. The picker has a ＋ for adding one: an address, a name, and a tick per workspace.
 
 ```
 ┌────────────────────────────────────────────────┐
-│ ●  [icon]                you@work.example  ▾   │
+│ ●  [icon⚙]  [ beadcause      ▾ ]               │
 │ ┌────────────────────────────────────────────┐ │
-│ │ ⟳   Refresh                                │ │
-│ │ 🗳️   Endorsement queue                      │ │
 │ │ ⚖️   Foundations                            │ │
+│ │ ⟳   Refresh                                │ │
 │ │ ────────────────────────────────────────── │ │
-│ │ ⇄   Switch accounts                        │ │
+│ │ ⏸   Admin                                  │ │
+│ │ ⇄   Switch account                         │ │
+│ │       you@work.example                     │ │
 │ └────────────────────────────────────────────┘ │
 └────────────────────────────────────────────────┘
 ```
 
+The address was the control until bc-khoe.5, as a chip at the *other* end of that bar,
+and the argument for it was good: a chip saying "Personal" needs a second surface to say
+which identity it files as, where the email is both at once. What moved it was the row
+rather than the argument. The space picker had a full-width row of its own under a first
+row that was already full, so every standing view carried two rows of sticky chrome, and
+the chip's width is what paid for bringing the picker up beside the mark. The address did
+not go anywhere — it is the second line of **Switch account**, which is the row that
+changes it, so the two things you ever want it for are now the same tap target. See
+[the top bar](#the-top-bar-says-who-is-asking-not-what-the-app-is-called).
+
 **Nothing is on until there are two.** An install with no `accounts` behaves exactly as
-it did before they existed — every predicate answers "in scope", and the chip simply
-draws `me`. One account owns everything unless it says otherwise, so the *first* one
-changes nothing but the address in the bar. Adding a second is what separates anything —
+it did before they existed — every predicate answers "in scope", and the menu simply
+draws `me` under **Switch account**. One account owns everything unless it says
+otherwise, so the *first* one changes nothing but that line. Adding a second is what separates anything —
 and adding it through the picker writes both: the account you typed, and the one it
 implies, owning every workspace you did not give away. A config with one account and
 eight unclaimed repos is not a state the ＋ can leave you in, because those repos would
@@ -684,10 +695,7 @@ selects is what the whole app is about:
 
 ```
 ┌──────────────────────────────────────────────┐
-│  ●  ▣                      ⌨️  ⚖️  ⟳          │
-│  ┌──────────────────────────────────────┐    │
-│  │ beadcause                        ▾   │    │
-│  └──────────────────────────────────────┘    │
+│  ●  ▣⚙   [ beadcause             ▾ ]         │
 └──────────────────────────────────────────────┘
      Personal ─┬─ Personal — all
                ├─   beadcause
@@ -697,6 +705,19 @@ selects is what the whole app is about:
                    climative
      All spaces
 ```
+
+**It is on the mark's row, and it is narrow.** It had a full-width row of its own until
+bc-khoe.5 — the first row was full at four icon buttons, so 43px of every screen went on
+a second row of chrome. Those buttons are rows in the mark's menu now, so the picker came
+up beside it, and it pays for the fit with its *label*: what the bar draws is at most
+twelve characters, and a longer name is cut to nine and an ellipsis. Only the bar. Every
+row in the dropdown is the whole name, because the list is what you are choosing *from*
+and two repos sharing nine characters would be one row printed twice.
+
+The cut is affordable for the same reason the row was not: what the picker has to say is
+*where you are*, and `climative-…` still says it while `beadcause` — nine characters, the
+common case — is not cut at all. `scripts/topbar-check.mjs` measures both halves and
+fails the repo if the bar ever needs a second row again.
 
 Pick `beadcause` and it is beadcause's questions in the inbox, beadcause's advocate on
 the advocate console, beadcause's pull requests on the board, beadcause's chats in the
@@ -765,43 +786,60 @@ The check that earns the suite is still the one nobody can do by reading: the cl
 combination of filter and workspace, because those two disagreeing in the direction
 "rings but is not shown" is a question you were told about and cannot find.
 
-#### The row it costs, and why it keeps it
+#### The row it cost, and why it no longer costs one
 
-The picker is a full-width row of its own, so six pages carry two rows of sticky chrome
-where they carried one. On a phone that is worth arguing about, so it was measured
-instead: at 360×640 the row is **43px** — a 31px control and the bar's 12px gap — which
-takes the bar from 61px to 104px and the bar plus the tab bar from 116px to 159px, 18%
-of the screen to **25%**.
+The picker had a full-width row of its own until bc-khoe.5, so six pages carried two rows
+of sticky chrome where they had carried one. On a phone that is worth arguing about, so it
+was measured instead: at 360×640 the row was **43px** — a 31px control and the bar's 12px
+gap — taking the bar from 61px to 104px and the bar plus the tab bar from 116px to 159px,
+18% of the screen to **25%**.
 
-It keeps the row, and the reason is arithmetic rather than taste — though the arithmetic
-moved under it once and is worth stating in its current form. bc-ka5y.1 took the "N
-waiting" chip out of the brand and the count out of the picker, which is 89px off the
-inbox's first row and 55px off what a picker needs on it. Measured now, at 360px with
-the bar's padding off (328px of content): the inbox's brand is **44px** and its icon
-buttons **128px**, leaving 132px spare, and the picker needs **129px**. So on five of the
-six pages the picker would now fit inline — and on `/foundations` it is 111px short,
-because that page carries a 123px brand and 163px of actions.
+It kept that row for a year of decisions, and the reason was arithmetic rather than taste:
+the first row was full. Three ways round it were tried against the real pages and all three
+broke something. **Collapsing onto the first row where it fits** (`flex: 1 1 <basis>`,
+letting wrapping decide) made the picker a full-width control on some tabs and a narrow or
+missing one on others, which is the four-controls-in-one-coat the picker replaced — and a
+control that moves on one page in six is a control you stop looking for. **Hiding it on
+scroll down** means a fixed, translated header on six pages, because a sticky bar that
+shrinks mid-scroll moves every card up 43px under your thumb, and the row is back the
+moment you scroll up, which is when you were reading it. **Folding it into the mark** paid
+with the picker's whole job: the repo name is exactly what does not fit, so what is left is
+a control whose current value is invisible.
 
-Which is exactly the case that settles it, and it is unchanged: collapsing onto the first
-row *where it fits* (`flex: 1 1 <basis>`) makes the picker a full-width control on five
-tabs and a missing one on the sixth. That is the four-controls-in-one-coat this replaced,
-and it is worse now than when three pages could not hold it, because a control that moves
-on one page in six is a control you stop looking for. The other two options are no better
-than they were: hiding it on scroll means a fixed, translated header on six pages, because
-a sticky bar that shrinks mid-scroll moves every card up 43px under your thumb — and the
-row is back the moment you scroll up, which is when you were reading it. Folding it into
-the mark pays with the picker's whole job: the repo name is exactly what does not fit, so
-what is left is a control whose current value is invisible.
+What bc-khoe.5 did is none of those. It **emptied the first row** rather than trying to fit
+the picker past what was on it. The loose icon buttons — up to four of them, 128px at
+360px — are rows in the mark's menu; the account chip's address is a line inside that menu;
+and what is left up there is a 26px mark in a gear. The picker moved up beside it, and the
+one thing it gives up is *width*: the bar draws at most twelve characters of the label, and
+a longer name is cut to nine and an ellipsis, while every row in the dropdown stays whole.
+
+That is the trade the old arithmetic refused, and the reason it is affordable now is that
+the value is still on screen. `beadcause` — nine characters, and the common case — is not
+cut at all; `climative-…` still says which one; and the accent border says something is
+being kept off the screen either way. Measured after: the bar is **one line on all six
+pages at both widths**, 61px, and the bar plus the tab bar is **116px** against the 159px
+it replaced. The narrowest margin left on the row is 31px, on `/foundations`.
+
+The one cost worth naming separately is **refresh**. It was the last icon left loose in the
+bar, deliberately, because it is the most-pressed control in the app and the least worth two
+taps. It went into the menu with the rest, because a single icon floating between the mark
+and the picker is the shape being got rid of, and it is two taps now.
 
 `node scripts/topbar-check.mjs [--out=DIR]` is what stops this being decided once and
-forgotten — and it is where those numbers come from: it prints the spare-versus-needed
-arithmetic per page on every run, which is how the change above was noticed rather than
-inherited. Two widths, every page with a picker: the bar is at most two lines, the
-picker has the last line to itself at the full width of the bar, no label in the
-dropdown is clipped, and the bar plus the tab bar stays inside a **170px** budget — a
-third row is +43px and fails it on the spot. It also prints the first-row arithmetic per
-page and says so if *every* page ever has room for the picker inline, because that, and
-only that, is when collapsing would cost nothing and this is worth reopening.
+forgotten — and it is where those numbers come from. Two widths, every page with a picker:
+the bar is **exactly one line**, the picker is on it and sharing it, no name the picker can
+select would draw a face over twelve characters, the face on the bar is the cut form of what
+is selected, every row in the dropdown is a whole name, and the bar plus the tab bar stays
+inside a **170px** budget. Then it picks the longest workspace in the fixture through the
+control itself and measures the bar again — because everything before that is measured on
+`All spaces`, which is under the cut, so without that pass the truncation could be deleted
+and the file would still pass. The fixture carries one deliberately over-length repo name
+for the same reason: every real workspace on this Mac is nine or ten characters.
+
+It also prints, per page, how much of the row is left once the brand has taken its share,
+and says so when any page is inside 24px of it. That is the same arithmetic bc-hne3 turned
+on, pointed the other way: what would push the picker back off the row is a page growing
+its *title*, and that is the half nobody measures on purpose.
 
 The fifth thing it asserts is not about the bar at all, and it is there because measuring
 the bar is what found it: **the page has to fit the screen**. Every number above is a
@@ -4422,12 +4460,26 @@ Beadcause. It is the app mark now, the same artwork as the home-screen icon, sti
 inside the `<h1>` with the name as the image's `alt` so the header is labelled and a
 reader still hears which app this is.
 
-What the reclaimed width is spent on is the space picker, and nothing else:
+**And the bar is one row** (bc-khoe.5). It was two: a first row of the mark, up to four
+icon buttons and the account chip, and the space picker below at full width. Now it is
+the mark, the page's own title, and the picker:
 
 ```
-  ●  ◔                                      ⌨️  ⚖️  ⟳
-  [ beadcause                          ▾ ]
+  ●  ▣⚙  [ beadcause      ▾ ]
 ```
+
+That is 116px of sticky chrome with the tab bar, against 159px — 43px of a 640px phone
+handed back to the list, on every standing view at once. What paid for it is that the
+first row was emptied rather than squeezed. **The mark is wrapped in a gear and is the
+menu**, and everything that was a loose icon up there is a row inside it: refresh,
+foundations, open-in-Chrome, Admin, and Switch account with the address under it. On the
+eleven pages that draw a title rather than a mark, the trigger is the gear on its own, in
+the same place, so it is one control and not twelve.
+
+The one cost worth naming is **refresh, which is two taps now**. It is the app's most
+pressed control and it was deliberately left loose in the bar for exactly that reason
+until this landed. It went in with the rest because a single icon floating between the
+mark and the picker is the shape the flattening was for.
 
 **There is no count up here.** An **N waiting** pill sat beside the mark until
 bc-ka5y.1 — how many beads were asking you something, hidden at zero, dropping its word
@@ -6065,10 +6117,16 @@ are frozen together and thaw together.
 
 ✏️ sits at the bottom left of the inbox, mirroring ＋ across the foot of the screen: the
 other thumb, the same height, and the same z-index bargain — over the list, under an open
-card. It is not a fifth icon in the top bar because that bar is full at four, which is
-measured rather than assumed: `scripts/topbar-check.mjs` puts a fifth `.icon-btn` at
-216px of `.sheet-actions` against a 133px brand, which wraps `.topbar` to three rows at
-both 360 and 393. See bc-qsj6.1.
+card. It was not a fifth icon in the top bar because that bar was full at four, which was
+measured rather than assumed: `scripts/topbar-check.mjs` put a fifth `.icon-btn` at 216px
+of `.sheet-actions` against a 133px brand, wrapping `.topbar` to three rows at both 360
+and 393 (bc-qsj6.1).
+
+That bar has room now — bc-khoe.5 emptied it into the mark's menu — and this control still
+does not go in it, for a reason that outlives the arithmetic: **edit mode freezes the
+screen**, and inside it a tap points at an element rather than acting on it. Nothing behind
+a tap-to-open menu can be reached from in there, so the way *into* the mode would work and
+the way *out* of it would not. It stays a button on the page.
 
 The button is in `public/index.html` rather than built by the module, because where it
 goes is a question about *that page's* layout and not about the mode. A page that never
