@@ -155,6 +155,9 @@ function serve() {
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/endorse') rel = '/endorse.html';
     if (rel === '/foundations') rel = '/foundations.html';
+    // The selected space's settings (bc-khoe.10). Here because it carries the space
+    // picker, which is the row of the bar this check exists to measure the cost of.
+    if (rel === '/config' || rel === '/settings') rel = '/config.html';
     const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404).end('no');
@@ -371,7 +374,7 @@ const SCROLLIT = `(() => {
    its own, and it is still measured under its own path: the top bar is shared between
    the three panes now, so what this check is really asking there is that arriving by the
    board's URL does not change what the bar costs. */
-const PAGES = ['/', '/monitor', '/console', '/prs', '/endorse', '/foundations'];
+const PAGES = ['/', '/monitor', '/console', '/prs', '/endorse', '/foundations', '/config'];
 
 /* 360px is the cheap Android the app is for and the width the trade was argued at; 393
    is the phone in the hand. Both, because a rule that only holds at one width holds by
