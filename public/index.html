@@ -165,8 +165,10 @@
     to the view now (bc-khoe.27.1), so the wrapper is hidden — along with `has-compose`,
     and along with the panel — on Questions and PRs, which have nothing to create. See
     `paintCompose` in app.js and `compose` in inboxfilter.js. (Written without the
-    leading slash on purpose: three suites find the script tags in this file by the
-    first `/app.js` in it, and a comment that says the path is a comment that moves it.)
+    leading slash on purpose: some suites find the script tags at the foot of this file
+    by searching for a bare slash-and-filename, so a comment up here that spells one out
+    that way silently moves their answer. Two were fixed on bc-khoe.27.1 to match the
+    tag; test/stream.mjs still asks the loose way, for every standing page at once.)
   -->
   <div class="compose-wrap">
     <div id="compose-pick" class="compose-pick ws-pick" hidden>
