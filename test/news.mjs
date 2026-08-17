@@ -195,6 +195,14 @@ const DELIVER = read('bin/deliver.js');
 check('a worker recording an external merge no longer imports the push', !/from '\.\.\/lib\/notify\.js'/.test(DELIVER));
 check('it posts to the daemon instead, because it has no bus of its own', /\/api\/landed/.test(DELIVER));
 
+// The terminal monitor is the other reader of this stream, and an event with no case
+// there is an uncoloured, wordless row in a log of forty — which is how a new event type
+// gets shipped and then looks broken to the one person watching it happen.
+const MONITOR = read('bin/monitor.js');
+for (const t of ['landed', 'released', 'epic-done', 'stuck']) {
+  check(`the monitor has a line for ${t}`, new RegExp(`case '${t}':`).test(MONITOR), 'it would print an empty detail column');
+}
+
 /* ----------------------------------------------- 5. what the phone does with them */
 
 console.log('\nthe shell files all four, and keeps the blockage apart\n');
