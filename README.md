@@ -1664,6 +1664,20 @@ sweep once, and the gate lets the epic go. `test/adoptsweep.mjs` is where the re
 live, over fixtures, because a rule that can only be tested by writing to a tracker is one
 nobody re-tests after changing it.
 
+**And the sweep will not plan against a reading it could not take.** The plan is built
+from `Bd.graph`, which is one `bd export` cached for a minute, and an export that fails is
+answered with the *last good* index rather than with nothing — the right answer for
+everything drawing a screen, and the wrong one for the caller that turns an index into
+`bd update --parent` writes: an epic filed since that reading is simply not in it, so the
+sweep plans nothing for it, applies nothing, refuses nothing and says nothing, which from
+the outside is a tick with no work to do. The stand-in now carries `stale` (`error` still
+means *never read at all*), the sweep skips a workspace carrying either and logs which,
+and the cache entry it fell back on keeps its own age rather than being stamped fresh —
+a failed read used to buy the pre-failure graph another sixty seconds with no retry in it.
+That was bc-j52g, and one lost export was a red `test/adoptsweepreal.mjs` about one run in
+four on a loaded Mac. `test/graphstale.mjs` pins all of it against a fake `bd` that answers
+once and then stops.
+
 ### The best refusal is a button that was never there
 
 Refusing before anything is written fixed the damage. It did not fix the shape:
