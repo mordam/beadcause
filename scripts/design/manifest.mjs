@@ -131,23 +131,25 @@ const CORE = [
         name: 'Pill row',
         subtitle: 'Every standing view, one row',
         viewport: { width: 420, height: 200 },
-        note: `The second row of the app shell, under the top bar, and the app's only navigation since bc-khoe.1 deleted the bar along the bottom. The current pill is a <b>&lt;span&gt;, not a link</b> — tapping where you already are should do nothing. It scrolls <b>sideways and never wraps</b>, and carries <b>no counts</b>.`,
+        note: `The second row of the app shell, under the top bar, and the app's only navigation since bc-khoe.1 deleted the bar along the bottom. The current pill is a <b>&lt;span&gt;, not a link</b> — tapping where you already are should do nothing. It scrolls <b>sideways and never wraps</b>. Four of the pills carry a <b>count</b> — what tapping them would leave you with — and they carry it <b>on Home only</b>, where the number is already in hand; the rest carry none.`,
         markup: `<nav class="viewbar" aria-label="Views">
-  <span class="viewpill" data-pill="inbox" aria-current="page">
-    <span class="viewpill-icon" aria-hidden="true">🏠</span>
-    <span class="viewpill-label">Home</span>
+  <span class="viewpill" data-pill="epics" aria-current="page">
+    <span class="viewpill-icon" aria-hidden="true">🎯</span>
+    <span class="viewpill-label">My Epics</span>
+    <span class="viewpill-count" data-count="epics">12</span>
   </span>
-  <a class="viewpill" data-pill="advocates" href="#">
-    <span class="viewpill-icon" aria-hidden="true">📣</span>
-    <span class="viewpill-label">Advocates</span>
+  <a class="viewpill" data-pill="question" href="#">
+    <span class="viewpill-icon" aria-hidden="true">❓</span>
+    <span class="viewpill-label">Questions</span>
+    <span class="viewpill-count" data-count="question">4</span>
   </a>
   <a class="viewpill" data-pill="history" href="#">
     <span class="viewpill-icon" aria-hidden="true">📜</span>
     <span class="viewpill-label">History</span>
   </a>
-  <a class="viewpill" data-pill="prs" href="#">
-    <span class="viewpill-icon" aria-hidden="true">🚢</span>
-    <span class="viewpill-label">PRs</span>
+  <a class="viewpill" data-pill="advocates" href="#">
+    <span class="viewpill-icon" aria-hidden="true">📣</span>
+    <span class="viewpill-label">Advocates</span>
   </a>
 </nav>`,
       },

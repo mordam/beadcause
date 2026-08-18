@@ -201,20 +201,39 @@ check('the roster is rebuilt from the graph every tick, and never persisted', ()
   );
 });
 
+check('the sweep’s per-epic record is readable from a request path — bc-r2b5.1', () => {
+  // The roster above is the *console's* view and is rebuilt every tick from the graph.
+  // The board card is a different surface with a different lifetime: it is drawn on a
+  // request, so it may not tick and may not spawn `bd`. `advocacy` is the seam — a `Map`
+  // get and two property reads off state the daemon has already persisted, so a board of
+  // twelve cards asking it twelve times costs nothing.
+  assert.match(daemon, /advocacy: \(workspace, id\) => \{/, 'the daemon exposes nothing the board card can read');
+  assert.match(daemon, /a\?\.advocated\?\.\[String\(id \|\| ''\)\]/, 'it must come off the persisted record, not be recomputed');
+  assert.match(daemon, /return rec \? \{ at: rec\.at \|\| null, hold: rec\.hold \|\| null \} : null;/);
+  // And the hold reason is written where that read finds it, rather than only logged: the
+  // sweep is the only thing that can see three of the five reasons.
+  assert.match(daemon, /keep\[epic\.id\] = \{ \.\.\.\(prev \|\| record\), hold: \{ why, at: iso\(\) \} \};/, 'the hold is not recorded');
+});
+
 /* ------------------------------------------------------------------- the page */
 
 check('the console draws a card per assigned epic, from the roster on the wire', () => {
   assert.match(daemon, /epicAdvocates: a\.epicAdvocates \|\| \[\]/, 'the roster is not in the snapshot');
-  assert.match(page, /function epicCard\(a, e\)/, 'nothing draws the cards');
-  assert.match(page, /epicsOf\(a\)\.map\(\(e\) => epicCard\(a, e\)\)/, 'the cards are not built from the roster');
+  // Matched open-ended rather than on the whole parameter list, which is bc-8t3b's lesson
+  // kept rather than dropped with the section it was written against: it added a third
+  // argument to the function that drew an epic, and this downmerge added one again — the
+  // beads held under that epic. None of the claims here are about how many arguments the
+  // function takes.
+  assert.match(page, /function epicCard\(a, e/, 'nothing draws the cards');
+  assert.match(page, /\.map\(\(e\) => epicCard\(a, e/, 'the cards are not built from the roster');
   assert.match(page, /const fold = `\$\{key\}:epic:\$\{e\.id\}`/, 'the fold has lost the key it had as a section, so every open epic shuts on deploy');
-  assert.match(page, /advocateCard\(w, a, proposals, r\) \+ epicCards\(a\)/, 'they are built but never placed in the run');
+  assert.match(page, /advocateCard\(w, a, proposals, r\) \+ epicCards\(w, a\)/, 'they are built but never placed in the run');
 });
 
 check('and each one is a top-level card, not a fold inside the repo advocate', () => {
   // The whole of bc-henk in two assertions. An `<article class="card">` at the same level
   // as the repo's, and nothing left in `advocateCard` that draws an epic inside itself.
-  const fn = page.slice(page.indexOf('function epicCard(a, e)'), page.indexOf('const epicCards ='));
+  const fn = page.slice(page.indexOf('function epicCard(a, e'), page.indexOf('const epicCards ='));
   assert.match(fn, /<article class="card work-card mon-card epic-card/, 'an epic is still drawn as something other than a card');
   const card = page.slice(page.indexOf('function advocateCard'), page.indexOf('function plainCard'));
   assert.ok(!/epicSections/.test(card), 'the repo card still folds its epics inside itself');
@@ -232,6 +251,21 @@ check('a window is on exactly one card, and the repo card says where the rest we
   assert.match(card, /codersOf\(a\)\.filter\(\(w\) => !claimed\.has\(w\.group\?\.epic\)\)/, 'the repo card draws epic-dispatched windows too');
   assert.match(card, /came out of an epic's plan/, 'nothing accounts for the rows the count includes and the list does not');
   assert.match(page, /const dispatchedFrom = \(a, id\) => codersOf\(a\)\.filter\(\(w\) => w\.group\?\.epic === id\)/, 'the epic card cannot find its own sessions');
+});
+
+check("an epic's requested endorsements are on its own card, not folded back into the repo's", () => {
+  // bc-8t3b drew these inside the epic's *section*, and bc-henk replaced that section with
+  // a card. The reason the block gave for sitting there — it is a fact about this
+  // advocate and not about the repo — is the reason it moved onto the card rather than a
+  // reason it went away, and this is the assertion that says so, because a downmerge that
+  // takes one side of `epicSections` drops it without a conflict anywhere.
+  const fn = page.slice(page.indexOf('function epicCard(a, e'), page.indexOf('const epicCards ='));
+  assert.match(fn, /heldSection\(/, 'an epic card draws nothing for the beads held under it');
+  assert.match(fn, /`\$\{fold\}:held`/, 'the held fold has lost the key it had as a section, so an open one shuts on deploy');
+  assert.match(page, /epicCard\(a, e, held\.byEpic\.get\(e\.id\) \|\| \[\]\)/, 'the cards are never given the split they draw');
+  // And the repo card still draws the half no advocate on it produced.
+  const card = page.slice(page.indexOf('function advocateCard'), page.indexOf('function plainCard'));
+  assert.match(card, /held\.rest/, 'the repo card no longer draws the endorsements no epic claimed');
 });
 
 check('an epic with no window is drawn as fully as one with it, and says which reason', () => {

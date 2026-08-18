@@ -683,6 +683,111 @@
   const epicsOf = (a) => (Array.isArray(a.epicAdvocates) ? a.epicAdvocates : []);
 
   /**
+   * The beads held for endorsement in this repo, split between the advocates that
+   * produced them and the repo they all belong to.
+   *
+   * **The split is Adam's answer to bc-w156.2, and it is a hybrid rather than one of the
+   * three options that were offered.** Verbatim: *"shown under EpicAdvocate if they were
+   * produced by its work or by the agents it spawns. per workspace otherwise."* The
+   * per-workspace half is what dissolves the objection that killed per-advocate on its
+   * own — an endorsement no advocate owns does not vanish from the console, it lands in
+   * the repo's own section, and nothing is ever unreachable.
+   *
+   * **"Produced by its work or by the agents it spawns" is read off the graph, and the
+   * graph is honest about it.** An EpicAdvocate's agents are the sessions opened on beads
+   * under its epic; a discovery one of them files is filed *under* the bead it was
+   * working (lib/filing.js homes it, and `withDiscoveredFrom` keeps the parent when bd
+   * refuses to hold both edges), so the epic is an ancestor of the held bead. That is
+   * what `under` on the row is — the parent chain, nearest first, computed server-side in
+   * lib/work.js. It is a proxy and not a stamp: nothing records *which agent* filed a
+   * bead, so a bead somebody parented under the epic by hand reads the same as one an
+   * advocate's worker found. The exact reading needs a filer stamp at file time, which is
+   * its own bead; this is the reading available today and it is right for every bead the
+   * advocates actually produce.
+   *
+   * Nearest ancestor wins, which is why `under` is ordered: an advocate on the bead's own
+   * epic owns it over one on the P0 three levels above.
+   */
+  function heldByAdvocate(w, a) {
+    const rows = Array.isArray(w?.heldRows) ? w.heldRows : [];
+    const assigned = new Set(epicsOf(a || {}).map((e) => e.id));
+    const byEpic = new Map();
+    const rest = [];
+    for (const row of rows) {
+      const owner = (row.under || []).find((id) => assigned.has(id));
+      if (owner) byEpic.set(owner, [...(byEpic.get(owner) || []), row]);
+      else rest.push(row);
+    }
+    // What the cap in lib/work.js took off, so the section can say it rather than draw a
+    // shorter list that looks complete. `counts.held` is the same number the pill quotes.
+    //
+    // Only where the daemon sent rows at all. A page cached from a newer deploy against a
+    // daemon that predates them has the count and not the list, and subtracting one from
+    // the other there would draw a section reading `Requested endorsements 4` over four
+    // beads it cannot name — which is worse than the section this feature replaced.
+    const sent = Array.isArray(w?.heldRows);
+    const total = sent ? (w?.counts?.held ?? rows.length) : rows.length;
+    return { byEpic, rest, dropped: Math.max(0, total - rows.length) };
+  }
+
+  /**
+   * One bead waiting on a word from you.
+   *
+   * A title, an id and a link, where /endorse gives the same bead its whole description,
+   * acceptance and the agent's argument. That asymmetry is deliberate and it is
+   * lib/endorsequeue.js's own reasoning turned around: the fat row exists because a
+   * decision made off a title is a rubber stamp, and this is not the screen the decision
+   * is made on — it is the screen that tells you there is one to make, on the card of the
+   * advocate that is waiting for it.
+   *
+   * The link carries the bead, so the queue opens on it rather than at the top of a list
+   * of sixty. Same spelling as the inbox's own `held for endorsement` pill (public/app.js).
+   */
+  function heldBeadRow(ws, b) {
+    return `<a class="work-row" href="/endorse?bead=${encodeURIComponent(`${ws}/${b.id}`)}">
+      <span class="work-phase">◇</span>
+      <span class="work-main">
+        <span class="work-title">${esc(b.title)}</span>
+        <span class="work-sub">
+          <span class="pill id">${esc(b.id)}</span>
+          ${b.type ? `<span class="tag">${esc(b.type)}</span>` : ''}
+          ${b.priority != null ? `<span class="tag dim">P${esc(b.priority)}</span>` : ''}
+        </span>
+      </span>
+      <time>${esc(age(b.createdAt))}</time>
+    </a>`;
+  }
+
+  /**
+   * The "Requested endorsements" subcard — the same section on two different cards.
+   *
+   * `warn` throughout, and it is the tone the rest of this card reserves for the one
+   * thing on it that is blocked on you: everything else here happens on its own, and
+   * nothing under this heading moves until you tap. `subtitle` says which of the two
+   * populations it is, because the counts have to be readable against the
+   * `N held for endorsement` pill at the top of the card without adding up wrongly.
+   */
+  function heldSection(key, ws, beads, subtitle, { more = 0 } = {}) {
+    if (!beads.length && !more) return '';
+    // `more` is what lib/work.js's cap took off this repo's list, and it is drawn inside
+    // the section rather than beside it so a shorter list can never read as a complete
+    // one. Only ever non-zero on a repo with more than `HELD_ROWS_MAX` beads waiting,
+    // which is a backlog rather than a list, and the link is the screen that pages it.
+    const rest = more
+      ? `<p class="subtitle">${esc(
+          `${more} more are held in this repo than this card carries.`
+        )} <a href="/endorse">Open the queue →</a></p>`
+      : '';
+    return section(
+      key,
+      'Requested endorsements',
+      String(beads.length + more),
+      `<p class="subtitle">${esc(subtitle)}</p>${beads.map((b) => heldBeadRow(ws, b)).join('')}${rest}`,
+      { tone: 'warn' }
+    );
+  }
+
+  /**
    * Who is arguing for this repo, and for which epics.
    *
    * There is more than one advocate per card and there has been since epic planning
@@ -802,7 +907,7 @@
    * everything else is behind it. The key is the one the section used (`<ws>:epic:<id>`),
    * so an epic somebody had open before this landed is still open after it.
    */
-  function epicCard(a, e) {
+  function epicCard(a, e, heldRows) {
     const key = a.workspace;
     const st = epicStateOf(e);
     const w = e.window;
@@ -875,6 +980,21 @@
               plural(mine.length, 'session')
             )} dispatched from this epic's plan.</span></div>` + mine.map((x) => workerRow(a, x)).join('')
           : ''
+      }
+      ${
+        // Beads found under this epic that nobody has endorsed yet — see
+        // `heldByAdvocate`. It arrived (bc-8t3b) as a section inside the epic's section,
+        // for the reason that outlived the section: it is a fact about *this* advocate
+        // and not about the repo, so it belongs on the epic's own card rather than beside
+        // it. Drawn only when there are some — a dozen epics each carrying an empty
+        // `Requested endorsements 0` is a card you stop reading — and keyed
+        // `<ws>:epic:<id>:held` exactly as it was, so one left open stays open.
+        heldSection(
+          `${fold}:held`,
+          key,
+          heldRows || [],
+          'Filed under this epic and waiting on you. Nothing will open a session on them until they are endorsed.'
+        )
       }`;
 
     // No `data-ws` on this article, deliberately: `.mon-card[data-ws]` means "a repo card"
@@ -922,7 +1042,17 @@
    * beadcause and its four epics, then climative and its two, rather than past every repo
    * and then every epic in the space.
    */
-  const epicCards = (a) => (a ? epicsOf(a).map((e) => epicCard(a, e)).join('') : '');
+  const epicCards = (w, a) => {
+    if (!a) return '';
+    // The same split the repo card reads, computed again rather than threaded through
+    // `advocateCard`: it is a pure derivation over `heldRows`, and the two readers are on
+    // opposite sides of the card boundary now that an epic is not drawn inside the repo.
+    // `rest` is the repo card's half and is not read here.
+    const held = heldByAdvocate(w, a);
+    return epicsOf(a)
+      .map((e) => epicCard(a, e, held.byEpic.get(e.id) || []))
+      .join('');
+  };
 
   /**
    * One session the advocate opened.
@@ -1374,6 +1504,11 @@
     const unclaimed = codersOf(a).filter((w) => !claimed.has(w.group?.epic));
     const elsewhereCount = codersOf(a).length - unclaimed.length;
 
+    // Split once, read twice: the epic sections take their own beads out of it and this
+    // card's own section takes what is left. See `heldByAdvocate` for why the two halves
+    // exist and which of them a bead lands in.
+    const held = heldByAdvocate(w, a);
+
     const secs = [
       // First, because it answers "who is deciding what happens in this repo" — and every
       // section under it is one of those decisions playing out. **This advocate alone**:
@@ -1443,6 +1578,20 @@
             { tone: 'warn' }
           )
         : '',
+      // Everything held in this repo that no advocate on this card produced — a bead a
+      // worker filed with nowhere to hang it, one filed under an epic nobody is planning,
+      // one you filed yourself from the console. Under Parked because both are things
+      // waiting on you, and above "Up next" for the same reason Parked is: everything
+      // below this line happens on its own.
+      heldSection(
+        `${key}:held`,
+        key,
+        held.rest,
+        held.byEpic.size
+          ? 'Waiting on you, and not produced by any advocate above — the rest are on their own cards.'
+          : 'Waiting on you. Nothing will open a session on them until they are endorsed.',
+        { more: held.dropped }
+      ),
       section(`${key}:next`, 'Up next', a.queue ? String(a.queue) : '', nextHtml(a), { tone: a.queue ? 'warn' : '' }),
       section(`${key}:log`, 'Thinking', '', thinkingHtml(a), {
         badge: a.surveying ? '<span class="tag live"><span class="spark"></span>live</span>' : '',
@@ -1858,9 +2007,10 @@
   }
 
   /**
-   * The four settings a repo row may answer for itself, in the order they happen to
-   * work: a filing arrives, a pull request merges, a review gates that merge, the merge
-   * deploys. Reading down a row is reading the life of one piece of work.
+   * The five settings a repo row may answer for itself, in the order they happen to
+   * work: a filing arrives, a pull request merges, your approval gates that merge, an
+   * agent's review gates it too, the merge deploys. Reading down a row is reading the
+   * life of one piece of work.
    *
    * `on`/`off` are the sentences the *buttons* promise, so each one says what pressing
    * it does to this repo rather than naming the field again — a title reading
@@ -1894,6 +2044,16 @@
       off: 'green checks are enough',
     },
     {
+      key: 'reviewRequired',
+      what: 'An agent reviews it first',
+      // Moot for the same reason the row above it is: with auto-merge off the pull
+      // request is already a question in your hand, and a review loop in front of a
+      // decision you are going to make yourself is a round trip nobody asked for.
+      moot: (r) => !r.autoMerge,
+      on: 'nothing merges until the ReviewAdvocate has read the diff and approved it',
+      off: 'the merge queue merges without anything reading the diff',
+    },
+    {
       key: 'autoShip',
       what: 'Merges ship themselves',
       on: 'a merge runs this repo’s deploy without waiting for Ship',
@@ -1918,7 +2078,7 @@
    * carries that per field; `r.own` is `null` for every field this repo leaves alone,
    * which is what puts Inherit on.
    *
-   * A row whose payload predates `own`/`inherits` draws nothing rather than four rows of
+   * A row whose payload predates `own`/`inherits` draws nothing rather than five rows of
    * buttons that would all read Inherit (off) and write the wrong answer on a press — the
    * same reasoning the server side gives for treating an unreadable override as absent.
    */
@@ -2123,6 +2283,13 @@
         g.requireApproval
       ),
       tri(
+        'reviewRequired',
+        'An agent reviews it first',
+        'On means nothing merges here until the ReviewAdvocate has read the diff and approved it — a second gate in front of the queue, not a substitute for your own. Leave it off in a repo where nothing is reviewing: on, with no reviewer, is a queue that stops rather than one that waits.',
+        s.reviewRequired,
+        g.reviewRequired
+      ),
+      tri(
         'autoShip',
         'Merges ship themselves',
         'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
@@ -2183,6 +2350,7 @@
               <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
               <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
+              ${r.autoMerge && r.reviewRequired ? '<span class="tag warn">reviewed first</span>' : ''}
               <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
               ${
                 // Only where Slack is on at all: a "no slack" tag on every repo of every
@@ -2348,7 +2516,7 @@
     // and a repo still one readable run on a phone (bc-henk). Deliberately not gathered
     // into a block of epic cards after all the repo cards: on a phone that would put the
     // reason a repo is dispatching groups a whole screen away from the repo doing it.
-    const runFor = (w, a, proposals, r) => advocateCard(w, a, proposals, r) + epicCards(a);
+    const runFor = (w, a, proposals, r) => advocateCard(w, a, proposals, r) + epicCards(w, a);
     const cards =
       withAdv
         .map((w) => runFor(w, advocates.get(w.name), state.proposals.get(w.name) || [], roster.get(w.name)))
