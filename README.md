@@ -5355,6 +5355,50 @@ onto the record it already persists, and the card reads it through `advocates.ad
 `waitingOn` is **not** repeated inside the object: the card already carries it at the top
 level, and one fact arriving twice in one payload is two copies of a state that can drift.
 
+#### What the card draws, and what a tap on the advocate line opens
+
+The control on a P0 card is four states now rather than a button (bc-r2b5.2). All four are
+read off `advocacy` in one place — `p0AdvState` in public/app.js — so the grid cell, the
+epic's own tab and the advocate sheet cannot disagree about which state an epic is in:
+
+| state | what the card is |
+|---|---|
+| nobody on it | *"Put an advocate on it"*, exactly as it was |
+| opening | a disabled button. There is no pid to link to for the minute before a window names itself, and the honest thing to do with a control that would 409 is say why it is not offered |
+| **assigned, idle** | who has it, **when its last window ran** — "last looked 3h ago" — and why one is not up right now if something is holding it. **Not** an offer to open a second one |
+| live | the anchor into `/session?pid=…`, unchanged, with the way into its history beside it |
+| **done** | every child closed and `lib/finishedepic.js` has already asked, so the card offers the close rather than leaving it to be found in the inbox |
+
+"Advocated" on its own is the same card whether the advocate looked twenty minutes ago or a
+fortnight ago, and only one of those is a problem — so the time is not decoration, it is the
+half that makes idle readable. An epic assigned but never opened says *that* rather than
+borrowing a time from a record that does not exist.
+
+The done state's close is `expand(key)` and nothing else: the inbox card that
+`lib/finishedepic.js` already wrote, with its parsed options, its arm-then-confirm and its
+submit queue. A second answer surface would be a second copy of the hardest screen in the
+app. Where this page's payload has no row for the epic — `/api/questions?scope=agent` sweeps
+none — it says where the close is instead of offering a tap that would do nothing.
+
+**Tapping the advocate line opens the advocate**, as a fixed layer over the epic's own tab
+(`z-index: 41` to the tab's 40 — the one place in this app where two of these stack on
+purpose). Four sections: *where it is* (the assignment, its carrier, what is holding the next
+window), *what it is waiting on* (the advocate's sentence in full, where the card shows a
+line of it), *the plan* — `lib/plan.js`'s groups, read back off the epic's thread, with how
+many beads of each have closed — and *what has run*: its own archived sessions, then per
+child what ran on that child.
+
+Three fetches on that tap and they cost three different things: `/api/bead` for the epic (a
+`bd show`, and where the plan comment is), `/api/session-archive` for the epic (one `git
+log`), and one more per **direct child**. One level, which is what "per child" means and is
+the same question `lib/finishedepic.js` asks — a whole subtree would be a `git log` per
+descendant on a single tap.
+
+Every source in there has a third state and each is drawn as itself: the plan is absent,
+unreadable or **not fetched yet**; the archive is looking, present, absent, or "we asked and
+could not find out" (which offers the link anyway); the waiting-on sentence is written or it
+is not. Nothing renders *we have not looked* as *there is nothing*.
+
 **Three events, and deliberately not all of them.** A descendant that *closed*, one that
 was *filed*, one that *stalled*. Not one that started — `open → in_progress` is a worker
 window coming up, which is the system working, and on a subtree of thirty that flip is
