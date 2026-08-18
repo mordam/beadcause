@@ -719,6 +719,14 @@ The cut is affordable for the same reason the row was not: what the picker has t
 common case — is not cut at all. `scripts/topbar-check.mjs` measures both halves and
 fails the repo if the bar ever needs a second row again.
 
+**One page has no title beside it, and that is what the picker being there costs the
+others nothing to fix.** `/monitor` is *the details of the selected space*, so a heading
+reading `Space` sat immediately left of a control reading `Personal` — the noun and its
+instance, twice, on the row where a 360px phone has the least to spare. It is gone
+(bc-mtdb): that bar is the mark, the picker, and the page's own tally. The other standing
+views keep theirs — History, Endorse, Requirements name the *page*, which is not what the
+picker says, so nothing on them is doubled.
+
 Pick `beadcause` and it is beadcause's questions in the inbox, beadcause's advocate on
 the advocate console, beadcause's pull requests on the board, beadcause's chats in the
 launcher and beadcause's agents on the foundations screen. Nothing else, anywhere. A
@@ -936,10 +944,7 @@ are on it — under the **Config** chip on that page's own row:
 
 ```
 ┌──────────────────────────────────────────────┐
-│  ● Space                        ⚙  ⟳         │
-│  ┌──────────────────────────────────────┐    │
-│  │ Personal                         ▾   │    │
-│  └──────────────────────────────────────┘    │
+│  ●  ▣⚙   [ Personal      ▾ ]   2 working     │
 ├──────────────────────────────────────────────┤
 │  Advocates    PRs   [Config]   Mirror        │
 ├──────────────────────────────────────────────┤
