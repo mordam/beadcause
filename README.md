@@ -4252,7 +4252,10 @@ list already in hand get drawn. Off Home they are `<a href="/?kind=…">`, read 
 and the service worker matches with `ignoreSearch` so a query on the shell's own path
 still resolves to the precached document offline. Which pill is lit is therefore not
 always a fact about the path: off Home it is, and on Home the *filter* is the answer,
-pushed at the row through `window.beadcause.views.mark()`.
+pushed at the row through `window.beadcause.views.mark()`. The per-kind counts ride the
+same channel and for the same reason — `counts(map)` beside `mark(id)`, from the same
+`paint`, filling [the badge four of the pills
+carry](#getting-around--the-pill-row).
 
 **The selected kind no longer makes the summary line bold**, and that is the reverse of
 what the panel did while the kinds were in it. A narrowing has to be admitted to somewhere
@@ -6292,7 +6295,7 @@ So there is one row now, under the top bar on every page the bottom bar was on:
   │ ● Beadcause                              🗳  ⌨️  ⟳ │
   │ Personal ▾                                    3 ▸    │
   ├──────────────────────────────────────────────────────┤
-  │ [🎯 My Epics] ❓ Questions 🚢 PRs 💬 Chats 📜 …      │  ← scrolls sideways
+  │ [🎯 My Epics 7] ❓ Questions 3 🚢 PRs 2 💬 Chats …  │  ← scrolls sideways
   └──────────────────────────────────────────────────────┘
 ```
 
@@ -6326,13 +6329,44 @@ already, which is the thing this change exists to stop. The selected pill is scr
 view on load — done by arithmetic on the two rectangles rather than with `scrollIntoView`,
 which is allowed to scroll every ancestor and would quietly move the list under it.
 
-**No counts and no badges, on any pill.** Advocates used to carry one — how many proposals
-were waiting — and it went with the bar. A badge is a number about a page you are *not*
-looking at, and it was only ever live on the one page whose poll happened to fetch it: on
-every other page the bar drew nothing, which was honest and was also a second thing to
-have learned. The count is still served and still on screen, in the advocate console's own
-tally ("3 working · 1 to answer"), beside the repo it belongs to instead of standing in
-for all of them.
+**Four counts, and only on Home.** My Epics, Questions, PRs and Chats each carry a number:
+how many rows tapping that pill would leave you with. All Beads, History and Advocates
+carry none — the first is unbounded and says nothing you would act on, and the other two
+are pages of their own with their own polls.
+
+This reverses a decision this section used to record, and the objection it was written
+against still stands as written. Advocates carried a badge once — how many proposals were
+waiting — and it went with the bar, because a badge is a number about a page you are
+*not* looking at and it was only ever live on the one page whose poll happened to fetch
+it. What answers that is **where** the number is drawn rather than what it counts. It is
+drawn on Home alone, off data the page is already holding: `surveyKinds` in
+`public/app.js` counts the rows per kind on every render — before the kind filter and
+after the space picker, so the number is what *picking* the pill gets you rather than what
+you are already looking at — because the filter panel needed those numbers before the row
+did. The badge is a second reading of that one count, refreshed by the same 25-second poll
+that redraws the list beneath it, and there is no page it can be stale on because there is
+no other page it is drawn on. Off Home the pills are plain links with nothing on them.
+
+`My Epics` is the one number nothing counts directly, and it is derived in
+`public/inboxfilter.js` rather than by the caller. My Epics is a *place* and not a slice —
+it has no predicate, so no row is ever *of* that kind — and what tapping it does is clear
+the selection, which leaves every row that survives its own sub-filter. That is the sum of
+the four slices, so summing them is the same arithmetic done once, and the badge and the
+list cannot come to disagree about it.
+
+**Pushed at the row, never pulled by it, and written as text.** `public/viewbar.js` is
+loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
+numbers itself — they arrive through `window.beadcause.views.counts(map)`, beside the
+`mark(id)` that says which pill is lit, from the same `paint`. It is a no-op off Home and
+for any id the row draws no badge for. The update replaces the badge's *text* and never
+goes through the row's `draw()`, which rebuilds every node in it: the inbox repaints every
+25 seconds, and a row rebuilt on that timer drops the focus ring off a pill somebody is
+tabbing through. A count of zero is drawn as `0` rather than by hiding the badge, so a
+pill does not change width under a thumb already on its way to it.
+
+The count the bar used to carry is still served and still on screen, in the advocate
+console's own tally ("3 working · 1 to answer"), beside the repo it belongs to instead of
+standing in for all of them.
 
 **What is not a pill, and why.** `/admin` is the screen you least want under a stray
 thumb, so it loses the rightmost tab it had — and it does not need one: since bc-khoe.5 it
@@ -6430,6 +6464,20 @@ reaches it rather than something drawn over it; that the row is one line and scr
 sideways instead of wrapping; and that the pill saying where you are is scrolled into view
 on load, which is asked again on a viewport too narrow for the row to fit, because that
 promise is unobservable on a row with room to spare.
+
+It also holds [the four counts](#getting-around--the-pill-row), and that half is the only
+one it feeds real data for. The fixture serves a known list — three questions, two chats
+and three pull requests of which one is merged — so the badges are asserted against
+arithmetic on what was served rather than against themselves, and the merged one is the
+point of the third: `PRs` is counted through its own status sub-filter, so a badge saying
+3 there would be the pill promising a screen it does not open. Then each pill is tapped
+and the rows it leaves on screen are counted, because *the number agrees with the list* is
+the whole claim and the numbers alone cannot make it. Which pills carry a badge is read
+out of `PILLS` like everything else, so a pill gaining or losing one is an edit to the row
+rather than to the check; that no pill carries one off Home is asserted on all eight pages.
+Two more are asked by pushing numbers straight at `window.beadcause.views.counts` — that
+the badge element is the *same node* after the number moved and focus is still on the pill
+it was on, and that the row is still one line at 360px with every count at three digits.
 
 Two things about it are derivations rather than lists. The **pills** are read out of
 `PILLS` in `public/viewbar.js` — bc-khoe.4 and bc-khoe.7 each change that set, and a list
@@ -26048,9 +26096,11 @@ tell "somebody has that port" from "Chrome is slow", so every failure took sixty
 came out as `Chrome never exposed a page target`. There is no contended-port case left,
 but a moved install or a bad `CHROME_PATH` is still real: the spawn failure is caught and
 reported as `Chrome would not start`, an exit during startup is reported as that, and
-every path out — including the ones that throw — kills the process and deletes the
-profile. The old copies only cleaned up on success, which on a laptop that runs these all
-night is how a temp directory fills with headless Chromes nobody can account for.
+every path out — including the ones that throw — kills the process and asks for the
+profile to be deleted. The old copies only cleaned up on success, which on a laptop that
+runs these all night is how a temp directory fills with headless Chromes nobody can
+account for. *Asking* for the delete turned out not to be the same as getting it, which is
+the next section.
 
 `node test/chromeport.mjs` is what keeps it. The fix is one line and reverting it is
 invisible — nothing about a guessed port looks wrong in review, the failure it causes is
@@ -26067,6 +26117,65 @@ no browser: `npm test` does not depend on Chrome and this was not the suite to m
 one. The half that can be had without one is measured for real, by pointing the launcher
 at a binary that does not exist and asserting on both the message and the absent profile
 directory.
+
+### Killing a browser is not the same as it being gone — `test/chromeprofile.mjs`
+
+The section above ends by saying every path out of `launchChrome` kills the process and
+deletes the profile. It did both, in that order, on consecutive lines — and the deletion
+lost anyway, on the ordinary path, in a check that exited 0. Measured 2026-08-18: a
+`gate-check.mjs` run that passed 20/20 took the temp directory from seven
+`beadcause-gate-*` directories to eight, the oldest of the seven from the previous
+morning. A census the same day found **798 leaked Chrome profiles** across forty-odd
+check prefixes (bc-5e85).
+
+**`kill()` is not a wait.** It returns once the signal is queued, and what it is queued
+for is a tree — Chrome's renderer, GPU and crashpad children go on writing into the
+profile for a moment after the browser process has taken it. `rmSync` on the next line
+walks a directory that is being repopulated behind it, and there are two ways for that to
+end, both of which were watched happening against a real Chrome: it throws `ENOTEMPTY`, or
+it *succeeds against a directory that then comes straight back*. Neither says anything to
+anybody. The check has already printed its results and exited 0.
+
+`{ maxRetries: 3 }` looked like the answer to that and is not — it is `rmSync`'s own
+internal retry of a **failed unlink**, so it cannot see the second shape at all. It was
+removed rather than raised, and removing it made the teardown four times faster: the same
+real teardown took 740ms with it and 190ms without, for the same outcome, because it backs
+off inside a tree walk that is failing at several depths at once.
+
+What replaced it is `killAndRemove`: SIGTERM, then a bounded loop that deletes, asks
+whether the directory is *gone*, and keeps asking until it is. SIGTERM before SIGKILL for
+the reason `bin/router.js` gives — it is the one Chrome can act on, and a Chrome that shuts
+down properly takes its children with it, which removes the race rather than outwaiting it.
+SIGKILL is second and two seconds later because it is not free: it drops the browser
+process and leaves the children it was about to collect to be reparented to pid 1, which is
+the leak bc-1eru is about. Real measurement after the change: the same `gate-check.mjs`
+goes 8 → 8 where the old code goes 8 → 9, and a teardown costs about 175ms.
+
+**Gone is asked twice**, which is the part that is easy to leave out and was. A writer that
+is still going recreates the path within a millisecond or two of losing it, so a single
+`existsSync` taken straight after the delete can land in that gap and report a clean
+teardown to a caller whose directory reappears a moment later — the original bug, one layer
+in. The suite caught that in the first version of the fix rather than a laptop catching it
+in a month.
+
+It is all synchronous, and that is not a style choice. `close()` is called by every
+`scripts/*-check.mjs`, several of them immediately before `process.exit()`, which does not
+wait for a pending promise; an async teardown would be cut short at exactly the call sites
+that most need it to finish, and it is also registered as a process-exit teardown, where
+nothing asynchronous ever runs again. So the wait is `Atomics.wait` on a throwaway
+`SharedArrayBuffer`, the same instrument and the same reason as `test/helpers/tmp.mjs`.
+
+`node test/chromeprofile.mjs` keeps it, and launches no browser, for the reason
+`test/chromeport.mjs` gives: `npm test` does not depend on Chrome. The browser is a node
+child that does the one thing about Chrome this code cares about — it writes into the
+profile continuously, and in one scenario declines to die of SIGTERM. That is the worst
+case the escalation exists for and it is reproducible at any speed, where a real Chrome
+would only be measuring how fast this particular Mac shuts a browser down. Every scenario
+is backed by a control that must **fail**: the same stubborn child is torn down with the
+exact two lines that shipped before, and the directory is asserted to survive them. Without
+it a green run would prove only that the fake browser was easy to kill. And the counting is
+done inside a sandbox directory the suite makes for itself, because counting the shared
+temp directory is what made `test/browse.mjs` flaky through four separate bug reports.
 
 ### A guard that fires must say what it is — `test/monitorwidth.mjs`
 
