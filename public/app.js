@@ -1183,6 +1183,50 @@
   }
 
   /**
+   * "⚖ in-review · G2" — where the *ruling* on this bead is, beside where its branch is.
+   *
+   * bc-bmry.5, answering dv-uhl. `lib/prstage.js` says where a pull request has got to
+   * and keeps saying only that; this is the other axis, off deluvia's approval labels,
+   * and the two are drawn side by side because they are two facts rather than two
+   * readings of one. A chapter can be `in-review` with no branch anywhere near it, and a
+   * branch can be merged over a deliverable nobody has ruled on.
+   *
+   * **Absent on every bead outside the pipeline** — today every bead in every workspace
+   * but deluvia, and in deluvia 58 of 151. That is the opposite call from `modelChipHtml`
+   * beside it and for the opposite reason: every bead is routed to a model, so a blank
+   * there hides the ones worth tiering, where almost no bead is a review packet and a
+   * chip on every card would be a chip carrying no information on ten cards out of
+   * eleven.
+   *
+   * **Everything it means is in the text**, the same rule the model chip is built on: a
+   * phone has no hover, the `title` is for a desktop, and nothing here depends on it.
+   *
+   * Reads `q.approval`, derived on the daemon in lib/approvalcard.js and handed to the
+   * bead sheet as the identical object.
+   */
+  function approvalChipHtml(q) {
+    const a = q.approval;
+    if (!a) return '';
+    // A gate bead is not in a state — it is the thing the states are counted towards —
+    // and a deliverable can carry `gate:G2` before ward has put it anywhere. So the word
+    // is what there is to say, and when there is no word the gate is.
+    const bits = [];
+    if (a.isGate) bits.push('gate');
+    if (a.label) bits.push(a.label);
+    if (a.gates?.length) bits.push(a.gates.join('/'));
+    if (a.revision != null) bits.push(`rev ${a.revision}`);
+    if (a.problem) bits.push('⚠');
+    if (!bits.length) return '';
+    const cls = a.problem ? ' bad' : a.state ? ` is-${a.state}` : '';
+    const note = [a.note, a.problem, a.isGate ? 'A gate: only a tap closes it.' : '']
+      .filter(Boolean)
+      .join(' — ');
+    return `<span class="pill approval${cls}"${note ? ` title="${esc(note)}"` : ''}>⚖ ${esc(
+      bits.join(' · ')
+    )}</span>`;
+  }
+
+  /**
    * The pill that says whose question this is, and the way to change the answer.
    *
    * **Nothing at all on an install with no `cfg.me`**, which is every install that has
@@ -3000,6 +3044,7 @@
           ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
           ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
           ${modelChipHtml(q)}
+          ${approvalChipHtml(q)}
           ${addresseeHtml(q)}
           ${draft && !open ? '<span class="draft-flag">draft saved</span>' : ''}
           <time>${esc(relTime(q.createdAt))}</time>
@@ -4921,6 +4966,12 @@
    * Hand the control what this render is about to draw: which kinds are reachable, and
    * how many of each survived the space picker. The numbers are counted *before* the
    * kind filter, so a chip's count is what picking it would leave you with.
+   *
+   * Since bc-khoe.23 they are also what the four counted pills on the row say out loud —
+   * the filter pushes them on to public/viewbar.js from its own `paint`. That is why
+   * there is still only one place that counts: a badge is a second *reading* of this
+   * number, never a second count of the same rows, which is the only way the badge and
+   * the list under it cannot disagree.
    */
   function surveyKinds(rows) {
     const f = window.beadcause?.inboxFilter;
@@ -9887,10 +9938,25 @@
     if (kinds.length && !kinds.includes('pr')) f.set([...kinds, 'pr']);
   }
 
-  /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
+  /**
+   * #workspace/id from an ntfy notification tap, or the Android shell's deep link.
+   *
+   * The hash is not this page's alone any more — bc-khoe.30 makes it how you move
+   * between views as well — so what a hash *is* comes from public/hashroute.js rather
+   * than from a decode here. Only a card is ours; a view name and a hash nobody minted
+   * both leave without touching anything.
+   *
+   * That is not tidiness. This function used to read every hash as a key, and the
+   * not-found branch below widens a persisted scope filter and reloads — so `/#history`,
+   * landing on Home under the old code, silently changed a filter on its way to doing
+   * nothing at all. The rescue is for a deep link to a card the current scope hides; it
+   * now only ever sees one.
+   */
   let hashHandled = '';
   async function focusHash() {
-    const key = decodeURIComponent(location.hash.replace(/^#/, ''));
+    const at = window.beadcause.route.parse(location.hash);
+    if (at.kind !== 'card') return;
+    const key = at.key;
     if (!key || key === hashHandled) return;
     // Before `byKey`, which reads the board rather than the filtered list and so finds a
     // pull request whether or not the chips would draw it. `expand` below is what would
