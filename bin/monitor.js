@@ -269,6 +269,20 @@ function eventDetail(e) {
       // rebuilt here on purpose: three renderings of one fact are three chances for the
       // monitor to say something subtly different from the phone about the same tick.
       return e.detail || (e.state === 'ok' ? 'syncing again' : 'not syncing');
+    // The four the phone draws as cards of its own (lib/news.js). Same argument as
+    // `sync` above: the daemon already composed the sentence the notification carries,
+    // so this prints it rather than writing a third version of the same fact. `title`
+    // and `text` are the two fields all four are built from, which is what lets one
+    // case cover three of them.
+    case 'landed':
+    case 'released':
+    case 'epic-done':
+      return `${e.title || ''}${e.quiet ? '  (quiet — not pushed)' : ''}`;
+    case 'stuck':
+      // The clear is not silence: it is the news that something that was broken is not
+      // any more, and a log that only showed the breakages would leave every one of
+      // them looking unresolved forever.
+      return e.state === 'clear' ? `cleared — ${e.title || 'it is working again'}` : `STUCK — ${e.title || ''}`;
     case 'monitor':
       return `watching ${BASE} — everything the daemon does appears here`;
     default:

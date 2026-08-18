@@ -145,6 +145,41 @@ fs.mkdirSync(path.dirname(fakeManifest), { recursive: true });
 fs.writeFileSync(fakeManifest, 'root-one');
 const fakeWs = { name: 'fake', dir: fakeDir };
 
+const fakeJournal = path.join(
+  fakeDir, 'embeddeddolt', 'fk', '.dolt', 'noms', 'vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv',
+);
+
+await check('the journal moves the mark on its own — this is the whole server-mode fix', () => {
+  // A dolt sql-server defers the manifest rewrite by ~35s but appends to the journal
+  // at once, so this case is the server-mode workspace's ONLY signal inside the
+  // latency budget. Driven by hand rather than through bd because reproducing it
+  // for real needs a running server.
+  fs.writeFileSync(fakeJournal, 'aaaa');
+  const before = trackerMark(fakeWs);
+  fs.appendFileSync(fakeJournal, 'bbbb');
+  assert.notEqual(trackerMark(fakeWs), before, 'the journal grew and the mark did not');
+});
+
+await check('it is the journal SIZE, not its mtime — reads move mtime under embedded Dolt', () => {
+  const before = trackerMark(fakeWs);
+  const then = new Date(Date.now() + 60_000);
+  fs.utimesSync(fakeJournal, then, then);
+  assert.equal(trackerMark(fakeWs), before, 'a touched journal reported a write');
+});
+
+await check('it is the size, not the bytes — the journal is 854MB on the real workspace', () => {
+  const before = trackerMark(fakeWs);
+  const size = fs.statSync(fakeJournal).size;
+  fs.writeFileSync(fakeJournal, 'z'.repeat(size));
+  assert.equal(trackerMark(fakeWs), before, 'same-size different-bytes reported a write');
+});
+
+await check('a workspace with a manifest and no journal is still a mark, not null', () => {
+  fs.rmSync(fakeJournal, { force: true });
+  assert.ok(trackerMark(fakeWs), 'losing the journal lost the whole mark');
+  fs.writeFileSync(fakeJournal, 'aaaa');
+});
+
 await check('two databases in one workspace are one mark, and either one moving moves it', () => {
   const second = path.join(fakeDir, 'embeddeddolt', 'zz', '.dolt', 'noms', 'manifest');
   fs.mkdirSync(path.dirname(second), { recursive: true });

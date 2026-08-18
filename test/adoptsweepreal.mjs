@@ -24,6 +24,15 @@
  *     write is not attempted thirty times an hour forever. That is only safe while bd
  *     really does refuse — and the day it stops, this file is how anybody finds out.
  *
+ * **Every sweep below plans against a reading taken through `settled`, not through a bare
+ * `bd.graph(ws, { refresh: true })`** — bc-j52g, and it is what made this file fail about
+ * one run in four on a loaded Mac. A refresh is one `bd export`, an export that fails is
+ * answered with the last good index, and the epic written two lines earlier is then simply
+ * not in the graph the sweep plans against: nothing applied, nothing refused, nothing
+ * logged, and an assertion reading `children: []` with no way to tell that from an applier
+ * that had stopped working. `settled` reads until the reading contains what it is about,
+ * and every check that can go red now prints what the sweep itself said.
+ *
  * Nothing here is shared: a fresh mkdtemp workspace, so it takes no Dolt write lock any
  * other session is waiting on. Skipped loudly where `bd` is not installed, exactly as
  * test/epicedgereal.mjs and test/closegatereal.mjs are — a machine without the tracker
@@ -88,6 +97,71 @@ const ws = { name: 'adoptsweepreal', dir };
 const make = (over = {}) => bd.create(ws, { title: 'a bead', body: 'x', priority: 2, type: 'task', labels: [], ...over });
 const childIds = async (id) => (await bd.children(ws, id)).map((c) => c.id).sort();
 const show = async (id) => bd.show(ws, id);
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The index the sweep is about to plan against, once it can actually see what was
+ * just written. **This is bc-j52g and it is the whole of why this file was flaky.**
+ *
+ * `Bd.graph` is one `bd export`, and an export that fails is answered with the last good
+ * index rather than with nothing — the right answer for a screen, and a silent one here:
+ * the epic created two lines above is simply absent from it, so `adoptionPlan` plans
+ * nothing, `sweepAdoptions` writes nothing, and the assertion below reads `children: []`
+ * with no refusal, no failure and no log line to say why. One `refresh: true` is a single
+ * attempt at a read, and on a Mac running twenty sessions a single attempt is not a
+ * guarantee. So this asks again until the reading contains the beads it is about, which
+ * is a wait on the write having landed rather than a sleep in front of it — a fixed delay
+ * would be both slower than this on the ordinary run and no answer at all on the bad one.
+ *
+ * It fails loudly rather than returning a reading it knows is not current: `[]` children
+ * over a stale graph is the same red as a broken applier and cost two sessions to tell
+ * apart, and naming what was missing is the difference.
+ */
+const settled = async (epicId, wanted) => {
+  const deadline = Date.now() + 30_000;
+  let index;
+  let why = '';
+  for (let tries = 0; ; tries += 1) {
+    index = await bd.graph(ws, { refresh: true });
+    const missing = wanted.filter((id) => !index.beads.has(id));
+    const listed = index.adopts.get(epicId) || [];
+    const unread = wanted.filter((id) => !listed.includes(id));
+    if (index.stale) why = `the export could not be re-read: ${index.stale}`;
+    else if (!index.beads.has(epicId)) why = `${epicId} is not in the export yet`;
+    else if (missing.length) why = `${missing.join(', ')} not in the export yet`;
+    else if (unread.length) why = `${epicId}'s Adopts: line does not name ${unread.join(', ')} yet`;
+    else return index;
+    if (Date.now() >= deadline) break;
+    await pause(Math.min(250 * (tries + 1), 2000));
+  }
+  throw new Error(`the graph never caught up with what was written — ${why}`);
+};
+
+/**
+ * The children of an epic, once the adoption the sweep says it wrote is visible.
+ *
+ * The sweep's own answer is the authority on whether the write was *attempted* and what
+ * bd said if it was refused — this waits only for `bd list --parent` to agree with a
+ * write that already returned, which is the half of the bead's title that is a genuine
+ * read-after-write. Bounded, and it returns whatever it has at the deadline so the
+ * assertion prints the real children rather than a timeout.
+ */
+const adoptedInto = async (epicId, wanted) => {
+  const deadline = Date.now() + 15_000;
+  for (let tries = 0; ; tries += 1) {
+    const kids = await childIds(epicId);
+    if (wanted.every((id) => kids.includes(id)) || Date.now() >= deadline) return kids;
+    await pause(Math.min(250 * (tries + 1), 2000));
+  }
+};
+
+/** What the sweep itself said about one epic — the sentence a mute `children: []` owes. */
+const sweepSaid = (out, epicId) =>
+  JSON.stringify({
+    applied: out.applied.filter((a) => a.epic === epicId),
+    refused: out.refused.filter((r) => r.epic === epicId).map(describeRefusal),
+    failed: out.failed.filter((f) => f.epic === epicId),
+  });
 
 /* ------------------------------------------------------- the free ones, and the gate */
 
@@ -117,7 +191,8 @@ const epic = await make({
 // written five beads the cached index predates all of them. Refreshed here rather than
 // inside the sweep, because a sweep that forced an export every thirty seconds per
 // workspace would be paying nine seconds a cycle to be sixty seconds less patient.
-await bd.graph(ws, { refresh: true });
+// Through `settled` and not one bare `refresh: true`, for the reason written on it.
+await settled(epic, [free1, free2, elsewhere]);
 
 {
   // The collision the whole `relates-to` rule exists for, and it is real rather than
@@ -139,8 +214,11 @@ const out = await sweepAdoptions(bd, [ws], { onLog: (l) => said.push(l) });
 check(() => assert.deepEqual(out.applied.map((a) => a.bead).sort(), [free1, free2].sort(), JSON.stringify(out)), 'the sweep applies the entries that were free');
 
 {
-  const kids = await childIds(epic);
-  check(() => assert.deepEqual(kids, [free1, free2].sort(), `children: ${kids.join(', ')}`), 'and bd itself now says they are children of the epic');
+  const kids = (await adoptedInto(epic, [free1, free2])).sort();
+  check(
+    () => assert.deepEqual(kids, [free1, free2].sort(), `children: ${kids.join(', ')} — the sweep said ${sweepSaid(out, epic)}, and logged ${JSON.stringify(said)}`),
+    'and bd itself now says they are children of the epic'
+  );
 }
 
 check(() => {
@@ -182,10 +260,14 @@ check(() => assert.equal(out.refused.length, 2, JSON.stringify(out.refused)), 'a
   // write the line, wait a tick, close the epic.
   const only = await make({ title: 'the one bead of a tidy epic' });
   const tidy = await make({ type: 'epic', title: 'a tidy epic', body: `Adopts: ${only}.` });
-  await bd.graph(ws, { refresh: true });
-  await sweepAdoptions(bd, [ws]);
-  const kids = await childIds(tidy);
-  check(() => assert.deepEqual(kids, [only], `children: ${kids.join(', ')}`), 'an epic whose list is all free has all of it applied in one pass');
+  await settled(tidy, [only]);
+  const tidySaid = [];
+  const swept = await sweepAdoptions(bd, [ws], { onLog: (l) => tidySaid.push(l) });
+  const kids = await adoptedInto(tidy, [only]);
+  check(
+    () => assert.deepEqual(kids, [only], `children: ${kids.join(', ')} — the sweep said ${sweepSaid(swept, tidy)}, and logged ${JSON.stringify(tidySaid)}`),
+    'an epic whose list is all free has all of it applied in one pass'
+  );
   bdRun(['close', only, '--reason', 'done']);
   const gate = await bd.gateFor(ws, await show(tidy));
   check(() => assert.equal(gate, null, JSON.stringify(gate)), 'and the close gate then lets it go, which is the whole of the contract');
@@ -198,7 +280,10 @@ check(() => assert.equal(out.refused.length, 2, JSON.stringify(out.refused)), 'a
   bdRun(['dep', 'add', provenance, epic, '--type', 'discovered-from']);
   bdRun(['update', epic, '--notes', `Adopts: ${provenance}.`]);
 
-  const plan = adoptionPlan(await bd.graph(ws, { refresh: true }));
+  // `settled` again and not a bare refresh: the two writes above are a `bd dep add` and a
+  // `bd update --notes`, and a plan read off an export that predates them refuses nothing
+  // at all — the same mute red as the block above, one assertion further down.
+  const plan = adoptionPlan(await settled(epic, [provenance]));
   check(
     () => assert.match(plan.refused.map(describeRefusal).join(' | '), new RegExp(`cannot adopt ${provenance}: already linked by a discovered-from edge`)),
     'the plan refuses a pair that already holds a provenance edge, without spawning anything'

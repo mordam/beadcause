@@ -72,6 +72,28 @@ function check(name, fn) {
   }
 }
 
+/**
+ * The same, awaited — for a check whose body has to let a write resolve.
+ *
+ * `check()` calls its function and does not wait for it, which for an `async` body means
+ * the ✓ is printed before the assertions have run and a failure arrives later as an
+ * unhandled rejection. The suite does still fail — Node exits non-zero on one — but it
+ * fails at the first one, after a screen of ticks, and names none of them. The checks
+ * below all turn on the ordering of a write against a poll, so they are the ones that
+ * cannot afford that.
+ */
+async function acheck(name, fn) {
+  ran += 1;
+  try {
+    await fn();
+    console.log(`  \x1b[32m✓\x1b[0m ${name}`);
+  } catch (err) {
+    failures += 1;
+    console.log(`  \x1b[31m✗\x1b[0m ${name}`);
+    console.log(`      ${err.message.split('\n')[0]}`);
+  }
+}
+
 /* The picker runs in a vm, so everything it hands back was built by that realm's own
    `Object` and fails a strict deep-equal against a host literal on the prototype alone.
    Copied into this realm before comparing — the values are what is being checked. */
@@ -89,7 +111,7 @@ console.log('\nspace picker');
  * which is exactly what the checks below want to read. A real DOM here would be testing
  * a parser.
  */
-function load({ token = 'tok', fetch = async () => ({ ok: false }) } = {}) {
+function load({ token = 'tok', fetch = async () => ({ ok: false }), clock = null } = {}) {
   const el = (id) => ({
     id,
     hidden: false,
@@ -168,6 +190,11 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }) } = {}) {
     URLSearchParams,
     fetch,
     JSON,
+    /* The room's clock. The picker holds the value a tap replaced for a bounded while
+       (`PENDING_MS`), and a bound is not testable against a real one without sleeping
+       for it — so a check that cares hands in its own `now`. Everything else gets the
+       host's `Date`, which is what the vm's own realm would have given it anyway. */
+    Date: clock ? { now: clock } : Date,
   });
   vm.runInContext(fs.readFileSync(PUBLIC('spacebar.js'), 'utf8'), ctx, { filename: 'spacebar.js' });
   // `win` so a check can hang something else off `beadcause` after the file has loaded —
@@ -456,7 +483,7 @@ check('a page with no edit mode on it paints exactly as it always did', () => {
 
 /* ------------------------------------------------------- the write, and the poll */
 
-check('a pick writes both halves to /api/filter', async () => {
+await acheck('a pick writes both halves to /api/filter', async () => {
   const sent = [];
   const h = load({ fetch: async (url, opts) => (sent.push({ url, body: JSON.parse(opts.body) }), { ok: true, json: async () => ({ ok: true }) }) });
   h.space.adopt({ spaces: SPACES, workspaces: NAMES, filter: { space: 'all', workspace: 'all' } });
@@ -468,7 +495,7 @@ check('a pick writes both halves to /api/filter', async () => {
   assert.deepEqual(sent[0].body, { space: 'Personal', workspace: 'beadcause' });
 });
 
-check('while that write is out, writing() is true — a poll must not undo the tap', async () => {
+await acheck('while that write is out, writing() is true — a poll must not undo the tap', async () => {
   let release;
   const h = load({ fetch: () => new Promise((r) => (release = () => r({ ok: true, json: async () => ({}) }))) });
   h.space.adopt({ spaces: SPACES, workspaces: NAMES, filter: { space: 'all', workspace: 'all' } });
@@ -481,7 +508,7 @@ check('while that write is out, writing() is true — a poll must not undo the t
   assert.equal(h.space.writing(), false);
 });
 
-check('and a payload assembled before it lands does not snap the picker back', async () => {
+await acheck('and a payload assembled before it lands does not snap the picker back', async () => {
   let release;
   const h = load({ fetch: () => new Promise((r) => (release = () => r({ ok: true, json: async () => ({}) }))) });
   h.space.adopt({ spaces: SPACES, workspaces: NAMES, filter: { space: 'all', workspace: 'all' } });
@@ -492,6 +519,89 @@ check('and a payload assembled before it lands does not snap the picker back', a
   assert.deepEqual(plain(h.space.filter), { space: 'Personal', workspace: 'beadcause' });
   release();
   await new Promise((r) => setTimeout(r, 10));
+});
+
+/*
+ * The other ordering, which is what bc-5k22 was filed for.
+ *
+ * `writing()` covers a payload that lands *during* the POST. A poll issued before the tap
+ * and answered after the write resolved lands with `writing()` already false, carrying the
+ * filter the tap replaced — and adopting that is the pick that applies and then reverts on
+ * its own, with the bar visibly snapping back. Every check below tap-then-settles first, so
+ * the guard above is provably not the one doing the work.
+ */
+const tapped = async ({ ok = true, clock = null } = {}) => {
+  const h = load({ clock, fetch: async () => ({ ok, json: async () => ({ ok: true, filter: {} }) }) });
+  h.space.adopt({ spaces: SPACES, workspaces: NAMES, filter: { space: 'all', workspace: 'all' } });
+  h.select.value = 'ws:beadcause';
+  h.select.events.change();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(h.space.writing(), false, 'the write has answered — this is the gap the counter cannot see');
+  return h;
+};
+
+const ALL_FILTER = { space: 'all', workspace: 'all' };
+const PICKED = { space: 'Personal', workspace: 'beadcause' };
+
+await acheck('a poll that was already out when you tapped does not snap the picker back', async () => {
+  const h = await tapped();
+  h.space.adopt({ filter: { ...ALL_FILTER } });
+  assert.deepEqual(plain(h.space.filter), PICKED);
+});
+
+await acheck('and the page that mirrored that payload is handed back what is really selected', async () => {
+  const h = await tapped();
+  const seen = [];
+  h.space.onChange((d) => seen.push({ source: d.source, filter: plain(d.filter) }));
+  h.space.adopt({ filter: { ...ALL_FILTER } });
+  // public/app.js keeps `state.space` for a dozen readers and writes it from the same
+  // payload before handing it here — so a silent drop would leave the bar right and the
+  // list under it filtered to the repo the tap replaced.
+  assert.deepEqual(seen, [{ source: 'hold', filter: PICKED }], 'the drop corrects the mirror');
+});
+
+await acheck('a genuine change from the other device inside that window still arrives', async () => {
+  const h = await tapped();
+  h.space.adopt({ filter: { space: 'Personal', workspace: 'sophab' } });
+  assert.deepEqual(plain(h.space.filter), { space: 'Personal', workspace: 'sophab' });
+});
+
+await acheck('and once the server has echoed our own value back, the hold is over', async () => {
+  const h = await tapped();
+  h.space.adopt({ filter: { ...PICKED } }); // the first payload assembled after our POST
+  // Which makes this one a real switch back on the laptop rather than an older poll.
+  h.space.adopt({ filter: { ...ALL_FILTER } });
+  assert.deepEqual(plain(h.space.filter), ALL_FILTER);
+});
+
+await acheck('picking twice holds what the second tap chose, not what the first did', async () => {
+  const h = await tapped();
+  h.select.value = 'ws:sophab';
+  h.select.events.change();
+  await new Promise((r) => setTimeout(r, 10));
+  // The poll that was out when the second tap happened carries the first tap's value.
+  h.space.adopt({ filter: { ...PICKED } });
+  assert.deepEqual(plain(h.space.filter), { space: 'Personal', workspace: 'sophab' });
+});
+
+await acheck('the hold is bounded, so nothing can silence the other device for ever', async () => {
+  let now = 1_700_000_000_000;
+  const h = await tapped({ clock: () => now });
+  now += 29_000;
+  h.space.adopt({ filter: { ...ALL_FILTER } });
+  assert.deepEqual(plain(h.space.filter), PICKED, 'inside the bound it is still refused');
+  now += 2_000;
+  h.space.adopt({ filter: { ...ALL_FILTER } });
+  assert.deepEqual(plain(h.space.filter), ALL_FILTER, 'past it the stored value wins again');
+});
+
+await acheck('a write that never landed gives the stored value straight back', async () => {
+  // The documented cost of a failed write is the persistence and not the filtering — the
+  // next poll puts the stored value back — so a hold outliving the write it belongs to
+  // would be this file quietly changing that.
+  const h = await tapped({ ok: false });
+  h.space.adopt({ filter: { ...ALL_FILTER } });
+  assert.deepEqual(plain(h.space.filter), ALL_FILTER);
 });
 
 check('a change made on the other device arrives through adopt and is announced once', () => {
