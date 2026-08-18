@@ -16828,13 +16828,10 @@ on day one. bc-ka5y.15.4 cuts the five channels once bc-ka5y.15.3 has auditioned
 sounds; until then news lands on the replies channel (default importance, no buzz) and a
 blockage on the questions channel (high importance, pip and a single shake).
 
-**`epic-done` has a shape and no emitter yet, and that is the shape of bc-ka5y.15.2.**
-Nothing closes an epic on its own here — `lib/bd.js` refuses an epic close on a merge,
-because a pull request is no evidence about a theme — so the event is the bead
-*transitioning* to closed, and the detection owes one suppression that has to be built with
-it: an epic you closed yourself, from the app in your hand, must not chime. What is settled
-here is what it will carry (the epic's title, and how many beads closed under it) and what
-the phone does with it when it arrives.
+**`epic-done` is the only one of the four whose *moment* is not a call site**, and it gets
+its own section below: nothing closes an epic on its own here, so the trigger is a diff of
+the tracker rather than a hook, and it owes one suppression — see
+[An epic finishing](#an-epic-finishing--a-diff-of-the-tracker-never-your-own-tap).
 
 **One landing comes from outside the daemon.** The merge queue runs in-process and calls
 the bus directly; `bin/deliver.js` is a worker's own process with no bus, and it still
@@ -16846,6 +16843,81 @@ whether or not a phone in another room hears about it.
 
 `test/news.mjs` covers all of it, including a real `POST /api/landed` into a real
 `createApp` and the `GET /api/poll` that answers with it.
+
+### An epic finishing — a diff of the tracker, never your own tap
+
+`epicDoneEvent` sat in `lib/news.js` for a day with nothing calling it, and the gap was
+deliberate: the *shape* of the card is a decision about layout, and the *moment* an epic
+finishes is a judgement. bc-ka5y.15.2 is the judgement, and it is `lib/epicdone.js`.
+
+**There is no call site to hook, so the trigger is a diff.** Nothing in this app closes an
+epic on its own. `lib/bd.js` refuses an epic close on a merge reason — *a pull request is
+no evidence about a theme* — after six epics closed that way on 2026-08-12/13 with sixty
+adoptees still open, and bd cannot be taught the rule either, because it has no pre-close
+hook (`bd hooks` installs git hooks and nothing else). So an epic closes because somebody
+decided it had, in one of four places: a tap on this app, `bd close` typed at a terminal
+here, a worker session an advocate opened, or the same on the other Mac arriving over `bd
+dolt pull`. Three of those four are other processes. What all four have in common is a row
+that changes, which is why the poller holds the set of epics that were **not** closed last
+time it looked and announces the ones that have since become so.
+
+**The read is free.** The sweep asks `bd.graph(workspace)` — one `bd export` per workspace,
+cached for sixty seconds and shared with the inbox's epic board — so on a daemon anybody
+has a phone open against this reads memory rather than the tracker. It runs on the cycle's
+ordinary slow clock with no interval of its own, late in the beat, because an epic that
+finished is exactly as finished a minute from now.
+
+**The first pass over a workspace seeds and says nothing.** A daemon that has just come up
+must not announce every epic that finished last month, which is `sweptReleasesAt`'s
+argument. What that costs is an epic closed while the daemon was down going unannounced,
+and that is the right thing to lose. The snapshot is in memory for the same reason there is
+no state file here to gitignore and nothing for `lib/evidence.js` to claim.
+
+**A tracker that would not read leaves the snapshot alone.** `bd.graph` answers an *empty
+index carrying `.error`* rather than throwing, so an export that timed out reads as "every
+epic has vanished" to anything that believes it — and in a diffing sweep it would also make
+the next good pass see the whole tracker as newly filed. That workspace is skipped whole
+and reported on stderr.
+
+#### The suppression, and why it is `actor` rather than a list of handlers
+
+**An epic you closed yourself, from the app in your hand, must not chime.** A notification
+for your own tap is the fastest way to teach somebody that a sound means nothing, and this
+is the one of the four sources above where the phone already knows — you were looking at it
+when it happened.
+
+What marks a close as yours is the `actor` on it. `actorFor(req)` in `lib/server.js` is
+`sessionOf(req)?.email || null`: a signed-in browser or app session and nothing else. Every
+token caller — an agent, `bin/deliver.js`, an ntfy action button, the poller itself — passes
+null and always has, so `actor` already means, exactly, *a person tapped this here*. The
+record is taken in **`Bd.run`**, the single funnel every `bd close` this daemon spawns goes
+through, rather than at the handlers that close things: a fifth path added next month gets
+the suppression without knowing `lib/epicdone.js` exists, and the failure mode of forgetting
+a registration would be a chime for an epic you closed while watching the screen.
+
+The ledger is **not** drained by the sweep that reads it, and that is the ordering trap.
+The graph is cached for a minute, so the beat right after a tap routinely reads a tracker in
+which the epic is still open; the transition is seen a minute later, and a ledger emptied on
+first read would have forgotten by then. Entries expire on a six-hour clock instead, under a
+cap, so a tap you have long forgotten cannot silence a real close of an epic that was
+reopened.
+
+**Two more closes are not milestones either.** A **superseded** epic is a duplicate being
+tidied away and an **unendorsed** one is a proposal being turned down; both are dropped
+here rather than in the emitter, because both are facts about the bead and `lib/news.js`
+only ever sees the four fields the card is drawn from. Neither is in bc-ka5y.15.2's
+acceptance — both are usually a tap and so already silent — but *usually* is not the bar
+when what is at stake is whether the sound means anything.
+
+The card itself is `epicDoneEvent`'s and unchanged: the epic's **title**, and **how many
+beads closed under it**. That count is children *and* adoptees, de-duplicated across the
+two, because a grouping epic keeps its work in an `Adopts:` line rather than as `bc-x.1`
+and counting only children would tell you an epic of eleven adopted beads finished with
+nothing under it. Closed only — an epic can be closed over a `deferred` child, and calling
+a deferred bead finished would be the count inventing a fact.
+
+`test/epicdone.mjs` covers it, including a real `Bd` against a stub `bd` binary, so the
+suppression is proved through the funnel rather than by reading a line of `lib/bd.js`.
 
 ### Noticing in five seconds — and not sweeping to find out
 
