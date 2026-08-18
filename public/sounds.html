@@ -86,6 +86,11 @@
        that has stopped repainting — which no page can report from inside its own render.
        Before stream.js, which stamps it on every answer. See public/freshness.js. -->
   <script src="/freshness.js"></script>
+  <!-- What the URL hash means: a view, a card to open on Home, or nothing (bc-khoe.30.2).
+       Before viewbar.js and app.js because both read the answer out of it rather than
+       parsing the hash themselves, and a page that loaded them without it would have a
+       row that cannot say which view it is on and a notification tap that throws. -->
+  <script src="/hashroute.js"></script>
   <!-- The pill row, so this screen is not a dead end. No pill of its own: it is a
        thing you are sent to once, before the channels are cut, rather than a view you
        keep coming back to — and the row is already the width of the phone. -->
