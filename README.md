@@ -14364,6 +14364,20 @@ risk, but a plan is a decomposition somebody has just made, so an overlap in one
 fact about the world, it is a bug in the plan — and the planner is the only party still
 holding the context to split it. Declaring nothing is legal and intersects nothing.
 
+**Legal, and no longer silent.** Because `files:` is optional, that refusal is opt-out — a
+plan that declared on no group exited 0 with a clean summary, indistinguishable from one
+that declared and passed. On bc-y3qk the planner worked that out and used it, reasoning
+that a wrong declaration is a hard refusal where no declaration is not, and so it reasoned
+its way out of the only automatic check on its own work. `surfaceNotes` makes the two
+states different without making either illegal: `bin/plan.js` prints a line per group that
+declared nothing, naming the check that did not run for it, and a line wherever two groups'
+surfaces meet once the undeclared ones are read off their beads' own text — the same
+`overlap`, and the same guess `lib/beadfiles.js` already makes for the dispatcher's *"which
+this bead's text names"*. They are warnings on the stderr the refusals already use, the exit
+codes are unchanged, and `files:` stays optional: a bead whose file surface is genuinely not
+known this early in an epic is a real state, and refusing it would withhold work for a
+forecast.
+
 The overlap test itself lives in `lib/beadfiles.js` beside the parser and the writer, and
 there is exactly one of it. Both sides of a comparison may be globs — `lib/**` against
 `lib/pr*.js` is a real pair — so the question is not "does A match B" but whether any path

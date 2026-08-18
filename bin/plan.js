@@ -42,6 +42,21 @@
  * into it. `files:` is a list of paths or globs, and it is also what the group's beads want
  * in their own descriptions, since the dispatcher reads the bead rather than the plan.
  *
+ * ## What it will only say — and why saying it was worth a bead of its own
+ *
+ * That refusal is opt-out, because `files:` is optional. So a plan that declared nothing was
+ * indistinguishable from a plan that declared and passed: same clean summary, same exit 0. On
+ * bc-y3qk the planner worked that out and used it — declaring on neither group, since a wrong
+ * declaration refuses and no declaration does not — and this reasoned its way out of the only
+ * check on its own work, silently.
+ *
+ * `surfaceNotes` (bc-zjab.1) makes the two states different without making either illegal: a
+ * line per group that declared nothing, naming the check that did not run, and a line where two
+ * groups' surfaces meet once the ones that declared nothing are read off their beads' own text.
+ * Warnings, on the same stderr the refusals use, and the exit codes below are unchanged —
+ * `files:` stays optional, because a bead whose surface is genuinely unknown this early is a
+ * real state and refusing it would withhold work for a forecast.
+ *
  * It also refuses a prompt containing the phrases that belong to the generated brief. The
  * group prompt is the one piece of text in any brief beadcause writes that another agent
  * authored, and it is carried as a quoted section *inside* the standard brief — never
@@ -65,7 +80,9 @@ import fs from 'node:fs';
 import YAML from 'yaml';
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
-import { formatPlan, PLANNED_LABEL, validatePlan } from '../lib/plan.js';
+import { formatPlan, PLANNED_LABEL, surfaceNotes, validatePlan } from '../lib/plan.js';
+import { multiRepo, repoList } from '../lib/repos.js';
+import { resolveSessionDir } from '../lib/session.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -144,6 +161,50 @@ try {
 } catch (err) {
   warn(err.message);
   process.exit(4);
+}
+
+/**
+ * And what the plan did not say — bc-zjab.1, `surfaceNotes` in lib/plan.js.
+ *
+ * Printed **before** the plan is written, so it is above the summary rather than under it.
+ * That ordering is the lesson of the `reopenAbandoned` note below: a warning that scrolls past
+ * beneath a clean "planned bc-x — 2 groups" is a warning nobody reads, and these are the only
+ * output a plan that skipped every check will ever produce.
+ *
+ * Everything below is best-effort on purpose and none of it can change the exit code. The two
+ * reads it wants are a disk lookup and a `bd` spawn, and a remark that could refuse a legal
+ * plan because a checkout moved would be worse than the silence it replaces.
+ *
+ * The rows come from `bd show <id>…` rather than from `children`, which is the one place the
+ * epic worker's plan for this bead was out of date with the code: `Bd.children` narrows every
+ * row to id/title/status/type/priority, and a bead's file surface lives in its **description**
+ * — so the guess would have been made from titles alone and would almost never have fired.
+ * One extra spawn, once, in a CLI a human is watching. It takes a list of ids, so it is one
+ * spawn and not one per bead, and a failure falls back to the narrow rows rather than out.
+ */
+const checkouts = () => {
+  try {
+    if (!multiRepo(cfg, ws.name)) return [{ name: null, dir: resolveSessionDir(cfg, ws) }];
+    return repoList(cfg, ws.name).repos.map((r) => ({ name: r.name, dir: r.dir }));
+  } catch {
+    // No checkout maps to this workspace — the ordinary state of a scratch tracker. Declared
+    // surfaces still compare; only the guessed half goes quiet, which is the right direction.
+    return [];
+  }
+};
+
+try {
+  const ids = [...new Set(plan.groups.flatMap((g) => g.beads))];
+  let rows = children || [];
+  try {
+    const full = await bd.json(ws, ['show', ...ids]);
+    if (Array.isArray(full) && full.length) rows = full;
+  } catch {
+    // A tracker that would not answer leaves the narrow rows in place.
+  }
+  for (const note of surfaceNotes(plan, { beads: rows, dirs: checkouts() })) warn(note);
+} catch (err) {
+  warn(`could not check ${epicId}'s plan for undeclared surfaces — ${err.message.split('\n')[0]}`);
 }
 
 try {
