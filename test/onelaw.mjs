@@ -40,6 +40,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -319,5 +320,9 @@ await check('bin/deliver.js asks the same rule about its own close', () => {
 });
 
 console.log(`\n${ran - failures}/${ran} ok\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+// Through the helper rather than a bare `rmSync`: a scratch config dir can still have a
+// write in flight when the last check passes, and an ENOTEMPTY out of a teardown fails the
+// whole run after everything it was testing succeeded. test/tmpadoption.mjs fails the repo
+// for the bare form, which is how this line got written correctly the second time.
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);
