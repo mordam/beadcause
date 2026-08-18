@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The chip row on the advocates page — which of its three panes is up.
+ * The chip row on the advocates page — which of its four panes is up.
  *
  *     npm test
  *     node test/montabs.mjs
@@ -10,14 +10,14 @@
  * everything it decides is invisible from any one pane. Four things, and each of them
  * fails silently rather than loudly:
  *
- * 1. **Exactly one pane is showing.** A three-way swap written as "hide the other one"
+ * 1. **Exactly one pane is showing.** A many-way swap written as "hide the other one"
  *    is a two-way swap that has grown a third chip: the pane that is going away has to
  *    be hidden by name, not by not being the arriving one. Get it wrong and the board
  *    draws *under* the roster on a page that still scrolls and still works.
  *
- * 2. **A hidden pane is told, so it can stand down.** Each of the three holds a parked
+ * 2. **A hidden pane is told, so it can stand down.** Three of the four hold a parked
  *    `/api/poll`, and the board's wakes are a `gh` call per repo. The subscription is
- *    the whole mechanism that stops three of them running at once, so "everyone is told
+ *    the whole mechanism that stops all of them running at once, so "everyone is told
  *    on every change, and once at boot" is the contract rather than an implementation
  *    detail — the panes have no other way to know.
  *
@@ -60,18 +60,22 @@ function check(name, fn) {
   }
 }
 
-/* The three chips as monitor.html declares them, `data-view` and all. Written out here
+/* The four chips as monitor.html declares them, `data-view` and all. Written out here
    rather than parsed out of the HTML on purpose: this suite is about what the file does
    with a row, and test/mirrorpane.mjs is what holds the row itself to the empty
-   `data-view` on the Mirror. */
+   `data-view` on the Mirror. Config is the fourth (bc-me2b) and it is here for one
+   reason beyond completeness: it sits *between* the board and the Mirror, so a swap
+   written as "hide the other one" now has two others to be wrong about rather than one,
+   and the Mirror is no longer the last chip a fallback would land on. */
 const CHIPS = [
   { tab: 'advocates', pane: 'mon', view: 'sessions' },
   { tab: 'prs', pane: 'prs', view: 'prs' },
+  { tab: 'config', pane: 'config', view: 'config' },
   { tab: 'mirror', pane: 'mirror', view: '' },
 ];
 
 /**
- * The real file, in a room with the row, the three panes and a `localStorage`.
+ * The real file, in a room with the row, the four panes and a `localStorage`.
  *
  * Returns the handles every check below reads: what each pane's `hidden` is now, what
  * each chip's `aria-pressed` is, every presence report in order, and a `tap` that fires

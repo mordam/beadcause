@@ -125,6 +125,27 @@ check(
   !/git merge origin\/main/.test(land),
   (land.match(/.*git merge origin.*/) || [])[0]
 );
+// bc-36xx.6. A worker delivery is reviewed before the queue merges it, and the review can
+// hand the branch back — so the brief has to say so before the session stops. The failure
+// this pins is a session reopened on a bead it thought was finished, on a branch it thinks
+// it has never seen: it opens a second branch, and then there are two.
+check(
+  'it says a reviewer reads the diff, and that this bead can be opened again to answer it',
+  /ReviewAdvocate/.test(land) && /a window is opened again on bc-fmt/.test(land),
+  (land.match(/.*opened again on.*/) || [])[0]
+);
+check(
+  'and that answering is changed / clarify / declined, and that finishing is not the worker’s call',
+  /`changed`/.test(land) && /`declined`/.test(land) && /never the worker's claim/.test(land),
+  (land.match(/.*never the worker's claim.*/) || [])[0]
+);
+// It must not undo the ending one paragraph above it: the review happens after this
+// window has closed, so `queued` is still the last thing this session does.
+check(
+  'and the review does not turn into something the delivering session waits for',
+  /`queued` is still the end of it/.test(land),
+  (land.match(/.*still the end of it.*/) || [])[0]
+);
 check('it offers --owed, which is where a deploy still owed gets recorded', /--owed/.test(land));
 check('and --review, the one escalation a worker may make on its own judgement', /--review/.test(land));
 check(

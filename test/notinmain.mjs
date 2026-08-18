@@ -136,18 +136,35 @@ const prRow = (over = {}) => ({
 //          ├── c6  (open-eee: never merged, a pull request is open for it)
 //          └── empty-ccc  (a branch at main, no commits of its own)
 
+/**
+ * Every commit in the fixture is three days old, and that is not decoration.
+ *
+ * The sweep will not call a branch stranded until its newest commit has stopped moving
+ * for `GRACE_MS` — a delivery pushes its branch minutes before it opens its pull request,
+ * and a sweep landing in that gap sees exactly what abandoned work looks like. So a repo
+ * built with `git commit` at wall-clock now is a repo in which the sweep is *correctly*
+ * silent about everything, and every assertion below it would pass vacuously. A branch
+ * genuinely nobody landed has an old tip; the fixture has old tips. The one case that
+ * wants a fresh one makes it explicitly.
+ */
+const OLD = new Date(Date.now() - 3 * 86400000).toISOString();
+
 const git = (...args) =>
   execFileSync(
     'git',
     ['-C', REPO, '-c', 'user.name=test', '-c', 'user.email=test@localhost', '-c', 'commit.gpgsign=false', ...args],
-    { encoding: 'utf8' }
+    { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_DATE: OLD, GIT_COMMITTER_DATE: OLD } }
   ).trim();
 
 const write = (name, text) => fs.writeFileSync(path.join(REPO, name), text);
-const commit = (name, text, message) => {
+const commit = (name, text, message, { at = OLD } = {}) => {
   write(name, text);
   git('add', name);
-  git('commit', '-q', '-m', message);
+  execFileSync(
+    'git',
+    ['-C', REPO, '-c', 'user.name=test', '-c', 'user.email=test@localhost', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', message],
+    { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at } }
+  );
   return git('rev-parse', 'HEAD');
 };
 
@@ -186,19 +203,31 @@ git('checkout', '-q', '-b', 'worktree-alsolost-fff', c2);
 commit('seven', '7', 'fff: also never landed');
 git('checkout', '-q', 'main');
 
+// A delivery in flight: pushed a minute ago, and the pull request is not open yet. This
+// is the shape that filed a card eight minutes before #315 existed — bc-xl7n.63.
+git('checkout', '-q', '-b', 'worktree-inflight-ggg', c2);
+commit('eight', '8', 'ggg: just committed', { at: new Date(Date.now() - 60000).toISOString() });
+git('checkout', '-q', 'main');
+
 git('update-ref', 'refs/remotes/origin/main', s1);
 
 const {
   sweepNotInMain,
   describeNotInMain,
+  followNotInMain,
+  describeFollowNotInMain,
   tagOf,
   ownsBranch,
   worktreeBranches,
   isCandidate,
   askMark,
+  clearMark,
   alreadyAsked,
+  cardSubject,
   strandedCard,
+  strandedTitle,
   RECENT_DAYS,
+  GRACE_MS,
 } = await import(LIB('notinmain.js'));
 const { toQuestion } = await import(LIB('decision.js'));
 
@@ -212,7 +241,7 @@ const { toQuestion } = await import(LIB('decision.js'));
  * than passing quietly. `appendNotes` mutates the row, which is how the idempotence case
  * runs the sweep twice over what the first run wrote.
  */
-function fakeBd(beads, { createFails = false } = {}) {
+function fakeBd(beads, { createFails = false, closeFails = false } = {}) {
   const rows = beads.map((b) => ({
     status: 'closed',
     title: '',
@@ -226,8 +255,14 @@ function fakeBd(beads, { createFails = false } = {}) {
   return {
     writes,
     rows,
+    byId,
     async listStatus(_ws, status) {
       return rows.filter((r) => String(status).split(',').includes(r.status));
+    },
+    // `bd human list` filtered by status, which is what the real one is: a card that has
+    // been closed is off the inbox, and the follow-up must never be handed one.
+    async listHuman() {
+      return [...byId.values()].filter((r) => r.status !== 'closed' && (r.labels || []).includes('human'));
     },
     async create(_ws, fields) {
       writes.push({ kind: 'create', id: fields.title, fields });
@@ -249,6 +284,9 @@ function fakeBd(beads, { createFails = false } = {}) {
     },
     async close(_ws, id, reason) {
       writes.push({ kind: 'close', id, reason });
+      if (closeFails) throw new Error('bd refused the close');
+      const row = byId.get(id);
+      if (row) row.status = 'closed';
     },
     async update(_ws, id, fields) {
       writes.push({ kind: 'update', id, fields });
@@ -402,16 +440,171 @@ check('the cap stops at one card', r10.flagged.length === 1, JSON.stringify(r10.
 check('and counts what it did not look at rather than dropping it', r10.unasked === 1, JSON.stringify(r10));
 check('which the summary says outright', /1 more branch was not asked about/.test(describeNotInMain(r10)), describeNotInMain(r10));
 
+/* ------------------------------------------------- the delivery in flight */
+//
+// bc-xl7n.63. A card filed at 15:40:21Z said of a branch "GitHub has no pull request for
+// it — not merged, not open, not refused"; #315 for that branch was opened at 15:48:35Z.
+// Nothing was wrong with the reading — it was taken in the gap every delivery has between
+// pushing its branch and opening its pull request, and the sweep runs on a tick, so it
+// lands in that gap whenever somebody is delivering.
+
+console.log('\na branch somebody is still delivering');
+
+setPrs([]);
+const flight = fakeBd([{ id: 'wg-ggg', title: 'in flight', close_reason: 'delivered on worktree-inflight-ggg' }]);
+const r12 = await sweepNotInMain(flight, ws('twelve'), REPO);
+check('a branch committed a minute ago is not called stranded work', r12.flagged.length === 0, JSON.stringify(r12.flagged));
+check('nothing at all was written about it', kinds(flight) === '', kinds(flight));
+check(
+  'it is held rather than skipped, and the reason says what it looks like',
+  r12.held.length === 1 && /delivery in flight/.test(r12.held[0].why),
+  JSON.stringify(r12.held)
+);
+check(
+  'no mark is written, so it is carded next sweep if it really was abandoned',
+  alreadyAsked(flight.rows[0], 'worktree-inflight-ggg') === false
+);
+check('and the summary says so out loud rather than reporting nothing', /too freshly committed/.test(describeNotInMain(r12)), describeNotInMain(r12));
+
+const later = await sweepNotInMain(flight, ws('twelve'), REPO, { now: Date.now() + GRACE_MS + 60000 });
+check('once the grace is up the same branch is carded', later.flagged.length === 1, JSON.stringify(later.flagged));
+check('and it is the branch that was held', later.flagged[0]?.branch === 'worktree-inflight-ggg', JSON.stringify(later.flagged[0]));
+
+const flightPr = fakeBd([{ id: 'wg-ggg', title: 'in flight', close_reason: 'delivered on worktree-inflight-ggg' }]);
+setPrs([prRow({ headRefName: 'worktree-inflight-ggg', number: 315, state: 'OPEN', mergedAt: null, mergeCommit: null })]);
+const r13 = await sweepNotInMain(flightPr, ws('thirteen'), REPO, { now: Date.now() + GRACE_MS + 60000 });
+check(
+  'and if the pull request arrived during the grace, the card is never filed at all',
+  r13.flagged.length === 0 && /#315 is open/.test(why(r13, 'wg-ggg')),
+  why(r13, 'wg-ggg')
+);
+
+setPrs([]);
+const old3 = fakeBd([{ id: 'wg-bbb', title: 'lost', close_reason: 'done' }]);
+const r14 = await sweepNotInMain(old3, ws('fourteen'), REPO);
+check('a branch whose tip has sat for three days is past the grace and is carded', r14.flagged.length === 1 && r14.held.length === 0, JSON.stringify(r14));
+
 const noRepo = fakeBd([{ id: 'wg-bbb', title: 'lost' }]);
 const r11 = await sweepNotInMain(noRepo, ws('eleven'), path.join(tmp, 'not-a-repo'));
 check('a workspace with no checkout behind it is not an error', r11.ok === false && /not a git checkout/.test(r11.reason), JSON.stringify(r11));
 check('and the sweep says nothing about it', describeNotInMain(r11).startsWith('not-in-main sweep skipped'), describeNotInMain(r11));
 
+/* ---------------------------------------------------------- the follow-up */
+//
+// The grace is a guess about how long a session takes to open its pull request, so it
+// cannot be the whole fix: a delivery whose gate runs three hours gets carded anyway. The
+// other end is that the card's claim is re-asked on every sweep and the card is closed
+// when it has stopped being true — which is also what stops this sweep and
+// lib/sweepcard.js holding two open cards asking incompatible things about one branch,
+// since the other one only ever files about a branch that *has* a pull request.
+
+console.log('\nthe follow-up on a card already filed');
+
+check('a card of this sweep’s is recognised by its own title', JSON.stringify(cardSubject(strandedTitle('wg-bbb', 'worktree-lost-bbb'))) === '{"branch":"worktree-lost-bbb","id":"wg-bbb"}', JSON.stringify(cardSubject(strandedTitle('wg-bbb', 'worktree-lost-bbb'))));
+check('and any other bead in the inbox is not', cardSubject('worktree-lost-bbb needs a rebase') === null);
+check('nor a bead written about one of these cards', cardSubject('re: worktree-lost-bbb never reached main — wg-bbb is closed over it') === null);
+
+// File the card the way the sweep would, then let the world move under it.
+setPrs([]);
+const chased = fakeBd([{ id: 'wg-bbb', title: 'the work nobody landed', close_reason: 'On worktree-lost-bbb, not merged.' }]);
+await sweepNotInMain(chased, ws('follow'), REPO);
+const cardId = chased.writes[0] && 'wg-card1';
+check('the card is in the inbox to begin with', (await chased.listHuman()).some((c) => c.id === cardId));
+
+const stillLost = await followNotInMain(chased, ws('follow'), REPO);
+check('a card whose claim is still true is left alone', stillLost.corrected.length === 0, JSON.stringify(stillLost.corrected));
+check('and the card is still open', (await chased.listHuman()).some((c) => c.id === cardId));
+check('the follow-up that changed nothing says nothing', describeFollowNotInMain(stillLost) === '');
+
+setPrs([prRow({ headRefName: 'worktree-lost-bbb', number: 315, state: 'OPEN', mergedAt: null, mergeCommit: null })]);
+const before = chased.writes.length;
+const opened = await followNotInMain(chased, ws('follow'), REPO);
+check('a pull request appearing afterwards closes the card', opened.corrected.length === 1, JSON.stringify(opened.corrected));
+check('the card is off the inbox', !(await chased.listHuman()).some((c) => c.id === cardId));
+const closeWrite = chased.writes.slice(before).find((w) => w.kind === 'close');
+check('the close reason says the card was wrong and names the pull request', /#315/.test(closeWrite?.reason || '') && /Wrong when it was asked/.test(closeWrite?.reason || ''), closeWrite?.reason);
+check('the closed bead’s thread is told, so it no longer points at a card asserting the opposite', chased.writes.slice(before).some((w) => w.kind === 'comment' && w.id === 'wg-bbb' && /#315/.test(w.text)), kinds(chased));
+check('nothing was reopened, merged or pushed', !chased.writes.slice(before).some((w) => w.kind === 'update'), kinds(chased));
+check('the closed bead is still closed', chased.rows[0].status === 'closed');
+check('and the log line names the card, the branch and why', /wg-card1 \(worktree-lost-bbb — #315 is open for it\)/.test(describeFollowNotInMain(opened)), describeFollowNotInMain(opened));
+
+// An OPEN pull request is somebody looking, not a settled question — so the fingerprint
+// has to come off, or a delivery refused unmerged next week is stranded work no sweep
+// will ever mention again.
+check('an open pull request takes the ask back', opened.corrected[0]?.cleared === true, JSON.stringify(opened.corrected[0]));
+check('which is a mark of its own on the closed bead', String(chased.rows[0].notes || '').includes(clearMark('worktree-lost-bbb')));
+check('and the branch reads as unasked again', alreadyAsked(chased.rows[0], 'worktree-lost-bbb') === false);
+setPrs([]);
+const again = await sweepNotInMain(chased, ws('follow'), REPO);
+check('so a sweep after the pull request is refused files a fresh card', again.flagged.length === 1, JSON.stringify(again.flagged));
+check('and the new ask outranks the clear, so it is not filed a third time', alreadyAsked(chased.rows[0], 'worktree-lost-bbb'));
+
+// A merge settles it for good, so the mark stays and the branch costs no further gh call.
+setPrs([]);
+const merged = fakeBd([{ id: 'wg-bbb', title: 'lost', close_reason: 'On worktree-lost-bbb, not merged.' }]);
+await sweepNotInMain(merged, ws('merged'), REPO);
+setPrs([prRow({ headRefName: 'worktree-lost-bbb', number: 7, state: 'MERGED' })]);
+const wasMerged = await followNotInMain(merged, ws('merged'), REPO);
+check('a card whose branch turned out to be merged is closed too', wasMerged.corrected.length === 1 && /merged as #7/.test(wasMerged.corrected[0].why), JSON.stringify(wasMerged.corrected));
+check('and that one is settled, so the ask is not taken back', wasMerged.corrected[0]?.cleared === false && alreadyAsked(merged.rows[0], 'worktree-lost-bbb'));
+
+// The other half of the card's claim can also stop being true on its own — a cherry-pick,
+// or somebody merging it by hand.
+setPrs([]);
+const picked = fakeBd([{ id: 'wg-ccc', title: 'empty', close_reason: 'On worktree-empty-ccc.' }]);
+picked.byId.set('wg-pick', {
+  id: 'wg-pick',
+  status: 'open',
+  labels: ['human'],
+  title: strandedTitle('wg-ccc', 'worktree-empty-ccc'),
+});
+const landed2 = await followNotInMain(picked, ws('picked'), REPO);
+check(
+  'a card about a branch the base has since taken in is closed, with no pull request anywhere',
+  landed2.corrected.length === 1 && /holds all of it/.test(landed2.corrected[0].why),
+  JSON.stringify(landed2.corrected)
+);
+
+// What it must not do.
+setPrs([prRow({ headRefName: 'worktree-lost-bbb', number: 9, state: 'OPEN', mergedAt: null, mergeCommit: null })]);
+const stubborn = fakeBd([{ id: 'wg-bbb', title: 'lost', close_reason: 'x' }], { closeFails: true });
+stubborn.byId.set('wg-card9', { id: 'wg-card9', status: 'open', labels: ['human'], title: strandedTitle('wg-bbb', 'worktree-lost-bbb') });
+const refused = await followNotInMain(stubborn, ws('stubborn'), REPO);
+check('a tracker that refuses the close leaves the mark alone, so nothing is half-done', !stubborn.writes.some((w) => w.kind === 'notes'), kinds(stubborn));
+check('and it says so', /could not close it/.test(refused.skipped[0]?.why || ''), JSON.stringify(refused.skipped));
+
+const otherCards = fakeBd([{ id: 'wg-bbb', title: 'lost', close_reason: 'x' }]);
+otherCards.byId.set('wg-else', { id: 'wg-else', status: 'open', labels: ['human'], title: 'Which of these two wins?' });
+const untouched = await followNotInMain(otherCards, ws('other'), REPO);
+check(
+  'a card that is not one of these is never read, closed or counted',
+  untouched.checked === 0 && untouched.corrected.length === 0 && kinds(otherCards) === '',
+  `${JSON.stringify(untouched)} ${kinds(otherCards)}`
+);
+
+setPrs([prRow({ headRefName: 'worktree-lost-bbb', number: 9, state: 'MERGED' })]);
+const many = fakeBd([{ id: 'wg-bbb', title: 'lost', close_reason: 'x' }]);
+many.byId.set('wg-c1', { id: 'wg-c1', status: 'open', labels: ['human'], title: strandedTitle('wg-bbb', 'worktree-lost-bbb') });
+many.byId.set('wg-c2', { id: 'wg-c2', status: 'open', labels: ['human'], title: strandedTitle('wg-bbb', 'worktree-alsolost-fff') });
+const cappedFollow = await followNotInMain(many, ws('many'), REPO, { maxAsks: 1 });
+check('the follow-up has a cap of its own', cappedFollow.corrected.length === 1 && cappedFollow.unasked === 1, JSON.stringify(cappedFollow));
+check('and says what it did not get to, rather than reading as “all still true”', /1 more card was not re-asked/.test(describeFollowNotInMain(cappedFollow)), describeFollowNotInMain(cappedFollow));
+
+const noGit = fakeBd([{ id: 'wg-bbb', title: 'lost' }]);
+const followNoRepo = await followNotInMain(noGit, ws('nogit'), path.join(tmp, 'not-a-repo'));
+check('a workspace with no checkout behind it is not an error here either', followNoRepo.ok === false && /not a git checkout/.test(followNoRepo.reason), JSON.stringify(followNoRepo));
+check('and it says nothing', describeFollowNotInMain(followNoRepo).startsWith('not-in-main follow-up skipped'), describeFollowNotInMain(followNoRepo));
+
 /* --------------------------------------------------------------- the card */
 
 console.log('\nthe card');
 
-const body = strandedCard('wg-bbb', 'worktree-lost-bbb', { ahead: 1, subject: 'bbb: the work nobody landed', tip: c4 }, 'origin/main');
+const body = strandedCard(
+  'wg-bbb',
+  'worktree-lost-bbb',
+  { ahead: 1, subject: 'bbb: the work nobody landed', tip: c4, askedAt: Date.parse('2026-08-14T15:40:21Z') },
+  'origin/main'
+);
 const q = toQuestion(ws('one'), { id: 'wg-card1', title: 'x', description: body, labels: ['human'] });
 check('the decision block parses', (q.errors || []).length === 0, JSON.stringify(q.errors));
 check('with two options on it', (q.decision?.options || []).length === 2, JSON.stringify((q.decision?.options || []).map((o) => o.id)));
@@ -428,6 +621,13 @@ check(
 );
 check('nothing is recommended, because the fact says nothing about whether the work is wanted', !(q.decision?.options || []).some((o) => o.recommended), JSON.stringify(q.decision?.options));
 check('the card carries the mark’s branch in the body it explains', body.includes('worktree-lost-bbb'));
+check(
+  'the reading is stamped, so a reader three days later knows the sentence has an age',
+  body.includes('2026-08-14 15:40Z'),
+  body.split('\n').slice(2, 5).join(' ')
+);
+check('in UTC and marked as such, because the card prose around it talks in ADT', /15:40Z/.test(body));
+check('and the card says it is re-asked rather than leaving that to be discovered', /closes itself/.test(body));
 check('and the mark itself is what the closed bead keeps', askMark('worktree-lost-bbb') === '<!-- beadcause:notinmain worktree-lost-bbb -->');
 
 console.log(`\n${failures ? '\x1b[31m' : '\x1b[32m'}${ran - failures}/${ran} checks passed\x1b[0m`);

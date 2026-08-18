@@ -15,6 +15,7 @@
  *   groups:
  *     - name: router-tls
  *       beads: [bc-jk4m.1, bc-jk4m.2]
+ *       files: [lib/router.js, lib/tls.js]
  *       prs:
  *         - repo: beadcause
  *           title: Terminate TLS in the router
@@ -25,11 +26,21 @@
  * ## What it will refuse, and why refusing is the point
  *
  * Everything in `validatePlan` — a bead that is not under this epic, a bead in two groups,
- * a group whose pull requests span two repos, a group with no prompt. All of them are
- * plans that *look* fine and fail at launch, an hour later, in a window nobody is watching:
- * a group spanning repos is an hour of agent in the wrong checkout, and a bead in two
- * groups is two sessions writing one file. A refusal here comes back to the session that
- * wrote it, while it still has the context to fix it, which is the only moment anything can.
+ * a group whose pull requests span two repos, a group with no prompt, **and two groups that
+ * declared the same file**. All of them are plans that *look* fine and fail at launch, an
+ * hour later, in a window nobody is watching: a group spanning repos is an hour of agent in
+ * the wrong checkout, and a bead in two groups is two sessions writing one file. A refusal
+ * here comes back to the session that wrote it, while it still has the context to fix it,
+ * which is the only moment anything can.
+ *
+ * The `files:` refusal (bc-42ow.3) is that same argument said forwards rather than
+ * backwards. Every other conflict mechanism in this repo arbitrates a collision that
+ * already exists; a plan is the one document where two windows' work is decided together,
+ * so it is the one place the collision can simply not be created. Declaring nothing is
+ * legal — see lib/beadfiles.js on why a missing surface must never withhold work — but two
+ * groups that both declare `lib/foo.js` are a decomposition with a known conflict written
+ * into it. `files:` is a list of paths or globs, and it is also what the group's beads want
+ * in their own descriptions, since the dispatcher reads the bead rather than the plan.
  *
  * It also refuses a prompt containing the phrases that belong to the generated brief. The
  * group prompt is the one piece of text in any brief beadcause writes that another agent
@@ -156,8 +167,15 @@ try {
 
 // And the step that makes it live. See the header: the advocate reads plans off epics in
 // its queue, and a claimed epic is not in one.
+//
+// `reopenAbandoned` rather than the hand-rolled argv this used to spell out, because that
+// argv was refused on every ordinary run (bc-xl7n.85): the planner window claims the epic
+// as the human, this process writes as beadcause, and bd 1.2.1 refuses a reassign by
+// anyone but the holder. The warning below then scrolled past *underneath* the successful
+// group summary, so a planned epic that would never dispatch read as a clean success. The
+// claim being released is this window's own, which is exactly the case the flag is for.
 try {
-  await bd.run(ws, ['update', epicId, '--status', 'open', '--assignee', ''], { retries: 3 });
+  await bd.reopenAbandoned(ws, epicId);
 } catch (err) {
   warn(`could not hand ${epicId} back to the queue — ${err.message.split('\n')[0]}`);
   warn(`run \`bd update ${epicId} --status open --assignee ""\` yourself, or no group will be dispatched`);

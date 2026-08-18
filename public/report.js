@@ -403,6 +403,74 @@
     return `unhandled rejection — ${String(reason)}`;
   }
 
+  /* ---------------------------------------------------------------- in flight */
+
+  /**
+   * How many requests this page is waiting on, published for anything that draws it.
+   *
+   * This file already wraps `fetch` for the whole page, and wrapping it a second time
+   * to answer a second question would mean two shims around the one function the app is
+   * built on, each transparent only as long as the other stays polite. So the count
+   * lives here beside the failure watch — the wrapper is unchanged in what it hands
+   * back, and everything else it now does is a `++` and a `--`.
+   *
+   * The consumer is public/orbit.js, which turns it into the beads orbiting the brand
+   * dot. Nothing here knows that; this end publishes a number and a subscription, and
+   * a page with no orbit script is a page where nobody is listening.
+   *
+   * @see QUIET for the two requests that deliberately do not count.
+   */
+  let inFlight = 0;
+
+  /** Everything that wants to hear the number change. */
+  const watchers = new Set();
+
+  /**
+   * Requests that are out almost all of the time, and mean nothing about a view.
+   *
+   * `/api/poll` is public/stream.js's long poll: it *parks* for twenty-five seconds by
+   * design, so a signal built on "is a request out" would read as permanently loading on
+   * every standing view and never say anything again. `/api/presence` is the heartbeat
+   * behind the thumbs on the mirror — somebody else's finger, on a timer, not this
+   * screen fetching anything.
+   *
+   * The report endpoint is already excluded a layer down: `target()` returns null for it
+   * and for anything cross-origin, and an uncounted request is exactly what null means
+   * here too.
+   */
+  const QUIET = ['/api/poll', '/api/presence'];
+
+  /** One more request out. */
+  function entered() {
+    inFlight += 1;
+    if (inFlight === 1) tellWatchers();
+  }
+
+  /**
+   * One fewer. Floored at zero because a wrapper that double-counted a settle once would
+   * otherwise leave the count negative for the life of the page, and a negative count
+   * is a spinner that never stops.
+   */
+  function settled() {
+    inFlight = Math.max(0, inFlight - 1);
+    if (inFlight === 0) tellWatchers();
+  }
+
+  /**
+   * Only the edges are published — nothing subscribes to "three instead of two", and a
+   * page loading nine endpoints at once would otherwise wake every watcher eighteen
+   * times for one visible state.
+   */
+  function tellWatchers() {
+    for (const fn of watchers) {
+      try {
+        fn(inFlight);
+      } catch {
+        /* a watcher that throws is not this file's problem, and must not be the app's */
+      }
+    }
+  }
+
   /* -------------------------------------------------------------------- fetch */
 
   /**
@@ -436,8 +504,13 @@
         throw err;
       }
       if (!where || !out || typeof out.then !== 'function') return out;
+      // Counted only once we know a handler is going on it, so the two early returns
+      // above can never leave the count one high with nothing coming back to lower it.
+      const counted = !QUIET.includes(where.path);
+      if (counted) entered();
       return out.then(
         (res) => {
+          if (counted) settled();
           // 4xx is the daemon declining on purpose. 5xx is the daemon failing.
           if (res && res.status >= 500) {
             const message = `${where.method} ${where.path} failed — HTTP ${res.status}`;
@@ -446,6 +519,7 @@
           return res;
         },
         (err) => {
+          if (counted) settled();
           failed(where, err, init);
           throw err;
         }
@@ -594,5 +668,27 @@
      * that looks like nothing at all from the page's side.
      */
     quietUntil: () => quietUntil,
+  };
+
+  /**
+   * The one fact this file knows that is not about failure: what the page is waiting on.
+   *
+   * `onChange` fires immediately with the number as it stands, because a listener that
+   * mounted while a request was already out would otherwise not hear about it until the
+   * *next* one — and on a cold page the request already out is the whole of the load it
+   * exists to draw. It hands back an unsubscribe for symmetry; nothing needs one yet.
+   */
+  window.beadcause.requests = {
+    inFlight: () => inFlight,
+    onChange(fn) {
+      if (typeof fn !== 'function') return () => {};
+      watchers.add(fn);
+      try {
+        fn(inFlight);
+      } catch {
+        /* as above: a watcher's own failure is not a reason to refuse it a subscription */
+      }
+      return () => watchers.delete(fn);
+    },
   };
 })();
