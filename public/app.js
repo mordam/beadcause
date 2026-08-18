@@ -11079,20 +11079,46 @@
     renderFilters();
   }
 
-  bootToken();
-  bootScope();
-  // Warm first, then decide what to ask for. With a list on screen and a place in the
-  // event log, the refresh is a parked poll that costs the daemon nothing until
-  // something moves — so the ordinary tab tap does no `bd` sweep at all. Without
-  // either, this is the cold start it always was.
-  if (warmBoot() && canFollow()) schedulePoll();
-  else load();
-  // The pull requests, beside the questions rather than after them: the two feeds are
-  // independent and the board is the slower of the two, so starting it second and
-  // waiting for neither is what puts the questions on screen first. It is not on the
-  // delta stream either — a `gh` sweep is nothing an event log can carry.
-  loadBoard();
-  // After the list, and never blocking it: the chooser only appears inside an open
-  // card, so there is nothing on screen waiting for this.
-  loadAgents();
+  /**
+   * Everything this view does on the way up, in one function so the shell can time it.
+   *
+   * It was the last six lines of this IIFE and it still is, on the load that lands here —
+   * public/panestage.js builds the landed-on pane synchronously, and Home is where a bare
+   * `/`, an unrecognised hash and every notification link all land. What the stager buys
+   * is the *other* case: a page opened straight onto another view builds that one first
+   * and this after the first paint, so a shortcut to `/#history` does not spend its first
+   * frames sweeping `bd` for an inbox nobody asked to see (bc-khoe.30.4).
+   */
+  function buildHome() {
+    bootToken();
+    bootScope();
+    // Warm first, then decide what to ask for. With a list on screen and a place in the
+    // event log, the refresh is a parked poll that costs the daemon nothing until
+    // something moves — so the ordinary tab tap does no `bd` sweep at all. Without
+    // either, this is the cold start it always was.
+    if (warmBoot() && canFollow()) schedulePoll();
+    else load();
+    // The pull requests, beside the questions rather than after them: the two feeds are
+    // independent and the board is the slower of the two, so starting it second and
+    // waiting for neither is what puts the questions on screen first. It is not on the
+    // delta stream either — a `gh` sweep is nothing an event log can carry.
+    loadBoard();
+    // After the list, and never blocking it: the chooser only appears inside an open
+    // card, so there is nothing on screen waiting for this.
+    loadAgents();
+  }
+
+  /*
+    Offered to the stager, and built here when there is no stager to take it — a document
+    with no panes, or a service-worker cache from before that file existed. `register`
+    answering false has to leave this page exactly as it was, which is why `buildHome` is
+    the function it would have called on its own rather than something only reachable
+    through the shell.
+
+    No `wake` is declared with it: this view owns the page's real poll (the `follow` above)
+    and reads its own answers, so a second delivery through the fan-out would be the same
+    payload adopted twice. The `want` union is over the panes that ride the shell's mount,
+    and this one does not.
+  */
+  if (!window.beadcause?.stage?.register?.('epics', { build: buildHome })) buildHome();
 })();
