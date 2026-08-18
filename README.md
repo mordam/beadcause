@@ -15450,10 +15450,12 @@ and the commit a verdict records, and the approving review a verdict turns into*
 allowed to leave a review here has to be settled first — **and the worker's side of the
 round**, below.
 
-**The gate is below**, and it is what makes a verdict mean something to the merge. What is
-still missing is the other half of it: nothing opens a window on a delivered pull request
-yet, so no verdict is ever written on its own — which is why the gate is switched off in
-every workspace until it is.
+**The gate is below**, and it is what makes a verdict mean something to the merge; the
+[window](#one-reviewer-per-pull-request--the-window-the-daemon-opens) that opens a reviewer
+on a delivered pull request is below that. What is still missing is the step *after* the
+verdict: nothing reads a verdict comment back onto the merge-bead's review block, so a
+review that happens is a review the gate cannot see — which is why the gate is still
+switched off in every workspace.
 
 ### The review gate — nothing reaches the merge without a verdict
 
@@ -15526,7 +15528,68 @@ per repo, per space, or globally as `pr.reviewRequired`. It is the one policy de
 that is dangerous the other way round: the gate *holds* a pull request until a verdict
 appears, so turning it on where nothing writes one does not slow the queue down, it stops it
 — every branch at once, quietly, each merge-bead saying only that nothing has reviewed it.
-Turning it on is the last step of building this loop rather than the first.
+Turning it on is the last step of building this loop rather than the first, and the loop is
+not finished: a window opens and a verdict gets written, but
+[nothing reads that verdict back](#one-reviewer-per-pull-request--the-window-the-daemon-opens)
+onto the block this gate reads.
+
+### One reviewer per pull request — the window the daemon opens
+
+A kind, a verdict format and a brief are three things nobody has been handed. Until this
+existed nothing in either tree imported `lib/reviewadvocate.js`: the brief was written,
+tested, and never given to a window, while the worker's own brief promised every delivery
+that a ReviewAdvocate would read it.
+
+So the sweep opens one. The gate above already decides *whether a review is what this pull
+request is waiting on*; where it says so, the queue opens a window on the merge-bead as
+`review-advocate`, in the checkout the branch is actually in, briefed by
+`reviewAdvocatePrompt` and told which round it is conducting. `openReviewAdvocateSession` in
+`lib/session.js` is the door, and it is deliberately not the one beside it: that opens the
+*author* again, with a worker's reach, to answer what this window said.
+
+**Every tick it is owed, and never twice.** The queue sweeps every thirty seconds and a
+review is minutes of reading, so the window is opened through the same `resolveFor` registry
+the resolver goes through — one window per pull request, two on this Mac at once, a queue
+for the rest. Without it a slow review would not be one extra window but one every tick for
+as long as the reviewer read, each arguing with the same diff and writing its own verdict
+onto the same bead. It is keyed by the pull request rather than by the door, which is the
+half a per-door registry would have missed: the reviewer and the worker answering it can
+never be open on one branch at once, and an author editing the diff underneath the reviewer
+reading it is not a race anything downstream could recover from.
+
+**Nothing is flagged on the bead to remember that a window went up**, and that is the same
+argument the gate makes for asking GitHub rather than trusting `resolving`: the durable
+record of whether a review is owed is the review block itself, and it stops saying so the
+moment a verdict lands. A flag would be a second answer to a question already answered, and
+a wrong one after a restart.
+
+**A restart forgets which windows are open, and does not open a second one anyway.** The
+registry is this daemon's memory and the daemon restarts on its own merges several times a
+day. What survives is the record it wrote to disk: those come back with no handle, and a
+record with no handle still *holds* — the door answers "there is a window on your screen and
+it cannot be typed into" rather than opening a second one at the same diff, and ages out
+half an hour later. Nothing here invents a second answer for it, because where a review
+actually got to was never in the registry.
+
+**A tick that cannot open one refuses nothing.** No attempt is spent, nothing is written
+beyond the sentence already there, and the pull request stays in *awaiting review* — which
+is true again in thirty seconds. And `openSessions: false` opens nothing at all, the same
+switch every other window in the daemon honours.
+
+**The round it is opened under is the next one, not the last one.** The block counts rounds
+*finished* and the worker's answers deliberately never touch that number — the round belongs
+to the reviewer's passes. A second reviewer opened under the block's own number would be
+handed the *first* round's brief and would re-review the whole diff instead of reading the
+answers it was opened to read: the loop that never ends, arrived at by an off-by-one.
+`nextReviewRound` in `lib/mergebead.js` is that arithmetic, named because getting it wrong
+is silent.
+
+**What is still missing, and it is the last piece.** A verdict is a comment; the gate reads
+a block. Nothing yet turns the first into the second — `verdictFrom`, `approve` and
+`approvedReview` all exist and none of them has a caller. So today a reviewer opens, reads,
+writes its verdict, and the next tick finds a pull request still waiting for one. That is
+bc-36xx.22, and it is why `reviewRequired` stays off everywhere: the gate holds a branch
+until a verdict *it can see* appears, and a verdict nothing reads back is not one.
 
 ### The worker answers — one window per round, and it may not resolve anything
 
