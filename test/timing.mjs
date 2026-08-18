@@ -193,6 +193,73 @@ timing.configure({ slowMs: 0 });
   check(() => assert.ok(row2.warm), 'and a word that is not one of the three is ignored rather than believed');
 }
 
+/**
+ * A request is as cold as its coldest read — bc-1kwl.22, and the reason it is here.
+ *
+ * `cache()` used to assign, which is right for a route that reads one key and wrong for
+ * every route this epic is actually about. One `/api/questions` calls the cache layer
+ * about thirty times — `questions:`, `foundation:` and `agentbeads:`, once each per
+ * workspace — so the word that survived was whichever read finished last. Off the live
+ * daemon on 2026-08-17 that produced `slow GET /api/questions 47842ms stale`, which is
+ * not a thing that can happen: a stale hit answers out of memory with its refresh
+ * already `detached`, so it cannot spend forty-seven seconds of the request's own wall
+ * clock. It had paid a cold producer on one key and been relabelled by a warmer one.
+ *
+ * The direction matters more than the fact. Mislabelling moved the *worst* samples out
+ * of `cold` and into `stale`, which the header above calls the fastest kind of request
+ * there is, and `overBudget` is filtered on those buckets — so the fan-out that made a
+ * route slow was also what excused it. These checks fire the reads in the order that
+ * used to lose: coldest first, warmest last.
+ */
+{
+  timing.reset();
+  const rec = timing.begin('GET /api/fanned-out');
+  rec.t0 -= 3_000_000_000n;
+  child('bd', 2900);
+  timing.cache('cold'); // one key had nothing kept, and this request paid the producer
+  timing.cache('stale'); // …and the other twenty-nine were served from memory
+  timing.cache('warm');
+  timing.end(rec, 200);
+  const row = timing.snapshot().routes.find((r) => r.route === 'GET /api/fanned-out');
+  check(
+    () => assert.ok(row.cold && !row.stale && !row.warm, `landed in ${JSON.stringify({ stale: !!row.stale, warm: !!row.warm })}`),
+    'a request that read one cold key and one stale key is recorded as cold, not stale'
+  );
+
+  // The other order, because a fix that only works when the cold read happens to come
+  // first is the same bug with a different seed.
+  const back = timing.begin('GET /api/fanned-out-backwards');
+  back.t0 -= 3_000_000_000n;
+  timing.cache('warm');
+  timing.cache('cold');
+  timing.end(back, 200);
+  const row2 = timing.snapshot().routes.find((r) => r.route === 'GET /api/fanned-out-backwards');
+  check(() => assert.ok(row2.cold && !row2.warm), 'whichever order the reads finish in — the coldest one names the request');
+
+  // Warm never wins over stale either, which is the pair that produced the 48s line.
+  const swr = timing.begin('GET /api/mostly-warm');
+  swr.t0 -= 1_000_000_000n;
+  timing.cache('stale');
+  timing.cache('warm');
+  timing.cache('warm');
+  timing.end(swr, 200);
+  const row3 = timing.snapshot().routes.find((r) => r.route === 'GET /api/mostly-warm');
+  check(() => assert.ok(row3.stale && !row3.warm), 'and a single stale key among warm ones still costs a refresh, so it is still stale');
+
+  // It only ever lowers: warm on its own is still warm, and repeating a word is inert.
+  const cool = timing.begin('GET /api/all-warm');
+  timing.cache('warm');
+  timing.cache('warm');
+  timing.end(cool, 200);
+  const row4 = timing.snapshot().routes.find((r) => r.route === 'GET /api/all-warm');
+  check(() => assert.ok(row4.warm && !row4.cold), 'a route whose every read was warm is not dragged colder by having read more than one');
+
+  check(
+    () => assert.deepEqual(timing.TEMPERATURES, ['cold', 'stale', 'warm']),
+    'and the ranking is the exported order, coldest first — reorder it and the comparison silently inverts'
+  );
+}
+
 /* ---------------------------------------------------------------- the slow log */
 
 console.log('\nthe slow log\n');

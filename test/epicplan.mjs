@@ -105,6 +105,11 @@ async function tick({ ready = [], children = {}, comments = {}, workers = [], at
       reconcileLanded: false,
       askSuperseded: false,
       flagInMain: false,
+      // Same reason: this fake `bd.ready` hands back every epic the case seeds, unfiltered
+      // by label, and this sweep (lib/finishedepic.js) would otherwise call `bd.children`
+      // on every one of them before batchesFor gets its turn — polluting the exact
+      // children-call assertions the plan-vs-mechanical-grouping cases make.
+      flagFinishedEpics: false,
       ...overrides,
     },
   };

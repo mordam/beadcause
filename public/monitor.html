@@ -23,15 +23,22 @@
   <header class="topbar">
     <div class="brand">
       <span class="dot" id="pulse"></span>
-      <!-- One word, and the space picker two elements along says which space. The page
-           was called "Advocates"; it is the details of a space now, and the advocates
-           are one of the four things it shows about it. Not "Space details" — the
-           picker sits in this same bar and already reads "Personal", so the long form
-           would spend a 360px phone's whole top row saying the noun twice. -->
-      <h1>Space</h1>
+      <!-- No title here, and this is the one page in the app with none. The page was
+           called "Advocates" and then "Space"; it is the details of the space the
+           picker has selected, and the picker is in this same bar two elements along,
+           already reading "Personal" or the repo name. A heading saying "Space" beside
+           it spends the width of a 360px phone's top row naming the noun that the
+           control next to it is an instance of — the reader learns nothing from the
+           word that the thing beside it does not already say.
+
+           The other standing views keep theirs (History, Endorse, Requirements): those
+           name the page, which is not what the picker says, so nothing there is
+           doubled. See the space details sketch in README.md. -->
       <!-- Filled in only on an observer instance — see OBSERVING in lib/config.js.
-           It sits next to the title rather than in the actions, because it is a fact
-           about which daemon this is, not a control. -->
+           It sits in `.brand` with the mark rather than in the actions, because it is a
+           fact about which daemon this is, not a control. On every other page that
+           carries it that puts it beside the page title; here, with no title, it is
+           beside the picker — still the left-hand end, still not a button. -->
       <span class="observing" id="observing" hidden>⦿ observing</span>
     </div>
     <div class="sheet-actions">
@@ -129,6 +136,10 @@
        other script, because it can only catch what loads after it — and it is purely
        additive, so a page that fails to load it behaves exactly as it did before. -->
   <script src="/report.js"></script>
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
   <!-- Whether what you are looking at is current, and the banner that says when it is
        not. Loaded on every page with a top bar, because the state it reports is a page
        that has stopped repainting — which no page can report from inside its own render.

@@ -385,6 +385,86 @@ await check(() => assert.rejects(() => cache.read('', () => 1, FRESH)), 'a key m
 await check(() => assert.rejects(() => cache.read('k', null, FRESH)), 'a producer must be a function');
 await check(() => assert.rejects(() => cache.read('k', () => 1, { now })), 'and a freshness window is not optional — a cache with no window is a variable');
 
+/* ------------------------------------------------- what a fan-out is filed under */
+
+/**
+ * bc-1kwl.22 — a request that reads many keys, against the real layer.
+ *
+ * test/timing.mjs checks the escalation by calling `timing.cache()` by hand. That is the
+ * unit, and it would still pass if this file's three call sites reported in an order the
+ * scalar could not survive — so the pair worth having is this one: the actual
+ * `cache.read` path, over the actual fan-out shape, inside one request.
+ *
+ * The shape is `/api/questions`: about thirty reads in one request (`questions:`,
+ * `foundation:` and `agentbeads:`, once each per workspace) whose keys are at whatever
+ * temperature that workspace left them. On the live daemon on 2026-08-17 that produced
+ * `slow GET /api/questions 47842ms stale` — impossible, since a stale hit's refresh is
+ * `detached` and cannot spend the request's own wall clock. It had paid for a cold
+ * producer and been renamed by a warmer read that finished later.
+ *
+ * **Deliberately last in the file.** `timing.begin` sets its record with
+ * `enterWith`, which persists for the rest of this async context — so a request opened
+ * in the middle here would quietly charge every later check's producer to it.
+ */
+console.log('\nwhat a request that reads many keys is filed under\n');
+
+const timing = await import('../lib/timing.js');
+
+{
+  cache.clear();
+  timing.reset();
+
+  // One key left to go stale, one primed and still inside its window, one never read.
+  await cache.read('questions:stale-ws', producer('a').run, FRESH);
+  tick(20_000);
+  await cache.read('questions:warm-ws', producer('b').run, FRESH);
+
+  const rec = timing.begin('GET /api/questions');
+  await cache.read('questions:cold-ws', producer('c').run, FRESH); // nothing kept — pays the producer
+  await cache.read('questions:stale-ws', producer('a2').run, FRESH); // memory now, refresh behind
+  await cache.read('questions:warm-ws', producer('b2').run, FRESH); // inside the window
+  await check(
+    () => assert.equal(timing.header(rec).match(/cache;desc=(\w+)/)[1], 'cold'),
+    'a request that reads a cold key and then a warmer one is filed cold — the later read does not rename it'
+  );
+  timing.end(rec, 200);
+  const row = timing.snapshot().routes.find((r) => r.route === 'GET /api/questions');
+  await check(() => assert.ok(row.cold && !row.stale && !row.warm), 'and it lands in the cold bucket, which is the one the budget is judged on');
+}
+
+{
+  // No cold key at all: one stale read among warm ones is still a refresh somebody's
+  // tracker queued behind, so `stale` is the honest word and `warm` would hide the cost.
+  cache.clear();
+  timing.reset();
+  await cache.read('foundation:a', producer('a').run, FRESH);
+  tick(20_000);
+  await cache.read('foundation:b', producer('b').run, FRESH);
+
+  const rec = timing.begin('GET /api/foundation');
+  await cache.read('foundation:a', producer('a2').run, FRESH);
+  await cache.read('foundation:b', producer('b2').run, FRESH);
+  timing.end(rec, 200);
+  const row = timing.snapshot().routes.find((r) => r.route === 'GET /api/foundation');
+  await check(() => assert.ok(row.stale && !row.warm && !row.cold), 'one stale key among warm ones still costs a refresh, so the request is stale rather than warm');
+}
+
+{
+  // And it only ever lowers: a request whose every key was inside its window is warm,
+  // however many of them it read.
+  cache.clear();
+  timing.reset();
+  await cache.read('work:a', producer('a').run, FRESH);
+  await cache.read('work:b', producer('b').run, FRESH);
+
+  const rec = timing.begin('GET /api/work');
+  await cache.read('work:a', producer('a2').run, FRESH);
+  await cache.read('work:b', producer('b2').run, FRESH);
+  timing.end(rec, 200);
+  const row = timing.snapshot().routes.find((r) => r.route === 'GET /api/work');
+  await check(() => assert.ok(row.warm && !row.cold && !row.stale), 'a request whose every key was fresh is not dragged colder by having read more than one');
+}
+
 /* ---------------------------------------------------------------------- verdict */
 
 console.log('');
