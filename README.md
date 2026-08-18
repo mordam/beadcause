@@ -1802,9 +1802,94 @@ and was exactly backwards — the two acts are not the same act, and gating both
 what proved it.
 
 The one close that is deliberately **not** gated is the work bead a merged pull
-request finishes. That one is already `.catch`-ed and logged: the merge has
-happened by then, and failing the request over a bead that would not close would
-be reporting the merge as a failure.
+request finishes — with one exception, below. That one is already `.catch`-ed and
+logged: the merge has happened by then, and failing the request over a bead that
+would not close would be reporting the merge as a failure.
+
+### The one law — no agent closes a gate
+
+deluvia's `docs/STUDIO_CHARTER.md` §2 states it in one sentence: **agents draft,
+Adam approves, and no agent closes a gate or a bead waiting to be approved. The tap
+is the close.** `docs/STUDIO_PLAN.md` §6 says it again about the status script —
+*"It only reads. It contains no bd write of any kind"* — and `docs/APPROVAL_PIPELINE.md`
+says it a third time about the draft → in-review → approved → revise state machine.
+
+Three documents, and until `lib/approval.js` existed none of them was read by
+anything. beadcause had no idea what a gate was: the only mentions of the word in
+`lib/` were an unrelated capability marker and a node id in a flowchart. So a gate
+bead came up `bd ready` like any other bead, an advocate opened an unattended window
+on it, and that session ran its ordinary ending — which closes the bead the window
+was opened for.
+
+**It has already fired.** Delivering `dv-b5d` on 2026-08-10 closed the epic over six
+open children, four of them gates. The cost is not a row in a tracker: deluvia's
+`scripts/studio_status.py` is built around the rule and prints it on every run, so a
+wrongly-closed gate is a status board reporting G0 closed and G1/G4 unblocked, on a
+lie — the exact silent failure the rule exists to prevent.
+
+#### What is held, and what deliberately is not
+
+The **bare** label `gate` means *I am a gate*, and `needs-approval` means *a person
+has still to judge this*. `gate:G0` means *I count towards G0* and is an ordinary
+deliverable with an ordinary ending — the beads under a gate are exactly the work
+that moves it, and holding those would stop the ladder rather than protect it. So
+the match is on the whole label, and a `startsWith` here would be wrong in the one
+way that is expensive to notice.
+
+#### It is a rule about the close *reason*, not a hold on the bead
+
+The obvious shape is the one `unendorsed`, `ship` and `container` already use — a
+filter plus a refusal, so the bead is in no queue and cannot be worked at all. That
+was on the table as dv-8o5's other option and it is **not** what was decided, for a
+reason easy to lose: a gate is not unworkable. Evidence gets gathered against it and
+notes get written on it; only the close is anybody's but Adam's.
+
+And a blanket refusal would break the half of the law that matters most. *The tap is
+the close* — when a gate is genuinely met, the close is a tap on the phone, and the
+phone asks `Bd.gateFor` whether that close would be refused before it draws the
+button. A rule that refused every close would take the button away and leave a gate
+nothing on this machine could ever close, silently, because the card would simply
+render without it.
+
+So the refusal keys on the **sentence the close would carry**. `isMergeReason` already
+identifies the three a merge writes — `Landed as #42` from a worker's own delivery and
+from the tap on a delivery card, and `Merged #212 as 72789c0b into main on GitHub` from
+the sweep that notices a merge made on github.com — and every automated close of a work
+bead in this program carries one of them. A close Adam asks for by name carries none,
+and goes through untouched. It is the same shape, and the same argument, as
+[an epic not closing on a merge](#when-bd-will-not-close-the-bead): here it is stronger,
+because a merge is not merely poor evidence about a gate, it is not the gate's evidence
+at all.
+
+#### Wired to every door, because a merge arrives four ways
+
+| where | what it does |
+|---|---|
+| `Bd.gateFor` (`lib/bd.js`) | the funnel for the daemon: the tap on a delivery card, the sweep that notices a merge on github.com, and the retry minutes later |
+| `lib/owed.js` | drops the record rather than retrying — nothing about waiting turns a merge into an approval, and `owed-closes.json` may hold a record written before this rule existed |
+| `lib/mergequeue.js` | merges, comments, and leaves the bead open — written out beside the epic branch it already had, because this path does not ask the gate |
+| `bin/deliver.js` | a separate process shelling out to `bd`; it merges first and handles the refusal, and it already checked the merge-reason half itself |
+| `lib/session.js` | the other half of the answer: the worker's brief **states the law in words**, so a refused session reads the ending as the work finishing rather than as something to retry |
+
+The brief matters more than it looks. A session refused by a rule it was never told
+about does not stop — it re-runs the delivery, files a bead about the tracker being
+broken, or closes the bead by hand at a terminal, which is the one route the code
+cannot cover. dv-vry was answered *both* for exactly that reason: the brief states
+it and the code holds it, so a brief that drifts cannot silently reopen the hole.
+
+**What this is not strong enough to be.** A `bd close` typed at a terminal still
+closes a gate. bd has no pre-close hook — `bd hooks` installs git hooks and nothing
+else — so no rule beadcause holds can reach it. What is covered is the only ending an
+unattended session has, which is the one that fired.
+
+#### Checking the one law
+
+**`node test/onelaw.mjs`** — the predicate, the gate, the retry, the merge queue driven
+end to end with a fake tracker, and the brief. Three failures are worth the file and the
+middle one is the expensive one: missing a door, refusing a close Adam asked for, and
+retrying a terminal refusal for ever. `bin/deliver.js` is a separate process that cannot
+be imported, so it is read rather than driven — the drive of the real binary is
+`test/landcheck.mjs`.
 
 ### Checking it
 
