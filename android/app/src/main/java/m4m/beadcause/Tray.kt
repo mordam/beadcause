@@ -32,7 +32,8 @@ object Tray {
     private const val MAX_LINES = 4
 
     /**
-     * Which card an entry lands in — and there are two, deliberately.
+     * Which card an entry lands in — and there are four, split by what the arrival
+     * asks of you rather than by what produced it.
      *
      * [WORK] is the tray as it was: questions and agent replies, stacked into one
      * glanceable card. [FOUNDATION] is an agent asking to change what it is, and it
@@ -40,10 +41,34 @@ object Tray {
      * app: it is not a question about work, it does not compete with one, and it must
      * not be the fourth line of an inbox summary about something else.
      *
-     * Two cards is the ceiling, not a pattern to extend. Beyond about three the shade
-     * stops being glanceable, which is the whole reason [Tray] exists.
+     * [NEWS] and [STUCK] arrived with bc-ka5y.15.1, and the ceiling this file used to
+     * declare — two cards, because the shade stops being glanceable at about three —
+     * is the reason they are two rather than four. A merge landing, a release and an
+     * epic completing are three sizes of the same good news and share one card; a
+     * deploy that failed and a tracker that stopped syncing are not news at all.
+     *
+     * **Why that is still two cards in practice, most of the time.** [NEWS] carries
+     * [Entry.expires], so a card of landings takes itself away rather than sitting
+     * under a waiting question all day, and [STUCK] exists only while something
+     * actually is — its entries arrive with a `clear` that removes them, not with a
+     * timer. So the steady state of a working morning is [WORK] and [FOUNDATION],
+     * exactly as before, and the other two are transient by construction.
+     *
+     * **What must never happen is a landing pushing a question off a summary**, which
+     * is why they are separate cards and not four more lines of [WORK].
      */
-    enum class Chan { WORK, FOUNDATION }
+    enum class Chan { WORK, FOUNDATION, NEWS, STUCK }
+
+    /**
+     * The two decks whose entries are beads the server still lists as open.
+     *
+     * [retain] is driven by the question list off `/api/poll`, so it may only ever
+     * judge decks whose keys are in that list. A news entry's key is `news/…` and a
+     * blockage's is `stuck/…` — neither is a bead, both would be missing from every
+     * live set, and sweeping them here would have cleared the shade of them on the
+     * first resync after they arrived.
+     */
+    private val BEAD_DECKS = setOf(Chan.WORK, Chan.FOUNDATION)
 
     data class Entry(
         val key: String,
@@ -54,11 +79,25 @@ object Tray {
         val question: Question?,
         val isReply: Boolean,
         val chan: Chan = Chan.WORK,
+        /**
+         * How long the platform should keep this card before clearing it itself, in
+         * milliseconds, or 0 to keep it until it is dismissed or removed.
+         *
+         * Only [Chan.NEWS] sets it. Nothing on that card is waiting on you and nothing
+         * on it can be acted on, so a landing from Tuesday still in the shade on
+         * Thursday is not a record, it is clutter competing with a question — and
+         * clutter is how a shade stops being read at all. A blockage is the opposite
+         * case and deliberately has no timer: it goes when the daemon says the state
+         * cleared, or when you take it away yourself.
+         */
+        val expires: Long = 0L,
     )
 
     private val decks = mapOf(
         Chan.WORK to ArrayDeque<Entry>(),
         Chan.FOUNDATION to ArrayDeque<Entry>(),
+        Chan.NEWS to ArrayDeque<Entry>(),
+        Chan.STUCK to ArrayDeque<Entry>(),
     )
 
     private fun deck(chan: Chan) = decks.getValue(chan)
@@ -88,11 +127,13 @@ object Tray {
      *
      * The old sweep cancelled every notification id it did not recognise, which with
      * a single tray card would have cancelled the tray on every poll. The live set
-     * spans both channels, so it is passed whole rather than per card.
+     * spans both bead channels, so it is passed whole rather than per card — and it
+     * reaches only those two, because [BEAD_DECKS] is the whole of what that list can
+     * speak about.
      */
     @Synchronized
     fun retain(ctx: Context, liveKeys: Set<String>) {
-        for (chan in decks.keys) if (deck(chan).removeAll { it.key !in liveKeys }) render(ctx, chan)
+        for (chan in BEAD_DECKS) if (deck(chan).removeAll { it.key !in liveKeys }) render(ctx, chan)
     }
 
     @Synchronized
@@ -103,8 +144,17 @@ object Tray {
         }
     }
 
+    /**
+     * What is in the shade, optionally narrowed to some of the cards.
+     *
+     * The narrowing is what [Notifications.acknowledged] needs: it posts a "sent"
+     * confirmation only when nothing is left waiting, and a landing from ten minutes
+     * ago is not something waiting. Unnarrowed it is every deck, which is what a
+     * caller asking "is anything in the shade at all" means.
+     */
     @Synchronized
-    fun snapshot(): List<Entry> = decks.values.flatten()
+    fun snapshot(vararg chans: Chan): List<Entry> =
+        (if (chans.isEmpty()) decks.keys else chans.toSet()).flatMap { deck(it) }
 
     private fun render(ctx: Context, chan: Chan) = Notifications.renderTray(ctx, chan, deck(chan).toList())
 }

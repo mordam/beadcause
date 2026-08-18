@@ -221,8 +221,17 @@ function board({
     // What the thread's own collapse is remembered in. Empty, so every comment starts
     // in whatever state `openThreadIndexes` decided for it.
     thread: new Map(),
+    // bc-rfnr.9.5's two sources. `board: null` and an empty archive map are what a page
+    // that has just booted holds, so every bead in this suite draws the section in its
+    // "still reading" state — which is what keeps these checks about the bead rather
+    // than about what happened to it. test/p0happened.mjs is where that is asserted.
+    board: null,
+    p0beadarc: new Map(),
   };
   const context = vm.createContext({
+    // public/prcard.js's rung pill, which `p0PrRowHtml` asks for and does without. Absent
+    // here on purpose: this suite has no board, so no pull request row is ever drawn.
+    window: {},
     String,
     Number,
     Math,
@@ -290,6 +299,13 @@ function board({
       // is that the control is offered for a row the inbox has and withheld for one it
       // does not.
       lift(APP, 'function p0AnswerHtml(workspace, b)'),
+      // bc-rfnr.9.5's trail out of the tracker, which `p0BeadBodyHtml` now draws on
+      // every bead — half of it missing is a `ReferenceError` that reads as the whole
+      // expansion being broken.
+      lift(APP, 'function p0PrsFor(id)'),
+      lift(APP, 'function p0PrRowHtml(p)'),
+      lift(APP, 'function p0SessionRowsHtml(workspace, id, row, arc)'),
+      lift(APP, 'function p0HappenedHtml(card, b)'),
       lift(APP, 'function p0BeadBodyHtml(card, b)'),
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),

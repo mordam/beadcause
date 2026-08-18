@@ -15,6 +15,7 @@
  *   groups:
  *     - name: router-tls
  *       beads: [bc-jk4m.1, bc-jk4m.2]
+ *       files: [lib/router.js, lib/tls.js]
  *       prs:
  *         - repo: beadcause
  *           title: Terminate TLS in the router
@@ -25,11 +26,21 @@
  * ## What it will refuse, and why refusing is the point
  *
  * Everything in `validatePlan` — a bead that is not under this epic, a bead in two groups,
- * a group whose pull requests span two repos, a group with no prompt. All of them are
- * plans that *look* fine and fail at launch, an hour later, in a window nobody is watching:
- * a group spanning repos is an hour of agent in the wrong checkout, and a bead in two
- * groups is two sessions writing one file. A refusal here comes back to the session that
- * wrote it, while it still has the context to fix it, which is the only moment anything can.
+ * a group whose pull requests span two repos, a group with no prompt, **and two groups that
+ * declared the same file**. All of them are plans that *look* fine and fail at launch, an
+ * hour later, in a window nobody is watching: a group spanning repos is an hour of agent in
+ * the wrong checkout, and a bead in two groups is two sessions writing one file. A refusal
+ * here comes back to the session that wrote it, while it still has the context to fix it,
+ * which is the only moment anything can.
+ *
+ * The `files:` refusal (bc-42ow.3) is that same argument said forwards rather than
+ * backwards. Every other conflict mechanism in this repo arbitrates a collision that
+ * already exists; a plan is the one document where two windows' work is decided together,
+ * so it is the one place the collision can simply not be created. Declaring nothing is
+ * legal — see lib/beadfiles.js on why a missing surface must never withhold work — but two
+ * groups that both declare `lib/foo.js` are a decomposition with a known conflict written
+ * into it. `files:` is a list of paths or globs, and it is also what the group's beads want
+ * in their own descriptions, since the dispatcher reads the bead rather than the plan.
  *
  * It also refuses a prompt containing the phrases that belong to the generated brief. The
  * group prompt is the one piece of text in any brief beadcause writes that another agent
