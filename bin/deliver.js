@@ -475,13 +475,18 @@ if (editHold) console.error(`beadcause-deliver: ${beadId} is an in-app edit, so 
  * spends twenty minutes wondering, that the ending it is about to get is *merged and still
  * open* — and that `--review` is the way to put the merge in front of Adam too.
  *
+ * It says "whatever merges this" rather than naming one, because three different things
+ * can: the merge queue, a tap on the delivery card, or this process itself on the paths
+ * that still land their own work. The rule is the same for all three and the sentence
+ * should not have to be right about which one this is.
+ *
  * The refusal itself is not carried by this line. It is in lib/approval.js, and it holds
  * whether or not anybody reads this. See the `staysOpen` branch in `landHere`.
  */
 const approvalLabel = approvalHold(bead);
 if (approvalLabel && !review) {
   console.error(
-    `beadcause-deliver: ${beadId} is labelled \`${approvalLabel}\` — this delivery will merge and will NOT close it. ` +
+    `beadcause-deliver: ${beadId} is labelled \`${approvalLabel}\` — whatever merges this will NOT close it, deliberately. ` +
       `${owner} closes it; deliver with --review to put the merge in front of them too.`
   );
 }
