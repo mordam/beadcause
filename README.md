@@ -16666,6 +16666,86 @@ service restart resumes rather than re-notifying — and a cold start (no `since
 reads current state with no backlog, the same way the daemon's own poller refuses to
 push the questions already waiting when it boots.
 
+### And the four things it hears about that are not questions
+
+Until bc-ka5y.15.1 the poll above carried exactly four kinds of event to the phone —
+`question`, `reply`, `foundation-request`, `foundation-reply` — and everything *else* the
+daemon had to say went out over ntfy: a merge landing (`pushLanded`), a deploy finishing
+(`pushDeploy`), a tracker that stopped syncing (`pushSyncTrouble`). That meant those
+arrived in **ntfy's** app, on ntfy's channel, with a sound beadcause cannot set and a card
+it cannot lay out. Four more event types moved them onto the same wire as everything else:
+
+| type | what it is | card | may a muted space silence it? |
+|---|---|---|---|
+| `landed` | a pull request went into `main` | news | yes |
+| `released` | a deploy succeeded — what is running is what is on `main` | news | yes |
+| `stuck` | a deploy failed, was lost or is unconfirmed; or a tracker is not syncing | its own | **no** |
+| `epic-done` | an epic completed | news | yes |
+
+**Four types rather than one `news` type with a `kind` field**, because a client has to be
+able to file an arrival — which card, which channel, whether it expires — without asking
+the server a second question. `lib/news.js` composes all four, and composes them
+*whole*: `title` and `text` arrive ready to draw, for the same reason the ntfy bodies they
+replace were composed on this side. The sentence explaining a deploy refused over a stale
+LaunchAgent, and the one saying a stuck tracker will *not* clear on its own, are the
+product of arguments that live in `lib/launchagent.js` and `lib/sync.js`, and a second copy
+of them in Kotlin would be a second copy to drift.
+
+**`stuck` is the only one that is a state rather than an arrival.** Everything else here
+happened and stays happened; a failed deploy is a condition, so its card has to go away
+when the condition does. Same type, same key, `state: "clear"` instead of `"stuck"` — that
+is what `pushSyncedAgain` became. It is also the only class a mute may not silence, which
+is the whole argument for giving it the one insistent voice: a tracker that is not syncing
+is the app quietly lying to you about every other machine, and a warning that can be
+arranged not to speak is not a warning.
+
+**Nothing arrives twice.** The four pushers are *deleted* from `lib/notify.js` rather than
+left running beside the events — a phone that gets a native card and an ntfy push for the
+same landing is worse than one that gets neither. Three pushes stayed, and each stayed for
+a reason about this pipe rather than about taste: `pushCertificate` and `pushNoBackend`
+report a failure of the very path a native notification would have to travel — a phone
+parked on `/api/poll` cannot be told that the certificate for the name it is polling has
+expired, and cannot be told anything at all by a daemon that is not answering — and
+`pushServingAgain` is the other half of the second. ntfy goes through a relay that has
+nothing to do with either, so it still arrives.
+
+**In the shade they are two more cards, and they are transient by construction.** `Tray`
+was capped at two (`WORK`, `FOUNDATION`) because the shade stops being glanceable at about
+three, and a landing must never push a waiting question off an `InboxStyle` summary. The
+answer is not three more cards but two that clean up after themselves: `NEWS` carries a
+six-hour `setTimeoutAfter`, so a card of landings takes itself away rather than sitting
+under a waiting question all day, and `STUCK` exists only while something actually is. The
+steady state of a working morning is still `WORK` and `FOUNDATION`. Neither new card
+carries a button — the only action a landed merge could offer is a revert, and a revert is
+not a lock-screen gesture — and tapping either opens `/prs`, where the question a landing
+actually raises (*has it reached the running build?*) lives.
+
+**They borrow two existing Android channels rather than cutting their own, deliberately.**
+A channel's sound is immutable after the first `createNotificationChannel`, so publishing
+`merged`/`released`/`epicdone`/`stuck` with today's pip in them would burn those four ids
+on day one. bc-ka5y.15.4 cuts the five channels once bc-ka5y.15.3 has auditioned the
+sounds; until then news lands on the replies channel (default importance, no buzz) and a
+blockage on the questions channel (high importance, pip and a single shake).
+
+**`epic-done` has a shape and no emitter yet, and that is the shape of bc-ka5y.15.2.**
+Nothing closes an epic on its own here — `lib/bd.js` refuses an epic close on a merge,
+because a pull request is no evidence about a theme — so the event is the bead
+*transitioning* to closed, and the detection owes one suppression that has to be built with
+it: an epic you closed yourself, from the app in your hand, must not chime. What is settled
+here is what it will carry (the epic's title, and how many beads closed under it) and what
+the phone does with it when it arrives.
+
+**One landing comes from outside the daemon.** The merge queue runs in-process and calls
+the bus directly; `bin/deliver.js` is a worker's own process with no bus, and it still
+records a branch that was *already merged on github.com* when the delivery started. It
+posts to `POST /api/landed` — the token, not a sign-in, and it cannot choose its own event
+type — the same way `bin/endorse.js` posts endorsements rather than writing them behind the
+daemon's back. A refusal there is a line on stderr and nothing more: a landing is true
+whether or not a phone in another room hears about it.
+
+`test/news.mjs` covers all of it, including a real `POST /api/landed` into a real
+`createApp` and the `GET /api/poll` that answers with it.
+
 ### Noticing in five seconds — and not sweeping to find out
 
 The park above is only as quick as the daemon behind it, and for a long time the daemon
@@ -20078,6 +20158,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], requests[], workspaces[], spaces[], filter, summary, scope, seq}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals}`, the two counts the inbox's tab badges draw. `seq` is where in `/api/poll`'s log this list was true, which is what lets a client park on the poll instead of asking again — see [loaded once](#loaded-once-and-kept--what-a-tab-tap-actually-costs) |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], advocates, presence, observing}` **plus the whole `/api/questions` screen** when something moved — the same `inboxPayload()` builds both, so a client can refresh itself from either and get the same inbox. `questions`, `requests` and `spaces` are `null` rather than `[]` when nothing moved: an empty array means the channel is empty, and a poll that timed out never asked. `want=presence` says the questions are not wanted, which is what makes a quiet poll cost no `bd` at all |
+| POST | `/api/landed` | `{workspace, bead, repo, number, url, title, base, sha, owed}` | announces a merge that landed in **another process**, so the phone hears about it. The one caller is `bin/deliver.js` recording a branch that was already merged on github.com; every other landing is the merge queue's, which is inside this daemon and calls the bus directly. Takes the config token and *not* a sign-in, and cannot choose its own event type — `landedEvent()` in `lib/news.js` composes it — so the worst a wrong caller can do is announce a landing that did not happen. `400` without a pull request number |
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. One card per **repo** — `key` is `beadcause` or `climative/athena-service`, and it is what every row and every button below is addressed by, because a pull request number is only unique inside a repo. `workspace` is still accepted everywhere `key` is and means the same thing for a workspace that is one repo; see [why](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them). Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |

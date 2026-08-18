@@ -37,6 +37,18 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_KEY = "key"
+
+        /**
+         * Which page to open, for a notification that is not about a bead in the inbox.
+         *
+         * [EXTRA_KEY] deep-links to a question by moving the hash, which is right for
+         * everything the app has ever notified about — those are all rows in one list.
+         * A merge landing and a release are not: the question they raise is "has it
+         * reached the running build", and that is the pull request board's, which is
+         * where the ntfy push they replace also pointed. Absent means the inbox, so
+         * every existing caller is unchanged.
+         */
+        const val EXTRA_PATH = "path"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -106,7 +118,7 @@ class MainActivity : AppCompatActivity() {
         // is pushed rather than polled because a download finishing is an event the page
         // has no other way to hear. See public/update.js and Updater.
         Updater.watch(::tellPage)
-        load(intent.getStringExtra(EXTRA_KEY))
+        load(intent.getStringExtra(EXTRA_KEY), intent.getStringExtra(EXTRA_PATH))
     }
 
     /** Hand the updater's state to the page, whichever page is loaded. */
@@ -346,7 +358,7 @@ class MainActivity : AppCompatActivity() {
 
     /* ----------------------------------------------------------------- load */
 
-    private fun load(key: String?) {
+    private fun load(key: String?, path: String? = null) {
         val conn = Prefs.connection(this) ?: return
         serverHost = Uri.parse(conn.baseUrl).host
         binding.banner.visibility = View.GONE
@@ -354,12 +366,20 @@ class MainActivity : AppCompatActivity() {
         // The `?t=` is the same pairing URL shape the QR carries; `bootToken()` in
         // app.js stores it and strips it back out of the address bar.
         val fragment = key?.let { "#" + Uri.encode(it) }.orEmpty()
-        binding.webView.loadUrl("${conn.baseUrl}/?t=${Uri.encode(conn.token)}$fragment")
+        // A single leading-slash path off the same origin, or the inbox. Taken apart and
+        // rebuilt rather than concatenated: an intent extra is not a place to trust a
+        // string from, and the only thing this is allowed to choose is which page of
+        // this server to open.
+        val page = path?.trim()?.takeIf { it.matches(Regex("^/[a-z0-9-]{1,32}$")) } ?: "/"
+        binding.webView.loadUrl("${conn.baseUrl}$page?t=${Uri.encode(conn.token)}$fragment")
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // A page rather than a bead: there is no hash to move to, so it is a load either
+        // way. Ahead of the key check below because a news card carries no key at all.
+        intent.getStringExtra(EXTRA_PATH)?.let { return load(null, it) }
         val key = intent.getStringExtra(EXTRA_KEY) ?: return
         if (!loaded) return load(key)
         // Reloading would throw away scroll position and any draft in a textarea, so
