@@ -1717,16 +1717,26 @@ await check('app.js filters the list through it, rather than only drawing it', (
   // actually get to. What this check is about is that `inKind` still narrows the list
   // rather than only colouring the chips — whichever variable it is handed.
   assert.ok(/inBoard\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
-  // The epic board still narrows it — bc-rfnr.2 — but bc-0xil put one thing ahead of it:
-  // a bead picked in the search box *replaces* the board's narrowing rather than
-  // stacking on it, because half the beads worth searching for are under somebody
-  // else's P0 or under none, and stacked they would answer an explicit search with an
-  // empty list. So what this asserts is the branch, not the bare call.
+  // The board still narrows it — bc-rfnr.2 — but bc-0xil put one thing ahead of it: a bead
+  // picked in the search box *replaces* the board's narrowing rather than stacking on it,
+  // because half the beads worth searching for are under somebody else's P0 or under none,
+  // and stacked they would answer an explicit search with an empty list. So what this
+  // asserts is the branch, not the bare call.
+  //
+  // And since bc-khoe.29 there are two narrowings, because a kind pill draws a screen the
+  // board is not on: `assignedToMe` is everything of yours, `underOwnedRoots` takes back
+  // out what the trees are drawing, and only the views that draw the trees get the second.
   assert.ok(
-    /const inBoard = beadPicked\(\) \? inBead\(inRepo\) : underOwnedRoots\(inRepo\)/.test(app),
+    /const forPills = beadPicked\(\) \? inBead\(inRepo\) : assignedToMe\(inRepo\)/.test(app),
+    'the pills stopped being narrowed to what is assigned to you'
+  );
+  assert.ok(
+    /const inBoard = beadPicked\(\) \|\| !boardHere \? forPills : underOwnedRoots\(inRepo\)/.test(app),
     'the epic board no longer narrows the list'
   );
-  assert.ok(app.includes('surveyKinds('), 'the chips are never told what is on screen');
+  // The counts are the pills' own list and not this render's — on My Epics the list under
+  // the board is not what a pill would open, and a badge counting it lies about every pill.
+  assert.ok(app.includes('surveyKinds(forPills)'), 'the chips are told about the wrong list');
 });
 
 await check('a view shows its own kind — the board on My Epics, the list on the rest', () => {
