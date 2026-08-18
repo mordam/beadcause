@@ -11,21 +11,29 @@
 //     down by exactly the height of what just appeared, and the epic you tapped leaves the
 //     top of the screen. The rendered markup is identical either way. The only thing that
 //     tells you is `getBoundingClientRect().top` on the tapped element, before and after,
-//     which is how scripts/p0bead-check.mjs asserts the same fix one level down. It is
-//     asked of the fold as well, because unfolding the board is the same growth with the
-//     whole section in it.
+//     which is how scripts/p0bead-check.mjs asserts the same fix one level down. It used
+//     to be asked of the board's fold as well, on the grounds that unfolding is the same
+//     growth with the whole section in it; bc-khoe.28 removed the fold, so what is asked
+//     of the heading now is only that pressing where it was does nothing.
 //   • **bc-rfnr.9.7's claim is about two surfaces at once.** That a bead the board draws is
 //     not drawn again underneath it is half a line in `underOwnedRoots` and is asserted in
 //     test/ownquestion.mjs; what is not assertable there is that the *question* survived
-//     the removal — that it is marked on a card that is folded shut, that the mark is
-//     still there when the whole board is folded away, and that tapping through to it ends
-//     on a real answer box rather than on a control that does nothing.
+//     the removal — that it is marked on a card whose tree is folded shut, that the count
+//     is on the section heading as well, and that tapping through to it ends on a real
+//     answer box rather than on a control that does nothing.
 //
-// The anchor row matters to the first of those and is easy to lose: `restorePlace` returns
-// early when there is no `.card[data-key]` in the list at all, so a fixture whose board
-// swallowed every row would pass the scroll checks by having nothing to hold still. This
-// one keeps a question under nobody's P0 — `unhomed`, bc-i7tw — which is both the realistic
-// shape and the thing that makes the measurement mean something.
+//   • **bc-khoe.28 is a claim about two screens that share one page.** My Epics is the
+//     board and nothing under it; a kind pill is the list and no board over it. Neither
+//     half is visible in one render — the failure is a chunk that is still pushed on the
+//     other view — so it is driven by tapping the pill row for real and asking what is on
+//     the screen either side of the tap.
+//
+// The fixture keeps a question under nobody's P0 — `unhomed`, bc-i7tw — because that is
+// the one row a tree cannot hold, and therefore the row that has to be on the Questions
+// pill and nowhere else. Before bc-khoe.28 it was also the scroll anchor `restorePlace`
+// holds on to; My Epics has no list to anchor in now, and `restorePlace` returns early
+// there, which is why the jump below is measured with a question pill's list on screen as
+// well as without one.
 //
 // Same harness as scripts/p0bead-check.mjs: the real public/app.js in a headless Chrome the
 // size of a phone, against fixtures served from this process, so it never touches a daemon,
@@ -326,19 +334,37 @@ try {
   /* ---- bc-rfnr.9.7: what the list holds once the board is drawing the beads ---- */
 
   let v = await evalJs(VIEW);
-  check('the board is up, folded shut, with one epic on it', v.cards === 1 && v.rows === 0, `${v.cards} cards`);
+  check('My Epics is the board, with one epic on it and every tree shut', v.cards === 1 && v.rows === 0, `${v.cards} cards`);
   check(
     'the bead the board draws is not drawn again underneath it',
     !v.listKeys.includes(`${WS}/${ASKS}`),
     v.listKeys.join(' ') || 'no rows'
   );
-  // Both halves of the anchor argument in one assertion: the question under nobody's P0 is
-  // still on a screen (bc-i7tw), and it is what `capturePlace` will hold on to below.
-  check('the question under nobody’s P0 still is', v.hasLoose && v.listKeys.includes(`${WS}/${LOOSE}`));
-  check('so there is a card in the list for the scroll anchor to find', v.listRows >= 1, `${v.listRows} rows`);
+  // bc-khoe.28: and neither is anything else. The list below the board was the second,
+  // flatter copy of what the cards already hold, and on My Epics there is now no list at
+  // all — not the question under nobody's P0 either, which lives on the Questions pill.
+  check('AND THERE IS NO LIST UNDER IT AT ALL', v.listRows === 0 && !v.hasLoose, `${v.listRows} rows`);
   // Four levels down a tree that is folded by default is not findable; this is.
   check('the collapsed card says one bead under it is asking you', /1 asks you/.test(v.cardText), v.cardText);
-  await shot('shut');
+  await shot('board');
+
+  /* ---- bc-khoe.28: and the other pill is the list, with no board over it ---- */
+
+  await press('button.viewpill[data-pill="question"]');
+  await sleep(500);
+  v = await evalJs(VIEW);
+  // Gone, not collapsed to its shut heading line: a view shows its own kind, and half a
+  // board over a list of questions is the thing this bead is about.
+  check('THE BOARD IS NOT ON THE QUESTIONS PILL IN ANY FORM', v.cards === 0 && v.headTop === null, `${v.cards} cards`);
+  check('and the question under nobody’s P0 is', v.hasLoose && v.listKeys.includes(`${WS}/${LOOSE}`), v.listKeys.join(' ') || 'no rows');
+  check('so there is a card in the list for the scroll anchor to find', v.listRows >= 1, `${v.listRows} rows`);
+  check('and the bead the board would have drawn is still not doubled into it', !v.listKeys.includes(`${WS}/${ASKS}`));
+  await shot('questions');
+
+  await press('button.viewpill[data-pill="epics"]');
+  await sleep(500);
+  v = await evalJs(VIEW);
+  check('and tapping My Epics brings the board back and takes the list away', v.cards === 1 && v.listRows === 0, `${v.cards} cards, ${v.listRows} rows`);
 
   /* ---- bc-rfnr.9.9: the tap must not move the card out from under your thumb ---- */
 
@@ -360,23 +386,17 @@ try {
   check('nothing overflows a 393px phone', v.wide);
   await shot('open');
 
-  /* ---- and the same question of the fold, which grows the board on the way back ---- */
+  /* ---- and the heading is a heading now, not the fold it was until bc-khoe.28 ---- */
 
+  check('the section heading says how many are asking you', /1 asks you/.test(v.headText), v.headText);
+  const wasCards = v.cards;
   await press('.p0-board .p0-kind');
   await sleep(400);
   v = await evalJs(VIEW);
-  check('folding the board away leaves the heading', v.cards === 0 && v.headTop !== null);
-  check('and it still says how many are asking you', /1 asks you/.test(v.headText), v.headText);
-  const headWas = v.headTop;
-  await press('.p0-board .p0-kind');
-  await sleep(400);
-  v = await evalJs(VIEW);
-  check('bringing it back brings the cards back', v.cards === 1);
-  check(
-    'AND LEAVES THE HEADING WHERE YOU TAPPED IT',
-    headWas !== null && v.headTop !== null && Math.abs(v.headTop - headWas) <= 2,
-    `${headWas} → ${v.headTop} (scrollY ${v.scrollY})`
-  );
+  // With no list beneath it, a fold would have been a control whose whole effect was to
+  // leave the view blank — and persisted, blank for good. Pressing where it used to be
+  // must do nothing at all.
+  check('and pressing it does nothing, because there is nothing to fold', v.cards === wasCards, `${v.cards} cards`);
 
   /* ---- and the question is answerable from the bead it is on ---- */
 
@@ -398,7 +418,9 @@ try {
   await press('#list .card.open [data-act="collapse"]');
   await sleep(600);
   v = await evalJs(VIEW);
-  check('collapsing it drops the row back out of the list', !v.listKeys.includes(`${WS}/${ASKS}`), v.listKeys.join(' '));
+  // And on My Epics that takes the whole list with it — the sheet was the one thing
+  // holding a list open here (`listHere`, bc-khoe.28), so what is left is the board alone.
+  check('collapsing it drops the row back out of the list', !v.listKeys.includes(`${WS}/${ASKS}`) && v.listRows === 0, v.listKeys.join(' ') || 'no rows');
   check('and the tree it was opened from is still there', v.rows === LIVE, `${v.rows} of ${LIVE} rows`);
 } finally {
   close();

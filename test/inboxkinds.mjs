@@ -1729,6 +1729,63 @@ await check('app.js filters the list through it, rather than only drawing it', (
   assert.ok(app.includes('surveyKinds('), 'the chips are never told what is on screen');
 });
 
+await check('a view shows its own kind — the board on My Epics, the list on the rest', () => {
+  // bc-khoe.28. Home draws every view on top of the same page, and it used to draw *both*
+  // halves on all of them: the P0 board above and the card list below, whichever pill was
+  // lit. So no pill showed only its own kind — Questions had the epic board over it, and
+  // My Epics, which is the empty selection, drew every row the sweep produced underneath a
+  // board whose trees already held the same work.
+  //
+  // Asserted against the source because `render` is a thousand lines of DOM and cannot be
+  // lifted into this room, and because the failure it is guarding is a chunk pushed
+  // unconditionally — which is what it was before this bead and what any later edit that
+  // forgets the gate will make it again.
+  const app = read('public/app.js');
+  assert.ok(
+    /const view = window\.beadcause\?\.inboxFilter\?\.current\?\.\(\) \?\? null/.test(app),
+    'the render does not ask which pill is lit'
+  );
+  // `null` is the control never having loaded, and it draws both — the shape this page had
+  // before there was a pill row. A page served without public/inboxfilter.js must not be a
+  // page with half its content missing and nothing on screen saying why, which is the same
+  // fallback `inKind` makes two paragraphs up.
+  assert.ok(/const boardHere = view === null \|\| view === 'epics'/.test(app), 'the board is not gated on the view');
+  // `boardOnly` is counted off the cards and not off the pill, which is bc-6s96 surviving
+  // this bead: with nothing started the section switches off, and a My Epics that drew
+  // neither a card nor a list would be a blank page on a fresh install.
+  assert.ok(/const boardOnly = view === 'epics' && p0Cards\(\)\.length > 0/.test(app), 'an empty board still hides the list');
+  assert.ok(
+    /const listHere = !boardOnly \|\| beadPicked\(\) \|\| state\.open\.size > 0/.test(app),
+    'the list is not gated on the view'
+  );
+  // And the gate is spent where the chunks are pushed. The board is `''` under a kind
+  // pill rather than collapsed to its heading: the bead's word is *gone*, not folded.
+  assert.ok(/const roots = boardHere \? p0SectionHtml\(\) : ''/.test(app), 'the board is drawn on every pill');
+  assert.ok(/if \(!listHere\) \{/.test(app), 'the list is drawn on every pill');
+  // `epics` is what `current()` answers for the empty selection, so the two files agree on
+  // the one id this gate turns on without app.js having to know the table.
+  const { filter } = load();
+  assert.equal(filter.current(), 'epics', 'the empty selection is no longer My Epics');
+  filter.pick('question');
+  assert.equal(filter.current(), 'question');
+  filter.pick('epics');
+  assert.equal(filter.current(), 'epics', 'a place no longer clears the selection');
+});
+
+await check('and no empty state anywhere still points at a board above it', () => {
+  // The boarded branch — "your epics are on the board above", "N questions are waiting on
+  // the board above" — was written for a list drawn beneath a board. There is no board
+  // above a list on any pill now, so that copy is the app pointing at something that is
+  // not on the screen.
+  // The two sentences by name rather than by the phrase they share: the comments around
+  // the render still say "the board above" in explaining why there is no longer one, and a
+  // bare search for it would fail on the prose that records the decision.
+  const app = read('public/app.js');
+  assert.ok(!app.includes('waiting on the board above'), 'the boarded empty state is still reachable');
+  assert.ok(!app.includes('your epics are on the board above'), 'the boarded empty state is still reachable');
+  assert.ok(!/const boarded = /.test(app), 'the empty state still has a boarded branch');
+});
+
 await check('nothing beside the list counts it a second time', () => {
   // There used to be two: a `· N` per repo on the space picker and an **N waiting**
   // pill in the top bar, both counted off the render that drew the list so they could
