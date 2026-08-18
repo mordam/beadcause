@@ -205,7 +205,7 @@ body {
    corner (see .markmenu). Clipped, the badge loses its outer edge. */
 .brand h1.mark { display: flex; overflow: visible; }
 .brand h1.mark img {
-  width: 26px; height: 26px; border-radius: 7px; display: block;
+  width: 26px; height: 26px; border-radius: 6px; display: block;
   /* The artwork's own tile is #0b0f14, which in the dark scheme *is* the page —
      without a hairline the mark reads as three loose dots beside the pulse dot,
      which is itself a teal circle. The ring is what says "this is a tile". */
@@ -230,7 +230,7 @@ body {
   text-decoration: none;
   min-width: 40px; height: 40px;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--surface);
   color: var(--text);
   font-size: 18px;
@@ -377,7 +377,7 @@ body {
   min-height: 34px;
   padding: 6px 10px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--surface);
   color: var(--text);
   font: inherit;
@@ -424,7 +424,7 @@ body {
 .pill-x {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px;
-  padding: 0; border: 0; border-radius: 5px;
+  padding: 0; border: 0; border-radius: 6px;
   background: transparent; color: var(--muted);
   font: inherit; font-size: 15px; line-height: 1;
   cursor: pointer;
@@ -437,7 +437,7 @@ body {
   /* Six rows and then a scroll: the panel is over a list on a phone about fifteen rows
      tall, and a dropdown that filled the screen would leave nothing to filter. */
   max-height: 232px; overflow-y: auto;
-  border: 1px solid var(--line); border-radius: 9px;
+  border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface);
   box-shadow: 0 10px 24px rgb(0 0 0 / 0.4);
 }
@@ -486,7 +486,7 @@ body {
   border-radius: 0;
   border-left-width: 0;
   padding: 6px 16px;
-  font-weight: 620;
+  font-weight: 600;
 }
 .chip-row.scopes .chip:first-child { border-radius: 999px 0 0 999px; border-left-width: 1px; }
 .chip-row.scopes .chip:last-child { border-radius: 0 999px 999px 0; }
@@ -495,7 +495,7 @@ body {
 .chip-row.scopes .chip[aria-pressed="true"] + .chip { border-left: 1px solid var(--line); }
 
 /* The space row is the coarser of the two that filter. */
-.chip-row.spaces .chip { font-weight: 620; }
+.chip-row.spaces .chip { font-weight: 600; }
 /*
   Every chip in the app: the filter and scope chips, the space row, the repo tabs,
   the monitor's tabs, the chips the console edits a bead with, and the composer's
@@ -643,7 +643,7 @@ body {
      shorthand resets `line-height` from whatever the page's own is, and this box's height
      *is* the bar's height now that they share a row — 40px against 33px is 7px of chrome
      on every screen, arrived at by a property nobody wrote down. */
-  font-weight: 620;
+  font-weight: 600;
   font-size: 14px;
   line-height: 1.2;
   white-space: nowrap;
@@ -806,7 +806,7 @@ body {
   min-width: 232px; max-width: 84vw;
   padding: 6px;
   display: flex; flex-direction: column; gap: 2px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
   box-shadow: 0 12px 30px rgb(0 0 0 / 0.35);
 }
 .accountmenu[hidden] { display: none; }
@@ -815,7 +815,7 @@ body {
   display: flex; align-items: center; gap: 10px;
   width: 100%; min-height: var(--tap);
   padding: 8px 10px;
-  border: 0; border-radius: 9px;
+  border: 0; border-radius: 10px;
   background: none; color: var(--text);
   font: 600 14px/1.2 inherit; text-align: left;
   /* Anchors are rows too (Admin, and every hoisted `<a>`), and a row that is a link must
@@ -839,7 +839,7 @@ body {
      silently keeps the page's own font. It cost 7px of bar height here before it was
      caught (`.spacepick-shown`, same mistake, measured at 40px against the 33px it says).
      bc-khoe.15 is filed for the ones this bead did not own. */
-  font-weight: 500;
+  font-weight: 550;
   font-size: 12px;
   line-height: 1.2;
 }
@@ -872,7 +872,7 @@ body {
   rather than a control on this page, and it holds a form.
 */
 .accountpick {
-  border: none; border-radius: 16px; padding: 20px;
+  border: none; border-radius: 14px; padding: 20px;
   width: 420px; max-width: 92vw; max-height: 86dvh; overflow: auto;
   background: var(--surface); color: var(--text);
 }
@@ -887,7 +887,7 @@ body {
   flex: 1 1 auto; min-width: 0;
   display: flex; align-items: center; gap: 10px;
   padding: 10px 12px; min-height: var(--tap);
-  border: 1px solid var(--line); border-radius: 11px;
+  border: 1px solid var(--line); border-radius: 10px;
   background: var(--bg); color: var(--text); text-align: left; cursor: pointer;
 }
 /* The one in force, said in the border as well as the tick — the tick alone is four
@@ -903,14 +903,14 @@ body {
 .accountpick-scope { font-size: 12px; color: var(--muted); }
 .accountpick-edit {
   width: var(--tap); min-height: var(--tap);
-  border: 1px solid var(--line); border-radius: 11px;
+  border: 1px solid var(--line); border-radius: 10px;
   background: var(--bg); color: var(--muted); font-size: 15px; cursor: pointer;
 }
 
 .accountpick-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .accountpick-add, .accountpick-close, .accountpick-remove {
   flex: 1 1 auto; min-height: var(--tap); padding: 0 14px;
-  border-radius: 11px; font: 650 14px/1 inherit; cursor: pointer;
+  border-radius: 10px; font: 650 14px/1 inherit; cursor: pointer;
 }
 .accountpick-add { border: 0; background: var(--accent); color: var(--accent-ink); }
 .accountpick-close { border: 1px solid var(--line); background: var(--bg); color: var(--text); }
@@ -924,7 +924,7 @@ body {
 }
 .accountform-field input[readonly] { color: var(--muted); }
 .accountform-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.accountform-ws { border: 1px solid var(--line); border-radius: 11px; padding: 6px 10px; background: var(--bg); }
+.accountform-ws { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; background: var(--bg); }
 .accountform-pick { display: flex; align-items: center; gap: 10px; min-height: 38px; font-size: 14px; cursor: pointer; }
 /* The app's own teal on the ticks rather than the browser's blue — there are up to forty
    of them on this form and they are the loudest thing on the screen. */
@@ -1031,7 +1031,7 @@ body {
   top: -5px; right: -5px;
   min-width: 17px; height: 17px;
   padding: 0 4px;
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--accent);
   color: var(--accent-ink);
   font-size: 10.5px; font-weight: 700; line-height: 17px;
@@ -1424,7 +1424,7 @@ body {
   margin: 0 0 10px;
   padding: 11px 12px;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--surface-2);
 }
 .address-say { font-size: 12.5px; line-height: 1.45; color: var(--muted); margin: 0; }
@@ -1432,11 +1432,11 @@ body {
 .address-btn {
   min-height: 36px;
   padding: 6px 12px;
-  border-radius: 9px;
+  border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
-  font: inherit; font-size: 13px; font-weight: 560;
+  font: inherit; font-size: 13px; font-weight: 550;
   cursor: pointer;
 }
 /* The handle it already carries. Filled for `.option.picked`'s reason — it is a claim
@@ -1449,14 +1449,14 @@ body {
 .address-typed input {
   min-height: var(--tap);
   padding: 8px 11px;
-  border-radius: 9px;
+  border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
   font: inherit; font-size: 15px;
 }
 
-.q { font-size: 19px; font-weight: 630; line-height: 1.4; margin: 0 0 5px; letter-spacing: -0.012em; }
+.q { font-size: 19px; font-weight: 650; line-height: 1.4; margin: 0 0 5px; letter-spacing: -0.012em; }
 /* The card's own title is a <button> now, shut and open alike (bc-rfnr.9.8) — the
    browser's own button chrome has to come off before the rule above even applies: full
    width and left-aligned like the paragraph it replaces, no background, border or
@@ -1474,16 +1474,16 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   display: flex; flex-direction: column; justify-content: center; gap: 2px;
   text-align: left;
   padding: 10px 14px;
-  border-radius: 11px;
+  border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-weight: 570;
+  font-weight: 550;
   cursor: pointer;
 }
 .option:active { transform: scale(0.99); }
-.option .hint { font-size: 12.5px; font-weight: 420; color: var(--muted); }
+.option .hint { font-size: 12.5px; font-weight: 400; color: var(--muted); }
 
 /* The choice whose words are in the box below. Filled, because it is the one state
    here that is a claim about something else on the card — everything else about an
@@ -1531,7 +1531,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   background: transparent;
   border-style: dashed;
   border-color: color-mix(in srgb, var(--line) 80%, transparent);
-  font-weight: 520;
+  font-weight: 550;
   color: var(--muted);
 }
 .option.discuss .label { color: var(--text); }
@@ -1549,7 +1549,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .console-row { display: flex; align-items: center; gap: 4px; }
 .console-row .work-row { flex: 1; min-width: 0; }
 .console-row.closed { opacity: 0.55; }
-.console-row.closed .work-title { font-weight: 500; }
+.console-row.closed .work-title { font-weight: 550; }
 /* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex parent
    or it is laid out as an empty inline box — which is to say, as nothing at all.
    `.work-phase` is a flex *item* of `.work-row`, which blockifies the slot but not its
@@ -1594,7 +1594,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   display: flex; align-items: center; gap: 8px;
   padding: 4px 4px 4px 12px;
   border: 1px solid var(--line); border-bottom: 0;
-  border-radius: 11px 11px 0 0;
+  border-radius: 10px 10px 0 0;
   /* The box's own colour, so the strip and the textarea read as one control with a
      ⋯ in its corner rather than as a caption sitting on a lid. */
   background: var(--surface-2);
@@ -1678,7 +1678,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
   width: min(86vw, 340px); max-height: 62dvh; overflow-y: auto; overscroll-behavior: contain;
   padding: 12px 12px 2px;
-  border: 1px solid var(--line); border-radius: 12px;
+  border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface);
   box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
 }
@@ -1762,7 +1762,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 }
 .prop-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .prop-head { display: flex; align-items: baseline; gap: 4px; }
-.prop-title { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 590; line-height: 1.35; }
+.prop-title { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 600; line-height: 1.35; }
 /* The number is what a typed or notification answer refers to — "CREATE: 1,3" — so
    it is part of the row rather than a list marker the renderer happens to draw. The
    body hangs off it at the same indent, which is what makes the column read as one. */
@@ -1779,7 +1779,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
   margin-left: 22px; padding: 6px 8px;
   border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
-  border-radius: 8px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--warn) 10%, var(--surface));
   font-size: 12px; line-height: 1.45; color: var(--text);
 }
@@ -1879,7 +1879,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   background: var(--surface-2); color: var(--text); text-decoration: none;
 }
 .pr-num { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: var(--accent); }
-.pr-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 590; line-height: 1.35; }
+.pr-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.35; }
 .pr-branch { font-size: 12px; color: var(--muted); }
 /* The session's own account of what it did, on the card rather than behind the tap
    that opens it — merge is two taps from here, so what you would want to have read
@@ -1968,7 +1968,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   down and the card loses the accent it never earned. A question shouts; this is a
   list you scan.
 */
-.agent-card .q { font-size: 15.5px; font-weight: 570; line-height: 1.35; margin-bottom: 3px; }
+.agent-card .q { font-size: 15.5px; font-weight: 550; line-height: 1.35; margin-bottom: 3px; }
 .agent-card .subtitle { margin-bottom: 10px; }
 .agent-card .card-head { padding: 12px 14px 0; }
 .agent-card .actions { padding: 0 14px 12px; }
@@ -1991,7 +1991,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 }
 .md h1, .md h2, .md h3 {
   font-size: 16px;
-  font-weight: 660;
+  font-weight: 650;
   line-height: 1.35;
   color: var(--text);
   margin: 24px 0 8px;
@@ -2002,7 +2002,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .md ul, .md ol { padding-left: 22px; margin: 0 0 14px; }
 .md li { margin-bottom: 7px; }
 .md li::marker { color: var(--muted); }
-.md strong { color: var(--text); font-weight: 620; }
+.md strong { color: var(--text); font-weight: 600; }
 .md hr { border: none; border-top: 1px solid var(--line); margin: 22px 0; }
 .md a { color: var(--accent); text-underline-offset: 3px; }
 .md code {
@@ -2011,7 +2011,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   color: var(--text);
   background: var(--surface-2);
   padding: 1.5px 6px;
-  border-radius: 5px;
+  border-radius: 6px;
 }
 .md pre {
   background: var(--surface-2);
@@ -2052,7 +2052,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .md th, .md td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; }
 .md th {
   color: var(--text);
-  font-weight: 620;
+  font-weight: 600;
   background: var(--surface-2);
   white-space: nowrap;
 }
@@ -2095,7 +2095,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   width: 100%;
   min-height: 84px;
   padding: 11px 12px;
-  border-radius: 11px;
+  border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--text);
@@ -2117,7 +2117,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .gate-note {
   padding: 11px 12px;
   border: 1px solid var(--warn);
-  border-radius: 11px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--warn) 10%, transparent);
   font-size: 13.5px;
   line-height: 1.5;
@@ -2143,7 +2143,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .failed-note {
   padding: 11px 12px;
   border: 1px solid var(--danger);
-  border-radius: 11px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--danger) 10%, transparent);
   font-size: 13.5px;
   line-height: 1.5;
@@ -2163,7 +2163,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .gate-why {
   padding: 10px 12px;
   border: 1px dashed color-mix(in srgb, var(--warn) 55%, var(--line));
-  border-radius: 11px;
+  border-radius: 10px;
   font-size: 13.5px;
   line-height: 1.5;
 }
@@ -2186,7 +2186,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   margin: 0 15px 10px;
   padding: 9px 11px;
   border: 1px dashed color-mix(in srgb, var(--warn) 55%, var(--line));
-  border-radius: 11px;
+  border-radius: 10px;
   font-size: 13.5px;
   line-height: 1.5;
 }
@@ -2224,7 +2224,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
    not a heading, and uppercase at 11px is hard enough to read once. */
 .suggested .section-label span {
   flex: none;
-  text-transform: none; letter-spacing: 0; font-weight: 500;
+  text-transform: none; letter-spacing: 0; font-weight: 550;
   opacity: 0.8;
 }
 .suggested .chips {
@@ -2247,7 +2247,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .suggested .chip {
   padding: 6px 12px;
   background: var(--surface-2); color: var(--text);
-  font-size: 13.5px; font-weight: 540;
+  font-size: 13.5px; font-weight: 550;
   text-align: left; line-height: 1.3;
 }
 .chip:active { transform: scale(0.98); }
@@ -2278,7 +2278,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .primary {
   flex: 1;
   min-height: var(--tap);
-  border: none; border-radius: 11px;
+  border: none; border-radius: 10px;
   background: var(--accent); color: var(--accent-ink);
   font: inherit; font-weight: 650; font-size: 15px;
   cursor: pointer;
@@ -2286,9 +2286,9 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .secondary {
   flex: 1;
   min-height: var(--tap);
-  border: 1px solid var(--line); border-radius: 11px;
+  border: 1px solid var(--line); border-radius: 10px;
   background: transparent; color: var(--text);
-  font: inherit; font-weight: 570; font-size: 15px;
+  font: inherit; font-weight: 550; font-size: 15px;
   cursor: pointer;
 }
 .primary:disabled, .secondary:disabled { opacity: 0.45; }
@@ -2387,7 +2387,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
   min-width: max-content; max-width: min(78vw, 340px);
   padding: 5px;
-  border: 1px solid var(--line); border-radius: 12px;
+  border: 1px solid var(--line); border-radius: 10px;
   background: var(--surface);
   box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
 }
@@ -2395,7 +2395,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   display: flex; align-items: center; gap: 8px;
   width: 100%; min-height: var(--tap);
   padding: 0 12px;
-  border: 0; border-radius: 9px;
+  border: 0; border-radius: 10px;
   background: transparent; color: var(--text);
   font: inherit; font-weight: 550; font-size: 14px;
   text-align: left; white-space: nowrap;
@@ -2421,7 +2421,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 }
 .card-foot .meta { margin-bottom: 6px; }
 .card-foot .q {
-  font-size: 15px; font-weight: 570; line-height: 1.35;
+  font-size: 15px; font-weight: 550; line-height: 1.35;
   color: var(--prose);
   margin: 0;
 }
@@ -2502,7 +2502,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 450;
+  font-weight: 400;
   color: var(--prose);
 }
 .comment:not(.shut) .peek { display: none; }
@@ -2532,12 +2532,12 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   flex-wrap: wrap;
   margin: 0 0 12px;
   padding: 7px 11px;
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--surface-2);
   border: 1px solid var(--line);
   font-size: 13px;
 }
-.activity .phase { font-weight: 620; color: var(--text); }
+.activity .phase { font-weight: 600; color: var(--text); }
 .activity .detail { color: var(--muted); }
 .activity time { color: var(--muted); font-size: 12px; margin-left: auto; }
 .activity.waiting { border-style: dashed; }
@@ -2604,7 +2604,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   height: 2px;
   margin-top: -1px;
   transform-origin: left center;
-  border-radius: 1px;
+  border-radius: 999px;
   background: linear-gradient(90deg, var(--bead-answered), color-mix(in srgb, var(--bead-answered) 25%, transparent));
   will-change: width;
 }
@@ -2696,7 +2696,7 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   margin: 12px 0 4px; padding-top: 10px;
   border-top: 1px solid var(--line);
 }
-.session-label span { font-size: 11.5px; font-weight: 450; letter-spacing: 0; text-transform: none; }
+.session-label span { font-size: 11.5px; font-weight: 400; letter-spacing: 0; text-transform: none; }
 /* The mic that fills the box below, sitting at the far end of the label instead of in
    the composer — see the note in session.js. Shorter than the one on an answer card
    because a label row is not a control strip, but still a full tap target wide. */
@@ -2723,7 +2723,7 @@ button.work-row {
    all — everywhere else it already has one. Without this the busy dot is invisible
    and a working session looks the same as an idle one. */
 .session-row .work-phase { display: flex; align-items: center; justify-content: center; }
-.session-row .work-title { font-weight: 500; }
+.session-row .work-title { font-weight: 550; }
 .work-sub .pill.id { margin-right: 5px; }
 
 /* The advocate block on a workspace card. It sits above the claimed beads because
@@ -3147,7 +3147,7 @@ button.work-row {
   margin: 0 2px 12px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
-  border-radius: 12px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 6%, var(--surface-2));
 }
 .release-head { display: flex; align-items: center; gap: 12px; }
@@ -3241,7 +3241,7 @@ button.work-row {
 }
 .deploy-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .deploy-what { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; min-width: 0; }
-.deploy-said { color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deploy-said { color: var(--muted); font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .deploy.good .deploy-said { color: var(--made-ink); }
 .deploy.warn .deploy-said { color: var(--warn); }
 .deploy.bad .deploy-said { color: var(--danger); }
@@ -3454,7 +3454,7 @@ button.work-row {
 .sheet[hidden] { display: none; }
 .sheet.open { transform: translateY(0); }
 .sheet.full { height: 100dvh; border-radius: 0; }
-.sheet-grip { width: 38px; height: 4px; border-radius: 2px; background: var(--line); margin: 8px auto 4px; }
+.sheet-grip { width: 38px; height: 4px; border-radius: 999px; background: var(--line); margin: 8px auto 4px; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 14px 8px; border-bottom: 1px solid var(--line); }
 .sheet-actions { display: flex; gap: 4px; }
 .sheet-body { flex: 1; overflow-y: auto; padding: 14px 16px calc(env(safe-area-inset-bottom) + 28px); }
@@ -3620,7 +3620,7 @@ button.work-row {
 .docs a .path {
   display: block;
   font-size: 11.5px;
-  font-weight: 420;
+  font-weight: 400;
   color: var(--muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -3684,7 +3684,7 @@ button.work-row {
   position: relative;
   width: 3px;
   height: 76px;
-  border-radius: 3px;
+  border-radius: 999px;
   /* --line is a border colour and disappears against the pill at 3px wide; the
      track has to be visible or the thumb reads as a mark with nothing to be on. */
   background: color-mix(in srgb, var(--muted) 32%, transparent);
@@ -3694,7 +3694,7 @@ button.work-row {
   left: 0;
   width: 100%;
   min-height: 10px;
-  border-radius: 3px;
+  border-radius: 999px;
   background: var(--accent);
 }
 
@@ -3710,7 +3710,7 @@ button.work-row {
   z-index: 40;
   max-width: min(92vw, 460px);
   padding: 12px 18px;
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: 0 12px 34px rgb(0 0 0 / 0.35);
@@ -3750,7 +3750,7 @@ button.work-row {
 .login-btn {
   display: flex; align-items: center; justify-content: center;
   min-height: var(--tap); padding: 0 18px;
-  border-radius: 12px; border: 1px solid var(--line);
+  border-radius: 10px; border: 1px solid var(--line);
   background: var(--accent); color: var(--accent-ink);
   font: inherit; font-size: 16px; font-weight: 600; text-decoration: none;
 }
@@ -3761,11 +3761,11 @@ button.work-row {
 .login-token input {
   width: 100%; min-height: var(--tap);
   padding: 0 12px; margin: 12px 0;
-  border-radius: 11px; border: 1px solid var(--line);
+  border-radius: 10px; border: 1px solid var(--line);
   background: var(--surface-2); color: var(--text);
   font: inherit; font-size: 16px;
 }
-.login-token .primary { width: 100%; min-height: var(--tap); border-radius: 11px; font-size: 16px; }
+.login-token .primary { width: 100%; min-height: var(--tap); border-radius: 10px; font-size: 16px; }
 
 /*
   A refusal, and it has to be readable rather than decorative: the text is the only
@@ -3774,12 +3774,12 @@ button.work-row {
 .login-error {
   margin: 0 0 20px; padding: 12px 14px; text-align: left;
   border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
-  border-radius: 12px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger); font-size: 13.5px; line-height: 1.5;
 }
 
-.setup { border: none; border-radius: 16px; background: var(--surface); color: var(--text); max-width: 92vw; width: 380px; padding: 20px; }
+.setup { border: none; border-radius: 14px; background: var(--surface); color: var(--text); max-width: 92vw; width: 380px; padding: 20px; }
 .setup::backdrop { background: rgb(0 0 0 / 0.55); }
 .setup h2 { margin: 0 0 8px; font-size: 17px; }
 .setup p { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
@@ -3802,7 +3802,7 @@ button.work-row {
 .setup input {
   width: 100%; min-height: var(--tap);
   padding: 0 12px; margin-bottom: 12px;
-  border-radius: 11px; border: 1px solid var(--line);
+  border-radius: 10px; border: 1px solid var(--line);
   background: var(--surface-2); color: var(--text);
   font: inherit; font-size: 16px;
 }
@@ -4142,7 +4142,7 @@ button.work-row {
   max-width: 86%;
   background: var(--surface-2);
   border: 1px solid var(--line);
-  border-radius: 14px 14px 4px 14px;
+  border-radius: 14px 14px 6px 14px;
   padding: 10px 13px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -4156,7 +4156,7 @@ button.work-row {
 
 .msg.bad {
   border: 1px solid var(--danger); color: var(--danger);
-  border-radius: 12px; padding: 10px 13px; font-size: 14px;
+  border-radius: 10px; padding: 10px 13px; font-size: 14px;
 }
 
 .working { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin-top: 6px; }
@@ -4186,7 +4186,7 @@ button.work-row {
 .proposed-link.filed,
 .proposed-link.revised,
 .proposed-link[disabled] {
-  font-size: 13px; font-weight: 500;
+  font-size: 13px; font-weight: 550;
   min-height: 34px; padding: 6px 12px;
   line-height: 1.35; text-align: left;
 }
@@ -4196,7 +4196,7 @@ button.work-row {
 
 .created-note {
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
-  border-radius: 12px; padding: 11px 13px; background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-radius: 10px; padding: 11px 13px; background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 .created-note strong { display: block; font-size: 14.5px; margin-bottom: 8px; }
 /* One row, one link. The pill was the only target here and the title beside it was
@@ -4208,7 +4208,7 @@ button.work-row {
 .created-row {
   display: flex; align-items: center; gap: 9px;
   min-height: 40px; padding: 2px 5px; margin: 0 -5px;
-  border-radius: 9px;
+  border-radius: 10px;
   color: inherit; text-decoration: none;
 }
 .created-row .pill.id { flex: none; text-decoration: none; }
@@ -4224,7 +4224,7 @@ button.work-row {
 @media (prefers-reduced-motion: reduce) { .created-note.flash { animation: none; outline: 2px solid var(--accent); } }
 
 .reseed-note {
-  border: 1px dashed var(--line); border-radius: 12px; padding: 10px 13px;
+  border: 1px dashed var(--line); border-radius: 10px; padding: 10px 13px;
   font-size: 13px; color: var(--prose);
 }
 .reseed-note strong { display: block; font-size: 13.5px; color: var(--text); margin-bottom: 4px; }
@@ -4250,7 +4250,7 @@ button.work-row {
 .queued-text {
   flex: 1; min-height: 38px; text-align: left;
   padding: 8px 12px;
-  border: 1px dashed var(--line); border-radius: 12px 12px 4px 12px;
+  border: 1px dashed var(--line); border-radius: 14px 14px 6px 14px;
   background: none; color: var(--muted);
   font: inherit; font-size: 14.5px; line-height: 1.45;
   white-space: pre-wrap; overflow-wrap: anywhere;
@@ -4324,7 +4324,7 @@ a.bead-dupe:active { opacity: 0.6; }
 
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field > span {
-  font-size: 11.5px; font-weight: 640; letter-spacing: 0.05em;
+  font-size: 11.5px; font-weight: 650; letter-spacing: 0.05em;
   text-transform: uppercase; color: var(--muted);
 }
 .field textarea, .field input[type="text"] {
@@ -4346,7 +4346,7 @@ a.bead-dupe:active { opacity: 0.6; }
 
 .revision {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  border: 1px solid var(--warn); border-radius: 12px;
+  border: 1px solid var(--warn); border-radius: 10px;
   padding: 10px 12px; margin-bottom: 12px;
   font-size: 13.5px; color: var(--warn);
 }
@@ -4428,7 +4428,7 @@ a.menu-item { text-decoration: none; color: var(--text); }
   color: var(--muted);
   font: inherit;
   font-size: 14px;
-  font-weight: 560;
+  font-weight: 550;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -4959,7 +4959,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    reads the same way when it is being followed. */
 .mir-devices { padding: 12px 14px 4px; }
 .mir-devices .chip { flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.25; }
-.mir-chip-sub { display: block; font-size: 11px; font-weight: 500; opacity: 0.75; }
+.mir-chip-sub { display: block; font-size: 11px; font-weight: 550; opacity: 0.75; }
 .mir-head { padding: 4px 14px 0; }
 .mir-head .subtitle { margin-bottom: 8px; }
 
@@ -4983,7 +4983,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   min-height: var(--tap);
   padding: 8px 14px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
@@ -4992,7 +4992,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   cursor: pointer;
 }
 .mir-opt:hover { border-color: var(--accent); }
-.mir-opt small { font-weight: 500; color: var(--muted); }
+.mir-opt small { font-weight: 550; color: var(--muted); }
 /* The choice whose words are in the composer, filled for the same reason the
    phone's is: it is the one state here that is a claim about something else on
    the page. */
@@ -5002,7 +5002,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mir-comment { padding: 10px 0; border-top: 1px solid var(--line); }
 .mir-comment:first-of-type { border-top: none; padding-top: 0; }
 .mir-comment-head { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
-.mir-comment-head time { font-weight: 500; opacity: 0.85; }
+.mir-comment-head time { font-weight: 550; opacity: 0.85; }
 
 .mir-prop { padding: 10px 0; border-top: 1px dashed var(--line); }
 .mir-prop-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
@@ -5018,7 +5018,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
@@ -5030,7 +5030,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   min-height: 40px;
   padding: 0 14px;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 10px;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
@@ -5590,7 +5590,7 @@ button.viewpill { cursor: pointer; }
   min-height: 34px;
   padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
@@ -5609,7 +5609,7 @@ button.viewpill { cursor: pointer; }
   min-height: 34px;
   padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
@@ -5676,7 +5676,7 @@ button.viewpill { cursor: pointer; }
 .admin-card { padding: 14px 15px; margin-bottom: 12px; }
 .admin-card.plain { opacity: 0.7; }
 .admin-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
-.admin-head h2 { margin: 0; font-size: 16px; font-weight: 680; }
+.admin-head h2 { margin: 0; font-size: 16px; font-weight: 700; }
 .admin-reach { display: flex; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
 
 /* Each pausable thing. The rule between rows is what stops "Advocates" and
@@ -5747,7 +5747,7 @@ button.viewpill { cursor: pointer; }
   margin: 10px auto 12px;
   max-width: 260px;
   padding: 10px;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #fff;
 }
 .tls-pairing .tls-qr svg { display: block; width: 100%; height: auto; }
@@ -5837,7 +5837,7 @@ button.viewpill { cursor: pointer; }
   display: inline-flex; align-items: center; justify-content: center;
   border: 1.5px solid var(--line); border-radius: 10px;
   background: var(--surface-2); color: var(--accent-ink);
-  font: inherit; font-size: 16px; font-weight: 800; line-height: 1;
+  font: inherit; font-size: 16px; font-weight: 700; line-height: 1;
   cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
 .eq-pick[aria-pressed="true"] { border-color: transparent; background: var(--accent); }
@@ -6034,7 +6034,7 @@ a.pill { text-decoration: none; }
   min-height: 36px;
   padding: 4px 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
   color: var(--text);
   font-size: 16px;
@@ -6043,7 +6043,7 @@ a.pill { text-decoration: none; }
   min-height: 36px;
   padding: 4px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
   color: var(--text);
   font-size: 13px;
@@ -6111,7 +6111,7 @@ a.pill { text-decoration: none; }
   min-height: 36px;
   padding: 4px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
   color: var(--text);
   font: inherit; font-size: 12.5px;
@@ -6305,7 +6305,7 @@ a.pill { text-decoration: none; }
   margin-left: calc(var(--d, 0) * 13px);
   padding: 6px 8px;
   border-left: 2px solid var(--line);
-  border-radius: 0 7px 7px 0;
+  border-radius: 0 6px 6px 0;
   color: var(--text); text-decoration: none;
   font-size: 12.5px;
 }
@@ -6385,7 +6385,7 @@ button.p0-row {
   margin-left: calc(var(--d, 0) * 13px + 10px);
   padding: 8px 10px;
   border-left: 2px solid var(--accent);
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 6px 6px 0;
   background: var(--surface);
 }
 /* Everything shared with the inbox card, scaled to a block inside a card: the prose,
@@ -6449,7 +6449,7 @@ button.p0-row {
   min-height: 40px;
   padding: 6px 12px;
   border: 1px solid var(--warn);
-  border-radius: 8px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--warn) 16%, transparent);
   color: var(--warn);
   font: inherit; font-size: 13px; font-weight: 600;
@@ -6472,7 +6472,7 @@ button.p0-row {
   min-height: 40px;
   padding: 6px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
   color: var(--text);
   font: inherit; font-size: 13px;
@@ -6485,7 +6485,7 @@ button.p0-row {
   min-height: 40px;
   padding: 6px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
   color: var(--muted);
   font-size: 12.5px;
@@ -6520,7 +6520,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   min-height: 40px;
   padding: 6px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--surface);
   color: var(--muted);
   font: inherit; font-size: 12.5px;
@@ -6882,7 +6882,7 @@ body.editing::after {
 .editretype {
   outline: 2px solid var(--warn);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
   caret-color: var(--warn);
   -webkit-user-select: text;
   user-select: text;
@@ -7053,7 +7053,7 @@ body.editing::after {
 .req-row {
   display: flex; flex-direction: column; gap: 8px; width: 100%;
   padding: 12px 14px; text-align: left;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
   color: inherit; font: inherit;
 }
 .req-row.is-detail { cursor: default; }
@@ -7062,12 +7062,12 @@ body.editing::after {
 .req-files { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
 .req-files code { font-size: 11px; }
 .reqbar {
-  position: relative; height: 6px; border-radius: 3px;
+  position: relative; height: 6px; border-radius: 999px;
   background: var(--line); overflow: hidden;
 }
 /* Covered sits under proved, so the darker proved length reads as a subset rather
    than as a second, competing measurement. */
-.reqbar-covered, .reqbar-observed { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+.reqbar-covered, .reqbar-observed { position: absolute; inset: 0 auto 0 0; border-radius: 999px; }
 .reqbar-covered { background: var(--accent); opacity: 0.35; }
 .reqbar-observed { background: var(--accent); }
 .req-back {

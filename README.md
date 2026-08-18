@@ -24647,6 +24647,42 @@ that is fine. Bodies are read with comments blanked, which is not a detail: `.dr
 `padding-top` underneath two lines of comment about the notch, and reading the raw text
 hid that one declaration while reporting the other nine.
 
+`test/metricscale.mjs` is the same idea aimed at numbers instead of braces, and it exists
+because of a measurement rather than a bug. `node scripts/design/vocabulary.mjs` reads the
+baseline fingerprint back and counts what the 77 design cards actually render, and it found
+the two halves of this system in very different health. **The colours were disciplined** —
+12 distinct text colours in the light scheme, every one of them a token, nothing drifted.
+**The metrics had smeared**: 23 distinct corner radii, 16 font weights, 22 type sizes in a
+continuous run from 9.5px to 19px with no gap anywhere. The difference is not care, and it
+is not two hundred commits of carelessness either — every one of those values was a
+reasonable local call. The difference is that **the palette was checkable and the metrics
+were not.** A colour off the palette is a literal hex in a sheet where every other colour
+says `var(--…)`, and it fails review on sight; `9px` in a sheet that also says `10px`,
+`11px` and `12px` fails nothing and looks like every line around it.
+
+So bc-03pz gave two of the three axes a scale and a suite. **Radius is 6 / 10 / 14 / 18,
+four apart, plus `999px` and `50%`** — four apart because `vocabulary.mjs` calls two values
+within 2px of each other a smear, so a scale with 2px steps would be one, and the suite
+asserts that spacing about *itself* as well as about the sheet. **Weight is 400 / 550 / 600
+/ 650 / 700**, the four the measurement found carrying the app plus the one real bold, down
+from sixteen. Both are checked per *part*, because `border-radius` takes four lengths and a
+speech bubble's `12px 12px 4px 12px` hides a stray in the third of them.
+
+Two of the moves are worth their own line. **A thin bar is `999px`, not a small radius**:
+every sub-4px value in the sheet was a fully-rounded end drawn as a corner — a 2px progress
+line at 1px, a 4px sheet grip at 2px, a 3px scroll rail at 3px — and since the browser
+clamps a radius to half the box's smallest side, all of them already computed to exactly
+what `999px` gives. That rewrite is provably pixel-identical and it says what the element
+means. And **the two chat bubbles landed together**: `.msg.you` and `.queued-text` are the
+same bubble either side of a send, and they had drifted to 14px and 12px.
+
+**Type sizes are deliberately not enforced, and that is the open half.** A radius cannot
+move a box and a weight barely can — the whole snap moved seven text runs by 1–3px and not
+one box height, which `scripts/design/baseline.mjs` is what proved. A type scale moves
+layout on a 360px phone, so which one to snap to is a design decision rather than a
+normalization, and it is filed rather than guessed. When it is settled its allowed set
+belongs in `test/metricscale.mjs` beside the other two.
+
 ## Notes on bd
 
 - **`bd human respond` is broken in bd 1.1.2** — it dies with `storage is nil`.

@@ -180,7 +180,7 @@
   .fc-where { border-top: 1px solid var(--line); padding-top: 7px; }
   .fc-where h4 { margin: 0 0 4px; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; }
   .fc-src { display: flex; flex-wrap: wrap; gap: 3px; }
-  .fc-src code { font-size: 10px; color: var(--prose); background: var(--surface-2); border-radius: 5px; padding: 2px 5px; }
+  .fc-src code { font-size: 10px; color: var(--prose); background: var(--surface-2); border-radius: 6px; padding: 2px 5px; }
   .fc-agentlink {
     display: inline-block; margin-top: 6px; font-size: 11px; color: var(--accent);
     text-decoration: none; border-bottom: 1px solid currentColor;
@@ -217,7 +217,7 @@
   .fc-agent .id { color: var(--muted); font-weight: 400; font-size: 10.5px; }
   .fc-agent .purpose { color: var(--prose); font-size: 11.5px; margin: 0 0 8px; line-height: 1.45; max-width: 66ch; }
   .fc-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 5px; margin: 0 0 8px; }
-  .fc-fact { background: var(--surface-2); border-radius: 7px; padding: 5px 7px; }
+  .fc-fact { background: var(--surface-2); border-radius: 6px; padding: 5px 7px; }
   .fc-fact dt { font-size: 9px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 1px; }
   .fc-fact dd { margin: 0; font-size: 11px; line-height: 1.35; word-break: break-word; }
   .fc-yes { color: var(--danger); font-weight: 600; }
@@ -226,10 +226,10 @@
   .fc-agent summary { cursor: pointer; font-size: 11px; color: var(--muted); min-height: 26px; display: flex; align-items: center; }
   .fc-agent pre {
     white-space: pre-wrap; word-break: break-word; font-size: 10.5px; line-height: 1.5;
-    background: var(--surface-2); border-radius: 8px; padding: 9px; margin: 6px 0 0; color: var(--prose);
+    background: var(--surface-2); border-radius: 6px; padding: 9px; margin: 6px 0 0; color: var(--prose);
   }
   .fc-tools { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0 0; }
-  .fc-tools code { font-size: 9.5px; background: var(--surface-2); border-radius: 5px; padding: 2px 5px; color: var(--prose); }
+  .fc-tools code { font-size: 9.5px; background: var(--surface-2); border-radius: 6px; padding: 2px 5px; color: var(--prose); }
   .fc-note { font-size: 11px; color: var(--muted); line-height: 1.45; max-width: 80ch; }
   .fc-amended { color: var(--warn); margin: 0 0 8px; }
   `;

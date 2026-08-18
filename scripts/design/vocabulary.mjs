@@ -12,6 +12,15 @@
 // It reports rather than fails. A smear is not a bug — it is a conversation, and the
 // numbers are what makes it a short one.
 //
+// That conversation happened once, at bc-03pz, and two of the axes came out of it with a
+// scale: radius is 6/10/14/18 plus 999px and 50%, weight is 400/550/600/650/700, and
+// `test/metricscale.mjs` fails the build on a value that is neither. The four-apart
+// spacing of the radius steps is chosen against the `near` threshold below — a scale whose
+// own steps are 2px apart would be reported here as a smear, which would be a fair
+// complaint. **Type sizes are deliberately still unenforced**: 22 of them and the worst of
+// the three, but a type scale moves layout on a 360px phone, so that one is a design
+// decision rather than a normalization and this script is still the whole of what says so.
+//
 // Run: node scripts/design/vocabulary.mjs [--full]
 import { readFileSync, existsSync } from 'node:fs';
 
