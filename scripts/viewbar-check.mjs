@@ -370,7 +370,11 @@ const PROBE = `(() => {
     admin: !chip ? null : hoisted ? 'hoisted' : adminRow && !adminRow.hidden ? 'menu' : null,
     plus: null,
   };
-  if (plus) {
+  /* Zero-sized means the kind you are on has no ＋ (bc-khoe.27.1) — Questions and PRs
+     have nothing to create, and the wrapper is hidden there. Nothing to measure and
+     nothing to complain about: the assertion below is that a drawn ＋ takes its own
+     taps, not that one is drawn. */
+  if (plus && plus.getBoundingClientRect().width) {
     const r = plus.getBoundingClientRect();
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     out.plus = { w: Math.round(r.width), h: Math.round(r.height), takes: !!hit && (hit === plus || plus.contains(hit)), hit: hit ? name(hit) : null };

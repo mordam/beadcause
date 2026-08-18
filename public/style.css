@@ -5314,6 +5314,12 @@ button.viewpill { cursor: pointer; }
    under it) and below an open card (40, `position: fixed; inset: 0`). An answer takes
    the whole screen and must not have a create button sitting on top of it. */
 
+/* Not every kind has a ＋ (bc-khoe.27.1) — Questions and PRs are queues of things
+   waiting on you and have nothing to create. `hidden` alone would lose to the
+   `display: flex` below, which is the standing trap with this attribute and the reason
+   every other flexed thing in this file that can be hidden has a line like it. */
+.compose-wrap[hidden] { display: none; }
+
 .compose-wrap {
   position: fixed;
   z-index: 24;
@@ -5361,7 +5367,12 @@ button.viewpill { cursor: pointer; }
    rather than on the body, which is where it was while the body was the thing that
    scrolled: under the app shell the body is exactly one viewport tall, so padding there
    would shorten the screen by 76px and leave a gap under the last card either way. The
-   class stays on the body, because what it records is that app.js wired ＋ up at all. */
+   class stays on the body because more than the scroller reads it — see the toast below.
+
+   It comes and goes with the button now (bc-khoe.27.1) rather than being added once at
+   load. It used to record that app.js had wired ＋ up at all; what it has to record is
+   whether there is a button on *this* kind, because reserving a button's height under a
+   kind that has none is a list that ends in 76px of nothing. */
 .has-compose .pagescroll { padding-bottom: 76px; }
 /* And the toast, which is bottom-centred and would otherwise land under it on a
    narrow phone. */
