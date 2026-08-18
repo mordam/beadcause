@@ -20953,6 +20953,48 @@ log this was measured on, and 85 of the 97 sync lines in it follow a restart, so
 in-memory streak rarely reaches five. Recognising the *shape* on the first tick is what
 survives a restart, and is why the two rules exist side by side.
 
+**And a fourth thing it can say, for the tracker that has no incidents to report.**
+Everything above assumes a sync that breaks and then is broken. One that breaks, comes
+back, breaks and comes back on a two-minute clock satisfies the transition rule perfectly
+and defeats it completely: every one of those is a genuine transition, so every one of
+them is a push. Measured on the log this was filed from, that is **nineteen
+notifications about one workspace in one day** — nine recoveries against ten failures,
+alternating almost perfectly. It is the swipe-it-away notification arriving by the other
+door, and worse than the every-tick version it replaced, because half of them are
+recoveries and a recovery carries no urgency at all.
+
+So the transitions are counted as well as reported. **Four inside an hour and the
+workspace is flapping**, which is said once — the card names the count and says outright
+that the quiet after it is deliberate — and is then the last thing the phone hears about
+that workspace until it holds one way for a clear hour. The window doubles as the settle
+rule, so the card comes down on the same evidence it went up on.
+
+Three things it deliberately does not do, and each is the difference between damping and
+losing a notification:
+
+- **It counts transitions, not ticks.** The obvious shape is to require N ticks in the
+  new state before it counts as a transition at all — and that shape fails *silent* here.
+  The previous outcome is in memory, this daemon restarts constantly, and every restart
+  puts it back to null, so a consecutive-tick counter spends its life at 1 and never
+  reaches its threshold: the transition is simply never announced. A transition counter
+  under the same churn declares nothing and lets every transition through, which is the
+  behaviour this replaced. It can only ever go wrong in the direction of being told too
+  much.
+- **A single outage is untouched.** One break and one return is two transitions and never
+  reaches four, so the case the transition rule was built for behaves exactly as it did.
+  Damping that quietened a real outage would be a regression wearing a fix's clothes.
+- **Nothing that has stopped retrying is ever damped.** A flapping series whose failures
+  turn into a conflict, or into `stuck`, says so at full volume — that is the sentence
+  saying the promise of a retry has been withdrawn, and a tracker that will not settle is
+  where it most needs hearing. On a flapping workspace that escalation arrives as an
+  ordinary break rather than as a word changing under a steady failure, which is why the
+  rule asks what state it is in rather than what moved.
+
+**The log and the monitor keep every transition**, damped or not, with a note on the line
+saying the phone was spared it. The record is the only account of what a tracker has been
+doing — three separate passes over this bead reconstructed a week of it by counting these
+lines — and a record with the boring half deleted cannot be counted.
+
 The failure path is what `node test/sync.mjs` covers, and it is the half that is tested
 for a reason: a sync that works is provable by looking at a second Mac, and a sync that
 quietly stopped looks exactly like a quiet team.
