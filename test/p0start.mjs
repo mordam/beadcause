@@ -51,7 +51,7 @@
  * 7. **With nothing started, the offer is still reachable.** An empty board switches the
  *    whole section off (bc-6s96) — which, with the picker inside that section, would mean a
  *    new install could never start anything from the phone at all. The bare offer is drawn
- *    instead, and *only* the offer: no heading, no fold, no count of nothing.
+ *    instead, and *only* the offer: no heading, and no count of nothing.
  *
  * The renderer half runs in a `node:vm` over slices of public/app.js — no DOM, no browser,
  * the same lift test/p0card.mjs uses. The route half runs the real server against a fake
@@ -144,13 +144,12 @@ const CANDIDATES = [
  * The board, drawn for real out of a page state you hand it — test/p0card.mjs's harness
  * with the picker's own function added and `p0picker` in the state it reads.
  */
-function board({ roots = [CARD], startable = CANDIDATES, picker = false, shut = false, space = 'all', workspace = 'all' } = {}) {
+function board({ roots = [CARD], startable = CANDIDATES, picker = false, space = 'all', workspace = 'all' } = {}) {
   const state = {
     rootboard: { owned: true, roots, startable, under: {} },
     p0open: new Set(),
     p0beadopen: new Set(),
     p0opening: new Map(),
-    p0shut: shut,
     p0status: 'live',
     p0picker: picker,
     space,
@@ -259,9 +258,9 @@ await check('NOTHING STARTED AND SOMETHING TO START DRAWS THE BARE OFFER, not an
   // exactly while you are in it.
   const html = board({ roots: [] });
   assert.match(html, /data-act="p0-pick"/, 'with nothing started there is no way to start anything');
-  // And only the offer. The heading with a count of nothing on it, or the fold chip for a
-  // board with no cards, would both be chrome around an empty room.
-  assert.doesNotMatch(html, /data-act="p0-fold"/, 'the fold is drawn over a board with no cards');
+  // And only the offer. A heading with a count of nothing on it, or the status filter over
+  // a board with no cards, would both be chrome around an empty room.
+  assert.doesNotMatch(html, /p0-kind/, 'the heading is drawn over a board with no cards');
   assert.doesNotMatch(html, /data-act="p0-status"/, 'the status filter is drawn over nothing to filter');
 });
 
@@ -273,13 +272,6 @@ await check('nothing to start, with a board, says which of the two reasons it is
   const html = board({ startable: [], picker: true });
   assert.match(html, /Nothing to start/);
   assert.doesNotMatch(html, /data-act="p0-start"/);
-});
-
-await check('the picker folds away with the cards', () => {
-  // A control over things that are not on screen is a control you set and cannot see the
-  // effect of — the same argument the status filter makes one line above it.
-  const html = board({ shut: true, picker: true });
-  assert.doesNotMatch(html, /data-act="p0-pick"/, 'the picker survived the board being folded away');
 });
 
 await check('a candidate from a workspace this screen is not showing is not offered', () => {
