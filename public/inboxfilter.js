@@ -202,9 +202,16 @@
    * So the flag lives here, one row per kind, rather than as a list of ids in
    * public/app.js — for the same reason the predicates do. A second file that knows
    * what the six kinds are is a second file that can be wrong about them, and nothing
-   * would say which. What the flag deliberately does *not* say is what ＋ *does*: that
-   * is bc-khoe.27.2 and bc-khoe.27.3, and until they land it starts a chat session
-   * wherever it is drawn, which is what it has always done.
+   * would say which.
+   *
+   * **And it says what ＋ does, not only whether it is drawn.** It was a bare `true`
+   * while every ＋ did the same thing; bc-khoe.27.3 gave `All Beads` a create of its
+   * own, and the moment two of them differ the branch has to be written down somewhere.
+   * A `switch` in public/app.js over kind ids would be that second file knowing what the
+   * kinds are — the thing the paragraph above says not to do — so the value *is* the
+   * answer: `chat` starts a conversation, `bead` opens the create form. Absent means no
+   * ＋ at all, which is `composes()`, unchanged. bc-khoe.27.2 is one word on the `epics`
+   * row when it lands.
    */
   const KINDS = [
     {
@@ -226,7 +233,10 @@
       // A place with a create, which is not a contradiction: `compose` is about the
       // screen you are on, and `test` is about which rows are in the list. This is the
       // screen you land on, so it is also the one ＋ is drawn on by default.
-      compose: true,
+      //
+      // Still `chat`, because that is still what the button does here. bc-khoe.27.2 is
+      // where it becomes `epic`, and it is one word in this file when it lands.
+      compose: 'chat',
     },
     {
       id: 'question',
@@ -308,9 +318,8 @@
       // the pill next door empties this screen completely. Nothing narrows chats, so
       // the panel has nothing to offer here and hides itself; see `mount`.
       filters: [],
-      // The original ＋, and the only one that already does its own thing: this list is
-      // conversations, and the create is a conversation.
-      compose: true,
+      // The original ＋: this list is conversations, and the create is a conversation.
+      compose: 'chat',
     },
     {
       id: 'history',
@@ -338,8 +347,8 @@
       label: 'All Beads',
       note: 'Every live bead nobody is asking you about — claimed, blocked or waiting to be picked up.',
       // A list of every live bead is the one screen where "file another one" is the
-      // obvious next thing to do (bc-khoe.27.3).
-      compose: true,
+      // obvious next thing to do, so ＋ here opens a form and files one — bc-khoe.27.3.
+      compose: 'bead',
       // `!q.held` is the endorsement half of Questions stated from the other side. It is
       // here rather than left to the order of the rows for the reason every exclusion in
       // this table is: exclusivity is the property the table is asserted on, and a
@@ -969,6 +978,17 @@
      * from a second copy of the answer would still be there after them.
      */
     composes: () => Boolean(BY_ID.get(current())?.compose),
+    /**
+     * *What* ＋ creates on the view you are on — `chat`, `bead`, or `''` for no button.
+     *
+     * The same read one word further along, so the button and its action can never come
+     * from two different answers to "which kind am I on". public/app.js branches on this
+     * rather than on the kind id: it is what keeps the list of what the six kinds are in
+     * this file only. An unrecognised value there falls back to the chat, which is what
+     * ＋ has always done — a newer table beside an older script must not leave the app's
+     * primary action doing nothing.
+     */
+    creates: () => String(BY_ID.get(current())?.compose || ''),
     /** Selected kind ids — empty for "all of them". */
     selected: () => [...state.on],
     /** One kind's sub-filter selection — empty for that kind's own default. */

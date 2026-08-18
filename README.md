@@ -4382,6 +4382,16 @@ was wrong. `composes()` answers it for whichever pill is lit — derived from `c
 rather than stored, because `revealPr` and a scope change both move which kind you are
 on without a pill being tapped.
 
+**And it says *what* ＋ creates, not only that there is one.** It was a bare `true` while
+every ＋ did the same thing; the moment `All Beads` got a create of its own the branch had
+to be written down somewhere, and a `switch` over kind ids in `public/app.js` would be
+exactly the second file the paragraph above says not to grow. So the value is the answer —
+`chat` starts a conversation, `bead` opens the [create form](#a-bead-you-file-yourself-from-the-form-behind-),
+absent means no button at all — and `creates()` is that read one word further along.
+`public/app.js` branches on it and knows no kind ids; an unrecognised value there falls
+back to the chat, which is the same generosity `composes()` shows a page whose filter
+never loaded.
+
 **Three things move together in `public/app.js`, and any one of them moving alone is the
 bug.** `paintCompose` does all three on every change of kind:
 
@@ -4406,6 +4416,71 @@ failure than drawing the button one screen too wide.
 padding, the picker outliving its button, the picker outliving a kind change that keeps
 it, and the fallback — and `node test/inboxkinds.mjs` holds the table to the three and
 the three.
+
+### A bead you file yourself, from the form behind ＋
+
+`All Beads` is every live bead in the tracker nobody is asking you about, which makes it
+the one screen where *file another one* is the obvious next thing to do. ＋ there opens a
+sheet — title, type, priority, description, acceptance, parent, labels, and the workspace
+it lands in — and filing it creates the bead.
+
+**It is not the chat console, and the difference is what you already know.** The console
+is right when the question is *what should be filed*: an agent argues a proposal into
+shape and you edit the cards it draws. It is the wrong tool for a bug you just hit, or a
+thing you noticed two rows down this very list — a create whose turnaround is measured in
+replies is not a create. The fields are the console's all the same, in the console's
+order, with the same `.field` markup and the same chip rows, because two editors for one
+bead shape that drifted apart would be two answers to "what is a bead" with nothing saying
+which is right.
+
+**One `bd create`, two doors.** `createBead` in `lib/server.js` is the whole of the write,
+shared with `POST /api/console/create`, which now calls it once per card in the draft.
+The alternative was a second create with the same eight fields beside the first, and the
+two would then have been free to disagree about which labels survive, where a
+[declared surface](#a-card-says-which-files-its-bead-expects-to-touch) goes, and whether `created_by` is
+stamped. What the form decides on its own is only what a form has and a draft does not.
+
+**What it is deliberately not is `fileBeads`.** That is the seam an *agent* files through
+(`lib/filing.js`), and it stamps what an agent-filed bead has to carry: `unendorsed`,
+`agent-filed`, a `discovered-from` edge, and a provenance note that opens "Filed by an
+agent". None of that is true of a bead you typed, and one filed from your own phone
+arriving held for your own endorsement reads as a bug in the tracker rather than as a
+policy. `node test/beadform.mjs` asserts the absence of all four by name on the argv `bd`
+was really spawned with, because it is the sort of thing a later tidy-up puts back.
+
+**Parent is the field the form exists to have.** Per this tracker's own discipline a bead
+with nothing decided above it is not workable — no advocate queues it and no session opens
+on it — and `underOwnedRoots` draws only what descends from a root you own, so it is
+invisible as well as held. A create that quietly made those would be a button for filing
+beads nobody will ever see. So blank does **not** mean parentless: it goes through the same
+[filing seam](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists)
+every agent-filed bead does, and lands under the repo's `unsorted` root. Five states, and
+they are five different sentences:
+
+| What you typed | What happens |
+|---|---|
+| A bead id that exists | Filed under it, untouched |
+| A bead id that does not | **400**, and nothing is filed — a blank field is "you decide" and a typo is not |
+| Nothing, and the repo has an `unsorted` root | Filed under that root, and the reply says which |
+| Nothing, and it has roots but no pile | Filed parentless, with a warning naming the `unsorted` label as the fix |
+| Nothing, and it has no roots at all | Filed parentless, and **no** warning — the gate fails open, so the bead is workable and a hold nobody is applying would be a false claim |
+
+**Which repo is the same question ＋ already answers for a chat**, from the same
+`startableRepos`: `space.inside()` is what the picker in the top bar allows. One candidate
+is stated rather than asked about, more than one is a chip row, and a workspace the picker
+stops allowing while the sheet is open does not stay selected — filing into a repo you are
+not looking at is the one thing that filter exists to stop.
+
+**A refusal stays on the sheet.** bd's own first line, in the form, with everything you
+typed still in it; a create that failed and closed would be a bead you have to write out
+again to find out why. Warnings are the same and for a sharper reason — "filed with no
+parent, so nothing will work it" is a sentence you have to be able to read twice, and a
+toast is gone in 2.6 seconds. A clean filing closes the sheet, toasts the id, and the row
+arrives in the list off the `created` bus event without a reload.
+
+`node test/beadform.mjs` drives the real route against a `bd` that records its argv — the
+fields as typed, all five parent states, the refusal, the labels guard — and lifts the
+form's own painting into a `vm` for the workspace row.
 
 ### The scope is a control you can see
 
@@ -20282,6 +20357,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
 | POST | `/api/space` | `{space, workspace?, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. With a `workspace`, it writes that **repo's own** override instead — `autoEndorse` only, and a repo the named space does not contain is a 400. Either way the reply is the whole `spaceDetail`, and it writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
+| POST | `/api/bead/create` | `{workspace, title, type?, priority?, description?, acceptance?, parent?, labels?}` | `{ok, id, key, workspace, parent, warnings[]}` — the [create form](#a-bead-you-file-yourself-from-the-form-behind-) behind ＋ on **All Beads**. One bead, through the same `createBead` the chat console's accept button calls, so the two doors cannot disagree about labels, the surface block or `created_by`. **Not** `fileBeads`: a bead you typed carries no `unendorsed`, no `agent-filed` and no agent provenance. A blank `parent` is [`lib/homing.js`](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists) and lands it under the repo's `unsorted` root — a *named* parent that does not exist is a `400` with nothing filed, because a blank field is "you decide" and a typo is not. `400` for no title or an unknown workspace; `502` carries bd's own first line, which the form keeps on screen |
 | POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
 | POST | `/api/edits` | `{changes[], page?, view?, at?, workspace?}` | `{ok, workspace, root, session, filed[], dropped[]}` — a pass made with [edit mode](#editing-the-app-from-inside-the-app) on, filed as one P1 session bead and one P2 child per change, under a standing P0 root that is found by its `edit-root` marker or created here. The workspace is **this checkout's own**, not the one on screen: an edit typed into this screen is a change to *this app*. `400` on an empty pass, and `502` carries `filed[]` — the phone drops exactly those entries and keeps the rest, because the change list is the only copy of what was said. See [Save files the pass](#save-files-the-pass) |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |

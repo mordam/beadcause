@@ -422,6 +422,29 @@ await check('＋ follows the lit pill, and the two queues have none', () => {
   assert.equal(filter.composes(), true, '＋ did not come back on My Epics');
 });
 
+await check('and the flag says what ＋ creates, not only that there is one', () => {
+  // bc-khoe.27.3. While every ＋ started a chat, `compose` could be a bare `true`; the
+  // moment `All Beads` files a bead instead, the branch has to be written down, and it
+  // is written down *here* rather than as a switch over kind ids in public/app.js — a
+  // second file that knows what the six kinds are is the thing this table exists to
+  // prevent. So the value is the answer, and `composes()` is `Boolean` over it.
+  const WHAT = { epics: 'chat', session: 'chat', bead: 'bead' };
+  for (const k of list(model.KINDS)) {
+    assert.equal(k.compose || '', WHAT[k.id] || '', `${k.id} creates the wrong thing`);
+  }
+  const { filter } = load();
+  // Reached through the lit pill, which is what public/app.js actually asks.
+  assert.equal(filter.creates(), 'chat', 'the screen you land on stopped starting a chat');
+  for (const id of SLICES) {
+    filter.set([id]);
+    assert.equal(filter.creates(), WHAT[id] || '', `＋ creates the wrong thing on ${id}`);
+    // The pair has to stay one fact: a kind that creates something has a button, and a
+    // kind with a button creates something. Two reads that could disagree would be a
+    // ＋ drawn over nothing, or a create with no way to reach it.
+    assert.equal(filter.composes(), Boolean(filter.creates()), `＋ and its create disagree on ${id}`);
+  }
+});
+
 await check('a place clears the selection, and ＋ comes back with it', () => {
   // `History` is the second place and it is the one that is not Home. Tapping it here
   // clears the selection rather than selecting anything (see the check above), so the
