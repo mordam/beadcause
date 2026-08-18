@@ -12035,6 +12035,136 @@ away; it is written down, and the run that follows finishes what is owed. One re
 two passes indistinguishable from the plain four calls, which is why a single-repo record and
 its close reason read exactly as they did before.
 
+### A department relay — when the assignee is a role rather than a person
+
+Everything above decides *which window opens on which bead*. None of it ever decided **who
+the agent in that window is**, because until now there was only one answer: a worker, with
+the same brief every time.
+
+That is not enough for a repo that already has an org chart. `deluvia` has nineteen named
+agents in `docs/STUDIO_CHARTER.md` — five producing departments, a lead each, a fact
+checker whose word is binding, an approval steward who is the only route to the phone — and
+a six-step loop in §6 that every deliverable runs: brief, draft, check, file, rule, count.
+None of it was read by any code. The roles existed as prose an agent might happen to open,
+and the advocate opened one generic session per ready bead exactly as it does for a repo
+with no charter at all.
+
+**The relay is that document being executed.** When a bead's **assignee** names a role
+rather than a person, one launch carries the work through that department's whole chain:
+
+```
+dv-71   assignee: aria   labels: dept:story
+
+    1. draft   aria     ai-context/agents/aria/aria.md
+    2. check   clio     ai-context/agents/clio/clio.md
+    3. check   muse     ai-context/agents/muse/muse.md
+    4. revise  aria     ai-context/agents/aria/aria.md
+    5. file    ward     ai-context/agents/ward/ward.md
+```
+
+The session reads each profile before it takes that role, does that role's part and only
+that role's part, and writes a line onto the bead at every handoff. One window, five
+agents, no card in between.
+
+**Unattended was a decision, and it cost something.** `dv-vzg` put three shapes to Adam:
+full relay; one role per launch with a card between each; or a relay that stops at the
+department boundary. The answer was the full relay — *"Full Relay, but all the steps and
+handoffs are recorded in the bead for me to view/access in the EpicCards"*. What it buys is
+one card per deliverable instead of five, which is the inbox volume the charter's
+one-question-per-bead rule is already fighting. What it costs is real: a bad choice at step
+1 propagates through three more roles before anybody sees it. The handoff trail is the
+mitigation, and it is why the brief asks for a comment per step rather than a summary at
+the end — from outside, a relay stalled at step 2 and one quietly working step 4 look
+identical.
+
+**The chain is derived, not typed.** A department is written down as its members and its
+checks, and §6's shape — draft, then the checks, then the drafting role again to answer
+what they raised, then the filer — builds the order. So a department that gains a checker
+gains it in every chain at once, and no chain can quietly disagree with the table above it.
+Two consequences fall out rather than being written: an agent never checks its own draft
+(clio drafting a Story bead is checked by muse alone, and is still the last word on fact),
+and a department with no checks gets no revise step, because handing a bead back to the
+agent that just drafted it for nothing is not a step.
+
+**Executive is not a department and gets no relay.** vox, tally and ward produce process,
+not reviewable deliverables, so a bead assigned to one of them opens the ordinary worker
+window. `ward` is the case that matters, because `ward` is also the filer at the end of
+every chain and therefore a role the config knows about — a relay on ward's own beads would
+be ward filing packets to itself.
+
+**The chain ends at a review packet, not at a merge.** The last role delivers the work the
+ordinary way — the artifact has to exist on the base branch and not inside
+`.claude/worktrees/`, or the packet points at a path a phone cannot open — and then files
+the packet as a bead of *its own*, carrying `needs-approval` and `human` and a
+[`decision` block](#asking-a-question). Its own bead and not the work bead, on purpose: the
+work bead is closed by [the merge queue](#landing-work--a-branch-a-pull-request-and-a-merge-queue) when the branch lands, and an
+approval that closes itself the moment the code merges is not an approval — it is a merge
+wearing one. The packet is a bead nothing in this system closes. The tap is the approval,
+and it is the only one there is.
+
+**The assignee is destroyed by the claim, and that is why the hand-back names a role.**
+`bd update --claim` is the first thing any window does and it overwrites the assignee with
+the claiming identity, so the chain is resolved at launch — off the `bd show` row
+`openWorkSession` has already paid for, before any window exists. What that costs is the
+*second* window: a relay that ran out of room mid-chain has no assignee left to say where
+it stopped. So the brief's hand-back is `bd update <id> --status open --assignee <the role
+that should run next>`, which is the existing idiom with the one word that makes it
+resumable. Nothing is persisted anywhere else, and a relay is recomputed every launch
+rather than remembered between them.
+
+**Why this is config and not a parse of the charter.** The charter is a document that
+argues: its department table is markdown, its hierarchy is mermaid, and its loop is a
+numbered list with the rules in the prose beside it. A parser can read all of that today
+and misread it silently the moment somebody rewrites a sentence — into a chain with the
+fact check missing, which is worse than a relay that never ran. So the chain is stated once
+in `relays`, in a form that cannot be misread, and the charter stays the human document it
+is.
+
+`relays` is keyed by **workspace name**, which is what makes the shipped `deluvia` entry
+harmless everywhere else: an install with no such workspace never consults it. `"relays":
+{}` turns the whole mechanism off, and there is no other switch — a relay nothing is
+assigned to costs nothing, because the only bead that reaches it is one somebody assigned
+to a role on purpose.
+
+```json
+"relays": {
+  "deluvia": {
+    "profile": "ai-context/agents/{role}/{role}.md",
+    "profiles": { "herald": ".claude/agents/herald.md" },
+    "docs": ["docs/STUDIO_CHARTER.md", "docs/APPROVAL_PIPELINE.md"],
+    "filer": "ward",
+    "packet": ["needs-approval", "human"],
+    "executive": ["vox", "tally", "ward"],
+    "departments": {
+      "dept:story": {
+        "name": "Story",
+        "lead": "script",
+        "members": ["lore", "aria", "script", "clio", "muse"],
+        "check": ["clio", "muse"]
+      }
+    }
+  }
+}
+```
+
+Which department a bead belongs to is its own `dept:` label where it has one — that is the
+routing label `docs/APPROVAL_PIPELINE.md` defines, and the thing a person actually set — and
+otherwise the department that *staffs* the role. The difference is load-bearing for the
+checkers who work across departments: clio is a Story agent, so an unlabelled bead assigned
+to clio is Story work, but a bead labelled `dept:design` and assigned to clio is Design work
+and gets Design's chain, palette on look included.
+
+`profiles` overrides the template for one role, and it is not a hypothetical: eighteen of
+deluvia's nineteen agents live under that path and herald — the one already wired as a real
+Claude Code subagent — lives at `.claude/agents/herald.md`. A path in a brief that resolves
+to nothing is worse than no path, because the session opens it, gets nothing, and has to
+decide on its own whether the role is real.
+
+`lib/relay.js`, `node test/relay.mjs`. The brief section is built in `workPromptFor` beside
+the batch and group sections and is asserted the same way — by comparing a relayed brief
+against an unrelayed one, so a section that leaked into an ordinary worker's page would be
+a failure rather than a thing somebody noticed later.
+
 ### What a P0 advocate *is* — its foundation, and what one visit consists of
 
 [The advocate that comes back](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs)
@@ -21760,6 +21890,7 @@ to be one.
 | `agentToolsAcknowledged` | agents whose extended-tools warning you have accepted; written when you accept it |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
 | `accounts` | which of your lives the app is about — the level above a space, e.g. `[{"email": "you@gmail.com", "label": "Personal", "workspaces": [...]}]` (empty by default, and empty is off: every workspace is in scope everywhere, as before). Written from the phone (`POST /api/accounts`); nothing here is discovered or reconciled like `workspaces` is. See [Accounts](#accounts--one-life-at-a-time) |
+| `relays` | department relays, keyed by workspace name — a bead whose **assignee** names a role there is carried through that department's whole check chain by one window, adopting each role's profile in turn and stopping at a review packet rather than at a merge. Ships with a `deluvia` entry executing that repo's `docs/STUDIO_CHARTER.md`, inert on any install with no such workspace; `{}` turns the mechanism off. A department is stated as its `members` and its `check` list and the order is derived — draft, check, revise, file — so no chain can disagree with the table it came from. See [A department relay](#a-department-relay--when-the-assignee-is-a-role-rather-than-a-person) |
 | `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the session rows on the advocate console (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
