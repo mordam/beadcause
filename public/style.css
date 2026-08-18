@@ -216,8 +216,144 @@ body {
   width: 9px; height: 9px; border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
+  /* What the orbit below hangs off. `z-index: auto` is deliberate — a stacking context
+     here would trap `.orbit.far` in front of this element's own background, and the
+     whole picture is that half the beads go behind it. */
+  position: relative;
 }
-.dot.busy { animation: pulse 1.1s ease-out infinite; }
+
+/*
+  Beads going round the dot while the app is fetching (public/orbit.js).
+
+  `busy` is a page saying so — ten files toggle it, and two of them mean an agent is
+  thinking rather than a request being out. `loading` is the shared fetch watch in
+  public/report.js, which is what gives every view this signal without a line of its own.
+  Two reasons, one picture, and neither may switch the other off; see orbit.js.
+
+  Nothing is drawn when neither holds, and it is `display` rather than `opacity` because
+  an idle phone should not be compositing fourteen elements a frame for something nobody
+  can see.
+
+  One interaction is worth naming rather than discovering. `.dot.absorbing` — absorb.js's
+  thump, below — animates a `transform` on this element, and a transform is a stacking
+  context, so for the 380ms it runs the far half of the ring would be trapped in front of
+  the dot rather than behind it. It cannot happen today: absorb.js is loaded by the inbox
+  alone, its first target is `.brand h1.mark img`, and that is what the inbox has — the
+  `.brand .dot` entry in its target list is a fallback for a top bar that has not existed
+  since bc-khoe.5. If the dot ever becomes the flight target again, this is where to look.
+*/
+.orbit {
+  display: none;
+  /* The orbit's box is 26px across and the app-menu button starts 13.5px from the dot's
+     centre, so the near layer overlaps the left edge of the mark. An ellipse with a
+     border-radius still hit-tests over its whole interior, so without this the loading
+     signal quietly eats the first few pixels of the one control that leads everywhere. */
+  pointer-events: none;
+}
+.dot.busy .orbit, .dot.loading .orbit {
+  /* The box the halves are cut out of: 26×14 centred on the dot, which is the orbit
+     (21×8.4) plus room for a bead sitting at each extreme of it. `inset(50% …)` below
+     means this box's centre line, so it has to be centred on the dot and not on the
+     ellipse's bounding box.
+
+     26 wide is also the whole budget there is. The brand row is dot, 9px gap, then the
+     26px app mark, so the mark's left edge is 13.5px from the dot's centre — a bead at
+     the far right of the orbit ends at 12.9px and clears it by half a pixel. Widening
+     the orbit puts beads on the mark's rounded corner. */
+  display: block;
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 26px; height: 14px;
+  margin: -7px 0 0 -13px;
+}
+/*
+  The half going round the back, and the half coming past the front. Complementary clips
+  of the same box, so a bead crossing the centre line is drawn by one up to the line and
+  by the other beyond it — nothing twice, nothing dropped. The clip is also what puts
+  each half on its own layer: `clip-path` makes a stacking context, so `z-index` here is
+  read against the top bar and one half lands behind the dot's own background.
+*/
+.orbit.far {
+  clip-path: inset(0 0 50% 0);
+  z-index: -1;
+}
+.orbit.near {
+  clip-path: inset(50% 0 0 0);
+  z-index: 1;
+}
+/*
+  The string the beads are on. Drawn per half rather than once, so it is clipped by the
+  same line they are and genuinely passes behind the dot — a single ellipse would have
+  had to choose a side and be wrong on the other for the 9px it overlaps.
+*/
+.orbit-string {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 21px; height: 8.4px;
+  margin: -4.2px 0 0 -10.5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 50%;
+}
+.orbit.far .orbit-string { border-color: color-mix(in srgb, var(--accent) 12%, transparent); }
+.orbit-bead {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 4px; height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: var(--accent);
+  /* All fourteen share one keyframe list; `--i` is the only thing that differs, and a
+     negative delay is what starts each bead a seventh of a turn further round. */
+  animation: orbit-run 2.8s linear infinite;
+  animation-delay: calc(var(--i) * -0.4s);
+  will-change: transform, opacity;
+}
+/*
+  A page-coloured hairline on the beads coming past the front, and only on those.
+  Everything here is `--accent`, so a bead crossing the dot — which is the frame that
+  proves it is in front rather than behind — merged into it and read as one lumpy shape.
+  A single pixel of the background between them is what separates the two, and against
+  the bar itself it is invisible.
+*/
+.orbit.near .orbit-bead { box-shadow: 0 0 0 1px var(--bg); }
+/*
+  One turn. The position is an ellipse — the circle the beads actually travel, seen from
+  above its plane — and the scale and the opacity are the depth that goes with it: a bead
+  at the bottom of the screen is the one nearest you, so it is the largest and brightest,
+  and it shrinks and dims all the way round the back. Twelve stops rather than a formula
+  because CSS has no formula; the straight line between two of them is 0.4px off the true
+  arc, which is a third of a device pixel on a phone.
+*/
+@keyframes orbit-run {
+  0% { transform: translate(10.5px, 0) scale(0.88); opacity: 0.64; }
+  8.3333% { transform: translate(9.09px, 2.1px) scale(1.03); opacity: 0.82; }
+  16.6667% { transform: translate(5.25px, 3.64px) scale(1.14); opacity: 0.95; }
+  25% { transform: translate(0, 4.2px) scale(1.18); opacity: 1; }
+  33.3333% { transform: translate(-5.25px, 3.64px) scale(1.14); opacity: 0.95; }
+  41.6667% { transform: translate(-9.09px, 2.1px) scale(1.03); opacity: 0.82; }
+  50% { transform: translate(-10.5px, 0) scale(0.88); opacity: 0.64; }
+  58.3333% { transform: translate(-9.09px, -2.1px) scale(0.73); opacity: 0.46; }
+  66.6667% { transform: translate(-5.25px, -3.64px) scale(0.62); opacity: 0.33; }
+  75% { transform: translate(0, -4.2px) scale(0.58); opacity: 0.28; }
+  83.3333% { transform: translate(5.25px, -3.64px) scale(0.62); opacity: 0.33; }
+  91.6667% { transform: translate(9.09px, -2.1px) scale(0.73); opacity: 0.46; }
+  100% { transform: translate(10.5px, 0) scale(0.88); opacity: 0.64; }
+}
+/*
+  Still, but still there — and that is a departure from what the rest of this file does
+  under the preference, on purpose. An animation that decorates an outcome is skipped
+  (see `.flight-layer` below); this one *is* the message, and taking it away would leave
+  the five pages that never toggled `.busy` with no loading signal at all, which is the
+  hole this feature was opened to fill.
+
+  `paused` rather than `none`: the beads are placed by the keyframes, so `animation: none`
+  would pile all seven of them on the centre of the dot. Paused against the same negative
+  delay freezes each one exactly where it starts, which is a ring.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .orbit-bead { animation-play-state: paused; }
+}
+
 @keyframes pulse {
   70% { box-shadow: 0 0 0 9px transparent; }
   100% { box-shadow: 0 0 0 0 transparent; }
@@ -729,7 +865,10 @@ body {
   border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
   border-radius: 10px;
   background: var(--surface); color: var(--text);
-  font: 650 13px/1 inherit; cursor: pointer;
+  /* Longhands, not `font: 650 13px/1 inherit` — that shorthand is invalid (bc-khoe.15):
+     `inherit` is not a legal family inside it, so the whole declaration used to be
+     dropped and this button drew at the bar's inherited weight and line-height. */
+  font-weight: 650; font-size: 13px; line-height: 1; cursor: pointer;
 }
 
 /*
@@ -817,7 +956,11 @@ body {
   padding: 8px 10px;
   border: 0; border-radius: 9px;
   background: none; color: var(--text);
-  font: 600 14px/1.2 inherit; text-align: left;
+  /* Longhands, not `font: 600 14px/1.2 inherit` — invalid CSS (bc-khoe.15): `inherit`
+     is not a legal family inside the shorthand, so it was silently dropped and this
+     row drew at the menu's inherited weight and line-height instead. Sibling to the
+     comment on `.accountmenu-sub` just below, which caught this shape first. */
+  font-weight: 600; font-size: 14px; line-height: 1.2; text-align: left;
   /* Anchors are rows too (Admin, and every hoisted `<a>`), and a row that is a link must
      not look like one. */
   text-decoration: none;
@@ -910,7 +1053,10 @@ body {
 .accountpick-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .accountpick-add, .accountpick-close, .accountpick-remove {
   flex: 1 1 auto; min-height: var(--tap); padding: 0 14px;
-  border-radius: 11px; font: 650 14px/1 inherit; cursor: pointer;
+  /* Longhands, not `font: 650 14px/1 inherit` — invalid CSS (bc-khoe.15): `inherit`
+     is not a legal family inside the shorthand, so it was silently dropped and these
+     buttons drew at the dialog's inherited weight and line-height instead. */
+  border-radius: 11px; font-weight: 650; font-size: 14px; line-height: 1; cursor: pointer;
 }
 .accountpick-add { border: 0; background: var(--accent); color: var(--accent-ink); }
 .accountpick-close { border: 1px solid var(--line); background: var(--bg); color: var(--text); }
@@ -1363,6 +1509,35 @@ body {
    quietly on the expensive model, and a session that ran somewhere other than where it was
    sent is the one case the plan on its own would have lied about. Neither is a failure. */
 .pill.model.diverged, .pill.model.bad {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
+}
+/*
+  "⚖ in-review · G2" — the second axis, next to the model chip (bc-bmry.5,
+  `approvalChipHtml`). Shaped like `.pill.model` on purpose: they sit beside each other in
+  the same meta row, they are both facts about the bead rather than controls, and two
+  differently-shaped chips there would read as two kinds of thing when they are one.
+
+  Lower-case, like the model chip and for the same reason: `in-review`, `needs-approval`
+  and `gate:G2` are what deluvia's documents and `bd list -l` actually say, and `IN-REVIEW`
+  is a spelling this app would have invented.
+
+  Filled only for `in-review`, which is the one state that is *asking something of you*.
+  Everything else — draft, approved, revise, a bare gate — is a state to notice rather
+  than act on, and an inbox where four chips all shout is an inbox with no emphasis left.
+*/
+.pill.approval {
+  text-transform: none; letter-spacing: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.pill.approval.is-in-review { background: var(--surface-2); border-color: transparent; color: var(--text); }
+/* The same warn this app uses for "a state somebody has to resolve" rather than for an
+   error — a packet that cannot reach the phone is not a failure, it is a label somebody
+   has to add before the question can be asked at all. */
+.pill.approval.bad {
   background: color-mix(in srgb, var(--warn) 16%, transparent);
   border-color: color-mix(in srgb, var(--warn) 45%, transparent);
   color: var(--warn);
@@ -4665,6 +4840,12 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-body { padding-bottom: 8px; }
 .mon-body .work-row:first-child { border-top: 0; }
 .mon-body .subtitle { margin: 4px 2px 8px; }
+/* A section inside a section — the `Requested endorsements` subcard an EpicAdvocate
+   carries (bc-8t3b). Indented and dashed rather than styled fresh, so it reads as
+   belonging to the epic above it: at full width with the same solid rule, an epic's own
+   subcard is indistinguishable from the next epic along in a card that has fourteen. */
+.mon-body .mon-sec { margin-left: 12px; border-top-style: dashed; }
+.mon-body .mon-sum { min-height: 34px; font-size: 11px; }
 
 /* Small, inline, and unclickable — distinct from `.chip`, which is a filter control
    sized for a thumb. These are facts about a row, not things to press. */
@@ -4740,9 +4921,11 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-tally { font-size: 12px; font-weight: 600; color: var(--muted); }
 .mon-tally.warn { color: var(--warn); }
 
-/* Observer mode. Beside the page title, because it says what this daemon *is*, not
-   what it is currently doing — and two consoles side by side are otherwise
-   identical. Warm rather than alarming: nothing is wrong, it simply never acts.
+/* Observer mode. At the left-hand end of the bar with the mark — beside the page title
+   on /admin, and beside the space picker on /monitor, which since bc-mtdb has no title
+   at all — because it says what this daemon *is*, not what it is currently doing, and
+   two consoles side by side are otherwise identical. Warm rather than alarming: nothing
+   is wrong, it simply never acts.
    `[hidden]` is restated because the flex display above would otherwise show it. */
 .observing {
   font-size: 11px;
@@ -5134,6 +5317,28 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 button.viewpill { cursor: pointer; }
 .viewpill-icon { font-size: 15px; line-height: 1; }
 
+/* The count, on the four pills that carry one — see the header of public/viewbar.js for
+   which four and why a badge is allowed here at all.
+
+   **No colour and no background of its own.** It inherits the pill's, which is the one
+   way a single rule is right on all three shapes a `.viewpill` is worn by: the muted
+   `<a>`, the muted `<button>`, and the accent-filled `<span>` that is current. A capsule
+   would have needed a second pair of colours for the filled one, and a number drawn in a
+   colour the label is not is a number that can fail contrast where the label passes.
+   Weight and a shade less size is what sets it apart from the word instead.
+
+   `min-width` is two digits wide and `tabular-nums` holds the digits themselves to one
+   width, for the same reason zero is drawn rather than hidden: the numbers land on a
+   25-second poll, and a pill that grows when one does is a pill that moves out from
+   under a thumb already on its way to it. */
+.viewpill-count {
+  min-width: 1.4em;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Current. Colour alone would be the only mark, and colour alone is not a mark — so the
    accent is doubled by filling the pill and moving its border, which reads in both
    schemes and without colour vision. `aria-current` is the same claim, said to a reader
@@ -5167,6 +5372,12 @@ button.viewpill { cursor: pointer; }
    z-index 24 is deliberate and sits between two things: above the list (which scrolls
    under it) and below an open card (40, `position: fixed; inset: 0`). An answer takes
    the whole screen and must not have a create button sitting on top of it. */
+
+/* Not every kind has a ＋ (bc-khoe.27.1) — Questions and PRs are queues of things
+   waiting on you and have nothing to create. `hidden` alone would lose to the
+   `display: flex` below, which is the standing trap with this attribute and the reason
+   every other flexed thing in this file that can be hidden has a line like it. */
+.compose-wrap[hidden] { display: none; }
 
 .compose-wrap {
   position: fixed;
@@ -5215,7 +5426,12 @@ button.viewpill { cursor: pointer; }
    rather than on the body, which is where it was while the body was the thing that
    scrolled: under the app shell the body is exactly one viewport tall, so padding there
    would shorten the screen by 76px and leave a gap under the last card either way. The
-   class stays on the body, because what it records is that app.js wired ＋ up at all. */
+   class stays on the body because more than the scroller reads it — see the toast below.
+
+   It comes and goes with the button now (bc-khoe.27.1) rather than being added once at
+   load. It used to record that app.js had wired ＋ up at all; what it has to record is
+   whether there is a button on *this* kind, because reserving a button's height under a
+   kind that has none is a list that ends in 76px of nothing. */
 .has-compose .pagescroll { padding-bottom: 76px; }
 /* And the toast, which is bottom-centred and would otherwise land under it on a
    narrow phone. */
@@ -6083,6 +6299,39 @@ a.pill { text-decoration: none; }
 .model-ran { margin-left: auto; color: var(--muted); }
 .model-ran.is-diverged { color: var(--warn); }
 
+/* Where the ruling on this bead is — the approval row on the bead sheet (bc-bmry.5,
+   `approvalRowHtml`). Shaped like `.model-row` and `.owner-row` above it because it sits
+   in the same column of rows and is the same kind of thing: one fact about the bead, said
+   in a sentence rather than compressed into a chip. Drawn only on the beads that are in
+   deluvia's approval pipeline, so on every other sheet in the app this rule never fires. */
+.approval-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.approval-kind {
+  flex: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* The state is the answer, so it is the only thing on the row at full strength — the
+   sentence beside it is the reason for it, and the gate is a footnote. */
+.approval-state { font-weight: 650; }
+/* No state is a state, not a fault, and it gets the same quiet italic `.model-why.is-none`
+   and `.owner-who.is-none` give the other two "nobody has said yet" rows. */
+.approval-state.is-none, .approval-state.is-gate { font-weight: 500; font-style: italic; color: var(--muted); }
+.approval-why { min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.approval-rev, .approval-gate { flex: none; color: var(--muted); }
+/* Pushed to the end of the row, because it is the half you must act on and the row is
+   read left to right. Warn rather than an error colour: nothing has failed, a label is
+   missing, and the fix is one `bd label add`. */
+.approval-problem { flex-basis: 100%; color: var(--warn); }
+
 .owner-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   min-height: 44px;
@@ -6435,6 +6684,46 @@ button.p0-row {
   font-size: 12px;
 }
 .p0-rel-title { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
+/* What happened to this bead — the pull requests that name it and its session
+   (bc-rfnr.9.5). A column of rows rather than the wrapping row `.p0-rel` uses, because
+   these carry three things each (a number or a glyph, a title, and where it got to) and
+   the third one wraps: laid out as a wrapping row they would interleave, and you could
+   not tell which rung belonged to which pull request. */
+.p0-hap { display: flex; flex-direction: column; gap: 4px; }
+/* Both a `<button>` and an `<a>` and a `<div>` in the same list, so every inherited
+   control style is reset here: the three states differ in what they *do*, and a reader
+   must not be able to tell them apart by weight or colour before they know which is
+   which. Full width and left-aligned, since a bead can have four pull requests and a row
+   that centred its title would put four titles in four different places. */
+.p0-hap-row {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 12px; text-align: left; text-decoration: none;
+  cursor: pointer;
+}
+/* Not a control at all: the two states that are a `<div>` say something and offer
+   nothing, which is the whole of this bead's "never a link into an empty pane". */
+div.p0-hap-row { cursor: default; opacity: 0.75; }
+.p0-hap-row.is-checking, .p0-hap-row.is-none { color: var(--muted); }
+/* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex parent or
+   the live-session row draws nothing at all where its dot belongs — measured, and it is a
+   row whose whole subject is that a window is running. `inline-flex` rather than `flex`
+   so the emoji the other rows use still sits on the text baseline beside it. */
+.p0-hap-glyph { display: inline-flex; align-items: center; min-height: 12px; flex: none; font-size: 12px; }
+.p0-hap-row .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+/* `1 1 100%` for the same reason `.p0-rel-row` uses it one block up — a title beside the
+   rung wraps into the rung's column and reads as part of it. */
+.p0-hap-title { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.p0-hap-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
+/* The sentence for a bead nothing has happened to, which is most of them. Muted and
+   without a box, so it reads as an answer rather than as a row that failed to draw. */
+.p0-hap-none { font-size: 12px; color: var(--muted); }
 /* The way out to the graph, on the bead you tapped rather than on the card above it.
    It is where this row used to send you, and it stays reachable: the expansion is this
    bead, and the graph is everything around it. */
@@ -7074,3 +7363,54 @@ body.editing::after {
   margin: 12px; padding: 10px 14px; border-radius: 10px;
   background: transparent; border: 1px solid var(--line); color: var(--muted); font: inherit;
 }
+
+/* The Skills view (bc-dgx7.5) — the library, its candidates and what nothing measures.
+
+   Modelled on the requirement rows above it and deliberately not merged with them: a
+   requirement row is a tap into a drill-down and carries a coverage bar, where these are
+   flat rows of record with no second screen behind them. One shared `.skill-row` for all
+   three lists, because a candidate, a shipped command and an untracked metric are the
+   same shape of statement — a name, a state, and a sentence about it. */
+.skill-list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.skill-row {
+  display: flex; flex-direction: column; gap: 6px; width: 100%;
+  padding: 12px 14px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  color: inherit; text-decoration: none;
+}
+/* What is not measured is drawn *quieter* than what is, on the surface the page uses for
+   an absence — a dashed edge rather than a solid one, so it reads as an outline of
+   something that is not there yet rather than as a record of something that is. */
+.skill-row.is-untracked { background: transparent; border-style: dashed; }
+.skill-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.skill-title { color: var(--text); font-size: 14px; line-height: 1.35; }
+.skill-meta { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.skill-meta a { color: var(--accent); }
+.skill-untracked { font-style: italic; }
+/* The two links a row can carry. The title opens the bead — a block, so the tap target is
+   the width of the row rather than the width of the words — and `endorse it` goes to the
+   queue, which is why the row itself is not a link: one of them would have had to be
+   nested inside the other. */
+.skill-open { display: block; color: var(--text); text-decoration: none; }
+.skill-open:active { color: var(--accent); }
+.skill-act { color: var(--accent); }
+.skill-caveat { color: var(--prose); }
+.skill-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px; }
+.skill-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted);
+  font-weight: 600; font-size: 11px; line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+/* Four states, and only *waiting* is filled — it is the one of the four that is asking
+   for something, and the other three are history. The rest keep the neutral chip ground
+   and say their state in the text colour, which is what keeps every one of them past AA
+   at 11px: a tinted ground under its own hue is the shape that lands around 3.9:1, which
+   is the failure bc-15tu spent a branch on. `--made-ink` rather than `--bead-made` for
+   the same reason — that token exists because the flight green is not a reading green. */
+.skill-chip.is-waiting { background: var(--accent); color: var(--accent-ink); }
+.skill-chip.is-accepted { background: var(--surface-2); color: var(--made-ink); }
+.skill-chip.is-declined { background: var(--surface-2); color: var(--danger); }
+.skill-chip.is-superseded { background: var(--surface-2); color: var(--muted); }
+.skill-chip.is-untracked { background: var(--surface-2); color: var(--warn); }

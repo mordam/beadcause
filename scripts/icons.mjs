@@ -25,9 +25,10 @@
  * from redrawing the mark, so this reproduces what is there. If that is ever revisited,
  * it is this one line.
  *
- * Nothing enforces the three staying in step — an edit to `icon.svg` that forgets to run
- * this leaves two PNGs of the old mark, served and cached, and no suite says so. That
- * needs a Chrome, so it would be a `scripts/*-check.mjs` rather than a test.
+ * `scripts/icons-check.mjs` is what now catches the three falling out of step — it
+ * re-renders `icon.svg` the same way this file does and compares the result to the
+ * committed PNGs pixel-wise, so an edit that forgets to run this leaves a check red
+ * rather than a phone silently serving the old mark.
  */
 import fs from 'node:fs';
 import path from 'node:path';
