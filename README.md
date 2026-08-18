@@ -1802,9 +1802,94 @@ and was exactly backwards — the two acts are not the same act, and gating both
 what proved it.
 
 The one close that is deliberately **not** gated is the work bead a merged pull
-request finishes. That one is already `.catch`-ed and logged: the merge has
-happened by then, and failing the request over a bead that would not close would
-be reporting the merge as a failure.
+request finishes — with one exception, below. That one is already `.catch`-ed and
+logged: the merge has happened by then, and failing the request over a bead that
+would not close would be reporting the merge as a failure.
+
+### The one law — no agent closes a gate
+
+deluvia's `docs/STUDIO_CHARTER.md` §2 states it in one sentence: **agents draft,
+Adam approves, and no agent closes a gate or a bead waiting to be approved. The tap
+is the close.** `docs/STUDIO_PLAN.md` §6 says it again about the status script —
+*"It only reads. It contains no bd write of any kind"* — and `docs/APPROVAL_PIPELINE.md`
+says it a third time about the draft → in-review → approved → revise state machine.
+
+Three documents, and until `lib/approval.js` existed none of them was read by
+anything. beadcause had no idea what a gate was: the only mentions of the word in
+`lib/` were an unrelated capability marker and a node id in a flowchart. So a gate
+bead came up `bd ready` like any other bead, an advocate opened an unattended window
+on it, and that session ran its ordinary ending — which closes the bead the window
+was opened for.
+
+**It has already fired.** Delivering `dv-b5d` on 2026-08-10 closed the epic over six
+open children, four of them gates. The cost is not a row in a tracker: deluvia's
+`scripts/studio_status.py` is built around the rule and prints it on every run, so a
+wrongly-closed gate is a status board reporting G0 closed and G1/G4 unblocked, on a
+lie — the exact silent failure the rule exists to prevent.
+
+#### What is held, and what deliberately is not
+
+The **bare** label `gate` means *I am a gate*, and `needs-approval` means *a person
+has still to judge this*. `gate:G0` means *I count towards G0* and is an ordinary
+deliverable with an ordinary ending — the beads under a gate are exactly the work
+that moves it, and holding those would stop the ladder rather than protect it. So
+the match is on the whole label, and a `startsWith` here would be wrong in the one
+way that is expensive to notice.
+
+#### It is a rule about the close *reason*, not a hold on the bead
+
+The obvious shape is the one `unendorsed`, `ship` and `container` already use — a
+filter plus a refusal, so the bead is in no queue and cannot be worked at all. That
+was on the table as dv-8o5's other option and it is **not** what was decided, for a
+reason easy to lose: a gate is not unworkable. Evidence gets gathered against it and
+notes get written on it; only the close is anybody's but Adam's.
+
+And a blanket refusal would break the half of the law that matters most. *The tap is
+the close* — when a gate is genuinely met, the close is a tap on the phone, and the
+phone asks `Bd.gateFor` whether that close would be refused before it draws the
+button. A rule that refused every close would take the button away and leave a gate
+nothing on this machine could ever close, silently, because the card would simply
+render without it.
+
+So the refusal keys on the **sentence the close would carry**. `isMergeReason` already
+identifies the three a merge writes — `Landed as #42` from a worker's own delivery and
+from the tap on a delivery card, and `Merged #212 as 72789c0b into main on GitHub` from
+the sweep that notices a merge made on github.com — and every automated close of a work
+bead in this program carries one of them. A close Adam asks for by name carries none,
+and goes through untouched. It is the same shape, and the same argument, as
+[an epic not closing on a merge](#when-bd-will-not-close-the-bead): here it is stronger,
+because a merge is not merely poor evidence about a gate, it is not the gate's evidence
+at all.
+
+#### Wired to every door, because a merge arrives four ways
+
+| where | what it does |
+|---|---|
+| `Bd.gateFor` (`lib/bd.js`) | the funnel for the daemon: the tap on a delivery card, the sweep that notices a merge on github.com, and the retry minutes later |
+| `lib/owed.js` | drops the record rather than retrying — nothing about waiting turns a merge into an approval, and `owed-closes.json` may hold a record written before this rule existed |
+| `lib/mergequeue.js` | merges, comments, and leaves the bead open — written out beside the epic branch it already had, because this path does not ask the gate |
+| `bin/deliver.js` | a separate process shelling out to `bd`; it merges first and handles the refusal, and it already checked the merge-reason half itself |
+| `lib/session.js` | the other half of the answer: the worker's brief **states the law in words**, so a refused session reads the ending as the work finishing rather than as something to retry |
+
+The brief matters more than it looks. A session refused by a rule it was never told
+about does not stop — it re-runs the delivery, files a bead about the tracker being
+broken, or closes the bead by hand at a terminal, which is the one route the code
+cannot cover. dv-vry was answered *both* for exactly that reason: the brief states
+it and the code holds it, so a brief that drifts cannot silently reopen the hole.
+
+**What this is not strong enough to be.** A `bd close` typed at a terminal still
+closes a gate. bd has no pre-close hook — `bd hooks` installs git hooks and nothing
+else — so no rule beadcause holds can reach it. What is covered is the only ending an
+unattended session has, which is the one that fired.
+
+#### Checking the one law
+
+**`node test/onelaw.mjs`** — the predicate, the gate, the retry, the merge queue driven
+end to end with a fake tracker, and the brief. Three failures are worth the file and the
+middle one is the expensive one: missing a door, refusing a close Adam asked for, and
+retrying a terminal refusal for ever. `bin/deliver.js` is a separate process that cannot
+be imported, so it is read rather than driven — the drive of the real binary is
+`test/landcheck.mjs`.
 
 ### Checking it
 
@@ -10441,6 +10526,8 @@ was a deletion:
   other open bead, so they are now rows under the
   [Questions pill](#one-list-six-kinds--and-the-two-sub-filters) rather than a fifth
   destination to remember. Nothing replaced the icon.
+- **Every advocate on the console has a `Requested endorsements` subcard**, carrying the
+  held beads that advocate's own work produced — [below](#and-the-advocate-console-splits-them-by-who-produced-them).
 
 That icon carried **no badge**, deliberately, and it was the one thing on this page that
 had an obvious one and should not: the count would have cost a `bd list --label
@@ -10448,6 +10535,72 @@ unendorsed` per workspace on every thirty-second poll, where the counts already 
 bar are free by-products of a sweep the poller was making anyway. The argument is worth
 keeping because it is what the replacement had to beat — and the chip's count clears it,
 being a label test on a row already in hand rather than a query of its own.
+
+### And the advocate console splits them by who produced them
+
+The queue is one list of everything, which is the right shape for the screen where the
+decision is made and the wrong shape for the screen where you are watching the machine
+work. On the [advocate console](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero)
+an endorsement is not an item in a backlog: it is **a decision one particular advocate is
+stopped on**, and the card that is otherwise a complete account of what that advocate is
+doing said only how many there were.
+
+So every advocate carries a folded `Requested endorsements` section, and which beads land
+in whose is a hybrid rather than one rule. Verbatim, from the answer that settled it
+(bc-w156.2): *"shown under EpicAdvocate if they were produced by its work or by the agents
+it spawns. per workspace otherwise."*
+
+- **Under an EpicAdvocate** where the graph says so. An advocate's agents are the sessions
+  opened on beads under its epic, and a discovery one of them files is filed *under* the
+  bead it was working — `beadcause-file` homes it there and keeps the parent even when bd
+  refuses to hold the provenance edge beside it. So the epic is an ancestor of the held
+  bead, and the **nearest** advocate above it owns it: an epic's own subcard beats the P0
+  three levels up, which is the difference between a dozen readable sections and one
+  section holding the whole repo.
+- **On the repo's own card otherwise** — a bead with no parent, one filed under an epic
+  nobody is planning, one you filed yourself from the console. This half is why the split
+  works at all. Per-advocate on its own was rejected precisely because a bead no advocate
+  owns would have vanished from this screen entirely; with the repo as the bucket, nothing
+  is ever unreachable, and the two counts add up to the `N held for endorsement` pill at
+  the top of the card.
+
+**It is a proxy and it says so.** Nothing records which *agent* filed a bead, so a bead
+somebody parented under an epic by hand reads here exactly like one an advocate's worker
+found. The exact reading needs a stamp written at file time, which is its own work; this
+is the reading available today, and it is right for every bead the advocates actually
+produce.
+
+**The rows cost nothing, which is the part that had to be checked rather than assumed.**
+The count was already there and the rows behind it were being thrown away: `bd ready
+--label unendorsed` is one of the four calls the console's own row has always made,
+because `ready` is a lie until the held beads come out of it (lib/work.js). So this is a
+projection of a list already in hand, and the objection that keeps a held count *off* the
+inbox's chrome — a `bd list --label` per workspace per poll — does not apply here at all.
+The chain of epics above each bead is read from `bd export`, which lib/bd.js caches for a
+minute — and this card **never builds one**. It asks whether anything has read the graph
+already before it asks what is in it, and takes what is on hand rather than waiting: the
+daemon's own tick exports every workspace that has an advocate, and so does the inbox's
+P0 board, so on the machine this card is drawn on the answer is a cache hit. Where it is
+not, a repaint seconds after a restart draws every held bead on the repo's own card and
+gains the per-advocate split on the next one. No bead is ever missing; only its section
+is, and only briefly.
+
+These are the rows behind the pill on the same card and not a second sweep, which also
+decides what is in them: `bd ready --label unendorsed` minus the ship beads, so a held
+bead that is *blocked* is on the queue and not here. That is deliberate — a section
+disagreeing with the number six inches above it would be the worse of the two errors, and
+the complete list is one tap away.
+
+A row is a title, an id and a link, where the queue gives the same bead its whole
+description and the agent's argument. That asymmetry is deliberate and it is the queue's
+own reasoning turned around: the fat row exists because a decision made off a title is a
+rubber stamp, and this is not the screen the decision is made on — it is the screen that
+tells you there is one to make, on the card of the advocate that is waiting for it. The
+link is `?bead=<workspace>/<id>`, the same deep link the inbox uses, so the queue opens on
+the bead you tapped.
+
+The list is capped, because the one thing an endorsement backlog does is grow, and what
+the cap takes off is said inside the section rather than left to look complete.
 
 ### Checking it
 
@@ -10466,6 +10619,13 @@ reply agent may run (`label`, `update`, `close`, `create`, `delete`) is on its a
 that an agent you have since deleted keeps its own name in the thread rather than being
 relabelled the default — and that a bead you have just asked about comes back from
 `/api/unendorsed` carrying its 💬 rather than reading as untouched.
+
+`node test/heldsubcard.mjs` covers the console's half. The server end is argv against a
+stub `bd` — that the rows ride the call the row was already making, that the graph is
+never waited on, and that a workspace whose tracker fell over reports its error rather
+than an empty list. The page end runs public/monitor.js in a `node:vm` and reads which
+section each bead was actually drawn in, because the join is the feature: a source read
+could confirm every string and still miss a bead landing in two sections or in none.
 
 `node scripts/endorse-check.mjs [--out=DIR]` drives the real page in a headless Chrome
 the size of a phone, against a fixture that records every write. The three assertions it
@@ -12537,6 +12697,37 @@ while an advocate is paused — pausing means "open no more sessions", not "leav
 screen full" — and never while observing. `closeFinishedSessions: false` switches it off
 along with everything else in this section: an off switch that only delayed the signal by
 twenty minutes would not be one.
+
+##### The windows that are no longer windows
+
+Every sweep above ends at a pid, and every guard any of them keeps is there because there
+is an agent in that window whose work would go with it. This last one closes windows that
+have **no tabs left in them at all**.
+
+They are not something anything here asks for. They are what iTerm occasionally leaves
+behind when the last session in a window ends: the tab goes, the frame stays. Two were
+caught on 18 Aug by sampling iTerm every twenty seconds — the `bc-y8k4.4` worker went
+from a live session on `/dev/ttys018` to `tabs=0` inside one sample, and another worker
+did the same two hours later. Both had been signalled in the ordinary way, and both were
+left named `sleep`, which is the last job of a session's send-off: the shell got all the
+way through its countdown and ran `exit`. The teardown was right. The window just did not
+follow it.
+
+What is left looks like a bug in this daemon and is not reachable by it. There is nothing
+in the frame to read, nothing running, and no way in — ⌘W is *Close Session*, which is
+disabled when there is no session, so the keystroke only beeps and the window can be
+dismissed by hand alone. And nothing here would ever have closed it: the only close in
+this daemon is the shell's own `exit`, and that shell is precisely what is missing. So
+they accumulate, a handful a day, until you go round the desk clicking red buttons.
+
+`closeEmptyWindows` (default `true`) closes them on the tick, and the test is the whole
+of its safety argument: `count of tabs is 0`. No process, no transcript, no scrollback —
+the thing the other sweeps' guards protect does not exist in one of these, and there is
+no version of "it was still busy" that can be true. A window with any tab at all is never
+touched. It runs once per tick for the whole Mac rather than once per advocate, because
+an empty frame belongs to no workspace: the session that could have said which one is
+exactly what is gone from it. And it never runs from a test suite — the same gate that
+stops a suite *opening* a window on your Mac stops it closing one.
 
 ##### Parking — a window waiting on you closes, and your answer brings it back
 
@@ -15565,6 +15756,68 @@ Neither renderer decides anything, and both draw **nothing at all** for a bead c
 predates it. `test/modelcard.mjs` covers the derivation, the field arriving on both
 payloads, both renderers run for real over the five shapes that matter, and the rule that
 every class either of them draws has a rule behind it.
+
+### Where the *ruling* is — the second axis, beside the pull request
+
+[`lib/prstage.js`](#the-ladder-in-one-place) owns one ladder and it is about a branch: review, merged, pushed,
+deployed, live. It is the only place that decides that, because three modules once
+answered "where is this PR" three ways and two screens disagreed in front of somebody.
+
+deluvia's `docs/APPROVAL_PIPELINE.md` defines a *different* ladder, about a different
+object: **draft → in-review → approved (which is a close) → revise**, over labels, and it
+is about a **deliverable** and Adam's ruling on it. A chapter can be `in-review` with no
+branch in existence, and a branch can be merged over a deliverable nobody has ruled on. The
+question of which of those beadcause should hold went to Adam as `dv-uhl`, with a ladder
+refactor on the table, and the answer was neither of the two obvious ones:
+
+> the two facts stay two facts because they genuinely are two facts — where the branch is,
+> and where the ruling is.
+
+So `lib/prstage.js` is untouched and keeps telling the truth about the pull request, and
+the ruling is **drawn beside it**. A deluvia card reads `in-review · PR open`.
+`test/approvalcard.mjs` asserts the separation directly — the word `approval` does not
+appear in `prstage.js` — because the cheap way for a decision like this to be undone is
+somebody unifying two files a month later on the strength of them looking alike.
+
+**The states, off the labels.** `needs-approval` (always paired with `human`, which is what
+actually puts a bead on the phone) is `in-review`; a `draft` label with no `human` is
+`draft`; **approval is the close**, so a `needs-approval` bead that closed is `approved` —
+there is no "approved but still open" state and no agent may set one, because the only thing
+that can is your tap. `revise` is a review packet you commented on without answering, and it
+outranks `in-review` while the bead still carries both labels, because the truer of the two
+is that it is no longer waiting on you.
+
+**`human-replied` on its own is never `revise`**, and that is the one trap in the
+derivation. beadcause writes that label on *any* bead in *any* workspace the moment you
+comment without answering; read alone it would put a `revise` chip across half this tracker.
+It counts only on a bead that is a review packet.
+
+**Nothing here names a workspace.** The pipeline is a label vocabulary and a workspace is in
+it exactly when its beads carry the labels — so `lib/approvalcard.js` answers `null` for
+every bead outside it, which is every bead in every workspace but deluvia. That is the
+opposite call from the [model chip](#where-you-can-see-it--the-chip-and-the-row) beside it and for the opposite reason: every bead is
+routed to a model, so a blank there would hide the ones worth tiering; almost no bead is a
+review packet, so a chip on every card would be a chip carrying no information on ten cards
+out of eleven. Both cards therefore draw **nothing at all** where there is nothing to say,
+and an ordinary beadcause sheet is byte-for-byte what it was.
+
+**The gate is the third readout, and only half of it is here.** Every deliverable carries
+`gate:G2` — *"I count towards G2"* — and a gate bead carries the bare `gate`, which means
+the opposite. Both cards say which gate a bead counts towards, because that is free: it is
+on the row already. What they deliberately do *not* say is **how many are left**, which is
+tally's readiness — `bd list -l "gate:G2" --status=open` is a query over a whole workspace
+and a card is handed one bead. Deriving it per card would mean the inbox sweep and the sheet
+answering it from different reads, which is the two-screens-disagree failure this whole
+arrangement exists to avoid.
+
+**Two label shapes are drawn as problems**, and the first is the one the document calls out
+by name: `needs-approval` **without** `human`. The packet never reaches the phone — the
+inbox *is* `bd human list` — *and* the advocate, whose whole definition of work is
+ready-minus-`human`, may open an unattended session on it. A question nobody was asked,
+being answered by an agent. **Only the bead sheet can ever draw that one**, which is the
+point rather than a limitation: a card in an inbox of `human` beads is by construction not
+the card that could complain about a missing `human` label. The second is a bead carrying
+both `gate` and `gate:GN`, which claims to be a gate and to count towards one.
 
 ### Approve, adjust, decline
 
@@ -20866,6 +21119,48 @@ slowest one. A workspace still syncing when the next tick comes round is skipped
 than queued: two `bd dolt push` against one embedded Dolt would only fight each other for
 the write lock.
 
+### The ceiling has to be smaller than the interval, and it was not
+
+"The interval is the retry" is the argument all three `bd dolt` calls are built on, and it
+is only true while a call *finishes inside the interval*. It did not. `BD_TIMEOUT` is two
+minutes and the default `sync.seconds` is two minutes as well — not a coincidence anybody
+arranged, just two defaults picked in different files for unrelated reasons — so a tick
+that burned its ceiling was **still running when the next tick came due**, got skipped,
+and one collision cost two intervals rather than one. Pull and push run in sequence, so
+the worst case was four minutes against a two-minute interval.
+
+So the ceiling is now derived from the interval rather than inherited: each call gets 40%
+of `sync.seconds`, capped at `BD_TIMEOUT`, which puts a whole tick inside the interval
+with margin at every setting including the 30-second floor. The number is computed in
+lib/sync.js because that is where the interval lives, and handed to lib/bd.js by the poll
+cycle — the only place that holds both.
+
+**A workspace that has never synced still gets the full two minutes**, and that is the
+whole reason this could not simply be a smaller constant. A short ceiling is right for a
+workspace whose sync is a going concern — its pushes are a handful of Dolt commits — and
+wrong for one that may be doing the large *first* sync, where a ceiling set too low is not
+a slow tick but a sync that can never complete and reports as broken every time. One clean
+sync earns the short ceiling and an outage afterwards does not take it away; a restart
+forgets, like everything else here, and pays one generous tick per shared workspace.
+
+### A lock is not the network, and the retry is back
+
+These three calls used to retry nothing at all, argued from the one thing that makes them
+unlike every other write: they go to the *network*, and a retry of a two-minute network
+timeout is four minutes of a poll cycle spent on a workspace that will be tried again in
+two minutes anyway. Sound — and silent about the other thing they queue behind. `bd dolt
+pull` run by hand against the `architecture` workspace finished in **four seconds** on a
+day the daemon had logged four *"still running after 120s"* lines against that same
+remote, and 56 by the time anyone counted. That time was going to embedded Dolt's single
+writer, which twenty-plus agent sessions hold in bursts — the exact collision every other
+write here retries four times for.
+
+They retry twice now, and **nothing about the network argument had to be given up**: `run`
+refuses to retry a timeout at all, so a retry can only fire on a lock refusal that came
+back in milliseconds, and a call killed at its ceiling still costs exactly one ceiling.
+Two rather than four because these are on a timer — anything 400ms and 800ms of backoff
+cannot clear is the next tick's problem by definition.
+
 ### A sync that stopped is loud, and a conflict is louder
 
 A sync that works says **nothing**. No line, no event, no push. A tick reporting "synced
@@ -21383,6 +21678,7 @@ to be one.
 | `autoShipPerWorkspace` | whether **one workspace's** merges run its declared deploy without waiting for **Ship**, same shape and same precedence (default `{}`). The setting this layer most needed: only one repo in a space of six here has a deploy this Mac can run, and saying so through the space armed the other five. An [epic may still override it in either direction](#auto-ship--the-merge-that-does-not-wait-for-the-tap) |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-a-merge-queue) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
+| `pr.basePerWorkspace` | [the workspaces that merge somewhere else](#a-workspace-whose-integration-branch-is-not-main), keyed by name — `{ "deluvia": "atlas/public-launch" }`, which is what ships. The setting for that workspace wherever `pr.base` would have been, so it still sits *underneath* a multi-repo workspace's per-repo answer and still loses to `--base`. A name that is absent, or a value that is not a branch name, falls through to `pr.base` |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
 | `pr.autoMerge` | a delivery goes on the merge queue, which merges it once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer. Since bc-r941 the worker never merges under either setting — what this picks is which of the two things receives the pull request |
 | `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
@@ -21449,6 +21745,7 @@ to be one.
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
 | `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `QUEUED-`/`DONE-`, only a closed bead; `false` leaves your own windows where you put them |
 | `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
+| `advocates.closeEmptyWindows` | [close the iTerm windows that have no tabs left in them](#the-windows-that-are-no-longer-windows) — the blank frames iTerm sometimes leaves behind when a session's last tab goes away (default `true`). There is no session in one, so this keeps none of the guards above; `false` leaves them on the desk for you to dismiss by hand |
 | `advocates.parkIdleWindows` | [park a window this daemon opened once it goes quiet](#parking--a-window-waiting-on-you-closes-and-your-answer-brings-it-back) — write its conversation down by session id, then close it, so an answer resumes the same agent rather than briefing a new one (default `true`). This is the one sweep that closes a window whose work is not provably anywhere else, so it has its own switch; `false` leaves them open and the resume never happens. `closeFinishedSessions: false` switches it off too |
 | `advocates.parkIdleMinutes` | how long quiet is long enough (default 10). Minutes rather than the 90 seconds a *finished* worker gets, because here the ending is inferred from silence rather than proved by a closed bead |
 | `advocates.maintenance` | [the nightly maintenance window](#the-nightly-window--stop-dispatching-empty-the-mac-collect-the-store): stop dispatching everywhere, let the open windows finish, close whatever is left, collect every workspace's Dolt store, resume (default `false`). **Off by default because it is the one sweep here that closes a window somebody may be typing into** — everything else in this table reads something. One line turns it on |
@@ -22893,6 +23190,63 @@ of them, naming the repo on the card for every entry that moved — see [what sp
 and what does not](#one-advocate-many-checkouts--what-spans-repos-and-what-does-not) for
 the shape of each and why the survey agent, the third of the family, is deliberately one
 run across N repos rather than N runs.
+
+### A workspace whose integration branch is not `main`
+
+`pr.base` is one string for the whole install, and the rule above splits it only one
+way: many repos, and each repo answers for itself. There is a second shape it did not
+cover, and `deluvia` is it — **one** repo, so nothing about the approved-list path
+applies, and yet its work does not land in `main`. Its integration branch is
+`atlas/public-launch`, and every pull request opened against the install-wide `pr.base`
+would have targeted a branch that repo never merges into. A pull request into the wrong
+base is a perfectly valid pull request; nothing fails, the merge queue just brings the
+wrong branch in and lands the work somewhere nobody is looking.
+
+Moving the global was not available: nine other workspaces here do merge into `main`,
+and one of them is beadcause itself. So the setting became a map beside itself —
+`pr.basePerWorkspace`, keyed by workspace name like `autoMergePerWorkspace` and `jira`,
+and shipped naming exactly one:
+
+```json
+"pr": {
+  "base": "main",
+  "basePerWorkspace": { "deluvia": "atlas/public-launch" }
+}
+```
+
+**It sits underneath the repo, not over it.** A multi-repo workspace still asks GitHub
+first and reaches the override only where it would have reached `pr.base` — offline, no
+`gh`, no remote. That is deliberate and it is the same argument as before: one string
+cannot be the right base for forty repos, and a workspace that has forty already has a
+better answer per repo. In practice the two shapes never meet, because every workspace
+with an integration branch of its own here is one repo. `--base` on `bin/deliver.js`
+still wins over both, which is how a single delivery says it is going somewhere else
+again.
+
+**Anything in the map that is not a branch name is ignored rather than coerced.** It is a
+map people hand-edit, and `{"deluvia": true}` asked for nothing legible — reading it as a
+branch would open pull requests against `true`. Absent falls through to `pr.base`, which
+is what every workspace not named there already gets, so a config written before the key
+existed answers exactly as it did. The same rule the [per-workspace
+booleans](#policy-stays-per-space-even-when-a-workspace-is-forty-repos) keep, for the
+same reason.
+
+Everything reads it through `lib/prbase.js`, which is the point of having the file at
+all. `baseFor` serves the callers that have a directory in hand and can therefore ask the
+repo — `bin/deliver.js`, the pull-request board's per-repo rows, and the
+`git merge origin/<base>` line in a worker's brief. `configuredBase(cfg, workspaceName)`
+serves the rest, which resolve the *setting* and never asked GitHub in the first place:
+the advocate's landed-reconcile and its two in-main sweeps and their follow-up, the
+board's own merge-and-land button, and the branch a declared deploy fast-forwards to
+before it runs. That last one is why this was worth doing in one pass rather than
+stopping at the pull request — deluvia's deploy fast-forwarding to `origin/main` would
+ship a branch its work never reaches, and that failure is entirely silent. None of them
+asks GitHub per repo now either; the per-repo half of *that* question is bc-lde0's and
+stays where it was.
+
+`test/prbase.mjs` covers both directions, and asserts through `loadConfig` that the
+shipped default really does name deluvia — a resolver that works over a config nobody
+ships is a resolver nothing reaches.
 
 ### Policy stays per space, even when a workspace is forty repos
 
@@ -26023,6 +26377,16 @@ hid that one declaration while reporting the other nine.
   on a timer across every workspace. Writes inherit it too — a write SIGTERMed mid-`bd` is
   worse than a slow one, and since a timeout is never retried this is one ceiling per
   call, not four.
+- **The three `bd dolt` verbs are the one exception, and it is not a number typed at a
+  call site.** `doltPull`, `doltPush` and `doltCommit` take a ceiling from their caller,
+  because theirs is the one that has to stay *under* something: the sync interval, which
+  lib/bd.js has never heard of and lib/sync.js owns. Equal defaults in two files is what
+  produced the skipped ticks (see [When it syncs](#when-it-syncs-and-why-the-interval-is-not-a-performance-knob)),
+  and the fix for that cannot itself be a second constant. It is still `BD_TIMEOUT` when
+  nobody names one, which is what a first sync of a large graph gets. The guard against
+  this becoming the old bug again is in test/bdtimeout.mjs, which asserts no *literal*
+  timeout in lib/bd.js is smaller than the constant, and in test/sync.mjs, which asserts
+  a whole tick fits inside the interval at every setting.
 - **A timeout says so, everywhere it is displayed.** It is the one error that arrives with
   nothing to explain itself: `bd` is SIGTERMed mid-answer, so stderr is empty and Node's
   own message is "Command failed". So `run` rewrites it as `bd … timed out in <workspace>:
