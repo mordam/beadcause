@@ -314,7 +314,7 @@ const collapseCard = async (id) => {
 const ANSWERED = (id) => `(() => {
   const card = ${CARD(id)};
   const banner = card.querySelector('.answered-before');
-  const options = [...card.querySelectorAll('.options .option')];
+  const options = [...card.querySelectorAll('.options .option:not(.discuss)')];
   const kids = [...card.children];
   return {
     shown: !!banner && banner.getBoundingClientRect().height > 0,

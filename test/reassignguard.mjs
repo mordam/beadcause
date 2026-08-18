@@ -5,8 +5,8 @@
  *     npm test
  *     node test/reassignguard.mjs
  *
- * bd 1.2.1 refuses to clear a claim from an actor that is not the holder. On the two
- * paths that put a *worker's* bead back that is not an edge case, it is the whole of the
+ * bd 1.2.1 refuses to clear a claim from an actor that is not the holder. On every path
+ * that puts a *worker's* bead back that is not an edge case, it is the whole of the
  * behaviour: the window claims its bead under the human's git identity as its first act,
  * every write beadcause makes is stamped `beadcause`, so actor and assignee never match
  * by construction. `Bd.reopen`'s three retries cannot help — nothing here is a race — and
@@ -23,8 +23,10 @@
  *     open children instead;
  *   - **the argv** — `reopenAbandoned` tries the plain write first and appends `--force`
  *     only when *that* refusal is what came back, while `reopen` itself never forces,
- *     because the review path in lib/server.js and `commission` reopen beads whose claim
- *     is live and the guard is doing the job it was added for;
+ *     because `commission` and lib/jiragate.js reopen beads whose claim may still be live
+ *     and the guard is doing the job it was added for. lib/server.js's review path was on
+ *     that list until bc-36xx.17 and never belonged there: see test/handbackdelivery.mjs,
+ *     which drives the answer end to end against a bd that enforces the refusal;
  *   - **the binary**, at the bottom and skipped loudly where `bd` is not installed. The
  *     stub half above can only ever confirm what lib/bd.js already believes; that the
  *     plain reopen is refused *at all* is the belief the whole change rests on, and it is
@@ -169,10 +171,15 @@ await check('a second refusal is not forced twice', async () => {
   assert.equal(calls.length, 2, 'it steps over the guard once and then reports');
 });
 
-await check('`reopen` itself never forces — the review path keeps its guard', async () => {
-  // lib/server.js reopens on "changes requested" and `commission` reopens on an answer
-  // that orders work, and there the holder may still be typing. bc-xl7n.85 is explicit
-  // that force belongs at the call site that has established the window is gone.
+await check('`reopen` itself never forces — the paths with a live holder keep their guard', async () => {
+  // `commission` reopens on an answer that orders work and lib/jiragate.js on a ticket
+  // coming back, and there the holder may still be typing. bc-xl7n.85 is explicit that
+  // force belongs at the call site that has established the window is gone.
+  //
+  // This list used to name lib/server.js's "changes requested" as such a path, which is
+  // what bc-36xx.17 was: a worker delivers and stops, so by the time the answer comes the
+  // holder is always gone. The assertion below is unchanged — `reopen` still never forces
+  // — but the reason it is safe is now about who calls it, not about that path.
   const { bd, calls } = stub([new Error(WRAPPED)]);
   await assert.rejects(() => bd.reopen(WS, 'x-1'), /cannot reassign/);
   assert.deepEqual(calls, [PLAIN('x-1')]);
@@ -199,9 +206,22 @@ await check('nothing outside lib/bd.js spells the hand-back out for itself', () 
   assert.ok(spelt.test(code('lib/bd.js')), 'while lib/bd.js, which owns it, still does');
 });
 
-await check('both paths that release a dead window’s claim ask for the abandoned one', () => {
+await check('every path that releases a dead window’s claim asks for the abandoned one', () => {
   assert.match(code('lib/advocate.js'), /bd\.reopenAbandoned\(a\.workspace, w\.id\)/);
   assert.match(code('bin/plan.js'), /bd\.reopenAbandoned\(ws, epicId\)/);
+  // bc-36xx.17. Both answers that end an attempt without ending the work — `changes` and
+  // `decline` — go through one helper, and the helper is the only thing in lib/server.js
+  // that reopens a work bead. Asserted as "there is exactly one call, and it is the
+  // abandoned one", because the failure this replaces was a second call site nobody
+  // noticed had the same problem.
+  const server = code('lib/server.js');
+  assert.match(server, /await bd\.reopenAbandoned\(ws, bead\)/, 'the helper forces when the guard is what refused');
+  assert.equal((server.match(/bd\.reopen\(/g) || []).length, 0, 'and nothing there calls the plain reopen any more');
+  assert.equal(
+    (server.match(/await handBackWorkBead\(ws, /g) || []).length,
+    2,
+    'both the changes path and the decline path go through it'
+  );
 });
 
 /* ------------------------------------------------------------------- the binary */
