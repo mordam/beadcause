@@ -15566,6 +15566,68 @@ predates it. `test/modelcard.mjs` covers the derivation, the field arriving on b
 payloads, both renderers run for real over the five shapes that matter, and the rule that
 every class either of them draws has a rule behind it.
 
+### Where the *ruling* is — the second axis, beside the pull request
+
+[`lib/prstage.js`](#the-ladder-in-one-place) owns one ladder and it is about a branch: review, merged, pushed,
+deployed, live. It is the only place that decides that, because three modules once
+answered "where is this PR" three ways and two screens disagreed in front of somebody.
+
+deluvia's `docs/APPROVAL_PIPELINE.md` defines a *different* ladder, about a different
+object: **draft → in-review → approved (which is a close) → revise**, over labels, and it
+is about a **deliverable** and Adam's ruling on it. A chapter can be `in-review` with no
+branch in existence, and a branch can be merged over a deliverable nobody has ruled on. The
+question of which of those beadcause should hold went to Adam as `dv-uhl`, with a ladder
+refactor on the table, and the answer was neither of the two obvious ones:
+
+> the two facts stay two facts because they genuinely are two facts — where the branch is,
+> and where the ruling is.
+
+So `lib/prstage.js` is untouched and keeps telling the truth about the pull request, and
+the ruling is **drawn beside it**. A deluvia card reads `in-review · PR open`.
+`test/approvalcard.mjs` asserts the separation directly — the word `approval` does not
+appear in `prstage.js` — because the cheap way for a decision like this to be undone is
+somebody unifying two files a month later on the strength of them looking alike.
+
+**The states, off the labels.** `needs-approval` (always paired with `human`, which is what
+actually puts a bead on the phone) is `in-review`; a `draft` label with no `human` is
+`draft`; **approval is the close**, so a `needs-approval` bead that closed is `approved` —
+there is no "approved but still open" state and no agent may set one, because the only thing
+that can is your tap. `revise` is a review packet you commented on without answering, and it
+outranks `in-review` while the bead still carries both labels, because the truer of the two
+is that it is no longer waiting on you.
+
+**`human-replied` on its own is never `revise`**, and that is the one trap in the
+derivation. beadcause writes that label on *any* bead in *any* workspace the moment you
+comment without answering; read alone it would put a `revise` chip across half this tracker.
+It counts only on a bead that is a review packet.
+
+**Nothing here names a workspace.** The pipeline is a label vocabulary and a workspace is in
+it exactly when its beads carry the labels — so `lib/approvalcard.js` answers `null` for
+every bead outside it, which is every bead in every workspace but deluvia. That is the
+opposite call from the [model chip](#where-you-can-see-it--the-chip-and-the-row) beside it and for the opposite reason: every bead is
+routed to a model, so a blank there would hide the ones worth tiering; almost no bead is a
+review packet, so a chip on every card would be a chip carrying no information on ten cards
+out of eleven. Both cards therefore draw **nothing at all** where there is nothing to say,
+and an ordinary beadcause sheet is byte-for-byte what it was.
+
+**The gate is the third readout, and only half of it is here.** Every deliverable carries
+`gate:G2` — *"I count towards G2"* — and a gate bead carries the bare `gate`, which means
+the opposite. Both cards say which gate a bead counts towards, because that is free: it is
+on the row already. What they deliberately do *not* say is **how many are left**, which is
+tally's readiness — `bd list -l "gate:G2" --status=open` is a query over a whole workspace
+and a card is handed one bead. Deriving it per card would mean the inbox sweep and the sheet
+answering it from different reads, which is the two-screens-disagree failure this whole
+arrangement exists to avoid.
+
+**Two label shapes are drawn as problems**, and the first is the one the document calls out
+by name: `needs-approval` **without** `human`. The packet never reaches the phone — the
+inbox *is* `bd human list` — *and* the advocate, whose whole definition of work is
+ready-minus-`human`, may open an unattended session on it. A question nobody was asked,
+being answered by an agent. **Only the bead sheet can ever draw that one**, which is the
+point rather than a limitation: a card in an inbox of `human` beads is by construction not
+the card that could complain about a missing `human` label. The second is a bead carrying
+both `gate` and `gate:GN`, which claims to be a gate and to count towards one.
+
 ### Approve, adjust, decline
 
 Every proposal row has had ✓ and ✕ since proposals existed. The third control is new,
