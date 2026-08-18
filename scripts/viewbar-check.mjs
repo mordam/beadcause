@@ -255,6 +255,8 @@ const ROUTES = {
   '/requirements': '/requirements.html',
   '/skills': '/skills.html',
   '/admin': '/admin.html',
+  '/sounds': '/sounds.html',
+  '/audition': '/sounds.html',
   '/config': '/config.html',
 };
 
@@ -359,6 +361,7 @@ const PAGES = [
   { url: '/requirements', file: 'requirements.html' },
   { url: '/skills', file: 'skills.html' },
   { url: '/admin', file: 'admin.html' },
+  { url: '/sounds', file: 'sounds.html' },
   { url: '/config', file: 'config.html' },
 ];
 

@@ -176,6 +176,11 @@ const PAGES = [
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
+  // The notification-sound audition (bc-ka5y.15.3). `/audition` as well as `/sounds`
+  // because that is the word the bead and the README use for what happens on it, and a
+  // channel's sound is immutable once cut — a 404 on the way to the last screen where a
+  // sound can still be argued with is an expensive 404.
+  { what: 'the sound audition', marker: '/sounds.js', paths: ['/sounds', '/audition', '/sounds.html'] },
   { what: 'the graph', marker: '/graph.js', paths: ['/graph', '/graph.html'] },
   { what: 'the reader', marker: '/doc.js', paths: ['/doc', '/doc.html'] },
   // The sign-in screen. Its alias lives in the same run of one-line `if`s as all of
