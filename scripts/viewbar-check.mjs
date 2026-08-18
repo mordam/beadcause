@@ -60,8 +60,10 @@
 // believed — the same run that took the row from four pills to seven was green here
 // without a line of this file changing. So the array is read out of the source the way
 // `test/mirrorpane.mjs` reads it, and everything below is derived from it: which pills
-// there should be, in what order, and — from each pill's own `paths` — which one should
-// be lit on the page being looked at.
+// there should be, in what order, and — from `VIEWS` in `public/hashroute.js`, which is
+// where each view's addresses live since bc-khoe.30.2 — which one should be lit on the
+// page being looked at. Two source files rather than one, because they are two questions:
+// what the row draws, and what an address means.
 //
 // The *page* list is derived too. Every `public/*.html` that pulls in `/viewbar.js` has
 // to appear below, and a page that starts drawing the row without being added here fails
@@ -127,32 +129,35 @@ const decomment = (src) =>
  * point of this file is that there is no hardcoded list, and a check that quietly falls
  * back to one is a check that goes on passing after the row has changed underneath it.
  */
-function pillsFromSource() {
-  const src = decomment(fs.readFileSync(path.join(PUBLIC, 'viewbar.js'), 'utf8'));
-  const m = src.match(/const PILLS = (\[[\s\S]*?\n {2}\]);/);
+function arrayFromSource(file, name) {
+  const src = decomment(fs.readFileSync(path.join(PUBLIC, file), 'utf8'));
+  const m = src.match(new RegExp(`const ${name} = (\\[[\\s\\S]*?\\n {2}\\]);`));
   if (!m) {
     console.error(
-      'could not find the PILLS array in public/viewbar.js — this check reads the row\'s own list\n' +
-        'rather than repeating it, so a rename or a reshape of that array has to be reflected here.'
+      `could not find the ${name} array in public/${file} — this check reads the row's own lists\n` +
+        'rather than repeating them, so a rename or a reshape of that array has to be reflected here.'
     );
     process.exit(1);
   }
   try {
     return vm.runInNewContext(`(${m[1]})`, Object.create(null), { timeout: 1000 });
   } catch (err) {
-    console.error(`public/viewbar.js's PILLS array did not evaluate as data: ${err.message}`);
+    console.error(`public/${file}'s ${name} array did not evaluate as data: ${err.message}`);
     process.exit(1);
   }
 }
 
-const PILLS = pillsFromSource();
+const PILLS = arrayFromSource('viewbar.js', 'PILLS');
+/* Which addresses are which view. A view's id is its pill's id on purpose, so this joins
+   to the array above by that id and no mapping is written down anywhere. */
+const VIEWS = arrayFromSource('hashroute.js', 'VIEWS');
 const IDS = PILLS.map((p) => p.id);
 
 /** The path a pill claims, normalised the way the row itself normalises `location`. */
 const norm = (p) => p.replace(/\/+$/, '') || '/';
 
 /**
- * Which pill should be lit on this path, per the row's own `paths` — or `null`.
+ * Which pill should be lit on this path, per `VIEWS` in public/hashroute.js — or `null`.
  *
  * `null` is a real answer and not a gap. /console, /endorse, /flow, /requirements and
  * /admin are pages the row is drawn on and none of them is a view: /admin in particular
@@ -160,7 +165,7 @@ const norm = (p) => p.replace(/\/+$/, '') || '/';
  * in the mark's menu and on no row). A pill lit there would be a lie about where you are,
  * so "nothing is current" is asserted just as firmly as "this one is".
  */
-const litFor = (urlPath) => PILLS.find((p) => p.paths?.includes(norm(urlPath)))?.id ?? null;
+const litFor = (urlPath) => VIEWS.find((v) => v.paths.includes(norm(urlPath)))?.id ?? null;
 
 /* ---------------------------------------------------------------- the fixture */
 
@@ -246,6 +251,7 @@ const ROUTES = {
   '/history': '/history.html',
   '/flow': '/flow.html',
   '/requirements': '/requirements.html',
+  '/skills': '/skills.html',
   '/admin': '/admin.html',
 };
 
@@ -331,6 +337,13 @@ function serve() {
  * `/prs` is here twice over — as its own path and as `/monitor` — because the server
  * serves one document for both and what is being asked is that arriving by either URL
  * lights the pill the row's own list says it should.
+ *
+ * Six of these light *nothing* — `/console`, `/endorse`, `/flow`, `/requirements`,
+ * `/skills`, `/admin`. No pill in `public/viewbar.js` claims their paths, and that is a
+ * decision recorded there rather than an omission here, so what each of them is asked is
+ * that the row draws with no `aria-current` at all. It is also why none of them reaches
+ * the reveal pass below: `later` asks which pill is lit, and for these the answer is
+ * none.
  */
 const PAGES = [
   { url: '/', file: 'index.html' },
@@ -341,6 +354,7 @@ const PAGES = [
   { url: '/endorse', file: 'endorse.html' },
   { url: '/flow', file: 'flow.html' },
   { url: '/requirements', file: 'requirements.html' },
+  { url: '/skills', file: 'skills.html' },
   { url: '/admin', file: 'admin.html' },
 ];
 
@@ -652,18 +666,18 @@ try {
         );
       } else bad(`${at}: the row scrolls sideways`, `overflow-x is ${m.overflowX} — a row that cannot scroll is a row that wraps or clips`);
 
-      // Exactly what the row's own `paths` say is current, and nothing where they say nothing.
+      // Exactly what the view table's `paths` say is current, and nothing where they say nothing.
       const cur = m.pills.filter((p) => p.current === 'page');
       if (cur.length === (want ? 1 : 0) && cur[0]?.id === (want ?? undefined))
         ok(
           want
-            ? `${at}: "${want}" is the one current pill — public/viewbar.js's own paths say so`
-            : `${at}: no pill is current, which is what the row's paths say for this page`
+            ? `${at}: "${want}" is the one current pill — public/hashroute.js's VIEWS say so`
+            : `${at}: no pill is current, which is what the view table says for this page`
         );
       else
         bad(
           want ? `${at}: "${want}" is the one current pill` : `${at}: no pill is current on this page`,
-          `aria-current is on ${cur.length ? cur.map((p) => p.id).join(', ') : 'nothing'}; the row's paths say ${want ?? 'nothing'}`
+          `aria-current is on ${cur.length ? cur.map((p) => p.id).join(', ') : 'nothing'}; the view table says ${want ?? 'nothing'}`
         );
 
       // Tapping where you are does nothing — and the mark is not only colour.

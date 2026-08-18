@@ -717,7 +717,9 @@ await check('the pill row has a History pill pointing at the page', () => {
   const bar = read('public/viewbar.js');
   assert.match(bar, /id: 'history'/);
   assert.match(bar, /href: '\/history'/);
-  assert.match(bar, /paths: \['\/history', '\/history\.html'\]/);
+  // The addresses moved to public/hashroute.js with bc-khoe.30.2 — the row asks it which
+  // view a path is rather than holding a second copy of the answer.
+  assert.match(read('public/hashroute.js'), /paths: \['\/history', '\/history\.html'\]/);
 });
 
 await check('the service worker precaches the page and moved its version', () => {
