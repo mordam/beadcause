@@ -249,8 +249,14 @@ const ROUTES = {
   '/admin': '/admin.html',
 };
 
+/* Every URL the fixture was asked for, in order. One assertion needs it: "tapping All
+   Beads refetches" is a claim about a request going out, and no amount of reading the
+   page afterwards can tell you whether one did. */
+const HITS = [];
+
 function serve() {
   const server = http.createServer((req, res) => {
+    HITS.push(req.url);
     const p = new URL(req.url, 'http://x').pathname;
     const json = (b) => {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -898,6 +904,91 @@ try {
           ? 'the counts did not take'
           : `${m.lines.length} line(s), ${m.downBy}px clipped downwards: ${m.lines.map((L) => L.ids.join('+')).join(' / ')}`
       );
+  }
+
+  /* ------------------------------------------- a pill the scope cannot fetch */
+
+  /*
+    The one pill on the row that is not simply a narrowing of what is already in hand.
+
+    `bead` is the only kind with a `side` (public/inboxfilter.js), and the scope decides
+    which sweep runs — so under `Human`, the default and the scope nearly every phone is
+    on, the beads have not been fetched and could not be shown. The row does not know
+    that: viewbar.js draws all seven pills on all twelve pages, which is what lets one
+    row say the same thing everywhere. So for a while `All Beads` under `Human` was a
+    pill whose tap was swallowed — `set()` dropped the selection, `current()` fell back
+    and the row lit `My Epics` (bc-khoe.25).
+
+    Driven here rather than only in `test/inboxkinds.mjs` because everything that suite
+    can reach is the *filter*: this is three files agreeing across a real tap — the row's
+    click handler, the filter's widen seam, and public/app.js answering it with the scope
+    switch beside the row. The refetch is asserted off the fixture's own request log,
+    because a page read afterwards cannot tell you whether one went out.
+  */
+  console.log(`\n\x1b[1mAll Beads, from the scope that cannot fetch one\x1b[0m`);
+  {
+    await s.send('Emulation.setDeviceMetricsOverride', { ...SIZES[1], deviceScaleFactor: 2, mobile: true });
+    /* Once to have an origin to write in, then again so the page boots with the scope
+       parked where the pill was dead. The stored kinds go too — a previous run of this
+       file leaves `bead` in there, which would be the check passing on its own history. */
+    await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=viewbar-check-scope` });
+    await sleep(900);
+    await evalJs(s, `localStorage.setItem('beadcause.scope', 'human'), localStorage.removeItem('beadcause.kinds'), 1`);
+    await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=viewbar-check-scope-2` });
+    await sleep(1200);
+
+    const STATE = `(() => {
+      const armed = document.querySelector('.filterpills .chip-row.scopes .chip[aria-pressed="true"]');
+      const cur = document.querySelector('.viewbar [aria-current="page"]');
+      const bead = document.querySelector('.viewbar [data-pill="bead"]');
+      return {
+        scope: armed ? armed.dataset.chip : null,
+        lit: cur ? cur.dataset.pill : null,
+        beadTag: bead ? bead.tagName.toLowerCase() : null,
+        stored: localStorage.getItem('beadcause.scope'),
+      };
+    })()`;
+
+    const before = await evalJs(s, STATE);
+    if (before.scope === 'human') ok('Home comes up on Human, which is the scope the beads are not fetched on');
+    else bad('Home comes up on Human', `the armed scope chip says ${before.scope ?? 'nothing'} — the rest of this section is measuring something else`);
+    if (before.lit === 'epics') ok('and My Epics is lit, which is Home with nothing narrowed');
+    else bad('My Epics is lit before the tap', `the row says ${before.lit ?? 'nothing'}`);
+    if (before.beadTag === 'button') ok('All Beads is drawn as a tappable button on this scope, not hidden and not inert');
+    else bad('All Beads is a tappable button on Human', `it is a <${before.beadTag ?? 'nothing'}> — a pill you cannot tap is the other way to make this bug`);
+
+    const asked = HITS.length;
+    const hit = await evalJs(s, `!!document.querySelector('.viewbar button.viewpill[data-pill="bead"]')?.click() || true`);
+    await sleep(1400);
+    const after = await evalJs(s, STATE);
+
+    if (after.lit === 'bead') ok('tapping it leaves All Beads lit');
+    else
+      bad(
+        'tapping All Beads leaves All Beads lit',
+        after.lit === 'epics'
+          ? 'the row bounced back to My Epics — the selection was dropped rather than reached, which is bc-khoe.25 exactly'
+          : `the row lights ${after.lit ?? 'nothing'}`
+      );
+    if (after.scope === 'both') ok('and the scope switch beside it has moved to Both, where the beads are fetched');
+    else bad('the scope switch moves to Both', `it says ${after.scope ?? 'nothing'} — the widening is invisible, or did not happen`);
+    if (after.stored === 'both') ok('and it is stored, so the widening survives a reload like every other scope change');
+    else bad('the widened scope is stored', `beadcause.scope is ${after.stored ?? 'unset'}`);
+
+    const refetched = HITS.slice(asked).filter((u) => u.startsWith('/api/questions?scope=both'));
+    if (refetched.length) ok(`and the beads were actually asked for (${refetched[0]})`);
+    else
+      bad(
+        'the tap refetches on the wider scope',
+        `nothing asked for /api/questions?scope=both — the pill lit a slice of a payload that was never fetched. Since the tap: ${HITS.slice(asked).join(', ') || 'no requests at all'}`
+      );
+    /* The other half of the bead, and the one a green check above could hide: the widening
+       is a request *on a tap*, and the Human poll it left behind must not have grown one.
+       bc-w156.4 refused paying for a per-workspace bead query on every Human poll and that
+       refusal stands. */
+    const onHuman = HITS.slice(0, asked).filter((u) => u.startsWith('/api/questions?scope=') && !u.startsWith('/api/questions?scope=human'));
+    if (!onHuman.length) ok('and nothing went out on a wider scope before the tap — the Human poll is unchanged');
+    else bad('the Human poll asks for nothing wider', `it asked for ${[...new Set(onHuman)].join(', ')}`);
   }
 
   /* ------------------------------------------------- the row that does not fit */

@@ -200,6 +200,47 @@ await check('the pull request board is asked once per daemon and never again', a
   for (let i = 0; i < 5; i += 1) assert.equal(await warmBoard(bd, cfg), false, `beat ${i + 2} asked gh again`);
 });
 
+/* --------------------------------------------------- the graph, once per workspace */
+
+const { warmGraphs, graphKey } = await import(LIB('graph.js'));
+
+/** Enough `bd` for the graph sweep — an empty-but-parseable page, plus the counts. */
+const countingGraphBd = () => {
+  const calls = { graphHtml: 0, listStatus: 0 };
+  return {
+    calls,
+    graphHtml: async () => {
+      calls.graphHtml += 1;
+      return `<script>const nodes = [];\nconst links = [];</script>`;
+    },
+    listStatus: async () => {
+      calls.listStatus += 1;
+      return [];
+    },
+  };
+};
+
+await check('each workspace\'s graph is asked once per daemon and never again — the costliest sweep of all', async () => {
+  cache.clear();
+  const bd = countingGraphBd();
+  assert.deepEqual(await warmGraphs(bd, WS), ['alpha'], 'the first pass fills every cold workspace');
+  const after = bd.calls.graphHtml;
+  // Unlike the recurring WARMABLES entries, this stands on cold-only alone: a graph
+  // sweep is the most expensive thing in the app, so re-running it whenever a busy
+  // workspace's tracker moves would cost far more than the window it would save. See
+  // `warmGraphs` in lib/graph.js.
+  for (let i = 0; i < 5; i += 1) assert.deepEqual(await warmGraphs(bd, WS), [], `beat ${i + 2} re-swept a filled key`);
+  assert.equal(bd.calls.graphHtml, after, 'a warmed graph key must cost no further bd call');
+});
+
+await check('and it fills again once a workspace\'s key is dropped', async () => {
+  cache.clear();
+  const bd = countingGraphBd();
+  await warmGraphs(bd, WS);
+  cache.drop(graphKey('alpha'));
+  assert.deepEqual(await warmGraphs(bd, WS), ['alpha'], 'a dropped key was left cold');
+});
+
 /* ----------------------------------------------------- and the cycle runs it detached */
 
 const { startPoller } = await import(LIB('server.js'));

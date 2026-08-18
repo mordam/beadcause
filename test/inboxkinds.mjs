@@ -214,7 +214,14 @@ function load({ hover = false, store = new Map(), card = true, search = '' } = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
     setItem: (k, v) => store.set(k, String(v)),
   };
-  const ctx = vm.createContext({ window, document: doc, localStorage, setTimeout, clearTimeout });
+  /* A page group no pill names is a filter the page believes it has drawn and has not,
+     and inboxfilter.js says so out loud rather than dropping it silently. There is no
+     console in this room otherwise, so without this the warning would be a
+     ReferenceError inside the file under test — and the check on it would pass for the
+     wrong reason. */
+  const warns = [];
+  const console = { warn: (...a) => warns.push(a.join(' ')), log: () => {}, error: () => {} };
+  const ctx = vm.createContext({ window, document: doc, localStorage, setTimeout, clearTimeout, console });
   if (card) vm.runInContext(read('public/prcard.js'), ctx, { filename: 'prcard.js' });
   // The panel itself, which inboxfilter.js mounts rather than draws — index.html loads
   // it first for the same reason. The real one, not a stub: every check below about
@@ -224,7 +231,7 @@ function load({ hover = false, store = new Map(), card = true, search = '' } = {
   vm.runInContext(read('public/inboxfilter.js'), ctx, { filename: 'inboxfilter.js' });
   const host = doc.createElement('nav');
   host.replaceChildren = El.prototype.replaceChildren.bind(host);
-  return { filter: ctx.window.beadcause.inboxFilter, doc, host, store, marks, counts };
+  return { filter: ctx.window.beadcause.inboxFilter, doc, host, store, marks, counts, warns };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -564,35 +571,228 @@ await check('a selection the new scope keeps is kept', () => {
   assert.deepEqual(list(filter.selected()), ['pr']);
 });
 
+/* ------------------------------------------- a pill the scope cannot produce */
+
+/*
+  The other half of the same fact, and the bug bc-khoe.25 is: dropping is right when the
+  *scope* has just had the last word and wrong when the *pill* is having it.
+
+  `All Beads` is drawn on every scope, because public/viewbar.js draws the row on twelve
+  pages and knows nothing about a scope. Under the default `Human` it was the one pill on
+  it that could not be selected at all — `set` dropped it, `current()` fell back and the
+  row lit `My Epics` — so the most-tapped scope had a dead control on it and nothing said
+  why. Asking for the beads is asking for the sweep that fetches them, so the tap widens.
+
+  The seam has three ends and the checks below cover each: the filter decides a pill is
+  unreachable and asks, public/app.js answers with a scope, and the selection has to
+  survive the survey that answer produces. What no vm can reach is the three of them
+  agreeing across a real tap — `scripts/viewbar-check.mjs` drives that in a Chrome.
+*/
+
+/** What public/app.js's `onWiden` does, with the scopes as the two kind lists. */
+const widener = (filter, seen) => (id) => {
+  seen.push(id);
+  // `chooseScope` surveys before it paints, so by the time `pick` reaches `set` the
+  // kinds are already the wide ones. Getting that order wrong here would pass a check
+  // the phone fails, which is why it is stated rather than assumed.
+  filter.survey({ kinds: AGENT_KINDS });
+  return true;
+};
+
+await check('a pill this scope cannot produce asks for a scope that can', () => {
+  const { filter, marks } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  const asked = [];
+  filter.onWiden(widener(filter, asked));
+  filter.pick('bead');
+  assert.deepEqual(asked, ['bead'], 'All Beads was dropped rather than asking for the sweep behind it');
+  assert.deepEqual(list(filter.selected()), ['bead'], 'the selection did not survive the widening');
+  assert.equal(filter.current(), 'bead', 'the row lit My Epics — which is the bug');
+  assert.equal(marks.at(-1), 'bead', 'and the row was never told');
+});
+
+await check('a tap that widened does not tell the page twice', () => {
+  // The widening already emptied the list, drew the wait and went back to `bd`. A
+  // listener firing on top of that is a repaint with nothing in hand — an empty list
+  // over "Asking bd…", which is the one screen this tap has least right to draw.
+  const { filter } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  filter.onWiden(widener(filter, []));
+  const told = [];
+  filter.onChange(() => told.push(list(filter.selected())));
+  filter.pick('bead');
+  assert.deepEqual(told, [], 'the page repainted an empty list over the refetch');
+  filter.pick('pr');
+  assert.deepEqual(told, [['pr']], 'an ordinary tap stopped telling the page anything');
+});
+
+await check('a pill it can produce leaves the scope alone', () => {
+  const { filter } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  const asked = [];
+  filter.onWiden(widener(filter, asked));
+  filter.pick('pr');
+  assert.deepEqual(asked, [], 'an ordinary tap moved the scope');
+  assert.deepEqual(list(filter.selected()), ['pr']);
+});
+
+await check('and My Epics still clears the selection rather than widening anything', () => {
+  // A place has no predicate, so there is nothing for a scope to fail to fetch — and
+  // widening on the way to an unnarrowed Home would be a tap that changed a preference
+  // for no reason at all.
+  const { filter } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  const asked = [];
+  filter.onWiden(widener(filter, asked));
+  filter.pick('bead');
+  filter.pick('epics');
+  assert.deepEqual(asked, ['bead'], 'My Epics asked for a scope');
+  assert.deepEqual(list(filter.selected()), []);
+  assert.equal(filter.current(), 'epics');
+});
+
+await check('a page with no answer is left as it was, not broken', () => {
+  // `onWiden` is optional: eleven of the twelve pages the row is on have no scope at
+  // all. The tap is then the drop it always was, which is a pill that does nothing —
+  // never a throw inside a click handler.
+  const { filter } = load();
+  filter.survey({ kinds: ANY_KINDS });
+  filter.pick('bead');
+  assert.deepEqual(list(filter.selected()), []);
+  assert.equal(filter.current(), 'epics');
+});
+
+await check('?kind= names the slice a pill on another page asked for', () => {
+  // The same request arriving by URL instead of by tap. app.js reads this *before* it
+  // mounts anything, because the first survey is what would drop the selection and
+  // there is no second event to widen on — see `bootScope`.
+  assert.equal(load({ search: '?kind=bead' }).filter.asked(), 'bead');
+  assert.equal(load({ search: '?workspace=w&kind=pr' }).filter.asked(), 'pr');
+  assert.equal(load({ search: '?kind=epics' }).filter.asked(), null, 'a place is not a slice to reach');
+  assert.equal(load({ search: '?kind=endorsement' }).filter.asked(), null, 'a kind folded away months ago');
+  assert.equal(load({ search: '' }).filter.asked(), null);
+  assert.equal(load({ search: '?kind=%zz' }).filter.asked(), null, 'a malformed query is no instruction');
+});
+
+/*
+  public/app.js's end of it, in a room with the real `KINDS`. The file is one IIFE with
+  nothing exported, so the two declarations are sliced out — the shape test/cardpending.mjs
+  uses. A restatement of `kindsForScope` here could not fail while the phone shipped
+  something else, and `kindsForScope` is the function whose answer *was* the bug.
+*/
+const APP = read('public/app.js');
+
+/** One `const … ;` out of public/app.js, brace- and paren-matched. */
+function lift(name) {
+  const at = APP.indexOf(name);
+  assert.notEqual(at, -1, `public/app.js no longer declares \`${name}\``);
+  let depth = 0;
+  for (let i = at; i < APP.length; i += 1) {
+    const c = APP[i];
+    if (c === '{' || c === '(' || c === '[') depth += 1;
+    else if (c === '}' || c === ')' || c === ']') depth -= 1;
+    else if (c === ';' && depth === 0) return APP.slice(at, i + 1);
+  }
+  throw new Error(`no statement end after ${name}`);
+}
+
+/** `kindsForScope` and `scopeFor`, run against the table above on one of the three scopes. */
+function seam(scope) {
+  const ctx = vm.createContext({
+    state: { scope },
+    window: { beadcause: { inboxFilter: { KINDS: list(model.KINDS) } } },
+  });
+  // The completion value, because a `const` at the top of a script lands in the global
+  // *lexical* environment and never on the context object.
+  const out = vm.runInContext(
+    `${lift('const kindsForScope =')}
+${lift('const scopeFor =')}
+({ kinds: kindsForScope(), scopeFor });`,
+    ctx,
+    { filename: 'app.js' }
+  );
+  return { kinds: list(out.kinds), scopeFor: out.scopeFor };
+}
+
+await check('the human scope really cannot produce the beads — which is why the pill was dead', () => {
+  const human = seam('human');
+  assert.ok(!human.kinds.includes('bead'), 'the human sweep fetches beads now, and this whole seam is moot');
+  assert.equal(human.scopeFor('bead'), 'both', 'All Beads asks for no scope, so the tap widens nothing');
+});
+
+await check('Both is what it asks for, never Agent — widening must not take the questions away', () => {
+  assert.equal(seam('human').scopeFor('bead'), 'both');
+  for (const scope of ['both', 'agent']) {
+    assert.ok(seam(scope).kinds.includes('bead'), `${scope} cannot produce beads`);
+    assert.equal(seam(scope).scopeFor('bead'), null, `${scope} widens to reach a kind it already has`);
+  }
+});
+
+await check('a kind with no side never asks for anything, on any of the three', () => {
+  // The guard the bead asks for: a future `side` on one of these strands its pill the
+  // same way, and the answer is already here — `scopeFor` is asked about every kind.
+  for (const scope of ['human', 'both', 'agent']) {
+    const { kinds, scopeFor } = seam(scope);
+    for (const k of list(model.KINDS)) {
+      if (k.side !== 'any') continue;
+      assert.ok(kinds.includes(k.id), `${k.id} is unreachable under ${scope}`);
+      assert.equal(scopeFor(k.id), null, `${k.id} wanted a wider scope on ${scope}`);
+    }
+  }
+  assert.equal(seam('human').scopeFor(null), null, 'nothing asked for is something to widen');
+});
+
+await check('app.js answers the widening, and settles an arrival before the first survey', () => {
+  const boot = APP.slice(APP.indexOf('function bootScope()'));
+  const body = boot.slice(0, boot.indexOf('\n  }'));
+  assert.ok(body.includes('inboxFilter?.asked?.()'), 'the boot never reads what ?kind= asked for');
+  assert.ok(body.indexOf('scopeFor') < body.indexOf('mountFilters()'), 'the survey runs before the scope is settled');
+  const mount = APP.slice(APP.indexOf('function mountFilters()'));
+  const mbody = mount.slice(0, mount.indexOf('\n  }'));
+  assert.ok(mbody.includes('onWiden'), 'nothing answers the widening, so the pill is dead again');
+  assert.ok(mbody.indexOf('onWiden') < mbody.indexOf('survey({ kinds'), 'registered after the survey it exists for');
+});
+
 /* ------------------------------------------------------------------ chrome */
 
 /**
  * Mount the control with a page group of its own.
  *
- * The scope is the stand-in, and since bc-khoe.24 it is a stand-in rather than the real
- * wiring: the scope is a segmented switch on the chrome now (public/filterpills.js) and
- * what public/app.js actually hands this panel is the bead search. It is kept here
- * because what these checks are about is the panel's handling of *a page's own group* —
- * chips, the summary line, the accessible names — and a typeahead draws an input rather
- * than chips. test/filterpills.mjs is where the scope's own home is pinned, and
- * test/beadsearch.mjs is where the box's is.
+ * The bead search is the stand-in, **and it wears the real group's id** — which was a
+ * detail until bc-khoe.3 and is load-bearing now: `KINDS` names the groups each pill can
+ * use, by id, so a page group with a made-up id is one no pill would ever offer and the
+ * panel would draw nothing at all. It was the scope until that bead, on the argument
+ * that any page group would do; it will not do any more.
+ *
+ * What it is *not* is a typeahead. What these checks are about is the panel's handling
+ * of a page's own group — the chips, the summary line, the accessible names — and a
+ * typeahead draws an input instead of chips, so the fixture keeps the real id and the
+ * chip shape. test/beadsearch.mjs is where the box's own behaviour is pinned, and
+ * test/filterpills.mjs is where the scope went.
  */
 function mounted({ hover = false, store = new Map(), kinds = ANY_KINDS, counts } = {}) {
-  const { filter, doc, host, marks } = load({ hover, store });
-  const scope = { id: 'human' };
+  const { filter, doc, host, marks, warns } = load({ hover, store });
+  const picked = { id: '' };
+  const cleared = { n: 0 };
   const changes = [];
   const group = {
-    id: 'scope',
-    legend: 'Show',
-    all: 'Everything',
+    id: 'bead',
+    legend: 'Bead',
+    all: 'Any bead',
     options: () =>
       [
-        ['human', 'Human'],
-        ['both', 'Both'],
-        ['agent', 'Agent'],
-      ].map(([id, label]) => ({ id, label, note: `${label} beads`, on: scope.id === id })),
+        ['bc-one', 'bc-one'],
+        ['bc-two', 'bc-two'],
+      ].map(([id, label]) => ({ id, label, note: `${label} and the work under it`, on: picked.id === id })),
     pick: (id) => {
-      scope.id = id;
+      picked.id = id;
+    },
+    /* The page's own half of the drop rule (bc-khoe.3): the selection lives here, so all
+       inboxfilter.js can do is ask. Counted as well as done, because "it was already
+       empty" and "nobody asked" look identical from the outside. */
+    clear: () => {
+      picked.id = '';
+      cleared.n += 1;
     },
   };
   filter.mount(host, { groups: [group], onChange: (ids) => changes.push(ids) });
@@ -603,7 +803,7 @@ function mounted({ hover = false, store = new Map(), kinds = ANY_KINDS, counts }
   const box = (groupId) => panel.children.find((b) => b.dataset.group === groupId);
   const chips = (groupId) => box(groupId).children[1].children;
   const chip = (groupId, id) => chips(groupId).find((c) => c.dataset.chip === id);
-  return { filter, doc, host, root, summary, panel, box, chips, chip, scope, changes, marks };
+  return { filter, doc, host, root, summary, panel, box, chips, chip, picked, cleared, changes, marks, warns };
 }
 
 console.log('\nthe control at rest');
@@ -621,7 +821,7 @@ await check('the line says what is selected, in words', () => {
   // the lit pill now — a line that also named them would be the app saying the same
   // thing twice, in two rows of chrome, one of which you have to open.
   const { summary } = mounted();
-  assert.equal(summary.children[0].textContent, 'Human');
+  assert.equal(summary.children[0].textContent, 'Any bead');
 });
 
 await check('the selected kind does not make the line bold', () => {
@@ -631,7 +831,7 @@ await check('the selected kind does not make the line bold', () => {
   // the leftmost would be bold nearly always — a signal that has stopped signalling.
   const { filter, summary, root } = mounted();
   filter.set(['question']);
-  assert.equal(summary.children[0].textContent, 'Human');
+  assert.equal(summary.children[0].textContent, 'Any bead');
   assert.ok(!root.classes().includes('narrowed'), 'the panel claims a narrowing it does not own');
 });
 
@@ -639,18 +839,20 @@ await check('a chip per group the panel still owns, and no kinds among them', ()
   const { panel, chips } = mounted();
   const groups = panel.children.map((b) => b.dataset.group);
   assert.ok(!groups.includes('kind'), 'the kinds are still chips in the panel');
-  // `scope` here is the fixture's page group, not app.js's — see `mounted`. What the
-  // check is about is that the page's group leads and the control's own two follow it.
-  assert.deepEqual(groups, ['scope', 'status', 'beadstatus'], `the panel holds ${groups.join(', ')}`);
-  // The scope is a switch, not a count: there is no cheap number for a slice that has
-  // not been fetched, and a wrong one beside a real one is worse than none.
-  assert.equal(chips('scope')[0].children.length, 1);
+  // `bead` here is the fixture's stand-in for app.js's search box — see `mounted`. What
+  // the check is about is that the page's group leads and the control's own two follow
+  // it. Every box exists at mount, whichever pill is lit; which of them is *offered* is
+  // the pill's business and is checked further down.
+  assert.deepEqual(groups, ['bead', 'status', 'beadstatus'], `the panel holds ${groups.join(', ')}`);
+  // No count on a page group's chips here: the real box has none either, and a wrong
+  // number beside the sub-filters' real ones is worse than none.
+  assert.equal(chips('bead')[0].children.length, 1);
 });
 
 await check('every chip carries an accessible name — one word is not self-explanatory', () => {
   const { filter, chips } = mounted({ kinds: AGENT_KINDS });
   filter.set(['bead']);
-  for (const c of [...chips('scope'), ...chips('beadstatus')]) {
+  for (const c of [...chips('bead'), ...chips('beadstatus')]) {
     assert.ok(c.getAttribute('aria-label')?.includes('—'), `${c.dataset.chip} has no note`);
     assert.ok(c.title, `${c.dataset.chip} has no hover title`);
     assert.ok(['true', 'false'].includes(c.getAttribute('aria-pressed')), `${c.dataset.chip} is not a toggle`);
@@ -740,19 +942,19 @@ await check('a pill tells the page, the way the chip it replaced did', () => {
   assert.deepEqual(list(changes.at(-1)), []);
 });
 
-await check('the scope is a single choice, and on touch it closes the panel it just changed', () => {
-  const { summary, panel, chip, scope } = mounted({ hover: false });
+await check('a page group is a single choice, and on touch it closes the panel it just changed', () => {
+  const { summary, panel, chip, picked } = mounted({ hover: false });
   summary.fire('click');
-  chip('scope', 'both').fire('click');
-  assert.equal(scope.id, 'both');
+  chip('bead', 'bc-two').fire('click');
+  assert.equal(picked.id, 'bc-two');
   assert.equal(panel.hidden, true);
 });
 
 await check('on a laptop the same pick leaves it open — closing would fight the mouse', () => {
-  const { root, panel, chip, scope } = mounted({ hover: true });
+  const { root, panel, chip, picked } = mounted({ hover: true });
   root.fire('pointerenter', { pointerType: 'mouse' });
-  chip('scope', 'agent').fire('click');
-  assert.equal(scope.id, 'agent');
+  chip('bead', 'bc-one').fire('click');
+  assert.equal(picked.id, 'bc-one');
   assert.equal(panel.hidden, false);
 });
 
@@ -855,11 +1057,11 @@ await check('the line names the narrowing — including the one nobody set', () 
   // With pull requests on screen the standing `unmerged` default is a narrowing, so it is
   // on the line at rest — and it is the only thing on it that is, which is why the line
   // says `unmerged` beside a scope rather than beside a kind.
-  assert.equal(summary.children[0].textContent, 'Human · unmerged');
+  assert.equal(summary.children[0].textContent, 'Any bead · unmerged');
   filter.set(['pr']);
-  assert.equal(summary.children[0].textContent, 'Human · unmerged');
+  assert.equal(summary.children[0].textContent, 'Any bead · unmerged');
   filter.setSub('pr', ['live', 'deployed']);
-  assert.equal(summary.children[0].textContent, 'Human · Deployed, Live');
+  assert.equal(summary.children[0].textContent, 'Any bead · Deployed, Live');
   assert.ok(root.classes().includes('narrowed'));
 });
 
@@ -871,14 +1073,14 @@ await check('a status left behind when you widen back is still on the line', () 
   assert.equal(box('status').hidden, true, 'the chips stayed after the pill was widened');
   assert.equal(
     summary.children[0].textContent,
-    'Human · Live',
+    'Any bead · Live',
     'the list is narrowed to one rung and the control does not admit it'
   );
 });
 
 await check('on a screen with no pull requests at all, it says nothing about them', () => {
   const { summary } = mounted({ kinds: PR_KINDS, counts: { question: 3 } });
-  assert.equal(summary.children[0].textContent, 'Human');
+  assert.equal(summary.children[0].textContent, 'Any bead');
 });
 
 await check('a scope that cannot hold PRs hides the sub-filter with the pill', () => {
@@ -956,14 +1158,156 @@ await check('the line stays quiet about a group that is not narrowing anything',
   // predicate. PR status says `unmerged` over a screen with pull requests on it because
   // that *is* a narrowing; bead status says nothing until you choose, because it is not.
   const { filter, summary } = mounted({ kinds: AGENT_KINDS, counts: { bead: 5 } });
-  assert.equal(summary.children[0].textContent, 'Human');
+  assert.equal(summary.children[0].textContent, 'Any bead');
   filter.set(['bead']);
-  assert.equal(summary.children[0].textContent, 'Human · any status');
+  assert.equal(summary.children[0].textContent, 'Any bead · any status');
   filter.setSub('bead', ['blocked']);
-  assert.equal(summary.children[0].textContent, 'Human · Blocked');
+  assert.equal(summary.children[0].textContent, 'Any bead · Blocked');
   // And once chosen it keeps saying so after the pill widens, exactly as PR status does.
   filter.set([]);
-  assert.equal(summary.children[0].textContent, 'Human · Blocked');
+  assert.equal(summary.children[0].textContent, 'Any bead · Blocked');
+});
+
+/* ------------------------------------------- the panel is a function of the pill */
+
+console.log('\nwhat the panel offers is whatever the lit pill can use');
+
+await check('every pill says which of the panel’s groups it can use', () => {
+  // The table is the declaration, so a kind added without one is a pill under which the
+  // panel would quietly offer nothing at all — which is indistinguishable, on screen,
+  // from a pill that genuinely has no second axis.
+  const known = new Set(['bead']);
+  for (const k of list(model.KINDS)) if (k.sub) known.add(k.sub.id);
+  for (const k of list(model.KINDS)) {
+    assert.ok(Array.isArray(k.filters), `${k.id} does not say what the panel may offer under it`);
+    for (const id of list(k.filters)) assert.ok(known.has(id), `${k.id} names a group nothing draws: ${id}`);
+    // A pill's own second axis has to be among them, or its chips could never open.
+    if (k.sub) assert.ok(list(k.filters).includes(k.sub.id), `${k.id} does not offer its own sub-filter`);
+  }
+});
+
+await check('the bead search is offered under every pill whose rows are beads', () => {
+  const { filter, box } = mounted({ kinds: AGENT_KINDS });
+  assert.equal(box('bead').hidden, false, 'My Epics');
+  for (const id of ['question', 'pr', 'bead']) {
+    filter.set([id]);
+    assert.equal(box('bead').hidden, false, id);
+  }
+});
+
+await check('Chats can use none of them, so the panel takes itself off the row', () => {
+  // A chat is in no tracker: it is under no bead and it has no status. What would be
+  // left is a summary line that opens an empty box, which is worse chrome than no line.
+  const { filter, root, box } = mounted();
+  assert.equal(root.hidden, false);
+  filter.set(['session']);
+  assert.equal(box('bead').hidden, true, 'the search is offered over a list it can only empty');
+  assert.equal(root.hidden, true, 'a line that opens an empty panel');
+  filter.set([]);
+  assert.equal(root.hidden, false, 'widening back left the control gone');
+});
+
+await check('the panel stays while a group is only off screen, not gone', () => {
+  // The other side of the same rule, and the one it would be easy to break: under
+  // `My Epics` neither sub-filter's chips are offered, and the control must not vanish
+  // because of it — the search is still there and the standing `unmerged` default is
+  // still on the line.
+  const { root, summary } = mounted({ kinds: PR_KINDS, counts: { pr: 4 } });
+  assert.equal(root.hidden, false);
+  assert.equal(summary.children[0].textContent, 'Any bead · unmerged');
+});
+
+await check('a status the newly-lit pill cannot reach is dropped, not left narrowing it', () => {
+  const { filter } = mounted({ kinds: PR_KINDS, counts: { pr: 4 } });
+  filter.set(['pr']);
+  filter.setSub('pr', ['live']);
+  filter.set(['question']);
+  assert.deepEqual(list(filter.selectedSub('pr')), [], 'a pull-request rung outlived a list with no pull requests in it');
+  // `matches` is no use here — the kind filter hides every pull request under Questions
+  // whatever the status says, which is exactly why the leftover was invisible. `inSub`
+  // is the sub-filter on its own, and it is back to the standing default.
+  assert.ok(filter.inSub(prOn('review')), 'the standing default did not come back with it');
+  assert.ok(!filter.inSub(prOn('live')), 'the dropped rung is still the one being shown');
+});
+
+await check('and the line stops naming it, because there is nothing here for it to narrow', () => {
+  // `counts` is taken *before* the kind filter — that is what makes a pill's number the
+  // list it would open — so four pull requests are still counted under `Questions` and
+  // none of them is on screen. Saying `unmerged` there is this control's own failure in
+  // the mirror: a filter named on the line that is not filtering anything.
+  const { filter, summary } = mounted({ kinds: PR_KINDS, counts: { pr: 4 } });
+  assert.equal(summary.children[0].textContent, 'Any bead · unmerged');
+  filter.set(['question']);
+  assert.equal(summary.children[0].textContent, 'Any bead');
+});
+
+await check('a status the new pill *can* reach is kept, and still confessed', () => {
+  // The distinction the whole rule turns on. `My Epics` holds every kind, so a rung
+  // chosen under `PRs` goes on hiding merged pull requests there — it is dormant under
+  // `Questions` and biting under `My Epics`, and only the first of those is dropped.
+  const { filter, summary } = mounted({ kinds: PR_KINDS, counts: { pr: 4 } });
+  filter.set(['pr']);
+  filter.setSub('pr', ['live']);
+  filter.set([]);
+  assert.deepEqual(list(filter.selectedSub('pr')), ['live']);
+  assert.equal(summary.children[0].textContent, 'Any bead · Live');
+});
+
+await check('bead status goes exactly the same way', () => {
+  const { filter } = mounted({ kinds: AGENT_KINDS, counts: { bead: 5 } });
+  filter.set(['bead']);
+  filter.setSub('bead', ['blocked']);
+  filter.set(['pr']);
+  assert.deepEqual(list(filter.selectedSub('bead')), [], 'a rung of All Beads survived the PRs pill');
+  filter.set([]);
+  assert.ok(filter.matches({ key: 'w/a2', workspace: 'w', agent: true, status: 'in_progress' }));
+});
+
+await check('the page is asked to clear its own group, never cleared behind its back', () => {
+  const { filter, chip, picked, cleared } = mounted();
+  chip('bead', 'bc-one').fire('click');
+  assert.equal(picked.id, 'bc-one');
+  const before = cleared.n;
+  filter.set(['session']);
+  assert.equal(cleared.n, before + 1, 'the panel dropped a page group without asking the page');
+  assert.equal(picked.id, '');
+});
+
+await check('a page group with no clear of its own keeps what it had, rather than throwing', () => {
+  // `clear` is optional on purpose: a page that cannot drop its own selection must not
+  // be able to stop a pill being tapped.
+  const { filter, host } = load();
+  filter.mount(host, {
+    groups: [{ id: 'bead', legend: 'Bead', all: 'Any bead', options: () => [{ id: 'x', label: 'x', on: true }], pick: () => {} }],
+  });
+  filter.survey({ kinds: ANY_KINDS });
+  filter.set(['session']);
+  assert.deepEqual(list(filter.selected()), ['session']);
+});
+
+await check('a group no pill names is loud, and never offered', () => {
+  // A filter the page believes it has drawn and has not. Silent, it is a control that
+  // renders nowhere; loud, it is a one-line fix in KINDS.
+  const { filter, host, warns } = load();
+  filter.mount(host, {
+    groups: [{ id: 'nonsense', legend: 'Nonsense', options: () => [{ id: 'x', label: 'x', on: false }], pick: () => {} }],
+  });
+  filter.survey({ kinds: ANY_KINDS });
+  assert.ok(
+    warns.some((w) => w.includes('nonsense')),
+    `nothing was said about a group no pill can use: ${warns.join(' | ')}`
+  );
+  const panel = host.children[0].children[1];
+  assert.equal(panel.children.find((b) => b.dataset.group === 'nonsense').hidden, true);
+});
+
+await check('app.js hands the panel a group it can clear', () => {
+  // The other end of the same seam, and the half a vm cannot reach: the bead box's
+  // selection lives in app.js's `state.bead`, so the rule above is only real if that
+  // file answers the call.
+  const src = read('public/app.js');
+  assert.ok(/function clearBeads\(/.test(src), 'app.js has no way to drop its own bead picks');
+  assert.ok(/clear: \(\) => clearBeads\(\)/.test(src), 'the bead group the panel is handed cannot be cleared');
 });
 
 console.log('\nthe 25-second repaint');

@@ -6,6 +6,19 @@
  *   Both are the same fix in lib/router.js — bc-0nea landed it as #33.
  *   EOF
  *
+ * `--original` may name a bead in a *different* workspace (bc-xl7n.71) — there are ten
+ * of these and a bead about beadcause routinely gets filed from whatever shell Adam
+ * happens to be in:
+ *
+ *   beadcause-supersede -w deluvia -b dv-8h5 --original beadcause/bc-jznr <<'EOF'
+ *   Same job — bc-jznr shipped this as merge 4f60fb7a.
+ *   EOF
+ *
+ * The workspace half is checked against the ones this beadcause install actually has —
+ * an unknown name is a refusal, nothing written — and the pair gets no graph edge,
+ * because there is no tracker that spans both: the bead is held by the marker alone, and
+ * the close card still fires the moment the original lands in its own tracker.
+ *
  * The third of a worker's three honest endings, and the one it used to hand-roll. A
  * worker that finds its bead already covered by another may not close it — that call is
  * Adam's — so it records the fact instead, and the recording is what this writes: the
@@ -38,7 +51,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';
 import { beadRow } from '../lib/park.js';
-import { mark, supersedeLabel } from '../lib/superseded.js';
+import { mark, supersedeLabel, parseSupersedeTarget } from '../lib/superseded.js';
 import { bylineFor } from '../lib/byline.js';
 
 function arg(...names) {
@@ -71,10 +84,32 @@ if (!why) {
   process.exit(1);
 }
 
+const knownWorkspaces = cfg.workspaces.map((w) => w.name);
+
+// Resolved before either row is fetched: a qualified `--original` names the tracker the
+// second read has to hit, and an unknown name is nothing to guess through — refuse the
+// same way `mark` itself would, before spawning a `bd` against a directory that may not
+// even exist.
+const target = parseSupersedeTarget(original, knownWorkspaces);
+if (target.reason) {
+  console.error(`beadcause-supersede: ${target.reason}`);
+  console.error(`workspaces: ${knownWorkspaces.join(', ')}`);
+  process.exit(1);
+}
+const originalWs = target.workspace ? cfg.workspaces.find((w) => w.name === target.workspace) : ws;
+
 const byline = bylineFor(cfg);
-const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: byline };
-const bd = (args) =>
-  execFileSync(cfg.bdBin, [...args, '--actor', byline], { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+const runner = (workspace) => (args) =>
+  execFileSync(cfg.bdBin, [...args, '--actor', byline], {
+    env: { ...process.env, BEADS_DIR: workspace.dir, BEADS_ACTOR: byline },
+    cwd: workspace.dir,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  });
+const bd = runner(ws);
+// A second runner only when the original is actually elsewhere — reading it needs no
+// actor of its own, just the other tracker's BEADS_DIR.
+const bdOriginal = originalWs === ws ? bd : runner(originalWs);
 
 /**
  * Both reads before any write, and both are refusals rather than guesses.
@@ -83,16 +118,19 @@ const bd = (args) =>
  * carries the one thing that decides which edge is even legal, its type. A typo caught
  * here costs one retry — caught afterwards it is a label naming a bead that does not
  * exist, which holds the duplicate out of every queue with nothing that can ever release it.
+ *
+ * The duplicate is read against `-w`; the original against `originalWs` — its own
+ * workspace when `--original` was qualified, `-w` again otherwise (bc-xl7n.71).
  */
 const dupRow = beadRow(bd, dup);
-const originalRow = beadRow(bd, original);
+const originalRow = beadRow(bdOriginal, target.id);
 
 // The marker goes first and the comment second, which is the opposite of the sweep's
 // order and for the opposite reason. The sweep comments first because its later writes
 // put a question on a phone and the record has to survive one of them failing. Here the
 // first write is the only one that can still refuse the whole command, and a comment
 // explaining a marker that was then refused is a comment about nothing.
-const result = mark(bd, dup, original, { dupRow, originalRow });
+const result = mark(bd, dup, original, { dupRow, originalRow, knownWorkspaces });
 if (result.refused) {
   console.error(`beadcause-supersede: ${result.refused}`);
   process.exit(1);

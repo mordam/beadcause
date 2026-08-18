@@ -239,6 +239,23 @@
      */
     p0beaddetail: new Map(),
     /**
+     * What `/api/session-archive` said about each of them — `key → { sessions, failed }`.
+     * bc-rfnr.9.5.
+     *
+     * A second map rather than a field on `p0beaddetail`, because the two arrive from
+     * two places at two speeds: the bead is a `bd show` and this is a `git log` over one
+     * ref, and folding them together would make the whole expansion wait on the slower
+     * of them. It is the trade public/graph.js's sheet already makes with the same
+     * endpoint — paint the bead, ask this afterwards, replace the row when it lands.
+     *
+     * **An absent key is "still looking" and is a state the renderer draws**, which is
+     * the only reason this can be a plain map with no `loading` flag: there is no fourth
+     * answer. `failed: true` is a fourth *fact*, though — "we asked and did not find
+     * out" is not "nothing ran" — and the row is allowed to be wrong in only one
+     * direction over it. See `p0SessionRowHtml`.
+     */
+    p0beadarc: new Map(),
+    /**
      * Is the whole board folded away? bc-eevn.
      *
      * The opposite of `p0open` on both counts, and deliberately.
@@ -2485,6 +2502,25 @@
     return Array.isArray(on) && (!on.length || on.includes('pr'));
   };
 
+  /**
+   * Is anything on this page reading the board? bc-rfnr.9.5.
+   *
+   * The list is the first reader and was the only one: `prsWanted` is the kind filter,
+   * and a phone that has hidden pull requests should not be paying for a `gh` sweep per
+   * repo to draw rows it will throw away.
+   *
+   * An **expanded bead is the second**, and it is not covered by the first. Its "what
+   * happened to it" block is the PR index read backwards (`p0PrsFor`), so with the board
+   * absent it can only say it is still reading — for ever, on a filter that excludes pull
+   * requests. That is a section that never resolves, which is worse than the sweep: one
+   * open bead is a deliberate tap, and it buys the same cached board (25 seconds on the
+   * daemon) that the list would have had by default.
+   *
+   * The set and not a count of the tree: folding the bead up stops the sweep on the next
+   * tick, which is the right lifetime for a reason that is "somebody is looking at this".
+   */
+  const boardWanted = () => prsWanted() || state.p0beadopen.size > 0;
+
   /** When the board was last *asked for* — not when it last answered. See loadBoard. */
   let boardAt = 0;
   let boardBusy = false;
@@ -2503,7 +2539,7 @@
    * by the very `render()` it just triggered.
    */
   async function loadBoard({ force = false } = {}) {
-    if (!state.token || boardBusy || !prsWanted()) return;
+    if (!state.token || boardBusy || !boardWanted()) return;
     if (!force && Date.now() - boardAt < 20000) return;
     boardBusy = true;
     boardAt = Date.now();
@@ -4721,6 +4757,35 @@
   const beadPicked = () => state.bead.picks.length > 0;
 
   /**
+   * Everything the box was holding, dropped — the picks, the half-typed word and the
+   * request in flight behind it.
+   *
+   * Called from public/inboxfilter.js when the pill you have just tapped cannot use this
+   * group, which today is `Chats` and only `Chats`: `inBead` below hides every row that
+   * is not a bead, so a pick carried into that pill is an empty screen whose cause is a
+   * control that is no longer on it. Dropping it is the same rule `set()` applies to a
+   * kind the new scope cannot produce, and the alternative — keeping it dormant — is a
+   * filter you cannot see, which is the one thing this whole control is against.
+   *
+   * **No `render` here.** The caller is mid-`set()` and about to tell this page the
+   * selection moved, which is what redraws the list; a render from inside would run it
+   * twice for one tap. The chrome is repainted because the summary line has to lose the
+   * pill in the same frame the panel loses the box.
+   */
+  function clearBeads() {
+    if (!state.bead.picks.length && !state.bead.query) return;
+    clearTimeout(beadTimer);
+    beadAsked = '';
+    state.bead.picks = [];
+    state.bead.trees.clear();
+    state.bead.query = '';
+    state.bead.suggestions = [];
+    state.bead.busy = false;
+    state.bead.failed = '';
+    renderFilters();
+  }
+
+  /**
    * Which keys the picked beads allow. The union of their trees — bc-gwsi's OR.
    *
    * Two pills mean "show me both of these", which is the only reading a pill with its own
@@ -4775,6 +4840,12 @@
    * A page group like the scope switch, and in the same panel for the same reason: a
    * second box beside the filter pill would be the two-rows-of-chrome problem this
    * control exists to have solved once.
+   *
+   * **Which pills it is offered under is not decided here** (bc-khoe.3). `KINDS` in
+   * public/inboxfilter.js names the groups each pill can use, this group's id is `bead`,
+   * and `Chats` is the one pill that does not name it — see `clear` at the foot and
+   * `inBead` above for why. The descriptor is unchanged by any of that, which is the
+   * same property that let the scope move out onto the row without being rewritten.
    */
   const beadGroup = {
     id: 'bead',
@@ -4815,6 +4886,8 @@
       })),
     pick: (key) => pickBead(key),
     unpick: (key) => unpickBead(key),
+    /** What the panel calls when the lit pill cannot use this group — see `clearBeads`. */
+    clear: () => clearBeads(),
   };
 
   /**
@@ -4841,6 +4914,23 @@
           (state.scope === 'both' ? true : k.side === (state.scope === 'human' ? 'question' : 'agent'))
       )
       .map((k) => k.id);
+
+  /**
+   * The scope this kind needs, or `null` when the one we are on can already produce it.
+   *
+   * `both` rather than the kind's own side, and that is the whole of the answer rather
+   * than a shortcut: `both` can produce every kind, so it is reachable from anywhere and
+   * it never takes anything *away*. Widening to `agent` to reach `All Beads` would put
+   * the questions behind the pill that fetched the beads, which is a tap that hid what
+   * you were looking at.
+   *
+   * Written as a question about a kind rather than as a scope switch because it has two
+   * callers that cannot share one (bc-khoe.25): the pill tapped on Home, which widens
+   * through `chooseScope` and refetches, and the same pill tapped on another page, which
+   * arrives as `?kind=` before anything has been fetched at all and only has to be the
+   * scope this page boots in.
+   */
+  const scopeFor = (id) => (!id || kindsForScope().includes(id) ? null : 'both');
 
   /** Does this row survive the kind filter? True when the control never loaded. */
   const inKind = (q) => window.beadcause?.inboxFilter?.matches?.(q) ?? true;
@@ -5546,18 +5636,25 @@
       // epic exists this is the line that has to start following it — which is
       // bc-0i27.5's to write, because it is bc-0i27.5 that puts the id on the row.
       if (q.jira) return true;
-      // A pull request naming a bead is a row about a bead — the board's, if it is one of
-      // yours, and somebody else's otherwise, which bc-rfnr.2 already hid. One naming
-      // nothing is the only pull request left with nowhere else to be.
-      if (q.pr) return !(q.pr.beads || []).length;
-      // The card that is up. Before both tests rather than after them, and the rule is
-      // "a card that is open has a row" whoever's P0 the bead hangs off: `.card.open` is
-      // a full-screen sheet built out of one, so a sheet the reader opened over a row
+      // The card that is up. Before every other test rather than after them, and the rule
+      // is "a card that is open has a row" whoever's P0 the bead hangs off: `.card.open`
+      // is a full-screen sheet built out of one, so a sheet the reader opened over a row
       // this function had filtered away would come up empty. `p0-answer` is the ordinary
       // way in and a notification, which deep-links straight into `expand`, is the other.
       // `state.open` is a Set here and undefined in the vm the tests lift this into,
       // which is why it is asked with `?.`.
+      //
+      // **It sat below the pull request test until bc-rfnr.9.5 and that was a real gap**,
+      // not a tidy-up: a pull request naming a bead is filtered out unconditionally, so
+      // opening one — from the board page's `Full view`, from a notification, or from the
+      // new control on the bead itself — put a full-screen sheet up over a row `render`
+      // had already dropped, and nothing came up. The comment above it always claimed
+      // this line went first; now it does.
       if (state.open?.has(q.key)) return true;
+      // A pull request naming a bead is a row about a bead — the board's, if it is one of
+      // yours, and somebody else's otherwise, which bc-rfnr.2 already hid. One naming
+      // nothing is the only pull request left with nowhere else to be.
+      if (q.pr) return !(q.pr.beads || []).length;
       // Drawn in a tree on the board above, so not drawn again underneath it.
       if (under[q.key]) return false;
       return Boolean(unhomed[q.key]);
@@ -5943,9 +6040,175 @@
   }
 
   /**
+   * Every pull request on the board that names this bead — the PR index, reversed.
+   * bc-rfnr.9.5.
+   *
+   * **No fetch of its own, and that is the whole design.** `/api/prs` is a `gh` call per
+   * repo and the rows it returns already carry `beads[]`, resolved on the daemon by
+   * lib/beadref.js. So "which pull requests are for this bead" is a question the board
+   * already answered in the other direction, and asking it again per expanded bead would
+   * be the most expensive sweep on the Mac run once per tap.
+   *
+   * **`null` and `[]` are different answers**, which is the one thing a caller here must
+   * not flatten. `[]` is "the board is in hand and no pull request names this bead" —
+   * the sentence the acceptance asks for. `null` is "this page has not got the board",
+   * which happens for as long as the first sweep takes and for ever if the kind filter
+   * excludes pull requests and nothing warm was on disk. Saying "no pull request" over
+   * that would be the board claiming something it never looked at. See `boardWanted`.
+   *
+   * Closed pull requests are kept, unlike `prRows` which drops them: a delivery that was
+   * declined is exactly the kind of thing you open a bead to find out about, and the
+   * list this feeds is a history rather than a queue of work. What that costs is one
+   * branch in the row below — the inbox cannot hold a closed row, so it is not offered
+   * as one.
+   *
+   * Newest first, by number. `updatedAt` would reorder the list under a reader every time
+   * somebody commented on an old pull request, and the numbers are the order they were
+   * opened in, which is the order this bead's story actually happened in.
+   */
+  function p0PrsFor(id) {
+    const repos = state.board?.repos;
+    if (!Array.isArray(repos)) return null;
+    const out = [];
+    for (const repo of repos) {
+      for (const pr of repo.prs || []) {
+        // `beads[]` is `{ id, title, status }` off lib/beadref.js. Tolerant of a bare
+        // string because a warm entry written by an older page is still a board.
+        if ((pr.beads || []).some((b) => (typeof b === 'string' ? b : b?.id) === id)) out.push(pr);
+      }
+    }
+    return out.sort((a, b) => Number(b.number || 0) - Number(a.number || 0));
+  }
+
+  /**
+   * One pull request, as a row you can get into it from.
+   *
+   * **A button for a row the inbox can hold, and a link to GitHub for one it cannot.**
+   * `expand` opens the full pull request view this app already has (bc-l8jp.7), which is
+   * where the merge decision is made — and it can only open a row `prRows` produced, and
+   * `prRows` drops `stage: closed`. So a declined pull request gets an anchor out to
+   * GitHub instead of a button that would open nothing: a control that does nothing is
+   * the failure this bead is written against, and it is invisible until somebody taps it.
+   *
+   * The rung is `prCard.stageHtml`, the same pill the board and the inbox row draw, so
+   * the ladder a delivery is on reads identically wherever you meet it. Absent when
+   * public/prcard.js is not on the page, which is a stub's problem and not a reader's.
+   */
+  function p0PrRowHtml(p) {
+    const stage = window.beadcause?.prCard?.stageHtml?.(p) || '';
+    const where = p.repoName || p.workspace || '';
+    const inner = `<span class="pill id">#${esc(p.number)}</span>
+      <span class="p0-hap-title">${esc(p.title || '')}</span>
+      <span class="p0-hap-sub">${where ? `<span class="pill">${esc(where)}</span>` : ''}${stage}</span>`;
+    if (p.stage === 'closed') {
+      return `<a class="p0-hap-row" href="${esc(p.url || '')}" target="_blank" rel="noopener">${inner}</a>`;
+    }
+    return `<button type="button" class="p0-hap-row" data-act="p0-pr" data-key="${esc(
+      `pr:${p.key}`
+    )}">${inner}</button>`;
+  }
+
+  /**
+   * The window this bead has been through — live now, archived, or neither.
+   *
+   * Two addresses and they are not interchangeable. A **running** session is only ever
+   * reachable by pid (`/session?pid=…`, public/session.js), and the pid arrives on the
+   * tree row itself because the daemon already had the session list in hand when it built
+   * the card. A **finished** one has no pid at all and is addressed by the bead
+   * (`/bead-session`, bc-nib3.5), which is also where the memories it left are shown.
+   *
+   * Both are drawn when both are true, and that is deliberate rather than untidy: a bead
+   * worked twice has a window open on it now *and* a report from the run before, and
+   * collapsing them would hide whichever one the reader came for.
+   *
+   * **The archive's three states are public/graph.js's, for its reasons.** Until
+   * `/api/session-archive` answers, the row says it is looking and is not tappable — a
+   * row that is a link and then stops being one loses the tap of somebody who reached for
+   * it as it resolved, so the flicker is allowed in one direction only. A *failed* check
+   * offers the link anyway: saying "no session" over a bead that has one hides the page
+   * for good, and offering one over a bead that has none costs a tap and lands on a page
+   * whose whole design is saying plainly what is not there.
+   */
+  function p0SessionRowsHtml(workspace, id, row, arc) {
+    const out = [];
+    const pid = row?.session?.pid;
+    if (pid) {
+      const name = row.session.name || `pid ${pid}`;
+      out.push(`<a class="p0-hap-row" href="/session?pid=${encodeURIComponent(pid)}">
+        <span class="p0-hap-glyph" aria-hidden="true">${row.session.status === 'busy' ? '<span class="spark"></span>' : '🖥'}</span>
+        <span class="p0-hap-title">A session is on it now</span>
+        <span class="p0-hap-sub">${esc(name)}</span>
+      </a>`);
+    }
+    const href = `/bead-session?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(id)}`;
+    const box = (cls, what, sub, link) =>
+      `<${link ? 'a' : 'div'} class="p0-hap-row${cls ? ` ${cls}` : ''}"${link ? ` href="${esc(link)}"` : ''}>
+        <span class="p0-hap-glyph" aria-hidden="true">🗄</span>
+        <span class="p0-hap-title">${esc(what)}</span>
+        <span class="p0-hap-sub">${esc(sub)}</span>
+      </${link ? 'a' : 'div'}>`;
+    const sessions = Array.isArray(arc?.sessions) ? arc.sessions.filter(Boolean) : [];
+    if (!arc) out.push(box('is-checking', 'Session', 'looking for what it left…', null));
+    else if (sessions.length) {
+      const when = relTime(sessions[0].at);
+      const count = sessions.length === 1 ? '1 session archived' : `${sessions.length} sessions archived`;
+      out.push(box('', 'What its session did', when ? `${count} · newest ${when}` : count, href));
+    } else if (arc.failed) out.push(box('', 'What its session did', 'if a session ran on this bead', href));
+    else if (!pid) out.push(box('is-none', 'No session archived', 'nothing was left behind under this bead', null));
+    return out;
+  }
+
+  /**
+   * What happened to this bead: the pull requests that name it, and its session.
+   * bc-rfnr.9.5.
+   *
+   * Everything above this in the expansion is the bead as the tracker holds it. This is
+   * the part that is *about* the bead and lives somewhere else — on GitHub, and in a
+   * window that has probably already closed — and until bc-rfnr.9.7 took the flat list
+   * away there was one screen that drew the connection: a pull request row in the inbox,
+   * carrying the beads it names. That row now follows its bead off the list, so the trail
+   * from a bead to its delivery had no surface left at all. This is that trail, walked
+   * from the other end.
+   *
+   * **A bead with neither says so in one sentence and offers nothing to tap**, which is
+   * the acceptance criterion and is the only interesting case: most beads in this tracker
+   * have never had a pull request or a session, so a heading over two rows reading "none"
+   * and "none" would be three lines of furniture on every bead you open. One sentence,
+   * and the section is not drawn at all until there is something to say or the reader is
+   * owed a "still looking".
+   */
+  function p0HappenedHtml(card, b) {
+    const workspace = b.workspace || card.workspace;
+    // The tree row this bead came out of — where the live session's pid is. `find` and
+    // not an argument, so `p0BeadBodyHtml` keeps the signature three other suites lift it
+    // by; the root of a card is not in its own tree and has no row here, which is right:
+    // the expansion is only ever drawn for a descendant.
+    const row = (card.tree || []).find((r) => r.id === b.id) || null;
+    const prs = p0PrsFor(b.id);
+    const arc = state.p0beadarc.get(`${workspace}/${b.id}`) || null;
+    const rows = [
+      ...(prs || []).map(p0PrRowHtml),
+      ...p0SessionRowsHtml(workspace, b.id, row, arc),
+    ];
+    const nothing = prs && !prs.length && !row?.session?.pid && arc && !(arc.sessions || []).length && !arc.failed;
+    const body = nothing
+      ? `<div class="p0-hap-none">No pull request names ${esc(b.id)}, and no session has run on it.</div>`
+      : `<div class="p0-hap">${rows.join('')}${prs ? '' : `<div class="p0-hap-none">${
+          // A sweep that failed says so rather than reading for ever. Same rule as the
+          // sentence above it and the same reason `boardTrouble` exists under the list:
+          // "we could not look" is a third answer, and the one branch that must never be
+          // allowed to look like either of the other two.
+          state.boardError
+            ? `Pull requests could not be read — ${esc(state.boardError)}`
+            : 'Reading the pull request board…'
+        }</div>`}</div>`;
+    return `<div class="section-label">What happened to it</div>${body}`;
+  }
+
+  /**
    * The bead itself, in the order the questions come: what kind of thing it is, how it
-   * ended if it has, what it is under and behind, what it says, and what has been said
-   * about it.
+   * ended if it has, what it is under and behind, what it says, what has been said about
+   * it, and what happened to it.
    *
    * The status is deliberately *not* repeated here — the row above it is carrying that
    * pill already, and two pills a centimetre apart saying `closed` is the expansion
@@ -6007,6 +6270,12 @@
       parts.push('<div class="section-label">Thread</div>');
       parts.push(`<div class="comments">${threadHtml({ key: `${workspace}/${b.id}`, comments: b.comments })}</div>`);
     }
+    // And last, what happened to it — the pull requests that name it and its session
+    // (bc-rfnr.9.5). Below the thread rather than above the description, because
+    // everything before this is the bead as `bd` holds it and this is the trail out of
+    // the tracker: it is the answer to "and then what", which is a question you have
+    // after reading a bead rather than before.
+    parts.push(p0HappenedHtml(card, b));
     // The answer first and the graph after it, which is the order of how much they are
     // worth: one of them is the reason this bead is on the screen at all, and the other is
     // the way out to everything around it.
@@ -6057,6 +6326,44 @@
     // Through `keepTheScreenStill` for the same reason the tap is: this is the moment a
     // one-line "reading…" becomes six hundred pixels of bead, and the anchor would take
     // that growth out of the page offset with the reader's eyes already on the block.
+    if (state.p0beadopen.has(key)) keepTheScreenStill(() => render());
+  }
+
+  /**
+   * Ask what this bead left behind, and repaint when it answers. bc-rfnr.9.5.
+   *
+   * **`/api/session-archive` rather than `/api/bead-session`**, which is the same pick
+   * public/graph.js's sheet made and for its reasons: the question here is
+   * `sessions.length > 0` plus a date, and the other route reads the archived tree,
+   * `meta.json` and the state of the worktree — several `git` invocations to answer a
+   * boolean. This one is a single `git log` over a single ref.
+   *
+   * **Beside `/api/bead` rather than folded into it.** That response is what the whole
+   * expansion paints from, so anything added to it is a `git` call every tap waits on,
+   * over a fact most beads answer "nothing" to — the argument `/api/bead-links` is
+   * already a separate route for on the graph's sheet.
+   *
+   * Asked once per bead and kept, unlike the bead itself: a `bd` thread moves while you
+   * read it and a session archive does not, so a fold and an unfold cost nothing and the
+   * second open of the same bead paints its trail in the first frame. A window that
+   * *starts* on the bead in the meantime is drawn anyway — the pid rides the poll on the
+   * tree row, not on this.
+   *
+   * A failure is recorded rather than swallowed, because "we asked and did not find out"
+   * is not "nothing ran" and the row is allowed to be wrong in only one of those
+   * directions. See `p0SessionRowsHtml`.
+   */
+  async function loadBeadArchive(key, workspace, id) {
+    if (state.p0beadarc.has(key)) return;
+    let arc;
+    try {
+      arc = await api(
+        `/api/session-archive?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(id)}`
+      );
+    } catch {
+      arc = { failed: true, sessions: [] };
+    }
+    state.p0beadarc.set(key, arc);
     if (state.p0beadopen.has(key)) keepTheScreenStill(() => render());
   }
 
@@ -6539,7 +6846,15 @@
       // Not while a bead is picked, though: that filter *replaces* the board's narrowing
       // (see `inBoard` above), so an empty list there is the pill's doing and `beadNudge`
       // is the sentence that names the way out of it.
-      const boarded = Boolean(roots) && !beadPicked();
+      //
+      // A lit pill is the same shape of thing and now gets the same exemption
+      // (bc-khoe.3). With `Chats` selected and no conversation on the go, "your epics
+      // are on the board above" is a true sentence about the wrong screen: the board is
+      // not why this list is empty, the pill is, and the way out is a tap on the row
+      // rather than a look at the board. `kinded` below is what decides whether the pill
+      // is really the cause — with nothing in this repo at all it is not.
+      const pilled = kinded && Boolean(window.beadcause?.inboxFilter?.selected?.().length);
+      const boarded = Boolean(roots) && !beadPicked() && !pilled;
       const asks = boarded ? p0AsksN(p0Cards()) : 0;
       chunks.push({
         key: '@empty',
@@ -6623,8 +6938,8 @@
     // tap, because a card can be open without anyone having tapped it in this render:
     // a poll rebuilt the list under it.
     for (const q of visible) if (q.pr && state.open.has(q.key)) ensurePrDetail(q);
-    // And the board, if pull requests are wanted and the last sweep has gone stale. A
-    // no-op the rest of the time — see loadBoard.
+    // And the board, if anything on the page is reading it and the last sweep has gone
+    // stale. A no-op the rest of the time — see loadBoard and `boardWanted`.
     loadBoard();
 
     openLinksInNewTab(listEl);
@@ -7523,7 +7838,39 @@
       if (opening) state.p0beadopen.add(key);
       else state.p0beadopen.delete(key);
       keepTheScreenStill(() => render(true));
-      if (opening) loadBeadDetail(key, btn.dataset.ws, btn.dataset.bead);
+      if (opening) {
+        loadBeadDetail(key, btn.dataset.ws, btn.dataset.bead);
+        // What happened to it, on its own clock beside the bead (bc-rfnr.9.5). Three
+        // separate asks and not one, because they cost three different things: the bead
+        // is a `bd` spawn, the archive is a `git log`, and the pull requests are a board
+        // this page may already have. Not awaited and not chained — whichever lands
+        // first draws its half.
+        loadBeadArchive(key, btn.dataset.ws, btn.dataset.bead);
+        loadBoard();
+      }
+      return;
+    }
+
+    /**
+     * Open the pull request that delivered this bead, from inside the tree. bc-rfnr.9.5.
+     *
+     * `expand` and nothing else, exactly as `p0-answer` above: the full pull request view
+     * is `.card.open` with the diffstat, the checks, the merge and the decline on it
+     * (bc-l8jp.7), and a second copy of it inside a tree row would drift from the first
+     * from the day it landed.
+     *
+     * `revealPr` first, which is what `focusHash` does for the same reason: the inbox's
+     * status sub-filter shows unmerged rows by default, and most pull requests you reach
+     * from a bead are merged — so without widening it the tap would open a card `render`
+     * never made and nothing would happen. A closed pull request cannot be reached this
+     * way at all and is not offered as a button; see `p0PrRowHtml`.
+     */
+    if (act === 'p0-pr') {
+      closeMenu();
+      closeAgentMenu();
+      const key = btn.dataset.key;
+      revealPr(byKey(key));
+      await expand(key);
       return;
     }
 
@@ -9887,10 +10234,25 @@
   window.beadcause = window.beadcause || {};
   window.beadcause.refresh = load;
 
-  /** The scope survives a reload — it is a preference, not a session detail. */
+  /**
+   * The scope survives a reload — it is a preference, not a session detail.
+   *
+   * Unless the URL asks for a kind it cannot produce. `/?kind=bead` is the `All Beads`
+   * pill tapped from one of the eleven other pages the row is on, and it outranks the
+   * stored scope for the reason the tap does on Home: it is a request for the beads, and
+   * a scope that never fetches one would answer it with an empty list and the pill
+   * unlit. It is settled here, before `mountFilters`, because the first `survey` is what
+   * would drop the selection — and unlike a tap there is no second event to widen on.
+   * Nothing has been fetched yet, so this costs a wider first sweep and no refetch.
+   */
   function bootScope() {
     const saved = localStorage.getItem('beadcause.scope');
     if (SCOPES.includes(saved)) state.scope = saved;
+    const wider = scopeFor(window.beadcause?.inboxFilter?.asked?.());
+    if (wider) {
+      state.scope = wider;
+      localStorage.setItem('beadcause.scope', state.scope);
+    }
     mountFilters();
   }
 
@@ -9911,6 +10273,12 @@
    *
    * The panel is mounted first because filtermenu.js replaces the host's children and
    * the pills prepend themselves in front of it; see `mount` in public/filterpills.js.
+   *
+   * **What the panel offers is a function of the lit pill** (bc-khoe.3): the bead box is
+   * hidden under `Chats`, which can use no filter at all, and with nothing left to offer
+   * the panel takes itself off the row. The scope switch is not part of that — it
+   * decides which pills exist rather than narrowing within one — so the row never
+   * empties and `renderFilters` never has to hide it.
    *
    * A page served without either file still works: `renderFilters` and `inKind` both
    * fall back to doing nothing, which is the unfiltered list this page has always drawn.
@@ -9939,6 +10307,17 @@
     // children. The scope is its own group and nothing else is on the row yet —
     // bc-khoe.26 is what moves the bead box and the two sub-filters out here beside it.
     window.beadcause?.filterPills?.mount?.(filtersEl, { groups: [scopeGroup] });
+    // How the row reaches a kind this scope cannot produce. The filter knows which pill
+    // was tapped and that it is unreachable; only this page knows what a scope is, so
+    // the widening lives here and the decision to ask for it lives there. `chooseScope`
+    // is the same reset-and-refetch the switch itself runs — a pill that widened without
+    // going through it would be the second copy of that.
+    f?.onWiden?.((id) => {
+      const wider = scopeFor(id);
+      if (!wider) return false;
+      chooseScope(wider);
+      return true;
+    });
     f?.survey({ kinds: kindsForScope() });
     // Whichever of the two mounted is what unhides the row.
     renderFilters();
