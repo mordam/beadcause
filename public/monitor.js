@@ -1504,9 +1504,12 @@
     const unclaimed = codersOf(a).filter((w) => !claimed.has(w.group?.epic));
     const elsewhereCount = codersOf(a).length - unclaimed.length;
 
-    // Split once, read twice: the epic sections take their own beads out of it and this
-    // card's own section takes what is left. See `heldByAdvocate` for why the two halves
-    // exist and which of them a bead lands in.
+    // The half of the split this card draws: what no epic above it claimed. The other
+    // half goes to the epic *cards*, which are no longer inside this one and so compute
+    // the same split themselves (`epicCards`) rather than being handed it — bc-8t3b wrote
+    // this as "split once, read twice" when an epic was a section in here, and bc-henk
+    // moved the second reader out of the function without changing what it reads. See
+    // `heldByAdvocate` for why the two halves exist and which of them a bead lands in.
     const held = heldByAdvocate(w, a);
 
     const secs = [
