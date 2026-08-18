@@ -161,6 +161,43 @@ body {
 */
 .pagescroll > * { flex-shrink: 0; }
 
+/*
+  ## A view is a pane of the shell, not a document of its own (bc-khoe.30.3)
+
+  Home used to *be* `/`, and History and the advocate console were other addresses. Every
+  move between them was a document load that threw away the list, the open card and the
+  scroll position to rebuild a screen that was mostly the same screen. So `/` holds one of
+  these per view, all but one hidden, and a pill tap swaps which one — see public/panes.js
+  and public/hashroute.js.
+
+  A pane takes the same slack `.pagescroll` does, because it stands where the scroller used
+  to: the shell is `.topbar`, `.viewbar` and then one row that gets everything left over,
+  and that row is now a pane holding a scroller rather than the scroller itself.
+  `min-height: 0` for the same reason it is on `.pagescroll` — a flex item's default
+  `min-height: auto` is its content, so without it the pane grows to fit its list instead
+  of letting the scroller inside it scroll, and pushes the chrome off the screen.
+
+  **Hiding is `display: none` and it cannot be anything else.** `visibility: hidden` and an
+  offscreen transform both leave the element in layout, and three panes in this column
+  would divide the slack three ways whether or not two of them are painted — the shown one
+  would get a third of the screen and scroll inside it, which is bc-7utr's bug back again
+  wearing a third mechanism. The declaration is written out because the UA's own `[hidden]`
+  rule is `display: none` at the weakest specificity there is and the `display: flex` above
+  beats it; that is the standing trap with this attribute and the reason `.compose-wrap`,
+  `.scrollpos` and a dozen others in this file carry a line just like it.
+
+  The price of `display: none` is that a hidden element has no scrollport and so no
+  `scrollTop` to remember. public/panes.js carries the number across by hand, which is the
+  half of this that no stylesheet can do.
+*/
+.pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane[hidden] { display: none; }
+
 .topbar {
   /* In flow, as the first row of the shell above — not sticky. There is nothing for it
      to stick to any more, and a sticky bar was the drift bc-7utr was filed about. */
