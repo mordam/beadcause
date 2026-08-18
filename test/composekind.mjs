@@ -26,16 +26,24 @@
  *    reads as still loading. So it is asserted in *both* directions, and the direction
  *    that would have passed before this bead is the one that matters.
  *
- * 3. **The picker.** `#compose-pick` asks which repo to start in. It is opened by a
- *    button, and a change of kind is a change of what that button would create — so it
- *    must not survive one, including on the three kinds that keep ＋. That is the
+ * 3. **The picker.** `#compose-pick` asks which repo to start in, and since
+ *    bc-khoe.27.2 `#compose-epics` offers the epics you could start. Either is opened by
+ *    the same button, and a change of kind is a change of what that button would create —
+ *    so neither must survive one, including on the kinds that keep ＋. That is the
  *    acceptance criterion whose failure is silent: a panel left over the list, anchored
- *    to a button that now means something else.
+ *    to a button that now means something else. Both are shut on every paint, whichever
+ *    was open, because the one that is open belongs to the kind you just left.
+ *
+ * 4. **What the button says it does**, since bc-khoe.27.2 — its `aria-label`, and the
+ *    `aria-controls` naming the panel this kind's tap opens. It is the only thing on this
+ *    control that says what will happen, so a ＋ announcing "start a chat session" on the
+ *    screen where it starts an epic is worse than an unlabelled one: a screen reader reads
+ *    out the wrong promise rather than none.
  *
  * public/app.js is one IIFE with nothing exported, so the declarations are sliced out
  * and run in a `vm` the way test/cardtap.mjs and test/jirarow.mjs do it. The document
- * is hand-made and tiny: this block touches four nodes and a class list, so a fake with
- * four nodes and a real `Set` behind the class list is the whole room. No browser, no
+ * is hand-made and tiny: this block touches five nodes and a class list, so a fake with
+ * five nodes and a real `Set` behind the class list is the whole room. No browser, no
  * network, no `bd`.
  *
  * The fallback is asserted too, and it is deliberately the *generous* one: a page
@@ -141,15 +149,25 @@ function room({ filter = true } = {}) {
   const els = {
     '#compose': node('compose'),
     '#compose-pick': node('compose-pick'),
+    // bc-khoe.27.2's second panel. Hidden like the first, and hidden *with* the first:
+    // the checks below are what make "either one" true rather than "the one this kind
+    // uses", which is the shape that leaves a panel behind on a change of kind.
+    '#compose-epics': node('compose-epics'),
     '.compose-wrap': node('compose-wrap'),
   };
   const listeners = [];
   const document = { body: { classList: classList() } };
   const window = { beadcause: {} };
   let says = true;
+  let makes = 'chat';
   if (filter) {
     window.beadcause.inboxFilter = {
       composes: () => says,
+      // The word for what ＋ makes here, off the same `compose` field. `paintCompose`
+      // reads it for the label and the `aria-controls`; the click listener reads it to
+      // decide which panel to open, and that half is public/app.js's own wiring rather
+      // than anything this room drives.
+      creates: () => makes,
       onChange: (fn) => listeners.push(fn),
     };
   }
@@ -162,8 +180,10 @@ function room({ filter = true } = {}) {
     [
       lift("const composeEl = $('#compose');"),
       lift("const composePickEl = $('#compose-pick');"),
+      lift("const composeEpicsEl = $('#compose-epics');"),
       lift("const composeWrapEl = $('.compose-wrap');"),
       lift('function hideComposePick()'),
+      lift('const COMPOSE_SAYS = '),
       lift('function paintCompose()'),
       'globalThis.paintCompose = paintCompose;',
     ].join('\n'),
@@ -176,6 +196,10 @@ function room({ filter = true } = {}) {
     /** Say which kind you are on, in the only terms this block asks about. */
     say(v) {
       says = v;
+    },
+    /** And what ＋ would make there — `chat`, `epic`, or a word this file has never heard. */
+    makes(v) {
+      makes = v;
     },
     paint: () => ctx.paintCompose(),
   };
@@ -237,6 +261,48 @@ await check('an open picker closes on a change of kind that keeps ＋', () => {
   assert.equal(r.els['.compose-wrap'].hidden, false, 'and the button went with it');
 });
 
+await check('AND SO DOES THE EPIC ONE — both panels shut, whichever was open', () => {
+  // The bug this exists to stop is one-sided closing. `hideComposePick` shuts the panel
+  // it was named after and, if it stopped there, the panel belonging to the kind you just
+  // left would sit over the list anchored to a ＋ that now means something else — the same
+  // failure as the check above, arriving through the panel that was added later.
+  const r = room();
+  r.makes('epic');
+  r.els['#compose-epics'].hidden = false;
+  r.els['#compose'].setAttribute('aria-expanded', 'true');
+  r.makes('chat');
+  r.paint();
+  assert.equal(r.els['#compose-epics'].hidden, true, 'the epic picker survived the kind change');
+  assert.equal(r.els['#compose-pick'].hidden, true, 'the repo picker was left open by the paint');
+  assert.equal(r.els['#compose'].getAttribute('aria-expanded'), 'false', 'aria still claims it is open');
+});
+
+await check('THE BUTTON SAYS WHAT IT WOULD MAKE, and points at the panel that would open', () => {
+  // The only thing on this control that says what a tap will do. Wrong is worse than
+  // absent here: a screen reader reading "start a chat session" on the screen where ＋
+  // starts an epic is a promise the app does not keep.
+  const r = room();
+  r.makes('epic');
+  r.paint();
+  assert.match(r.els['#compose'].getAttribute('aria-label'), /epic/i, '＋ still offers a chat on My Epics');
+  assert.equal(r.els['#compose'].getAttribute('aria-controls'), 'compose-epics');
+  r.makes('chat');
+  r.paint();
+  assert.match(r.els['#compose'].getAttribute('aria-label'), /chat/i, '＋ no longer offers a chat on Chats');
+  assert.equal(r.els['#compose'].getAttribute('aria-controls'), 'compose-pick');
+});
+
+await check('and a word this file has never heard of falls back to the chat, not to nothing', () => {
+  // bc-khoe.27.3 will add `bead` to the table before it adds a branch here, and the order
+  // is not guaranteed on a phone holding one half of a deploy. An unlabelled ＋ or a
+  // `null` `aria-controls` is a worse outcome than the create it has always made.
+  const r = room();
+  r.makes('bead');
+  r.paint();
+  assert.match(r.els['#compose'].getAttribute('aria-label'), /chat/i, 'an unknown create left ＋ saying nothing');
+  assert.equal(r.els['#compose'].getAttribute('aria-controls'), 'compose-pick');
+});
+
 await check('no inboxfilter.js at all still draws ＋ — the generous fallback', () => {
   // A cached document against a script that never loaded is a state this app survives
   // elsewhere; losing the primary action to it would be a worse failure than drawing
@@ -283,12 +349,27 @@ await check('the stylesheet honours [hidden] on a flexed wrapper', () => {
   assert.match(CSS, /\.compose-wrap\s*\{[^}]*display:\s*flex/, '.compose-wrap stopped being flexed — check the rule above is still needed');
 });
 
-await check('the picker is inside the wrapper, which is what makes hiding it enough', () => {
+await check('the pickers are inside the wrapper, which is what makes hiding it enough', () => {
   const wrap = HTML.slice(HTML.indexOf('<div class="compose-wrap">'));
   const end = wrap.indexOf('</div>', wrap.indexOf('id="compose"'));
   const inside = wrap.slice(0, end);
   assert.ok(inside.includes('id="compose-pick"'), 'the picker is not inside .compose-wrap');
+  assert.ok(inside.includes('id="compose-epics"'), 'the epic picker is not inside .compose-wrap');
   assert.ok(inside.includes('id="compose"'), 'the button is not inside .compose-wrap');
+});
+
+await check('one ＋, and the kind decides which create it is', () => {
+  // Read off public/app.js rather than driven, because the click listener needs a real
+  // event target and this room has no DOM to dispatch one into. What is worth pinning is
+  // that the branch asks the kind table for the word instead of keeping a list of kind ids
+  // here — a second file that knows what the six kinds are is a second file that can be
+  // wrong about them, with nothing to say which.
+  const wiring = APP.slice(APP.indexOf('if (composeEl && composePickEl)'));
+  assert.match(wiring, /inboxFilter\?\.creates\?\.\(\) \|\| 'chat'\) === 'epic'/, '＋ does not branch on the kind');
+  assert.match(wiring, /showEpicPick\(\);/, 'nothing opens the epic picker');
+  assert.doesNotMatch(wiring, /'epics'/, "the wiring keeps its own copy of a kind's id");
+  // And a second tap on ＋ is always "never mind", whichever panel is the open one.
+  assert.match(wiring, /!composePickEl\.hidden \|\| !composeEpicsEl\?\.hidden/, 'the toggle only sees one panel');
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} checks failed\x1b[0m` : `\n\x1b[32mall ${ran} checks passed\x1b[0m`);

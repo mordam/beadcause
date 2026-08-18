@@ -7,11 +7,16 @@
  *
  * bc-s8mc. The board is the P0s you have *started* (bc-6s96), which left the one screen
  * that says what the week is about as the one screen that could not change it: putting an
- * epic on it meant a laptop and `bd update <id> --claim`. This is the picker at the foot of
- * the board and the two writes behind it, and both halves are here because the failure that
- * matters spans them — a list drawn from one rule and a door guarded by another lets you tap
- * something that is then refused, or worse, offers nothing and looks like a feature that is
- * simply off.
+ * epic on it meant a laptop and `bd update <id> --claim`. This is the picker and the two
+ * writes behind it, and both halves are here because the failure that matters spans them —
+ * a list drawn from one rule and a door guarded by another lets you tap something that is
+ * then refused, or worse, offers nothing and looks like a feature that is simply off.
+ *
+ * **The picker was at the foot of the board until bc-khoe.27.2 and is now what ＋ opens on
+ * My Epics**, ＋ having become the view's own create (bc-khoe.27). The list, the rules
+ * behind it and every refusal below are unchanged by that; what moved is which control
+ * shows it, so the checks that used to read the section's own offer now read the rows on
+ * their own and the section is checked for no longer carrying one.
  *
  * Seven things, and five of them fail quietly:
  *
@@ -49,9 +54,11 @@
  *    that matters.
  *
  * 7. **With nothing started, the offer is still reachable.** An empty board switches the
- *    whole section off (bc-6s96) — which, with the picker inside that section, would mean a
- *    new install could never start anything from the phone at all. The bare offer is drawn
- *    instead, and *only* the offer: no heading, no fold, no count of nothing.
+ *    whole section off (bc-6s96) — which, with the picker inside that section, meant a new
+ *    install could never start anything from the phone at all, and a `bare` section holding
+ *    the offer alone was the answer. bc-khoe.27.2 answers it from the other end: ＋ is drawn
+ *    on My Epics whether or not anything is started, so the same requirement is met by a
+ *    button that is always on screen and the empty board draws nothing at all.
  *
  * The renderer half runs in a `node:vm` over slices of public/app.js — no DOM, no browser,
  * the same lift test/p0card.mjs uses. The route half runs the real server against a fake
@@ -141,18 +148,22 @@ const CANDIDATES = [
 ];
 
 /**
- * The board, drawn for real out of a page state you hand it — test/p0card.mjs's harness
- * with the picker's own function added and `p0picker` in the state it reads.
+ * The board, and the candidates, drawn for real out of a page state you hand it —
+ * test/p0card.mjs's harness with `p0CandsHtml` added.
+ *
+ * Two entry points now rather than one, and that is bc-khoe.27.2's whole shape: the
+ * section no longer draws the offer, and the rows are drawn into the panel above ＋ by
+ * `showEpicPick`. The renderer half of this suite splits the same way — `board()` for
+ * what is left of the section, `cands()` for what a tap on ＋ puts in the panel.
  */
-function board({ roots = [CARD], startable = CANDIDATES, picker = false, shut = false, space = 'all', workspace = 'all' } = {}) {
+function page({ roots = [CARD], startable = CANDIDATES, owned = true, shut = false, space = 'all', workspace = 'all' } = {}) {
   const state = {
-    rootboard: { owned: true, roots, startable, under: {} },
+    rootboard: { owned, roots, startable, under: {} },
     p0open: new Set(),
     p0beadopen: new Set(),
     p0opening: new Map(),
     p0shut: shut,
     p0status: 'live',
-    p0picker: picker,
     space,
     workspace,
     spaces: [],
@@ -189,34 +200,34 @@ function board({ roots = [CARD], startable = CANDIDATES, picker = false, shut = 
       lift(APP, 'function p0CardHtml(c)'),
       lift(APP, 'function p0FullHtml(c)'),
       // bc-rfnr.9.7's two, which `p0SectionHtml` reached for when the flat list went:
-      // which cards the scope filters leave (the picker's `startable` goes through the
-      // same one, which is why it takes a list) and how many beads under them are asking
-      // you something. Without them the section is a `ReferenceError` rather than a board.
+      // which cards the scope filters leave (the candidates go through the same one,
+      // which is why it takes a list) and how many beads under them are asking you
+      // something. Without them the section is a `ReferenceError` rather than a board.
       lift(APP, 'const p0AsksN = ('),
       lift(APP, 'function p0Cards(list)'),
-      lift(APP, 'function p0PickerHtml(rows)'),
+      // The rows a tap on ＋ shows. Lifted beside the section rather than instead of it,
+      // because the two have to be checked against one state: the claim that the offer
+      // left the board is a claim about both at once.
+      lift(APP, 'function p0CandsHtml(rows)'),
       lift(APP, 'function p0SectionHtml()'),
       'p0SectionHtml();',
     ].join('\n'),
     context
   );
-  return vm.runInContext('p0SectionHtml()', context);
+  return {
+    board: () => vm.runInContext('p0SectionHtml()', context),
+    // Exactly what `showEpicPick` puts in the panel — the same two calls, in the same
+    // order, so a filter that stopped being applied there would show up here.
+    cands: () => vm.runInContext('p0CandsHtml(p0Cards(state.rootboard?.startable))', context),
+  };
 }
+const board = (opts) => page(opts).board();
+const cands = (opts) => page(opts).cands();
 
-console.log('\nthe picker at the foot of the board\n');
+console.log('\nthe candidates ＋ offers on My Epics\n');
 
-await check('shut, it is one offer and no list', () => {
-  const html = board();
-  assert.match(html, /data-act="p0-pick"/, 'there is no way to start an epic from the board at all');
-  assert.match(html, /Start an epic/);
-  assert.match(html, /aria-expanded="false"/);
-  assert.doesNotMatch(html, /data-act="p0-start"/, 'the candidates are drawn before anybody asked for them');
-  assert.doesNotMatch(html, /zz-next/, 'a P0 you have not started is on the board');
-});
-
-await check('open, every startable P0 is a row with its id, its title and what is left under it', () => {
-  const html = board({ picker: true });
-  assert.match(html, /aria-expanded="true"/);
+await check('every startable P0 is a row with its id, its title and what is left under it', () => {
+  const html = cands();
   assert.match(html, /zz-next/);
   assert.match(html, /The one with the most left/);
   assert.match(html, /12 open/);
@@ -230,61 +241,117 @@ await check('open, every startable P0 is a row with its id, its title and what i
 });
 
 await check('a row is a button carrying the workspace and the bead, so it is a tap and a keystroke', () => {
-  const html = board({ picker: true });
+  const html = cands();
   // `data-bead` and not `data-key`: these are board controls, not inbox rows, and every
   // other branch of the click handler reads `data-key` as a bead key.
   assert.match(html, /<button type="button" class="p0-cand" data-act="p0-start" data-ws="alpha" data-bead="zz-next"/);
   assert.doesNotMatch(html, /class="p0-cand"[^>]*data-key=/, 'a candidate row carries an inbox row key');
 });
 
-await check('THE CARD OFFERS THE REVERSE — one tap, back to open', () => {
-  const html = board();
-  assert.match(html, /data-act="p0-unstart" data-ws="alpha" data-bead="zz-live"/);
-  assert.match(html, /Take it off the board/);
-});
-
-await check('NOTHING STARTED AND SOMETHING TO START DRAWS THE BARE OFFER, not an empty screen', () => {
-  // The reachability hole, and the whole reason this check is shouting. An empty board
-  // switches the section off — that is bc-6s96 and the list below is drawn flat — but with
-  // the picker inside the section that would leave a new install with no way to start
-  // anything from the phone at all: the one control that ends the state, unreachable
-  // exactly while you are in it.
-  const html = board({ roots: [] });
-  assert.match(html, /data-act="p0-pick"/, 'with nothing started there is no way to start anything');
-  // And only the offer. The heading with a count of nothing on it, or the fold chip for a
-  // board with no cards, would both be chrome around an empty room.
-  assert.doesNotMatch(html, /data-act="p0-fold"/, 'the fold is drawn over a board with no cards');
-  assert.doesNotMatch(html, /data-act="p0-status"/, 'the status filter is drawn over nothing to filter');
-});
-
-await check('and with nothing started and nothing to start, the section is gone entirely', () => {
-  assert.equal(board({ roots: [], startable: [] }), '', 'an empty section is drawn where the flat inbox belongs');
-});
-
-await check('nothing to start, with a board, says which of the two reasons it is', () => {
-  const html = board({ startable: [], picker: true });
+await check('nothing to start says which of the reasons it is', () => {
+  const html = cands({ startable: [] });
   assert.match(html, /Nothing to start/);
   assert.doesNotMatch(html, /data-act="p0-start"/);
 });
 
-await check('the picker folds away with the cards', () => {
-  // A control over things that are not on screen is a control you set and cannot see the
-  // effect of — the same argument the status filter makes one line above it.
-  const html = board({ shut: true, picker: true });
-  assert.doesNotMatch(html, /data-act="p0-pick"/, 'the picker survived the board being folded away');
+await check('AND AN INSTALL THAT DOES NOT KNOW WHO IT IS SAYS THAT INSTEAD', () => {
+  // The board could stay silent about `me` being unset, because with nothing owned it
+  // draws nothing at all. ＋ cannot: it is on My Epics either way, and "every P0 you own
+  // is already started" is a sentence about a list that was never asked for.
+  const html = cands({ owned: false });
+  assert.match(html, /does not know who you are/);
+  assert.match(html, /<code>me<\/code>/);
+  assert.doesNotMatch(html, /Nothing to start/, 'the wrong one of the two empty states');
 });
 
 await check('a candidate from a workspace this screen is not showing is not offered', () => {
   // Otherwise the tap puts a card on a board you would then have to switch spaces to see,
   // which reads as the write having failed.
-  const html = board({ workspace: 'beta', picker: true, roots: [{ ...CARD, workspace: 'beta', key: 'beta/zz-live' }] });
-  assert.doesNotMatch(html, /zz-next/, 'the picker ignored the workspace filter');
+  assert.doesNotMatch(cands({ workspace: 'beta' }), /zz-next/, 'the picker ignored the workspace filter');
 });
 
 await check('tracker text cannot write markup into the picker', () => {
-  const html = board({ picker: true, startable: [{ ...CANDIDATES[0], title: '<img src=x onerror=alert(1)>' }] });
+  const html = cands({ startable: [{ ...CANDIDATES[0], title: '<img src=x onerror=alert(1)>' }] });
   assert.doesNotMatch(html, /<img/, 'a bead title reached the DOM as markup');
   assert.match(html, /&lt;img/, 'the title was dropped rather than escaped');
+});
+
+console.log('\nthe board no longer offers it, and ＋ does\n');
+
+await check('THE FOOT OF THE BOARD CARRIES NO OFFER OF ITS OWN', () => {
+  // The bead. Two controls doing one thing, one of them at the far end of a scroller past
+  // every card on the board, is what the move undoes — so the section drawing it anyway
+  // is the regression, not a harmless leftover.
+  const html = board();
+  assert.doesNotMatch(html, /data-act="p0-pick"/, 'the board still has its own picker button');
+  assert.doesNotMatch(html, /Start an epic/, 'the board still offers to start one');
+  assert.doesNotMatch(html, /data-act="p0-start"/, 'the candidates are drawn into the board');
+});
+
+await check('THE CARD STILL OFFERS THE REVERSE — one tap, back to open', () => {
+  // Only the *start* half moved. Taking one off is a decision about a card that is on the
+  // screen, so it stays on the card.
+  const html = board();
+  assert.match(html, /data-act="p0-unstart" data-ws="alpha" data-bead="zz-live"/);
+  assert.match(html, /Take it off the board/);
+});
+
+await check('with nothing started the section is gone entirely, offer and all', () => {
+  // It used to draw a `bare` section holding the offer alone, because with the picker
+  // inside the section an empty board hid the one control that would end that state.
+  // ＋ is drawn on My Epics whether or not anything is started, so the requirement is met
+  // by a button that is always on screen and an empty box above the list is not needed.
+  assert.equal(board({ roots: [] }), '', 'an empty board still draws a section');
+  assert.equal(board({ roots: [], startable: [] }), '', 'an empty section is drawn where the flat inbox belongs');
+});
+
+console.log('\nwhat opens it\n');
+
+await check('＋ branches on the kind, and on the word the kind table gives it', () => {
+  // Not a list of kind ids in public/app.js: public/inboxfilter.js is the only place that
+  // knows what the six kinds are, and a second one is a second thing that can be wrong
+  // about them with nothing to say which is right.
+  const FILTER = read('public/inboxfilter.js');
+  assert.match(FILTER, /id: 'epics',[\s\S]{0,2000}?compose: 'epic',/, "the epics row does not say it creates an epic");
+  assert.match(FILTER, /creates: \(\) => BY_ID\.get\(current\(\)\)\?\.compose \|\| '',/, 'inboxfilter.js exposes no `creates()`');
+  const wiring = APP.slice(APP.indexOf("if (composeEl && composePickEl)"));
+  assert.match(
+    wiring,
+    /inboxFilter\?\.creates\?\.\(\) \|\| 'chat'\) === 'epic'\) \{\s*\n\s*showEpicPick\(\);/,
+    '＋ does not open the epic picker on My Epics'
+  );
+  // The fallback is the create ＋ has always made, for a page whose filter script never
+  // loaded — the same generosity `composes()` gets, for the same reason.
+  assert.ok(wiring.includes("|| 'chat'"), 'a page without inboxfilter.js gets no create at all');
+});
+
+await check('the panel it opens is inside the fixed wrapper, which is what removes the scroll problem', () => {
+  // The tap used to grow the board, which is *above* the inbox list, so the repaint was
+  // wrapped in `keepTheScreenStill` or the list's place-restore pushed the page down by
+  // exactly the height of what had opened. A panel in the fixed wrapper adds no flow
+  // height at all: there is nothing above the anchor to grow.
+  const HTML = read('public/index.html');
+  const wrap = HTML.slice(HTML.indexOf('<div class="compose-wrap">'));
+  const inside = wrap.slice(0, wrap.indexOf('</div>', wrap.indexOf('id="compose"')));
+  assert.ok(inside.includes('id="compose-epics"'), 'the epic picker is not inside .compose-wrap');
+  assert.ok(inside.includes('id="compose-epics-row"'), 'nothing in the panel holds the rows');
+  assert.doesNotMatch(APP, /p0-pick/, 'the board picker survived somewhere in public/app.js');
+  assert.doesNotMatch(APP, /state\.p0picker/, 'the picker still has page state behind it');
+});
+
+await check('and the rows in it reach the write, which is not on the list handler', () => {
+  // `[data-act]` delegation is on `#list` and the panel is not in it, so the rows need a
+  // listener of their own — and it tests `data-act` rather than `data-ws`, which the repo
+  // chips in the panel next door also carry and which means the other create entirely.
+  assert.match(
+    APP,
+    /\$\('#compose-epics-row'\)\?\.addEventListener\('click', \(ev\) => \{\s*\n\s*const cand = ev\.target\.closest\('\[data-act="p0-start"\]'\);\s*\n\s*if \(cand\) setOnBoard\(cand, true\);/,
+    'nothing in the panel starts an epic'
+  );
+  // One write, from both controls. A copy beside the panel is what would drift: the
+  // refusal handling is the feature rather than incidental to it.
+  assert.match(APP, /async function setOnBoard\(btn, on\)/, 'the shared write is gone');
+  assert.match(APP, /if \(act === 'p0-unstart'\) \{\s*\n\s*await setOnBoard\(btn, false\);/, 'the card control writes its own way');
 });
 
 /* ==================================================================== the routes */
