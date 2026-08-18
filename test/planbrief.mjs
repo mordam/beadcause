@@ -71,6 +71,57 @@ check(
 
 check('it says one group is one window in one checkout', /A group may not span repos/.test(plan));
 check('it says a bead is in exactly one group', /A bead belongs to exactly one group/.test(plan));
+
+/* What a group is FOR — bc-zjab.2. Nothing said this, so "these beads touch the same file"
+ * read as a reason to group, and on bc-y3qk four beads went into one window on exactly that
+ * reasoning. They ran as four windows anyway and merged as four pull requests seven minutes
+ * apart with no collision: the merge queue's downmerge had already made that safe, so the
+ * grouping bought protection that existed and cost three windows that did not run. Every
+ * check below is one sentence of that, and the reviewer's test for the lot is at the end. */
+check(
+  'it says what a group is for, rather than only what a group may not be',
+  /\*\*What a group is for\.\*\*/.test(plan) && /cannot sensibly be done apart/.test(plan),
+  'a planner told only the refusals invents its own reason to group'
+);
+check(
+  'the one-change test is two tests a planner can actually apply',
+  /decision\*? exists/.test(plan) && /half a mechanism in each pull request/.test(plan),
+  'a decision that does not exist yet, or a mechanism split down the middle'
+);
+check(
+  'it says in terms that a shared file is not a reason to group',
+  /Shared files are not a reason to group/.test(plan) && /"same subsystem"/.test(plan) && /"same\nauthor"/.test(plan),
+  'the two neighbouring wrong reasons go with it, or they are the next one used'
+);
+check(
+  'and names the downmerge as why a shared file is safe',
+  /downmerges the base into each branch before it merges it/.test(plan) && /serialised, not conflicted/.test(plan),
+  'without the mechanism it is an assertion a planner has every reason to doubt'
+);
+check(
+  'it says what over-grouping costs, because nothing else ever will',
+  /three windows that did not run/.test(plan) && /Over-grouping is silent/.test(plan),
+  'under-grouping announces itself; this is the failure with no reporter'
+);
+check(
+  'the file-overlap refusal points at ownership rather than at merging two groups',
+  /Decide which group owns the file/.test(plan) && /merging two groups that are not one change is the wrong way/.test(plan),
+  'otherwise the refusal reads as an instruction to group by file, which is the bug'
+);
+check(
+  'a planner reading it has a reason to split beads that only share a file',
+  plan.indexOf('**What a group is for.**') < plan.indexOf('Group the beads that only make sense done together'),
+  'the rule has to arrive before the instruction it governs'
+);
+
+/* And the other half of the same window — bc-zjab.3. The mark is written in lib/advocate.js
+ * and test/plandispatch.mjs pins the prefix; here it is only that the brief says a planner
+ * can check at all, and what the absence of a mark means. */
+check(
+  'it says how anyone tells afterwards whether the plan dispatched',
+  /How anyone tells afterwards whether the plan dispatched/.test(plan) && /dispatched:/.test(plan),
+  'a plan obeyed and a plan ignored look identical from every other surface'
+);
 check('it asks for the pull requests and their repos', /prs:/.test(plan) && /the checkout the pull request opens in/.test(plan));
 check('it names the command that files the plan', /bin\/plan\.js/.test(plan) && /-b x-1/.test(plan));
 check(

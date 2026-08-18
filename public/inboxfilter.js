@@ -11,19 +11,19 @@
   and amalgamated ten into six. They are the pill row across the top of every page now
   (public/viewbar.js); the argument for the row itself is in that file's header.
 
-  The remaining panel — `#filters`, one line at rest, opening on hover with a pointer
-  and on a tap without one — is still here, and everything below about it still holds.
-  It is `public/filtermenu.js` that draws it, shared with the History page's own; what
-  is left in it is the bead search and the two sub-filters, which narrow *within* the
-  pill you are on rather than choosing between pills. The scope went out onto the row in
-  front of it (bc-khoe.24, public/filterpills.js) for the same reason the kinds did, only
-  harder: it decides which sweep runs, so a scope nobody can see is a screen that is
-  empty for a reason that is off screen.
+  What was left behind them was one collapsed panel holding everything else, and
+  bc-khoe.26 took that apart the same way: the bead search and the two sub-filters are
+  **a pill each** on `#filters` now, each opening its own chips, none of them nested
+  under a summary line. `public/filtermenu.js` draws that row, shared with the History
+  page's own, and everything below about what a group *means* still holds — only the
+  container moved. The scope went out first (bc-khoe.24, public/filterpills.js) for the
+  same reason the kinds did, only harder: it decides which sweep runs, so a scope nobody
+  can see is a screen that is empty for a reason that is off screen.
 
   The seam is `mount()` at the foot: this file hands filtermenu.js a list of groups and
   is asked, on every paint, what each one looks like right now. Nothing about the inbox
   crosses it — `unmerged`, `agent-filed` are words filtermenu.js has never heard — and
-  nothing about the panel is decided here.
+  nothing about how a pill is drawn is decided here.
 
   ## The kinds
 
@@ -62,8 +62,8 @@
 
   ## The two sub-filters
 
-  A kind may carry a `sub`: a second group of chips that appears in the panel *only when
-  that kind's pill is selected*, and narrows within it. There are two, and the pair of
+  A kind may carry a `sub`: a second group of chips, on a filter pill of its own that is
+  offered *only when that kind's view pill is selected*, and narrows within it. There are two, and the pair of
   them is why the mechanism is worth having rather than being a special case for one
   screen.
 
@@ -74,18 +74,20 @@
 
   - **Its default is not "everything".** With no status chosen the list shows only what
     has *not merged* — `review`. A merged pull request is history, and history should be
-    asked for. Which is a filter you did not set, so the summary line says `unmerged`,
-    and there is no state in which the control claims to be showing you everything while
-    showing you one rung.
+    asked for. Which is a filter you did not set, so its pill reads `PR status:
+    unmerged` without being touched, and there is no state in which the control claims
+    to be showing you everything while showing you one rung.
   - **It applies whether or not its pill is selected.** The default above is about what
-    Home *is*, not about what you last tapped. The panel only stops offering the choice.
+    Home *is*, not about what you last tapped. The row only stops offering the choice —
+    and where it does, and the default is still biting, it says so as a note instead.
 
   **Bead status** is the second (bc-khoe.2) and it is deliberately the other way round:
   `claimed`, `blocked` and `unclaimed` were three pills' worth of one thing in three
   states, and none of the three is history. So it has no `fallback` — nothing chosen
-  means every rung — and the summary line says nothing about it until you choose one,
-  because a line reporting a filter that is not filtering is noise around the one that
-  is. `inSub` and `subSaid` are where those two behaviours part.
+  means every rung — and its pill is its legend and nothing else until you choose one,
+  because a control reporting a filter that is not filtering is noise around the one
+  that is. `inSub`, `subSaid` and the `narrowing()` in `subGroups` are where those two
+  behaviours part.
 
   ## What this does *not* touch
 
@@ -164,7 +166,7 @@
    *
    * `side` is which scope fetches it; see `usable`.
    *
-   * ## `filters` — which of the panel's groups this pill can use
+   * ## `filters` — which of the filter pills this view pill can use
    *
    * The kinds left the panel; what stayed behind is a bead search and two sub-filters,
    * and **not one of the three is relevant to every pill** (bc-khoe.3). PR status over
@@ -177,9 +179,10 @@
    * So each pill names the groups it can use, by id, and everything else follows from
    * the one list:
    *
-   * - the panel offers those groups' chips and hides the rest (`hidden`),
-   * - the summary line names only what is narrowing something this pill can hold
-   *   (`said`, and `subSaid` below for the one case where the two part company),
+   * - the row draws a pill for those groups and none for the rest (`hidden`),
+   * - and what is left narrowing something this pill can hold, with its own pill gone,
+   *   is confessed as a note (`said`, and `subSaid` below for the one case where the
+   *   two part company),
    * - and a selection the newly-picked pill cannot use is **dropped** rather than left
    *   narrowing a list it is not about — which is `set()`'s existing rule for a kind the
    *   new scope cannot produce, applied one level in.
@@ -219,7 +222,8 @@
       // Home with nothing narrowed holds every kind, so every group here *can* narrow
       // it — and only the search is offered all the same. The two sub-filters are the
       // second axis of a pill you have not picked, and offering both of them over a
-      // list that is mostly neither would be the collapsed panel of ten chips again.
+      // list that is mostly neither would be two more pills for a view you have not
+      // picked yet.
       // What they still do here is confessed on the line rather than dropped: see
       // `subSaid`, and the standing `unmerged` default it exists for.
       filters: ['bead'],
@@ -276,7 +280,7 @@
         id: 'status',
         legend: 'PR status',
         multi: true,
-        /** What no selection means, in the summary line. Not "All" — see the header. */
+        /** What no selection means, on the pill. Not "All" — see the header. */
         all: 'unmerged',
         /** And what it means to `matches()`: the first rung, the only unmerged one. */
         fallback: ['review'],
@@ -306,7 +310,7 @@
       // tracker, so it is under no bead and has no status — and `inBead` hides a row
       // that is not a bead outright rather than showing it, so a pick left over from
       // the pill next door empties this screen completely. Nothing narrows chats, so
-      // the panel has nothing to offer here and hides itself; see `mount`.
+      // the row has nothing to offer here and takes itself off screen; see `mount`.
       filters: [],
       // The original ＋, and the only one that already does its own thing: this list is
       // conversations, and the create is a conversation.
@@ -392,7 +396,15 @@
     sub: new Map(),
     /** Which kinds the current scope can actually contain, newest survey wins. */
     usable: KINDS.map((k) => k.id),
-    /** kind id → how many rows of it are in view, before this filter is applied. */
+    /**
+     * kind id → how many rows of it are in view, before this filter is applied.
+     *
+     * Two readers, and they want the same number for different jobs: `subSaid` asks
+     * whether a sub-filter is narrowing anything worth naming on the summary line, and
+     * `paint` pushes the whole map at the pill row, where four of the ids are drawn as a
+     * badge (public/viewbar.js). `epics` is in here too and is the only key not counted
+     * by the caller — see `survey`.
+     */
     counts: {},
     /** sub group id → option id → the same, one level down. */
     subCounts: {},
@@ -403,9 +415,6 @@
   const subOf = (kindId) => BY_ID.get(kindId)?.sub || null;
   const chosenSub = (kindId) => state.sub.get(kindId) || new Set();
   const subOptionIds = (sub) => sub.options().map((o) => o.id);
-
-  /** Is any sub-filter away from its default? Part of "this list is narrowed". */
-  const subNarrowed = () => KINDS.some((k) => k.sub && chosenSub(k.id).size > 0);
 
   /**
    * Does this row survive its own kind's sub-filter? True for a kind that has none.
@@ -632,6 +641,11 @@
    * `sub` is the level below — `{ status: { review: 2, merged: 30, … } }` — and those are
    * counted the other way round, over every PR row the space picker allowed, because
    * *that* is what picking one of those chips would leave you with.
+   *
+   * Since bc-khoe.23 these numbers are also what four of the pills say out loud, so the
+   * paragraph above is the badge's claim as well as the chip's: `Questions 4` is a
+   * promise about the screen a tap opens, and the only way to keep it is to count what
+   * this function counts, where it counts it.
    */
   function survey({ kinds, counts, sub } = {}) {
     if (sub && typeof sub === 'object') state.subCounts = sub;
@@ -642,14 +656,34 @@
       // paint anyway; a notify() here would re-enter it.
       if ([...state.on].some((id) => !state.usable.includes(id))) set([...state.on], { quiet: true });
     }
-    if (counts && typeof counts === 'object') state.counts = counts;
+    if (counts && typeof counts === 'object') {
+      /*
+        `epics` is derived here rather than counted by the caller, because it is a fact
+        about this file rather than about the render.
+
+        My Epics is a *place*, not a slice: it carries no `test`, so no row is ever of
+        that kind and a loop keying on `kindOf` can never produce a number for it. What
+        picking it does is clear the selection — and `matches()` with nothing selected is
+        `inSub()` alone, which is precisely the rows the caller has already counted, each
+        through its own sub-filter. So the sum of the slices *is* the number, and summing
+        them here means the two can never disagree about it.
+
+        Summed over the slices only, so an `epics` the caller passed cannot be counted
+        into its own total.
+      */
+      const rows = Object.entries(counts).reduce(
+        (n, [id, c]) => (BY_ID.get(id)?.test ? n + (Number(c) || 0) : n),
+        0
+      );
+      state.counts = { ...counts, epics: rows };
+    }
     paint();
   }
   /* ---------------------------------------------------------------- the groups */
 
   /*
-    Everything below is the inbox's half of the control: what a chip *means*. The panel
-    itself — the summary line, the open-and-close state machine, the chips as nodes —
+    Everything below is the inbox's half of the control: what a chip *means*. The row
+    itself — the pills, the open-and-close state machine, the chips as nodes —
     is public/filtermenu.js, shared with the History tab's own filter bar. It was here
     until there were two lists to narrow; the argument for splitting it is in that
     file's header, and the short version is that two copies of this panel would not have
@@ -657,23 +691,23 @@
     two screens.
   */
 
-  /** Extra chip groups the page puts in the same panel. */
+  /** Extra groups the page puts on the same row. */
   let pageGroups = [];
 
   /** The chrome, once mounted. `null` until then — see `paint`. */
   let chrome = null;
 
   /*
-    **There is no kinds group in the panel any more** (bc-khoe.2). There was — ten chips
+    **There is no kinds group here any more** (bc-khoe.2). There was — ten chips
     under a `Kinds` legend — and the whole of this bead is that ten categories behind a
     line you have to open is a navigation nobody can see. They are the pill row now
     (public/viewbar.js), which is on screen without being reached for.
 
-    What is left in the panel is what a pill cannot be: the bead search, which wants a
-    dropdown under it, and the two sub-filters below, which narrow *within* the pill you
-    are on rather than choosing between them. The scope was here too until bc-khoe.24 and
-    is a segmented switch in front of this panel now (public/filterpills.js). bc-khoe.26
-    is what takes the rest of it apart the same way.
+    What is left is what a *view* pill cannot be: the bead search, which wants a dropdown
+    under it, and the two sub-filters below, which narrow within the view you are on
+    rather than choosing between views. Each of those is a filter pill of its own since
+    bc-khoe.26, and the scope is the flat switch in front of them (bc-khoe.24,
+    public/filterpills.js) because three words fit on the chrome and five do not.
   */
 
   /**
@@ -681,7 +715,7 @@
    *
    * `parent` is what makes them different and it is read in exactly two places, both of
    * them here: the box is hidden unless the parent kind is selected (`hidden`), and the
-   * summary line mentions it under the rule in `subSaid` (`said`). filtermenu.js knows
+   * row confesses it as a note under the rule in `subSaid` (`said`). filtermenu.js knows
    * neither word — it asks the two questions and this file answers them.
    */
   const subGroups = () =>
@@ -701,6 +735,13 @@
             on: chosenSub(k.id).has(o.id),
           })),
         pick: (id) => toggleSub(k.id, id),
+        // Is this one showing you less than everything? Chosen rungs, or a default that
+        // narrows on its own — which is the whole difference between the two sub-filters
+        // and is why the pill has to ask rather than count what is pressed. PR status
+        // reads `unmerged` with nothing chosen; bead status reads its legend and stops,
+        // because `any status` is not a filter and a pill saying so would be noise
+        // beside the one that is.
+        narrowing: () => chosenSub(k.id).size > 0 || Boolean(k.sub.fallback),
       };
       g.hidden = () => !subOpen(g);
       g.said = () => subSaid(g);
@@ -710,7 +751,7 @@
   const allGroups = () => [...pageGroups, ...subGroups()];
 
   /**
-   * Which panel groups the lit pill can use — its `filters`, by id (bc-khoe.3).
+   * Which filter pills the lit view pill can use — its `filters`, by id (bc-khoe.3).
    *
    * Read off `current()` rather than off `state.on` so the empty selection answers as
    * `My Epics`, which is what it means. A pill the table has somehow lost offers
@@ -789,23 +830,23 @@
   const subOpen = (g) => offered(g.id);
 
   /**
-   * Does the summary line mention this sub group?
+   * Does the row admit to this sub group at all?
    *
    * Wider than "are its chips showing", deliberately. A status chosen while `PRs` was
    * selected goes on narrowing the list after you widen back to `My Epics`, and a
    * narrowing nothing on screen admits to is the one thing this control must never do.
    *
    * The third clause is the standing default, and it is why the group has to have one to
-   * qualify: PR status narrows with nothing chosen, so the line says `unmerged` over a
-   * screen with pull requests on it whether or not you touched the chips. Bead status
-   * narrows nothing with nothing chosen, so saying `any status` there would be the line
-   * reporting a filter that is not filtering — noise around the one that is.
+   * qualify: PR status narrows with nothing chosen, so `unmerged` is said over a screen
+   * with pull requests on it whether or not you touched the chips. Bead status narrows
+   * nothing with nothing chosen, so saying `any status` there would be chrome reporting
+   * a filter that is not filtering — noise around the one that is.
    *
    * **Both of the wider clauses are gated on `inView`** (bc-khoe.3), which is the other
    * half of the same rule and the one that is easy to miss. `counts` is taken before the
    * kind filter — that is what makes a pill's number the list it would open — so under
    * `Questions` there are still four pull requests counted and none of them in the list.
-   * Without the gate the line would read `unmerged` over a screen with no pull request
+   * Without the gate the row would read `unmerged` over a screen with no pull request
    * on it, which is this control's own failure in the mirror: naming a filter that is
    * not filtering is the same lie as hiding one that is.
    */
@@ -825,6 +866,11 @@
     // is the second place that knows this bead exists to remove. A no-op everywhere but
     // Home, where `mark` is what moves the lit pill.
     window.beadcause?.views?.mark?.(current());
+    // And the numbers on it, down the same channel and for the same reason. The row
+    // reads only the four ids it draws a badge for; what is in the rest of the map is
+    // this file's business, not its. Counted before the kind filter and after the space
+    // picker, so a badge is what tapping the pill would leave you with — see `survey`.
+    window.beadcause?.views?.counts?.(state.counts);
   }
 
   /**
@@ -837,36 +883,18 @@
    * public/filterpills.js takes, which is what let the scope move from this list to that
    * row without being rewritten.
    *
-   * `opts.narrowed` is the other half of that ownership. This file answers "are the kinds
-   * narrowed"; a page with a group of its own that hides rows has to say so, or the
-   * summary line stays quiet over a list that is missing most of itself.
+   * There is no `opts.narrowed` any more (bc-khoe.26). It was this file's and the page's
+   * two halves of one bold line over the whole panel, and there is no line left to bold:
+   * every group writes its own narrowing onto its own pill, which names the control
+   * doing it rather than only admitting that something is.
    */
   function mount(host, opts = {}) {
     if (!host || chrome) return null;
     pageGroups = (Array.isArray(opts.groups) ? opts.groups : []).map(adopt);
     if (typeof opts.onChange === 'function') listeners.push(opts.onChange);
-    const pageNarrowed = typeof opts.narrowed === 'function' ? opts.narrowed : () => false;
     chrome = window.beadcause.filterMenu.mount(host, {
       groups: allGroups,
       closeOnPick: opts.closeOnPick,
-      // What "this list is showing less than everything" means for the inbox. Not "some
-      // chip is pressed": the scope switch — on the row in front of this panel since
-      // bc-khoe.24 — always has exactly one, and `Both` is not a narrowing.
-      //
-      // `opts.narrowed` is the page's own half, for the same reason `opts.groups` is: a
-      // group the page owns narrows the page's list, and this file cannot know whether it
-      // has. The inbox's bead search is the one that does — a bead picked in it hides most
-      // of the screen, and a summary line that did not go bold over it would be the
-      // collapsed-filter risk this whole control was built against.
-      //
-      // **The selected kind is deliberately not part of this any more** (bc-khoe.2). It
-      // was, and had to be, while the kinds were chips inside the panel: a narrowing you
-      // could only see by opening something is the one this line exists to confess. They
-      // are a lit pill in the row above now, which is a stronger admission than a bold
-      // line and is on screen without being reached for — and a line that went bold for
-      // every pill but the leftmost would be bold nearly always, which is a signal that
-      // has stopped signalling.
-      narrowed: () => subNarrowed() || Boolean(pageNarrowed()),
     });
     return chrome ? chrome.root : null;
   }
@@ -978,7 +1006,7 @@
     inSub,
     /** Every kind the current scope can contain, in display order. */
     usable: () => [...state.usable],
-    /** The kinds' half of the summary line, for an empty state that has to explain itself. */
+    /** The kinds' half of what is narrowed, for an empty state that has to explain itself. */
     label: () => {
       const kinds =
         state.on.size === 0 ? 'all kinds' : [...state.on].map((id) => BY_ID.get(id).label.toLowerCase()).join(', ');

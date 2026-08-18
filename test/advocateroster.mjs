@@ -199,14 +199,31 @@ check('the roster is rebuilt from the graph every tick, and never persisted', ()
   );
 });
 
+check('the sweep’s per-epic record is readable from a request path — bc-r2b5.1', () => {
+  // The roster above is the *console's* view and is rebuilt every tick from the graph.
+  // The board card is a different surface with a different lifetime: it is drawn on a
+  // request, so it may not tick and may not spawn `bd`. `advocacy` is the seam — a `Map`
+  // get and two property reads off state the daemon has already persisted, so a board of
+  // twelve cards asking it twelve times costs nothing.
+  assert.match(daemon, /advocacy: \(workspace, id\) => \{/, 'the daemon exposes nothing the board card can read');
+  assert.match(daemon, /a\?\.advocated\?\.\[String\(id \|\| ''\)\]/, 'it must come off the persisted record, not be recomputed');
+  assert.match(daemon, /return rec \? \{ at: rec\.at \|\| null, hold: rec\.hold \|\| null \} : null;/);
+  // And the hold reason is written where that read finds it, rather than only logged: the
+  // sweep is the only thing that can see three of the five reasons.
+  assert.match(daemon, /keep\[epic\.id\] = \{ \.\.\.\(prev \|\| record\), hold: \{ why, at: iso\(\) \} \};/, 'the hold is not recorded');
+});
+
 /* ------------------------------------------------------------------- the page */
 
 check('the console draws a section per assigned epic, from the roster on the wire', () => {
   assert.match(daemon, /epicAdvocates: a\.epicAdvocates \|\| \[\]/, 'the roster is not in the snapshot');
-  assert.match(page, /function epicSections\(a, key\)/, 'nothing draws the sections');
+  // Matched open-ended rather than on the whole parameter list: bc-8t3b added a third
+  // argument (the split of beads held for endorsement), and none of the claims here are
+  // about how many arguments this function takes.
+  assert.match(page, /function epicSections\(a, key/, 'nothing draws the sections');
   assert.match(page, /epicsOf\(a\)\s*\n?\s*\.map\(\(e\)/, 'the sections are not built from the roster');
   assert.match(page, /section\(`\$\{key\}:epic:\$\{e\.id\}`/, 'the sections share a key, so opening one opens them all');
-  assert.match(page, /epicSections\(a, key\)/, 'they are built but never placed in the card');
+  assert.match(page, /epicSections\(a, key/, 'they are built but never placed in the card');
 });
 
 check('an epic with no window is drawn as fully as one with it, and says which reason', () => {

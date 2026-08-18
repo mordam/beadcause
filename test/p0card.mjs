@@ -44,13 +44,15 @@
  * 6. **Tracker text cannot write markup into the board.** A bead title is text out of
  *    `bd`; the escaped form is asserted present, not merely the raw tag absent.
  *
- * 7. **The section itself folds, and folding it must not lose anything** (bc-eevn). Three
- *    ways that goes wrong and none of them throws: the shut line drops the count, so a
- *    folded board is indistinguishable from a screen with no epics on it; the fold reaches
- *    into `state.p0open` and closes the tree you were reading; or it reaches the list
- *    underneath, and hiding a display quietly empties the inbox. The direction of the flag
- *    is checked too — it is stored shut-side-true so that every default there has ever
- *    been, including a state object written before the field existed, reads as open.
+ * 7. **The section no longer folds** (bc-khoe.28, undoing bc-eevn), and the way that rots
+ *    is a half-removal. My Epics is the board and nothing else now, so a control that put
+ *    the board away would leave the view blank — and `beadcause.p0shut` persisted it, so
+ *    one tap would have left it blank for good. Three ends are asserted gone rather than
+ *    one, because any of them left behind reads as live: the `data-act` on the heading,
+ *    the `aria-expanded` that made it a disclosure, and the state and its `localStorage`
+ *    key. What stays is the heading and both of its counts — how many epics, and how many
+ *    beads under them are asking you something — which is the only place a question four
+ *    levels down a tree nobody has opened is counted at all.
  *
  * 8. **One status filter over every tree at once** (bc-rfnr.9.6), and the half of it that
  *    fails silently is the ancestors. The rows are flat with an indent drawn off `depth`,
@@ -182,11 +184,10 @@ function lift(src, opener) {
  * faithful stand-in for the poll repaint that the feature has to survive. `status` is
  * `state.p0status` the same way: what the chips write, and the only thing the filter is.
  */
-function board(roots, open = [], shut = false, status = 'live') {
+function board(roots, open = [], status = 'live') {
   const state = {
     rootboard: { owned: true, roots, under: {} },
     p0open: new Set(open),
-    p0shut: shut,
     p0status: status,
     space: 'all',
     workspace: 'all',
@@ -199,7 +200,10 @@ function board(roots, open = [], shut = false, status = 'live') {
     // it draws the caret, and a board rendered without it throws rather than failing.
     p0beadopen: new Set(),
   };
-  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state });
+  // `byKey` answers "does the inbox payload have a row for this key" and is what
+  // `p0DoneHtml` gates the close offer on (bc-r2b5.2). Null here: no card in this suite is
+  // finished, so the only thing it decides is that nothing draws a close.
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state, byKey: () => null });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -233,6 +237,17 @@ function board(roots, open = [], shut = false, status = 'live') {
       // bc-d6yk's three-state control, which the acts row now calls rather than writing
       // a launch button by hand — and the local "just launched" note it reads.
       lift(APP, 'function openingHere(key)'),
+      // bc-r2b5.2's four states. `p0Control` derives them once through `p0AdvState` so the
+      // card, the tab and the advocate sheet cannot disagree about which one an epic is in;
+      // `relTime` comes with them because "last looked 3h ago" is the half of an idle card
+      // that makes idle readable, and `p0DoneHtml` because a finished epic offers the close
+      // from the acts row rather than leaving it to be found in the inbox.
+      lift(APP, 'function relTime(iso)'),
+      lift(APP, 'function p0AdvState(c)'),
+      lift(APP, 'function p0AdvWhen(s)'),
+      lift(APP, 'function p0AdvLine(s)'),
+      lift(APP, 'function p0DoneHtml(c)'),
+      lift(APP, 'function p0AdvOpenHtml(c, s)'),
       lift(APP, 'function p0Control(c)'),
       // bc-grut: the section is three renderers now — a grid cell, the tab a tap opens,
       // and the head both of them share so their counts cannot disagree.
@@ -382,7 +397,7 @@ check('and the collapsed card behind it keeps its own controls', () => {
 check('every descendant is drawn, at every depth, in the order the server sent', () => {
   // `all` rather than the default, so this stays a claim about the *renderer* — the fifth
   // row is closed, and what the default filter does with it is bc-rfnr.9.6's section below.
-  const html = board([CARD], ['beadcause/bc-rfnr'], false, 'all');
+  const html = board([CARD], ['beadcause/bc-rfnr'], 'all');
   const at = CARD.tree.map((r) => html.indexOf(`>${r.id}<`));
   for (const [i, n] of at.entries()) assert.notEqual(n, -1, `${CARD.tree[i].id} is missing from the tree`);
   assert.deepEqual(at, [...at].sort((a, b) => a - b), 'the tree is not in pre-order');
@@ -391,7 +406,7 @@ check('every descendant is drawn, at every depth, in the order the server sent',
 });
 
 check('the indent steps once per level and then stops', () => {
-  const html = board([CARD], ['beadcause/bc-rfnr'], false, 'all');
+  const html = board([CARD], ['beadcause/bc-rfnr'], 'all');
   assert.equal(indentOf(html, 'bc-rfnr.9'), 0, 'a direct child is indented');
   assert.equal(indentOf(html, 'bc-rfnr.9.2'), 1);
   assert.equal(indentOf(html, 'bc-rfnr.9.2.1'), 2);
@@ -426,28 +441,27 @@ check('AND THE COLLAPSED CARD CARRIES THE COUNT — bc-rfnr.9.7, four levels up'
   assert.ok(!other.includes('p0-card asks'));
 });
 
-check('and so does the section heading, which is all that is left when the board is folded', () => {
-  const shut = board([CARD, OTHER], [], true);
-  assert.ok(!shut.includes('p0-card'), 'the board is not actually folded');
-  assert.match(shut, /class="p0-kind-asks">1 asks you</);
-  assert.match(shut, /class="p0-kind-n">2</, 'the fold lost the count of epics');
+check('and so does the section heading, which is the only count for a tree nobody has opened', () => {
+  const head = board([CARD, OTHER]);
+  assert.match(head, /class="p0-kind-asks">1 asks you</);
+  assert.match(head, /class="p0-kind-n">2</, 'the heading lost the count of epics');
   // Plural, because "1 ask you" is the sort of thing that ships.
   const two = { ...OTHER, tree: OTHER.tree.map((r) => ({ ...r, pending: true })) };
-  assert.match(board([CARD, two], [], true), /class="p0-kind-asks">2 ask you</);
+  assert.match(board([CARD, two]), /class="p0-kind-asks">2 ask you</);
   // And nothing at all where nothing is waiting — an empty marker is a mark you stop
   // seeing.
-  assert.ok(!board([OTHER], [], true).includes('p0-kind-asks'));
+  assert.ok(!board([OTHER]).includes('p0-kind-asks'));
 });
 
 check('a status that is not `open` is named, and `open` is not restated sixty times', () => {
-  const html = board([CARD], ['beadcause/bc-rfnr'], false, 'all');
+  const html = board([CARD], ['beadcause/bc-rfnr'], 'all');
   assert.match(html, /class="pill st-in_progress">claimed/);
   assert.match(html, /class="pill st-closed">closed/);
   assert.equal((html.match(/st-open/g) || []).length, 0, 'every open row carries a pill saying open');
 });
 
 check('closed work recedes rather than disappearing where it is drawn', () => {
-  const html = board([CARD], ['beadcause/bc-rfnr'], false, 'all');
+  const html = board([CARD], ['beadcause/bc-rfnr'], 'all');
   assert.match(html, /class="p0-row done"/);
   assert.match(html, /A fifth, already landed/);
 });
@@ -548,11 +562,11 @@ check('the board is still one reconcile chunk, which is why the set has to exist
   assert.match(APP, /chunks\.push\(\{ key: '@p0', html: roots \}\)/);
 });
 
-console.log('\nthe section folds away');
+console.log('\nthe section no longer folds');
 
-check('the heading is the control, and it says what the section is', () => {
+check('the heading says what the section is, and is not a control', () => {
   const html = board([CARD, OTHER]);
-  assert.match(html, /<button type="button" class="p0-kind" data-act="p0-fold" aria-expanded="true"/);
+  assert.match(html, /<h2 class="p0-kind">/);
   assert.match(html, /Epics assigned to you/);
   // The old name, gone from the screen and from what a screen reader announces for the
   // region — both, because half a rename is a section that reads one way and is called
@@ -561,61 +575,45 @@ check('the heading is the control, and it says what the section is', () => {
   assert.match(html, /aria-label="Epics assigned to you"/);
 });
 
-check('shut, the cards are gone and the count is not', () => {
-  const html = board([CARD, OTHER], [], true);
-  assert.ok(!html.includes('p0-card'), 'a shut board is still drawing its cards');
-  assert.ok(!html.includes('The inbox is an epic board'), 'a shut board is still drawing its titles');
-  // How many epics are behind the fold. Without it, a folded board is indistinguishable
-  // from a screen with no epics on it — which is the one thing this section exists to
-  // never be (bc-rfnr.2).
+check('there is nothing on the board that puts the board away — bc-khoe.28', () => {
+  // The fold went with the list it revealed. My Epics is the board and nothing else, so a
+  // control that hid the board would leave the view blank; persisted in `localStorage`, as
+  // `beadcause.p0shut` was, it would have left it blank for good. All three ends of it are
+  // asserted gone, because any one left behind is a dead branch that reads as live.
+  const html = board([CARD, OTHER]);
+  assert.ok(!html.includes('p0-fold'), 'the board is still drawing a fold control');
+  // The heading alone — every card on the board is a disclosure of its own and keeps its
+  // `aria-expanded`, so a search over the whole section would never fail.
+  const head = html.slice(html.indexOf('<h2 class="p0-kind">'), html.indexOf('</h2>'));
+  assert.ok(head, 'the section has no heading at all');
+  assert.ok(!head.includes('aria-expanded'), 'the heading is still a disclosure');
+  assert.ok(!head.includes('<button'), 'the heading is still a button');
+  // Both ends of the state, and by shape rather than by token: the comment above
+  // `p0SectionHtml` names the key it used to write, and a bare search would find that and
+  // read the removal as incomplete.
+  assert.ok(!/state\.p0shut/.test(APP), 'public/app.js still carries the fold state');
+  assert.ok(!/(get|set)Item\('beadcause\.p0shut'/.test(APP), 'the fold is still persisted');
+});
+
+check('and the cards, the picker and the open tab are always drawn with it', () => {
+  // What the fold used to take away. There is no state left that can hide any of them, so
+  // this is the claim that replaces "shut, the cards are gone": the board is one thing.
+  const html = board([CARD, OTHER], ['beadcause/bc-rfnr']);
+  assert.ok(html.includes('p0-card'), 'the board drew no cards');
+  assert.ok(html.includes('The inbox is an epic board'), 'the board drew no titles');
+  assert.ok(html.includes('p0-tree'), 'the open epic lost its tree');
   assert.match(html, /class="p0-kind-n">2</);
-  assert.match(html, /aria-expanded="false"/);
-  assert.match(html, /Epics assigned to you/);
 });
 
-check('the fold is display only — what was open inside it is still open when it comes back', () => {
-  const shut = board([CARD, OTHER], ['beadcause/bc-rfnr'], true);
-  assert.ok(!shut.includes('p0-tree'), 'a shut board is drawing a tree');
-  const back = board([CARD, OTHER], ['beadcause/bc-rfnr'], false);
-  assert.ok(back.includes('p0-tree'), 'unfolding the board lost the tree that was open');
-  assert.equal(back, board([CARD, OTHER], ['beadcause/bc-rfnr']), 'shut defaults to open');
-});
-
-check('an absent `p0shut` is an open board, on every state object that predates the field', () => {
-  // The direction of the flag is the whole safety argument: stored shut-side-true, every
-  // default there has ever been — an older page, a missing localStorage key, a state
-  // object built before bc-eevn — reads as the board showing.
-  assert.ok(board([CARD], [], undefined).includes('p0-card'));
-  assert.match(APP, /p0shut: localStorage\.getItem\('beadcause\.p0shut'\) === '1'/);
-});
-
-check('the tap writes the preference as well as the state, and pokes no DOM', () => {
-  const at = APP.indexOf("if (act === 'p0-fold') {");
-  assert.notEqual(at, -1, 'the fold handler is gone');
-  const branch = APP.slice(at, at + 1400);
-  const body = branch.slice(0, branch.indexOf('\n    }'));
-  assert.match(body, /state\.p0shut = !state\.p0shut/);
-  // Persisted on the tap. The next thing that happens to this page is a poll, and there
-  // is no later save — a reload before the write is the fold undoing itself.
-  assert.match(body, /localStorage\.setItem\('beadcause\.p0shut'/);
-  // And through `keepTheScreenStill`, bc-rfnr.9.9. Unfolding the board inserts the whole
-  // section above the list, which is the anchor's blind spot exactly as a tree is — see
-  // the same assertion on the card's own tap below.
-  assert.match(body, /keepTheScreenStill\(\(\) => render\(true\)\)/);
-  assert.ok(!/classList|\.hidden|innerHTML|querySelector/.test(body), 'the fold is reaching into the DOM');
-  // And it leaves the cards' own open set alone: folding the board away is putting it
-  // down, not closing the epic you were reading in it.
-  assert.ok(!body.includes('p0open'), 'folding the board also closed the trees inside it');
-});
-
-check('folding changes nothing about the list underneath', () => {
-  // `underOwnedRoots` is what narrows the inbox to your epics' descendants, and it reads
-  // the board data rather than whether the board is on screen. A fold that narrowed the
-  // list too would be a control that quietly empties the inbox.
+check('the list under the board is the render’s business, not the board’s', () => {
+  // `underOwnedRoots` removes your epics' descendants from the inbox, and it reads the
+  // board *data*. Which view is up is `render`'s decision (`boardHere`/`listHere`,
+  // bc-khoe.28) and must not reach in here: a filter that knew which pill was lit would
+  // mean the rows on Questions depended on where you had been, not on what is waiting.
   const at = APP.indexOf('function underOwnedRoots(rows)');
   assert.notEqual(at, -1, 'underOwnedRoots is gone');
   const fn = APP.slice(at, APP.indexOf('\n  }', at));
-  assert.ok(!fn.includes('p0shut'), 'the inbox filter is reading whether the board is folded');
+  assert.ok(!/boardHere|listHere|inboxFilter/.test(fn), 'the inbox filter is reading which view is up');
 });
 
 console.log('\none status filter, in the tab with the tree it narrows');
@@ -694,7 +692,7 @@ check('THE FILTER CANNOT HIDE A QUESTION — bc-rfnr.9.7', () => {
   // `Closed` is one tap, and before this it took every open question in the tracker off
   // the screen with it: the tree is the only place a question is drawn now, so a filter
   // that could exclude one is a filter that loses it. The row is still drawn as itself.
-  const html = board([CARD], ['beadcause/bc-rfnr'], false, 'closed');
+  const html = board([CARD], ['beadcause/bc-rfnr'], 'closed');
   assert.match(html, />bc-rfnr\.9\.2\.1</, 'the closed filter took the pending bead away');
   assert.match(html, /asks you/);
   // Its ancestors come with it, for the reason every kept row's do — a row indented under
@@ -725,7 +723,7 @@ check('the default survives a page that has never stored one, and an id it does 
   // An absent key and a value from some other version both read as the default rather
   // than as a board with no chip pressed and an empty tree under it.
   for (const stored of [undefined, '', 'archived']) {
-    const html = board([MIX], ['beadcause/bc-mix'], false, stored);
+    const html = board([MIX], ['beadcause/bc-mix'], stored);
     assert.ok(html.includes('bc-mix.1.1'), `a stored \`${stored}\` drew an empty tree`);
     assert.equal(chips(html).find((c) => c.on)?.id, 'live', `a stored \`${stored}\` pressed the wrong chip`);
   }
@@ -750,17 +748,17 @@ check('the pick is one pick, and whichever epic you open next obeys it', () => {
   // you reach it. So it cannot be per-card by accident: opening either epic under the
   // same stored pick gives the same answer.
   assert.ok(
-    board([CARD, MIX], ['beadcause/bc-rfnr'], false, 'closed').includes('bc-rfnr.9.2.1.1.1'),
+    board([CARD, MIX], ['beadcause/bc-rfnr'], 'closed').includes('bc-rfnr.9.2.1.1.1'),
     'the first epic ignored the stored pick'
   );
   assert.ok(
-    board([CARD, MIX], ['beadcause/bc-mix'], false, 'closed').includes('bc-mix.2.1'),
+    board([CARD, MIX], ['beadcause/bc-mix'], 'closed').includes('bc-mix.2.1'),
     'the second epic ignored the stored pick'
   );
 });
 
 check('selecting closed shows closed descendants with their ancestors intact', () => {
-  const html = board([CARD], ['beadcause/bc-rfnr'], false, 'closed');
+  const html = board([CARD], ['beadcause/bc-rfnr'], 'closed');
   // The one closed bead in this tree is five deep. Every ancestor between it and the card
   // is drawn — without them the row indents under whatever preceded it, which is a
   // different bead's child.
@@ -775,7 +773,7 @@ check('selecting closed shows closed descendants with their ancestors intact', (
 });
 
 check('a row kept only for its children says so, and still opens its own bead', () => {
-  const html = board([CARD], ['beadcause/bc-rfnr'], false, 'closed');
+  const html = board([CARD], ['beadcause/bc-rfnr'], 'closed');
   assert.equal(rowClass(html, 'bc-rfnr.9'), 'p0-row via', 'an ancestor kept for its child is not marked');
   const row = html.slice(html.lastIndexOf(ROW_OPEN, html.indexOf('>bc-rfnr.9<')), html.indexOf('>bc-rfnr.9<'));
   // Held up for its child and still a tap of its own. Since bc-rfnr.9.4 that tap expands
@@ -796,7 +794,7 @@ check('both directions of an excluded parent are held up', () => {
   assert.match(live.slice(live.indexOf('>bc-mix.1<') - 500, live.indexOf('>bc-mix.1<')), /p0-row done via|p0-row via/);
   assert.ok(live.includes('>bc-mix.1.1<'));
   // Open parent, closed child, the other way round.
-  const closed = board([MIX], ['beadcause/bc-mix'], false, 'closed');
+  const closed = board([MIX], ['beadcause/bc-mix'], 'closed');
   assert.ok(closed.includes('>bc-mix.2<'), 'an open parent was dropped and its closed child orphaned');
   assert.ok(closed.includes('>bc-mix.2.1<'));
   // And nothing that neither matched nor holds anything up comes along for the ride.
@@ -825,7 +823,7 @@ check('the summary on the board does not move when the filter does', () => {
   // because of something not on the screen, on a grid where nothing else moved at all. So
   // the collapsed card counts the whole tree and the filter cannot reach it. bc-grut.
   for (const pick of ['live', 'all', 'closed']) {
-    assert.match(board([MIX], [], false, pick), /2 of 5 done/, `the card moved under \`${pick}\``);
+    assert.match(board([MIX], [], pick), /2 of 5 done/, `the card moved under \`${pick}\``);
   }
   // And an epic the filter empties still says so — inside the tab, where the control is,
   // rather than "nothing filed under it yet", which is the tracker's fact and not the
@@ -836,8 +834,8 @@ check('the summary on the board does not move when the filter does', () => {
 });
 
 check('the pick is page state, persisted — so it survives a repaint and a reload', () => {
-  const once = board([CARD, MIX], ['beadcause/bc-mix'], false, 'closed');
-  const twice = board([CARD, MIX], ['beadcause/bc-mix'], false, 'closed');
+  const once = board([CARD, MIX], ['beadcause/bc-mix'], 'closed');
+  const twice = board([CARD, MIX], ['beadcause/bc-mix'], 'closed');
   assert.equal(once, twice, 'the same state drew two different boards');
   assert.ok(once.includes('bc-mix.2.1'), 'the repaint lost the filter');
   // The board is one reconcile chunk replaced whole every 25 seconds, so a filter applied
@@ -865,16 +863,17 @@ check('it narrows the trees and nothing else — the list below is untouched', (
   assert.ok(!APP.slice(at, APP.indexOf('\n  }', at)).includes('p0status'), 'the inbox filter is reading the board filter');
 });
 
-check('the fold takes the tab, the filter and everything else with it', () => {
-  // The tab goes away with the cards like everything else the fold hides — and that is
-  // bc-eevn's rule rather than an exception to it, because unfolding brings back the epic
-  // that was open. Shut-with-one-open is not a state a tap can reach either way: the
-  // fold's own control is behind the tab whenever there is one.
-  const html = board([CARD, MIX], ['beadcause/bc-mix'], true);
-  assert.equal(chips(html).length, 0, 'a shut board is still drawing its filter');
-  assert.ok(!html.includes('p0-full'), 'a shut board is still drawing an open tab over it');
-  assert.match(html, /class="p0-kind-n">2</);
-  assert.ok(board([CARD, MIX], ['beadcause/bc-mix'], false).includes('p0-full'), 'unfolding lost the open epic');
+check('the filter is in the tab, so a board with nothing open draws no chips', () => {
+  // The chips moved into the tab with the tree they narrow (bc-grut), which is the whole
+  // of why a collapsed board has none: a control over things that are not on screen is a
+  // control you set and cannot see the effect of. Until bc-khoe.28 this was asserted
+  // through the fold, which is one of the two ways to have no tab open; it is now the
+  // only one.
+  const shut = board([CARD, MIX]);
+  assert.equal(chips(shut).length, 0, 'a board with no epic open is still drawing its filter');
+  assert.ok(!shut.includes('p0-full'), 'a board with no epic open is still drawing a tab over it');
+  assert.match(shut, /class="p0-kind-n">2</);
+  assert.ok(board([CARD, MIX], ['beadcause/bc-mix']).includes('p0-full'), 'opening an epic lost its tab');
 });
 
 check('a context row is dashed rather than dimmed again, so a closed one stays readable', () => {
@@ -913,7 +912,7 @@ check('a title out of the tracker cannot write markup into the board', () => {
 
 check('the three no-op cases are untouched: no `me`, no P0s, an old payload', () => {
   assert.equal(board([]), '');
-  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state: { rootboard: { owned: false, roots: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map(), p0picker: false } });
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, byKey: () => null, state: { rootboard: { owned: false, roots: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map(), p0picker: false } });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -940,6 +939,17 @@ check('the three no-op cases are untouched: no `me`, no P0s, an old payload', ()
       // bc-d6yk's three-state control, which the acts row now calls rather than writing
       // a launch button by hand — and the local "just launched" note it reads.
       lift(APP, 'function openingHere(key)'),
+      // bc-r2b5.2's four states. `p0Control` derives them once through `p0AdvState` so the
+      // card, the tab and the advocate sheet cannot disagree about which one an epic is in;
+      // `relTime` comes with them because "last looked 3h ago" is the half of an idle card
+      // that makes idle readable, and `p0DoneHtml` because a finished epic offers the close
+      // from the acts row rather than leaving it to be found in the inbox.
+      lift(APP, 'function relTime(iso)'),
+      lift(APP, 'function p0AdvState(c)'),
+      lift(APP, 'function p0AdvWhen(s)'),
+      lift(APP, 'function p0AdvLine(s)'),
+      lift(APP, 'function p0DoneHtml(c)'),
+      lift(APP, 'function p0AdvOpenHtml(c, s)'),
       lift(APP, 'function p0Control(c)'),
       lift(APP, 'const p0AsksHtml = '),
       lift(APP, 'function p0FaceHtml(c, asks, tail'),
@@ -1036,19 +1046,18 @@ check('the progress bar has a visible empty track, so nothing landed is not noth
   assert.match(CSS, /\.p0-bar-fill \{[^}]*background: var\(--accent\)/);
 });
 
-check('the heading is a real tap target, and the count sits at the far end', () => {
+check('the heading is a label rather than a target, and the count sits at the far end', () => {
   const at = CSS.indexOf('.p0-kind {');
   assert.notEqual(at, -1, 'public/style.css has no .p0-kind');
   const rule = CSS.slice(at, CSS.indexOf('}', at));
-  // Shut, this line is the only way back to the board — so it is a thumb target rather
-  // than the 11px label it used to be, and it is the width of the section.
-  assert.match(rule, /min-height: var\(--tap\)/);
   assert.match(rule, /width: 100%/);
+  // The thumb-sized height and the pointer went with the fold (bc-khoe.28). A line with
+  // `cursor: pointer` and 44px of tappable space that does nothing when you press it is
+  // worse than a plain heading, because the phone says it is a control.
+  assert.ok(!/min-height: var\(--tap\)/.test(rule), 'the heading is still sized as a tap target');
+  assert.ok(!/cursor: pointer/.test(rule), 'the heading still says it can be pressed');
   const n = CSS.slice(CSS.indexOf('.p0-kind-n {'), CSS.indexOf('}', CSS.indexOf('.p0-kind-n {')));
   assert.match(n, /margin-left: auto/);
-  // The chevron the fold turns is the shared one, so it rotates off `aria-expanded`
-  // rather than off a second rule that could drift from it.
-  assert.match(CSS, /\[aria-expanded='true'\] > \.chev/);
 });
 
 console.log(`\n${failures ? `\x1b[31m${failures} of ${ran} failed\x1b[0m` : `\x1b[32mall good\x1b[0m (${ran})`}\n`);

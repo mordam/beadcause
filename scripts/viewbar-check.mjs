@@ -36,6 +36,20 @@
 //     `scrollLeft` starts at 0, so the pill that says where you are is the one most
 //     likely to be off the right-hand edge — on the one screen where it matters most.
 //
+// A third arrived with bc-khoe.23 and it is the only one this file feeds real data for:
+//
+//   * **four of the pills carry a count, on Home and nowhere else.** Which four is read
+//     out of `PILLS` like everything else here, so a pill gaining or losing its badge is
+//     an edit to the row rather than to this file. What the numbers have to *be* is the
+//     part a static read cannot reach, so the fixture below serves a known list — three
+//     questions, two chats, three pull requests of which one is merged — and the badges
+//     are asserted against those numbers, through the real app.js, the real filter and
+//     the real row. The merged one is the point of the third: `PRs` is counted through
+//     its own sub-filter, which shows unmerged unless you ask for more, so a badge
+//     saying 3 there would be the pill promising a screen it does not open. Then each
+//     pill is tapped and the list it leaves is counted, because "the number agrees with
+//     the list" is the whole claim and it is one the numbers alone cannot make.
+//
 // ## The pill list is read, never repeated
 //
 // `PILLS` in `public/viewbar.js` is the one place a view is added, and it keeps moving:
@@ -46,8 +60,10 @@
 // believed — the same run that took the row from four pills to seven was green here
 // without a line of this file changing. So the array is read out of the source the way
 // `test/mirrorpane.mjs` reads it, and everything below is derived from it: which pills
-// there should be, in what order, and — from each pill's own `paths` — which one should
-// be lit on the page being looked at.
+// there should be, in what order, and — from `VIEWS` in `public/hashroute.js`, which is
+// where each view's addresses live since bc-khoe.30.2 — which one should be lit on the
+// page being looked at. Two source files rather than one, because they are two questions:
+// what the row draws, and what an address means.
 //
 // The *page* list is derived too. Every `public/*.html` that pulls in `/viewbar.js` has
 // to appear below, and a page that starts drawing the row without being added here fails
@@ -58,11 +74,13 @@
 // Three shapes, and the difference between them is what a tap should do. The current one
 // is a `<span aria-current="page">` with no href, because tapping where you already are
 // should do nothing. Every other one is either an `<a href>` — a pill that goes
-// somewhere — or a `<button type="button">` carrying the id the row's own click listener
-// acts on, which is what a pill that moves a filter over rows already in hand looks like
-// (bc-khoe.2). What is asserted is that a non-current pill is one of those two and never
-// a dead `<span>`, because *that* is the failure worth catching and it is the one a
-// rewrite of the row can introduce without touching a stylesheet.
+// somewhere — or a `<button type="button">` carrying an id the row's own click listener
+// acts on. There are two of those ids and a button may carry either or both:
+// `data-kind` moves a filter over rows already in hand (bc-khoe.2), and `data-pane` shows
+// a view this document already holds rather than fetching it (bc-khoe.30.3). What is
+// asserted is that a non-current pill is one of those two shapes and never a dead
+// `<span>`, because *that* is the failure worth catching and it is the one a rewrite of
+// the row can introduce without touching a stylesheet.
 //
 // Not part of `npm test`: it wants Chrome. `test/shell.mjs` is the static half that is —
 // it holds the 44px floor as a declaration in `public/style.css`. This is the half that
@@ -72,6 +90,7 @@ import http from 'node:http';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { toQuestion } from '../lib/decision.js';
 import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -112,32 +131,35 @@ const decomment = (src) =>
  * point of this file is that there is no hardcoded list, and a check that quietly falls
  * back to one is a check that goes on passing after the row has changed underneath it.
  */
-function pillsFromSource() {
-  const src = decomment(fs.readFileSync(path.join(PUBLIC, 'viewbar.js'), 'utf8'));
-  const m = src.match(/const PILLS = (\[[\s\S]*?\n {2}\]);/);
+function arrayFromSource(file, name) {
+  const src = decomment(fs.readFileSync(path.join(PUBLIC, file), 'utf8'));
+  const m = src.match(new RegExp(`const ${name} = (\\[[\\s\\S]*?\\n {2}\\]);`));
   if (!m) {
     console.error(
-      'could not find the PILLS array in public/viewbar.js — this check reads the row\'s own list\n' +
-        'rather than repeating it, so a rename or a reshape of that array has to be reflected here.'
+      `could not find the ${name} array in public/${file} — this check reads the row's own lists\n` +
+        'rather than repeating them, so a rename or a reshape of that array has to be reflected here.'
     );
     process.exit(1);
   }
   try {
     return vm.runInNewContext(`(${m[1]})`, Object.create(null), { timeout: 1000 });
   } catch (err) {
-    console.error(`public/viewbar.js's PILLS array did not evaluate as data: ${err.message}`);
+    console.error(`public/${file}'s ${name} array did not evaluate as data: ${err.message}`);
     process.exit(1);
   }
 }
 
-const PILLS = pillsFromSource();
+const PILLS = arrayFromSource('viewbar.js', 'PILLS');
+/* Which addresses are which view. A view's id is its pill's id on purpose, so this joins
+   to the array above by that id and no mapping is written down anywhere. */
+const VIEWS = arrayFromSource('hashroute.js', 'VIEWS');
 const IDS = PILLS.map((p) => p.id);
 
 /** The path a pill claims, normalised the way the row itself normalises `location`. */
 const norm = (p) => p.replace(/\/+$/, '') || '/';
 
 /**
- * Which pill should be lit on this path, per the row's own `paths` — or `null`.
+ * Which pill should be lit on this path, per `VIEWS` in public/hashroute.js — or `null`.
  *
  * `null` is a real answer and not a gap. /console, /endorse, /flow, /requirements and
  * /admin are pages the row is drawn on and none of them is a view: /admin in particular
@@ -145,7 +167,7 @@ const norm = (p) => p.replace(/\/+$/, '') || '/';
  * in the mark's menu and on no row). A pill lit there would be a lie about where you are,
  * so "nothing is current" is asserted just as firmly as "this one is".
  */
-const litFor = (urlPath) => PILLS.find((p) => p.paths?.includes(norm(urlPath)))?.id ?? null;
+const litFor = (urlPath) => VIEWS.find((v) => v.paths.includes(norm(urlPath)))?.id ?? null;
 
 /* ---------------------------------------------------------------- the fixture */
 
@@ -160,6 +182,50 @@ const SPACEPAY = {
   workspaces: WORKSPACES,
   filter: { space: 'all', workspace: 'all' },
 };
+
+/*
+  A known list, for the four counts (bc-khoe.23).
+
+  Three questions, two chat sessions and three pull requests — and the third pull request
+  is `merged`, which is what makes `PRs 2` rather than `PRs 3` the right answer: the kind
+  is counted through its own status sub-filter, and that filter shows unmerged unless you
+  ask for more. So the expected numbers below are arithmetic on this fixture and not a
+  copy of what the app happened to print, which is the difference between a check and a
+  screenshot.
+
+  `My Epics` is every row that survives its own sub-filter — 3 + 2 + 2 — because picking
+  it clears the selection rather than choosing a kind. That is the number this file is
+  least able to derive by reading the source and the one most worth asserting.
+*/
+const WS = 'beadcause';
+const QUESTIONS = ['bc-a1', 'bc-a2', 'bc-a3'].map((id) =>
+  toQuestion(WS, {
+    id,
+    title: `Which way should ${id} go?`,
+    issue_type: 'task',
+    status: 'open',
+    priority: 2,
+    created_at: '2026-08-01T09:00:00Z',
+    updated_at: '2026-08-01T09:00:00Z',
+    comment_count: 0,
+    dependent_count: 0,
+    description: 'A plain question, waiting on a word from you.',
+  })
+);
+
+const CONSOLES = [
+  { id: 'c1', workspace: WS, title: 'What to file next', state: 'yours', updatedAt: '2026-08-01T09:00:00Z' },
+  { id: 'c2', workspace: WS, title: 'The other one', state: 'yours', updatedAt: '2026-08-01T09:00:00Z' },
+];
+
+const PRS = [
+  { key: `${WS}#1`, number: 1, workspace: WS, repoKey: WS, title: 'The first one', stage: 'review', beads: [] },
+  { key: `${WS}#2`, number: 2, workspace: WS, repoKey: WS, title: 'The second one', stage: 'review', beads: [] },
+  { key: `${WS}#3`, number: 3, workspace: WS, repoKey: WS, title: 'Already landed', stage: 'merged', beads: [] },
+];
+
+/** What the badges must say, derived from the fixture above rather than from the app. */
+const WANT = { epics: 7, question: 3, pr: 2, session: 2 };
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -189,6 +255,8 @@ const ROUTES = {
   '/requirements': '/requirements.html',
   '/skills': '/skills.html',
   '/admin': '/admin.html',
+  '/sounds': '/sounds.html',
+  '/audition': '/sounds.html',
 };
 
 /* Every URL the fixture was asked for, in order. One assertion needs it: "tapping All
@@ -206,9 +274,29 @@ function serve() {
     };
     if (p === '/api/spaces') return json(SPACEPAY);
     if (p === '/api/questions')
-      return json({ questions: [], consoles: [], ...SPACEPAY, scope: 'human', summary: { sessions: 0, proposals: 0 } });
+      return json({
+        questions: QUESTIONS,
+        requests: [],
+        consoles: CONSOLES,
+        ...SPACEPAY,
+        scope: 'human',
+        /* The board's own narrowing off. It is not what this file is about, and with it
+           on the list would be filtered by which epics the fixture pretends you own —
+           which is a different check's argument (test/underownedroots.mjs) and would
+           make every number below depend on it. */
+        rootboard: { roots: [], under: {}, unhomed: {}, owned: false },
+        summary: { questions: QUESTIONS.length, sessions: CONSOLES.length, proposals: 0 },
+        seq: 1,
+      });
     if (p === '/api/work') return json({ workspaces: [], advocates: [], elsewhere: [], ...SPACEPAY });
-    if (p === '/api/prs') return json({ unavailable: null, build: null, counts: {}, repos: [], ...SPACEPAY });
+    if (p === '/api/prs')
+      return json({
+        unavailable: null,
+        build: null,
+        counts: {},
+        repos: [{ key: WS, workspace: WS, repo: WS, prs: PRS }],
+        ...SPACEPAY,
+      });
     if (p === '/api/consoles') return json({ consoles: [], ...SPACEPAY });
     if (p === '/api/unendorsed') return json({ beads: [], counts: {}, truncated: false, errors: [], ...SPACEPAY });
     if (p === '/api/requirements') return json({ areas: [], requirements: [], ...SPACEPAY });
@@ -272,6 +360,7 @@ const PAGES = [
   { url: '/requirements', file: 'requirements.html' },
   { url: '/skills', file: 'skills.html' },
   { url: '/admin', file: 'admin.html' },
+  { url: '/sounds', file: 'sounds.html' },
 ];
 
 /**
@@ -388,6 +477,11 @@ const PROBE = `(() => {
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     out.plus = { w: Math.round(r.width), h: Math.round(r.height), takes: !!hit && (hit === plus || plus.contains(hit)), hit: hit ? name(hit) : null };
   }
+  /* How many rows the list is actually showing. What a badge promises, measured on the
+     screen the tap opens. '.card' rather than 'article.card': a chat row is a <div> with
+     the same class, because it borrows the launcher's row markup (see chatRowHtml in
+     public/app.js), and counting articles alone quietly reports Chats as empty. */
+  out.rows = document.querySelectorAll('#list .card[data-key]').length;
   if (!nav) return out;
   const cs = getComputedStyle(nav);
   const nr = nav.getBoundingClientRect();
@@ -403,6 +497,14 @@ const PROBE = `(() => {
       href: el.getAttribute('href'),
       current: el.getAttribute('aria-current'),
       kind: el.dataset.kind || null,
+      pane: el.dataset.pane || null,
+      /* The badge, as the text it is showing — \`null\` where there is no badge node at
+         all, which is a different answer from an empty one and is what "off Home none of
+         them carries a number" has to be asserted on. */
+      count: (() => {
+        const b = el.querySelector('.viewpill-count');
+        return b ? b.textContent.trim() : null;
+      })(),
       type: el.getAttribute('type'),
       w: Math.round(r.width),
       h: Math.round(r.height),
@@ -570,18 +672,18 @@ try {
         );
       } else bad(`${at}: the row scrolls sideways`, `overflow-x is ${m.overflowX} — a row that cannot scroll is a row that wraps or clips`);
 
-      // Exactly what the row's own `paths` say is current, and nothing where they say nothing.
+      // Exactly what the view table's `paths` say is current, and nothing where they say nothing.
       const cur = m.pills.filter((p) => p.current === 'page');
       if (cur.length === (want ? 1 : 0) && cur[0]?.id === (want ?? undefined))
         ok(
           want
-            ? `${at}: "${want}" is the one current pill — public/viewbar.js's own paths say so`
-            : `${at}: no pill is current, which is what the row's paths say for this page`
+            ? `${at}: "${want}" is the one current pill — public/hashroute.js's VIEWS say so`
+            : `${at}: no pill is current, which is what the view table says for this page`
         );
       else
         bad(
           want ? `${at}: "${want}" is the one current pill` : `${at}: no pill is current on this page`,
-          `aria-current is on ${cur.length ? cur.map((p) => p.id).join(', ') : 'nothing'}; the row's paths say ${want ?? 'nothing'}`
+          `aria-current is on ${cur.length ? cur.map((p) => p.id).join(', ') : 'nothing'}; the view table says ${want ?? 'nothing'}`
         );
 
       // Tapping where you are does nothing — and the mark is not only colour.
@@ -598,12 +700,12 @@ try {
          and the row is `.after()`'d onto whatever markup the page has above it. */
       const dead = m.pills
         .filter((p) => p.current !== 'page')
-        .filter((p) => !(p.tag === 'A' && p.href) && !(p.tag === 'BUTTON' && p.kind && p.type === 'button'));
+        .filter((p) => !(p.tag === 'A' && p.href) && !(p.tag === 'BUTTON' && (p.kind || p.pane) && p.type === 'button'));
       if (!dead.length)
         ok(
           `${at}: every other pill is a link or a button (${m.pills
             .filter((p) => p.current !== 'page')
-            .map((p) => `${p.id} ${p.tag === 'A' ? p.href : `→${p.kind}`}`)
+            .map((p) => `${p.id} ${p.tag === 'A' ? p.href : `→${[p.pane && `#${p.pane}`, p.kind].filter(Boolean).join('+')}`}`)
             .join(', ')})`
         );
       else
@@ -612,8 +714,8 @@ try {
           dead
             .map((p) =>
               p.tag === 'BUTTON'
-                ? `"${p.id}" is a <button type="${p.type || '(none)'}"${p.kind ? '' : ' with no data-kind'}> — the row's listener will not act on it`
-                : `"${p.id}" is a <${p.tag.toLowerCase()}> with no href and no data-kind — it is drawn but does nothing`
+                ? `"${p.id}" is a <button type="${p.type || '(none)'}"${p.kind || p.pane ? '' : ' with neither data-kind nor data-pane'}> — the row's listener will not act on it`
+                : `"${p.id}" is a <${p.tag.toLowerCase()}> with no href, no data-kind and no data-pane — it is drawn but does nothing`
             )
             .join('; ')
         );
@@ -672,12 +774,160 @@ try {
         fs.writeFileSync(path.join(outDir, `viewbar-${page.url === '/' ? 'inbox' : page.url.slice(1)}-${size.width}.png`), Buffer.from(data, 'base64'));
       }
 
+      /* The counts. Which pills carry one is read out of the row's own list, like
+         everything else here; *where* they are drawn is Home and nowhere else, which is
+         the whole of the answer to the staleness objection in that file's header. */
+      const isHome = ['/', '/index.html'].includes(norm(page.url));
+      const badged = m.pills.filter((p) => p.count !== null).map((p) => p.id);
+      const wantBadged = isHome ? PILLS.filter((p) => p.count).map((p) => p.id) : [];
+      if (badged.length === wantBadged.length && badged.every((id, i) => id === wantBadged[i]))
+        ok(
+          isHome
+            ? `${at}: ${badged.join(', ')} carry a count and ${IDS.length - badged.length} others carry none — public/viewbar.js's own list says so`
+            : `${at}: no pill carries a count off Home`
+        );
+      else
+        bad(
+          isHome ? `${at}: the four counted pills carry a count and no others do` : `${at}: no pill carries a count off Home`,
+          `the source flags ${wantBadged.join(', ') || '(none)'}; the row drew a badge on ${badged.join(', ') || '(none)'}`
+        );
+
+      /* And what they say. The fixture is the ground truth — see WANT — so this is the
+         badge asserted against the list that was served rather than against itself. */
+      if (isHome) {
+        const said = Object.fromEntries(m.pills.filter((p) => p.count !== null).map((p) => [p.id, p.count]));
+        const wrong = Object.entries(WANT).filter(([id, n]) => said[id] !== String(n));
+        if (!wrong.length)
+          ok(`${at}: the counts are ${Object.entries(WANT).map(([id, n]) => `${id} ${n}`).join(' · ')} — the list the fixture served`)
+        else
+          bad(
+            `${at}: each count is the rows that pill would leave you with`,
+            wrong.map(([id, n]) => `${id} says ${said[id] ?? '(no badge)'} and the fixture holds ${n}`).join('; ') +
+              ' — PRs is counted through its own status sub-filter, so the merged one is deliberately not in it'
+          );
+      }
+
       /* A page that has both the row and a `‹` back to Home has two ways home drawn at
          once. Reported rather than failed: which of the two should go is a design call
          and not this file's to make — but it is the kind of thing that arrives silently
          and is never noticed by anybody who was not looking for it. */
       if (m.spare) notices.push(`\x1b[33m!\x1b[0m ${at}: the row and ${m.spare} are two ways Home in one page's chrome`);
     }
+  }
+
+  /* --------------------------------------------- the counts, on the screen they open */
+
+  /*
+    A badge is a promise about the list a tap opens, so the tap is taken and the list is
+    counted. Everything above this point could be true of a row printing four numbers it
+    invented.
+
+    Home only, at the wider of the two phones, and through the row's own `<button>` — a
+    kind pill on Home moves the filter rather than loading a page, so a real click is
+    the whole path: the listener, `pick`, `set`, `paint`, and the render that follows.
+  */
+  console.log(`\n\x1b[1mwhat the counts open\x1b[0m`);
+  await s.send('Emulation.setDeviceMetricsOverride', { ...SIZES[1], deviceScaleFactor: 2, mobile: true });
+  await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=viewbar-check-counts` });
+  await sleep(1400);
+  for (const id of PILLS.filter((p) => p.count).map((p) => p.id)) {
+    const tapped = await evalJs(
+      s,
+      `(() => {
+        const el = document.querySelector('.viewpill[data-pill="${id}"]');
+        if (!el) return 'no pill';
+        if (el.tagName !== 'BUTTON') return el.tagName;
+        el.click();
+        return 'ok';
+      })()`
+    );
+    /* `epics` is current on an unnarrowed Home, so it is a <span> and there is nothing to
+       tap — which is the correct shape and not a failure. Its number is asserted where it
+       stands, against the list that is already on screen. */
+    if (tapped !== 'ok' && !(id === 'epics' && tapped === 'SPAN')) {
+      bad(`/ @${SIZES[1].width}: "${id}" can be tapped`, `it is a <${String(tapped).toLowerCase()}> on an unnarrowed Home`);
+      continue;
+    }
+    await sleep(500);
+    const m = await evalJs(s, PROBE);
+    const badge = m.pills.find((p) => p.id === id)?.count;
+    if (badge !== null && String(m.rows) === badge)
+      ok(`/ @${SIZES[1].width}: "${id}" says ${badge}, and tapping it leaves ${m.rows} row(s) on screen`);
+    else
+      bad(
+        `/ @${SIZES[1].width}: "${id}" opens the list its badge promised`,
+        `the badge says ${badge ?? '(none)'} and the list drew ${m.rows} row(s)` +
+          (id === 'pr' ? ' — the merged pull request is in neither, by the status sub-filter' : '')
+      );
+    /* Back to an unnarrowed Home, so the next pill is tapped from the same state. */
+    await evalJs(s, `document.querySelector('.viewpill[data-pill="epics"]')?.click?.(), 1`);
+    await sleep(400);
+  }
+
+  /*
+    In place, and never through `draw()`.
+
+    The inbox repaints every 25 seconds and the counts ride along with it, so a badge that
+    updated by rebuilding the row would drop the focus ring off a pill somebody is tabbing
+    through — which is the same failure `mark()` guards against and the reason the number
+    is written as text rather than as markup. Both halves are asserted at once: the badge
+    node has to be the *same node* after the number moved, and the focus has to still be
+    where it was.
+  */
+  {
+    const held = await evalJs(
+      s,
+      `(() => {
+        const pill = document.querySelector('.viewpill[data-pill="question"]');
+        const badge = pill && pill.querySelector('.viewpill-count');
+        if (!badge) return { ok: false, why: 'no badge on Questions' };
+        const focusable = document.querySelector('button.viewpill[data-pill="pr"]');
+        focusable && focusable.focus();
+        const before = badge.textContent;
+        window.beadcause.views.counts({ epics: 421, question: 128, pr: 999, session: 7 });
+        const after = document.querySelector('.viewpill[data-pill="question"] .viewpill-count');
+        return {
+          ok: true,
+          before,
+          after: after ? after.textContent : null,
+          same: after === badge,
+          focused: document.activeElement === focusable,
+          pr: document.querySelector('.viewpill[data-pill="pr"] .viewpill-count')?.textContent ?? null,
+        };
+      })()`
+    );
+    if (!held.ok) bad('the counts update in place', held.why);
+    else {
+      if (held.after === '128' && held.before !== '128') ok(`the number changes when a poll lands (${held.before} → ${held.after})`);
+      else bad('the number changes when a poll lands', `it went from ${held.before} to ${held.after}`);
+      if (held.same) ok('and it is the same badge element — the row was not rebuilt to say it');
+      else bad('the badge is updated in place, not redrawn', 'the element holding the number was replaced');
+      if (held.focused) ok('so focus stays on the pill it was on');
+      else bad('focus stays on the pill it was on', 'the focused pill was replaced under the keyboard');
+    }
+  }
+
+  /*
+    Three digits on every count, which is the widest the row will ever be asked to be, and
+    it must still be one line. Pushed rather than fetched: the row takes its numbers from
+    an API, so the widest case is one call away and does not need a fixture to produce it.
+  */
+  for (const size of SIZES) {
+    await s.send('Emulation.setDeviceMetricsOverride', { ...size, deviceScaleFactor: 2, mobile: true });
+    await sleep(150);
+    await evalJs(s, `window.beadcause.views.counts({ epics: 999, question: 999, pr: 999, session: 999 }), 1`);
+    await sleep(150);
+    const m = await evalJs(s, PROBE);
+    const three = m.pills.filter((p) => p.count !== null).every((p) => p.count === '999');
+    if (three && m.lines.length === 1 && m.downBy <= 0)
+      ok(`/ @${size.width}: still one line with every count at three digits (${m.scrollWidth - m.clientWidth}px of sideways scroll)`);
+    else
+      bad(
+        `/ @${size.width}: the row is one line with every count at three digits`,
+        !three
+          ? 'the counts did not take'
+          : `${m.lines.length} line(s), ${m.downBy}px clipped downwards: ${m.lines.map((L) => L.ids.join('+')).join(' / ')}`
+      );
   }
 
   /* ------------------------------------------- a pill the scope cannot fetch */
