@@ -256,6 +256,20 @@
      */
     p0beadarc: new Map(),
     /**
+     * Which epic has its **advocate** open, by card key — or null. bc-r2b5.2.
+     *
+     * A string and not a Set, unlike the two above, and the difference is the point: this
+     * is a fixed layer over `p0FullHtml`, which is itself a fixed layer, so a second one
+     * would be a third sheet with nothing on any of them saying which epic you were
+     * reading. `p0open` is a Set holding at most one for that reason and has to be asked
+     * `has(key)` per card while the board is drawn; this is asked once, by the section, so
+     * there is nothing to be gained by making the single a convention the tap has to keep.
+     *
+     * Page state and not persisted, for the reasons written above `p0open`: which
+     * advocate you were reading is where you are looking *now*.
+     */
+    p0adv: null,
+    /**
      * Is the whole board folded away? bc-eevn.
      *
      * The opposite of `p0open` on both counts, and deliberately.
@@ -6333,6 +6347,18 @@
   }
 
   /**
+   * Is anything on the screen drawn from what this key just fetched? bc-r2b5.2.
+   *
+   * Two readers now, and the second is why this is a function rather than the
+   * `p0beadopen.has(key)` both loaders below asked. The advocate sheet asks for the
+   * *epic's* bead and archive — a key that is in no tree and can never be in `p0beadopen` —
+   * and for the archive of every child, under the children's own keys. Asked as "is the
+   * sheet up" rather than "is this key the sheet's", because a child's archive landing is
+   * exactly a repaint the sheet wants and its key is not the sheet's key.
+   */
+  const p0Drawn = (key) => state.p0beadopen.has(key) || Boolean(state.p0adv);
+
+  /**
    * Ask `bd` for one bead in the tree, and repaint when it answers. bc-rfnr.9.4.
    *
    * **`/api/bead` rather than `/api/question`**, which is the same fork `expand` makes
@@ -6371,7 +6397,7 @@
     // Through `keepTheScreenStill` for the same reason the tap is: this is the moment a
     // one-line "reading…" becomes six hundred pixels of bead, and the anchor would take
     // that growth out of the page offset with the reader's eyes already on the block.
-    if (state.p0beadopen.has(key)) keepTheScreenStill(() => render());
+    if (p0Drawn(key)) keepTheScreenStill(() => render());
   }
 
   /**
@@ -6409,7 +6435,7 @@
       arc = { failed: true, sessions: [] };
     }
     state.p0beadarc.set(key, arc);
-    if (state.p0beadopen.has(key)) keepTheScreenStill(() => render());
+    if (p0Drawn(key)) keepTheScreenStill(() => render());
   }
 
   /**
@@ -6506,35 +6532,159 @@
    * out of a tree is still a question you are being asked.
    */
   /**
-   * The one control on a card, in its three states — and the point of bc-d6yk is that
-   * there are three.
+   * The card's own reading of `advocacy` — one derivation, so the card, the tab and the
+   * sheet can never disagree about which of the four states an epic is in. bc-r2b5.2.
+   *
+   * **`advocate` and `advocacy.session` are the same object** (`rootCard` hoists one
+   * `advocateSession` call and hands it to both), so this prefers the object and falls
+   * back to the old field: a page whose JavaScript predates bc-r2b5.1's payload still
+   * has `advocate`, and one talking to a daemon that predates it has only that.
+   *
+   * `opening` is suppressed while a window is live for the same reason the server's own
+   * `advocateSession` prefers the session over the grace window — "opening" over a window
+   * that is up is a state that resolves itself and reads, for the ten minutes it lasts,
+   * as the launch not having worked.
+   */
+  function p0AdvState(c) {
+    const a = c.advocacy || {};
+    const key = c.key || `${c.workspace}/${c.id}`;
+    const live = a.session?.pid ? a.session : c.advocate?.pid ? c.advocate : null;
+    return {
+      key,
+      assigned: Boolean(a.assigned),
+      by: a.by || null,
+      paused: Boolean(a.paused),
+      finished: Boolean(a.finished),
+      lastAt: a.lastAt || null,
+      hold: a.hold || null,
+      heldAt: a.heldAt || null,
+      live,
+      opening: !live && Boolean(c.advocate?.opening || a.session?.opening || openingHere(key)),
+    };
+  }
+
+  /**
+   * "last looked 3h ago" — the half of an idle card that makes idle readable.
+   *
+   * **Never "idle" on its own**, which is the whole of what the sentence is for: an epic
+   * whose advocate ran twenty minutes ago and one whose advocate last ran a fortnight ago
+   * are the same card without it, and only one of them is a problem. An epic that has been
+   * assigned but never opened a window says so rather than borrowing "just now" — that is
+   * the third state the record genuinely has (`advocated[id].at` is absent until the sweep
+   * writes it), and drawing it as a time would be inventing one.
+   */
+  function p0AdvWhen(s) {
+    if (!s.lastAt) return 'no window has run on it yet';
+    const when = relTime(s.lastAt);
+    return when ? `last looked ${when}` : 'when it last looked is not recorded';
+  }
+
+  /** The sub-line under the state: why nothing is up, or when it last was. */
+  function p0AdvLine(s) {
+    if (s.live) return s.live.name || `pid ${s.live.pid}`;
+    if (s.paused) return `paused · ${p0AdvWhen(s)}`;
+    if (s.hold) return `${s.hold} · ${p0AdvWhen(s)}`;
+    return p0AdvWhen(s);
+  }
+
+  /**
+   * Every child closed, and the close offered rather than left for you to notice.
+   *
+   * `advocacy.finished` is lib/finishedepic.js's own fingerprint — that sweep has already
+   * asked the question, on the bead, with a `decision` block and the `human` label. So the
+   * only thing owed here is the way *in* to the card it wrote, and that is `p0-answer`:
+   * the same one line `p0AnswerHtml` uses, opening the inbox card with its parsed options,
+   * its arm-then-confirm and its submit queue rather than a second answer surface.
+   *
+   * **And where there is no row to open, it says where the close is instead of offering a
+   * tap that does nothing.** `byKey` answers off the payload this page asked for, and
+   * `/api/questions?scope=agent` sweeps no questions at all — so on that scope the fact is
+   * still true and the control is honestly not available, which is a different thing from
+   * the epic not being finished.
+   */
+  function p0DoneHtml(c) {
+    const key = c.key || `${c.workspace}/${c.id}`;
+    const q = byKey(key);
+    if (!q || q.agent) {
+      return `<span class="p0-done is-none">🎉 Every child is closed — the close is on its inbox card</span>`;
+    }
+    return `<button type="button" class="p0-done" data-act="p0-answer" data-key="${esc(
+      key
+    )}">🎉 Every child is closed — close it</button>`;
+  }
+
+  /**
+   * The advocate line itself: what state the assignment is in, and the way into what it
+   * has been doing. bc-r2b5.2.
+   *
+   * Drawn only where there is an assignment, because everything behind it is about one —
+   * the plan, the sessions it has archived, what it dispatched under each child. A tap on
+   * an epic nobody is on would open a sheet of four "not tracked"s.
+   */
+  function p0AdvOpenHtml(c, s) {
+    const what = s.live ? '🧭 What it has done' : s.paused ? '⏸ Advocate paused' : '🧭 Advocated';
+    return `<button type="button" class="p0-advocate p0-adv-open" data-act="p0-adv" data-p0="${esc(
+      s.key
+    )}" aria-haspopup="dialog" aria-expanded="${state.p0adv === s.key}">
+      <span class="p0-adv-what">${what}</span>
+      <span class="p0-adv-when">${esc(p0AdvLine(s))}</span>
+    </button>`;
+  }
+
+  /**
+   * The controls on a card, in the four states the payload now carries — bc-r2b5.2, and
+   * the point of bc-r2b5 is that a boolean could only ever draw two of them.
    *
    * It used to be one button that offered to open an advocate whatever was already
    * running, so the moment after you tapped it the card went back to offering the same
-   * thing and the only way to see what you had started was to find it on the advocate
-   * console. Now the card answers the question the tap raises: **where is it?**
+   * thing (bc-d6yk gave it a live and an opening state). What it still could not draw was
+   * the state a re-entrant supervisor is in nearly all the time: **assigned, with nothing
+   * running.** `advocate` is a live window or null, and null was drawn as the offer to put
+   * somebody there — so an epic that had been advocated for a fortnight read, every time
+   * it was opened, as one nobody had ever been put on.
    *
    *   - **A live advocate** — an anchor to `/session?pid=…`, which public/drawer.js opens
    *     over the inbox rather than navigating away from it, so a look at what the
-   *     advocate is doing costs neither your place in the list nor a trip back.
+   *     advocate is doing costs neither your place in the list nor a trip back. Unchanged.
    *   - **Opening** — a disabled button saying so. There is no pid to link to yet (a
    *     window carries no bead id in its name until its first turn), and the honest thing
    *     to do with a control that would 409 is to say why it is not offered.
+   *   - **Assigned, and idle** — who has it, when its last window ran, and why one is not
+   *     up right now if something is holding it. **Not a button offering to make a second
+   *     one**: the launch would be refused by `/api/bead/advocate`'s own rule, and an offer
+   *     whose only outcome is a 409 is worse than no offer at all.
+   *   - **Done** — every child closed and lib/finishedepic.js has already asked. The close
+   *     is offered here rather than left to be noticed in the inbox, and the launch is not:
+   *     there is nothing left under this epic for an advocate to plan.
    *   - **Nobody on it** — the offer, exactly as it was.
+   *
+   * The done offer and the advocate line are not exclusive with the two above them, which
+   * is why this builds a list rather than returning at the first match: an epic can be
+   * finished *and* have a window up, and a card that drew one of those facts and swallowed
+   * the other would be hiding whichever one the reader came for.
    */
   function p0Control(c) {
-    const adv = c.advocate;
+    const s = p0AdvState(c);
+    // Through `p0AdvState` rather than off `c.advocate` directly, so the anchor and the
+    // state line are looking at one object: the payload carries the same session twice
+    // (`advocate` and `advocacy.session`) and a card that read one for the link and the
+    // other for the state would be two answers to "is a window up".
+    const adv = s.live;
+    const out = [];
+    if (s.finished) out.push(p0DoneHtml(c));
     if (adv?.pid) {
-      return `<a class="p0-advocate" href="/session?pid=${encodeURIComponent(adv.pid)}"
+      out.push(`<a class="p0-advocate" href="/session?pid=${encodeURIComponent(adv.pid)}"
         aria-label="${esc(adv.name || `pid ${adv.pid}`)} — what the advocate on ${esc(c.id)} is doing"
-        >${adv.status === 'busy' ? '<span class="spark"></span>' : '🧭'} What the advocate is doing</a>`;
+        >${adv.status === 'busy' ? '<span class="spark"></span>' : '🧭'} What the advocate is doing</a>`);
+    } else if (s.opening) {
+      out.push(`<button type="button" class="p0-advocate" disabled>🧭 An advocate is opening…</button>`);
+    } else if (!s.assigned && !s.finished) {
+      out.push(`<button type="button" class="p0-advocate" data-act="advocate" data-ws="${esc(
+        c.workspace
+      )}" data-bead="${esc(c.id)}">🧭 Put an advocate on it</button>`);
     }
-    if (adv?.opening || openingHere(c.key)) {
-      return `<button type="button" class="p0-advocate" disabled>🧭 An advocate is opening…</button>`;
-    }
-    return `<button type="button" class="p0-advocate" data-act="advocate" data-ws="${esc(
-      c.workspace
-    )}" data-bead="${esc(c.id)}">🧭 Put an advocate on it</button>`;
+    if (s.assigned) out.push(p0AdvOpenHtml(c, s));
+    return out.join('');
   }
 
   /** Did this phone launch one in the last ten minutes, with nothing back from the server yet? */
@@ -6670,6 +6820,254 @@
     </div>`;
   }
 
+  /** The markers lib/plan.js writes a plan between, in the comment it writes it as. */
+  const PLAN_OPEN = '<!-- beadcause:plan -->';
+  const PLAN_CLOSE = '<!-- /beadcause:plan -->';
+
+  /**
+   * The plan on an epic's thread — lib/plan.js's `planFrom`, from the reading end.
+   * bc-r2b5.2.
+   *
+   * **Not a second format, and that is what makes a client-side read of it defensible.**
+   * A plan comment is a human-readable header, the group bullets, and then the plan itself
+   * as JSON between two markers — written by `formatPlan` precisely so that the machine
+   * half is unambiguous and separable. This finds the markers and parses what is between
+   * them, which is `parsePlan`'s whole rule; anything it does not recognise is `null` and
+   * draws as "no plan", never as an empty one.
+   *
+   * **The last comment that parses**, exactly as `planFrom`: a plan is revised, a
+   * supervisor re-entered because a child filed new work writes a second one, and the
+   * second is the plan. The first stays on the bead, which is why it is a comment at all.
+   */
+  function p0PlanIn(text) {
+    const body = String(text ?? '');
+    const from = body.indexOf(PLAN_OPEN);
+    if (from === -1) return null;
+    const to = body.indexOf(PLAN_CLOSE, from);
+    const inner = to === -1 ? body.slice(from + PLAN_OPEN.length) : body.slice(from + PLAN_OPEN.length, to);
+    const json = inner.replace(/^\s*```(?:json)?/, '').replace(/```\s*$/, '').trim();
+    if (!json) return null;
+    try {
+      const plan = JSON.parse(json);
+      return plan && typeof plan === 'object' && Array.isArray(plan.groups) ? plan : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The last comment on the thread that carries one, with the prose it was written in.
+   *
+   * `text`/`body`/`comment` because those are the three spellings a comment body arrives
+   * under here — the tolerant read lib/landed.js and lib/plan.js already share.
+   */
+  function p0PlanFrom(comments) {
+    let found = null;
+    for (const c of comments || []) {
+      const text = c?.text ?? c?.body ?? c?.comment ?? '';
+      const plan = p0PlanIn(text);
+      // The marker without a plan behind it is a third answer and it is kept: it means the
+      // epic *was* planned and this reader could not make sense of what was written, which
+      // must not be drawn as "nobody has planned this".
+      if (plan) found = { plan, text: String(text) };
+      else if (String(text).includes(PLAN_OPEN)) found = { plan: null, text: String(text) };
+    }
+    return found;
+  }
+
+  /** The epic's own children — one level, which is what "per child" means. */
+  const p0AdvKids = (c) => (c.tree || []).filter((row) => row.parent === c.id);
+
+  /**
+   * One labelled fact in the advocate sheet, or the honest absence of it.
+   *
+   * `miss` is drawn when there is nothing, and it is never blank: the rule this whole sheet
+   * is written to is that "we have not looked" and "there is nothing" are different answers
+   * and only one of them may be silent. See `p0SessionRowsHtml`, which keeps the same rule
+   * for the archive.
+   */
+  const p0AdvFactHtml = (label, value, miss = 'not tracked') =>
+    `<div class="p0-adv-fact"><span class="p0-adv-key">${esc(label)}</span><span class="p0-adv-val${
+      value ? '' : ' is-none'
+    }">${value || esc(miss)}</span></div>`;
+
+  /**
+   * Where the work has got to, off the plan the advocate wrote. bc-r2b5.2.
+   *
+   * The groups are the stage: each one is a window's worth of work in one checkout, and
+   * how many of its beads have closed is the only progress figure on this screen that came
+   * from the advocate's own judgement rather than from counting rows. The counts are read
+   * off the tree the card already carries, so this costs nothing beyond the `bd show` the
+   * sheet already asked for.
+   *
+   * A bead the plan names that the tree has no row for is drawn as unknown rather than as
+   * open: it is a bead that has moved out from under this epic since the plan was written,
+   * and calling it either done or not done would be this screen guessing.
+   */
+  function p0AdvPlanHtml(c, detail) {
+    const got = p0PlanFrom(detail?.bead?.comments);
+    if (!got) {
+      return detail?.bead
+        ? `<div class="p0-adv-none">No plan has been written on ${esc(c.id)} — its advocate groups the work mechanically until one is.</div>`
+        : `<div class="p0-adv-none">Reading ${esc(c.id)} from bd…</div>`;
+    }
+    if (!got.plan) {
+      // The prose half is still the advocate's own account of the plan, so it is drawn
+      // rather than replaced by a complaint about the block underneath it.
+      return `<div class="p0-adv-warn">The plan on ${esc(
+        c.id
+      )} could not be read as a plan — what it says, as it was written:</div><div class="md">${renderMarkdown(
+        got.text.split(PLAN_OPEN)[0],
+        FROM_BD
+      )}</div>`;
+    }
+    const status = new Map((c.tree || []).map((row) => [row.id, String(row.status || 'open')]));
+    return `<div class="p0-adv-groups">${got.plan.groups
+      .map((g) => {
+        const beads = (g.beads || []).map((id) => ({ id, status: status.get(id) || null }));
+        const done = beads.filter((b) => b.status === 'closed').length;
+        const unknown = beads.filter((b) => !b.status).length;
+        return `<div class="p0-adv-group">
+          <span class="p0-adv-group-head"><span class="p0-adv-group-name">${esc(g.name || '')}</span><span class="p0-adv-group-n">${done} of ${
+          beads.length
+        } done${unknown ? ` · ${unknown} no longer under it` : ''}</span></span>
+          <span class="p0-adv-group-beads">${beads
+            .map(
+              (b) =>
+                // `id` for the monospace, un-uppercased pill every bead id in this app
+                // wears, and `st-closed` for the fade a landed one has everywhere else —
+                // a group's progress has to be readable without counting the pills.
+                `<span class="pill id${b.status === 'closed' ? ' st-closed' : ''}">${esc(b.id)}</span>`
+            )
+            .join('')}</span>
+          ${
+            (g.files || []).length
+              ? `<span class="p0-adv-group-files">touches ${esc((g.files || []).join(', '))}</span>`
+              : ''
+          }
+        </div>`;
+      })
+      .join('')}</div>`;
+  }
+
+  /**
+   * The advocate, filling the tab: where it is, what it planned, and what it has done.
+   * bc-r2b5.2.
+   *
+   * **A layer over the layer**, `.p0-full`'s four rows reused verbatim by class rather than
+   * re-styled, because it is the same problem: a head that stays and a body that scrolls on
+   * its own. It sits at `z-index: 41` so it is over the epic's own tab, which the reader may
+   * have opened it from — the one place in this app where two of these genuinely stack, and
+   * the back button is what separates them.
+   *
+   * Four sections, in the order the questions come:
+   *
+   *   - **Where it is** — the assignment, its carrier, and what is holding it. Every one of
+   *     these already existed in the daemon and reached no screen before bc-r2b5.1 put them
+   *     on the payload.
+   *   - **What it is waiting on** — the advocate's own sentence, in full. The card shows it
+   *     truncated to a line; this is the whole of it, which is where the reasoning is.
+   *   - **The plan** — lib/plan.js's groups, with how many beads of each have closed.
+   *   - **What has run** — its own archived sessions, and then per child what ran on that
+   *     child. `p0SessionRowsHtml` draws both, so the three states it keeps (looking,
+   *     present, absent — and "we asked and could not find out" offering the link anyway)
+   *     are kept here for free rather than re-argued.
+   */
+  function p0AdvFullHtml(c) {
+    const s = p0AdvState(c);
+    const ws = c.workspace;
+    const detail = state.p0beaddetail?.get?.(s.key) || null;
+    const arc = state.p0beadarc?.get?.(s.key) || null;
+    const kids = p0AdvKids(c);
+    const where = [
+      p0AdvFactHtml(
+        'Assignment',
+        s.assigned
+          ? esc(
+              s.by === 'label'
+                ? 'recorded on the bead, by the label the launch stamps'
+                : s.by === 'waiting'
+                ? "recorded by the advocate's own waiting-on block"
+                : 'recorded'
+            )
+          : '',
+        'nobody is on this epic'
+      ),
+      p0AdvFactHtml(
+        'A window',
+        s.live
+          ? `<a href="/session?pid=${encodeURIComponent(s.live.pid)}">${esc(
+              s.live.name || `pid ${s.live.pid}`
+            )}</a>`
+          : esc(p0AdvWhen(s)),
+        'no window has run on it yet'
+      ),
+      p0AdvFactHtml(
+        'Why none is up',
+        s.live ? '' : s.hold ? esc(`${s.hold}${s.heldAt && relTime(s.heldAt) ? ` · ${relTime(s.heldAt)}` : ''}`) : '',
+        s.live ? 'one is up' : 'nothing is holding it — the next tick may open one'
+      ),
+      s.paused ? p0AdvFactHtml('Paused', esc('this epic is paused — no window will be opened on it')) : '',
+      s.finished
+        ? p0AdvFactHtml('Finished', esc('every child is closed, and the close is waiting on you'))
+        : '',
+    ]
+      .filter(Boolean)
+      .join('');
+    return `<div class="p0-full p0-adv" id="p0adv-${cardId(s.key)}" role="dialog" aria-modal="true" aria-label="${esc(
+      `the advocate on ${c.id}`
+    )}">
+      <div class="p0-full-top p0-adv-top">
+        <button type="button" class="p0-back p0-adv-back" data-act="p0-adv-close"><span aria-hidden="true">‹</span> ${esc(
+          c.id
+        )}</button>
+      </div>
+      <div class="p0-full-head p0-adv-head">
+        <span class="p0-adv-title">🧭 The advocate on ${esc(c.id)}</span>
+        <span class="p0-adv-sub">${esc(p0AdvLine(s))}</span>
+        ${s.finished ? `<span class="p0-adv-done">${p0DoneHtml(c)}</span>` : ''}
+      </div>
+      <div class="p0-full-body p0-adv-body">
+        <div class="section-label">Where it is</div>
+        <div class="p0-adv-facts">${where}</div>
+        <div class="section-label">What it is waiting on</div>
+        ${
+          c.waitingOn
+            ? `<div class="p0-adv-waiting">${esc(c.waitingOn)}</div>`
+            : `<div class="p0-adv-none">Not tracked — no window has written its waiting-on sentence yet.</div>`
+        }
+        <div class="section-label">The plan</div>
+        ${p0AdvPlanHtml(c, detail)}
+        <div class="section-label">Its own sessions</div>
+        <div class="p0-adv-haps">${p0SessionRowsHtml(ws, c.id, { session: s.live }, arc).join('')}</div>
+        <div class="section-label">What ran on each child</div>
+        ${
+          kids.length
+            ? kids
+                .map(
+                  (row) => `<div class="p0-adv-kid">
+          <span class="p0-adv-kid-head"><span class="p0-adv-kid-id">${esc(row.id)}</span>${
+                    String(row.status || 'open') === 'open'
+                      ? ''
+                      : `<span class="pill st-${esc(String(row.status))}">${esc(
+                          STATUS_LABEL[String(row.status)] || String(row.status)
+                        )}</span>`
+                  }<span class="p0-adv-kid-title">${esc(row.title || '')}</span></span>
+          <div class="p0-adv-haps">${p0SessionRowsHtml(
+            ws,
+            row.id,
+            row,
+            state.p0beadarc?.get?.(`${ws}/${row.id}`) || null
+          ).join('')}</div>
+        </div>`
+                )
+                .join('')
+            : `<div class="p0-adv-none">Nothing hangs off ${esc(c.id)} yet, so nothing has been dispatched under it.</div>`
+        }
+      </div>
+    </div>`;
+  }
+
   /**
    * The cards this screen's two scope filters leave on the board.
    *
@@ -6759,6 +7157,11 @@
     // with no way to tell which epic you were reading. The `p0` handler is what keeps the
     // set to one; this is only where the promise is spent.
     const open = mine.find((c) => state.p0open.has(c.key || `${c.workspace}/${c.id}`));
+    // And the advocate over the top of that — a second fixed layer, and the only place in
+    // this app where two of them stack on purpose. It is drawn from a card in `mine` rather
+    // than from the key alone, so an epic taken off the board while its advocate was open
+    // takes the sheet with it instead of leaving a layer over a board it is not on.
+    const advOn = mine.find((c) => (c.key || `${c.workspace}/${c.id}`) === state.p0adv);
     // Shut, the heading is the whole section — but it still carries the count, because a
     // fold that hides *that there is anything folded* is a section you forget you own.
     // The label is drawn once and used twice, so the thing a screen reader announces for
@@ -6783,7 +7186,11 @@
         ${asks ? `<span class="p0-kind-asks">${asks === 1 ? '1 asks you' : `${asks} ask you`}</span>` : ''}
         <span class="p0-kind-n">${mine.length}</span>
       </button>${
-        shut ? '' : `<div class="p0-cards">${cards}</div>${p0PickerHtml(canStart)}${open ? p0FullHtml(open) : ''}`
+        shut
+          ? ''
+          : `<div class="p0-cards">${cards}</div>${p0PickerHtml(canStart)}${open ? p0FullHtml(open) : ''}${
+              advOn ? p0AdvFullHtml(advOn) : ''
+            }`
       }</section>`;
   }
 
@@ -7938,7 +8345,61 @@
     if (act === 'p0-answer') {
       closeMenu();
       closeAgentMenu();
+      // The advocate sheet is `z-index: 41` and `.card.open` is 40, so a close offered from
+      // inside that sheet would open the card *underneath* it and look like a tap that did
+      // nothing. bc-r2b5.2. Cleared for the offer on the board card too, which costs
+      // nothing there — the sheet is not up — and means one rule rather than two.
+      state.p0adv = null;
       await expand(btn.dataset.key);
+      return;
+    }
+
+    /**
+     * Open what the advocate on this epic has been doing, or come back from it. bc-r2b5.2.
+     *
+     * The same shape as the `p0` toggle above — a state write and a repaint, nothing poked
+     * in the DOM — because it survives the poll for the same reason: the board is one
+     * reconcile chunk replaced whole every 25 seconds, and `state.p0adv` is the only record
+     * that the sheet is up.
+     *
+     * **Then three fetches, and they cost three different things.** The epic's own bead is
+     * a `bd show` and is what the plan is read out of (`/api/bead` carries the thread); its
+     * archive is one `git log`; and each child's archive is one more. The children are
+     * asked for one level only, which is what "per child" means and is the same question
+     * lib/finishedepic.js asks — a whole subtree would be a `git log` per descendant on one
+     * tap, which is the cost `/api/session-archive` is a separate route to avoid paying by
+     * accident. `loadBeadArchive` keeps what it fetched, so a second open of the same
+     * advocate pays none of it again.
+     *
+     * **No `keepTheScreenStill`**, unlike the taps in the tree: this sheet covers the page,
+     * so where the board underneath it is scrolled to is not a thing anybody can see, and
+     * holding it would be a promise about a screen you are leaving. Same rule as
+     * `p0-answer` above it.
+     */
+    if (act === 'p0-adv' || act === 'p0-adv-close') {
+      closeMenu();
+      closeAgentMenu();
+      const was = state.p0adv;
+      const want = act === 'p0-adv' && btn.dataset.p0 !== was ? btn.dataset.p0 : null;
+      state.p0adv = want;
+      render(true);
+      if (want) {
+        const card = p0Cards().find((x) => (x.key || `${x.workspace}/${x.id}`) === want);
+        if (card) {
+          loadBeadDetail(want, card.workspace, card.id);
+          loadBeadArchive(want, card.workspace, card.id);
+          for (const row of p0AdvKids(card)) {
+            loadBeadArchive(`${card.workspace}/${row.id}`, card.workspace, row.id);
+          }
+        }
+      }
+      // Focus follows the layer, exactly as it does for the epic's own tab: opening leaves
+      // the keyboard on a control that is now behind a full-screen sheet, and coming back
+      // leaves it on one that no longer exists.
+      const land = want
+        ? listEl.querySelector('.p0-adv .p0-adv-back')
+        : was && listEl.querySelector(`.p0-adv-open[data-p0="${CSS.escape(was)}"]`);
+      land?.focus({ preventScroll: true });
       return;
     }
 
