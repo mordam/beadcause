@@ -18173,7 +18173,7 @@ and the word that survived was whichever read finished last.
 The change detector re-sweeps `questions:` on its own tick with `refresh: true`, so the
 daemon keeps that key warm without any request paying for it — and `foundation:` and
 `agentbeads:` have no such tick and stand on the ten-second window alone. So the ordinary
-`/api/questions` is eleven warm reads racing twenty-two that may be cold, and which of
+`/api/questions` is ten warm reads racing twenty that may be cold, and which of
 the three families got to name the request was a coin toss.
 
 What that produced, off the live daemon on 2026-08-17:
