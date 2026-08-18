@@ -134,8 +134,10 @@ const settled = async (fn, ms = 20000) => {
 const events = () => bus.since(0) || [];
 const seen = (type, id) => events().some((e) => e.type === type && e.id === id);
 
-// The board's delta for the failed record is the last thing the sweep emits before the
-// news, so waiting on the news alone would time out rather than tell us anything.
+// Waited on once, for both records, and on the news rather than on the board: the news
+// is the *last* thing the sweep emits for a record, so a bus that has both of these has
+// everything before them too — and the bug being guarded against is precisely a sweep
+// that emits the board's half and dies before the phone's.
 const arrived = await settled(() => seen('released', 'd-ok') && seen('stuck', 'd-bad'));
 clearInterval(timer);
 
