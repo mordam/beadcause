@@ -85,8 +85,11 @@ check('lib/prstage.js knows nothing about approval — dv-uhl chose a second axi
   // it lost; the way it comes back is somebody unifying the two files a month from now
   // because they look alike. They are not alike: one is about a branch and one is about
   // a ruling, and half of deluvia's deliverables never have a branch at all.
+  // Word boundaries, not `includes`: `lib/prstage.js` is mostly prose, and a header that
+  // one day says "propagate" or "delegate" must not read as the two axes being joined.
   for (const word of ['approval', 'in-review', 'needs-approval', 'gate']) {
-    assert.ok(!PRSTAGE.includes(word), `lib/prstage.js mentions \`${word}\` — the two axes have been joined`);
+    const at = new RegExp(`\\b${word}\\b`, 'i');
+    assert.ok(!at.test(PRSTAGE), `lib/prstage.js mentions \`${word}\` — the two axes have been joined`);
   }
   // And still six rungs, in the order the board sorts on.
   assert.match(PRSTAGE, /id: 'review'/);

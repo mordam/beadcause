@@ -1209,11 +1209,12 @@
    * readings of one. A chapter can be `in-review` with no branch anywhere near it, and a
    * branch can be merged over a deliverable nobody has ruled on.
    *
-   * **Absent on every bead outside the pipeline**, which is the whole of this tracker and
-   * every other one — the opposite call from `modelChipHtml` beside it, and for the
-   * opposite reason. Every bead is routed to a model, so a blank there hides the ones
-   * worth tiering; almost no bead is a review packet, so a chip on every card would be a
-   * chip carrying no information on ten cards out of eleven.
+   * **Absent on every bead outside the pipeline** — today every bead in every workspace
+   * but deluvia, and in deluvia 58 of 151. That is the opposite call from `modelChipHtml`
+   * beside it and for the opposite reason: every bead is routed to a model, so a blank
+   * there hides the ones worth tiering, where almost no bead is a review packet and a
+   * chip on every card would be a chip carrying no information on ten cards out of
+   * eleven.
    *
    * **Everything it means is in the text**, the same rule the model chip is built on: a
    * phone has no hover, the `title` is for a desktop, and nothing here depends on it.
