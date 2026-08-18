@@ -204,13 +204,19 @@ function load({ hover = false, store = new Map(), card = true, search = '' } = {
      wrong answer shows up — and it is optional chaining on that side, which means a
      missing spy would pass silently. Recording every call is what stops that. */
   const marks = [];
+  /* The other half of the same seam (bc-khoe.23): the four counted pills are pushed
+     their numbers here, from `paint`, and it is optional chaining on that side too — so
+     the spy is what stops "the row was never told" from passing as silence. */
+  const counts = [];
   const window = {
     matchMedia: (q) => ({ matches: q.includes('hover: hover') ? hover : false }),
     /* `?kind=` from a pill tapped on another page. `location` is not otherwise in this
        room, which is why the file parses the query by hand rather than with
        `URLSearchParams` — see the comment on `arrived`. */
     location: { search, pathname: '/' },
-    beadcause: { views: { mark: (id) => marks.push(id) } },
+    beadcause: {
+      views: { mark: (id) => marks.push(id), counts: (map) => counts.push({ ...map }) },
+    },
   };
   const localStorage = {
     getItem: (k) => (store.has(k) ? store.get(k) : null),
@@ -233,7 +239,7 @@ function load({ hover = false, store = new Map(), card = true, search = '' } = {
   vm.runInContext(read('public/inboxfilter.js'), ctx, { filename: 'inboxfilter.js' });
   const host = doc.createElement('nav');
   host.replaceChildren = El.prototype.replaceChildren.bind(host);
-  return { filter: ctx.window.beadcause.inboxFilter, doc, host, store, marks, warns };
+  return { filter: ctx.window.beadcause.inboxFilter, doc, host, store, marks, counts, warns };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1430,6 +1436,36 @@ await check('the row draws the six kinds, in the table’s order', () => {
   assert.deepEqual(drawn.slice(0, PILLS.length), PILLS, `the row draws ${drawn.join(', ')}`);
 });
 
+/**
+ * The row's list as data rather than as text — evaluated in an empty context, which is a
+ * read of a data file and not an execution of a page script. `rowPills()` above is the
+ * cheap regex for the ids alone; this is for the fields that are not ids.
+ */
+const rowList = () => {
+  const m = VIEWBAR.match(/const PILLS = (\[[\s\S]*?\n {2}\]);/);
+  assert.ok(m, 'could not find the PILLS array in public/viewbar.js');
+  return vm.runInNewContext(`(${m[1]})`, Object.create(null), { timeout: 1000 });
+};
+
+await check('four of the pills carry a count, and three deliberately do not', () => {
+  // bc-khoe.23. Which four is a property of the row's own list rather than of whatever
+  // happens to be in the map pushed at it — a kind the row draws no badge for cannot
+  // grow one by appearing in the numbers. The three without are three different reasons
+  // and none is an omission: All Beads is unbounded, and History and Advocates are pages
+  // of their own with their own polls, so a number for either is the stale badge the
+  // row's header refuses.
+  // `list()` because an array built inside a vm context has a different `Array`, and
+  // `deepEqual` is strict about prototypes.
+  const counted = list(rowList())
+    .filter((p) => p.count)
+    .map((p) => p.id);
+  assert.deepEqual(
+    counted,
+    ['epics', 'question', 'pr', 'session'],
+    `the row counts ${counted.join(', ') || '(nothing)'}`
+  );
+});
+
 await check('and every kind’s label is the same word in both files', () => {
   for (const k of list(model.KINDS)) {
     const at = VIEWBAR.indexOf(`id: '${k.id}', kind: '${k.id}'`);
@@ -1473,6 +1509,51 @@ await check('the lit pill follows the selection, and is pushed at the row', () =
   filter.pick('epics');
   assert.equal(filter.current(), 'epics');
   assert.equal(marks.at(-1), 'epics');
+});
+
+await check('the four counted pills are pushed their numbers down the same channel', () => {
+  // bc-khoe.23. Pushed rather than pulled for the same reason `mark` is: the row is on
+  // twelve pages and this file on one. What is pushed is the whole map — the row reads
+  // only the ids it draws a badge for — and it is the map counted *before* the kind
+  // filter, so a badge is what tapping the pill would leave you with rather than what
+  // is on screen already.
+  const { filter, counts } = load();
+  filter.survey({ kinds: ANY_KINDS, counts: { question: 3, pr: 2, session: 1, bead: 6 } });
+  const last = counts.at(-1);
+  assert.ok(last, 'the row was never told the numbers');
+  assert.equal(last.question, 3);
+  assert.equal(last.pr, 2);
+  assert.equal(last.session, 1);
+});
+
+await check('My Epics is counted here, because no row is ever of that kind', () => {
+  // It is a *place*: no `test`, so `kindOf` can never answer `epics` and the caller's
+  // loop cannot produce a number for it. What picking it does is clear the selection,
+  // and `matches()` with nothing selected is `inSub()` alone — which is exactly the rows
+  // the caller has already counted, each through its own sub-filter. So the sum of the
+  // slices is the number, and deriving it here is what stops the badge and the list
+  // disagreeing about it.
+  const { filter, counts } = load();
+  filter.survey({ kinds: ANY_KINDS, counts: { question: 3, pr: 2, session: 1, bead: 6 } });
+  assert.equal(counts.at(-1).epics, 12, 'My Epics is not the whole list');
+});
+
+await check('and an epics the caller passed is not counted into its own total', () => {
+  // The derivation sums the *slices*, so a caller that started counting `epics` itself —
+  // which is how two places would come to know the same number — cannot double it.
+  const { filter, counts } = load();
+  filter.survey({ kinds: ANY_KINDS, counts: { epics: 99, question: 3, pr: 2 } });
+  assert.equal(counts.at(-1).epics, 5);
+});
+
+await check('a kind narrowed away is counted at zero, not left at its old number', () => {
+  // The badge is redrawn from whatever the last survey said, so a count that stops being
+  // sent is a count that stops being true. Every render calls `survey` with a fresh map.
+  const { filter, counts } = load();
+  filter.survey({ kinds: ANY_KINDS, counts: { question: 3, pr: 2 } });
+  filter.survey({ kinds: ANY_KINDS, counts: {} });
+  assert.equal(counts.at(-1).epics, 0);
+  assert.equal(counts.at(-1).question, undefined, 'the map is replaced, never merged');
 });
 
 await check('a pill is exclusive, unlike the chips it replaced', () => {
@@ -1592,9 +1673,13 @@ await check('nothing beside the list counts it a second time', () => {
   assert.ok(!/^\s*publishCounts\(/m.test(app), 'the space picker is being sent counts again');
   assert.ok(!app.includes("$('#waiting')"), 'the "N waiting" pill is back in the top bar');
   // And `paintSummary`, which was the same mistake on the other bar: the proposals count
-  // hung off the Advocates tab through `beadcause.tabBadge`. bc-khoe.1 deleted the bottom
-  // bar it was drawn on, and the pill row that replaced it carries no counts at all — a
-  // badge is only ever live on the one page whose poll happens to fetch it.
+  // hung off the Advocates tab through `beadcause.tabBadge`, on every page the bar was
+  // drawn on — and a badge is only ever live on the one page whose poll happens to fetch
+  // it. bc-khoe.1 deleted the bar; bc-khoe.23 put four counts back on the row that
+  // replaced it, and the reason that is not this mistake again is that they are drawn on
+  // **Home alone**, off the render that has just drawn the list under them. What is still
+  // forbidden is what these three assertions name: a second count of the same rows,
+  // hung somewhere the page it describes is not.
   assert.ok(!app.includes('function paintSummary'), 'paintSummary is back, counting the list into the chrome');
   assert.ok(!app.includes('window.beadcause?.tabBadge'), 'something is hanging a count off the navigation again');
 });

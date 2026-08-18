@@ -106,99 +106,131 @@
   </header>
 
   <!--
-    The inbox's own filter, in two halves that share one row.
+    Home, as a pane of the shell rather than as the document everything else departs from
+    (bc-khoe.30.3).
 
-    In front: the **scope** — Human, Both, Agent — as a segmented switch on the chrome
-    (public/filterpills.js, bc-khoe.24). It decides which sweep runs, so it decides what
-    Home is able to contain at all, and it is the one control here that must never be
-    behind anything.
+    Everything below is what this page has always held; what is new is the container
+    around it and the two empty ones under it, one per view. Which pane is shown is a
+    fact about the URL hash and nothing else — see panes.js, which reads the answer out
+    of hashroute.js and swaps a `display: none` for it.
 
-    Behind it: what is left of the collapsed panel — which bead, and which rung within
-    the pill you are on. Built by public/inboxfilter.js: one line at rest saying what is
-    selected, the chips on hover with a pointer and on a tap without one.
-
-    It held three permanent rows once, coarsest first: the scope, then the space, then
-    the workspace. The bottom two are the space picker in the top bar now. The **kinds**
-    were in here too, as ten chips, and bc-khoe.2 promoted them out to the pill row above
-    — ten categories of incoming thing is a navigation rather than a filter, and a
-    navigation you have to open something to see is one nobody uses. bc-khoe.26 is what
-    takes the rest of the panel apart the same way.
+    The three floating things are **inside** the pane on purpose. ＋, ✏️ and the scroll
+    position are `position: fixed`, so none of them is laid out by this container at all
+    — but a fixed element inside a `display: none` ancestor is not painted either, which
+    is the whole reason they are in here: they belong to Home, and a ＋ that went on
+    hovering over the History pane would be a create with nothing behind it. The toast
+    and the token dialog stay outside, because both are the app talking rather than this
+    view.
   -->
-  <nav class="filters" id="filters" hidden></nav>
+  <div class="pane" data-pane="epics">
+    <!--
+      The inbox's own filter, in two halves that share one row.
 
-  <main id="list" class="list pagescroll" aria-live="polite">
-    <div class="empty" id="loading">Loading questions…</div>
-  </main>
+      In front: the **scope** — Human, Both, Agent — as a segmented switch on the chrome
+      (public/filterpills.js, bc-khoe.24). It decides which sweep runs, so it decides what
+      Home is able to contain at all, and it is the one control here that must never be
+      behind anything.
 
-  <!--
-    Where you are in the list — "4 of 11" and a rail. Filled in by paintScrollPos()
-    in app.js, which is also what shows and hides it.
+      Behind it: what is left of the collapsed panel — which bead, and which rung within
+      the pill you are on. Built by public/inboxfilter.js: one line at rest saying what is
+      selected, the chips on hover with a pointer and on a tap without one.
 
-    aria-hidden on purpose: a screen reader already walks the list item by item and
-    knows the position, and a live region re-announcing it on every scroll tick would
-    make the app unusable to listen to.
-  -->
-  <div id="scrollpos" class="scrollpos" hidden aria-hidden="true"></div>
+      It held three permanent rows once, coarsest first: the scope, then the space, then
+      the workspace. The bottom two are the space picker in the top bar now. The **kinds**
+      were in here too, as ten chips, and bc-khoe.2 promoted them out to the pill row above
+      — ten categories of incoming thing is a navigation rather than a filter, and a
+      navigation you have to open something to see is one nobody uses. bc-khoe.26 is what
+      takes the rest of the panel apart the same way.
+    -->
+    <nav class="filters" id="filters" hidden></nav>
 
-  <!--
-    ＋ — the one thing on this screen that creates rather than answers.
+    <main id="list" class="list pagescroll" aria-live="polite">
+      <div class="empty" id="loading">Loading questions…</div>
+    </main>
 
-    It is here because Chat stopped being a tab (bc-l8jp.5). That tab was two jobs at
-    one address: the conversations you had already started, which are rows in the list
-    above now, and the way to start another, which is this. A tab could not be the
-    second of those — the bar is the same on five pages and "create" does not mean the
-    same thing on all five — so the create moved to the view it belongs to.
+    <!--
+      Where you are in the list — "4 of 11" and a rail. Filled in by paintScrollPos()
+      in app.js, which is also what shows and hides it.
 
-    Bottom right, above the tab bar, because that is where a thumb is: the top bar is
-    the far corner of a phone and this is the app's primary action. It floats over the
-    list, and the list pays for it — `body.has-compose` adds the button's height to the
-    padding at the foot of #list, so the last card still clears everything above the
-    bar. What it must not cover is an open card, which is a fixed full-screen layer at
-    z-index 40; ＋ sits below that on purpose (see .compose in style.css).
+      aria-hidden on purpose: a screen reader already walks the list item by item and
+      knows the position, and a live region re-announcing it on every scroll tick would
+      make the app unusable to listen to.
+    -->
+    <div id="scrollpos" class="scrollpos" hidden aria-hidden="true"></div>
 
-    The panel above it is for the one case ＋ cannot answer on its own: with more than
-    one repo in the selected space there is no single place to start, so it asks
-    instead of guessing or going dead. Same control the chat launcher grew for the
-    same reason, and it borrows its .ws-pick styling.
+    <!--
+      ＋ — the one thing on this screen that creates rather than answers.
 
-    Both are in the markup on every load and neither is drawn on every kind: ＋ belongs
-    to the view now (bc-khoe.27.1), so the wrapper is hidden — along with `has-compose`,
-    and along with the panel — on Questions and PRs, which have nothing to create. See
-    `paintCompose` in app.js and `compose` in inboxfilter.js. (Written without the
-    leading slash on purpose: some suites find the script tags at the foot of this file
-    by searching for a bare slash-and-filename, so a comment up here that spells one out
-    that way silently moves their answer. Two were fixed on bc-khoe.27.1 to match the
-    tag; test/stream.mjs still asks the loose way, for every standing page at once.)
-  -->
-  <div class="compose-wrap">
-    <div id="compose-pick" class="compose-pick ws-pick" hidden>
-      <h2 class="section-label">Start one in</h2>
-      <div id="compose-pick-row" class="chip-row"></div>
+      It is here because Chat stopped being a tab (bc-l8jp.5). That tab was two jobs at
+      one address: the conversations you had already started, which are rows in the list
+      above now, and the way to start another, which is this. A tab could not be the
+      second of those — the bar is the same on five pages and "create" does not mean the
+      same thing on all five — so the create moved to the view it belongs to.
+
+      Bottom right, above the tab bar, because that is where a thumb is: the top bar is
+      the far corner of a phone and this is the app's primary action. It floats over the
+      list, and the list pays for it — `body.has-compose` adds the button's height to the
+      padding at the foot of #list, so the last card still clears everything above the
+      bar. What it must not cover is an open card, which is a fixed full-screen layer at
+      z-index 40; ＋ sits below that on purpose (see .compose in style.css).
+
+      The panel above it is for the one case ＋ cannot answer on its own: with more than
+      one repo in the selected space there is no single place to start, so it asks
+      instead of guessing or going dead. Same control the chat launcher grew for the
+      same reason, and it borrows its .ws-pick styling.
+
+      Both are in the markup on every load and neither is drawn on every kind: ＋ belongs
+      to the view now (bc-khoe.27.1), so the wrapper is hidden — along with `has-compose`,
+      and along with the panel — on Questions and PRs, which have nothing to create. See
+      `paintCompose` in app.js and `compose` in inboxfilter.js. (Written without the
+      leading slash on purpose: some suites find the script tags at the foot of this file
+      by searching for a bare slash-and-filename, so a comment up here that spells one out
+      that way silently moves their answer. Two were fixed on bc-khoe.27.1 to match the
+      tag; test/stream.mjs still asks the loose way, for every standing page at once.)
+    -->
+    <div class="compose-wrap">
+      <div id="compose-pick" class="compose-pick ws-pick" hidden>
+        <h2 class="section-label">Start one in</h2>
+        <div id="compose-pick-row" class="chip-row"></div>
+      </div>
+      <button id="compose" class="compose" aria-expanded="false" aria-controls="compose-pick"
+        aria-label="Start a chat session — talk through what the next bead should be">＋</button>
     </div>
-    <button id="compose" class="compose" aria-expanded="false" aria-controls="compose-pick"
-      aria-label="Start a chat session — talk through what the next bead should be">＋</button>
+
+    <!--
+      ✏️ — the one thing on this screen that changes the screen rather than the tracker.
+
+      Edit mode freezes the repaints and turns a tap into a way of pointing at an element
+      instead of opening it (bc-p49x.1). It is a button in the page rather than an icon in
+      the top bar, and it stays one now that the bar has room: the bar was full at four
+      icons and a fifth wrapped it to three rows on both phone widths (bc-qsj6.1), and
+      bc-khoe.5 emptied it by moving every one of those into the mark's menu. That is the
+      one place this control cannot go — edit mode freezes the screen, so a tap opens
+      nothing, and a way *into* the mode behind a tap-to-open menu would be reachable and a
+      way *out* of it would not. Bottom left, mirroring ＋ across the foot of the screen — the other thumb,
+      the same height, and the same z-index bargain: it floats over the list and sits below
+      an open card, which is a fixed layer above both.
+
+      It is the way out as well as the way in. In edit mode it goes filled and its label
+      becomes "Leave edit mode", and the banner across the top carries a Done beside it —
+      two ways out of a mode where an ordinary tap no longer does what it used to.
+    -->
+    <button id="editmode" class="editmode" type="button" aria-pressed="false"
+      aria-label="Edit this screen">✏️</button>
   </div>
 
   <!--
-    ✏️ — the one thing on this screen that changes the screen rather than the tracker.
+    The other two views, as containers with nothing in them yet.
 
-    Edit mode freezes the repaints and turns a tap into a way of pointing at an element
-    instead of opening it (bc-p49x.1). It is a button in the page rather than an icon in
-    the top bar, and it stays one now that the bar has room: the bar was full at four
-    icons and a fifth wrapped it to three rows on both phone widths (bc-qsj6.1), and
-    bc-khoe.5 emptied it by moving every one of those into the mark's menu. That is the
-    one place this control cannot go — edit mode freezes the screen, so a tap opens
-    nothing, and a way *into* the mode behind a tap-to-open menu would be reachable and a
-    way *out* of it would not. Bottom left, mirroring ＋ across the foot of the screen — the other thumb,
-    the same height, and the same z-index bargain: it floats over the list and sits below
-    an open card, which is a fixed layer above both.
-
-    It is the way out as well as the way in. In edit mode it goes filled and its label
-    becomes "Leave edit mode", and the banner across the top carries a Done beside it —
-    two ways out of a mode where an ordinary tap no longer does what it used to.
+    `data-pending` names the bead that fills each, and it is load-bearing rather than a
+    note: panes.js refuses to show a pane carrying one and the pill row asks it the same
+    question, so History and Advocates stay ordinary `<a href>` links to the documents
+    they still are. That is what lets the shell land on its own — the alternative was two
+    of seven pills leading to a blank screen on an app that deploys itself the moment a
+    branch merges. Each bead deletes its own attribute by filling its own container.
   -->
-  <button id="editmode" class="editmode" type="button" aria-pressed="false"
-    aria-label="Edit this screen">✏️</button>
+  <div class="pane" data-pane="history" data-pending="bc-khoe.30.5" hidden></div>
+  <div class="pane" data-pane="advocates" data-pending="bc-khoe.30.6" hidden></div>
 
   <div id="toast" class="toast" role="status" hidden></div>
 
@@ -248,6 +280,18 @@
        it. -->
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
+  <!-- What the URL hash means: a view, a card to open on Home, or nothing (bc-khoe.30.2).
+       Before viewbar.js and app.js because both read the answer out of it rather than
+       parsing the hash themselves, and a page that loaded them without it would have a
+       row that cannot say which view it is on and a notification tap that throws. -->
+  <script src="/hashroute.js"></script>
+  <!-- The panes above, and which of them the hash is showing (bc-khoe.30.3). After
+       hashroute.js, whose answer it acts on, and **before** viewbar.js, which asks it
+       whether a pill's view is a pane of this document before deciding whether that pill
+       is a link or a control. This is the one page that loads it: the row is drawn on
+       twelve and only this one has panes to swap, which is why the row reaches for it
+       with `?.` and for the grammar flat. See panes.js. -->
+  <script src="/panes.js"></script>
   <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one
