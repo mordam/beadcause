@@ -21362,6 +21362,7 @@ to be one.
 | `autoShipPerWorkspace` | whether **one workspace's** merges run its declared deploy without waiting for **Ship**, same shape and same precedence (default `{}`). The setting this layer most needed: only one repo in a space of six here has a deploy this Mac can run, and saying so through the space armed the other five. An [epic may still override it in either direction](#auto-ship--the-merge-that-does-not-wait-for-the-tap) |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-a-merge-queue) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
+| `pr.basePerWorkspace` | [the workspaces that merge somewhere else](#a-workspace-whose-integration-branch-is-not-main), keyed by name — `{ "deluvia": "atlas/public-launch" }`, which is what ships. The setting for that workspace wherever `pr.base` would have been, so it still sits *underneath* a multi-repo workspace's per-repo answer and still loses to `--base`. A name that is absent, or a value that is not a branch name, falls through to `pr.base` |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
 | `pr.autoMerge` | a delivery goes on the merge queue, which merges it once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer. Since bc-r941 the worker never merges under either setting — what this picks is which of the two things receives the pull request |
 | `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
@@ -22873,6 +22874,63 @@ of them, naming the repo on the card for every entry that moved — see [what sp
 and what does not](#one-advocate-many-checkouts--what-spans-repos-and-what-does-not) for
 the shape of each and why the survey agent, the third of the family, is deliberately one
 run across N repos rather than N runs.
+
+### A workspace whose integration branch is not `main`
+
+`pr.base` is one string for the whole install, and the rule above splits it only one
+way: many repos, and each repo answers for itself. There is a second shape it did not
+cover, and `deluvia` is it — **one** repo, so nothing about the approved-list path
+applies, and yet its work does not land in `main`. Its integration branch is
+`atlas/public-launch`, and every pull request opened against the install-wide `pr.base`
+would have targeted a branch that repo never merges into. A pull request into the wrong
+base is a perfectly valid pull request; nothing fails, the merge queue just brings the
+wrong branch in and lands the work somewhere nobody is looking.
+
+Moving the global was not available: nine other workspaces here do merge into `main`,
+and one of them is beadcause itself. So the setting became a map beside itself —
+`pr.basePerWorkspace`, keyed by workspace name like `autoMergePerWorkspace` and `jira`,
+and shipped naming exactly one:
+
+```json
+"pr": {
+  "base": "main",
+  "basePerWorkspace": { "deluvia": "atlas/public-launch" }
+}
+```
+
+**It sits underneath the repo, not over it.** A multi-repo workspace still asks GitHub
+first and reaches the override only where it would have reached `pr.base` — offline, no
+`gh`, no remote. That is deliberate and it is the same argument as before: one string
+cannot be the right base for forty repos, and a workspace that has forty already has a
+better answer per repo. In practice the two shapes never meet, because every workspace
+with an integration branch of its own here is one repo. `--base` on `bin/deliver.js`
+still wins over both, which is how a single delivery says it is going somewhere else
+again.
+
+**Anything in the map that is not a branch name is ignored rather than coerced.** It is a
+map people hand-edit, and `{"deluvia": true}` asked for nothing legible — reading it as a
+branch would open pull requests against `true`. Absent falls through to `pr.base`, which
+is what every workspace not named there already gets, so a config written before the key
+existed answers exactly as it did. The same rule the [per-workspace
+booleans](#policy-stays-per-space-even-when-a-workspace-is-forty-repos) keep, for the
+same reason.
+
+Everything reads it through `lib/prbase.js`, which is the point of having the file at
+all. `baseFor` serves the callers that have a directory in hand and can therefore ask the
+repo — `bin/deliver.js`, the pull-request board's per-repo rows, and the
+`git merge origin/<base>` line in a worker's brief. `configuredBase(cfg, workspaceName)`
+serves the rest, which resolve the *setting* and never asked GitHub in the first place:
+the advocate's landed-reconcile and its two in-main sweeps and their follow-up, the
+board's own merge-and-land button, and the branch a declared deploy fast-forwards to
+before it runs. That last one is why this was worth doing in one pass rather than
+stopping at the pull request — deluvia's deploy fast-forwarding to `origin/main` would
+ship a branch its work never reaches, and that failure is entirely silent. None of them
+asks GitHub per repo now either; the per-repo half of *that* question is bc-lde0's and
+stays where it was.
+
+`test/prbase.mjs` covers both directions, and asserts through `loadConfig` that the
+shipped default really does name deluvia — a resolver that works over a config nobody
+ships is a resolver nothing reaches.
 
 ### Policy stays per space, even when a workspace is forty repos
 
