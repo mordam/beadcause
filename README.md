@@ -14777,6 +14777,70 @@ this one — the two of those never reach the queue at all — or the bead was
 — the one kind of work a worker here may not merge, whatever the space says. It went from
 being every delivery to being the interesting ones.
 
+### When `main` itself is red — the queue holds, and something is put on the fix
+
+The gate above asks one question about every pull request: *did this branch break
+something the base was not already breaking?* A check that is red on the base is red on
+every branch cut from it and therefore says nothing about the branch, so it is not counted.
+That is right per branch and wrong as a standing condition. On 2026-08-17 `main` went red
+at 13:49 and **ten merges landed on top of it**, every one inheriting the red, because
+nothing anywhere was asking the other question: *is the base itself broken?*
+
+So there is a second rule beside the first, and it is Adam's own runbook made automatic:
+**keep merging over a red base, but only while somebody is actively fixing it.**
+
+Every tick, per repository and per base:
+
+- **The base's own checks are read.** Failing, and the queue **holds**: no merge, no
+  downmerge, no resolver — every one of those is preparation for a merge that is not
+  happening this tick, and bringing a red base into a branch only re-runs its CI against a
+  base that is about to move again. Nothing is refused and no attempt is spent: a hold is
+  a wait, exactly as a pending check is, and the retry budget counts refusals.
+- **A P0 is filed, once,** naming the failing checks as GitHub reported them that minute —
+  and a window is opened on it immediately, *past the workspace advocate even if that
+  advocate is paused*. That is the whole point of doing it here: the only per-worker lever
+  there is would be pausing advocates, and pausing them to stop the queue would also stop
+  the fix being dispatched.
+- **The fix's own pull request still merges.** A pull request whose work bead *is* the P0
+  is the single exemption from the hold — without it the repo wedges, since the base stays
+  red for exactly as long as nothing can land. A fix that lands under some *other* bead is
+  still one tap away on the pull request board, because the hold lives inside the queue and
+  touches none of the doors a person merges through.
+- **And it lifts by itself.** The next tick that finds the base green closes the P0 and the
+  queue carries on. Usually nothing has to close anything: the merge of the fix closes that
+  bead as its own work bead, and the hold is simply not found on the tick after.
+
+There is **no record of any of this on disk**, deliberately. A hold is exactly *"GitHub
+says this base is failing and there is an open bead about it"*, both read this tick — the
+same argument the queue itself makes for deriving its contents from the tracker rather than
+from a list of windows, and the one `lib/sweepcard.js` learned the hard way when eight of
+thirteen cards outlived the record that was meant to find them again. The bead is found by
+its exact title and its `red-base` label, which makes the title load-bearing: retitle it by
+hand and the hold stops being recognised, so the bead says so in its own body.
+
+Two readings that cannot be taken decide nothing. `gh` failing to answer is **not** a red
+base — that would file a P0 and open an unattended window over a rate limit — and it is
+**not** a green one either, which would lift a live hold and close a bead somebody is
+working. A base whose checks are still running is unknown in the same way, and it has to
+be: `main`'s checks re-run on every merge, so treating pending as green would drop the hold
+in the window between a push and its first red check, every single time.
+
+**A base with nothing queued against it is watched too**, on a five-minute clock, wherever
+a workspace is one repo — because the queue's own reading only happens where a merge is
+about to happen, and `main` going red on an evening when nobody is delivering is exactly
+the case that went unnoticed for four hours. In a workspace of forty checkouts it is asked
+only where something is waiting to land: forty `gh` calls every five minutes to answer a
+question that matters at one of them is the wrong trade, and there the queue's own tick is
+the whole of it.
+
+`lib/redbase.js` is the decision — pure, and driven state by state in `test/redbase.mjs`;
+`lib/mergequeue.js` holds; `lib/server.js` is the wiring onto `pr.baseChecks`, `bd.create`,
+`bd.close` and the same door `POST /api/session` opens. The queue's own line says
+`N held — the base is red`, and every held pull request carries the sentence in its state
+block, naming the bead that is the fix — which is what puts it under *Resolving issues* on
+the queues board, whose note is already the right one: *something outside the queue has to
+move before it can merge*.
+
 ### The reviewer — a seventh agent kind, and the diff nobody reads
 
 Everything above judges a pull request by what *happened to it*: whether it conflicts,

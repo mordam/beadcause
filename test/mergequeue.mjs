@@ -538,6 +538,136 @@ await check('a tick merges at most MERGES_PER_TICK, and says what it left', asyn
   assert.ok(out.waiting.includes('zz-m3'), 'the one it did not get to is not reported at all');
 });
 
+/* ---------------------------------------------------- the base is red (bc-arf8) */
+
+/**
+ * The hold. `holdFor` is the seam lib/server.js hangs lib/redbase.js off, and what these
+ * pin is not the decision — test/redbase.mjs does that — but the *shape of the wait*:
+ * nothing merges, nothing is spent, nothing is handed over, and the one pull request that
+ * can end the hold still goes through.
+ */
+const HOLD = { bead: 'zz-hold', key: 'demo/widgets', base: 'main', failed: ['test/reenter.mjs'] };
+const holding = () => async () => HOLD;
+
+await check('A RED BASE HOLDS THE MERGE RATHER THAN LANDING ON TOP OF IT', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  const out = await run(bd, prApi, { holdFor: holding() });
+  // The whole bead: on 2026-08-17 `main` was red from 13:49 and ten merges landed on top
+  // of it, each inheriting the red, because the gate only ever asked whether the *branch*
+  // broke something.
+  assert.equal(prApi.calls.merges.length, 0, 'it merged onto a red base');
+  assert.deepEqual(out.held, ['zz-merge']);
+  assert.deepEqual(out.merged, []);
+  assert.deepEqual(bd.calls.closes, [], 'a held pull request closed a bead');
+});
+
+await check('and it costs no attempt, because nothing was refused', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  await run(bd, fakePr(openPr()), { holdFor: holding() });
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  const state = queueState({ notes: written.notes });
+  // A hold is a wait exactly as a pending check is: the retry budget carries *refusals*
+  // towards a card, and a base that is red for three ticks is not three strikes against
+  // a branch that has done nothing.
+  assert.equal(state.attempts, 0);
+  assert.match(state.refused, /is red/, 'the state block does not say why it is sitting there');
+  assert.match(state.refused, /zz-hold/, 'and it does not name the bead that is the fix');
+});
+
+await check('AND IT IS NOT HANDED OVER — raiseMergeCard is a one-way door', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const raised = [];
+  const out = await run(bd, fakePr(openPr()), {
+    holdFor: holding(),
+    raise: async (entry) => {
+      raised.push(entry.issue.id);
+      return true;
+    },
+  });
+  // `raiseMergeCard` takes `merge-queue` off the bead, which is a handover to Adam. A
+  // hold that raised would turn a two-minute red into a queue full of pull requests that
+  // never come back on their own — the exact opposite of a hold that lifts by itself.
+  assert.deepEqual(raised, []);
+  assert.deepEqual(out.raised, []);
+});
+
+await check('THE FIX ITSELF STILL MERGES, OR THE REPO WEDGES', async () => {
+  // The deadlock the bead was written around: the pull request that fixes the base has to
+  // land while the hold is on. `exemptFrom` is the one exemption and this is it end to end.
+  const rows = [bead({ id: 'zz-merge' }, { bead: 'zz-hold' })];
+  const bd = fakeBd({ rows, issues: { 'zz-hold': { id: 'zz-hold', issue_type: 'bug' } } });
+  const prApi = fakePr(openPr());
+  const out = await run(bd, prApi, { holdFor: holding() });
+  assert.equal(prApi.calls.merges.length, 1, 'the fix for the red base was held by its own hold');
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(out.held, []);
+});
+
+await check('a hold does not stop a pull request that already went from closing its beads', async () => {
+  // Before the hold in the order of the loop, and deliberately: Adam merging the fix from
+  // the pull request board is the escape hatch the bead's own body points at, and a hold
+  // that swallowed it would strand exactly that merge.
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr({ state: 'MERGED', mergedAt: '2026-08-18T09:00:00Z', mergeCommit: 'feedface99' })), {
+    holdFor: holding(),
+  });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work']);
+});
+
+await check('and it stops the downmerge too, not only the merge', async () => {
+  // Bringing a red base into a branch re-runs its checks against a base that is about to
+  // move again the moment the fix lands. The wait is cheaper than the CI.
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr({ mergeState: 'BEHIND' }));
+  const out = await run(bd, prApi, { holdFor: holding() });
+  assert.equal(prApi.calls.updates.length, 0);
+  assert.deepEqual(out.held, ['zz-merge']);
+});
+
+await check('and no resolver is opened on a conflict nobody could merge anyway', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const opened = [];
+  const out = await run(bd, fakePr(openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' })), {
+    holdFor: holding(),
+    openResolver: async (entry) => {
+      opened.push(entry.issue.id);
+      return true;
+    },
+  });
+  // A resolver is one of the two windows this Mac has. Spending one on a rebase that will
+  // need doing again after the fix lands is the wrong use of it.
+  assert.deepEqual(opened, []);
+  assert.deepEqual(out.held, ['zz-merge']);
+});
+
+await check('the state block is written once, not on every tick of a long red', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  await run(bd, fakePr(openPr()), { holdFor: holding() });
+  const first = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  // Second tick, same hold, and the bead already carries the sentence.
+  const again = fakeBd({ rows: [bead({}, {}, first.notes)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(again, fakePr(openPr()), { holdFor: holding() });
+  assert.deepEqual(out.held, ['zz-merge']);
+  assert.deepEqual(again.calls.updates, [], 'a base red for an hour is 120 writes per bead');
+});
+
+await check('a holdFor that throws holds nothing — the queue is not the base watch', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  const out = await run(bd, prApi, {
+    holdFor: async () => {
+      throw new Error('gh: rate limited');
+    },
+  });
+  // The safe direction here is the *opposite* of the one lib/redbase.js takes about
+  // filing: a watch that cannot answer must not stop a queue that is otherwise working,
+  // because the gate below it still refuses anything the branch itself broke.
+  assert.equal(prApi.calls.merges.length, 1);
+  assert.deepEqual(out.held, []);
+});
+
 /* ----------------------------------------------------------------- the note */
 
 await check('the line it hands the card says what happened, or nothing at all', async () => {
@@ -547,6 +677,12 @@ await check('the line it hands the card says what happened, or nothing at all', 
   assert.match(
     describeMergeQueue({ ok: true, merged: [], updated: [], refused: [], raised: [], waiting: [], reclaimed: ['a'] }),
     /back from a resolver/
+  );
+  // And a tick whose only news is that it is holding: "0 merged" is not a sentence, and
+  // a queue that says nothing while the base is red is the state bc-arf8 replaces.
+  assert.match(
+    describeMergeQueue({ ok: true, merged: [], updated: [], refused: [], raised: [], waiting: [], held: ['a', 'b'] }),
+    /2 held — the base is red/
   );
   assert.match(describeMergeQueue({ ok: false, reason: 'bd list failed' }), /bd list failed/);
 });
