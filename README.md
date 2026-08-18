@@ -12026,6 +12026,59 @@ asks a release agent for UAT and production, and a false premise stated as fact 
 worse than no bead at all. Where an epic is waiting like that, the card says which of its
 beads have not closed rather than only that it is holding.
 
+#### What a group is *for*, and how a planner learns its plan ran
+
+Two things a planner had no way to know, and neither of them was a bug in any code that
+ran — they were both things nothing said.
+
+**A group is one change, and a shared file is not one.** The brief said what a group may
+not be (two repos, two groups over one bead, two groups declaring one file) and never said
+what one is *for*, so "these beads all live in `lib/sync.js`" read as a reason to put them
+in a window together. Measured on bc-y3qk: four beads were grouped on exactly that
+reasoning, ran as four windows anyway, and merged as four pull requests seven minutes apart
+— three of them touching `lib/sync.js`, `lib/server.js` and `test/sync.mjs` together, with
+no collision at all. The merge queue downmerges the base into each branch before it merges
+it, so two pull requests over one file are serialised rather than conflicted; grouping to
+avoid a file collision buys protection that already exists, and pays three windows that did
+not run for it. So `planPromptFor` now states the rule it was missing: group beads only
+where they genuinely cannot be done apart — a later bead that cannot be written until an
+earlier one's *decision* exists, or a split that would put half a mechanism in each pull
+request and leave `main` coherent in neither. Shared files fail both tests, and so do "same
+subsystem" and "same author". The cost of getting it wrong is asymmetric and that is said
+outright: under-grouping is loud, because a window arrives, finds it cannot do its bead
+alone, and says so. Over-grouping is silent, and a four-bead group is three windows nobody
+will ever be told did not run.
+
+**And a plan that was ignored looked exactly like a plan that was obeyed.** A planner files
+its plan, gets exit 0, and exits — it is re-entrant by design, so the party who would care
+has already gone by the time the next tick dispatches. On bc-y3qk the plan said two groups
+and the daemon opened five windows, one per bead, and every surface reachable from the
+tracker said it had worked: the `planned` label was on the epic, the plan comment parsed,
+the epic was open and unassigned, and the children were `in_progress` — which is what a
+dispatched group looks like too. The only evidence that existed was the *wording* of a log
+line, `opened a session on bc-36xx.7 for "the review gate" in bc-36xx's plan` against a bare
+`opened a session on bc-y3qk.3`, and knowing that contrast requires having seen both.
+
+So the dispatch leaves a mark where the plan lives. When a group takes a window the advocate
+stamps its epic `dispatched:<the group's name, slugged>` — one label per group, beside the
+`planned` it already carries — and the planner's brief says to look for it. `planned` with a
+`dispatched:` label per group is a plan that ran; `planned` with none of them, over children
+that are in progress or closed, is a plan that was passed over. The slug is not decoration:
+bd splits a label on the comma and normalises nothing else, so a group name written through
+unchanged would arrive as two labels, neither of them the group.
+
+**Nothing in the daemon reads the mark, and that is deliberate.** Dispatch is recomputed
+from the plan and the queue every tick, and what stops a second window inside one group is
+the live worker list. A label that were consulted would be state that can be wrong — lost to
+a `bd` that would not answer, or to an edit from a phone that posts the label set a card is
+showing — and a lost mark would then stop work rather than merely stop explaining it. It is
+a record, and a record is allowed to be incomplete in a way a decision is not. That is also
+why it is not protected in `lib/verdict.js`, alongside `planned` and `promoted`: all three
+are daemon-written markers whose loss costs an explanation rather than an hour. `dispatchLabel`
+in lib/advocate.js is the whole of it, and `test/plandispatch.mjs` is what pins the brief's
+spelling of the prefix to the code's, because the brief cannot import it — lib/advocate.js
+imports lib/session.js to open the windows, so the reverse would be a cycle.
+
 ### What to test is asked of the tracker, not read off the bead — `beadcause-promotework`
 
 A promotion bead's body is written once, at the moment it is filed, and cannot grow. That
