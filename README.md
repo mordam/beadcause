@@ -2773,7 +2773,7 @@ is handed two lists rather than one list it has to filter correctly:
 | **Event** | `question`, `reply` | `foundation-request`, `foundation-reply`, `amended` |
 | **Route** | `/api/questions`, `/api/poll` → `questions` | the same two → `requests`, plus **`/api/foundation`** on its own |
 | **ntfy** | `pushQuestion` — bead priority, 💭 | `pushFoundationRequest` — always priority 3, ⚖️, leads with the *scope* |
-| **Android** | channel `questions_v2`, tray card 3 | channel `foundation_v1`, tray card 4 |
+| **Android** | channel `answers_v1`, tray card 3 | channel `foundation_v1`, tray card 4 |
 | **PWA** | the list, under the space and workspace filters | a pane above it, outside every filter, badged on ⚖️ |
 | **Filter** | outside it arrives quiet — see *Spaces* | the filter does not reach this channel at all; a mute still does |
 | **Terminal** | the `questions` pane | its own `foundation requests` pane, in the head |
@@ -17977,13 +17977,12 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 - **A channel's sound and vibration are immutable once created.** Android takes them
   from the first `createNotificationChannel` and ignores every later one, forever —
   they belong to the user from that moment. Changing either means publishing a new
-  channel id and deleting the old, which is why the ids carry a `_v2`. Decisions get
-  a bundled 75ms pip (`res/raw/blip.wav`) and one 40ms shake; replies get the pip and
-  no vibration; the Watching row stays silent. Anything finer is the phone's own
-  per-channel settings, which now win over all of it. Three more sounds are bundled and
-  not yet on a channel — see
-  [*The four sounds*](#the-four-sounds-and-auditioning-one-before-it-is-permanent), which
-  is also where they are auditioned while that is still possible.
+  channel id and deleting the old, which is why the ids carry a version suffix and why
+  `RETIRED_CHANNELS` exists at all: an id that is abandoned rather than *deleted* stays in
+  the settings screen as a live row, with its old sound, that nothing posts to.
+  [*The five voices*](#the-five-voices-and-the-channels-that-carry-them) is the table of
+  what is bound to what, and [*The five sounds*](#the-five-sounds-and-auditioning-one-before-it-is-permanent)
+  is where they are heard.
 - **Android renders at most 3 notification actions.** Going native does *not* lift
   ntfy's three-button cap. The budget is spent as: two option buttons plus a typed
   "Answer…", or — when a question has no options — "Answer & close" and "Comment",
@@ -18026,23 +18025,68 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 - **Keep the signing key.** Android refuses an update signed by a different key, so
   losing `~/.config/beadcause/android-keystore.jks` means uninstall-and-re-pair.
 
-### The four sounds, and auditioning one before it is permanent
+### The five voices, and the channels that carry them
 
-`res/raw` holds four voices now — `blip.wav`, `land.wav`, `drop.wav`, `chime.wav`. Only the
-first is on a channel today; the other three are bc-ka5y.15's classification waiting for
-bc-ka5y.15.4 to cut the channels that carry them:
+Five classes of arrival, split by **what the arrival asks of you** rather than by what
+produced it, and each one is its own Android notification channel. That is where the
+options live: Android's own settings screen already gives every channel a volume, a
+vibration toggle, an importance and a schedule, so mute merges for a week without touching
+whether a question can reach you — and no screen of beadcause's own has to be built or
+maintained to offer it.
+
+| Channel | Class | Sound | Importance | Vibration |
+|---|---|---|---|---|
+| `answers_v1` | A question is waiting on you | `blip.wav` | HIGH | one 20ms pulse |
+| `stuck_v1` | A deploy failed, a tracker stopped syncing | `knock.wav` | HIGH | two 60ms pulses |
+| `merged_v1` | A pull request merged | `land.wav` | DEFAULT | none |
+| `released_v1` | A release went out | `drop.wav` | DEFAULT | none |
+| `epicdone_v1` | Every bead under an epic is closed | `chime.wav` | DEFAULT | none |
+
+Four things in there are decisions rather than settings:
+
+- **Only the two that are about *you* move the phone at all.** Good news that vibrates is
+  an interruption bought with nothing, because there is nothing on those cards to act on.
+- **20ms is the floor, not a preference.** A channel's `vibrationPattern` is durations
+  only — there is no amplitude in it — so "smaller" can only mean "shorter", and under
+  about 20ms most phones never get the motor moving enough to be felt. Going below it means
+  the app firing a `PRIMITIVE_TICK` itself with channel vibration off, which is bc-ka5y.15.6
+  and is deliberately declinable: an app-fired vibration stops inheriting Do Not Disturb and
+  the user's own toggle, and has to honour both by hand.
+- **`stuck` is the only insistent one**, and the only class that is a *state* rather than an
+  arrival: a deploy that failed is still true an hour later, and nothing else is going to
+  say so. Hence the double knock, the double buzz, and no timeout on the card.
+- **Three channels, one card.** A landing, a release and an epic completing share the `NEWS`
+  card because the shade stops being glanceable at about three cards, and have three
+  channels because the pipeline is audible if they differ — four blips, then a drop, then
+  eventually a chime. The card takes its voice from the arrival that caused the render, and
+  is cancelled and re-posted when that voice changes, because a notification's channel is
+  fixed at the moment it is posted.
+
+**`replies_v2` and `foundation_v1` are unchanged and keep the pip with no buzz.** An agent's
+reply and a constitutional request are both news you asked for; neither is a sixth voice.
+`questions_v2` is *deleted* rather than left behind — its buzz went from 40ms to 20ms, so its
+id had to change, and a channel that is abandoned without being deleted stays in the settings
+screen with the old sound. `test/channels.mjs` is the suite that holds all of this: every
+class to its sound, every retired id to the delete list, and every sound to a file that
+actually ships.
+
+### The five sounds, and auditioning one before it is permanent
+
+`res/raw` holds five voices — `blip.wav`, `knock.wav`, `land.wav`, `drop.wav`, `chime.wav`,
+one per channel above:
 
 | File | For | What it is |
 |---|---|---|
-| `blip.wav` | A question is waiting | 75ms at C6. On Decisions it comes with a 40ms buzz. |
+| `blip.wav` | A question is waiting | 75ms at C6. On Decisions it comes with a 20ms buzz. |
+| `knock.wav` | Work is stuck | 340ms. Two knocks at B3 — the only low sound here. |
 | `land.wav` | A merge landed | 45ms at G6 — the pip, smaller. |
 | `drop.wav` | A release went out | 360ms. A water drop: pitch rising, then a soft tail. |
 | `chime.wav` | An epic completed | 480ms. Two notes, G5 up to C6. |
 
-**They are generated, not dragged in.** `npm run sounds` renders all three from
+**They are generated, not dragged in.** `npm run sounds` renders all four from
 `scripts/sounds.mjs` and writes them to two places at once, and `test/sounds.mjs` fails the
-repo if a committed byte differs from a fresh render. That is not ceremony: three `.wav`
-files in a pull request are three things nobody can review, and moving the review to the
+repo if a committed byte differs from a fresh render. That is not ceremony: four `.wav`
+files in a pull request are four things nobody can review, and moving the review to the
 script puts every decision where it can be argued with — the pitches are a fifth and a
 fourth apart on purpose, the peaks descend on purpose, and each number has its reason
 beside it. A hand-edited binary is a red suite rather than a surprise.
@@ -18056,7 +18100,7 @@ needs it, because a reference list with a hole where the reference goes is worse
 reference list. Duplicating ~80 kB of generated audio is the cheap side of that trade; the expensive side is auditioning one file and shipping another, and a channel's
 sound is immutable after `createNotificationChannel`, so there is no second chance to notice.
 
-**`/sounds` (or `/audition`) is the audition, and it is blind.** Three anonymous pads in a
+**`/sounds` (or `/audition`) is the audition, and it is blind.** Four anonymous pads in a
 shuffled order, a guess each, then the reveal. Play a file called `drop.wav` and you hear a
 water drop whatever came out of the speaker — the label does the work the sound was supposed
 to do, which is why the acceptance criterion for a notification sound is naming it without
@@ -18068,8 +18112,10 @@ to be told apart by ear alone.
 Judge it on the phone, twice — once on a desk and once through a pocket, which is the only
 place any of this is really heard. The page plays at **media** volume while a real
 notification plays at notification volume on a channel with its own level, so what `/sounds`
-settles is how the four compare with each other; absolute loudness is settled on the phone
-once the channels exist, on Android's own per-channel settings screen.
+settles is how the five compare with each other; absolute loudness is settled on the phone,
+on Android's own per-channel settings screen — which since bc-ka5y.15.4 has a row for each of
+them. Disagreeing with a sound now costs that one channel a new id rather than an edit to a
+number, which is the price of the channels existing at all.
 
 `node scripts/sounds-check.mjs [--out=DIR]` is the browser half — the audition driven end
 to end at 360 and 393, which is where the claims a file-reading suite cannot make live: that
@@ -18155,12 +18201,15 @@ carries a button — the only action a landed merge could offer is a revert, and
 not a lock-screen gesture — and tapping either opens `/prs`, where the question a landing
 actually raises (*has it reached the running build?*) lives.
 
-**They borrow two existing Android channels rather than cutting their own, deliberately.**
-A channel's sound is immutable after the first `createNotificationChannel`, so publishing
-`merged`/`released`/`epicdone`/`stuck` with today's pip in them would burn those four ids
-on day one. bc-ka5y.15.4 cuts the five channels once bc-ka5y.15.3 has auditioned the
-sounds; until then news lands on the replies channel (default importance, no buzz) and a
-blockage on the questions channel (high importance, pip and a single shake).
+**They borrowed two existing Android channels until bc-ka5y.15.4, and now have four of
+their own.** A channel's sound is immutable after the first `createNotificationChannel`, so
+cutting `merged`/`released`/`epicdone`/`stuck` before their sounds existed would have burned
+those four ids on day one — which is why news lived on the replies channel and a blockage on
+the questions channel for a day. It no longer does: see
+[*The five voices*](#the-five-voices-and-the-channels-that-carry-them). The `NEWS` *card*
+still holds all three sizes of good news, because the argument for one card is about the
+shade and the argument for three channels is about the ear; the card takes its voice from
+whichever arrival caused the render.
 
 **`epic-done` has a shape and no emitter yet, and that is the shape of bc-ka5y.15.2.**
 Nothing closes an epic on its own here — `lib/bd.js` refuses an epic close on a merge,
