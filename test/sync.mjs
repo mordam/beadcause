@@ -502,6 +502,97 @@ await check('a stuck row reaches trouble(), flagged apart from a conflict', asyn
   assert.equal(row.error.includes('stomped by merge'), true);
 });
 
+/* -------------------------------------------------- a restart must not re-announce */
+
+await check('with no initial/save, behaviour is unchanged — the first tick is always a fresh broke', async () => {
+  // The default, and every test above this one relies on it: omitting both is byte for
+  // byte the syncer this file always had — including the bug this bead was filed
+  // about, when nothing wires the seam at all.
+  const s = createSyncer({ bd: fakeBd({ pull: new Error(STOMP) }) });
+  const out = await s.sweep([WS('team')]);
+  assert.equal(out.changed[0].transition, 'broke', 'with no seeded history, a real outage still reads as freshly broken');
+});
+
+await check('an outage seeded via `initial` does not re-announce as broke on the next tick', async () => {
+  // The bug itself, reproduced without a daemon: `before` was always null on the first
+  // tick after a restart, so an outage already running read as freshly broken. Seeding
+  // `initial` with what a prior process's `save` would have written is what a restart
+  // now does before its first sweep.
+  const bd = fakeBd({ pull: new Error(STOMP) });
+  const warm = createSyncer({ bd });
+  await warm.sweep([WS('team')]); // the tick that discovers it, pre-restart
+  const persisted = warm.get('team');
+  assert.equal(persisted.state, 'stuck');
+
+  // A fresh syncer — a new process — seeded from what was saved.
+  const cold = createSyncer({ bd, initial: { team: persisted } });
+  const out = await cold.sweep([WS('team')]);
+  assert.deepEqual(out.changed, [], 'still stuck is not news, exactly as it would not have been without the restart');
+  assert.equal(cold.trouble().length, 1, 'and the pane is there immediately, not only after a second tick');
+});
+
+await check('a streak survives the seam a restart used to reset it at', async () => {
+  const text = 'connection refused';
+  const bd = fakeBd({ pull: new Error(text) });
+  const warm = createSyncer({ bd });
+  for (let i = 0; i < STUCK_AFTER - 2; i += 1) await warm.sweep([WS('team')]);
+  const midway = warm.get('team');
+  assert.ok(midway.streak > 1 && midway.streak < STUCK_AFTER, 'a streak in progress, not yet promoted to stuck');
+
+  // Restart: a new syncer, seeded with the streak in progress.
+  const cold = createSyncer({ bd, initial: { team: midway } });
+  // Enough more identical ticks to cross STUCK_AFTER, counting from where it left off —
+  // not from 1, which is what a restart used to force it back to.
+  let out;
+  for (let i = midway.streak; i < STUCK_AFTER; i += 1) out = await cold.sweep([WS('team')]);
+  assert.equal(cold.get('team').state, 'stuck', 'the streak picked up where it left off and crossed the line');
+  assert.equal(out.changed[0]?.state, 'stuck');
+});
+
+await check('`save` is handed the whole map, workspace by workspace, and it is what round-trips into `initial`', async () => {
+  const saved = [];
+  const bd = fakeBd({ pull: new Error(STOMP) });
+  const s = createSyncer({ bd, save: (rows) => saved.push(rows) });
+  await s.sweep([WS('team')]);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].team.state, 'stuck');
+  // A second workspace's tick must not drop the first from what is saved — `save` gets
+  // the read-modify-write's whole picture, not a diff, because the caller's own writer
+  // (lib/config.js's `saveState`) merges by key and a partial map here would let an
+  // untouched workspace quietly vanish from state.json.
+  await s.sweep([WS('other')]);
+  assert.ok(saved[1].team, 'the workspace not touched this tick is still in the snapshot');
+  assert.ok(saved[1].other, 'and the one just synced is too');
+});
+
+await check('a `save` that throws does not break the sweep it was recording', async () => {
+  const bd = fakeBd({ pull: new Error(STOMP) });
+  const s = createSyncer({
+    bd,
+    save: () => {
+      throw new Error('disk full');
+    },
+  });
+  const out = await s.sweep([WS('team')]);
+  assert.equal(out.changed[0].transition, 'broke', 'the sweep itself is unaffected by a broken writer');
+});
+
+await check('a recovery seeded from a persisted outage is still announced, not swallowed', async () => {
+  // The other direction: the tracker came back while the daemon was down. `initial`
+  // must not make the syncer think it never left, or the recovery card never clears.
+  let broken = true;
+  const bd = fakeBd({ pull: () => { if (broken) throw new Error(STOMP); } });
+  const warm = createSyncer({ bd });
+  await warm.sweep([WS('team')]);
+  const persisted = warm.get('team');
+  broken = false;
+
+  const cold = createSyncer({ bd, initial: { team: persisted } });
+  const out = await cold.sweep([WS('team')]);
+  assert.equal(out.changed[0].transition, 'recovered');
+  assert.deepEqual(cold.trouble(), []);
+});
+
 /* ----------------------------------------------------------------- the cadence */
 
 await check('the cadence is a setting, not a constant', () => {
@@ -651,6 +742,15 @@ await check('nothing here ever adds a remote', () => {
   for (const f of ['lib/sync.js', 'lib/server.js', 'lib/bd.js']) {
     assert.doesNotMatch(read(f), ADD, `${f} never adds a remote`);
   }
+});
+
+await check('the daemon actually wires the restart-survival seam, not just the library', () => {
+  // The functional tests above prove `createSyncer` itself; this proves lib/server.js
+  // and lib/config.js did not stop at exporting the option. A `createSyncer({ bd })`
+  // with nothing else is the exact regression bc-y3qk.7 was filed for.
+  assert.match(SERVER, /createSyncer\(\{\s*bd,\s*initial:\s*loadState\(\)\.sync,\s*save:/, 'seeded and saved through state.json');
+  const CONFIG = read('lib/config.js');
+  assert.match(CONFIG, /sync:\s*\{\}/, 'state.json has somewhere to put it');
 });
 
 await cleanupTmp(tmp);
