@@ -126,6 +126,37 @@ await check('an approval wait is not written as a refusal', async () => {
   assert.ok(!/could not/.test(body), 'a wait was written as an attempt that failed');
 });
 
+await check('A DEADLOCKED REVIEW BECOMES THE SAME ONE CARD, and not a second bead', async () => {
+  // bc-36xx.7. The third way in, and it goes through this function rather than through a
+  // raiser of its own for the reason at the top of the file: a merge-bead is already a
+  // blocker on the work bead, so a second bead beside it leaves the work behind two.
+  const bd = fakeBd();
+  const why = 'The reviewer and the worker did not agree in 2 rounds of review, which is as many as this gets.';
+  const ok = await raiseMergeCard(bd, { name: 'demo' }, entryFor({ attempts: 0 }), why, { review: true });
+  assert.equal(ok, true);
+  assert.equal(bd.updates.length, 1, 'a review escalation filed something beside the merge-bead');
+
+  const body = bd.updates[0].description;
+  assert.match(body, /did not end in an approval/, 'the review escalation borrowed another opening');
+  assert.match(body, /did not agree in 2 rounds/, "the reviewer's own sentence is the whole of the card");
+  assert.ok(!/tried to merge it/.test(body), 'a review that stopped early was written as a merge that failed');
+
+  // The same relabel as every other way in — `human` is what puts it in the inbox, and
+  // `merge-queue` coming off is the handover.
+  assert.ok(bd.updates[0].addLabels.includes('human'), 'the card will not reach the inbox');
+  assert.ok(bd.updates[0].addLabels.includes(DELIVERY_LABEL), 'the four answers will not work on it');
+  assert.deepEqual(bd.updates[0].removeLabels, [MERGE_LABEL]);
+  // And it is a real delivery card: Merge on it goes through the door that already exists.
+  assert.ok(parseDelivery(body), 'the beadpr block did not survive the rewrite');
+});
+
+await check('a review escalation does not count merge attempts at you', async () => {
+  // The tally is about merging, and this stopped before the queue tried anything. "Tried
+  // 0 times" beside a deadlocked review counts the wrong thing at somebody working out
+  // what to do about it.
+  assert.equal(raiseOpening({ attempts: 2 }, 'the reviewer will not approve this.', { review: true }), 'the reviewer will not approve this.');
+});
+
 await check('the queue state stays on the bead — a card that lost it claims to be a first look', async () => {
   const bd = fakeBd();
   await raiseMergeCard(bd, { name: 'demo' }, entryFor({ attempts: 2, refused: 'lint is red.' }), 'lint is red.');
@@ -151,6 +182,20 @@ await check('it says so on the pull request, where whoever opens the diff is sta
   assert.equal(said[0].number, 42);
   assert.match(said[0].text, /merge queue/i);
   assert.match(said[0].text, /zz-merge/, 'the comment does not say where the decision now lives');
+});
+
+await check('and what it says on the pull request is which of the three stopped it', async () => {
+  // Whoever opens the diff is standing at the pull request, not at the card, and "the
+  // merge queue tried to merge this and could not" over a review that was never merged is
+  // the one sentence that sends them looking at the checks instead of at the objection.
+  const bd = fakeBd();
+  const said = [];
+  await raiseMergeCard(bd, { name: 'demo' }, entryFor({ attempts: 0 }), 'the reviewer will not approve this.', {
+    review: true,
+    prComment: async (spec, text) => said.push(text),
+  });
+  assert.match(said[0], /review loop/i);
+  assert.ok(!/tried to merge/.test(said[0]), 'a review escalation was announced as a failed merge');
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);

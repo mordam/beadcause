@@ -190,6 +190,25 @@ check('the daemon emits a landing when the merge queue lands one', /bus\.emit\(l
 check('and a deploy settling', /bus\.emit\(deployEvent\(rec/.test(SERVER));
 check('and a tracker breaking, and recovering', /bus\.emit\(syncStuckEvent\(/.test(SERVER) && /bus\.emit\(syncClearEvent\(/.test(SERVER));
 check('a successful deploy also clears the last failure’s card', /bus\.emit\(deployClearEvent\(rec\)\)/.test(SERVER));
+// And the line the push left behind, which is why this one is a `!`. When the sync
+// notification was an awaited ntfy push, its catch logged `[sync] could not push: …` —
+// a *notification* failing, under a prefix whose every other line is `bd dolt push`, so
+// the screen said the tracker had failed to push when it had not (bc-y3qk.3). Moving to
+// the bus deleted it, nothing pinned that, and a future `catch` around an `emit` would
+// put it straight back under the same prefix.
+//
+// Both tokens on one line, because the prefix and the words are one template literal —
+// which also keeps a legitimate `[deploy] could not push` from failing this. Comments
+// blanked and strings kept is the right way round: the paragraph above `sweepSync`
+// quotes the deleted line to explain why it went, so a scan that read prose would find
+// its own documentation and call it the bug. Imported here rather than at the top
+// because nothing under lib/ may load before CONFIG_DIR is set.
+const { blankComments } = await import('../lib/evidence.js');
+check(
+  'no [sync] line reports a failed notification as a failed push',
+  !/\[sync\][^`\n]*could not push/.test(blankComments(SERVER)),
+  'a failed notification must not read as a failed bd dolt push'
+);
 
 const DELIVER = read('bin/deliver.js');
 check('a worker recording an external merge no longer imports the push', !/from '\.\.\/lib\/notify\.js'/.test(DELIVER));

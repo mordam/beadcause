@@ -33,6 +33,17 @@
  *    once in its life, so asking twice is waste; but a null means somebody is at a
  *    keyboard running `gh auth login`, and caching that would outlive the fix.
  *
+ * 6. **A workspace with an integration branch of its own gets it, and nobody else
+ *    moves.** `deluvia` lands on `atlas/public-launch`; the other nine workspaces on
+ *    this install land on `main`, and the way to say that without making `main` wrong
+ *    for the nine is `pr.basePerWorkspace`. Asserted from both ends — the named
+ *    workspace answers its own branch, and a workspace not in the map answers exactly
+ *    what it answered before the map existed — because an override that leaked would be
+ *    invisible until somebody's pull request opened against a branch they had never
+ *    heard of. And asserted once through `loadConfig`, because the whole point of the
+ *    key is the one line in `defaults()` that names `deluvia`, and a resolver that
+ *    works over a config nobody ships is a resolver nothing reaches.
+ *
  * `gh` is a stub script on PATH that logs every call, so "did this ask GitHub?" is a
  * question the test can answer. Real git for the checkouts, no network, no repo of
  * yours, nothing under `~`.
@@ -66,6 +77,11 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-prbase-'));
 // init` in the tree it is about to take away, and a teardown must not be able to fail a
 // run its assertions passed. See test/helpers/tmp.mjs.
 process.on('exit', () => removeTreeSync(tmp));
+
+// Before lib/config.js can be imported by anything below: `CONFIG_DIR` is read at
+// module load, and a suite that let it resolve to `~/.config/beadcause` would write the
+// developer's own config on a fresh checkout.
+process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 
 const BIN = path.join(tmp, 'bin');
 const TREE = path.join(tmp, 'climative.dev');
@@ -163,6 +179,52 @@ await check('and `main` when there is nothing to read', () => {
   assert.equal(configuredBase({ pr: { base: '   ' } }), 'main');
 });
 
+/* ------------------------------------------ a workspace with a branch of its own */
+
+console.log("\na workspace whose base is not the install's");
+
+/** The shape as `defaults()` ships it: one named workspace, everybody else absent. */
+const perWorkspace = { pr: { base: 'main', basePerWorkspace: { deluvia: 'atlas/public-launch' } } };
+
+await check('the named workspace answers its own branch', () => {
+  assert.equal(configuredBase(perWorkspace, 'deluvia'), 'atlas/public-launch');
+});
+
+await check('and every other workspace still answers pr.base', () => {
+  // The half worth asserting: nine workspaces on this install merge into `main`, and an
+  // override that leaked onto one of them is silent until a pull request opens against a
+  // branch nobody named.
+  for (const other of ['beadcause', 'sophab', 'ehatt', 'climative', '']) {
+    assert.equal(configuredBase(perWorkspace, other), 'main', other || '(no workspace)');
+  }
+  assert.equal(configuredBase(perWorkspace), 'main');
+});
+
+await check('the override outranks pr.base rather than falling back to it', () => {
+  const cfg = { pr: { base: 'trunk', basePerWorkspace: { deluvia: 'atlas/public-launch' } } };
+  assert.equal(configuredBase(cfg, 'deluvia'), 'atlas/public-launch');
+  assert.equal(configuredBase(cfg, 'sophab'), 'trunk');
+});
+
+await check('and stands in for it when pr.base is not set at all', () => {
+  assert.equal(configuredBase({ pr: { basePerWorkspace: { deluvia: 'atlas/public-launch' } } }, 'deluvia'), 'atlas/public-launch');
+});
+
+await check('anything that is not a legible branch name is ignored, not coerced', () => {
+  // A map keyed by workspace name is hand-edited, and `true` there asked for nothing —
+  // reading it as a branch would open pull requests against `true`. The same rule the
+  // per-workspace booleans in lib/spaces.js keep, for the same reason.
+  for (const junk of [true, 1, null, {}, [], '', '   ']) {
+    const cfg = { pr: { base: 'main', basePerWorkspace: { deluvia: junk } } };
+    assert.equal(configuredBase(cfg, 'deluvia'), 'main', JSON.stringify(junk));
+  }
+});
+
+await check('a config written before the map existed answers exactly as it did', () => {
+  assert.equal(configuredBase({ pr: { base: 'trunk' } }, 'deluvia'), 'trunk');
+  assert.equal(configuredBase({}, 'deluvia'), 'main');
+});
+
 /* --------------------------------------------------------- a workspace of one repo */
 
 console.log('\na workspace that is one repo');
@@ -175,6 +237,12 @@ await check('answers pr.base, not the repo', async () => {
 });
 
 await check('and does it without running gh at all', () => {
+  assert.deepEqual(calls(), [], `gh was run: ${calls().join(' | ')}`);
+});
+
+await check('carries the workspace override, and still runs no gh', async () => {
+  const cfg = { pr: { base: 'main', basePerWorkspace: { deluvia: 'atlas/public-launch' } } };
+  assert.equal(await baseFor(cfg, 'deluvia', sophab), 'atlas/public-launch');
   assert.deepEqual(calls(), [], `gh was run: ${calls().join(' | ')}`);
 });
 
@@ -228,6 +296,20 @@ await check('nor for the repo whose local ref happens to look reasonable', async
   assert.equal(await baseFor(multi, 'climative', apiService), 'develop');
 });
 
+await check('but many repos still ask the repo first — the override is only their fallback', async () => {
+  // One string cannot be the right base for forty repos, so where GitHub has an answer
+  // the repo keeps winning. The override is what `pr.base` *means* for this workspace,
+  // and it is reached on exactly the path `pr.base` was reached on before.
+  const both = { ...multi, pr: { base: 'main', basePerWorkspace: { climative: 'atlas/public-launch' } } };
+  assert.equal(await baseFor(both, 'climative', apiService), 'develop');
+  offline(true);
+  forgetAvailability();
+  assert.equal(await baseFor(both, 'climative', apiService), 'atlas/public-launch');
+  offline(false);
+  forgetAvailability();
+  forgetCalls();
+});
+
 /* -------------------------------------------------------------- gh that cannot say */
 
 console.log('\na gh that will not answer');
@@ -272,6 +354,21 @@ await check('a null is not — the next call asks again, and gets the answer', a
   assert.equal(await defaultBranch(architecture), null);
   offline(false);
   assert.equal(await defaultBranch(architecture), 'main');
+});
+
+/* -------------------------------------------------------------- what ships */
+
+console.log('\nthe config this install actually ships');
+
+await check('deluvia is pointed at atlas/public-launch out of the box', async () => {
+  // Through `loadConfig` rather than by restating the literal here: the key is only
+  // worth anything because `defaults()` names deluvia, and a defaults block that lost
+  // that line should fail here rather than three weeks from now, on a deluvia delivery
+  // opened against a branch its work never merges into.
+  const { loadConfig } = await import('../lib/config.js');
+  const shipped = loadConfig();
+  assert.equal(configuredBase(shipped, 'deluvia'), 'atlas/public-launch');
+  assert.equal(configuredBase(shipped, 'beadcause'), 'main');
 });
 
 console.log(failures ? `\n${failures} failing\n` : '\nall good\n');

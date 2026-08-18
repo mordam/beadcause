@@ -392,7 +392,15 @@
     sub: new Map(),
     /** Which kinds the current scope can actually contain, newest survey wins. */
     usable: KINDS.map((k) => k.id),
-    /** kind id → how many rows of it are in view, before this filter is applied. */
+    /**
+     * kind id → how many rows of it are in view, before this filter is applied.
+     *
+     * Two readers, and they want the same number for different jobs: `subSaid` asks
+     * whether a sub-filter is narrowing anything worth naming on the summary line, and
+     * `paint` pushes the whole map at the pill row, where four of the ids are drawn as a
+     * badge (public/viewbar.js). `epics` is in here too and is the only key not counted
+     * by the caller — see `survey`.
+     */
     counts: {},
     /** sub group id → option id → the same, one level down. */
     subCounts: {},
@@ -632,6 +640,11 @@
    * `sub` is the level below — `{ status: { review: 2, merged: 30, … } }` — and those are
    * counted the other way round, over every PR row the space picker allowed, because
    * *that* is what picking one of those chips would leave you with.
+   *
+   * Since bc-khoe.23 these numbers are also what four of the pills say out loud, so the
+   * paragraph above is the badge's claim as well as the chip's: `Questions 4` is a
+   * promise about the screen a tap opens, and the only way to keep it is to count what
+   * this function counts, where it counts it.
    */
   function survey({ kinds, counts, sub } = {}) {
     if (sub && typeof sub === 'object') state.subCounts = sub;
@@ -642,7 +655,27 @@
       // paint anyway; a notify() here would re-enter it.
       if ([...state.on].some((id) => !state.usable.includes(id))) set([...state.on], { quiet: true });
     }
-    if (counts && typeof counts === 'object') state.counts = counts;
+    if (counts && typeof counts === 'object') {
+      /*
+        `epics` is derived here rather than counted by the caller, because it is a fact
+        about this file rather than about the render.
+
+        My Epics is a *place*, not a slice: it carries no `test`, so no row is ever of
+        that kind and a loop keying on `kindOf` can never produce a number for it. What
+        picking it does is clear the selection — and `matches()` with nothing selected is
+        `inSub()` alone, which is precisely the rows the caller has already counted, each
+        through its own sub-filter. So the sum of the slices *is* the number, and summing
+        them here means the two can never disagree about it.
+
+        Summed over the slices only, so an `epics` the caller passed cannot be counted
+        into its own total.
+      */
+      const rows = Object.entries(counts).reduce(
+        (n, [id, c]) => (BY_ID.get(id)?.test ? n + (Number(c) || 0) : n),
+        0
+      );
+      state.counts = { ...counts, epics: rows };
+    }
     paint();
   }
   /* ---------------------------------------------------------------- the groups */
@@ -825,6 +858,11 @@
     // is the second place that knows this bead exists to remove. A no-op everywhere but
     // Home, where `mark` is what moves the lit pill.
     window.beadcause?.views?.mark?.(current());
+    // And the numbers on it, down the same channel and for the same reason. The row
+    // reads only the four ids it draws a badge for; what is in the rest of the map is
+    // this file's business, not its. Counted before the kind filter and after the space
+    // picker, so a badge is what tapping the pill would leave you with — see `survey`.
+    window.beadcause?.views?.counts?.(state.counts);
   }
 
   /**
