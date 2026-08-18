@@ -530,7 +530,7 @@ await check("the press's outcome is drawn where the press was, not inside a shut
   // press ever gets. Inside a section that is folded by default it would be an answer to a
   // press you cannot see, so it is drawn at card level, above the fold.
   const page = read('public/monitor.js');
-  const fn = page.slice(page.indexOf('function epicCard(a, e)'), page.indexOf('const epicCards ='));
+  const fn = page.slice(page.indexOf('function epicCard(a, e'), page.indexOf('const epicCards ='));
   const aboveFold = fn.slice(0, fn.indexOf('${secs}'));
   assert.match(aboveFold, /note \? `<div class="adv-note">/, 'the outcome note is below the fold, or gone');
   assert.match(fn, /const note = state\.epicNotes\.get\(`\$\{key\}\/\$\{e\.id\}`\)/, 'the card no longer reads the note at all');
