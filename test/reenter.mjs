@@ -23,6 +23,12 @@
  * 3. **A stall is measured in windows, not timestamps.** `updated_at` is bumped by a
  *    comment and not by a session dying, so the state under test is "the tracker says
  *    in_progress and nothing on this Mac is in a window on it", which needs two sweeps.
+ * 4. **The two endings the brief asks for look exactly like that stall.** A delivered bead
+ *    and a handed-back bead are both left `in_progress`, assigned, with a lease that
+ *    expires — so the sweep reported every worker that did what it was told, and the two
+ *    halves have to be held apart from each other *and* from a window that really did die
+ *    (bc-xl7n.98). Getting this wrong is not visible either: it is an unattended window
+ *    opened on a bead nothing was wrong with.
  *
  * The tick half injects `openAdvocate`, so a case that would have opened an iTerm window
  * pushes a record onto an array instead. No iTerm, no `bd`, no agent, and nothing written
