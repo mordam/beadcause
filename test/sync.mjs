@@ -479,6 +479,25 @@ await check('a failure whose reason moved has not been failing the same way', as
   assert.equal(s.get('team').state, 'failed');
 });
 
+await check('and it stays stuck — it does not fall back out of it and re-announce every five ticks', async () => {
+  // The other half of bc-y3qk.4's complaint, found by replaying a *sustained* outage
+  // through the syncer after the flap damping went in and counting more pushes than the
+  // flapping case produced.
+  //
+  // The streak was compared against the state this function had already promoted. The
+  // fifth identical `failed` becomes `stuck`; the sixth tick's `failed` then differs from
+  // the stored `stuck`, so the count restarted, the word fell back to `failed` — and that
+  // is a word change, which is the one thing that always reaches the phone. A workspace
+  // failing identically all afternoon buzzed every ten minutes for ever, and told you it
+  // had stopped being stuck each time round.
+  const s = createSyncer({ bd: fakeBd({ pull: new Error('connection refused') }) });
+  let noises = 0;
+  for (let i = 0; i < 40; i += 1) noises += (await s.sweep([WS('team')])).changed.length;
+  assert.equal(noises, 2, 'the break, and the promotion — and nothing else in forty ticks');
+  assert.equal(s.get('team').state, 'stuck', 'and it is still stuck at the end of them');
+  assert.equal(s.get('team').streak, 40, 'with a count that never restarted');
+});
+
 await check('becoming stuck is announced once, and then it is quiet', async () => {
   // The whole complaint on bc-y3qk.4 is a phone buzzing on every transition. This adds
   // one more transition per incident and must not add a second.

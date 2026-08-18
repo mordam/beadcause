@@ -20953,6 +20953,16 @@ log this was measured on, and 85 of the 97 sync lines in it follow a restart, so
 in-memory streak rarely reaches five. Recognising the *shape* on the first tick is what
 survives a restart, and is why the two rules exist side by side.
 
+**And the count is compared against what the tick itself said, never against the word it
+was promoted to.** That sounds like an implementation note and it is not: the fifth
+identical failure becomes `stuck`, and comparing the sixth tick's `failed` against that
+stored `stuck` made the two differ — so the count restarted, the word fell back to
+`failed`, and a word changing is the one thing that always reaches the phone. A workspace
+failing identically all afternoon buzzed **every ten minutes for ever**, telling you each
+time round that it had stopped being stuck. It is the same complaint as the flapping
+below, arriving through the escalation path rather than the transition one, and no
+damping catches it by design.
+
 **And a fourth thing it can say, for the tracker that has no incidents to report.**
 Everything above assumes a sync that breaks and then is broken. One that breaks, comes
 back, breaks and comes back on a two-minute clock satisfies the transition rule perfectly
