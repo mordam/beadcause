@@ -136,7 +136,8 @@ if (!flag('--no-options', '--free-text')) {
  * asked from a session on one engineer's Mac says whose Mac it was (lib/byline.js).
  *
  * `BEADS_ACTOR` alone is not enough to make it stick: a workspace `config.yaml` with an
- * `actor:` in it beats the environment variable, and the flag beats both. lib/bd.js has
+ * `actor:` in it could take precedence over the environment variable, and the flag beats
+ * both whichever way round that is — see the re-measurement in `Bd.run`. lib/bd.js has
  * carried the flag since that was measured; the three CLIs did not, so a workspace
  * pinning an actor silently overwrote the byline on everything they filed. Appended to
  * every call rather than to the writes, exactly as `Bd.run` does it, because the reads

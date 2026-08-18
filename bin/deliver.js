@@ -278,8 +278,10 @@ if (ahead) {
 /* ------------------------------------------------------------------- the bead */
 
 // The byline this machine files under, on the argv as well as in the environment — a
-// workspace `config.yaml` with an `actor:` in it beats `BEADS_ACTOR` and the flag beats
-// both, which is why `Bd.run` has always appended it. See bin/ask.js and lib/byline.js.
+// workspace `config.yaml` with an `actor:` in it could take precedence over
+// `BEADS_ACTOR` and the flag beats both, which is why `Bd.run` has always appended it.
+// See bin/ask.js and lib/byline.js — and the re-measurement in `Bd.run`, which is why
+// this says "could".
 const byline = bylineFor(cfg);
 const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: byline };
 const bd = (args) =>

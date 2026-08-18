@@ -21662,11 +21662,10 @@ Three things this deliberately is not:
   its own address on the bead, unwrapped, because that is a person speaking and not a
   daemon — see [whose answer it is](#whose-answer-it-is).
 - **It does not touch what an agent's own `bd comment` says.** That is the shell's
-  `BEADS_ACTOR` — already that engineer's address, so it says *which* engineer and not
-  whether it was them or something they started. Left alone here for two reasons: it is
-  exactly what the reply detection below tells apart, and `[address]` on a comment
-  meaning "an agent typed this" is a convention already being read. bc-y3qk.1 is where
-  that is picked up.
+  `BEADS_ACTOR`, and bc-lx3k left it alone for two reasons: it is exactly what the reply
+  detection below tells apart, and `[address]` on a comment meaning "an agent typed
+  this" was a convention already being read. bc-y3qk.1 picked it up — see
+  [whose agent wrote it](#whose-agent-wrote-it--the-byline-on-an-agents-own-bd) below.
 
 **The one thing that had to not break is the reply test.** When you answer a question
 from the phone, beadcause watches the thread and pushes the agent's answer back to you —
@@ -21679,6 +21678,76 @@ the other five machines' bylines too, so a second engineer's tap on a shared thr
 bookkeeping rather than arriving on your phone as an answer. `node test/byline.mjs` drives
 the real poller over three comments that differ only in their author — this Mac's byline,
 another Mac's, and an agent's — and asserts that exactly one of them rings.
+
+### Whose agent wrote it — the byline on an agent's own `bd`
+
+The section above is about writes *beadcause* makes. This is the other half, and on a
+shared tracker it is the worse one. A worker, an advocate, the chat console and the two
+headless runners are Claude sessions in a shell, and the `bd comment` one of them types
+is not a beadcause write at all — it is a `bd` the agent spawned, signed by whatever
+that shell exported as `BEADS_ACTOR`. On this Mac `~/.zshenv` derives that from `$PWD`
+and it comes out as the engineer's own address, which is **character-for-character what
+that engineer's own `bd comment`, typed by hand in a terminal, produces**. So a thread
+could say which engineer and could not say whether it was them or something they
+started — and those two readings differ in the only way that matters, because one is a
+person's decision and the other is a machine's guess at one.
+
+beadcause is the only party that can settle it, because it is the party that builds the
+environment. So the byline is stamped where `BEADCAUSE_AGENT` is stamped:
+
+```
+author: agent (carol@example.com)
+```
+
+Same `me`, same handle, same base-first shape and the same reason for it. One switch
+makes a Mac named for routing, for its daemon's writes and now for its agents' writes at
+once, and with `me` unset it is the bare `agent` — still nobody's address, which is the
+point even on one Mac.
+
+**`agent`, and not `worker` or `advocate`.** The foundation id is right there and it is
+tempting. But the two questions anyone asks of an author string are "is this a person"
+and "is this one of ours", and both want *one* string; a base that changed with the
+roster would be a base nothing could match on. Which agent it was is already recorded
+where it is stable — `BEADCAUSE_AGENT` in the session's own environment, the
+[session log](#the-session-log-kept-in-the-repo), and the `agent-filed` label.
+
+**It cannot be amended.** `env` on a foundation is a field an agent may ask for and Adam
+may approve, and this is the one key that approval must not reach: an agent that could
+set its own byline could put a comment on a shared thread in the engineer's name. So
+`agentEnv` and `agentExports` (lib/foundation.js) emit it *after* the foundation's own
+`env`, exactly as they do `BEADCAUSE_AGENT` — a later key in an object literal and a
+later `export` in a shell are the same rule. The worker is the one agent where this is
+not merely bookkeeping: its command is typed into an iTerm window, so what runs it is a
+fresh login shell that has already set `BEADS_ACTOR` from `$PWD`, and only an export
+emitted afterwards beats it.
+
+**`writtenByDaemon` still says no to it**, which is the half that could have failed
+silently and badly. The base is `agent`, which is neither `cfg.actor` nor `beadcause`,
+so an agent's answer still reaches the phone — and note the trap that makes it worth a
+test rather than a reading: `agent (carol@example.com)` shares its *handle* with this
+Mac's own `beadcause (carol@example.com)`, so anything comparing handles rather than
+bases would have concluded the daemon was talking to itself and gone quiet. `node
+test/byline.mjs` drives the real poller over four threads now — this Mac's byline,
+another Mac's, an agent signed the old way, and an agent signed the new way — and
+asserts that exactly the two agents ring.
+
+**One thing downstream had to move with it.** `bd update --claim` takes the assignee
+straight off `BEADS_ACTOR` — measured against bd 1.2.1, and worth stating because
+`--claim` is otherwise so close to the git identity that the two were assumed to be the
+same thing. So every claim an agent makes now carries a byline into `shortActor`
+(lib/work.js), which shortened an address at the first `@` and turned
+`agent (carol@example.com)` into `agent (carol` on the work screen and the graph sheet.
+It shortens inside the parenthesis now. The same was quietly true of anything a daemon
+had claimed; nobody had looked, because until agents signed this way it was rare.
+
+**What this deliberately does not change.** `bd` commands that already pass `--actor`
+are untouched, and that is every write the daemon and the `beadcause-*` CLIs make: the
+flag beats the environment, so `beadcause-ask`, `beadcause-file`, `beadcause-deliver`
+and `beadcause-propose` go on filing as `beadcause (carol@example.com)` even when the
+agent that ran them signs as `agent`. Nor does it touch a person: a signed-in browser
+still writes its own address, unwrapped. And nothing already on the tracker is
+rewritten — every agent comment written before this says an address, which is why
+`writtenByDaemon` has to keep reading *that* as an agent too.
 
 ## The management system — off by default, and turning it on is a record
 
