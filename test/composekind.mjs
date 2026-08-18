@@ -364,7 +364,16 @@ await check('one ＋, and the kind decides which create it is', () => {
   // that the branch asks the kind table for the word instead of keeping a list of kind ids
   // here — a second file that knows what the six kinds are is a second file that can be
   // wrong about them, with nothing to say which.
-  const wiring = APP.slice(APP.indexOf('if (composeEl && composePickEl)'));
+  // Bounded to the block, unlike the slice in "paints once at load" above, which wants
+  // the rest of the file so it can prove the load paint falls *before* the next landmark.
+  // Open-ended here was true only while this wiring was the last thing in app.js:
+  // bc-khoe.30.4 then appended `stage.register('epics', { build: buildHome })` after it,
+  // and that `'epics'` is a *pane* id for the shell, not a kind id kept by this wiring.
+  // Same idiom as test/p0card.mjs — the block closes at a two-space `}`.
+  const from = APP.indexOf('if (composeEl && composePickEl)');
+  assert.notEqual(from, -1, 'the compose wiring is gone');
+  const wiring = APP.slice(from, APP.indexOf('\n  }', from));
+  assert.ok(wiring.includes('paintCompose();'), 'the slice stopped short of the whole block');
   assert.match(wiring, /inboxFilter\?\.creates\?\.\(\) \|\| 'chat'\) === 'epic'/, '＋ does not branch on the kind');
   assert.match(wiring, /showEpicPick\(\);/, 'nothing opens the epic picker');
   assert.doesNotMatch(wiring, /'epics'/, "the wiring keeps its own copy of a kind's id");
