@@ -20189,6 +20189,55 @@ that [says so](#and-it-survives-the-daemon-too). The socket is counted in `infli
 either way, so a backend is never killed out from under one; `npm run swap:status` names
 the count beside the requests.
 
+### Every line it writes carries the time it wrote it
+
+`~/Library/Logs/beadcause.log` used to carry no times at all, and the lines are good
+enough that it took a while to notice what that costs. "opened a session on bc-y3qk.3 in
+`<path>` (auto, opus (unrated), attempt 1)", "claimed bc-y3qk — a window here has it open
+(pid 74048)": reading it you can reconstruct almost everything except *when*, and
+therefore except **order across subsystems**. The file is append-only so the lines are
+ordered, but they come from a daemon interleaving sweeps, dispatches, merges and syncs
+plus its child processes, and line 58021 sitting above line 58251 says nothing about how
+far apart they were. "The sync recovered on the very next tick" and "the sync recovered
+four hours later" are the same two adjacent lines.
+
+bc-zjab is what that cost. A plan was filed and its children were dispatched ungrouped
+about two minutes later; the obvious hypothesis was a tick whose survey ran before the
+`planned` label landed, which is cheap to test and was impossible to test *here* — the
+log records both events in order and stamps neither. Two sessions failed to close it, and
+a defect card went out carrying a guessed cause that turned out to be wrong.
+
+So every line is prefixed with `2026-08-18T22:41:03.512Z ` — ISO 8601, UTC,
+milliseconds. UTC because this repo has already misread tracker timestamps as ADT and a
+bare `19:43:54` is that trap again; milliseconds because the question that started it is
+decided inside one second; and that exact shape because it sorts as plain text, which a
+local wall clock stops doing twice a year.
+
+**It is a prefix and nothing else.** Greps and line-number citations into this file are
+already written into beads, notes and suites, so no line is reflowed, re-worded,
+re-ordered, added or removed, and `grep "could not hand"` still finds what it found. The
+mechanism is one wrapper over the console methods in `lib/logstamp.js` rather than a
+stamp threaded through the ~300 `console.log` call sites — 182 in `lib/server.js` alone —
+because 300 edits is 300 chances to miss one, and a wrapper covers the lines nobody has
+written yet.
+
+Two things about it are decisions rather than accidents. **Every line of a multi-line
+write is stamped, continuations included**, because an unstamped continuation is exactly
+the failure being fixed: you grep for a phrase, land on a line, and it has no time.
+**A blank line stays blank**, because stamping a separator turns it into content for a
+timestamp that orders nothing.
+
+And it installs itself *on import*, which is why `bin/router.js` and `bin/beadcause.js`
+both have `import '../lib/logstamp.js'` as their first line. A call in the body would run
+after every other module had been evaluated, and one of them prints while it is being
+evaluated — `lib/resolvers.js` restores the previous daemon's resolver windows at module
+load and says so — so an explicit call would leave that line, and any added later,
+silently unstamped. The CLI modes of those same bins are excluded inside the module, and
+one of them would break a build rather than a log: `BASE_URL=$(node bin/beadcause.js
+--url)` in `scripts/build-android.sh` wants an address, not an address with the time in
+front of it. `--qr`, `--status` and `--swap` are a terminal somebody is reading. None of
+the four is ever run by launchd or by the router, so none of them reaches this file.
+
 ## The tailnet address, when Tailscale is not up yet
 
 Everything above assumes there is an address to bind. There often is not — not because
