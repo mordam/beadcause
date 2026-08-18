@@ -5354,6 +5354,28 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 button.viewpill { cursor: pointer; }
 .viewpill-icon { font-size: 15px; line-height: 1; }
 
+/* The count, on the four pills that carry one — see the header of public/viewbar.js for
+   which four and why a badge is allowed here at all.
+
+   **No colour and no background of its own.** It inherits the pill's, which is the one
+   way a single rule is right on all three shapes a `.viewpill` is worn by: the muted
+   `<a>`, the muted `<button>`, and the accent-filled `<span>` that is current. A capsule
+   would have needed a second pair of colours for the filled one, and a number drawn in a
+   colour the label is not is a number that can fail contrast where the label passes.
+   Weight and a shade less size is what sets it apart from the word instead.
+
+   `min-width` is two digits wide and `tabular-nums` holds the digits themselves to one
+   width, for the same reason zero is drawn rather than hidden: the numbers land on a
+   25-second poll, and a pill that grows when one does is a pill that moves out from
+   under a thumb already on its way to it. */
+.viewpill-count {
+  min-width: 1.4em;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Current. Colour alone would be the only mark, and colour alone is not a mark — so the
    accent is doubled by filling the pill and moving its border, which reads in both
    schemes and without colour vision. `aria-current` is the same claim, said to a reader
