@@ -60,6 +60,9 @@ const CSS = read('public/style.css');
 const SERVER = read('lib/server.js');
 const SESSION = read('lib/session.js');
 const BIN = read('bin/relaystep.js');
+const ANCESTRY = read('lib/ancestry.js');
+
+const { indexFrom } = await import(path.join(ROOT, 'lib', 'ancestry.js'));
 
 /** What `bd update --append-notes` does: adds, with a newline, and never rewrites. */
 const append = (notes, block) => (notes ? `${notes}\n${block}` : block);
@@ -217,9 +220,38 @@ check('handback is a step the writer accepts — it is the one the chain cannot 
 console.log('\nthe field reaching both surfaces');
 
 check('the whole trail is on /api/bead, and the last step alone on every tree row', () => {
-  assert.match(SERVER, /import \{ relayMark, relayTrail \} from '\.\/relayjournal\.js';/);
+  assert.match(SERVER, /import \{ relayTrail \} from '\.\/relayjournal\.js';/);
   assert.match(SERVER, /const relay = relayTrail\(issue\);/, 'the sheet route lost its trail');
-  assert.match(SERVER, /relay: relayMark\(beads\.get\(row\.id\)\)/, 'the tree row lost its mark');
+  assert.match(SERVER, /relay: beads\.get\(row\.id\)\?\.relay/, 'the tree row lost its mark');
+});
+
+check('the mark is parsed where the notes still exist, and not where they have been blanked', () => {
+  // The trap this feature was built straight into and the reason the mark rides the index
+  // row: `indexFrom` keeps `notes` for a ROOT only, so a mark parsed on the server's tree
+  // row answers `null` for every row in every tree, silently and for ever.
+  assert.match(ANCESTRY, /relay: relayMark\(row\)/, 'the index row stopped carrying the mark');
+  assert.match(ANCESTRY, /notes: isRoot\(row\)/, 'the blanking this works around is gone — re-read the note');
+  // A call and not a mention: the route that carries the trail names `relayMark` in its
+  // comment to say where the other half went, and blanking comments to grep this one file
+  // would cost more than the assertion is worth.
+  assert.ok(!/relayMark\(/.test(SERVER), 'the server is parsing notes it has already been handed blank');
+});
+
+check('a leaf bead in an export carries its mark, where its notes do not survive at all', () => {
+  const jsonl = [
+    JSON.stringify({ id: 'zz-1', title: 'root', issue_type: 'epic', priority: 0, notes: 'a root keeps these' }),
+    JSON.stringify({
+      id: 'zz-1.1',
+      title: 'leaf',
+      notes: entry({ role: 'clio', step: 'check', note: 'fact pass' }),
+      dependencies: [{ issue_id: 'zz-1.1', depends_on_id: 'zz-1', type: 'parent-child' }],
+    }),
+  ].join('\n');
+  const { beads } = indexFrom(jsonl);
+  assert.equal(beads.get('zz-1.1').notes, '', 'the blanking has changed — this test is now proving nothing');
+  assert.equal(beads.get('zz-1.1').relay.role, 'clio');
+  assert.equal(beads.get('zz-1.1').relay.step, 'check');
+  assert.equal(beads.get('zz-1').relay, null, 'a bead with no journal must carry no mark');
 });
 
 check('the relay brief tells the session to write it, with the tool and not by hand', () => {

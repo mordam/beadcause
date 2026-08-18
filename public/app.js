@@ -5899,6 +5899,36 @@
   const p0Step = (row) => Math.min(Math.max(Number(row.depth) || 1, 1), P0_INDENT_CAP + 1) - 1;
 
   /**
+   * Where a department relay on this bead has got to, in one span. bc-bmry.4.
+   *
+   * **The age is the point of it.** A relay runs through four or five roles in one
+   * unattended window (lib/relay.js), and from outside, one stalled at step 2 and one
+   * quietly working step 4 are the same silence — which is the cost `dv-vzg` accepted when
+   * it chose the full relay, on condition the steps were readable from here. `⇄ clio ·
+   * check · 3 steps · 40m ago` is the whole sentence that separates them, and there is no
+   * threshold in it: nobody has decided what "stalled" is for a role that reads a
+   * hundred-page charter first, so the row states the age and the reader judges it.
+   *
+   * `steps` is how far it has got and not how far it has to go, because the chain is
+   * derived from the assignee and `--claim` overwrote that (lib/relay.js) — a denominator
+   * here would be one the board cannot honestly produce.
+   *
+   * The flag is a mark and not the text. One flagged check is the ordinary output of a
+   * check and the row has no width for the clause; what it is, is two lines down in the
+   * trail once you open the bead.
+   */
+  function p0RelayHtml(relay) {
+    if (!relay?.role || !relay?.step) return '';
+    const when = relTime(relay.at);
+    const bits = [relay.role, relay.step, relay.steps > 1 ? `${relay.steps} steps` : '', when].filter(Boolean);
+    return `<span class="p0-relay${relay.step === 'handback' ? ' back' : ''}${
+      relay.flagged ? ' flagged' : ''
+    }" title="${esc(relay.flag || `relay: ${bits.join(' · ')}`)}">⇄ ${esc(bits.join(' · '))}${
+      relay.flagged ? ` ⚑${relay.flagged > 1 ? relay.flagged : ''}` : ''
+    }</span>`;
+  }
+
+  /**
    * One descendant, as a row in its epic's tree.
    *
    * **A button since bc-rfnr.9.4, where it was a link to the graph.** The tap opens the
@@ -5927,36 +5957,6 @@
    * bead, and a screen reader that skipped it would read the tree with a level missing,
    * which is the exact failure drawing the row at all is preventing.
    */
-  /**
-   * Where a department relay on this bead has got to, in one span. bc-bmry.4.
-   *
-   * **The age is the point of it.** A relay runs through four or five roles in one
-   * unattended window (lib/relay.js), and from outside, one stalled at step 2 and one
-   * quietly working step 4 are the same silence — which is the cost `dv-vzg` accepted when
-   * it chose the full relay, on condition the steps were readable from here. `clio · check ·
-   * 3/5 · 40m ago` is the whole sentence that separates them, and there is no threshold in
-   * it: nobody has decided what "stalled" is for a role that reads a hundred-page charter
-   * first, so the row states the age and the reader judges it.
-   *
-   * `steps` is how far it has got and not how far it has to go, because the chain is
-   * derived from the assignee and `--claim` overwrote that (lib/relay.js) — a denominator
-   * here would be one the board cannot honestly produce.
-   *
-   * The flag is a mark and not the text. One flagged check is the ordinary output of a
-   * check and the row has no width for the clause; what it is, is two lines down in the
-   * trail once you open the bead.
-   */
-  function p0RelayHtml(relay) {
-    if (!relay?.role || !relay?.step) return '';
-    const when = relTime(relay.at);
-    const bits = [relay.role, relay.step, relay.steps > 1 ? `${relay.steps} steps` : '', when].filter(Boolean);
-    return `<span class="p0-relay${relay.step === 'handback' ? ' back' : ''}${
-      relay.flagged ? ' flagged' : ''
-    }" title="${esc(relay.flag || `relay: ${bits.join(' · ')}`)}">⇄ ${esc(bits.join(' · '))}${
-      relay.flagged ? ` ⚑${relay.flagged > 1 ? relay.flagged : ''}` : ''
-    }</span>`;
-  }
-
   function p0RowHtml(card, row) {
     const status = String(row.status || 'open');
     const closed = status === 'closed';
@@ -6276,25 +6276,6 @@
   }
 
   /**
-   * The bead itself, in the order the questions come: what kind of thing it is, how it
-   * ended if it has, what it is under and behind, what it says, what has been said about
-   * it, and what happened to it.
-   *
-   * The status is deliberately *not* repeated here — the row above it is carrying that
-   * pill already, and two pills a centimetre apart saying `closed` is the expansion
-   * arguing with the row it came out of. What is added is everything the row had no
-   * space for: priority, type, owner, labels, the edges, the prose, the thread.
-   *
-   * `threadHtml` rather than a thread of its own, so a comment you opened here is
-   * collapsed the same way and by the same state (`state.thread`) as one you opened on
-   * the card — and so a repaint of the board, which happens every 25 seconds, does not
-   * fold up what you were reading.
-   *
-   * The graph is the last row, as a link. It is where this row used to send you on a
-   * tap, and it has to stay reachable: what the expansion gives you is this bead, and
-   * what the graph gives you is everything around it.
-   */
-  /**
    * Every step a department relay took on this bead, oldest first. bc-bmry.4.
    *
    * The rows are the journal `bin/relaystep.js` wrote as the window ran — one per handoff,
@@ -6306,10 +6287,10 @@
    * first because they are a queue you check; this is a story, and a story read backwards
    * loses the one thing it is for — which choice was made early and carried.
    *
-   * The `handback` row is drawn as the last line rather than as an ordinary step, because
-   * it is the only entry that says the relay is *not* going to move again on its own. That
-   * is also the row that says which role a new window would resume as, which nothing else
-   * on the bead records once `--claim` has taken the assignee.
+   * The `handback` row is marked rather than drawn as an ordinary step, because it is the
+   * only entry that says the relay is *not* going to move again on its own — and it is
+   * also the row that says which role a new window would resume as, which nothing else on
+   * the bead records once `--claim` has taken the assignee.
    */
   function p0RelayTrailHtml(relay) {
     const rows = Array.isArray(relay?.entries) ? relay.entries : [];
@@ -6333,6 +6314,25 @@
         .join('')}</div>`;
   }
 
+  /**
+   * The bead itself, in the order the questions come: what kind of thing it is, how it
+   * ended if it has, what it is under and behind, what it says, what has been said about
+   * it, and what happened to it.
+   *
+   * The status is deliberately *not* repeated here — the row above it is carrying that
+   * pill already, and two pills a centimetre apart saying `closed` is the expansion
+   * arguing with the row it came out of. What is added is everything the row had no
+   * space for: priority, type, owner, labels, the edges, the prose, the thread.
+   *
+   * `threadHtml` rather than a thread of its own, so a comment you opened here is
+   * collapsed the same way and by the same state (`state.thread`) as one you opened on
+   * the card — and so a repaint of the board, which happens every 25 seconds, does not
+   * fold up what you were reading.
+   *
+   * The graph is the last row, as a link. It is where this row used to send you on a
+   * tap, and it has to stay reachable: what the expansion gives you is this bead, and
+   * what the graph gives you is everything around it.
+   */
   function p0BeadBodyHtml(card, b) {
     const workspace = b.workspace || card.workspace;
     const parts = [];

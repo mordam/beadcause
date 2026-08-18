@@ -6558,11 +6558,13 @@ a.pill { text-decoration: none; }
   font-size: 11px; color: var(--muted);
   overflow-wrap: anywhere;
 }
-/* Handed back is the one state that says nothing will move on its own — the same weight
-   the app gives anything waiting on a person, and the reason the row is worth a colour at
-   all. Flagged wins over it: a flag is about the deliverable and a hand-back is about the
-   window, and the deliverable is what you would act on. */
-.p0-relay.back { color: var(--warn); }
+/* The two states worth a colour, and they get the same one on purpose. A hand-back says
+   nothing will move until something launches it; a flag says a check found something the
+   next role has to answer. They are different facts and they call for the same action —
+   read this one — so one colour and two words is honest, where two colours would be
+   asking a glance to remember which amber meant which. The words are in the text either
+   way (`⇄ … handback`, `⚑`), which is what a phone can actually act on. */
+.p0-relay.back,
 .p0-relay.flagged { color: var(--warn); }
 /* A bead that is itself asking you something. It is the reason to open a tree at all —
    and once bc-rfnr.9.7 takes the flat list away, the only place a question is drawn. */
