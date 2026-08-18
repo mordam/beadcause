@@ -156,19 +156,18 @@ const CANDIDATES = [
  * `showEpicPick`. The renderer half of this suite splits the same way — `board()` for
  * what is left of the section, `cands()` for what a tap on ＋ puts in the panel.
  */
-function page({ roots = [CARD], startable = CANDIDATES, owned = true, shut = false, space = 'all', workspace = 'all' } = {}) {
+function page({ roots = [CARD], startable = CANDIDATES, owned = true, space = 'all', workspace = 'all' } = {}) {
   const state = {
     rootboard: { owned, roots, startable, under: {} },
     p0open: new Set(),
     p0beadopen: new Set(),
     p0opening: new Map(),
-    p0shut: shut,
     p0status: 'live',
     space,
     workspace,
     spaces: [],
   };
-  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state });
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state, byKey: () => null });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -192,6 +191,14 @@ function page({ roots = [CARD], startable = CANDIDATES, owned = true, shut = fal
       lift(APP, 'function p0BeadHtml(card, row)'),
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),
+      // bc-r2b5.2's four states, which `p0Control` derives through `p0AdvState` — lifted
+      // with `relTime`, which the idle line's "last looked 3h ago" is written from.
+      lift(APP, 'function relTime(iso)'),
+      lift(APP, 'function p0AdvState(c)'),
+      lift(APP, 'function p0AdvWhen(s)'),
+      lift(APP, 'function p0AdvLine(s)'),
+      lift(APP, 'function p0DoneHtml(c)'),
+      lift(APP, 'function p0AdvOpenHtml(c, s)'),
       lift(APP, 'function p0Control(c)'),
       // bc-grut: the section is a grid cell, the tab a tap opens, and the head they share.
       lift(APP, 'const p0AsksHtml = '),

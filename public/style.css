@@ -161,6 +161,43 @@ body {
 */
 .pagescroll > * { flex-shrink: 0; }
 
+/*
+  ## A view is a pane of the shell, not a document of its own (bc-khoe.30.3)
+
+  Home used to *be* `/`, and History and the advocate console were other addresses. Every
+  move between them was a document load that threw away the list, the open card and the
+  scroll position to rebuild a screen that was mostly the same screen. So `/` holds one of
+  these per view, all but one hidden, and a pill tap swaps which one — see public/panes.js
+  and public/hashroute.js.
+
+  A pane takes the same slack `.pagescroll` does, because it stands where the scroller used
+  to: the shell is `.topbar`, `.viewbar` and then one row that gets everything left over,
+  and that row is now a pane holding a scroller rather than the scroller itself.
+  `min-height: 0` for the same reason it is on `.pagescroll` — a flex item's default
+  `min-height: auto` is its content, so without it the pane grows to fit its list instead
+  of letting the scroller inside it scroll, and pushes the chrome off the screen.
+
+  **Hiding is `display: none` and it cannot be anything else.** `visibility: hidden` and an
+  offscreen transform both leave the element in layout, and three panes in this column
+  would divide the slack three ways whether or not two of them are painted — the shown one
+  would get a third of the screen and scroll inside it, which is bc-7utr's bug back again
+  wearing a third mechanism. The declaration is written out because the UA's own `[hidden]`
+  rule is `display: none` at the weakest specificity there is and the `display: flex` above
+  beats it; that is the standing trap with this attribute and the reason `.compose-wrap`,
+  `.scrollpos` and a dozen others in this file carry a line just like it.
+
+  The price of `display: none` is that a hidden element has no scrollport and so no
+  `scrollTop` to remember. public/panes.js carries the number across by hand, which is the
+  half of this that no stylesheet can do.
+*/
+.pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane[hidden] { display: none; }
+
 .topbar {
   /* In flow, as the first row of the shell above — not sticky. There is nothing for it
      to stick to any more, and a sticky bar was the drift bc-7utr was filed about. */
@@ -374,21 +411,34 @@ body {
 }
 
 /*
-  One line, always. `#filters` held three stacked rows of chips once — the scope, then
-  the spaces, then the workspaces — and now holds two controls side by side: the scope
-  switch, flat on the chrome (public/filterpills.js, bc-khoe.24), and behind it the
-  collapsed panel with what is left of the filter in it (public/inboxfilter.js). The
-  panel is *absolutely positioned*, so opening it draws over the list instead of pushing
-  it down. That matters twice: the cards under the pointer do not move as you reach for
-  a chip, and paintScrollPos() measures this nav to decide which card you are reading,
-  so its height has to be the same open or shut.
+  The controls, on one line where they fit and two where they do not. `#filters` held
+  three stacked rows of chips once — the scope, then the spaces, then the workspaces —
+  and holds the scope switch (public/filterpills.js, bc-khoe.24) followed by one pill
+  per remaining filter (public/filtermenu.js, bc-khoe.26). The panels are *absolutely
+  positioned*, so opening one draws over the list instead of pushing it down. That
+  matters twice: the cards under the pointer do not move as you reach for a chip, and
+  paintScrollPos() measures this nav to decide which card you are reading, so its height
+  has to be the same open or shut.
 
-  **Nothing here may set `overflow`.** The obvious answer to two controls on a narrow
-  phone is the sideways scroll `.viewbar` has — and it is the wrong one: a scroll
-  container on either axis makes the other one `auto` too, so the panel that is supposed
-  to draw *over* the list would be clipped to the 34px line it hangs off. The width is
-  taken out of the summary instead, which already ellipsises, and the switch never
-  shrinks.
+  **It wraps, and the pills wrap *with* the switch rather than under it.** The switch is
+  three fixed words — 214px measured at 360 — and the three filter pills are another 431,
+  so on a phone this is two or three lines whatever is done. What decides how many is
+  whether the pills are allowed to share a line with the switch: `.filter-menu` is
+  `display: contents`, so its pills are items of *this* flex row and flow into the space
+  the switch leaves. Boxed instead, the row would take a whole line of its own and the
+  84px beside the switch would go to waste. The *view* pills are a different row entirely
+  (`.viewbar`) and are untouched by this.
+
+  **`position: relative` is here rather than on the pill row, and that is the other half
+  of the same decision.** `display: contents` generates no box, so it cannot be anything's
+  containing block — and it should not be: a 260px panel anchored to a pill two thirds of
+  the way across a phone opens off the side of the screen. Anchored to this nav they open
+  under the whole of it, at the page margin, wherever their pill ended up.
+
+  **Nothing here may set `overflow`.** The obvious answer to a crowded narrow phone is
+  the sideways scroll `.viewbar` has — and it is the wrong one: a scroll container on
+  either axis makes the other one `auto` too, so a panel that is supposed to draw *over*
+  the list would be clipped to the 34px line it hangs off.
 */
 .filters {
   /* A row of the shell rather than the first thing in the list (bc-7utr), so it no
@@ -397,36 +447,41 @@ body {
      to clear to count as the one you are reading. `flex: none` because the height of
      this line is fixed either way and the scroller under it is what takes the slack. */
   flex: none;
+  position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
   padding: 10px 16px 6px;
 }
 /*
-  The filters that are not behind anything. One row today and it is the scope; bc-khoe.26
-  brings the rest of the panel out beside it, which is why this is a flex row of groups
-  rather than a rule on the one group in it.
+  The filters that are not behind anything: the scope switch, drawn flat.
 
   `flex: none` is the half that matters on a 360px phone: the switch is three fixed words
-  and the line beside it is prose that can be cut, so the summary is what gives up the
+  and the pills beside it are a row that can wrap, so the pills are what give up the
   width. A switch squeezed to fit would put its last segment on a second line, and a
   segmented control that wraps is three chips again.
 */
 .filterpills { flex: none; display: flex; align-items: center; gap: 8px; }
-/* `min-width: 0` and not `max-width: 100%` alone: a flex item's floor is its content, so
-   without this the summary refuses to shrink, pushes the row past the viewport, and the
-   ellipsis inside `.sel` never gets to do its job. */
-.filter-menu { position: relative; min-width: 0; max-width: 100%; }
 /*
-  What the control says when nobody is reaching for it: the scope and the kinds, in
-  words, on one line. Shaped like a chip because that is what it replaced, and wide
-  enough to be an obvious target — this is the only way into the filters on a phone.
+  The filter pills (bc-khoe.26). `display: contents` rather than a box — see `.filters`
+  above for why, and note that it makes the UA's `[hidden]` rule lose, so the whole row
+  going away when no filter is offered has to be said again here.
+*/
+.filter-menu { display: contents; }
+.filter-menu[hidden] { display: none; }
+/* One pill and the panel it opens. No `position` of its own — see `.filters`. */
+.filter-one { min-width: 0; max-width: 100%; }
+/*
+  What a filter says when nobody is reaching for it: its legend, and the narrowing where
+  there is one. Shaped like a chip because that is what these replaced, and tall enough
+  to be an obvious target — on a phone this is the only way into the filters.
 */
 .filter-summary {
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; align-items: center; gap: 6px;
   max-width: 100%;
   min-height: 34px;
-  padding: 6px 12px;
+  padding: 6px 11px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
@@ -436,19 +491,43 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
-.filter-summary .sel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-summary .sel,
+.filter-note .sel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-summary .sel[hidden] { display: none; }
 .filter-summary .caret { flex: 0 0 auto; font-size: 10px; }
-.filter-menu.open .filter-summary { border-color: var(--accent); color: var(--text); }
+.filter-one.open .filter-summary { border-color: var(--accent); color: var(--text); }
 /* Narrowed is a state you have to be able to see without opening anything — the whole
-   risk of a collapsed filter is forgetting it is set. */
-.filter-menu.narrowed .filter-summary {
+   risk of a filter behind a control is forgetting it is set. Per pill since bc-khoe.26,
+   which says more than the one bold line could: it names which control is doing it. */
+.filter-summary.on {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
 }
+/*
+  The confession: a narrowing whose pill the current view cannot offer (bc-khoe.26).
+
+  Deliberately *not* pill-shaped. It does not open, it cannot be tapped, and giving it
+  the border and the target size of the controls beside it would be a button that does
+  nothing — the exact complaint the pills answer, in the one place the answer has to be
+  a sentence rather than a control.
+*/
+.filter-note {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 6px 2px;
+  color: var(--muted);
+  font-size: 13px; font-weight: 600;
+}
+.filter-note[hidden] { display: none; }
 .filter-panel {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 18;
+  /* Against the nav, not against the pill — see `.filters`. `left: 16px` is that nav's own
+     side padding, so the panel lines up with the pills above it and with the cards below
+     rather than bleeding to both edges; `min-width` is a floor rather than `100%`, because
+     a floor of the nav's full width beats `max-width` and would make every panel a sheet. */
+  position: absolute; top: calc(100% + 6px); left: 16px; z-index: 18;
   display: flex; flex-direction: column; gap: 12px;
-  min-width: max(260px, 100%);
+  min-width: 260px;
   max-width: min(420px, calc(100vw - 32px));
   padding: 12px;
   border: 1px solid var(--line);
@@ -460,20 +539,16 @@ body {
    without this the panel is open from the moment the page loads. */
 .filter-panel[hidden] { display: none; }
 /*
-  On the inbox the panel hangs off its *right* edge, and that is bc-khoe.24's doing.
+  There is no `#filters .filter-panel { right: 0 }` here any more, and its going is
+  bc-khoe.26's.
 
-  The panel is 260px wide at its narrowest and it is positioned against `.filter-menu`,
-  which used to be the first thing on the row and 16px from the left edge — so `left: 0`
-  put it comfortably on the screen. The scope switch leads now, which pushes the menu to
-  x=240 on a 360px phone, and a left-anchored panel from there runs 140px off the side of
-  the screen. Right-anchored it opens leftwards, back under the switch, and fits.
-
-  Scoped to `#filters` and not written on `.filter-panel` itself, because it is only safe
-  where the menu is the *last* thing on its row: the History tab's panel (`#hist-filters`)
-  is the first, and right-anchoring that one would push it off the other edge instead.
-  bc-khoe.26 takes this whole panel apart, and this rule goes with it.
+  It was there because one 260px panel anchored to a `.filter-menu` the scope switch had
+  pushed to x=240 ran off the side of a 360px phone, so it was opened leftwards instead —
+  which was only ever safe while the menu was the *last* thing on its row, and had to be
+  scoped to `#filters` for that reason. The panels hang off the pill *row* now, and that
+  row wraps to the page margin on exactly the phone the rule existed for, so left is
+  where they belong on both pages and there is nothing left to special-case.
 */
-#filters .filter-panel { left: auto; right: 0; }
 /*
   The 6px gap above the panel, made part of the control. Without it, moving the mouse
   from the summary to a chip crosses ordinary page and fires a pointerleave; with it
@@ -484,10 +559,15 @@ body {
   content: ''; position: absolute; left: 0; right: 0; top: -8px; height: 8px;
 }
 .filter-group { display: flex; flex-direction: column; gap: 7px; }
+/* On the pill now rather than over the chips: there is one group per panel, and the pill
+   you opened it with has already said which one. */
 .filter-legend {
+  flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--muted);
   font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
 }
+.filter-summary.on .filter-legend { color: inherit; opacity: 0.72; }
 /* Inside the panel there is room to wrap, and nothing below to scroll past — so the
    sideways scroll the rows used in the page flow would only hide chips here. */
 .filter-panel .chip-row { flex-wrap: wrap; overflow: visible; }
@@ -1509,6 +1589,35 @@ body {
    quietly on the expensive model, and a session that ran somewhere other than where it was
    sent is the one case the plan on its own would have lied about. Neither is a failure. */
 .pill.model.diverged, .pill.model.bad {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
+}
+/*
+  "⚖ in-review · G2" — the second axis, next to the model chip (bc-bmry.5,
+  `approvalChipHtml`). Shaped like `.pill.model` on purpose: they sit beside each other in
+  the same meta row, they are both facts about the bead rather than controls, and two
+  differently-shaped chips there would read as two kinds of thing when they are one.
+
+  Lower-case, like the model chip and for the same reason: `in-review`, `needs-approval`
+  and `gate:G2` are what deluvia's documents and `bd list -l` actually say, and `IN-REVIEW`
+  is a spelling this app would have invented.
+
+  Filled only for `in-review`, which is the one state that is *asking something of you*.
+  Everything else — draft, approved, revise, a bare gate — is a state to notice rather
+  than act on, and an inbox where four chips all shout is an inbox with no emphasis left.
+*/
+.pill.approval {
+  text-transform: none; letter-spacing: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.pill.approval.is-in-review { background: var(--surface-2); border-color: transparent; color: var(--text); }
+/* The same warn this app uses for "a state somebody has to resolve" rather than for an
+   error — a packet that cannot reach the phone is not a failure, it is a label somebody
+   has to add before the question can be asked at all. */
+.pill.approval.bad {
   background: color-mix(in srgb, var(--warn) 16%, transparent);
   border-color: color-mix(in srgb, var(--warn) 45%, transparent);
   color: var(--warn);
@@ -4811,6 +4920,12 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-body { padding-bottom: 8px; }
 .mon-body .work-row:first-child { border-top: 0; }
 .mon-body .subtitle { margin: 4px 2px 8px; }
+/* A section inside a section — the `Requested endorsements` subcard an EpicAdvocate
+   carries (bc-8t3b). Indented and dashed rather than styled fresh, so it reads as
+   belonging to the epic above it: at full width with the same solid rule, an epic's own
+   subcard is indistinguishable from the next epic along in a card that has fourteen. */
+.mon-body .mon-sec { margin-left: 12px; border-top-style: dashed; }
+.mon-body .mon-sum { min-height: 34px; font-size: 11px; }
 
 /* Small, inline, and unclickable — distinct from `.chip`, which is a filter control
    sized for a thumb. These are facts about a row, not things to press. */
@@ -5281,6 +5396,28 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    change the cursor and five do not is the same complaint as the font above. */
 button.viewpill { cursor: pointer; }
 .viewpill-icon { font-size: 15px; line-height: 1; }
+
+/* The count, on the four pills that carry one — see the header of public/viewbar.js for
+   which four and why a badge is allowed here at all.
+
+   **No colour and no background of its own.** It inherits the pill's, which is the one
+   way a single rule is right on all three shapes a `.viewpill` is worn by: the muted
+   `<a>`, the muted `<button>`, and the accent-filled `<span>` that is current. A capsule
+   would have needed a second pair of colours for the filled one, and a number drawn in a
+   colour the label is not is a number that can fail contrast where the label passes.
+   Weight and a shade less size is what sets it apart from the word instead.
+
+   `min-width` is two digits wide and `tabular-nums` holds the digits themselves to one
+   width, for the same reason zero is drawn rather than hidden: the numbers land on a
+   25-second poll, and a pill that grows when one does is a pill that moves out from
+   under a thumb already on its way to it. */
+.viewpill-count {
+  min-width: 1.4em;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Current. Colour alone would be the only mark, and colour alone is not a mark — so the
    accent is doubled by filling the pill and moving its border, which reads in both
@@ -6252,6 +6389,39 @@ a.pill { text-decoration: none; }
 .model-ran { margin-left: auto; color: var(--muted); }
 .model-ran.is-diverged { color: var(--warn); }
 
+/* Where the ruling on this bead is — the approval row on the bead sheet (bc-bmry.5,
+   `approvalRowHtml`). Shaped like `.model-row` and `.owner-row` above it because it sits
+   in the same column of rows and is the same kind of thing: one fact about the bead, said
+   in a sentence rather than compressed into a chip. Drawn only on the beads that are in
+   deluvia's approval pipeline, so on every other sheet in the app this rule never fires. */
+.approval-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.approval-kind {
+  flex: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* The state is the answer, so it is the only thing on the row at full strength — the
+   sentence beside it is the reason for it, and the gate is a footnote. */
+.approval-state { font-weight: 650; }
+/* No state is a state, not a fault, and it gets the same quiet italic `.model-why.is-none`
+   and `.owner-who.is-none` give the other two "nobody has said yet" rows. */
+.approval-state.is-none, .approval-state.is-gate { font-weight: 500; font-style: italic; color: var(--muted); }
+.approval-why { min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.approval-rev, .approval-gate { flex: none; color: var(--muted); }
+/* Pushed to the end of the row, because it is the half you must act on and the row is
+   read left to right. Warn rather than an error colour: nothing has failed, a label is
+   missing, and the fix is one `bd label add`. */
+.approval-problem { flex-basis: 100%; color: var(--warn); }
+
 .owner-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   min-height: 44px;
@@ -6296,30 +6466,25 @@ a.pill { text-decoration: none; }
    (lib/errors.js files every daemon crash at P0) push your epics below the fold with
    nothing on screen to say they moved. A section cannot be pushed down by its own list. */
 .p0-board { display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; }
-/* The heading is the fold (bc-eevn): one button across the width of the section, so the
-   tap that puts the board away is the whole line rather than a chevron you have to hit —
-   the same bargain `.p0-tap` makes one level down. A button because that is what it is:
-   `aria-expanded`, Enter and the keyboard come free, and the shared `.chev` rule above
-   turns the chevron down when it is open. Kept at the size and weight it had as a div,
-   because it is still a section label; nothing about it should read as a control until
-   you look for one. `--tap` tall so a thumb can find it on a phone. */
+/* The heading was the fold (bc-eevn) and is a heading again (bc-khoe.28): with My Epics
+   drawing the board and nothing else, a control that put the board away would have left
+   the view blank, and persisted, blank for good. So `<h2>` rather than `<button>` — no
+   `aria-expanded`, no chevron, nothing about it to press. It keeps the size and weight it
+   has had throughout, because it has been a section label the whole time; what goes is
+   the `--tap` height, which was there so a thumb could find the control, and the pointer
+   affordances that came with it. */
 .p0-kind {
   display: flex; align-items: center; gap: 6px;
   width: 100%;
-  min-height: var(--tap);
   margin: 0; padding: 0;
-  border: 0; background: none;
-  text-align: left; cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
   font-family: inherit;
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--muted);
 }
-/* The count, and it is on the *shut* line as much as the open one — a fold that hid the
-   fact there was anything behind it would be a section you forget you own. Pushed to the
-   far end, where `.p0-open` on each card already puts its number, so folded and unfolded
-   the counts sit in one column. Not upper-cased or tracked out with the label: it is a
-   number, and letter-spacing on a number reads as two numbers. */
+/* The count. Pushed to the far end, where `.p0-open` on each card already puts its
+   number, so the heading's number and the cards' sit in one column. Not upper-cased or
+   tracked out with the label: it is a number, and letter-spacing on a number reads as two
+   numbers. */
 .p0-kind-n {
   margin-left: auto;
   letter-spacing: 0; font-size: 11.5px; font-weight: 600;
@@ -6329,9 +6494,9 @@ a.pill { text-decoration: none; }
    the label rather than out at the count, because it is not the same kind of number: one
    of them is how big the section is and the other is whether you have to do something.
    In `--warn`, the one colour on this screen that already means "a question", and left
-   un-tracked for the reason `.p0-kind-n` is. It survives the fold — that is the point of
-   it: with the flat list gone, a board shut on Monday is otherwise a week of questions
-   with nothing on screen saying they are there. */
+   un-tracked for the reason `.p0-kind-n` is. It is the one number that says a tree four
+   levels deep has something waiting in it, which since bc-khoe.28 is the whole reason the
+   heading is still drawn at all. */
 .p0-kind-asks {
   letter-spacing: 0; font-size: 11.5px; font-weight: 600;
   color: var(--warn);
@@ -6479,7 +6644,7 @@ a.pill { text-decoration: none; }
   font-size: 12.5px;
 }
 .p0-row:hover { background: var(--surface); }
-.p0-row-id { flex: none; font-size: 11.5px; color: var(--muted); }
+.p0-row-id, .p0-adv-kid-id { flex: none; font-size: 11.5px; color: var(--muted); }
 /* The marks ride on the first line beside the id, ahead of the title rather than after
    it, because the title is the part that wraps: a pill pushed past a three-line title
    lands alone on a line of its own, where a word in upper case shouts. Smaller than a
@@ -6850,6 +7015,90 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
     padding-right: calc((100vw - 820px) / 2);
   }
 }
+
+/* ------------------------------------------------ the advocate on an epic (bc-r2b5.2)
+
+   The card's control is four states now rather than a button, and three of them are two
+   lines: what the assignment is, and under it when its last window ran or what is holding
+   the next one. The second line is the whole of what bc-r2b5 is about — "advocated" on its
+   own is the same card whether the advocate looked twenty minutes ago or a fortnight ago,
+   and only one of those is a problem.
+
+   Same box as the one-line button beside it (`.p0-advocate`, which this also carries), so a
+   card whose control changed size between polls would not move the cards under it. */
+.p0-adv-open { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; text-align: center; }
+.p0-adv-what { font-size: 13px; }
+.p0-adv-when { color: var(--muted); font-size: 11px; line-height: 1.25; }
+/* Every child closed, and the close offered here rather than left to be found in the
+   inbox. Filled in `--bead-made` for `.p0-answer`'s reason one file over: it is not one of a pair
+   of equals with the controls beside it, it is the only one that ends anything — and green
+   rather than the answer box's amber because this one is a completion, not a question. */
+.p0-done {
+  flex: 1 1 auto;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px solid var(--bead-made);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bead-made) 16%, transparent);
+  color: var(--bead-made);
+  font: inherit; font-size: 13px; font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+/* The same fact where there is no inbox row to open — `scope=agent` sweeps no questions,
+   so the close is genuinely not reachable from this screen. Says where it is instead of
+   offering a tap that would do nothing, and drops the border so it does not read as a
+   control somebody has disabled. */
+.p0-done.is-none { border-color: transparent; background: none; font-weight: 500; color: var(--muted); cursor: default; }
+/* The sheet: `.p0-full`'s four rows verbatim — it carries that class too — and one number
+   changed. `41` is over `.card.open` and `.p0-full` at 40, because this is the one layer in
+   the app that legitimately opens over another one: the advocate is reached from the epic's
+   own tab as well as from the card on the board. */
+.p0-adv { z-index: 41; }
+.p0-adv-title { font-size: 17px; font-weight: 600; line-height: 1.3; }
+.p0-adv-sub { color: var(--muted); font-size: 12.5px; }
+.p0-adv-done { display: flex; margin-top: 4px; }
+/* Where it is: a label column narrow enough that the values line up, and wrapping rather
+   than truncating, because every one of these is a sentence somebody has to act on. */
+.p0-adv-facts { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; }
+.p0-adv-fact { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12.5px; }
+.p0-adv-key { flex: none; min-width: 108px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.p0-adv-val { flex: 1 1 200px; color: var(--text); }
+/* Nothing there, said in the same place rather than by leaving the row out. A sheet whose
+   rows appear and disappear is one you cannot learn the shape of. */
+.p0-adv-val.is-none { color: var(--muted); }
+.p0-adv-none { color: var(--muted); font-size: 12.5px; }
+.p0-adv-warn { color: var(--warn); font-size: 12.5px; }
+/* The advocate's sentence in full, which the card shows a line of. Bordered on the leading
+   edge because it is quoted from somewhere else — it is the advocate's own words. */
+.p0-adv-waiting {
+  padding: 6px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  border-radius: 0 8px 8px 0;
+  font-size: 12.5px;
+}
+/* The plan: one block per group, which is one window's worth of work in one checkout. */
+.p0-adv-groups { display: flex; flex-direction: column; gap: 6px; }
+.p0-adv-group {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.p0-adv-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.p0-adv-group-name { font-size: 13px; font-weight: 600; }
+.p0-adv-group-n { color: var(--muted); font-size: 11px; }
+.p0-adv-group-beads { display: flex; flex-wrap: wrap; gap: 4px; }
+.p0-adv-group-files { color: var(--muted); font-size: 11px; word-break: break-word; }
+/* What ran: `.p0-hap`'s column, under its own name so the two sites stay one class each —
+   public/editmode.js resolves an element back to the line that drew it by finding the class
+   in public/app.js, and a class written in two functions is one it has to call ambiguous. */
+.p0-adv-haps { display: flex; flex-direction: column; gap: 4px; }
+.p0-adv-kid { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.p0-adv-kid-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.p0-adv-kid-title { flex: 1 1 160px; font-size: 12.5px; }
 
 /* ------------------------------------------------------------- edit mode
 
@@ -7325,3 +7574,67 @@ body.editing::after {
 .skill-chip.is-declined { background: var(--surface-2); color: var(--danger); }
 .skill-chip.is-superseded { background: var(--surface-2); color: var(--muted); }
 .skill-chip.is-untracked { background: var(--surface-2); color: var(--warn); }
+
+/* -------------------------------------------------------------- /sounds
+
+   The notification-sound audition (bc-ka5y.15.3). Three anonymous pads and a guess
+   each, because the acceptance test for a notification sound is naming it blind.
+
+   Everything here is sized for a thumb rather than for a cursor: this is the one
+   screen in the app that is *only* ever used on the phone, since a sound auditioned
+   on a laptop has not been auditioned at all. So no control is under the 44px tap
+   floor the pill row is held to, and the guess buttons wrap rather than shrink — three
+   words squeezed onto one 360px line is how a mis-tap happens on the one screen where
+   a mis-tap is indistinguishable from a wrong answer. */
+.sound-pad {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+.sound-pad:first-child { border-top: 0; }
+.sound-padhead { display: flex; align-items: center; gap: 12px; }
+/* The pad's number, drawn as a token rather than as text so the eye finds the three
+   groups before it reads anything. */
+.sound-num {
+  flex: none; width: 30px; height: 30px; border-radius: 15px;
+  display: grid; place-items: center;
+  background: var(--line); color: var(--text);
+  font-size: 14px; font-weight: 650;
+}
+.sound-play {
+  flex: none; min-height: 44px; padding: 0 18px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text); font: inherit;
+}
+.sound-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.sound-pick {
+  flex: 1 1 auto; min-height: 44px; padding: 8px 12px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font: inherit; font-size: 13px;
+}
+.sound-pick.is-picked { border-color: var(--accent); color: var(--text); }
+/* Never colour alone: the right answer carries a ✓ and the wrong one a ✕ through
+   `::after`, so the reveal reads the same to somebody who cannot see either colour. */
+.sound-pick.is-right { border-color: var(--accent); color: var(--text); opacity: 1; }
+.sound-pick.is-right::after { content: ' ✓'; }
+.sound-pick.is-wrong { border-color: var(--danger); color: var(--muted); }
+.sound-pick.is-wrong::after { content: ' ✕'; }
+.sound-pick:disabled { opacity: 0.85; }
+.sound-start, .sound-reveal { width: 100%; min-height: 44px; margin-top: 12px; }
+.sound-again {
+  width: 100%; min-height: 44px; margin-top: 10px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font: inherit;
+}
+.sound-verdict { margin: 14px 0 0; font-size: 14px; }
+.sound-verdict.is-pass { color: var(--text); }
+.sound-verdict.is-fail { color: var(--muted); }
+
+/* The reference list: a play button and what the sound is for. */
+.sound-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  border-top: 1px solid var(--line); padding: 12px 0;
+}
+.sound-row:first-child { border-top: 0; }
+.sound-words { min-width: 0; }
+.sound-file { margin-left: 8px; font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sound-detail { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
