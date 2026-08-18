@@ -171,6 +171,13 @@ const WANT_OBJECT = [
   'followNotInMain',
   'amendment.openSelfAsk',
   'amendment.fileRequest',
+  // Reads the queue through `bd.ready(ws)`, and every public `Bd` method takes the
+  // workspace object — the check two above this one is the same rule from the other side.
+  'sweepFinishedEpics',
+  // lib/sessionaudit.js:743 normalises with `workspace?.name || String(workspace || '')`,
+  // so it wants the object and merely survives a name. Passed as a property rather than
+  // positionally, which is why it reads oddly here.
+  'audit?.noteArchive',
 ];
 
 /**
@@ -232,8 +239,15 @@ function argsAt(text, openParen) {
 
 /** Every call to `name(` in the blanked source, with the span its arguments occupy. */
 function callsTo(name) {
-  const escaped = name.replace(/\./g, '\\.');
-  const re = new RegExp(`(^|[^\\w$.])${escaped}\\s*\\(`, 'g');
+  // Escape every regex metacharacter a callee name can contain, not only the dot: an
+  // optional-chained name like `audit?.noteArchive` carries a `?`, and leaving it live
+  // turns the preceding character into an optional one and the pattern silently stops
+  // matching the thing it names.
+  const escaped = name.replace(/[.?*+^$()[\]{}|\\]/g, '\\$&');
+  // `\??\.?` so an optional call — `f?.(x)` — is seen. Without it every `?.()` in the
+  // advocate was invisible to this audit rather than merely unlisted, which is the worse
+  // of the two failures: an unlisted call is reported, an unseen one is not.
+  const re = new RegExp(`(^|[^\\w$.])${escaped}\\s*\\??\\.?\\s*\\(`, 'g');
   const out = [];
   for (const m of src.matchAll(re)) {
     const open = src.indexOf('(', m.index + m[0].length - 1);
