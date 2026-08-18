@@ -10059,7 +10059,12 @@
       // knows what the views are — see `creates`. Anything this script does not
       // recognise, an older page included, is the chat: losing the app's primary action
       // to a table that moved is worse than one screen offering the wrong create.
-      if (window.beadcause?.inboxFilter?.creates?.() === 'bead') {
+      //
+      // `beadFormEl` as well as the answer, and for the same reason one level along: a
+      // phone can be running today's script against last week's document for one load,
+      // and the sheet is markup. Without the guard ＋ on All Beads would be a button
+      // that does nothing at all — silently, which is worse than the chat it replaced.
+      if (window.beadcause?.inboxFilter?.creates?.() === 'bead' && beadFormEl && beadFormFormEl) {
         openBeadForm();
         return;
       }

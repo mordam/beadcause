@@ -330,6 +330,14 @@ await check('＋ asks the filter what this view creates, rather than knowing the
     !/=== 'bead' \|\| .*=== 'epics'/.test(APP),
     'app.js has grown a list of kind ids beside the filter'
   );
+  // And the sheet has to exist for the branch to be taken. A phone can run today's
+  // script against last week's document for one load, and without this ＋ on All Beads
+  // is a button that does nothing at all — worse than the chat it replaced.
+  assert.match(
+    APP,
+    /creates\?\.\(\) === 'bead' && beadFormEl && beadFormFormEl/,
+    'the ＋ branch no longer checks the sheet is in the document'
+  );
 });
 
 /**
