@@ -833,7 +833,7 @@ body {
 .accountmenu-sub {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--muted);
-  /* Longhands, not `font: 500 12px/1.2 inherit`. That shorthand is what the three rules
+  /* Longhands, not `font: 550 12px/1.2 inherit`. That shorthand is what the three rules
      above and below this one are written as and it is **invalid** — `inherit` is not a
      legal family inside the shorthand, so the whole declaration is dropped and the box
      silently keeps the page's own font. It cost 7px of bar height here before it was
