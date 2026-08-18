@@ -226,6 +226,71 @@ check(
 );
 check('so it is not dressed up as a slow answer', !/timed out/i.test(flood?.message || ''), flood?.message);
 
+/* ---- the three calls that go to the network, and to the lock as well ---- */
+
+console.log('\nthe `bd dolt` verbs: two costs, and they used to be charged as one');
+
+// bc-y3qk.2. These three were the only writes in lib/bd.js that retried nothing, argued
+// from the one thing that makes them unlike the rest: they go to the network, and a retry
+// of a two-minute network timeout is four minutes of a poll cycle. Sound about the
+// network; silent about the *lock*, which is the other thing they queue behind — a hand
+// run of `bd dolt pull` against the workspace with four logged 120s timeouts finished in
+// four seconds, so the time was going to embedded Dolt's single writer and not to ssh.
+//
+// What makes retrying safe without giving that argument up is `run` itself: a timeout is
+// never retried there, whatever `retries` says (asserted above). So a retry on these can
+// only ever fire on LOCK_RE, and a killed call still costs exactly one ceiling.
+const DOLT = [
+  ['doltPull', (bd, opts) => bd.doltPull(WS, opts)],
+  ['doltPush', (bd, opts) => bd.doltPush(WS, opts)],
+  ['doltCommit', (bd, opts) => bd.doltCommit(WS, opts)],
+];
+
+for (const [name, call] of DOLT) {
+  const bd = spied();
+  await call(bd);
+  const opts = bd.opts[0] || {};
+  check(
+    `${name} retries a lock rather than losing the whole tick to one`,
+    Number(opts.retries) > 0,
+    `asked for retries: ${opts.retries}`
+  );
+  check(
+    `${name} defaults to the same ceiling as everything else, so a caller may say nothing`,
+    (opts.timeout ?? BD_TIMEOUT) === BD_TIMEOUT,
+    `asked for ${opts.timeout}`
+  );
+
+  // The ceiling has to be the *caller's*, because the number it must stay under is the
+  // sync interval and lib/bd.js has never heard of that. A method that ignored the
+  // argument would pass every assertion above and still put the skipped ticks back.
+  const bd2 = spied();
+  await call(bd2, { timeout: 4321 });
+  check(
+    `${name} takes a ceiling from its caller, which is the half lib/sync.js owns`,
+    (bd2.opts[0] || {}).timeout === 4321,
+    `asked for ${(bd2.opts[0] || {}).timeout}`
+  );
+}
+
+// And end to end against a real child, because the retry is only worth anything if the
+// spawn count moves: a lock is asked again, a hang is not.
+fs.rmSync(path.join(tmp, 'lock-calls'), { force: true });
+const doltLock = await caught(bdOf(LOCKED).doltPull(WS));
+const doltCalls = fs.existsSync(path.join(tmp, 'lock-calls')) ? fs.statSync(path.join(tmp, 'lock-calls')).size : 0;
+check('and a real `bd dolt pull` losing the lock is genuinely asked again', doltCalls > 1, `bd ran ${doltCalls} time(s)`);
+check('a lock that never clears is still a failure and not a timeout', doltLock?.timedOut === false, String(doltLock?.timedOut));
+
+const doltBegan = Date.now();
+const doltHang = await caught(bdOf(HANGS).doltPull(WS, { timeout: 300 }));
+const doltSpent = Date.now() - doltBegan;
+check('while a hung one is killed at the ceiling its caller named', doltHang?.timedOut === true, String(doltHang));
+check(
+  'and costs one ceiling, not one per retry — the interval is still the retry',
+  doltSpent < 1200,
+  `${doltSpent}ms, which is more than one ceiling`
+);
+
 /* ------------------------------------------------------------------ verdict */
 
 console.log('');

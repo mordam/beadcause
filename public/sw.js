@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v79';
+const CACHE = 'beadcause-v87';
 const SHELL = [
   '/',
   '/index.html',
@@ -58,6 +58,16 @@ const SHELL = [
   // moment it is wanted is the moment a notification was opened on a phone that has
   // just woken up — the same argument as absorb.js above.
   '/dictate.js',
+  // What the URL hash means — a view, a card to open on Home, or nothing. In the shell
+  // because the two files below and above it call into it flat on boot: the row asks it
+  // which view this address is, and the inbox asks it whether the hash names a card. A
+  // page cached without it is a page that throws before it draws.
+  '/hashroute.js',
+  // The shell's panes — one container per view in index.html, and which of them the hash
+  // is showing. In the shell for the same reason the grammar above it is: it is loaded on
+  // the one page that is the app, it runs on boot, and a page cached without it is a page
+  // whose views are three divs with no rule about which of them is up.
+  '/panes.js',
   // The pill row across the top of every page. Every one of them is useless without it
   // — it is the only way off a page — so it belongs in the shell rather than being
   // fetched once per page over a phone link.
@@ -227,6 +237,17 @@ const SHELL = [
   '/terminal',
   '/term.html',
   '/term.js',
+  // **/sounds is deliberately not here**, and like `/closed` and `/done` above that is a
+  // decision rather than an oversight.
+  //
+  // It is the notification-sound audition (bc-ka5y.15.3): three .wav files played blind
+  // so they can be named before bc-ka5y.15.4 cuts the channels they go on. Precaching the
+  // page without its sounds would give a phone with no signal a screen of buttons that do
+  // nothing, which is worse than the page not being there; precaching the sounds too is
+  // 78 kB of audio on every install, forever, for a screen that is opened a handful of
+  // times in the life of the app. And an audition is not a thing anybody does offline —
+  // every other page in this list is here because you open it *at* the bad moment, and
+  // this is the opposite of that.
   '/icon.svg',
   '/vendor/marked.js',
   '/vendor/purify.js',
