@@ -4840,6 +4840,12 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-body { padding-bottom: 8px; }
 .mon-body .work-row:first-child { border-top: 0; }
 .mon-body .subtitle { margin: 4px 2px 8px; }
+/* A section inside a section — the `Requested endorsements` subcard an EpicAdvocate
+   carries (bc-8t3b). Indented and dashed rather than styled fresh, so it reads as
+   belonging to the epic above it: at full width with the same solid rule, an epic's own
+   subcard is indistinguishable from the next epic along in a card that has fourteen. */
+.mon-body .mon-sec { margin-left: 12px; border-top-style: dashed; }
+.mon-body .mon-sum { min-height: 34px; font-size: 11px; }
 
 /* Small, inline, and unclickable — distinct from `.chip`, which is a filter control
    sized for a thumb. These are facts about a row, not things to press. */
