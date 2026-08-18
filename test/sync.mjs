@@ -69,12 +69,20 @@ const {
   isStuck,
   syncEnabled,
   syncEveryMs,
+<<<<<<< HEAD
+  SYNC_FLOOR_SECONDS,
+  STUCK_AFTER,
+  FLAP_AFTER,
+  FLAP_WINDOW_MS,
+} = await import(LIB('sync.js'));
+=======
   syncCeilingMs,
   SYNC_FLOOR_SECONDS,
   SYNC_CEILING_SHARE,
   STUCK_AFTER,
 } = await import(LIB('sync.js'));
 const { BD_TIMEOUT } = await import(LIB('bd.js'));
+>>>>>>> origin/main
 
 const WS = (name) => ({ name, dir: `/nowhere/${name}/.beads` });
 const DIR = (name) => `/nowhere/${name}`;
@@ -480,6 +488,25 @@ await check('a failure whose reason moved has not been failing the same way', as
   assert.equal(s.get('team').state, 'failed');
 });
 
+await check('and it stays stuck — it does not fall back out of it and re-announce every five ticks', async () => {
+  // The other half of bc-y3qk.4's complaint, found by replaying a *sustained* outage
+  // through the syncer after the flap damping went in and counting more pushes than the
+  // flapping case produced.
+  //
+  // The streak was compared against the state this function had already promoted. The
+  // fifth identical `failed` becomes `stuck`; the sixth tick's `failed` then differs from
+  // the stored `stuck`, so the count restarted, the word fell back to `failed` — and that
+  // is a word change, which is the one thing that always reaches the phone. A workspace
+  // failing identically all afternoon buzzed every ten minutes for ever, and told you it
+  // had stopped being stuck each time round.
+  const s = createSyncer({ bd: fakeBd({ pull: new Error('connection refused') }) });
+  let noises = 0;
+  for (let i = 0; i < 40; i += 1) noises += (await s.sweep([WS('team')])).changed.length;
+  assert.equal(noises, 2, 'the break, and the promotion — and nothing else in forty ticks');
+  assert.equal(s.get('team').state, 'stuck', 'and it is still stuck at the end of them');
+  assert.equal(s.get('team').streak, 40, 'with a count that never restarted');
+});
+
 await check('becoming stuck is announced once, and then it is quiet', async () => {
   // The whole complaint on bc-y3qk.4 is a phone buzzing on every transition. This adds
   // one more transition per incident and must not add a second.
@@ -514,6 +541,179 @@ await check('a stuck row reaches trouble(), flagged apart from a conflict', asyn
   assert.equal(row.error.includes('stomped by merge'), true);
 });
 
+<<<<<<< HEAD
+/* --------------------------------------------------- a tracker that will not settle */
+
+/**
+ * `bd` that fails every other tick, and a clock the suite winds by hand.
+ *
+ * Both halves are necessary and neither is a convenience. The failure has to alternate
+ * because the whole complaint is a workspace that never sustains anything — a fake that
+ * fails and stays failed exercises the transition rule that already worked. And the
+ * clock has to be injectable because the rule is *four inside an hour*: with a real
+ * `Date.now()` a suite runs its whole flap in under a millisecond, which proves the
+ * counting and proves nothing at all about the window or about settling, and there is no
+ * honest way to wait an hour in a test.
+ */
+const flappyBd = () => {
+  let broken = false;
+  return fakeBd({
+    pull: () => {
+      broken = !broken;
+      if (broken) throw new Error('connection refused');
+    },
+  });
+};
+
+/** A syncer whose clock the caller owns. `tick` moves it; nothing else does. */
+const withClock = (bd) => {
+  let at = 1_700_000_000_000;
+  const s = createSyncer({ bd, now: () => at });
+  return { s, tick: (ms) => { at += ms; }, sweep: (names = ['team']) => s.sweep(names.map(WS)) };
+};
+
+await check('the ordinary incident is untouched — one push when it breaks, one when it returns', async () => {
+  // The first thing to protect. Damping that quietens a single outage would be a
+  // regression dressed as a fix, and this is the case the whole file was built for.
+  let broken = true;
+  const bd = fakeBd({ pull: () => { if (broken) throw new Error('nope'); } });
+  const { s, sweep } = withClock(bd);
+  const first = await sweep();
+  assert.equal(first.changed[0].transition, 'broke');
+  assert.equal(first.changed[0].damped, false, 'the break is said');
+  broken = false;
+  const back = await sweep();
+  assert.equal(back.changed[0].transition, 'recovered');
+  assert.equal(back.changed[0].damped, false, 'and so is the return');
+  assert.equal(s.get('team').flapping, false, 'two transitions is an incident, not a pattern');
+});
+
+await check('a workspace that keeps changing its mind is called flapping, once', async () => {
+  // Nine recoveries against ten failures, nineteen pushes, one workspace, one day. The
+  // bead is that log.
+  const { s, sweep } = withClock(flappyBd());
+  const said = [];
+  for (let i = 0; i < 12; i += 1) {
+    const out = await sweep();
+    for (const o of out.changed) said.push(o.flapped ? 'flapping' : o.damped ? null : o.transition);
+  }
+  const heard = said.filter(Boolean);
+  assert.equal(heard.length, FLAP_AFTER, `${FLAP_AFTER} notifications for twelve ticks of alternating`);
+  assert.equal(heard.at(-1), 'flapping', 'and the last thing said names the pattern rather than the tick');
+  assert.equal(said.filter((x) => x === 'flapping').length, 1, 'said exactly once');
+  assert.equal(s.get('team').flapping, true);
+});
+
+await check('and then it is quiet, however long it goes on for', async () => {
+  const { sweep } = withClock(flappyBd());
+  let noises = 0;
+  for (let i = 0; i < 200; i += 1) {
+    for (const o of (await sweep()).changed) if (!o.damped) noises += 1;
+  }
+  // Bounded, which is the acceptance criterion read literally: 200 ticks of perfect
+  // alternation is ~100 transitions and the phone hears four of them.
+  assert.equal(noises, FLAP_AFTER);
+});
+
+await check('the transitions are still on the log and still on the monitor', async () => {
+  // Damping is a claim about the phone and about nothing else. Three separate passes
+  // over this bead worked out what the tracker had been doing by counting `[sync]`
+  // lines, and a log with the boring half deleted cannot be counted.
+  const { sweep } = withClock(flappyBd());
+  let changed = 0;
+  for (let i = 0; i < 20; i += 1) changed += (await sweep()).changed.length;
+  assert.ok(changed > FLAP_AFTER, 'every transition is still reported as changed');
+});
+
+await check('an hour of holding one way and it is trusted again', async () => {
+  const bd = flappyBd();
+  const { s, tick, sweep } = withClock(bd);
+  for (let i = 0; i < 10; i += 1) await sweep();
+  assert.equal(s.get('team').flapping, true);
+
+  // Hold. The fake alternates on every *pull*, so the way to make it stop is to stop
+  // pulling — which is exactly what an hour of no ticks is.
+  tick(FLAP_WINDOW_MS + 1);
+  const out = await sweep();
+  const [row] = out.results;
+  assert.equal(row.flapping, false, 'the transitions have aged out');
+  assert.equal(row.settled, true, 'and the tick it happens on says so, once');
+  assert.equal((await sweep()).results[0].settled, false, 'only once');
+});
+
+await check('a transition after it settles is news again', async () => {
+  // The damping is not a fuse. A workspace that misbehaved this morning and is fine now
+  // must be able to interrupt you this afternoon.
+  const bd = flappyBd();
+  const { tick, sweep } = withClock(bd);
+  for (let i = 0; i < 10; i += 1) await sweep();
+  tick(FLAP_WINDOW_MS + 1);
+  await sweep();
+  const next = await sweep();
+  assert.ok(next.changed.length, 'something moved');
+  assert.equal(next.changed[0].damped, false, 'and it was said');
+});
+
+await check('a failure that becomes stuck is never damped, however hard it is flapping', async () => {
+  // The one sentence that must survive this. `stuck` and `conflict` mean the promise of
+  // a retry has stopped being true, and a workspace that will not settle is exactly
+  // where somebody most needs to hear it.
+  //
+  // And this is the case that made the rule a state test rather than a transition test.
+  // Under a workspace that is *steadily* failing the word moves with no transition at
+  // all, so `transition === null` would have carried it through. A flapping one goes
+  // back to `ok` between failures, so the same escalation arrives as an ordinary
+  // `broke` — indistinguishable from the blips being damped, unless the state is what
+  // is asked about.
+  let text = 'connection refused';
+  let broken = false;
+  const bd = fakeBd({
+    pull: () => {
+      broken = !broken;
+      if (broken) throw new Error(text);
+    },
+  });
+  const { s, sweep } = withClock(bd);
+  for (let i = 0; i < 10; i += 1) await sweep();
+  assert.equal(s.get('team').flapping, true, 'flapping first, so damping is in force');
+
+  // Now make it fail with the shape that will never clear, two ticks running so it is
+  // failing when the word moves rather than mid-alternation.
+  text = STOMP;
+  let escalation = null;
+  for (let i = 0; i < 4 && !escalation; i += 1) {
+    escalation = (await sweep()).changed.find((o) => o.state === 'stuck') || null;
+  }
+  assert.ok(escalation, 'it became stuck');
+  assert.equal(escalation.transition, 'broke', 'and it arrives as an ordinary break, because it had just recovered');
+  assert.equal(escalation.damped, false, 'and it is said out loud anyway');
+  assert.equal(escalation.flapped, false, 'STUCK is said instead of the word flapping, not beside it');
+});
+
+await check('a flapping row says so in trouble(), beside the two words it is not', async () => {
+  const { s, sweep } = withClock(flappyBd());
+  let row = null;
+  for (let i = 0; i < 12; i += 1) {
+    await sweep();
+    row = s.trouble()[0] || row;
+  }
+  assert.ok(row, 'it is in trouble on the ticks it is failing');
+  assert.equal(row.flapping, true);
+  assert.equal(row.conflict, false, 'and it is not a conflict');
+  assert.ok(row.flaps >= FLAP_AFTER, 'with the count that earned the word');
+});
+
+await check('two workspaces flap independently', async () => {
+  // One noisy tracker must not damp a quiet one; the counter is per workspace or it is
+  // a way of losing the notification that mattered.
+  const bd = flappyBd();
+  const { s, sweep } = withClock(bd);
+  for (let i = 0; i < 12; i += 1) await sweep(['team']);
+  assert.equal(s.get('team').flapping, true);
+  assert.equal(s.get('other'), null, 'nothing has been recorded about the other one');
+  const out = await sweep(['other']);
+  assert.equal(out.changed[0]?.damped ?? false, false, 'and its first word is heard');
+=======
 /* -------------------------------------------------- a restart must not re-announce */
 
 await check('with no initial/save, behaviour is unchanged — the first tick is always a fresh broke', async () => {
@@ -603,6 +803,7 @@ await check('a recovery seeded from a persisted outage is still announced, not s
   const out = await cold.sweep([WS('team')]);
   assert.equal(out.changed[0].transition, 'recovered');
   assert.deepEqual(cold.trouble(), []);
+>>>>>>> origin/main
 });
 
 /* ----------------------------------------------------------------- the cadence */
@@ -872,6 +1073,41 @@ await check('a divergence reaches the phone, and a conflict says it will not cle
   // way to teach somebody that this notification is not to be trusted.
   assert.match(lines, /cd \$\{r\.dir\}/, 'the workspace says where it is');
   assert.doesNotMatch(lines, /~\/beads\//, 'and nothing here assumes a layout');
+});
+
+await check('and a tracker that will not settle reaches it as a third thing, on the same card', () => {
+  // Its own event because it is told *instead of* the incidents rather than about one,
+  // and so it has to carry the count and say that the silence after it is deliberate.
+  assert.match(NEWS, /export function syncFlappingEvent/);
+  const flap = NEWS.slice(NEWS.indexOf('export function syncFlappingEvent'), NEWS.indexOf('export function syncStuckEvent'));
+  assert.match(flap, /tracker FLAPPING/, 'it says which of the three this is');
+  assert.match(flap, /key: 'stuck\/sync'/, 'on the one card the tracker gets, replacing whatever was on it');
+  assert.match(flap, /state: 'stuck'/, 'and the card stays up — a flapping tracker is not in sync in any usable sense');
+  assert.match(flap, /quiet: false/, 'a muted space cannot silence this class either');
+  assert.match(flap, /transitions in the last hour/, 'with the count that earned the word');
+});
+
+await check('the poll cycle damps the phone and nothing above it', () => {
+  const from = SERVER.indexOf('const sweepSync = async () => {');
+  const sweep = SERVER.slice(from, SERVER.indexOf('let jiraSweptAt'));
+  assert.ok(sweep.length > 400, 'the slice still finds sweepSync');
+  // The filters, which are the fix. A damped transition reaches neither push.
+  assert.match(sweep, /const broke = out\.changed\.filter\(\s*\(o\) =>\s*!o\.damped/, 'a damped break is not pushed');
+  assert.match(sweep, /const recovered = out\.changed\.filter\(\(o\) => !o\.damped/, 'nor a damped recovery');
+  assert.match(sweep, /bus\.emit\(\s*syncFlappingEvent\(/, 'and the pattern is pushed once instead');
+  // All three name the same card key, so on a tick where one workspace starts flapping
+  // and another goes stuck, whichever is emitted last is the one left on the screen.
+  assert.ok(
+    sweep.indexOf('syncFlappingEvent(') < sweep.indexOf('syncStuckEvent('),
+    'and STUCK is emitted after it, so it wins the card'
+  );
+  // Off `results`, because settling is the absence of a transition and so happens on a
+  // tick where nothing changed. Reading `changed` for it would mean it never fired.
+  assert.match(sweep, /\(out\.results \|\| \[\]\)\.filter\(\(o\) => o\.settled/, 'the settle is read off every result');
+  // The log is not damped, and this is the half worth pinning: it is the only record of
+  // what the tracker was doing, and three passes over this bead were made by counting it.
+  assert.match(sweep, /flapping — not notified/, 'the log keeps the transition and notes the phone was spared');
+  assert.match(sweep, /for \(const o of out\.changed\) \{/, 'and still logs every one of them');
 });
 
 await check('the inbox draws it as a pane of its own, outside the empty state', () => {
