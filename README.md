@@ -1033,7 +1033,7 @@ more detail on your phone than you are going to get.
 
 **And the rows in that panel are controls.** Four settings are ones a space is the wrong
 unit for — see
-[One repo may answer for itself](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters)
+[One repo may answer for itself](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters)
 — so each repo carries four rows of three buttons under its tags: On, Off, and *Inherit*,
 which names what the space resolves to. Whether its agents' filings arrive endorsed,
 whether its workers merge their own pull requests, whether an approving review has to come
@@ -1161,7 +1161,7 @@ and for the same reason.
 a group of repos, the way the two above are, and they are the two halves of
 [landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue) — but
 unlike the two above, one repo inside the space
-[may answer for itself](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters):
+[may answer for itself](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters):
 
 | on a space | what it does |
 |---|---|
@@ -1199,7 +1199,7 @@ agent-filed` is how you see what arrived while you were asleep.
 | `"autoEndorse": false` | they are held for your tap, even where the global says yes |
 | unset | follows the global `autoEndorse`, which is `false` unless you changed it |
 
-### One repo may answer for itself, on the four settings where it matters
+### One repo may answer for itself, on the five settings where it matters
 
 Most of a space groups cleanly. "Don't buzz me about work at the weekend" and "post this
 lot to that channel" are properties of a *set* of repos, and a space is that set — which
@@ -1230,7 +1230,7 @@ who else reads this graph, and would they mind an agent working it unasked. So `
 may answer for itself here like any other workspace, and still gives one answer for all
 forty of its checkouts; nothing on this page lets one of them out of it.
 
-So four settings have a per-workspace override, and each **outranks the space**, exactly
+So five settings have a per-workspace override, and each **outranks the space**, exactly
 the way `ntfy.minimalWorkspaces` and `slack.excludeWorkspaces` already outrank it for
 notification detail:
 
@@ -1238,6 +1238,7 @@ notification detail:
 "autoEndorsePerWorkspace":    { "beadcause": true, "sophab": false },
 "autoMergePerWorkspace":      { "beadcause": true },
 "requireApprovalPerWorkspace": {},
+"reviewRequiredPerWorkspace":  {},
 "autoShipPerWorkspace":       { "beadcause": true }
 ```
 
@@ -1246,6 +1247,7 @@ notification detail:
 | `autoEndorse` | its agents' discoveries are ready work immediately | they are held for your tap | follows the space, then the global |
 | `autoMerge` | a delivery goes on the merge queue | every delivery hands you the pull request | ” |
 | `requireApproval` | green checks are not enough — it needs an approving review | green checks are enough | ” |
+| `reviewRequired` | nothing merges until [an agent has read the diff](#the-review-gate--nothing-reaches-the-merge-without-a-verdict) | the queue merges without anything reading it | ” |
 | `autoShip` | its merges run its declared deploy without waiting for **Ship** | merges wait for the button | ” |
 
 A boolean per repo rather than a list of names, because both directions have to be
@@ -9971,7 +9973,7 @@ It is a space setting for the same reason `autoMerge` is one, with the same thre
 `release.autoShip`, **off**, which is what every install does today.
 
 **And it is not the last word at either end.** Below the space, a single repo
-[answers for itself](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters)
+[answers for itself](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters)
 through `autoShipPerWorkspace`, which is the level this setting most needed: only one of
 the six repos in the Personal space here has a deploy this Mac can run at all, so saying
 "ships itself" through the space armed five repos nobody had asked about.
@@ -10535,7 +10537,7 @@ a number with no door behind it, and no way at all to see which three from a pho
 **A space — or a single repo — can opt out of this screen entirely**, and it is worth
 knowing before you read the rest of it: `autoEndorse` on the space
 ([above](#spaces--keeping-work-out-of-your-evening)), or
-[`autoEndorsePerWorkspace` on one repo](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters)
+[`autoEndorsePerWorkspace` on one repo](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters)
 where the space is the wrong unit, files without the hold — so those workspaces'
 discoveries never appear in this queue at all: they go straight to `bd ready` and the
 advocate picks them up. Off unless you ask for it, and the bead still says on its face
@@ -15448,11 +15450,83 @@ and the commit a verdict records, and the approving review a verdict turns into*
 allowed to leave a review here has to be settled first — **and the worker's side of the
 round**, below.
 
-**What does not exist yet is the gate.** Nothing opens a window on a delivered pull request,
-and the merge queue does not wait for a verdict — a merge-bead still goes straight to the
-queue, and the flow diagram draws the reviewer beside that path rather than in it. That gate
-is the rest of the epic; what landed first is the thing all of it has to agree about, which
-is what a verdict *is*.
+**The gate is below**, and it is what makes a verdict mean something to the merge. What is
+still missing is the other half of it: nothing opens a window on a delivered pull request
+yet, so no verdict is ever written on its own — which is why the gate is switched off in
+every workspace until it is.
+
+### The review gate — nothing reaches the merge without a verdict
+
+Everything the queue asks about a pull request, it asks about what *happened to* it: does it
+conflict, did a check go red, was the base already red there. So the sentence every worker is
+briefed with — *the ReviewAdvocate reads what you delivered and either approves it or leaves
+comments on it* — described something that did not happen: the kind, the verdict format and
+the brief all existed, and the queue went straight past them to the merge.
+
+So the queue asks one more question first, and it asks it **before the downmerge**: *has
+anybody looked at this?* Off the review block on the merge-bead, which is where a review's
+state lives between rounds.
+
+| what the block says | what the queue does |
+|---|---|
+| nothing yet | waits — no downmerge, no resolver, no merge, and **no attempt spent** |
+| comments the worker has not answered | opens the worker's window again on the same branch, and waits |
+| every comment answered | waits, because settling a comment is the reviewer's to do and not the worker's |
+| approved, for the commit that is on the branch | carries on to the checks exactly as before |
+| refused, or two rounds without agreement | hands it to you as a card, with the reviewer's own sentence on it |
+
+It sits above the downmerge for the reason
+[the hold](#when-main-itself-is-red--the-queue-holds-and-something-is-put-on-the-fix) does:
+everything below that point is preparation for a merge that is not going to happen this
+tick. Bringing the base into an unreviewed branch re-runs its checks and moves the diff
+under the reviewer, and handing its conflict to a resolver spends one of this Mac's two
+windows on a rebase that will want doing again afterwards.
+
+**Waiting is not refusing, and the difference is the same one the approval branch keeps.**
+Nothing was asked of the branch, so nothing refused it: the merge-bead carries a sentence
+saying what is being waited *for*, the queue's line reads *N awaiting review*, and the three
+attempts that carry a real refusal towards a card are untouched. It is also a sentence the
+queue has to be able to **take back** — a branch that was only ever waiting for a reviewer
+has no verdict of its own to write over it, so without that, *nothing has reviewed this*
+would sit on a merged-and-approved bead reading as its own problem.
+
+**An approval is for a commit, not for a branch.** This repo has no branch protection, so
+GitHub does not dismiss an approving review when new commits land — and a resolver may push
+to a pull request after it is queued, which at sixty-odd merges a week happens to nearly
+every approved branch before it lands. An approval given for one diff would otherwise sit
+there gating the merge of another. So the review records **which commit it was given for**,
+and the queue compares that against the head:
+
+- **A downmerge leaves the approval standing.** Merging `main` in is not a change to the
+  worker's proposal, and a gate that counted it as one would send every pull request round
+  again forever with nothing changed.
+- **A worker's push sends it round again**, because that *is* the proposal changing.
+- **Anything that cannot be established holds the merge** — an approval with no commit on
+  it, a comparison GitHub will not make, a history that diverged. Each of those is *we
+  cannot say what was approved*, and each of them is one force-push away from being how a
+  diff gets past a reviewer.
+
+A merge commit is a downmerge and a single-parent commit is the worker's own. Nothing
+records *which agent pushed* — every session on this Mac pushes as the same identity, and a
+resolver's downmerge and the queue's own arrive alike as merge commits — so the shape of the
+commit is the whole of the available evidence, and it happens to be exactly the property the
+rule is about. The residual risk is accepted and deliberate: a resolver that resolves a
+conflict badly ships code no reviewer saw.
+
+**Two gates in series, and neither substitutes for the other.** Where a space also
+[asks for your approval](#spaces--keeping-work-out-of-your-evening), an agent's approval is
+necessary and not sufficient — it still comes to you, and you still admit it. Everywhere
+else the agent's approval alone releases it. And **a pull request you opened yourself is
+never review-gated**: it goes to the queue exactly as it did before, as does one you have
+already admitted with **Merge**, because a person's look outranks an agent's and that tap is
+what unsticks this queue when the loop itself has gone wrong.
+
+**Off in every workspace until something is actually reviewing there** — `reviewRequired`,
+per repo, per space, or globally as `pr.reviewRequired`. It is the one policy default here
+that is dangerous the other way round: the gate *holds* a pull request until a verdict
+appears, so turning it on where nothing writes one does not slow the queue down, it stops it
+— every branch at once, quietly, each merge-bead saying only that nothing has reviewed it.
+Turning it on is the last step of building this loop rather than the first.
 
 ### The worker answers — one window per round, and it may not resolve anything
 
@@ -22273,9 +22347,10 @@ to be one.
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
 | `autoEndorse` | beads an agent files itself arrive **endorsed** — workable, queued, launchable — instead of held for your tap (default `false`). The one policy default here that is the restrictive one, and the only one that needs a literal `true`: its worst case is an unattended session on work nobody has read. Set it **per [space](#spaces--keeping-work-out-of-your-evening)** rather than here; the P2 ceiling, `agent-filed` and the `discovered-from` edge all still go on either way |
-| `autoEndorsePerWorkspace` | the same answer for **one workspace**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. One of [four settings a space is the wrong unit for](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters): "nobody but me reads this tracker" is true of one graph and not of the five beside it in the same space — and not of one checkout inside a workspace, which [stays the space's answer](#policy-stays-per-space-even-when-a-workspace-is-forty-repos). Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters) |
+| `autoEndorsePerWorkspace` | the same answer for **one workspace**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. One of [five settings a space is the wrong unit for](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters): "nobody but me reads this tracker" is true of one graph and not of the five beside it in the same space — and not of one checkout inside a workspace, which [stays the space's answer](#policy-stays-per-space-even-when-a-workspace-is-forty-repos). Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters) |
 | `autoMergePerWorkspace` | whether **one workspace's** workers merge their own pull requests, same shape and same precedence (default `{}`). It moves who presses merge and nothing else: a worker still waits for the checks and still refuses over a red one |
 | `requireApprovalPerWorkspace` | whether **one workspace** needs an approving review first, same shape and same precedence (default `{}`). Only meaningful while its `autoMerge` is on — with that off, every delivery is already a question and answering it *is* the approval |
+| `reviewRequiredPerWorkspace` | whether **one workspace's** merges wait for [an agent's review](#the-review-gate--nothing-reaches-the-merge-without-a-verdict) first, same shape and same precedence (default `{}`). A second gate in front of the queue rather than a substitute for your own: where `requireApproval` is also on, the agent's approval is necessary and not sufficient. **Leave it off in a repo where nothing is reviewing** — on, with no reviewer, is a queue that stops rather than one that waits |
 | `autoShipPerWorkspace` | whether **one workspace's** merges run its declared deploy without waiting for **Ship**, same shape and same precedence (default `{}`). The setting this layer most needed: only one repo in a space of six here has a deploy this Mac can run, and saying so through the space armed the other five. An [epic may still override it in either direction](#auto-ship--the-merge-that-does-not-wait-for-the-tap) |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-a-merge-queue) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
@@ -22283,6 +22358,7 @@ to be one.
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
 | `pr.autoMerge` | a delivery goes on the merge queue, which merges it once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer. Since bc-r941 the worker never merges under either setting — what this picks is which of the two things receives the pull request |
 | `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
+| `pr.reviewRequired` | [the merge queue holds a pull request until an agent has reviewed it](#the-review-gate--nothing-reaches-the-merge-without-a-verdict) (default `false`). Different from `pr.requireApproval` above and in series with it: that one is your own tap, this one is the ReviewAdvocate's verdict, and neither satisfies the other. The default is off because the gate *holds* — turning it on where nothing writes a verdict stops the queue on every branch at once. Per space and per workspace, like `autoMerge` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 15 min — the suite takes about five on a runner). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
 | `advocates.enabled` | the whole feature's off switch (default `true`). `false` turns every advocate off, whatever `workspaces` says, and the console draws no switch to say so — see [Which repos have one](#which-repos-have-one-from-the-console) |
@@ -23867,7 +23943,7 @@ are the same workspace.
 and the second is the one that settles it.
 
 One of the five does take a finer answer, and it is a different question: `autoEndorse`
-has a [per-workspace override](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters)
+has a [per-workspace override](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters)
 that outranks the space, so one workspace in a space may answer for itself. That is the
 grain the second reason below is about — a graph and who reads it — and it leaves this
 section's question exactly where it is: no setting here answers per checkout *inside* a
