@@ -57,6 +57,16 @@ function tempRepo() {
   return dir;
 }
 
+// The half of the request the tests below swap out, named so they can swap it whole.
+// `allowedTools` is gated: an amendment that moves it is refused unless it also says what
+// that changes about `intendedUse` or `foreseeableMisuse` (CARD_IMPLICATIONS in
+// lib/foundation.js), so the fixture owes that sentence like any real request does.
+const CHANGE = `set:
+  intendedUse: Answering comments about a repo, and now naming the commit a line came from rather than guessing at the file.
+add:
+  allowedTools:
+    - Bash(git log:*)`;
+
 const REQUEST = `Here is my answer to the question.
 
 \`\`\`amendment
@@ -69,9 +79,7 @@ justification: |
   it. Reading git log is the whole of what would have turned that into a real answer.
 evidence: |
   Bash(git log --oneline -20) was denied.
-add:
-  allowedTools:
-    - Bash(git log:*)
+${CHANGE}
 \`\`\`
 `;
 
@@ -111,13 +119,20 @@ await check('an amendment survives as a commit, and composes with the next', asy
   const before = await foundation.effective(dir, 'dispatch');
   assert.deepEqual(before.amended, []);
 
-  await foundation.amend(dir, 'dispatch', { allowedTools: [...before.allowedTools, 'Bash(git log:*)'] }, {
-    bead: 'beadcause/bc-1',
-    justification: 'so it can name the commit',
-  });
+  await foundation.amend(
+    dir,
+    'dispatch',
+    {
+      allowedTools: [...before.allowedTools, 'Bash(git log:*)'],
+      // Owed to the gate, not decoration: moving `allowedTools` without it is refused.
+      intendedUse: 'Answering comments about a repo, and now naming the commit a line came from.',
+    },
+    { bead: 'beadcause/bc-1', justification: 'so it can name the commit' }
+  );
   const after = await foundation.effective(dir, 'dispatch');
   assert.ok(after.allowedTools.includes('Bash(git log:*)'));
-  assert.deepEqual(after.amended, ['allowedTools']);
+  // Two fields, because the gate makes them travel together: see CHANGE above.
+  assert.deepEqual(after.amended, ['allowedTools', 'intendedUse']);
 
   await foundation.amend(dir, 'dispatch', { timeoutMs: 1234 }, { justification: 'slow repo' });
   const third = await foundation.effective(dir, 'dispatch');
@@ -200,7 +215,7 @@ await check('the two bars are enforced, not suggested', () => {
 });
 
 await check('a protected field is rejected before it can become a bead', () => {
-  const bad = REQUEST.replace('add:\n  allowedTools:\n    - Bash(git log:*)', 'set:\n  writes: true');
+  const bad = REQUEST.replace(CHANGE, 'set:\n  writes: true');
   assert.match(amendment.parseAmendment(bad).error, /not amendable/);
 });
 
@@ -211,7 +226,7 @@ await check('an unknown agent, an empty block and bad YAML each say so', () => {
 });
 
 await check('a block asking for nothing is rejected', () => {
-  const nothing = REQUEST.replace('add:\n  allowedTools:\n    - Bash(git log:*)', 'add:\n  allowedTools: []');
+  const nothing = REQUEST.replace(CHANGE, 'add:\n  allowedTools: []');
   assert.match(amendment.parseAmendment(nothing).error, /no change/);
 });
 
@@ -313,7 +328,7 @@ await check('approving commits the change and reports the fields', async () => {
 
   const out = await amendment.resolveAmendment(fakeBd(issue), ws, dir, 'bc-1', 'AMEND: apply it.');
   assert.equal(out.declined, null);
-  assert.deepEqual(out.amended.fields, ['allowedTools']);
+  assert.deepEqual(out.amended.fields, ['intendedUse', 'allowedTools']);
   const now = await foundation.effective(dir, 'dispatch');
   assert.ok(now.allowedTools.includes('Bash(git log:*)'));
   // And it did not quietly drop anything it was not asked about.
@@ -330,7 +345,7 @@ await check('anything that is not the marker is a refusal, and is written down',
 
   const out = await amendment.resolveAmendment(fakeBd(issue), ws, dir, 'bc-1', 'No — read the file instead.');
   assert.equal(out.amended, null);
-  assert.deepEqual(out.declined.fields, ['allowedTools']);
+  assert.deepEqual(out.declined.fields, ['intendedUse', 'allowedTools']);
   const now = await foundation.effective(dir, 'dispatch');
   assert.ok(!now.allowedTools.includes('Bash(git log:*)'), 'a refusal changed the foundation');
 
