@@ -9962,9 +9962,18 @@
     One candidate starts there without asking. More than one asks, because ＋ cannot
     know, and offering to start work in a repo the app is not currently showing you is
     the one thing the filter exists to stop.
+
+    **It is not drawn on every kind (bc-khoe.27.1).** ＋ always means *new*, and what
+    new is belongs to the view rather than to the button: Questions and PRs are queues
+    of things waiting on a word from you, and there is nothing on either screen to
+    create. `compose` in public/inboxfilter.js's KINDS is where that is written down,
+    one row per kind, and `paintCompose` below is the whole of what this file does with
+    it. What ＋ *does* on the three that have it is still one thing — start a chat —
+    until bc-khoe.27.2 and bc-khoe.27.3 land.
   */
   const composeEl = $('#compose');
   const composePickEl = $('#compose-pick');
+  const composeWrapEl = $('.compose-wrap');
   let composing = false;
 
   const startableRepos = () => {
@@ -9978,6 +9987,35 @@
   function hideComposePick() {
     composePickEl.hidden = true;
     composeEl.setAttribute('aria-expanded', 'false');
+  }
+
+  /**
+   * Draw ＋ — or not — for the kind you are looking at now.
+   *
+   * Three things move together and the bug is any one of them moving alone:
+   *
+   * - **The button.** Hidden on the wrapper rather than on the button, so the picker
+   *   above it goes with it; a panel left on screen by a button that is gone is a
+   *   control with nothing to close it.
+   * - **`body.has-compose`**, which is what reserves the button's height at the foot of
+   *   the scroller and lifts the toast clear of it (see the stylesheet). It used to be
+   *   added once, from here, as a record that this script had wired ＋ up at all — and
+   *   left on. On a kind with no ＋ that would be 76px of nothing under the last card,
+   *   which reads as a list that failed to finish loading.
+   * - **The picker**, closed on *every* kind change rather than only on the ones that
+   *   take the button away. It was opened to answer "which repo do I start this in",
+   *   and the moment the view changes it is answering a question nobody asked — on the
+   *   three that keep ＋, the create it belongs to is a different create.
+   *
+   * The fallback is `true`: a page served without inboxfilter.js has always drawn ＋,
+   * and losing the app's primary action to a missing script is a worse failure than
+   * drawing it one screen too wide.
+   */
+  function paintCompose() {
+    const on = window.beadcause?.inboxFilter?.composes?.() ?? true;
+    hideComposePick();
+    if (composeWrapEl) composeWrapEl.hidden = !on;
+    document.body.classList.toggle('has-compose', on);
   }
 
   function showComposePick(repos) {
@@ -10044,12 +10082,18 @@
         composeEl.focus();
       }
     });
-    // What tells the stylesheet to keep the foot of the list clear of the button. Set
-    // from here rather than written into the markup because it is a fact about this
-    // script having wired ＋ up: on the stale-document load above there is no button,
-    // and reserving space under one would be a gap at the end of the list with nothing
-    // in it.
-    document.body.classList.add('has-compose');
+    // Which kind you are on, from now on and at load. Registered here rather than in
+    // `mountFilters` because it is this block's own concern and this block is the one
+    // that may not exist: on the stale-document load above there is no button, nothing
+    // to paint, and no listener to leave behind painting it.
+    //
+    // `onChange` is the same channel a pill tap comes down — public/viewbar.js routes
+    // those through `pick`, which is `set`, which notifies — so the button follows the
+    // row without either file knowing about the other.
+    window.beadcause?.inboxFilter?.onChange?.(paintCompose);
+    // And once now, for the kind restored from disk or named by `?kind=`. Both are
+    // settled before this script runs; see the foot of public/inboxfilter.js.
+    paintCompose();
   }
 
   /*

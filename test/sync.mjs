@@ -549,7 +549,7 @@ await check('the remote is read from --json, with the url and not just the name'
 /* --------------------------------------------------- the seams a fake cannot reach */
 
 const SERVER = read('lib/server.js');
-const NOTIFY = read('lib/notify.js');
+const NEWS = read('lib/news.js');
 const APP = read('public/app.js');
 const CSS = read('public/style.css');
 const MON = read('bin/monitor.js');
@@ -583,26 +583,34 @@ await check('and it is NOT merged into the read-failure list', () => {
   assert.doesNotMatch(payload, /mergeTrouble\([^)]*syncer/, 'not folded into the other one');
 });
 
-await check('a divergence pushes to the phone, and a conflict pushes harder', () => {
-  // ntfy is the one channel that does not depend on you looking at anything.
-  assert.match(NOTIFY, /export async function pushSyncTrouble/);
-  assert.match(NOTIFY, /export async function pushSyncedAgain/);
-  const push = NOTIFY.slice(NOTIFY.indexOf('export async function pushSyncTrouble'), NOTIFY.indexOf('export async function pushSyncedAgain'));
+await check('a divergence reaches the phone, and a conflict says it will not clear', () => {
+  // It is an event on the bus now rather than an ntfy push (bc-ka5y.15.1): the Android
+  // app draws the card, on the one channel this app is allowed to be insistent about.
+  // What was checked of the push is checked of the event, because the argument did not
+  // move — only the wire did.
+  assert.match(NEWS, /export function syncStuckEvent/);
+  assert.match(NEWS, /export function syncClearEvent/);
+  const push = NEWS.slice(NEWS.indexOf('export function syncStuckEvent'), NEWS.indexOf('export function syncClearEvent'));
   // A conflict and a stuck sync both need a person at a keyboard; a retryable failure
-  // does not. The two loud ones share the priority and keep separate titles, because
-  // they are different jobs: one is a decision about whose write wins, the other is a
-  // command to type.
-  assert.match(push, /needsHands \? 4 : 3/, 'the two that need a person outrank a retryable failure');
-  assert.match(push, /conflicted\.length \|\| stuck\.length/, 'and that is what needsHands means');
+  // does not. The two loud ones keep separate titles, because they are different jobs:
+  // one is a decision about whose write wins, the other is a command to type.
+  assert.match(push, /tracker CONFLICT/, 'a conflict says so in the title');
   assert.match(push, /tracker STUCK/, 'a stuck tracker says so in the title');
-  assert.match(push, /will not clear on its own/, 'and does not promise a retry');
-  assert.match(push, /OBSERVING/, 'and an observer instance stays silent, like every other push');
+  assert.match(push, /quiet: false/, 'and a muted space cannot silence it — this is the class that may insist');
+  // The state, so the card can be taken away again. A blockage is the only kind of
+  // arrival here that stops being true, and `syncClearEvent` is the half that says so.
+  assert.match(push, /state: 'stuck'/, 'it is a state rather than an arrival');
+  const clear = NEWS.slice(NEWS.indexOf('export function syncClearEvent'), NEWS.indexOf('export function syncLines'));
+  assert.match(clear, /state: 'clear'/, 'and the recovery is the same event saying it ended');
+  assert.match(clear, /key: 'stuck\/sync'/, 'under the same key, which is what cancels the card');
+  const lines = NEWS.slice(NEWS.indexOf('export function syncLines'));
+  assert.match(lines, /will not clear on its own/, 'and the body does not promise a retry');
   // The fix it prints has to be a directory that exists. A workspace is not necessarily
   // under `~/beads` — Climative's lives inside the `architecture` checkout — so the path
   // comes off the workspace, and a suggested `cd` into somewhere invented is the fastest
   // way to teach somebody that this notification is not to be trusted.
-  assert.match(push, /cd \$\{r\.dir\}/, 'the workspace says where it is');
-  assert.doesNotMatch(push, /~\/beads\//, 'and nothing here assumes a layout');
+  assert.match(lines, /cd \$\{r\.dir\}/, 'the workspace says where it is');
+  assert.doesNotMatch(lines, /~\/beads\//, 'and nothing here assumes a layout');
 });
 
 await check('the inbox draws it as a pane of its own, outside the empty state', () => {

@@ -80,7 +80,6 @@ import { EDIT_HOLD, fromEditMode } from '../lib/editwork.js';
 import { landedReason } from '../lib/landed.js';
 import { MERGE_ASSIGNEE, MERGE_LABEL, mergeBeadBody, mergeBeadTitle, openMergeBeadFor } from '../lib/mergebead.js';
 import { requestSweep } from '../lib/mergesweep.js';
-import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
 import { park, questionType } from '../lib/park.js';
 import * as pr from '../lib/pr.js';
@@ -948,18 +947,31 @@ async function landHere(landed, { external = false } = {}) {
 
   // A notification with nothing to answer, and a failure to send one is not a failure
   // to land: the work is in main whether or not a phone in another room hears about it.
+  //
+  // Through the daemon rather than to ntfy (bc-ka5y.15.1). A landing is an event on the
+  // bus now, and the bus is in the daemon's memory — this is a separate process, so the
+  // only way in is the door `/api/landed` opens for exactly this caller. Loopback and
+  // the config's own token, the same shape `bin/endorse.js` uses; a daemon that is not
+  // running is a line on stderr and nothing else, because the phone could not have been
+  // told by a daemon that is down either way.
+  const daemon = String(process.env.BEADCAUSE_URL || `http://127.0.0.1:${cfg.port || 4318}`).replace(/\/+$/, '');
   try {
-    await pushLanded(cfg, {
-      workspace: ws.name,
-      bead: beadId,
-      repo: repoSlug,
-      number: request.number,
-      url: request.url,
-      title: request.title,
-      base,
-      sha: landed.mergeCommit || '',
-      owed,
+    const res = await fetch(`${daemon}/api/landed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-beadcause-token': cfg.token },
+      body: JSON.stringify({
+        workspace: ws.name,
+        bead: beadId,
+        repo: repoSlug,
+        number: request.number,
+        url: request.url,
+        title: request.title,
+        base,
+        sha: landed.mergeCommit || '',
+        owed,
+      }),
     });
+    if (!res.ok) console.error(`beadcause-deliver: merged ${where}, but ${daemon} refused the notification — HTTP ${res.status}`);
   } catch (err) {
     console.error(`beadcause-deliver: merged ${where}, but the notification did not send — ${first(err)}`);
   }
