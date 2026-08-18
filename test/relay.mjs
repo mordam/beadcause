@@ -208,6 +208,18 @@ await check('profilePath fills the role into the template, and answers empty for
   assert.equal(profilePath(c, ''), '');
 });
 
+await check('one role can sit somewhere the template does not reach', () => {
+  // The real case: eighteen of deluvia's nineteen are under the template and herald, wired
+  // as a real subagent, is at `.claude/agents/herald.md`. A brief that pointed at the
+  // template path for it would name a file that is not there.
+  const withOverride = {
+    relays: { studio: { ...CFG.relays.studio, profiles: { HERALD: '.claude/agents/herald.md' } } },
+  };
+  const c = chainFor(withOverride, 'studio', bead({ assignee: 'aria', labels: ['dept:story'] }));
+  assert.equal(profilePath(c, 'herald'), '.claude/agents/herald.md');
+  assert.equal(profilePath(c, 'clio'), 'ai-context/agents/clio/clio.md');
+});
+
 /* --------------------------------------------------------------- 5. the brief */
 
 const BEAD = { id: 'dv-1', title: 'Chapter 7 opens on the harbour' };
@@ -297,6 +309,7 @@ await check('the shipped deluvia relay is a real relay', async () => {
   assert.ok(c, 'deluvia relays');
   assert.equal(chainLine(c), 'aria → clio → muse → aria → ward');
   assert.equal(profilePath(c, 'aria'), 'ai-context/agents/aria/aria.md');
+  assert.equal(profilePath(c, 'herald'), '.claude/agents/herald.md');
   assert.deepEqual(c.packet, ['needs-approval', 'human']);
   // Every producing department in `docs/STUDIO_CHARTER.md` §3, and each one's chain ends
   // at the filer. A department whose `check` list went missing would still produce a

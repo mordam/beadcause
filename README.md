@@ -11970,6 +11970,7 @@ to a role on purpose.
 "relays": {
   "deluvia": {
     "profile": "ai-context/agents/{role}/{role}.md",
+    "profiles": { "herald": ".claude/agents/herald.md" },
     "docs": ["docs/STUDIO_CHARTER.md", "docs/APPROVAL_PIPELINE.md"],
     "filer": "ward",
     "packet": ["needs-approval", "human"],
@@ -11992,6 +11993,12 @@ otherwise the department that *staffs* the role. The difference is load-bearing 
 checkers who work across departments: clio is a Story agent, so an unlabelled bead assigned
 to clio is Story work, but a bead labelled `dept:design` and assigned to clio is Design work
 and gets Design's chain, palette on look included.
+
+`profiles` overrides the template for one role, and it is not a hypothetical: eighteen of
+deluvia's nineteen agents live under that path and herald — the one already wired as a real
+Claude Code subagent — lives at `.claude/agents/herald.md`. A path in a brief that resolves
+to nothing is worse than no path, because the session opens it, gets nothing, and has to
+decide on its own whether the role is real.
 
 `lib/relay.js`, `node test/relay.mjs`. The brief section is built in `workPromptFor` beside
 the batch and group sections and is asserted the same way — by comparing a relayed brief
