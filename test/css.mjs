@@ -705,6 +705,70 @@ console.log('\none selector, one block');
   );
 }
 
+/* --------------------------------------------- font: cannot end in inherit (bc-khoe.15)
+ *
+ * `inherit` is a CSS-wide keyword. It is legal as the *entire* value of `font`
+ * (`font: inherit`, which several rules here use correctly) but not as the
+ * font-family component inside the shorthand — a font-family list has no keyword
+ * called `inherit`, so a shorthand that ends `... inherit` fails to parse as a whole
+ * and the *entire declaration* is discarded, weight and size and line-height
+ * included. Nothing warns: the box just quietly keeps whatever font it would have
+ * inherited anyway. Found this way three times over in public/style.css (bc-khoe.5,
+ * bc-khoe.15) before anything here said so — one of them was 7px of sticky top-bar
+ * chrome that read as a decided number and was actually the page's own line-height.
+ */
+
+/** Every `font:` declaration whose value ends in the keyword `inherit` while saying
+ *  more than that — the exact shape that parses as invalid and is silently dropped. */
+function invalidFontInherit(css) {
+  const bare = blank(css);
+  const out = [];
+  const re = /font\s*:\s*([^;{}]+)/gi;
+  let m;
+  while ((m = re.exec(bare))) {
+    const value = m[1].trim();
+    if (!value) continue;
+    const last = value.split(/[\s,]+/).pop();
+    if (/^inherit$/i.test(last) && value.toLowerCase() !== 'inherit') {
+      out.push({ line: bare.slice(0, m.index).split('\n').length, value });
+    }
+  }
+  return out;
+}
+
+console.log('\nfont: cannot end in inherit');
+
+{
+  const css = fs.readFileSync(path.join(PUBLIC, 'style.css'), 'utf8');
+  const bad = invalidFontInherit(css);
+  check(
+    'no font: shorthand ends in inherit with other components before it',
+    bad.length === 0,
+    bad.map((b) => `line ${b.line}: font: ${b.value} — the whole declaration is invalid and dropped`).join('\n      ')
+  );
+}
+
+{
+  // The detector, shown both shapes. `inherit` alone is the legal, working form;
+  // `inherit` as the family inside a longer shorthand is the bug.
+  check(
+    'the bare keyword is left alone',
+    invalidFontInherit('.a { font: inherit; }\n').length === 0
+  );
+  check(
+    'a weight/size/line-height shorthand ending in inherit is caught',
+    invalidFontInherit('.a { font: 650 13px/1 inherit; }\n').length === 1
+  );
+  check(
+    'a shorthand ending in a real family is not',
+    invalidFontInherit('.a { font: 650 13px/1 Arial, sans-serif; }\n').length === 0
+  );
+  check(
+    'and the longhand split of the same rule is not',
+    invalidFontInherit('.a { font-weight: 650; font-size: 13px; line-height: 1; }\n').length === 0
+  );
+}
+
 /* ------------------------------------------------------------------ the detector works
  *
  * A guard that cannot fail is a guard nobody should trust, and this one would have
