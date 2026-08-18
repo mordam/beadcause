@@ -12538,6 +12538,37 @@ screen full" — and never while observing. `closeFinishedSessions: false` switc
 along with everything else in this section: an off switch that only delayed the signal by
 twenty minutes would not be one.
 
+##### The windows that are no longer windows
+
+Every sweep above ends at a pid, and every guard any of them keeps is there because there
+is an agent in that window whose work would go with it. This last one closes windows that
+have **no tabs left in them at all**.
+
+They are not something anything here asks for. They are what iTerm occasionally leaves
+behind when the last session in a window ends: the tab goes, the frame stays. Two were
+caught on 18 Aug by sampling iTerm every twenty seconds — the `bc-y8k4.4` worker went
+from a live session on `/dev/ttys018` to `tabs=0` inside one sample, and another worker
+did the same two hours later. Both had been signalled in the ordinary way, and both were
+left named `sleep`, which is the last job of a session's send-off: the shell got all the
+way through its countdown and ran `exit`. The teardown was right. The window just did not
+follow it.
+
+What is left looks like a bug in this daemon and is not reachable by it. There is nothing
+in the frame to read, nothing running, and no way in — ⌘W is *Close Session*, which is
+disabled when there is no session, so the keystroke only beeps and the window can be
+dismissed by hand alone. And nothing here would ever have closed it: the only close in
+this daemon is the shell's own `exit`, and that shell is precisely what is missing. So
+they accumulate, a handful a day, until you go round the desk clicking red buttons.
+
+`closeEmptyWindows` (default `true`) closes them on the tick, and the test is the whole
+of its safety argument: `count of tabs is 0`. No process, no transcript, no scrollback —
+the thing the other sweeps' guards protect does not exist in one of these, and there is
+no version of "it was still busy" that can be true. A window with any tab at all is never
+touched. It runs once per tick for the whole Mac rather than once per advocate, because
+an empty frame belongs to no workspace: the session that could have said which one is
+exactly what is gone from it. And it never runs from a test suite — the same gate that
+stops a suite *opening* a window on your Mac stops it closing one.
+
 ##### Parking — a window waiting on you closes, and your answer brings it back
 
 Both sweeps above close a window that **finished**. Neither can touch the one there are
@@ -21397,6 +21428,7 @@ to be one.
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
 | `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `QUEUED-`/`DONE-`, only a closed bead; `false` leaves your own windows where you put them |
 | `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
+| `advocates.closeEmptyWindows` | [close the iTerm windows that have no tabs left in them](#the-windows-that-are-no-longer-windows) — the blank frames iTerm sometimes leaves behind when a session's last tab goes away (default `true`). There is no session in one, so this keeps none of the guards above; `false` leaves them on the desk for you to dismiss by hand |
 | `advocates.parkIdleWindows` | [park a window this daemon opened once it goes quiet](#parking--a-window-waiting-on-you-closes-and-your-answer-brings-it-back) — write its conversation down by session id, then close it, so an answer resumes the same agent rather than briefing a new one (default `true`). This is the one sweep that closes a window whose work is not provably anywhere else, so it has its own switch; `false` leaves them open and the resume never happens. `closeFinishedSessions: false` switches it off too |
 | `advocates.parkIdleMinutes` | how long quiet is long enough (default 10). Minutes rather than the 90 seconds a *finished* worker gets, because here the ending is inferred from silence rather than proved by a closed bead |
 | `advocates.maintenance` | [the nightly maintenance window](#the-nightly-window--stop-dispatching-empty-the-mac-collect-the-store): stop dispatching everywhere, let the open windows finish, close whatever is left, collect every workspace's Dolt store, resume (default `false`). **Off by default because it is the one sweep here that closes a window somebody may be typing into** — everything else in this table reads something. One line turns it on |
