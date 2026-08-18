@@ -5391,6 +5391,11 @@ button.viewpill { cursor: pointer; }
    z-index is the sheet's own 30, which puts it over ＋ (24) and under an open card (40).
    That ordering is not decorative: ＋ is what opened this, so a button still sitting on
    top of the form would be a control offering to open what is already open. */
+/* Taller than the 72dvh a detail drawer takes, because this one is a form: eight fields
+   and two buttons, and at 72dvh a phone shows four of them. Not the whole screen either —
+   the strip of list left above it is what says this is over Home rather than a page you
+   navigated to, and it is the way back if the ✕ is not where your thumb is. */
+.beadform { height: 88dvh; }
 .beadform .sheet-body { display: flex; flex-direction: column; gap: 14px; }
 .beadform-head { font-size: 15px; font-weight: 650; padding-left: 4px; }
 

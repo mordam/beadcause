@@ -10149,6 +10149,12 @@
     beadFormSayEl.classList.toggle('bad', tone === 'bad');
     beadFormSayEl.classList.toggle('warn', tone === 'warn');
     beadFormSayEl.hidden = !text;
+    // The sheet is a scroller with eight fields in it, and this line sits at the foot
+    // under all of them. A refusal you have to scroll to find is a form that looks like
+    // it did nothing — which is the exact failure "a refused write says so" is about.
+    // The *button* is what is scrolled to rather than the line: it is the row below it,
+    // so both arrive, and the thing you have to press next is under your thumb.
+    if (text) $('#beadform-file')?.scrollIntoView?.({ block: 'nearest' });
   }
 
   const beadChip = (group, value, label, on) =>
