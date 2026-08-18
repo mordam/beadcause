@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -315,11 +316,10 @@ check('and that read really does catch the line bc-gdub was filed for', () => {
   assert.match(slice, /(^|[^.\w$])bus\b/, 'a bare `bus` in the poller is seen');
 });
 
-try {
-  fs.rmSync(tmp, { recursive: true, force: true });
-} catch {
-  /* a temp directory that will not go is not a test failure */
-}
+// Not a bare `fs.rmSync`: this suite ran a real poller, and a stray write landing in the
+// tree between the walk and the unlink is exactly the race test/tmpadoption.mjs exists to
+// keep out of teardowns. See "A teardown must not be able to fail a run" in README.md.
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} checks passed`);
 process.exit(failures ? 1 : 0);
