@@ -18540,6 +18540,98 @@ that [says so](#and-it-survives-the-daemon-too). The socket is counted in `infli
 either way, so a backend is never killed out from under one; `npm run swap:status` names
 the count beside the requests.
 
+## The tailnet address, when Tailscale is not up yet
+
+Everything above assumes there is an address to bind. There often is not — not because
+anything is broken, but because launchd starts beadcause at login and Tailscale has
+frequently not finished connecting at that moment. `cfg.host` is a Tailscale address, so
+for those few seconds it is on no interface of this Mac, and binding it fails with
+`EADDRNOTAVAIL`.
+
+**What used to happen then is the whole of this section.** Both bind loops treat a bind
+failure as fatal only when *every* address failed:
+
+```js
+if (++failed === hosts.length && bound === 0) process.exit(PORT_TAKEN_EXIT)
+```
+
+Loopback binds, so `bound` is 1, so the process carried on — serving `127.0.0.1` and
+nothing else, for as long as it stayed up. One line of `EADDRNOTAVAIL` in a launchd log
+nobody reads was the only trace anywhere. `npm run swap:status` said the build was
+active. `curl http://127.0.0.1:4318/` said 200. The phone got nothing, and the cure was
+noticing by hand and running `launchctl kickstart` after starting Tailscale. That is a
+morning, and it is bc-b4fs.
+
+**The obvious fix is the wrong one.** A check that shouts at startup cries wolf at every
+boot, because the honest state a second after login is *not yet* rather than *broken* —
+and a daemon that shouted and then served loopback forever would still need the restart
+by hand. So the check keeps watching:
+
+- **It says which of the states it is in**, not just that a bind failed. `lib/tailnet.js`
+  tells five apart, because they have different cures and only one of them is an outage:
+  `here`, `starting` (Tailscale names this address, the interface is still coming up —
+  the ordinary state at login, and it must not read as a failure), `stopped` (something
+  to start), `moved` (Tailscale gives this Mac a *different* address now, so the config
+  is stale — nothing to start, something to rewrite) and `no-cli` (a machine that never
+  had Tailscale, and is loopback-only on purpose).
+- **It binds the address when it appears.** `watchForAddress` polls
+  `os.networkInterfaces()` — no subprocess, so it is cheap enough to run on a timer
+  forever — and the address is bound the moment it is there. A daemon started before
+  Tailscale therefore ends where one started after it ends, a few seconds later, with no
+  `launchctl kickstart` in between. Shelling out to `tailscale` is kept for the one thing
+  the interface list cannot answer — *why* it is missing — and happens once, on the
+  failure path, never on a poll.
+
+### Both bind loops do it now, and joining the socket up is the harder half
+
+`bin/router.js` got this first, because in the installed configuration the router is what
+holds the tailnet address. `npm run start:bare` — the unsupervised daemon, on the real
+port, with no router in front of it — got the diagnosis and a line telling you to
+restart, and that is the half bc-b4fs.1 finished.
+
+The reason it stopped there is that binding the socket is the easy part. Under
+`start:bare` the sockets `listen()` hands back are threaded through two more things, and
+a socket neither of them has seen is a socket with no terminal on it and no certificate
+loop around it. So `listen()` takes an `onLateBind` hook, and `bin/beadcause.js` re-runs
+both:
+
+- **The terminal**, through `attachUpgrade` and deliberately *not* a second
+  `attachTerminalSocket`. That call builds a whole new `WebSocketServer` — a second
+  client set — and the daemon keeps exactly one handle, the one `/internal/release` uses.
+  A phone attached over a socket the handle does not know about would survive the release
+  and then be cut off as a 1006 mid-keystroke on the next swap, instead of getting the
+  close frame it can act on. One socket server, wired onto both.
+- **The renewal loop**, rebuilt rather than left alone, because `startRenewal` filters the
+  array it is given *once*, at call time, and answers `null` when none of them terminate
+  TLS. A daemon that came up loopback-only therefore has no renewal loop at all, and the
+  late bind is the first moment there is anything to renew. The certificate is asked for
+  again at that moment too, rather than reusing one captured at startup — by then the
+  renewal loop may have fetched the very certificate the new socket should come up
+  carrying, and a stale capture would leave it on plain http until the next restart.
+- **The URL the phone is given**, which names the address until there is a certificate —
+  so it moves when the address does, under the same rule as everywhere else in
+  [HTTPS on the tailnet name](#https-on-the-tailnet-name): only the process that owns the
+  real port may decide what the phone is told.
+
+Three smaller things, each of which was a way to get this wrong:
+
+- **A socket that never came up is not in the array.** The array `listen()` returns is
+  what shutdown closes and what the renewal loop filters, and it used to keep the failed
+  tailnet server anyway — so `/api/tls` reported HTTPS on a port nothing could connect
+  to, and a renewal would have gone onto the dead socket rather than the live one. It is
+  dropped and closed on the failure, and only a bind that actually succeeded pushes
+  anything back in.
+- **An arrival that beats the arming is remembered, not dropped.** `listen()` runs first
+  and everything after it is ordinary startup that can outlast a five-second tick on a
+  loaded Mac. An address that turns up in that window is held and replayed the moment the
+  hook is armed; dropping it would be the original bug with extra steps.
+- **A retry waits.** The interface list claiming an address the kernel then refuses to
+  bind is a real, if brief, state — and re-arming a watcher that fires immediately for an
+  address it already sees would spin rather than retry. One interval of quiet first.
+
+`test/tailnet.mjs` covers the classifier and the watcher; `test/latebind.mjs` covers the
+deferral, the late bind, and what happens when the hook throws.
+
 ## HTTPS on the tailnet name
 
 The wire was never in the clear — WireGuard already encrypts everything between the
