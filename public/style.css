@@ -7451,3 +7451,67 @@ body.editing::after {
 .skill-chip.is-declined { background: var(--surface-2); color: var(--danger); }
 .skill-chip.is-superseded { background: var(--surface-2); color: var(--muted); }
 .skill-chip.is-untracked { background: var(--surface-2); color: var(--warn); }
+
+/* -------------------------------------------------------------- /sounds
+
+   The notification-sound audition (bc-ka5y.15.3). Three anonymous pads and a guess
+   each, because the acceptance test for a notification sound is naming it blind.
+
+   Everything here is sized for a thumb rather than for a cursor: this is the one
+   screen in the app that is *only* ever used on the phone, since a sound auditioned
+   on a laptop has not been auditioned at all. So no control is under the 44px tap
+   floor the pill row is held to, and the guess buttons wrap rather than shrink — three
+   words squeezed onto one 360px line is how a mis-tap happens on the one screen where
+   a mis-tap is indistinguishable from a wrong answer. */
+.sound-pad {
+  border-top: 1px solid var(--line);
+  padding: 12px 0;
+}
+.sound-pad:first-child { border-top: 0; }
+.sound-padhead { display: flex; align-items: center; gap: 12px; }
+/* The pad's number, drawn as a token rather than as text so the eye finds the three
+   groups before it reads anything. */
+.sound-num {
+  flex: none; width: 30px; height: 30px; border-radius: 15px;
+  display: grid; place-items: center;
+  background: var(--line); color: var(--text);
+  font-size: 14px; font-weight: 650;
+}
+.sound-play {
+  flex: none; min-height: 44px; padding: 0 18px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text); font: inherit;
+}
+.sound-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.sound-pick {
+  flex: 1 1 auto; min-height: 44px; padding: 8px 12px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font: inherit; font-size: 13px;
+}
+.sound-pick.is-picked { border-color: var(--accent); color: var(--text); }
+/* Never colour alone: the right answer carries a ✓ and the wrong one a ✕ through
+   `::after`, so the reveal reads the same to somebody who cannot see either colour. */
+.sound-pick.is-right { border-color: var(--accent); color: var(--text); opacity: 1; }
+.sound-pick.is-right::after { content: ' ✓'; }
+.sound-pick.is-wrong { border-color: var(--danger); color: var(--muted); }
+.sound-pick.is-wrong::after { content: ' ✕'; }
+.sound-pick:disabled { opacity: 0.85; }
+.sound-start, .sound-reveal { width: 100%; min-height: 44px; margin-top: 12px; }
+.sound-again {
+  width: 100%; min-height: 44px; margin-top: 10px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font: inherit;
+}
+.sound-verdict { margin: 14px 0 0; font-size: 14px; }
+.sound-verdict.is-pass { color: var(--text); }
+.sound-verdict.is-fail { color: var(--muted); }
+
+/* The reference list: a play button and what the sound is for. */
+.sound-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  border-top: 1px solid var(--line); padding: 12px 0;
+}
+.sound-row:first-child { border-top: 0; }
+.sound-words { min-width: 0; }
+.sound-file { margin-left: 8px; font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sound-detail { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
