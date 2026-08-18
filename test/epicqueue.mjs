@@ -108,6 +108,11 @@ async function tick({ ready = [], children = {}, listLabel = [], show = null, wo
       // is no plan and no planner — so this suite turns planning off and asserts the
       // fallback, exactly as it was written. test/epicplan.mjs owns the branch above it.
       planEpics: false,
+      // Another feature with its own suite (test/finishedepic.mjs), off for the same
+      // reason `children.length`/`calls.children` are asserted exactly: this sweep calls
+      // `bd.children` on every epic this fake `bd.ready` hands back, before `batchesFor`
+      // ever gets a turn, which would double the count this file is measuring.
+      flagFinishedEpics: false,
       ...overrides,
     },
   };

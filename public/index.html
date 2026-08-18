@@ -160,6 +160,15 @@
     one repo in the selected space there is no single place to start, so it asks
     instead of guessing or going dead. Same control the chat launcher grew for the
     same reason, and it borrows its .ws-pick styling.
+
+    Both are in the markup on every load and neither is drawn on every kind: ＋ belongs
+    to the view now (bc-khoe.27.1), so the wrapper is hidden — along with `has-compose`,
+    and along with the panel — on Questions and PRs, which have nothing to create. See
+    `paintCompose` in app.js and `compose` in inboxfilter.js. (Written without the
+    leading slash on purpose: some suites find the script tags at the foot of this file
+    by searching for a bare slash-and-filename, so a comment up here that spells one out
+    that way silently moves their answer. Two were fixed on bc-khoe.27.1 to match the
+    tag; test/stream.mjs still asks the loose way, for every standing page at once.)
   -->
   <div class="compose-wrap">
     <div id="compose-pick" class="compose-pick ws-pick" hidden>
@@ -208,6 +217,10 @@
        other script, because it can only catch what loads after it — and it is purely
        additive, so a page that fails to load it behaves exactly as it did before. -->
   <script src="/report.js"></script>
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
   <!-- Whether what you are looking at is current, and the banner that says when it is
        not. Loaded on every page with a top bar, because the state it reports is a page
        that has stopped repainting — which no page can report from inside its own render.

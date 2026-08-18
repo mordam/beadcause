@@ -549,9 +549,18 @@ console.log('\nthe brief and the command, reading one answer\n');
     /not yours to chase/.test(workPromptFor('demo', bead, 1, work, 'Adam')),
     (workPromptFor('demo', bead, 1, work, 'Adam').match(/.*chase.*/) || [])[0]
   );
+  // Deliberately the two sentences the policy adds, and no longer a bare `/approv/i` over
+  // the whole brief. Since bc-36xx.6 every auto-merge brief says a reviewer reads the diff
+  // and either approves it or hands it back — a different approval, by an agent, in every
+  // space — so the substring test now fails on a brief that says nothing about the policy
+  // at all. (It also fires on a worktree whose *path* contains "approv", which is
+  // bc-36xx.15.) What is worth pinning is that the space's own wait is not promised where
+  // no space asked for it.
   check(
-    'a session anywhere else gets exactly the brief it got before, with no mention of approval',
-    !/approv/i.test(workPromptFor('solo', bead, 1, solo, 'Adam'))
+    'a session anywhere else gets exactly the brief it got before, with no mention of the approval policy',
+    !/waits for an approving review/.test(workPromptFor('solo', bead, 1, solo, 'Adam')) &&
+      !/not yours to chase/.test(workPromptFor('solo', bead, 1, solo, 'Adam')),
+    (workPromptFor('solo', bead, 1, solo, 'Adam').match(/.*approving review.*/) || [])[0]
   );
   check(
     'and both still land their own work, since requiring a review is not switching auto-merge off',
