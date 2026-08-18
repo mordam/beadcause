@@ -5210,6 +5210,33 @@ failure: a bead claimed by a session that died, sitting `in_progress` with nobod
 back. It takes two sweeps to fire, because the clock starts the first time the state is
 seen — which is also what stops a launch racing the sweep and reading as a stall.
 
+**And the two endings that look exactly like one and are not.** A worker window has three
+endings it can reach without exiting, and the daemon names two of them where it writes
+them down: **delivered** — the merge was refused or the session asked for review, so a pull
+request is waiting on a tap — and **handback** — it needs a decision, so the question is on
+the bead under a `human` label. Both leave the bead open on purpose, and both also leave it
+`in_progress`, assigned, with a lease that then expires, which is character for character
+the state above. So every bead that reached one of the two endings the brief *asked* for
+was reported to its epic's advocate as a stall. Both fired on `bc-xl7n` inside one day and
+both were false: `bc-8t3b`, whose pull request was open with its delivery card open beside
+it, and `bc-xl7n.25`, which the daemon's own log said it had handed back. Neither is a
+loop — a bead fires once per stall episode — but each one is a whole unattended window
+opened on a false alarm, and until the question is answered or the branch merges the bead
+sits in every later brief's child list as `in_progress` for the advocate to disambiguate by
+hand.
+
+Both answers are free, off what the sweep already reads. The handback half is one label on
+a row it has in its hand. The delivery half is the same cached `bd export`: delivery is
+*structural*, because `beadcause-deliver` parks the work bead behind whichever bead it
+filed — `pr-delivery` when the merge is yours to make, `merge-queue` when the queue's —
+with a `blocks` edge, since the close gate refuses a bead with an open blocker and that is
+what stops a worker closing its own work. So a `blocks` edge to an open bead carrying one
+of those two labels *is* an open delivery, without asking GitHub anything, and it stops
+being one the moment the card is answered or the merge lands — which is exactly when the
+bead should be able to stall again. A dead window with no pull request and no question is
+untouched by either: that is the real failure, and it still fires. Fifteen `in_progress`
+beads on this tracker were sitting behind an open delivery card the day this landed.
+
 **What bounds it**, since this spends unattended windows that file beads:
 
 | bound | default | why |
