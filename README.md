@@ -6314,6 +6314,65 @@ because [the Mirror is a pane](#the-mirror-is-a-pane-not-a-tab). The aliases liv
 run of one-line `if`s in `serveStatic`, which is exactly the shape a merge eats, and a
 broken one is silent: the page is fine, the shortcut is not.
 
+### One hash, two claimants — the grammar in `public/hashroute.js`
+
+The URL hash is a single slot and two different things want it.
+
+It has meant one thing since the app had notifications: `#<workspace>/<beadId>`, a card to
+open on Home. That is what `lib/notify.js` puts in every ntfy `click`, what `lib/slack.js`
+links to and what the Android shell deep-links with — `${baseUrl}/#${encodeURIComponent(q.key)}`,
+which is why a bead key's slash arrives as `%2F`. Those URLs are **not ours any more**.
+They are sitting in a notification shade, in a Slack channel and in the phone's own
+notification history, and there is no migration available for any of them, so a phone
+opening one next month has to land where it landed the day it arrived.
+
+bc-khoe.30 wants the same slot: [every view becomes a pane](#getting-around--the-pill-row)
+of one document and the hash is how you move between them — `/#history`, `/#advocates` —
+so that a pill tap costs a `display:none` rather than a document load. Two grammars over
+one slot, written in two files, is how a deep link quietly changes a filter instead of
+opening a card. `public/hashroute.js` is the one place that decides, and it decides four
+things:
+
+* **A view is a bare name; a card is everything with a shape.** The view names are a closed
+  list of three (`epics`, `history`, `advocates`) held in that file. A card key is
+  recognised by shape rather than by lookup, because the app mints exactly three:
+  `workspace/id` for a bead — the only form that has ever been in a notification — plus the
+  `pr:` and `jira:` prefixes for the two rows synthesised rather than stored. No view name
+  contains a `/` or a `:` and no bead key is a bare word, which is what makes the two halves
+  incapable of colliding.
+* **A card hash always means Home.** `parse` answers with a view for *every* hash, and for a
+  card that view is Home. A deep link names a question and questions live on Home, so a bead
+  link arriving while another pane is showing is *switch to Home, then focus the card*.
+* **An unrecognised hash falls to Home and changes nothing.** A typo, a stale link to a
+  renamed view, a fragment some other tool appended — none of those is a reason to show a
+  blank pane, and none is a reason to write anything.
+* **One slot, so the last write wins.** There is no combined form, because a card already
+  names its view: there is nothing to hold alongside it.
+
+**The bug it exists to prevent is not hypothetical.** `focusHash` in `public/app.js` used to
+decode the whole hash and hand it to `byKey`, and when `byKey` came back empty on the
+`agent` scope it widened the scope to `both`, wrote that to `localStorage` and reloaded —
+a good rescue for a deep link to a question the current scope hides, and completely wrong
+for anything that was never a key. Every hash was a key, so every hash was a card that could
+not be found, and `/#history` landing on Home silently changed a filter you had set on its
+way to doing nothing at all.
+
+The file also holds each view's **addresses** — the nine that are all the advocate console,
+the two that are Home — which look like routing rather than grammar and are here because
+they are the same question asked of the other half of the URL: which view an address names.
+`public/viewbar.js` lights its current pill by asking `viewOfPath` rather than by carrying a
+table of its own, and `test/pagepaths.mjs`, `test/prstage.mjs` and `scripts/viewbar-check.mjs`
+all read the answer from there.
+
+It touches no DOM and reads no `location` at load, so `node test/hashgrammar.mjs` runs the
+whole grammar in a `node:vm` with an empty context: an old notification link round-trips to
+the key that went in, a view hash is its view, a bead hash is Home from every address, and
+an unrecognised hash is nothing. The wiring is checked as text in the same suite, because a
+`<script>` tag is markup and no unit test sees a missing one — that both readers go through
+the module, that every page loading either of them loads it first, and that it is precached,
+which it must be: both callers call it flat, so a page cached without it throws before it
+draws.
+
 ### The ledger — the History tab
 
 There was no way to look back. The inbox is what is arriving, the advocate console is what
