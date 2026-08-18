@@ -653,6 +653,29 @@ await check('the state block is written once, not on every tick of a long red', 
   assert.deepEqual(again.calls.updates, [], 'a base red for an hour is 120 writes per bead');
 });
 
+await check('AND THE SENTENCE IS TAKEN BACK ON THE TICK THE HOLD LIFTS', async () => {
+  // The one refusal the queue has to withdraw. Everything else here is overwritten by the
+  // next verdict on the same branch; a branch that was only ever *held* has had no verdict,
+  // so `main is red` would sit on it reading as this branch's own problem — and draw it as
+  // "Resolving issues" on the queues board — until the base came back AND something judged
+  // it. Held on one tick, green on the next.
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  await run(bd, fakePr(openPr()), { holdFor: holding() });
+  const notes = bd.calls.updates.find((u) => u.id === 'zz-merge').notes;
+  assert.equal(queueState({ notes }).held, true);
+
+  const after = fakeBd({ rows: [bead({}, {}, notes)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  const out = await run(after, prApi, { holdFor: async () => null });
+  const cleared = after.calls.updates.find((u) => u.id === 'zz-merge');
+  assert.ok(cleared, 'the hold sentence was left on a bead nothing is holding');
+  assert.equal(queueState({ notes: cleared.notes }).held, false);
+  assert.equal(queueState({ notes: cleared.notes }).refused, null);
+  // And it is judged on the same pass rather than waiting a further tick.
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.equal(prApi.calls.merges.length, 1);
+});
+
 await check('a holdFor that throws holds nothing — the queue is not the base watch', async () => {
   const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
   const prApi = fakePr(openPr());
