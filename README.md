@@ -25972,9 +25972,11 @@ tell "somebody has that port" from "Chrome is slow", so every failure took sixty
 came out as `Chrome never exposed a page target`. There is no contended-port case left,
 but a moved install or a bad `CHROME_PATH` is still real: the spawn failure is caught and
 reported as `Chrome would not start`, an exit during startup is reported as that, and
-every path out — including the ones that throw — kills the process and deletes the
-profile. The old copies only cleaned up on success, which on a laptop that runs these all
-night is how a temp directory fills with headless Chromes nobody can account for.
+every path out — including the ones that throw — kills the process and asks for the
+profile to be deleted. The old copies only cleaned up on success, which on a laptop that
+runs these all night is how a temp directory fills with headless Chromes nobody can
+account for. *Asking* for the delete turned out not to be the same as getting it, which is
+the next section.
 
 `node test/chromeport.mjs` is what keeps it. The fix is one line and reverting it is
 invisible — nothing about a guessed port looks wrong in review, the failure it causes is
@@ -25991,6 +25993,65 @@ no browser: `npm test` does not depend on Chrome and this was not the suite to m
 one. The half that can be had without one is measured for real, by pointing the launcher
 at a binary that does not exist and asserting on both the message and the absent profile
 directory.
+
+### Killing a browser is not the same as it being gone — `test/chromeprofile.mjs`
+
+The section above ends by saying every path out of `launchChrome` kills the process and
+deletes the profile. It did both, in that order, on consecutive lines — and the deletion
+lost anyway, on the ordinary path, in a check that exited 0. Measured 2026-08-18: a
+`gate-check.mjs` run that passed 20/20 took the temp directory from seven
+`beadcause-gate-*` directories to eight, the oldest of the seven from the previous
+morning. A census the same day found **798 leaked Chrome profiles** across forty-odd
+check prefixes (bc-5e85).
+
+**`kill()` is not a wait.** It returns once the signal is queued, and what it is queued
+for is a tree — Chrome's renderer, GPU and crashpad children go on writing into the
+profile for a moment after the browser process has taken it. `rmSync` on the next line
+walks a directory that is being repopulated behind it, and there are two ways for that to
+end, both of which were watched happening against a real Chrome: it throws `ENOTEMPTY`, or
+it *succeeds against a directory that then comes straight back*. Neither says anything to
+anybody. The check has already printed its results and exited 0.
+
+`{ maxRetries: 3 }` looked like the answer to that and is not — it is `rmSync`'s own
+internal retry of a **failed unlink**, so it cannot see the second shape at all. It was
+removed rather than raised, and removing it made the teardown four times faster: the same
+real teardown took 740ms with it and 190ms without, for the same outcome, because it backs
+off inside a tree walk that is failing at several depths at once.
+
+What replaced it is `killAndRemove`: SIGTERM, then a bounded loop that deletes, asks
+whether the directory is *gone*, and keeps asking until it is. SIGTERM before SIGKILL for
+the reason `bin/router.js` gives — it is the one Chrome can act on, and a Chrome that shuts
+down properly takes its children with it, which removes the race rather than outwaiting it.
+SIGKILL is second and two seconds later because it is not free: it drops the browser
+process and leaves the children it was about to collect to be reparented to pid 1, which is
+the leak bc-1eru is about. Real measurement after the change: the same `gate-check.mjs`
+goes 8 → 8 where the old code goes 8 → 9, and a teardown costs about 175ms.
+
+**Gone is asked twice**, which is the part that is easy to leave out and was. A writer that
+is still going recreates the path within a millisecond or two of losing it, so a single
+`existsSync` taken straight after the delete can land in that gap and report a clean
+teardown to a caller whose directory reappears a moment later — the original bug, one layer
+in. The suite caught that in the first version of the fix rather than a laptop catching it
+in a month.
+
+It is all synchronous, and that is not a style choice. `close()` is called by every
+`scripts/*-check.mjs`, several of them immediately before `process.exit()`, which does not
+wait for a pending promise; an async teardown would be cut short at exactly the call sites
+that most need it to finish, and it is also registered as a process-exit teardown, where
+nothing asynchronous ever runs again. So the wait is `Atomics.wait` on a throwaway
+`SharedArrayBuffer`, the same instrument and the same reason as `test/helpers/tmp.mjs`.
+
+`node test/chromeprofile.mjs` keeps it, and launches no browser, for the reason
+`test/chromeport.mjs` gives: `npm test` does not depend on Chrome. The browser is a node
+child that does the one thing about Chrome this code cares about — it writes into the
+profile continuously, and in one scenario declines to die of SIGTERM. That is the worst
+case the escalation exists for and it is reproducible at any speed, where a real Chrome
+would only be measuring how fast this particular Mac shuts a browser down. Every scenario
+is backed by a control that must **fail**: the same stubborn child is torn down with the
+exact two lines that shipped before, and the directory is asserted to survive them. Without
+it a green run would prove only that the fake browser was easy to kill. And the counting is
+done inside a sandbox directory the suite makes for itself, because counting the shared
+temp directory is what made `test/browse.mjs` flaky through four separate bug reports.
 
 ### A guard that fires must say what it is — `test/monitorwidth.mjs`
 
