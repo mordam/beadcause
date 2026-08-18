@@ -288,6 +288,7 @@ function board({
       lift(APP, 'function p0ProgressHtml(card)'),
       lift(APP, 'const p0RowKey = ('),
       lift(APP, 'const p0Step = ('),
+      lift(APP, 'function p0RelayHtml(relay)'),
       lift(APP, 'function p0RowHtml(card, row)'),
       lift(APP, 'const P0_RELATED_EDGES = '),
       lift(APP, 'function p0Relations(b)'),
@@ -307,6 +308,9 @@ function board({
       lift(APP, 'function p0PrRowHtml(p)'),
       lift(APP, 'function p0SessionRowsHtml(workspace, id, row, arc)'),
       lift(APP, 'function p0HappenedHtml(card, b)'),
+      // bc-bmry.4's relay trail, which `p0BeadBodyHtml` calls on every bead — the beads
+      // here carry no `relay`, so it draws nothing; what it draws is test/relayjournal.mjs's.
+      lift(APP, 'function p0RelayTrailHtml(relay)'),
       lift(APP, 'function p0BeadBodyHtml(card, b)'),
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),

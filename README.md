@@ -12165,6 +12165,66 @@ the batch and group sections and is asserted the same way — by comparing a rel
 against an unrelayed one, so a section that leaked into an ordinary worker's page would be
 a failure rather than a thing somebody noticed later.
 
+### The relay journal — every step and handoff, on the bead and on the epic card
+
+A relay runs four or five roles in one window with nobody watching, and that was allowed on
+a condition: *"Full Relay, but all the steps and handoffs are recorded in the bead for me to
+view/access in the EpicCards"*. The journal is that recording, and it is not a nicety
+attached to the answer — it is the whole mitigation for the cost the answer carries. A bad
+early choice now propagates through three more roles before anyone sees it, and from outside
+a relay stalled at step 2 and one quietly working step 4 are the same silence. That is the
+argument [the waiting-on sentence](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs)
+makes for an epic, one grain finer, because here the steps are the thing.
+
+The window writes one entry per handoff, before it starts the next role:
+
+```
+beadcause-relay -w deluvia -b dv-abc --role clio --step check --next aria \
+  --flag "two dates unsourced" -m "fact pass done, everything else holds"
+```
+
+Five steps are legal — `draft`, `check`, `revise`, `file` and `handback`. The first four are
+the derived chain; `handback` is the one thing that chain cannot contain, and it is the
+entry the card most needs, because it is the only one that says the relay is not going to
+move again until something launches it. It is written *alongside* the assignee, and the two
+are not the same fact twice: the assignee is what the next launch reads to rebuild the
+chain, and the `handback` step is what says on the card that this relay stopped rather than
+went quiet.
+
+**It goes in `notes`, and the reason is the half of the bead that renders it.** A trail is
+append-only, and comments are the append-only surface here — bd stamps each with a time,
+nothing can rewrite an earlier one, and both [the plan](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window)
+and the promotion ledger live there. But `bd export` carries `notes` and does not carry
+comments, and the epic card's tree is sixty rows off one export per workspace: a
+comment-stored trail is a `bd comments` spawn per descendant per tick, which is not a slower
+board but no board at all. So it is `notes`, and the append-only property is kept by hand —
+one appended block per entry, never a rewritten field. Every other marked block in this
+program is a *current answer* that later writes replace, which is why the merge bead's
+cutter has to be careful about where a block ends; this one has no cutter and cannot have
+one, so an entry physically cannot destroy an earlier entry, a hand-written note, or another
+agent's block. The cost is that a journal is never tidied, which is the right side to fail
+on: the trail of a relay that went wrong is the one thing worth keeping.
+
+The payload is JSON *inside* the HTML comment, so it draws nothing where the notes field is
+rendered and appears only where it is rendered as a trail. `-->` inside a role's own words is
+escaped, because otherwise a sentence about an arrow ends the comment and takes the rest of
+the notes out of the document with it.
+
+**Two readers, because two surfaces want different amounts of it.** Each row of an epic's
+tree carries the last entry alone — `⇄ clio · check · 2 steps · 40m ago`, with a `⚑` when
+something was flagged and a warning colour when the last step was a hand-back. There is no
+threshold in that: nobody has decided what *stalled* means for a role that reads a
+hundred-page charter first, so the row states the age and the reader judges it. It says how
+far the relay has got and not how far it has to go, because the chain comes off the assignee
+and the claim destroyed that — a denominator here would be one the board cannot honestly
+produce. Open the bead and the whole trail is there, oldest first, one row per step with what
+it handed on and what it flagged. Oldest first unlike everything else on that screen: the
+pull requests are a queue you check, and this is a story, and a story read backwards loses
+the one thing it is for.
+
+`lib/relayjournal.js` and `bin/relaystep.js`, drawn by `p0RelayHtml` and `p0RelayTrailHtml`
+in `public/app.js`, `node test/relayjournal.mjs`.
+
 ### What a P0 advocate *is* — its foundation, and what one visit consists of
 
 [The advocate that comes back](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs)

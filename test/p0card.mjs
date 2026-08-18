@@ -223,6 +223,11 @@ function board(roots, open = [], shut = false, status = 'live') {
       lift(APP, 'function p0ProgressHtml(card)'),
       lift(APP, 'const p0RowKey = ('),
       lift(APP, 'const p0Step = ('),
+      // bc-bmry.4's relay mark, and the clock it prints an age against. Lifted because
+      // `p0RowHtml` calls it on every row — the rows in this suite carry no `relay`, so it
+      // draws nothing here, and what it *draws* is test/relayjournal.mjs's.
+      lift(APP, 'function relTime(iso)'),
+      lift(APP, 'function p0RelayHtml(relay)'),
       lift(APP, 'function p0RowHtml(card, row)'),
       // bc-rfnr.9.4's expansion, which every row now offers and no row opens here —
       // `p0beadopen` is empty above, so this returns '' on all of them. Lifted because

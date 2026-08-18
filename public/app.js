@@ -5927,6 +5927,36 @@
    * bead, and a screen reader that skipped it would read the tree with a level missing,
    * which is the exact failure drawing the row at all is preventing.
    */
+  /**
+   * Where a department relay on this bead has got to, in one span. bc-bmry.4.
+   *
+   * **The age is the point of it.** A relay runs through four or five roles in one
+   * unattended window (lib/relay.js), and from outside, one stalled at step 2 and one
+   * quietly working step 4 are the same silence — which is the cost `dv-vzg` accepted when
+   * it chose the full relay, on condition the steps were readable from here. `clio · check ·
+   * 3/5 · 40m ago` is the whole sentence that separates them, and there is no threshold in
+   * it: nobody has decided what "stalled" is for a role that reads a hundred-page charter
+   * first, so the row states the age and the reader judges it.
+   *
+   * `steps` is how far it has got and not how far it has to go, because the chain is
+   * derived from the assignee and `--claim` overwrote that (lib/relay.js) — a denominator
+   * here would be one the board cannot honestly produce.
+   *
+   * The flag is a mark and not the text. One flagged check is the ordinary output of a
+   * check and the row has no width for the clause; what it is, is two lines down in the
+   * trail once you open the bead.
+   */
+  function p0RelayHtml(relay) {
+    if (!relay?.role || !relay?.step) return '';
+    const when = relTime(relay.at);
+    const bits = [relay.role, relay.step, relay.steps > 1 ? `${relay.steps} steps` : '', when].filter(Boolean);
+    return `<span class="p0-relay${relay.step === 'handback' ? ' back' : ''}${
+      relay.flagged ? ' flagged' : ''
+    }" title="${esc(relay.flag || `relay: ${bits.join(' · ')}`)}">⇄ ${esc(bits.join(' · '))}${
+      relay.flagged ? ` ⚑${relay.flagged > 1 ? relay.flagged : ''}` : ''
+    }</span>`;
+  }
+
   function p0RowHtml(card, row) {
     const status = String(row.status || 'open');
     const closed = status === 'closed';
@@ -5948,6 +5978,7 @@
           : `<span class="pill st-${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>`
       }
       <span class="p0-row-title">${esc(row.title || '')}</span>
+      ${p0RelayHtml(row.relay)}
     </button>`;
   }
 
@@ -6263,6 +6294,45 @@
    * tap, and it has to stay reachable: what the expansion gives you is this bead, and
    * what the graph gives you is everything around it.
    */
+  /**
+   * Every step a department relay took on this bead, oldest first. bc-bmry.4.
+   *
+   * The rows are the journal `bin/relaystep.js` wrote as the window ran — one per handoff,
+   * parsed on the daemon by lib/relayjournal.js and arriving as `relay` on `/api/bead`.
+   * Nothing here is markdown: an entry is one clamped line by construction, and running it
+   * through `renderMarkdown` would let a role's own prose draw headings inside a trail.
+   *
+   * **Oldest first, unlike every other list on this screen.** The pull requests are newest
+   * first because they are a queue you check; this is a story, and a story read backwards
+   * loses the one thing it is for — which choice was made early and carried.
+   *
+   * The `handback` row is drawn as the last line rather than as an ordinary step, because
+   * it is the only entry that says the relay is *not* going to move again on its own. That
+   * is also the row that says which role a new window would resume as, which nothing else
+   * on the bead records once `--claim` has taken the assignee.
+   */
+  function p0RelayTrailHtml(relay) {
+    const rows = Array.isArray(relay?.entries) ? relay.entries : [];
+    if (!rows.length) return '';
+    const head = [
+      `${rows.length} ${rows.length === 1 ? 'step' : 'steps'}`,
+      relay.flagged ? `${relay.flagged} flagged` : '',
+      relay.handedBack ? 'handed back' : '',
+    ].filter(Boolean);
+    return `<div class="section-label">Relay <span class="p0-relay-sum">${esc(head.join(' · '))}</span></div>
+      <div class="p0-trail">${rows
+        .map(
+          (e) => `<div class="p0-trail-row${e.step === 'handback' ? ' back' : ''}">
+          <span class="p0-trail-who">${esc(e.role)}${e.next ? ` → ${esc(e.next)}` : ''}</span>
+          <span class="pill p0-trail-step">${esc(e.step)}</span>
+          <span class="p0-trail-when">${esc(relTime(e.at))}</span>
+          <span class="p0-trail-note">${esc(e.note)}</span>
+          ${e.flag ? `<span class="p0-trail-flag">⚑ ${esc(e.flag)}</span>` : ''}
+        </div>`
+        )
+        .join('')}</div>`;
+  }
+
   function p0BeadBodyHtml(card, b) {
     const workspace = b.workspace || card.workspace;
     const parts = [];
@@ -6314,6 +6384,13 @@
     // everything before this is the bead as `bd` holds it and this is the trail out of
     // the tracker: it is the answer to "and then what", which is a question you have
     // after reading a bead rather than before.
+    // The relay's own trail, above the pull requests and below the thread — it is the same
+    // question `p0HappenedHtml` answers, at the grain of the roles rather than the branch,
+    // and it is what `dv-vzg` asked for in as many words: every step and handoff readable
+    // from the epic card. Below the thread because the thread is what a *person* said about
+    // this bead and this is what the window did; above the pull requests because the
+    // delivery is the end of the chain and reads as its last line. bc-bmry.4.
+    parts.push(p0RelayTrailHtml(b.relay));
     parts.push(p0HappenedHtml(card, b));
     // The answer first and the graph after it, which is the order of how much they are
     // worth: one of them is the reason this bead is on the screen at all, and the other is
