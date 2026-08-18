@@ -206,7 +206,6 @@ function board({
     p0open: new Set(open),
     p0beadopen: new Set(beadopen),
     p0beaddetail: detail,
-    p0shut: false,
     // `all`, so bc-rfnr.9.6's status filter narrows nothing here. This suite is about what
     // a row expands *into*, and its fixture tree is deliberately a mix of open and closed
     // beads; under the board's own default those closed rows would simply be absent and
@@ -310,6 +309,13 @@ function board({
       lift(APP, 'function p0BeadBodyHtml(card, b)'),
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),
+      // bc-r2b5.2's four states, which `p0Control` derives through `p0AdvState`. `relTime`
+      // is already lifted above for the archive rows and is what the idle line reads from.
+      lift(APP, 'function p0AdvState(c)'),
+      lift(APP, 'function p0AdvWhen(s)'),
+      lift(APP, 'function p0AdvLine(s)'),
+      lift(APP, 'function p0DoneHtml(c)'),
+      lift(APP, 'function p0AdvOpenHtml(c, s)'),
       lift(APP, 'function p0Control(c)'),
       // bc-grut: the section is a grid cell, the tab a tap opens, and the head they share.
       lift(APP, 'const p0AsksHtml = '),
@@ -421,12 +427,18 @@ check('nor does a bead an agent has, which is not a question anybody asked', () 
 check('the tap is `expand` and nothing else — the inbox card is not rebuilt in the tree', () => {
   const at = APP.indexOf("if (act === 'p0-answer') {");
   assert.notEqual(at, -1, 'the answer handler is gone');
-  const branch = APP.slice(at, at + 400);
+  const branch = APP.slice(at, at + 900);
   const body = branch.slice(0, branch.indexOf('\n    }'));
   assert.match(body, /await expand\(btn\.dataset\.key\)/);
   // No place-holding around it: `.card.open` covers the page, so where the page happens
   // to be scrolled to underneath it is not something anybody can see.
   assert.ok(!body.includes('keepTheScreenStill'), 'the tap is holding a page it is about to cover');
+  // And nothing that draws a second answer surface. The one write it gained since
+  // bc-r2b5.2 is `state.p0adv = null`, which puts the *advocate* sheet away — that layer
+  // is `z-index: 41` and `.card.open` is 40, so a close offered from inside it would open
+  // the card underneath and read as a tap that did nothing.
+  assert.match(body, /state\.p0adv = null;/, 'the answer opens under the advocate sheet');
+  assert.ok(!/innerHTML|optionsHtml|cardHtml\(/.test(body), 'the tap is rebuilding the inbox card in the tree');
 });
 
 check('and the row it opens is kept in the list for exactly as long as the card is up', () => {
@@ -596,9 +608,15 @@ check('and it holds the page still, then stops the anchor putting it back', () =
 
 check('the details are fetched on the tap and never on the poll', () => {
   // One `bd show` per deliberate tap is the bargain; one per open bead every 25 seconds
-  // is a phone parked on the inbox spawning `bd` forever. The only caller is the tap.
+  // is a phone parked on the inbox spawning `bd` forever. Two callers and both are taps:
+  // the row's own (bc-rfnr.9.4) and the advocate sheet's (bc-r2b5.2), which asks for the
+  // *epic's* bead because the plan it draws lives on that thread. The count is the guard —
+  // a third would be something asking on a timer.
   const calls = APP.split('loadBeadDetail(').length - 1;
-  assert.equal(calls, 2, 'loadBeadDetail has a caller other than the row tap');
+  assert.equal(calls, 3, 'loadBeadDetail has a caller that is not a tap');
+  const advAt = APP.indexOf("if (act === 'p0-adv' || act === 'p0-adv-close')");
+  assert.notEqual(advAt, -1, 'the advocate sheet has no tap');
+  assert.match(APP.slice(advAt, advAt + 900), /loadBeadDetail\(want, card\.workspace, card\.id\)/);
   const at = APP.indexOf('async function loadBeadDetail(');
   const fn = APP.slice(at, APP.indexOf('\n  }\n', at));
   assert.match(fn, /\/api\/bead\?workspace=/, 'the expansion is not reading /api/bead');
@@ -606,7 +624,13 @@ check('the details are fetched on the tap and never on the poll', () => {
   // Unforced on the way back: this lands whenever bd finishes, which may be into the
   // middle of an answer somebody is typing. And through `keepTheScreenStill`, because
   // this is the moment a one-line "reading…" becomes six hundred pixels of bead.
-  assert.match(fn, /if \(state\.p0beadopen\.has\(key\)\) keepTheScreenStill\(\(\) => render\(\)\);/);
+  // `p0Drawn` since bc-r2b5.2 rather than `p0beadopen.has(key)` alone: the advocate sheet
+  // asks for keys that are in no tree and can never be in that set — the epic's own, and
+  // every child's archive — so the question it has to ask is "is anything drawn from this"
+  // rather than "is this key a row".
+  assert.match(fn, /if \(p0Drawn\(key\)\) keepTheScreenStill\(\(\) => render\(\)\);/);
+  const drawn = APP.slice(APP.indexOf('const p0Drawn = (key) =>'));
+  assert.match(drawn.slice(0, 200), /state\.p0beadopen\.has\(key\) \|\| Boolean\(state\.p0adv\)/);
 });
 
 check('a label, a title and a close reason out of the tracker cannot write markup', () => {

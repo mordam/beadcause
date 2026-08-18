@@ -4212,8 +4212,8 @@ merge, a plain question, a **pull request**, a **JIRA ticket** assigned to you, 
 **held for endorsement**, and — under `Both` and `Agent` — the live beads nobody is asking
 you about, are different jobs that happen to arrive at the same address. `KINDS` in
 `public/inboxfilter.js` is the table that names them, and it is the only place that knows
-which row is which: one row of it buys a pill, a count, a predicate and a place in the
-summary line.
+which row is which: one row of it buys a pill, a count, a predicate and — where it has a
+second axis — a filter pill of its own.
 
 **There were ten of these and they were chips inside a collapsed panel.** bc-khoe.2
 promoted them out and amalgamated them to six. The argument is the one the whole [pill
@@ -4223,7 +4223,7 @@ navigation nobody uses. Four rows went into two:
 
 | Pill | What it carries | What it absorbed |
 |---|---|---|
-| **My Epics** | Home with nothing narrowed — the P0 board and the work under it | — |
+| **My Epics** | Home with nothing narrowed — the P0 board, and nothing under it | — |
 | **Questions** | Everything waiting on a word from you | `proposal`, `jira`, `endorsement` |
 | **PRs** | Pull requests, and the finished branches waiting on a merge | `delivery` (Merges) |
 | **Chats** | The conversations you have open | — |
@@ -4238,6 +4238,81 @@ and a reader asking "what are the six" must not have to find two of them somewhe
 and `set()` refuses to select one — a place has no predicate, so selecting it would match
 no row at all and leave Home empty with a lit pill above it and nothing to read as the
 reason.
+
+**A view shows its own kind, and that is one line in `render` rather than six.** Home draws
+every view on top of the same page, and until bc-khoe.28 it drew *both* halves on all of
+them: the [P0 board](#epics-assigned-to-you-and-the-tree-each-one-carries) above, the card
+list below, whichever pill was lit. So no pill showed only its own kind — Questions had the
+epic board over it, and `My Epics`, being the empty selection, drew every row the sweep had
+produced underneath a board whose trees already held the same work. `render` asks
+`current()` which pill is lit and draws one of the two:
+
+- **`My Epics` is the board, and there is no list beneath it.** Each card already expands to
+  its own tree, so the rows below were a second, flatter copy of what the cards hold — the
+  argument bc-rfnr.9.7 made about your epics' descendants, finished. What that took out of
+  the list was the beads; what this takes out is the rest, and a question under nobody's
+  root is now on `Questions`, where it is the plainest example of a row a tree cannot hold.
+- **The board is not on the other four pills in any form** — not collapsed to a heading, not
+  a count. A board over a list of chats is the thing this bead is about.
+
+Three things put a list back under the board, and none is a hedge on the rule. **A board
+with no cards on it**, which is bc-6s96 unchanged: with nothing started the section
+switches off and Home is the flat list it has always been, the bare "start one" offer
+included — that offer is a control on an empty screen rather than a board, and a `My Epics`
+drawing neither a card nor a list would be a blank page on the one install most likely to
+see it. **A bead picked in the search box**, which is the same sentence `inBoard` already
+makes one line above — an explicit filter outranks an implicit one, and the box is in the
+panel on every pill, so a search run from `My Epics` with no list to answer into would be a
+control that does nothing. And **an open card**, which is not a list at all: `.card.open` is
+a full-screen sheet built out of a list row, so the clause is what makes `p0-answer` on a
+bead in a tree — the ordinary way to answer a question from the board — open anything.
+It is the same exception `underOwnedRoots` already makes for the card that is up.
+
+The control never loading draws both, which is the shape this page had before there was a
+pill row: a page served without `public/inboxfilter.js` must not be a page with half its
+content missing and nothing on screen saying why. Same fallback `inKind` takes, same
+reason.
+
+**And once the board is off a pill, that pill needs its own rule** (bc-khoe.29). The four
+kind pills kept the narrowing the page had while the board was over them —
+[`under`](#a-question-under-nothing-is-still-drawn), "which started root of yours draws
+this row in its tree" — and every property of that map is wrong for a screen the board is
+not on. It is a *removal*, so the commonest row on the tracker (a question in an epic of
+yours you have started) was the one row `Questions` could not show. It is keyed on
+**roots**, so a question on a bead of yours that is not an epic had never been in it. And
+it is keyed on **started** roots, so a question under an epic you have filed and not
+claimed left it with bc-6s96 — and it is not `unhomed` either, because a root above it is
+still a root. Those last two were on no screen at all.
+
+So there are two narrowings now, and `render` picks by which pill is lit:
+
+| | what it answers | who draws it |
+|---|---|---|
+| `underOwnedRoots` | is a card on the board already drawing this bead? | `My Epics`, and the fallback with no pill row |
+| `assignedToMe` | is this bead **yours** — labelled `owner:<you>`, or under something that is, at any depth, whatever the status of the bead above it? | the kind pills |
+
+The second reads a field of its own, `rootboard.assigned`, computed off `bd export` and the
+`parent-child` edges beside `under` rather than derived on the phone — ancestry is a graph
+walk and the answer has to be the same on the laptop and the watch. "Assigned" is the
+`owner:<handle>` label (`lib/ownership.js`), not bd's `assignee` cell, which the first agent
+claim overwrites.
+
+**It is keyed by bead where the other two are keyed by row**, `<workspace>/<id>`, and that
+is what finally makes a pull request judgeable: a PR row is keyed `pr:<repo>#<n>` and is
+decided by the beads it *names*, most of which have no inbox row at all. Under the board's
+rule every pull request naming any bead is dropped — its map cannot tell yours from a
+stranger's — so `PRs` showed only the ones naming nothing. Now a delivery over a bead of
+yours is on the pill it belongs to, and one naming a bead of somebody else's is not.
+
+Everything the board's rule keeps whatever the ownership says, this one keeps too, and for
+the same reasons: a chat, a JIRA ticket, a pull request naming no bead, a
+[card that is open](#the-question-has-to-survive-the-list), and a
+[question under nothing at all](#a-question-under-nothing-is-still-drawn) — that last one
+carries no owner label and no parent, and there is no other screen it could be on. The
+no-op cases are the board's minus the `roots` test: an install with no `cfg.me`, and one
+that owns nothing yet, are not narrowed — but *having started nothing* is exactly when your
+questions most need to be reachable, which is the whole of the difference.
+`node test/assignedrows.mjs` holds it, from `bd export` through to the real client filter.
 
 **The row carries a copy of the six, and the copy is checked.** `public/viewbar.js` is
 loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
@@ -4259,11 +4334,11 @@ same channel and for the same reason — `counts(map)` beside `mark(id)`, from t
 `paint`, filling [the badge four of the pills
 carry](#getting-around--the-pill-row).
 
-**The selected kind no longer makes the summary line bold**, and that is the reverse of
-what the panel did while the kinds were in it. A narrowing has to be admitted to somewhere
-on screen; the lit pill is where, and it is on screen without being reached for. A line
-that went bold for every pill but the leftmost would be bold nearly always, which is a
-signal that has stopped signalling.
+**The selected kind is not one of the narrowings the filter row admits to**, and that is
+the reverse of what the panel did while the kinds were in it. A narrowing has to be
+admitted to somewhere on screen; the lit pill is where, and it is on screen without being
+reached for. A control that went bold for every pill but the leftmost would be bold nearly
+always, which is a signal that has stopped signalling.
 
 Each kind carries a `side` — which scope can fetch it — and after the amalgamation exactly
 one still has a real one. `bead` is `agent`, because the agent sweep is the only thing that
@@ -4317,7 +4392,7 @@ last time it was spelled out twice.
 **Three of the things this list holds are not beads at all**, and that is the table
 earning its keep rather than a special case. A pull request, a chat session and a JIRA
 ticket each cost exactly one row when they arrived — a chip, a count, a predicate and a
-word in the summary line. Folding two of them into a neighbour cost the same table nothing
+word of what the filters say. Folding two of them into a neighbour cost the same table nothing
 it did not already have: the predicates moved, the rows went, and the rest of the app went
 on asking `kindOf` and `matches` the same two questions. See [the tickets
 themselves](#the-tickets-as-a-section-of-the-inbox).
@@ -4330,22 +4405,25 @@ asked for: five are open right now and thirty have merged in the last three week
 PRs pill with no second axis would be a list of last month with this morning somewhere
 inside it. Two rules keep that honest:
 
-- **The default is a narrowing nobody set, so the line says so.** At rest the control
-  reads `Any bead · unmerged` — the scope moved out onto the row in front of it with
-  bc-khoe.24, so what leads the line now is the search box's own word for "everything".
-  On a screen with no pull requests on it at all, it says nothing about them.
+- **The default is a narrowing nobody set, so the control says so.** At rest it reads
+  `PR status: unmerged` without being touched — since bc-khoe.26 that is written on the
+  filter pill's own face rather than shared out along a summary line. On a screen with no
+  pull requests on it at all, it says nothing about them.
 - **A status outlives the pill that set it, as long as the new pill can still hold a
-  pull request.** Pick `Live`, then widen back to `My Epics`, and the chips go away while
-  the narrowing does not — so the summary keeps naming it (`Any bead · Live`). A list
-  narrowed by something no longer on screen is the one thing this control exists to
-  prevent. Tap `Questions` instead and the rung is **dropped**, because there is no pull
-  request in that list for it to narrow; see [the filters that remain](#the-filters-that-remain-are-the-ones-the-selected-pill-can-use).
+  pull request.** Pick `Live`, then widen back to `My Epics`, and the control goes away
+  while the narrowing does not — so `PR status: Live` stays on the row as a **note**: the
+  same words, without the border and the caret, because `My Epics` cannot use that filter
+  and a button that changes a list it is not about is the complaint the pills answer. A
+  list narrowed by something nothing on screen admits to is the one thing this control
+  exists to prevent. Tap `Questions` instead and the rung is **dropped**, because there is
+  no pull request in that list for it to narrow; see [the filters that
+  remain](#the-filters-that-remain-are-the-ones-the-selected-pill-can-use).
 
 `All Beads` has the other kind. `claimed`, `blocked` and `unclaimed` were three pills'
 worth of one thing in three states, and none of the three is history the way a merged pull
-request is — so the group has **no fallback**: nothing chosen means every rung, and the
-summary line says nothing about it until you choose one, because a line reporting a filter
-that is not filtering is noise around the one that is. `inSub` and `subSaid` in
+request is — so the group has **no fallback**: nothing chosen means every rung, and its
+pill reads `Bead status` and nothing else until you choose one, because a control
+reporting a filter that is not filtering is noise around the one that is. `inSub` and `subSaid` in
 `public/inboxfilter.js` are where the two behaviours part, and both directions are pinned
 in `test/inboxkinds.mjs` — getting this backwards is an All Beads pill that shows nothing
 at all, which reads as a broken sweep rather than as a filter.
@@ -4377,8 +4455,9 @@ still notify you, and the lit pill is the standing reminder that the list is nar
 `node test/inboxkinds.mjs` covers the table (every row matches exactly one kind, in both
 directions, and over every combination of the fields the payload can carry rather than
 only over the rows it writes), the row's copy of it, the scope rule and the widening that
-is its exception, both sub-filters' defaults and the chrome on a pointer and a
-touchscreen. The widening is also driven end to end, in a real Chrome, by
+is its exception, both sub-filters' defaults the pills' own rule about when a
+narrowing goes on their face, and the chrome on a pointer and a touchscreen. The widening
+is also driven end to end, in a real Chrome, by
 `node scripts/viewbar-check.mjs` — tap `All Beads` on `Human` and the pill stays lit, the
 switch beside it moves to `Both` and `/api/questions?scope=both` goes out — because the
 three files that have to agree on it are the row, the filter and the page, and no vm
@@ -4386,18 +4465,21 @@ holds all three.
 
 ### The filters that remain are the ones the selected pill can use
 
-The kinds left the panel and three controls stayed behind it: the bead search, PR status
-and bead status. **Not one of the three is relevant to every pill**, and until bc-khoe.3
-the panel offered all of them under all of them. That is the complaint that made the kinds
-pills in the first place, one level down — a control that cannot change what is on screen
-is chrome you have to open something to discover is useless.
+The kinds left the panel and three controls stayed behind: the bead search, PR status and
+bead status. **Not one of the three is relevant to every pill**, and until bc-khoe.3 all
+of them were offered under all of them. That is the complaint that made the kinds pills in
+the first place, one level down — a control that cannot change what is on screen is chrome
+you have to reach for to discover is useless. (The three are [a filter pill
+each](#the-filter-panel-comes-apart--one-pill-per-filter) since bc-khoe.26; the rule below
+was written for the panel and survived the change of container unaltered, which is what it
+was worth writing separately for.)
 
 So each row of `KINDS` in `public/inboxfilter.js` carries a **`filters`** list: the ids of
-the panel groups that pill can use, and nothing else in the file decides it.
+the filter pills that view pill can use, and nothing else in the file decides it.
 
 | Pill | What it can be narrowed by | Why not the rest |
 |---|---|---|
-| **My Epics** | the bead search | Home holds every kind, so both sub-filters *could* narrow it — and offering two second axes over a list that is mostly neither is the ten-chip panel again. What they still do here is confessed on the summary line instead. |
+| **My Epics** | the bead search | Home holds every kind, so both sub-filters *could* narrow it — and offering two second axes over a list that is mostly neither is two more controls for a view you have not picked. What they still do here is confessed as a note instead. |
 | **Questions** | the bead search | A question is not a pull request and it is not one of the live beads nobody is asking you about. |
 | **PRs** | the bead search, PR status | The one pill with both: a pull request follows its beads, so the search narrows it too. |
 | **Chats** | *nothing* | A chat is in no tracker. It is under no bead, and it has no rung. |
@@ -4409,12 +4491,13 @@ the panel groups that pill can use, and nothing else in the file decides it.
 typed should mean what it says — so a bead picked under `PRs` and then carried into
 `Chats` produced a screen with **nothing on it at all**, under a control that was still
 offering to narrow it further. Now the pick is dropped when the pill changes, the search
-box goes with it, and with nothing left to offer **the whole panel takes itself off the
-row** — a summary line that opens an empty box is worse chrome than no line.
+box goes with it, and with nothing left to offer **the whole filter row takes itself off
+the chrome** — a strip of controls for a view that can use none of them is worse than no
+strip.
 
 Three rules fall out of the one list, and the third is the one worth stating twice:
 
-- **The panel offers what the lit pill names.** `hidden()` on every group, the page's own
+- **The row draws what the lit pill names.** `hidden()` on every group, the page's own
   included — `public/inboxfilter.js` wraps a page group rather than writing onto it, so
   `beadGroup` in `public/app.js` is the same descriptor `public/filterpills.js` would take.
 - **A selection the newly-lit pill cannot use is dropped**, which is `set()`'s existing
@@ -4424,26 +4507,101 @@ Three rules fall out of the one list, and the third is the one worth stating twi
   keeps what it had.
 - **Dropped means *cannot use*, not *cannot see*.** A rung chosen under `PRs` is still
   biting under `My Epics`, because that list holds pull requests; it is dormant under
-  `Questions`, because that one does not. Only the second is dropped, and the summary line
-  is gated on the same question. Getting *that* backwards is the subtler bug of the two:
+  `Questions`, because that one does not. Only the second is dropped, and what the row
+  says is gated on the same question. Getting *that* backwards is the subtler bug of the
+  two:
   the counts a chip carries are taken **before** the kind filter — which is what makes a
   pill's number the list it would open — so under `Questions` there are still four pull
-  requests counted and none of them on screen, and an ungated line reads `unmerged` over a
+  requests counted and none of them on screen, and an ungated row reads `unmerged` over a
   screen with no pull request on it. Naming a filter that is not filtering is the same lie
   as hiding one that is.
 
 **The standing `unmerged` default does not move.** It is a fact about what Home *is*
 rather than about what you last tapped, so it still applies under every pill that can hold
-a pull request, and the summary line still says so. What changed is only that it stops
-being said where it cannot be true.
+a pull request, and the row still says so. What changed is only that it stops being said
+where it cannot be true.
 
 The last of it is the empty state. A pill that empties the list now keeps its own sentence
 even when the P0 board is on screen: "your epics are on the board above" is a true
 sentence about the wrong thing when the reason the list below is empty is a lit pill, and
 the way out is a tap on the row rather than a look at the board. `node
-test/inboxkinds.mjs` pins the table, the drop in both directions, the summary line's gate,
-the panel hiding itself under `Chats`, and the warning a page gets for handing over a
+test/inboxkinds.mjs` pins the table, the drop in both directions, the gate on what the row
+says, the row hiding itself under `Chats`, and the warning a page gets for handing over a
 group no pill names.
+
+### The filter panel comes apart — one pill per filter
+
+The scope going out onto the chrome left one collapsed line holding everything else, and
+bc-khoe.26 takes that apart the same way. The line was the last thing on Home you had to
+open before you could read it. What it said was a comma-joined digest of three different
+questions — `Any bead · unmerged · Blocked` — and the only way to change any of them was to
+open a panel that then covered the list you were changing.
+
+So each of the three is **its own pill**, in the row under the view pills, each opening its
+own chips. `public/filtermenu.js` still draws them, so the History tab's four filters came
+apart in the same commit and by the same code: status, priority, filed-by and the bead-id
+box are four pills there rather than four boxes inside one panel. One component with two
+shapes is exactly what splitting that file out was meant to avoid.
+
+**A pill says the narrowing exactly when there is one.** At rest it is its legend and
+nothing else — `Bead status ▾` — because a pill that also said `any status` would be three
+words of chrome for a control that is not filtering. The moment it narrows, the value goes
+on its face: `PR status: unmerged`, `Bead: bc-0xil`, `Status: Closed`. That is more than
+the one line could say, not less: it names *which* control is doing it, where a digest left
+you to work out which of four to reach for. A group answers `narrowing()` for itself,
+because "nothing chosen" does not mean the same thing in two of them — PR status is showing
+you the unmerged ones with nothing chosen and bead status is showing you every rung, which
+is the [two opposite defaults](#one-list-six-kinds--and-the-two-sub-filters) stated once
+more, in the one place a reader will meet them.
+
+**A narrowing whose pill has gone is said as a note.** `hidden()` takes a pill off the row
+when the view cannot use it, and a selection that goes on biting after the pill has gone is
+the one thing a filter control must never do quietly — so that case draws `.filter-note`
+instead: the same words, no caret, not a button. Under `My Epics` the standing `unmerged`
+default is exactly that, and so is a rung you chose under `PRs` and then widened away from.
+The distinction is the whole point of taking the panel apart: a *control* offered over a
+view it does nothing for is what bc-khoe.3 was about, and a *statement* is not a control.
+
+Three smaller decisions, each of which had an obvious wrong answer:
+
+- **One panel open at a time.** The row is a row of controls and the list is under all of
+  them; two panels open at once would cover the thing both are about. Opening a second
+  shuts the first, and hover moves between pills the way a menu bar does.
+- **A pill that stops being offered takes its open panel with it.** Otherwise a filter you
+  can still change is a filter you can no longer see, which is the failure this whole
+  control exists to prevent, arriving through the door marked *fixed*.
+- **The panels hang off the nav, not off the pill.** A 260px panel anchored to a pill two
+  thirds of the way across a 360px phone opens off the side of the screen. Anchored to
+  `.filters` they all open at the page margin, 16px in, wherever their pill wrapped to.
+  The `#filters .filter-panel { right: 0 }` special case bc-khoe.24 needed is gone with
+  it, and so is the reason it had to be scoped to one page.
+
+**It wraps, and the pills wrap *with* the scope switch rather than under it.** The switch
+is 214px measured and the three pills are another 431, so on a phone this is more than one
+line whatever is done. What decides how many is whether a pill may share a line with the
+switch, which is why `.filter-menu` is `display: contents` — its pills are items of the
+nav's own flex row. Measured against the real stylesheet at three widths, nav height, shut
+and open (they must agree, because `paintScrollPos` in `public/app.js` takes this nav's
+bottom edge as the line a card has to clear to count as the one you are reading):
+
+| width | lines | `.filters` height | open panel |
+|---|---|---|---|
+| 360 | 3 | 134px | 16…344, on screen |
+| 393 — the phone this is thumbed on | 2 | 92px | 16…377, on screen |
+| 900 | 1 | 44px | 420px wide |
+
+Boxed rather than `display: contents`, 393 is three lines and 134px too: the 84px beside
+the switch goes to waste and the bead pill has nowhere to be but a line of its own.
+
+The view pill row is untouched and still fits a 360px phone without wrapping: it is a
+different row (`.viewbar`), and the wrapping above is the filter row growing below the
+scope switch rather than anything being added beside the views.
+
+`node test/inboxkinds.mjs` drives the row against a hand-made document — the pill at rest,
+the narrowing on its face, the note where a pill has gone, one panel at a time, and the
+panel that closes with its pill. `node test/historyfilter.mjs` does the same for the
+ledger's four, and `node test/beadsearch.mjs` for the typeahead, whose query is
+deliberately *not* a narrowing while the ledger's id box deliberately is.
 
 ### ＋ belongs to the view, so two of the six do not have one
 
@@ -4517,34 +4675,40 @@ and it has the same answer.
 exactly one always armed is the definition of a segmented control, three words fit across a
 360px phone, and a pill saying `Human ▾` would cost a tap to change and put the choice back
 behind something you have to open. The look did not change with the move — it is the same
-`.chip-row.scopes` banding it had inside the panel, in front of the panel instead of inside
-it — so somebody who used the old one finds the same control in a place they can see.
+`.chip-row.scopes` banding it had inside the panel, in front of the filter pills instead of
+inside a panel with them — so somebody who used the old one finds the same control in a
+place they can see.
 
 **The mechanism is `public/filterpills.js`, and it is deliberately more general than one
 switch.** A group here is exactly the descriptor `public/filtermenu.js` takes —
 `{ id, legend, all?, multi?, options(), pick(id), hidden?() }` — so moving a filter between
-the panel and the row is editing which list it is handed to, rather than rewriting it. That
-is what bc-khoe.26 does with the bead search and the two status sub-filters. Two shapes are
-refused rather than half-drawn: a `text` group (the typeahead genuinely wants a dropdown
-under it, which is a panel's shape) and `said` (there is no summary line out here — the
-chips are the summary). A refused group is a `console.warn`, not a silent skip, because a
-filter the page believes it drew and has not is the worst of the three outcomes.
+the two containers is editing which list it is handed to, rather than rewriting it. It paid
+for itself within the day: bc-khoe.26 took the bead search and the two status sub-filters
+out of the collapsed panel and gave each of them a pill, and not one of the three
+descriptors changed. Two shapes are refused rather than half-drawn out here: a `text` group
+(the typeahead genuinely wants a dropdown under it, which needs somewhere to open into) and
+`said`/`narrowing` (they are about what a pill says about itself, and there is no pill here
+— the chips are on screen, so they are the whole statement). A refused group is a
+`console.warn`, not a silent skip, because a filter the page believes it drew and has not
+is the worst of the three outcomes.
 
 Two properties are load-bearing and neither is visible by reading the file. `paint()`
 touches text and attributes only and rebuilds a group's chips only when the *set* of option
 ids changes, because the inbox repaints every 25 seconds and a row rebuilt on that clock
 drops the focus ring off a chip somebody is tabbing through. And **nothing in `.filters`
-may set `overflow`**: the panel beside the switch is absolutely positioned so it draws
+may set `overflow`**: a panel opened beside the switch is absolutely positioned so it draws
 *over* the list, and a scroll container on either axis makes the other one `auto` too,
-which would clip that panel to the 34px line it hangs off. A narrow phone takes the width
-out of the summary line, which already ellipsises, and the switch never shrinks.
+which would clip that panel to the 34px line it hangs off. A narrow phone gives the width
+up by wrapping instead, and the switch never shrinks.
 
-**And the panel it now sits in front of opens leftwards.** That is the one thing the move
-broke and it is invisible outside a browser: the panel is 260px at its narrowest and hangs
-off `.filter-menu`, which the switch pushes to x=240 on a 360px phone — so left-anchored it
-ran 140px off the side of the screen. `#filters .filter-panel` is right-anchored, scoped to
-the inbox because it is only safe where the menu is the *last* thing on its row; the History
-tab's is the first, and the same rule there would push it off the other edge.
+**And the controls beside it have to fit somewhere.** That is the one thing the move broke
+and it is invisible outside a browser: a 260px panel hanging off a `.filter-menu` the
+switch pushes to x=240 on a 360px phone runs 140px off the side of the screen. bc-khoe.24
+answered that by right-anchoring it (`#filters .filter-panel { right: 0 }`), which was only
+ever safe while the menu was the *last* thing on its row. bc-khoe.26 answered it at the
+root and took that rule out: `.filters` wraps and is the panels' containing block, so they
+open under the whole nav at the page margin on both pages — see [one pill per
+filter](#the-filter-panel-comes-apart--one-pill-per-filter) for what that measures at.
 
 What did **not** move is what the switch does. `chooseScope` in `public/app.js` is still
 the one place that stores the preference, drops selections the new scope cannot produce,
@@ -5116,13 +5280,37 @@ which can be missing with the page looking right all session.
 The mark on a held-up row is read as a computed border style rather than as a class, so it
 fails on a stale stylesheet too, which is what [v62](docs/sw-cache/v62.md) is about.
 
-### And the section folds, under a heading that says what it is
+### Under a heading that says what it is, and no longer a fold
 
-The heading is a disclosure of its own (bc-eevn) — one button the width of the section,
+The heading was a disclosure of its own (bc-eevn) — one button the width of the section,
 `aria-expanded` on it, the same `.chev` every other fold on this app turns. Tap it and the
-cards go away. On a phone four epics with their controls *are* the first screen, and there
-are days when what you came to the inbox for is the questions underneath; before this the
-board could only be scrolled past.
+cards went away. The argument was that on a phone four epics with their controls *are* the
+first screen, and there are days when what you came to the inbox for is the questions
+underneath; before it, the board could only be scrolled past.
+
+**bc-khoe.28 took the fold out, and the reason is that its argument was answered by a
+better control.** The questions are one tap away on their own pill now, and `My Epics` is
+[the board and nothing else](#one-list-six-kinds--and-the-two-sub-filters) —
+so what the fold used to reveal is not underneath the board any more. On a board-only view
+its whole effect is to leave the screen blank, and it was persisted (`beadcause.p0shut`),
+so one tap would have left the app's landing screen blank until you found the line and
+tapped it again. The README's own three guarantees for keeping the fold honest — the count
+stays on the shut line, it is display only, it leaves `state.p0open` alone — all assumed a
+list underneath it. Without one there is nothing left for them to be true *of*.
+
+The alternative considered and rejected was to leave it and let shut mean "the heading is
+the whole of My Epics": one line with both counts, which is honest as far as it goes and
+costs nothing to keep. What decides against it is that this is where you land. A control
+whose only effect is to blank the view it is on, and which remembers having done so, is not
+a control — it is a way to lose the board, which is the exact thing every rule in this
+section was written to prevent.
+
+What is left is a heading: `<h2 class="p0-kind">`, no `aria-expanded`, no chevron, no
+`--tap` height and no pointer, because a line that says it can be pressed and cannot is
+worse than a plain label. **Both counts stay**, and they are now the whole reason the line
+is drawn: how many epics, and how many beads under them are asking you something. A
+question four levels down a tree nobody has opened is otherwise a number nothing on the
+screen carries.
 
 It says **"Epics assigned to you"**, not "Your P0s". Every card on it is a **root** carrying
 your `owner:<handle>` — an epic at any priority, or a P0 — and a heading that names a
@@ -5139,39 +5327,25 @@ the rule (`rootboard`, `roots`, `GET /api/roots`); the CSS class names did not �
 is a namespace prefix rather than a claim, and restyling four hundred selectors would buy
 nothing a reader can see.
 
-Three things keep the fold from being a way to lose the board:
+The "*N* ask you" count is the half of the old fold that survives it, and it survives for
+the reason it was added: now that
+[the trees are where a question is drawn](#the-board-is-the-inbox-and-the-list-under-it-is-what-a-tree-cannot-hold),
+a board heading with no "*N* ask you" on it is a week of unanswered questions with nothing
+on screen saying they exist. bc-rfnr.9.7 put it there so a board shut on Monday could still
+say so on Friday; there is no shut board now, and it still has no rival — every card on the
+board defaults to a folded tree.
 
-- **The count stays on the shut line — both counts, since bc-rfnr.9.7.** How many epics are
-  behind it, and how many beads under them are asking you something. A fold that hid the
-  fact there was anything behind it would leave a screen indistinguishable from one with no
-  epics on it, which is the single thing this section exists to prevent; and now that
-  [the trees are where a question is drawn](#the-board-is-the-inbox-and-the-list-under-it-is-what-a-tree-cannot-hold),
-  a shut board with no "*N* ask you" on it is a week of unanswered questions with nothing on
-  screen saying they exist.
-- **It is display only.** `underOwnedRoots` reads the board *data*, not whether the board is
-  drawn — so folding it changes nothing about the list underneath. A control that quietly
-  changed what was in the inbox would be worse than no control.
-- **It leaves `state.p0open` alone**, so the epic you had unfolded is still unfolded when
-  the board comes back. Putting a drawer away is not closing what is in it.
-
-Unlike which cards are open, the fold **is** persisted (`beadcause.p0shut` in
-`localStorage`, read synchronously at boot so the first frame is already the shape you
-left it in): which epic you have unfolded is where you are looking now, but whether you
-want the board over your list at all is a standing preference, like the kind filter. It is
-stored *shut*-side-true on purpose — an absent key, an older page, a state object written
-before the field existed all read as the board showing, which is the safe direction for a
-flag whose falsy default would otherwise hide the point of bc-rfnr.2.
-
-`node test/p0card.mjs` has the renderer and the handler's source; `node scripts/p0fold-check.mjs`
-is the half it cannot reach — a real tap in headless Chrome at 393×852, which is where the
-three failures that matter live. That the heading is inside `#list` at all, because every
-handler on this page is delegated from that element and one drawn outside it renders
-perfectly and does nothing. That the rows underneath are the same rows either side of the
-tap. And that a reload comes back shut, which no renderer test can see: the write to
-`localStorage` and the read at boot are separate ends, and either can be missing with the
-page looking right all session. The chevron is read as a computed transform rather than as
-markup, so it fails on a stale stylesheet too — which is what [v59](docs/sw-cache/v59.md)
-is about.
+Removing the fold takes a state field, a `localStorage` key and a tap branch with it, and
+the way that rots is a half-removal: a heading left as a `<button>` with an `aria-expanded`
+nothing writes, or a `state.p0shut` no longer read but still saved. `node test/p0card.mjs`
+asserts all three ends are gone — the `data-act`, the disclosure attribute, and the state
+with its key — as well as the two that stay, the heading's counts and every card, picker
+and open tab always being drawn with it. `node scripts/p0board-check.mjs` presses where the
+fold used to be, in headless Chrome at 393×852, and requires the board to be exactly as it
+was. `scripts/p0fold-check.mjs` is deleted with the feature it covered; its live claims —
+that the heading is inside `#list` where the delegated handler can see it, and that the
+rows either side of a board tap are the same rows — are now p0board-check's, which drives
+the pill row for real.
 
 ### The board is the inbox, and the list under it is what a tree cannot hold
 
@@ -5222,10 +5396,9 @@ them is optional:
 - **The row says so.** `pending` on a tree row draws an **asks you** pill and a solid
   leading edge on the row.
 - **The card and the heading count them.** A collapsed card carries "*N* ask you" beside its
-  id, and the section heading carries the total for the whole board — which is what makes it
-  survive the [fold](#and-the-section-folds-under-a-heading-that-says-what-it-is). A
-  question four levels down a tree that is shut by default is not findable; a number on the
-  line above it is.
+  id, and [the section heading](#under-a-heading-that-says-what-it-is-and-no-longer-a-fold)
+  carries the total for the whole board. A question four levels down a tree that is shut by
+  default is not findable; a number on the line above it is.
 - **The status filter cannot hide one.** A pending row is kept whatever
   [the filter](#one-status-filter-in-the-tab-with-the-tree-it-narrows) says. `Closed` is one tap, and
   before the list went it merely narrowed the trees — now it would take every open question
@@ -5240,10 +5413,13 @@ thread, the box and the dismissal. It is `expand(key)`, the same call the list's
 makes, and reimplementing any of that inside a tree row would be a second copy of the
 hardest screen in the app, drifting from the first from the day it landed.
 
-One line makes it possible: `underOwnedRoots` keeps a bead in the list for exactly as long as
-its card is open. `.card.open` is built out of an inbox row, so the row has to survive the
-filter or the sheet comes up empty; collapse it and the row drops back out, because the
-board is drawing it. The control is drawn only where there is a row to open —
+Two lines make it possible, and both are the same exception written at different heights.
+`underOwnedRoots` keeps a bead in the list for exactly as long as its card is open —
+`.card.open` is built out of an inbox row, so the row has to survive the filter or the
+sheet comes up empty; collapse it and the row drops back out, because the board is drawing
+it. And since bc-khoe.28, `listHere` draws a list on `My Epics` for exactly as long as
+there is an open card, because that view otherwise has none at all: the sheet is the whole
+of what is drawn, and closing it leaves the board alone on the screen again. The control is drawn only where there is a row to open —
 `/api/questions?scope=agent` sweeps no questions at all, so on that scope a pending bead is
 marked in the tree and has no button, which is the scope saying what it says rather than a
 button that does nothing.
@@ -5354,6 +5530,50 @@ onto the record it already persists, and the card reads it through `advocates.ad
 
 `waitingOn` is **not** repeated inside the object: the card already carries it at the top
 level, and one fact arriving twice in one payload is two copies of a state that can drift.
+
+#### What the card draws, and what a tap on the advocate line opens
+
+The control on a P0 card is four states now rather than a button (bc-r2b5.2). All four are
+read off `advocacy` in one place — `p0AdvState` in public/app.js — so the grid cell, the
+epic's own tab and the advocate sheet cannot disagree about which state an epic is in:
+
+| state | what the card is |
+|---|---|
+| nobody on it | *"Put an advocate on it"*, exactly as it was |
+| opening | a disabled button. There is no pid to link to for the minute before a window names itself, and the honest thing to do with a control that would 409 is say why it is not offered |
+| **assigned, idle** | who has it, **when its last window ran** — "last looked 3h ago" — and why one is not up right now if something is holding it. **Not** an offer to open a second one |
+| live | the anchor into `/session?pid=…`, unchanged, with the way into its history beside it |
+| **done** | every child closed and `lib/finishedepic.js` has already asked, so the card offers the close rather than leaving it to be found in the inbox |
+
+"Advocated" on its own is the same card whether the advocate looked twenty minutes ago or a
+fortnight ago, and only one of those is a problem — so the time is not decoration, it is the
+half that makes idle readable. An epic assigned but never opened says *that* rather than
+borrowing a time from a record that does not exist.
+
+The done state's close is `expand(key)` and nothing else: the inbox card that
+`lib/finishedepic.js` already wrote, with its parsed options, its arm-then-confirm and its
+submit queue. A second answer surface would be a second copy of the hardest screen in the
+app. Where this page's payload has no row for the epic — `/api/questions?scope=agent` sweeps
+none — it says where the close is instead of offering a tap that would do nothing.
+
+**Tapping the advocate line opens the advocate**, as a fixed layer over the epic's own tab
+(`z-index: 41` to the tab's 40 — the one place in this app where two of these stack on
+purpose). Four sections: *where it is* (the assignment, its carrier, what is holding the next
+window), *what it is waiting on* (the advocate's sentence in full, where the card shows a
+line of it), *the plan* — `lib/plan.js`'s groups, read back off the epic's thread, with how
+many beads of each have closed — and *what has run*: its own archived sessions, then per
+child what ran on that child.
+
+Three fetches on that tap and they cost three different things: `/api/bead` for the epic (a
+`bd show`, and where the plan comment is), `/api/session-archive` for the epic (one `git
+log`), and one more per **direct child**. One level, which is what "per child" means and is
+the same question `lib/finishedepic.js` asks — a whole subtree would be a `git log` per
+descendant on a single tap.
+
+Every source in there has a third state and each is drawn as itself: the plan is absent,
+unreadable or **not fetched yet**; the archive is looking, present, absent, or "we asked and
+could not find out" (which offers the link anyway); the waiting-on sentence is written or it
+is not. Nothing renders *we have not looked* as *there is nothing*.
 
 **Three events, and deliberately not all of them.** A descendant that *closed*, one that
 was *filed*, one that *stalled*. Not one that started — `open → in_progress` is a worker
@@ -5533,6 +5753,7 @@ So the board carries a second map beside `under`:
 |---|---|
 | `under` | `<workspace>/<id>` → the id of the P0 **you own** that this row descends from |
 | `unhomed` | `<workspace>/<id>` → `true` when **no open P0 at all** is above this row, whoever owns it |
+| `assigned` | `<workspace>/<id>` → `true` when this **bead** carries your `owner:` label or descends from one that does, at any depth, whatever its status — the [kind pills' own narrowing](#one-list-six-kinds--and-the-two-sub-filters), and the one field here keyed by bead rather than by row |
 
 The client draws a row that is in either. The two questions are genuinely different on a
 shared graph — "which of my P0s has this" and "has anybody's P0 got this" — and the whole
@@ -17759,7 +17980,10 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
   channel id and deleting the old, which is why the ids carry a `_v2`. Decisions get
   a bundled 75ms pip (`res/raw/blip.wav`) and one 40ms shake; replies get the pip and
   no vibration; the Watching row stays silent. Anything finer is the phone's own
-  per-channel settings, which now win over all of it.
+  per-channel settings, which now win over all of it. Three more sounds are bundled and
+  not yet on a channel — see
+  [*The four sounds*](#the-four-sounds-and-auditioning-one-before-it-is-permanent), which
+  is also where they are auditioned while that is still possible.
 - **Android renders at most 3 notification actions.** Going native does *not* lift
   ntfy's three-button cap. The budget is spent as: two option buttons plus a typed
   "Answer…", or — when a question has no options — "Answer & close" and "Comment",
@@ -17801,6 +18025,66 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
   on Play Services being current.
 - **Keep the signing key.** Android refuses an update signed by a different key, so
   losing `~/.config/beadcause/android-keystore.jks` means uninstall-and-re-pair.
+
+### The four sounds, and auditioning one before it is permanent
+
+`res/raw` holds four voices now — `blip.wav`, `land.wav`, `drop.wav`, `chime.wav`. Only the
+first is on a channel today; the other three are bc-ka5y.15's classification waiting for
+bc-ka5y.15.4 to cut the channels that carry them:
+
+| File | For | What it is |
+|---|---|---|
+| `blip.wav` | A question is waiting | 75ms at C6. On Decisions it comes with a 40ms buzz. |
+| `land.wav` | A merge landed | 45ms at G6 — the pip, smaller. |
+| `drop.wav` | A release went out | 360ms. A water drop: pitch rising, then a soft tail. |
+| `chime.wav` | An epic completed | 480ms. Two notes, G5 up to C6. |
+
+**They are generated, not dragged in.** `npm run sounds` renders all three from
+`scripts/sounds.mjs` and writes them to two places at once, and `test/sounds.mjs` fails the
+repo if a committed byte differs from a fresh render. That is not ceremony: three `.wav`
+files in a pull request are three things nobody can review, and moving the review to the
+script puts every decision where it can be argued with — the pitches are a fifth and a
+fourth apart on purpose, the peaks descend on purpose, and each number has its reason
+beside it. A hand-edited binary is a red suite rather than a surprise.
+
+**Two copies, and neither is the copy.** Each generated file is written identically to
+`android/app/src/main/res/raw/` — what the APK ships and what an `android.resource://` URI
+points `setSound` at — and to `public/sounds/`, which is what `/sounds` plays. `test/sounds.mjs`
+asserts they are byte-identical. `blip.wav` gets the second path by a straight copy rather
+than a render: it is already on three live channels and cannot be re-cut, but the audition
+needs it, because a reference list with a hole where the reference goes is worse than no
+reference list. Duplicating ~80 kB of generated audio is the cheap side of that trade; the expensive side is auditioning one file and shipping another, and a channel's
+sound is immutable after `createNotificationChannel`, so there is no second chance to notice.
+
+**`/sounds` (or `/audition`) is the audition, and it is blind.** Three anonymous pads in a
+shuffled order, a guess each, then the reveal. Play a file called `drop.wav` and you hear a
+water drop whatever came out of the speaker — the label does the work the sound was supposed
+to do, which is why the acceptance criterion for a notification sound is naming it without
+looking. The named reference list is *below* the pads for the same reason. `blip` is on that
+list but not in the blind test: it is the sound everything else is placed against, and in
+the case that matters — a decision waiting on you — it arrives with a buzz, so it never has
+to be told apart by ear alone.
+
+Judge it on the phone, twice — once on a desk and once through a pocket, which is the only
+place any of this is really heard. The page plays at **media** volume while a real
+notification plays at notification volume on a channel with its own level, so what `/sounds`
+settles is how the four compare with each other; absolute loudness is settled on the phone
+once the channels exist, on Android's own per-channel settings screen.
+
+`node scripts/sounds-check.mjs [--out=DIR]` is the browser half — the audition driven end
+to end at 360 and 393, which is where the claims a file-reading suite cannot make live: that
+the stylesheet actually applied and every control is a 44px tap target, that no pad gives
+its own answer away, that twenty runs are not twenty of the same order, and that every sound
+the page names is served as audio. That last one is why the check exists: the first version
+of the page played `/sounds/blip.wav` against a daemon that answered 404, because the
+reference pip lives in `res/raw` and nothing had copied it across. The page was right, the
+file list was right, and nothing had ever asked them about each other.
+
+The page is deliberately **not** in the service worker's `SHELL`. Precaching it without its
+audio would be a screen of buttons that do nothing offline, precaching the audio too is 78 kB
+on every install forever, and an audition is not a thing anybody does without a signal — every
+other page in that list is there because you open it *at* the bad moment, and this is the
+opposite of that.
 
 ### How the phone hears about a question
 
