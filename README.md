@@ -12217,7 +12217,7 @@ landed nothing but the epic-advocate's waiting-on sentence read the field, which
 ever on a root. A relay runs on the *leaves*. So a mark parsed on the request path, off the
 row the board draws, would have answered "no relay" for every row in every tree, for ever,
 with nothing anywhere saying so. It is parsed in `lib/ancestry.js` instead, where the export
-text is still in hand, and what is kept on the row is the mark — five fields, `null` unless
+text is still in hand, and what is kept on the row is the mark — six short fields, `null` unless
 a relay has actually run — rather than the prose it came from.
 
 **Two readers, because two surfaces want different amounts of it.** Each row of an epic's
