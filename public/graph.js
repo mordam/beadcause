@@ -1397,6 +1397,40 @@
   }
 
   /**
+   * Where the ruling on this bead is — the row the inbox chip compresses.
+   *
+   * bc-bmry.5. The chip in public/app.js has room for four words; this has room for the
+   * sentence, which is what the sheet is for. Three facts kept apart rather than joined:
+   * the **state** (the ruling), the **gate** it counts towards, and the **problem** if
+   * its labels say something the pipeline calls a bug.
+   *
+   * **This is the only surface in the app that can draw that last one.** The worst shape
+   * in APPROVAL_PIPELINE.md is `needs-approval` without `human`: the packet never reaches
+   * the phone, because the inbox *is* `bd human list`, and the advocate — whose whole
+   * definition of work is ready-minus-`human` — may open an unattended session on it. A
+   * card in the inbox could never complain about it, by construction. A sheet can.
+   *
+   * Reads `b.approval`, derived once on the daemon in lib/approvalcard.js. Absent for
+   * every bead outside the pipeline, so an ordinary sheet is exactly what it was.
+   */
+  function approvalRowHtml(b) {
+    const a = b?.approval;
+    if (!a) return '';
+    const bits = [`<span class="approval-kind">Approval</span>`];
+    if (a.state) bits.push(`<span class="approval-state is-${esc(a.state)}">${esc(a.label)}</span>`);
+    else if (a.isGate) bits.push(`<span class="approval-state is-gate">a gate — only a tap closes it</span>`);
+    // Not "unknown": nothing failed, ward has not put it in a state, and a deliverable
+    // that is only labelled for its gate is a real and ordinary row in this pipeline.
+    else bits.push(`<span class="approval-state is-none">no state yet</span>`);
+    if (a.note && a.state) bits.push(`<span class="approval-why">${esc(a.note)}</span>`);
+    if (a.revision != null) bits.push(`<span class="approval-rev">revision ${esc(a.revision)}</span>`);
+    if (a.gates?.length)
+      bits.push(`<span class="approval-gate">counts towards ${esc(a.gates.join(', '))}</span>`);
+    if (a.problem) bits.push(`<span class="approval-problem">⚠ ${esc(a.problem)}</span>`);
+    return `<div class="approval-row" id="sheet-approval">${bits.join('')}</div>`;
+  }
+
+  /**
    * Owner handles on a bead, off its labels — the client's copy of `ownersOf`.
    *
    * Duplicated rather than shared because there is no module boundary between a browser
@@ -1587,6 +1621,13 @@
     // a root above it, which is almost all of them once the tracker is in shape.
     const adopt = adoptRowHtml(b);
     if (adopt) parts.push(adopt);
+    // And under that, on the beads anybody rules on: where the ruling is. Above the
+    // session row rather than below it because it is the same kind of fact as the two
+    // above — why this bead is or is not moving — where the session row and the model row
+    // under it are about the run. Absent entirely outside the approval pipeline, so every
+    // other sheet in the app looks exactly as it did.
+    const approval = approvalRowHtml(b);
+    if (approval) parts.push(approval);
     // And under that, the way through to what actually ran. Above the relations rather
     // than below them because those are more of the tracker and this is the one row on
     // the sheet that leaves it — and because on a closed bead the three read in order:
