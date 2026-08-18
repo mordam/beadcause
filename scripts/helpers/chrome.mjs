@@ -52,6 +52,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { onProcessExit } from '../../lib/shutdown.js';
 
 /** Where Chrome is on this machine. `CHROME_PATH` first, so a moved install is sayable. */
 export const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -176,6 +177,12 @@ export function connect(url) {
  * Every failure path kills the process and deletes the profile before it throws. The old
  * copies did not, and a check that threw left a headless Chrome and a temp directory
  * behind on a laptop that runs these all night.
+ *
+ * The same teardown is registered with `lib/shutdown.js`, which runs it if the *node*
+ * process is killed instead — a closed or reaped Claude Code session, which is how these
+ * actually die. Chrome is a plain child rather than a process-group leader, so nothing
+ * else would signal it, and an orphaned headless Chrome stops the real Chrome opening a
+ * window at all. That file has the whole account (bc-1eru).
  */
 export async function launchChrome(prefix, { chrome = CHROME, args = [], timeoutMs = LAUNCH_TIMEOUT_MS } = {}) {
   const profile = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), prefix));
@@ -196,6 +203,13 @@ export async function launchChrome(prefix, { chrome = CHROME, args = [], timeout
     } catch {
       /* Chrome is still letting go of a temp dir */
     }
+  };
+  // Registered before the first `await`: everything below here can be interrupted, and
+  // the window this closes is the whole of the launch as well as the run.
+  const untrack = onProcessExit(teardown);
+  const stop = () => {
+    untrack();
+    teardown();
   };
   try {
     const deadline = Date.now() + timeoutMs;
@@ -218,11 +232,11 @@ export async function launchChrome(prefix, { chrome = CHROME, args = [], timeout
       profile,
       close: () => {
         s.close();
-        teardown();
+        stop();
       },
     };
   } catch (e) {
-    teardown();
+    stop();
     throw e;
   }
 }
