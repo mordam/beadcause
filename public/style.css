@@ -7260,3 +7260,54 @@ body.editing::after {
   margin: 12px; padding: 10px 14px; border-radius: 10px;
   background: transparent; border: 1px solid var(--line); color: var(--muted); font: inherit;
 }
+
+/* The Skills view (bc-dgx7.5) — the library, its candidates and what nothing measures.
+
+   Modelled on the requirement rows above it and deliberately not merged with them: a
+   requirement row is a tap into a drill-down and carries a coverage bar, where these are
+   flat rows of record with no second screen behind them. One shared `.skill-row` for all
+   three lists, because a candidate, a shipped command and an untracked metric are the
+   same shape of statement — a name, a state, and a sentence about it. */
+.skill-list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.skill-row {
+  display: flex; flex-direction: column; gap: 6px; width: 100%;
+  padding: 12px 14px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  color: inherit; text-decoration: none;
+}
+/* What is not measured is drawn *quieter* than what is, on the surface the page uses for
+   an absence — a dashed edge rather than a solid one, so it reads as an outline of
+   something that is not there yet rather than as a record of something that is. */
+.skill-row.is-untracked { background: transparent; border-style: dashed; }
+.skill-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.skill-title { color: var(--text); font-size: 14px; line-height: 1.35; }
+.skill-meta { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.skill-meta a { color: var(--accent); }
+.skill-untracked { font-style: italic; }
+/* The two links a row can carry. The title opens the bead — a block, so the tap target is
+   the width of the row rather than the width of the words — and `endorse it` goes to the
+   queue, which is why the row itself is not a link: one of them would have had to be
+   nested inside the other. */
+.skill-open { display: block; color: var(--text); text-decoration: none; }
+.skill-open:active { color: var(--accent); }
+.skill-act { color: var(--accent); }
+.skill-caveat { color: var(--prose); }
+.skill-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px; }
+.skill-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted);
+  font-weight: 600; font-size: 11px; line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+/* Four states, and only *waiting* is filled — it is the one of the four that is asking
+   for something, and the other three are history. The rest keep the neutral chip ground
+   and say their state in the text colour, which is what keeps every one of them past AA
+   at 11px: a tinted ground under its own hue is the shape that lands around 3.9:1, which
+   is the failure bc-15tu spent a branch on. `--made-ink` rather than `--bead-made` for
+   the same reason — that token exists because the flight green is not a reading green. */
+.skill-chip.is-waiting { background: var(--accent); color: var(--accent-ink); }
+.skill-chip.is-accepted { background: var(--surface-2); color: var(--made-ink); }
+.skill-chip.is-declined { background: var(--surface-2); color: var(--danger); }
+.skill-chip.is-superseded { background: var(--surface-2); color: var(--muted); }
+.skill-chip.is-untracked { background: var(--surface-2); color: var(--warn); }

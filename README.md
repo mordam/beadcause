@@ -14029,6 +14029,60 @@ exactly the read-only surface every other reading agent has, and [a new
 kind](#what-an-agent-is--and-how-it-asks-to-be-different) owes five registrations that would each say something
 already true of `console`.
 
+### Whether the library is being used — the Skills view
+
+`/skills` (or `/candidates`) is the one screen the whole programme is visible from: the
+`b7e-` commands that exist, every candidate the audit agent has filed with what became of
+it, and how much archive has actually been read.
+
+**What is not measured leads, and that is the design of the page rather than a caveat at
+the bottom of it.** The loop above has an uninstrumented middle: nothing anywhere records
+that a skill was *called*. Four of the six numbers this view was asked for — calls per
+skill and the distinct sessions making them, time to adopt, dead skills, prompt bytes
+removed — are downstream of that one missing fact. A page that drew the candidate list,
+the audit runs and the library, and simply had no adoption section, would not read as
+incomplete; it would read as a healthy programme. So each of the four is drawn, named,
+given the sentence saying why it cannot be measured, and given the bead that would measure
+it (`bc-dgx7.6` for the call record, `bc-dgx7.4` for the bytes). They are `UNTRACKED` in
+lib/skills.js — data rather than prose inside the page, so the screen cannot drift from the
+list and a test can assert every entry names something real.
+
+The numbers that *are* real come from three things that already exist, and this view adds
+no store of its own:
+
+- **The library** — the `b7e-*` commands in a checkout's `bin/` and in its `package.json`
+  bin map, which is `skillLibrary`'s own answer and therefore exactly what the audit agent
+  is deciding *candidate versus miss* against. Empty today, and the page says so in those
+  words rather than drawing an empty list.
+- **The candidates** — one `bd list --label skill-candidate` per workspace, closed rows
+  included, because *declined* is one of the four states and a declined bead is a closed
+  one. The four are read off fields something else already writes: `superseded-by:` first,
+  then a close reason starting `Revoked before endorsement`, then the `unendorsed` hold,
+  and *accepted* is what is left. The order matters — a revoke deliberately leaves the hold
+  on the bead, so a marker test alone would count every declined candidate as one still
+  waiting.
+- **The ledger** — `refs/beadcause/audits` per checkout: runs, archives read, and every
+  **miss**. A miss is the one adoption number that exists today, and the page states the
+  thing a proud zero would hide: with an empty library there can be no misses *by
+  construction*, because a miss is a command that existed and went unused.
+
+Candidates are a fact about a beads graph and the library and the ledger are facts about a
+checkout, so a forty-repo workspace answers once for its candidates and once per repo for
+the rest; the payload keeps the two grains apart rather than summing them into a number
+that is true of nothing.
+
+**Nothing on the page writes.** A candidate is taken off hold in [the endorsement
+queue](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time), which every waiting row
+links to, and the bead itself opens in the graph — the one destination that works for a
+candidate in all four states. Forcing an audit run is deliberately not a control here: it
+costs minutes and real money, and a one-tap button for that on a phone is the wrong shape
+however convenient it looks, which is the argument the
+requirement graph makes for having no promote button of its own.
+
+It is not a pill on the view row, for the reason `/requirements` is not one: a page you
+read when you are new to the system or arguing about it, rather than one you check. It
+draws the row anyway, with nothing on it current.
+
 ### Which requirement a change was for — `refs/beadcause/requirements`
 
 Climative records acceptance criteria as **requirements**: `resources/reqs/{product,technical}/*.yaml`
@@ -19963,6 +20017,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/claims` | `?regions=1` | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding. `regions=1` adds the changed line ranges to each collision and whether they overlap; opt-in, because it is several git spawns per collision and a list of names should not pay for them |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
 | GET | `/api/requirements` | `?id=` | `{corpus, dir, tokens[], totals, orphans[], graph, summary}` — the requirement graph and, first, how much of it is missing: how many of the corpus's requirements have any edge at all, how many of those a merge proved rather than an advocate forecast, and how many edges are recorded against ids the corpus no longer has. `?id=` returns one requirement and its edges instead. `{corpus: null}` and a 200 on an install with no architecture checkout, which is every personal one — a state, not an error. Read-only: promotion into the corpus is a proposal a human applies from `beadcause-requirements promote` |
+| GET | `/api/skills` | `?workspace=` **or** `?space=`, and `&refresh=1` | `{library[], candidates:{counts, rows[]}, audit, checkouts[], untracked[], errors[]}` — [the Skills view](#whether-the-library-is-being-used--the-skills-view): the `b7e-*` commands that exist, every candidate bead with its state, and what the audit agent has read. Scoped exactly as `/api/history` is, with the same three refusals. **`untracked` is part of the answer, not an omission**: four of the six numbers the view was asked for need a record of a skill being called and nothing writes one yet, so each is returned named, explained, and carrying the bead that would measure it. Kept 30s per scope; `refresh=1` forces the read |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 | POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
 
