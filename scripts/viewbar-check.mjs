@@ -255,6 +255,8 @@ const ROUTES = {
   '/requirements': '/requirements.html',
   '/skills': '/skills.html',
   '/admin': '/admin.html',
+  '/sounds': '/sounds.html',
+  '/audition': '/sounds.html',
 };
 
 /* Every URL the fixture was asked for, in order. One assertion needs it: "tapping All
@@ -358,6 +360,7 @@ const PAGES = [
   { url: '/requirements', file: 'requirements.html' },
   { url: '/skills', file: 'skills.html' },
   { url: '/admin', file: 'admin.html' },
+  { url: '/sounds', file: 'sounds.html' },
 ];
 
 /**
