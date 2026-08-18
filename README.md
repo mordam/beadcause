@@ -12210,6 +12210,16 @@ rendered and appears only where it is rendered as a trail. `-->` inside a role's
 escaped, because otherwise a sentence about an arrow ends the comment and takes the rest of
 the notes out of the document with it.
 
+**It is parsed where the notes still exist, which is not where you would put it.** The
+index `bd export` builds keeps `notes` for a *root* and blanks them for everything else —
+seven hundred bodies of prose have no business in a minute-long cache, and until this
+landed nothing but the epic-advocate's waiting-on sentence read the field, which is only
+ever on a root. A relay runs on the *leaves*. So a mark parsed on the request path, off the
+row the board draws, would have answered "no relay" for every row in every tree, for ever,
+with nothing anywhere saying so. It is parsed in `lib/ancestry.js` instead, where the export
+text is still in hand, and what is kept on the row is the mark — five fields, `null` unless
+a relay has actually run — rather than the prose it came from.
+
 **Two readers, because two surfaces want different amounts of it.** Each row of an epic's
 tree carries the last entry alone — `⇄ clio · check · 2 steps · 40m ago`, with a `⚑` when
 something was flagged and a warning colour when the last step was a hand-back. There is no
@@ -12222,8 +12232,10 @@ it handed on and what it flagged. Oldest first unlike everything else on that sc
 pull requests are a queue you check, and this is a story, and a story read backwards loses
 the one thing it is for.
 
-`lib/relayjournal.js` and `bin/relaystep.js`, drawn by `p0RelayHtml` and `p0RelayTrailHtml`
-in `public/app.js`, `node test/relayjournal.mjs`.
+`lib/relayjournal.js` and `bin/relaystep.js`, marked onto the index row in
+`lib/ancestry.js`, drawn by `p0RelayHtml` and `p0RelayTrailHtml` in `public/app.js`.
+`node test/relayjournal.mjs`, and the end-to-end from an export line to a tree row is in
+`node test/p0tree.mjs`.
 
 ### What a P0 advocate *is* — its foundation, and what one visit consists of
 
