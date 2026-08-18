@@ -156,7 +156,7 @@ function board({ roots = [CARD], startable = CANDIDATES, picker = false, space =
     workspace,
     spaces: [],
   };
-  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state });
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state, byKey: () => null });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -180,6 +180,14 @@ function board({ roots = [CARD], startable = CANDIDATES, picker = false, space =
       lift(APP, 'function p0BeadHtml(card, row)'),
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),
+      // bc-r2b5.2's four states, which `p0Control` derives through `p0AdvState` — lifted
+      // with `relTime`, which the idle line's "last looked 3h ago" is written from.
+      lift(APP, 'function relTime(iso)'),
+      lift(APP, 'function p0AdvState(c)'),
+      lift(APP, 'function p0AdvWhen(s)'),
+      lift(APP, 'function p0AdvLine(s)'),
+      lift(APP, 'function p0DoneHtml(c)'),
+      lift(APP, 'function p0AdvOpenHtml(c, s)'),
       lift(APP, 'function p0Control(c)'),
       // bc-grut: the section is a grid cell, the tab a tap opens, and the head they share.
       lift(APP, 'const p0AsksHtml = '),

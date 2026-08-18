@@ -200,7 +200,10 @@ function board(roots, open = [], status = 'live') {
     // it draws the caret, and a board rendered without it throws rather than failing.
     p0beadopen: new Set(),
   };
-  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state });
+  // `byKey` answers "does the inbox payload have a row for this key" and is what
+  // `p0DoneHtml` gates the close offer on (bc-r2b5.2). Null here: no card in this suite is
+  // finished, so the only thing it decides is that nothing draws a close.
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state, byKey: () => null });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -234,6 +237,17 @@ function board(roots, open = [], status = 'live') {
       // bc-d6yk's three-state control, which the acts row now calls rather than writing
       // a launch button by hand — and the local "just launched" note it reads.
       lift(APP, 'function openingHere(key)'),
+      // bc-r2b5.2's four states. `p0Control` derives them once through `p0AdvState` so the
+      // card, the tab and the advocate sheet cannot disagree about which one an epic is in;
+      // `relTime` comes with them because "last looked 3h ago" is the half of an idle card
+      // that makes idle readable, and `p0DoneHtml` because a finished epic offers the close
+      // from the acts row rather than leaving it to be found in the inbox.
+      lift(APP, 'function relTime(iso)'),
+      lift(APP, 'function p0AdvState(c)'),
+      lift(APP, 'function p0AdvWhen(s)'),
+      lift(APP, 'function p0AdvLine(s)'),
+      lift(APP, 'function p0DoneHtml(c)'),
+      lift(APP, 'function p0AdvOpenHtml(c, s)'),
       lift(APP, 'function p0Control(c)'),
       // bc-grut: the section is three renderers now — a grid cell, the tab a tap opens,
       // and the head both of them share so their counts cannot disagree.
@@ -898,7 +912,7 @@ check('a title out of the tracker cannot write markup into the board', () => {
 
 check('the three no-op cases are untouched: no `me`, no P0s, an old payload', () => {
   assert.equal(board([]), '');
-  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state: { rootboard: { owned: false, roots: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map(), p0picker: false } });
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, byKey: () => null, state: { rootboard: { owned: false, roots: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map(), p0picker: false } });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -925,6 +939,17 @@ check('the three no-op cases are untouched: no `me`, no P0s, an old payload', ()
       // bc-d6yk's three-state control, which the acts row now calls rather than writing
       // a launch button by hand — and the local "just launched" note it reads.
       lift(APP, 'function openingHere(key)'),
+      // bc-r2b5.2's four states. `p0Control` derives them once through `p0AdvState` so the
+      // card, the tab and the advocate sheet cannot disagree about which one an epic is in;
+      // `relTime` comes with them because "last looked 3h ago" is the half of an idle card
+      // that makes idle readable, and `p0DoneHtml` because a finished epic offers the close
+      // from the acts row rather than leaving it to be found in the inbox.
+      lift(APP, 'function relTime(iso)'),
+      lift(APP, 'function p0AdvState(c)'),
+      lift(APP, 'function p0AdvWhen(s)'),
+      lift(APP, 'function p0AdvLine(s)'),
+      lift(APP, 'function p0DoneHtml(c)'),
+      lift(APP, 'function p0AdvOpenHtml(c, s)'),
       lift(APP, 'function p0Control(c)'),
       lift(APP, 'const p0AsksHtml = '),
       lift(APP, 'function p0FaceHtml(c, asks, tail'),
