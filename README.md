@@ -21749,6 +21749,14 @@ still writes its own address, unwrapped. And nothing already on the tracker is
 rewritten — every agent comment written before this says an address, which is why
 `writtenByDaemon` has to keep reading *that* as an agent too.
 
+**And it deliberately stops at the terminal.** A [terminal](#the-terminal--driving-a-session-from-the-phone)
+is a `/bin/zsh -lc` with no foundation behind it, so it keeps whatever `~/.zshenv` gives
+it — and that is the honest answer there rather than an omission: a terminal is a thing
+*both* a person and an agent type into, so a byline stamped on the shell would be a
+claim the shell cannot support. Everything with a foundation — the worker, the advocate,
+the chat console, the session auditor and the JIRA ingester — is stamped, because there
+the spawner does know.
+
 ## The management system — off by default, and turning it on is a record
 
 Beadcause is growing a compliance layer: a control corpus, edges from a control to the
