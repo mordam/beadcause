@@ -296,6 +296,28 @@ console.log('\nthe sweep is called, and what it produces is the event the phone 
 
   // Nothing in this file may reach CONFIG_DIR or a `refs/beadcause` ref: the snapshot is
   // in memory on purpose, and the moment it is not, lib/evidence.js has to claim it.
+  // And the watcher is really on the app the poller is handed — a static read would pass
+  // over a `createEpicWatch` call whose result never made it into the returned object,
+  // which is the same silence as never having written the sweep.
+  const { createApp } = await import(LIB('server.js'));
+  const app = createApp({
+    host: '127.0.0.1',
+    baseUrl: 'http://127.0.0.1',
+    token: 'epicdone-token',
+    actor: 'beadcause-test',
+    bdBin: path.join(tmp, 'no-such-bd'),
+    workspaces: [],
+    sessionDirs: {},
+    openSessions: false,
+    autoDispatch: false,
+    pollSeconds: 3600,
+    terminal: false,
+    port: 0,
+    ntfy: { enabled: false },
+    advocates: { enabled: false, workspaces: [] },
+  });
+  check('and it is on the app object the poll cycle reads', typeof app.epicWatch?.sweep === 'function');
+
   // Comments blanked exactly as lib/evidence.js's own scan does it — the header argues
   // about `CONFIG_DIR` at length and prose is not a writer.
   const { blankComments } = await import(LIB('evidence.js'));
