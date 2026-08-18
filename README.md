@@ -11681,6 +11681,84 @@ bead and both fallbacks; `node test/planbrief.mjs` covers the two briefs — inc
 an epic worker is told not to implement and not to endorse, and that the whole standard
 brief is still present around a group's quoted section.
 
+### Carrying a promotion bead — four steps, three states, and a close that is earned
+
+Filing the bead is one half; the other is something that picks one up. `lib/promoterun.js`
+is that half, and it is deliberately the half that does not know what the pipeline is. It
+claims the bead the way every other agent here claims work, drives four calls in order, and
+closes it only when production has answered:
+
+| call | what it must answer |
+|---|---|
+| `deployToUat` | the UAT deploy happened, **and the image it deployed** |
+| `testInUat` | the release was exercised in UAT, and by which checks |
+| `promoteToProd` | that *same* image is in production — promoted, never rebuilt |
+| `testInProd` | the release was exercised in production, and by which checks |
+
+The four are a **driver interface** rather than Azure DevOps, and the split is what makes
+this testable at all: every acceptance clause on the release agent except *identify the
+exact image* and *test against something the release actually contains* is expressible
+against those four names, and both of those belong to the driver. `node
+test/promoterun.mjs` drives the whole thing against a fake — no network, no pipeline, no
+`bd`.
+
+**Three states, and the third one is why this is not fifty lines.** `passed`, `failed`, and
+*cannot say* — the same three the [release queue](#the-release-queue--the-number-over-ship)
+settles a ship bead on. Cannot-say neither closes nor promotes. A driver that **throws** is
+cannot-say and not failure: an exception on the way out of `deployToUat` means nobody knows
+whether the deploy happened, and calling that a failure is as much an invention as calling
+it a success.
+
+Two of the three are *read out of* what the driver said rather than taken from it, and both
+are the epic's own argument turned into code:
+
+- **A test step that passes without naming a single check is cannot-say.** A green deploy of
+  the *previous* image looks identical from outside, so a `testInUat` that answers `passed`
+  and cannot say what it exercised has not distinguished this release from the last one.
+  That is the exact failure the release agent exists to prevent, and it is indistinguishable
+  from success unless it is refused here.
+- **The checks outrank the step's own verdict.** `passed` over a failed check is failed;
+  `passed` over a check nothing could settle is cannot-say. A summary that disagrees with
+  its own rows is a summary nobody can trust, and over-claiming closes a bead over a release
+  nobody verified.
+
+**The same image, or it is a rebuild.** `deployToUat` names the image and `promoteToProd` is
+handed that name; a production step that comes back with a different digest is **failed**
+rather than cannot-say, because it is not ignorance — it is a positive answer that what is
+in production is not what was tested. A deploy that passes and names no image at all is
+cannot-say instead: nothing can promote what it cannot name.
+
+**What was deployed and what was checked is written on the bead**, in one comment per run,
+whatever the outcome — the image, every step including the ones never reached, every check
+with the driver's own words, and the sentence saying where it stopped and in which
+environment. Not only in a log: a promotion is read weeks later by whoever asks what was
+released, and the log has rolled by then. The comment is written *before* the close and
+before the handback and outside both of their failure paths, so a bead closed with nothing
+saying what was checked is not a state this can reach.
+
+A run that ends anywhere but a verified production result hands the bead back **unclaimed**,
+because an `in_progress` bead nobody holds is invisible to every queue here forever. The
+test list handed to both test steps is `landedWork`'s, derived at the moment of the run —
+the same read [`beadcause-promotework`](#what-to-test-is-asked-of-the-tracker-not-read-off-the-bead--beadcause-promotework)
+prints — and anything still open under the epic is named on the record, which is bc-4bet.2's
+defect in front of the last reader who can stop a release over it.
+
+**The hold is not routed around.** Every promotion bead is filed `unendorsed`, and that
+marker is the only thing standing between an unattended sweep and a production deploy — so
+it is enforced in the two layers everything else here is: a filter, so an unendorsed bead is
+never picked up, and a refusal, so one handed straight to `carry` is still not carried. The
+filter keeps the refusal from being reached; the refusal is the guarantee, because a filter
+is one caller away from being routed around.
+
+**One repo, for now, and it says so.** An epic spanning three repos is three images with
+three UAT runs and three production runs, and they may not all pass; one bead cannot hold
+"two of three promoted" without either lying or closing early. Until that shape exists, a
+promotion bead naming more than one repo is refused **by name** rather than carried half
+way. The other refusals are the same shape and all of them happen before the bead is
+claimed: a bead that is not a promotion bead, one already closed, one another agent is
+holding, one whose title does not name its epic, a tracker that will not say what the epic
+closed, and a driver missing one of the four calls.
+
 ### What a P0 advocate *is* — its foundation, and what one visit consists of
 
 [The advocate that comes back](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs)
