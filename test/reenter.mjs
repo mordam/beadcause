@@ -50,7 +50,7 @@ fs.mkdirSync(SESSIONS, { recursive: true });
 fs.mkdirSync(REPO, { recursive: true });
 
 const { advocatedRoots, reentryFor, REENTER_DEFAULTS } = await import(LIB('reenter.js'));
-const { WAITING_OPEN, WAITING_CLOSE, forgetAdvocateOpened } = await import(LIB('epicadvocate.js'));
+const { ADVOCATE_LABEL, WAITING_OPEN, WAITING_CLOSE, forgetAdvocateOpened } = await import(LIB('epicadvocate.js'));
 const { leaseLabel } = await import(LIB('lease.js'));
 const { createAdvocates } = await import(LIB('advocate.js'));
 
@@ -72,6 +72,14 @@ const bead = (id, over = {}) => ({
 /** An owned, open, non-crash root whose advocate has written its sentence: enrolled. */
 const p0 = (id, over = {}) =>
   bead(id, { priority: 0, issue_type: 'epic', labels: [OWNER], notes: waiting('a worker slot'), ...over });
+
+/**
+ * The other carrier, and the one bc-r2b5.1 is about: an epic somebody assigned, whose
+ * window died before it ever wrote a sentence. Same root, no notes at all, `ADVOCATE_LABEL`
+ * on it — which is exactly what the launch door leaves behind.
+ */
+const assigned = (id, over = {}) =>
+  p0(id, { notes: '', labels: [OWNER, ADVOCATE_LABEL], ...over });
 
 /** `{ parents, beads }` the way `Bd.graph` answers it, off a flat list of rows. */
 function index(rows, edges = {}) {
@@ -108,12 +116,38 @@ async function check(name, fn) {
 
 /* ------------------------------------------------------------- who is enrolled */
 
-await check('enrolment is the waiting-on block, and nothing else', () => {
-  assert.deepEqual(advocatedRoots(subtree()).map((r) => r.epic.id), ['x-1']);
-  // No sentence, no enrolment — an epic nobody has ever advocated is left alone, which is
-  // what keeps this from opening windows on epics the owner never asked to supervise.
+await check('enrolment is the assignment label or the waiting-on block, and nothing else', () => {
+  assert.deepEqual(advocatedRoots(subtree()).map((r) => r.epic.id), ['x-1'], 'the sentence still enrols');
+  // Neither carrier, no enrolment — an epic nobody has ever advocated is left alone, which
+  // is what keeps this from opening windows on epics the owner never asked to supervise.
   assert.deepEqual(advocatedRoots(subtree({ p0: { notes: 'prose but no block' } })), []);
   assert.deepEqual(advocatedRoots(subtree({ p0: { notes: '' } })), []);
+});
+
+await check('the label enrols an epic whose advocate never wrote a sentence — bc-r2b5.1', () => {
+  // **The whole of the bead, as one assertion.** Before it, the only record of an
+  // assignment was the sentence the window is asked to write *before it exits*, so a
+  // window that died in its first minute left nothing at all: the tap had happened, the
+  // epic was not enrolled, and nothing would ever come back to it. Ten of forty open
+  // epics carried the block on the day this was written.
+  const dead = subtree({ p0: { notes: '', labels: [OWNER, ADVOCATE_LABEL] } });
+  assert.deepEqual(advocatedRoots(dead).map((r) => r.epic.id), ['x-1'], 'assigned is enrolled, sentence or no sentence');
+  // And the old carrier goes on working on its own, which is what makes this landable:
+  // every epic enrolled today has the block and no label, and a rule that read only the
+  // label would silently un-enrol all of them on the deploy that shipped it.
+  const older = subtree({ p0: { labels: [OWNER] } });
+  assert.deepEqual(advocatedRoots(older).map((r) => r.epic.id), ['x-1'], 'nothing already enrolled falls out');
+});
+
+await check('un-assigning takes both carriers off, and either one left keeps it enrolled', () => {
+  // The off switch, and the reason `epicAdvocatePrompt` now spells out both gestures: an
+  // advocate that erased its sentence and left the label on would go on being re-opened,
+  // which reads from the outside as an un-assign that did not work.
+  const both = subtree({ p0: { labels: [OWNER, ADVOCATE_LABEL] } });
+  assert.deepEqual(advocatedRoots(both).map((r) => r.epic.id), ['x-1']);
+  assert.deepEqual(advocatedRoots(subtree({ p0: { labels: [OWNER, ADVOCATE_LABEL], notes: '' } })).length, 1, 'label alone');
+  assert.deepEqual(advocatedRoots(subtree({ p0: { labels: [OWNER] } })).length, 1, 'sentence alone');
+  assert.deepEqual(advocatedRoots(subtree({ p0: { labels: [OWNER], notes: '' } })), [], 'and neither is the un-assign');
 });
 
 await check('the four `wantsAdvocate` refusals hold on this door too', () => {
@@ -281,6 +315,7 @@ async function tick({
   refuse = null,
   ready = [],
   ticks = 1,
+  labelFails = false,
 } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   await quiesce();
@@ -326,8 +361,17 @@ async function tick({
   const advocates_ = [];
   const workers_ = [];
   const planners_ = [];
-  const calls = { graph: 0, cached: 0, comments: [] };
+  const calls = { graph: 0, cached: 0, comments: [], labels: [] };
   const bd = {
+    /**
+     * The assignment write, recorded rather than performed — bc-r2b5.1. Failing soft is
+     * asserted separately (`labelFails`), because a label write that throws must not undo
+     * a window that is already open.
+     */
+    addLabel: async (_ws, id, label) => {
+      if (labelFails) throw new Error('bd: the tracker is mid-write');
+      calls.labels.push([id, label]);
+    },
     ready: async () => ready,
     listLabel: async () => [],
     listStatus: async () => [],
@@ -416,6 +460,76 @@ await check('a child closing re-opens the advocate, with the reason on the brief
   assert.deepEqual(r.opened[0].kids, ['x-1.2', 'x-1.3', 'x-1.1'], 'open children first, closed tail last');
   assert.deepEqual(r.calls.comments, ['x-1'], 'the plan is read for the P0 getting a window and no other');
   assert.ok(r.state.advocated['x-1'].at, 'and the cooldown clock is stamped');
+});
+
+await check('the tap survives a window that died before writing anything — bc-r2b5.1', async () => {
+  // **The acceptance, driven end to end and with no waiting-on block anywhere in it.**
+  // The state under test is the one the button leaves behind and nothing else touched: the
+  // label is on the epic, `notes` is empty because the window that was opened never got as
+  // far as its own last instruction, and a child has since closed. Before this bead that
+  // epic was invisible to the sweep and the only way back was a second tap.
+  const dead = index(
+    [assigned('x-1'), bead('x-1.1', { status: 'closed' }), bead('x-1.2'), bead('x-1.3')],
+    { 'x-1.1': 'x-1', 'x-1.2': 'x-1', 'x-1.3': 'x-1' }
+  );
+  const r = await tick({ graph: dead, advocated: { 'x-1': SEEN } });
+  assert.equal(r.opened.length, 1, 'the epic is still assigned, so the next qualifying event re-opens it');
+  assert.equal(r.opened[0].id, 'x-1');
+  assert.match(r.opened[0].reason, /`x-1\.1` has closed under it/);
+  // And nothing re-writes a label the epic already carries — this is a `bd` spawn, and the
+  // sweep runs on every enrolled epic every ten minutes.
+  assert.deepEqual(r.calls.labels, [], 'an epic already assigned costs no write');
+});
+
+await check("the sweep's own launch records the assignment too", async () => {
+  // The second door. An epic enrolled by its sentence alone is upgraded to the carrier
+  // that survives a window dying — which is the point of the label, and it is the door
+  // Adam is not standing at, so nothing else would ever write it there.
+  const r = await tick({
+    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': SEEN },
+  });
+  assert.equal(r.opened.length, 1);
+  assert.deepEqual(r.calls.labels, [['x-1', ADVOCATE_LABEL]], 'the launch is what records the assignment');
+});
+
+await check('a label write that fails does not undo the window that is already open', async () => {
+  // The direction that matters: the window is up, and throwing over the top of it would
+  // consume the event, back the epic off for three hours and say nothing happened.
+  const r = await tick({
+    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': SEEN },
+    labelFails: true,
+  });
+  assert.equal(r.opened.length, 1, 'the launch stands');
+  assert.ok(r.state.advocated['x-1'].at, 'and the cooldown is stamped, so it is not re-argued in ten minutes');
+});
+
+await check('the reason a window is being held rides the record the card reads', async () => {
+  // bc-r2b5.1's other half. Three of the five hold reasons are things only a tick can see
+  // — its own one-window budget, a worker this advocate is holding, a lease on another
+  // Mac — so the board card reports what the sweep decided rather than re-deriving it.
+  const held = await tick({
+    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': { ...SEEN, at: new Date().toISOString() } },
+  });
+  assert.deepEqual(held.opened, [], 'inside the cooldown');
+  assert.match(held.state.advocated['x-1'].hold.why, /its last one was \d+m ago and the floor is 180m/);
+  assert.ok(held.state.advocated['x-1'].hold.at, 'and when that was decided, because it is persisted and can go stale');
+  assert.deepEqual(held.state.advocated['x-1'].kids, SEEN.kids, 'the event still survives being held');
+
+  // A pause is the first of the five, and it must win over the cooldown beside it.
+  const paused = await tick({
+    graph: subtree({ p0: { labels: [OWNER, 'advocate-paused'] }, 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
+  });
+  assert.equal(paused.state.advocated['x-1'].hold.why, 'it is paused');
+
+  // And a window that opens clears it, rather than leaving yesterday's reason on a card
+  // that is drawing a live session.
+  const ran_ = await tick({ graph: subtree({ 'x-1.1': { status: 'closed' } }), advocated: { 'x-1': { ...SEEN, at: LONG_AGO } } });
+  assert.equal(ran_.opened.length, 1);
+  assert.equal(ran_.state.advocated['x-1'].hold, undefined, 'nothing is being held — a window just opened');
 });
 
 await check('the sweep looks on an interval, not on every tick', async () => {

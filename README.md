@@ -5177,22 +5177,93 @@ conclusions and is never re-entered is not a persistence success with a scheduli
 it is the write-only diary this whole P0 exists to disprove, in its purest form.
 
 `lib/reenter.js` is the trigger, swept from the advocate tick. **Enrolment is the bead**,
-and that is the decision worth the most here: a P0 is enrolled when its notes carry the
-advocate's own waiting-on block — the sentence the last thing every advocate window is
-told to do writes. So the tap *is* the assignment. Press the button once, the window it
-opens writes its sentence, and from then on the sweep brings it back. Three things follow,
-and all three are why it is done this way rather than with a registry file:
+and that is the decision worth the most here: an epic is enrolled when the tracker says so,
+and the tracker is the one thing both doors read. Three things follow, and all three are
+why it is done this way rather than with a registry file:
 
 - the button and the sweep **cannot disagree** about who is enrolled, because neither of
   them holds the fact — the tracker does;
 - it **survives losing `advocates.json`**, a restart, or a machine, and beadcause restarts
   itself several times a day on its own merges;
-- **erasing the block un-enrols the P0**, which is an off switch that costs no new
-  control: an advocate that concludes a P0 needs no more supervision takes its own
-  sentence off, and nothing re-opens it.
+- **taking the record off un-enrols the epic**, which is an off switch that costs no new
+  control: an advocate that concludes an epic needs no more supervision un-assigns itself,
+  and nothing re-opens it.
 
-The cost is honest and is why the button stays: an advocate window that dies before
-writing its sentence never enrols its P0, and a tap is needed again.
+#### The tap is the assignment — what the epic carries, and what takes it off
+
+The record used to be the advocate's own **waiting-on block**: the sentence the last thing
+every advocate window is told to do writes into `notes` before it exits. That made the
+enrolment a consequence of a window having *survived long enough to write a sentence*, and
+`lib/reenter.js` named the cost out loud from the day it landed — an advocate window that
+dies before writing its sentence never enrols its epic, and a tap is needed again. That
+cost turned out to be most of the feature. On 2026-08-17, **10 of 40 open epics carried the
+block**, so an assignment Adam had made was more likely than not to be gone by the time he
+came back to it, with nothing on the card saying so.
+
+So bc-r2b5.1 moved the record to the **launch**. Both doors — the 🧭 button
+(`POST /api/bead/advocate`) and the sweep's own launch — write an **`advocate-assigned`
+label** on the epic the moment the window is up, and the sweep enrols on **either** carrier:
+
+| carrier | written by | means |
+|---|---|---|
+| `advocate-assigned` label | both launch doors, immediately after the window comes up | somebody assigned this epic. Survives a window that died in its first second, a restart, losing `advocates.json`, and another Mac |
+| the waiting-on block in `notes` | the advocate itself, as the last thing it does | an advocate has been here and left a sentence. Still enrols, so nothing already enrolled fell out on the deploy that shipped the label |
+
+A **label** rather than a second marked block, on the same argument `advocate-paused` is a
+label: `bd label add` is one atomic write, where writing into `notes` is a read, a
+concatenate and a write — with the advocate's own rewrite of its waiting-on block landing
+in the middle of it. A lost write there would un-assign an epic as a side effect of
+enrolling it, which is the one failure this must not have.
+
+Written **after** the launch and not before, because the launch has four refusals in front
+of it: an epic enrolled by a launch that was refused is one the sweep would re-argue every
+three hours for ever. And a label write that fails is a **warning, not a thrown request** —
+the window is already open, and a 500 over the top of it would say the tap did nothing.
+
+**Un-assigning is taking the record off, and there are two of them now**, so an advocate
+that concludes its epic needs no more supervision has to remove both: `bd label remove <id>
+advocate-assigned` *and* erase its waiting-on block. Either one left in place keeps the
+sweep bringing it back. `epicAdvocatePrompt` says exactly that in the brief, because an off
+switch nothing is told about is an off switch nobody presses.
+
+The button still stays, and its job is now smaller and clearer: it is what assigns an epic
+**nobody has ever assigned**, rather than a thing you press again because the last window
+died young.
+
+#### What the epic's card is told about its advocate
+
+The board card's `advocate` field was `advocateSession(…)` — a live window, or `null`. For a
+**re-entrant** supervisor that is a boolean wearing a session's clothes: an Epic Advocate
+takes a turn and exits, so between turns nothing is running to find, `null` came back, and
+the card drew *"Put an advocate on it"* over an epic that already had one. That is bc-r2b5
+in one sentence — an assignment reading as lost because the thing being drawn was a
+process rather than a decision.
+
+So each card in `rootboard` now carries an **`advocacy`** object beside the old field —
+beside, and not instead of, because the client half lands separately and swapping the field
+would blank the advocate line on every phone that had not reloaded its JavaScript. Seven
+facts, none of them a new read:
+
+| field | from | says |
+|---|---|---|
+| `assigned` | the epic's labels and notes | somebody put an advocate on this. **True between turns**, which is nearly all the time |
+| `by` | the same | `label` or `waiting` — which carrier holds it, because the two have different un-assign gestures |
+| `paused` | `advocate-paused` | assigned *and* stopped, which is a fourth state and wrong drawn as either of the other two |
+| `session` | the board's one sessions snapshot | whatever `advocate` says, passed through rather than recomputed, so the two cannot disagree |
+| `lastAt` | `advocated[id].at` in `advocates.json` | when a window last ran. "Idle since 09:40" and "idle since a fortnight ago" are the same card without it |
+| `hold` / `heldAt` | the re-entry sweep's own record | why no window is opening right now, **in the sweep's own words**, and when it decided that |
+| `finished` | `lib/finishedepic.js`'s ask marker | whether the sweep has already asked Adam if the theme is done |
+
+`hold` is **reported, not re-derived**, and that is the one decision in here worth stating.
+Three of the five reasons a window is held — the tick's one-window budget, a worker this
+advocate is holding, a live lease on another Mac — are things only a tick can see, so a
+card computing its own answer would be a second answer to one question, disagreeing with
+the daemon on exactly the epics somebody is looking at. The sweep writes what it decided
+onto the record it already persists, and the card reads it through `advocates.advocacy()`
+— a `Map` get on a request path, no `bd` call.
+
+`waitingOn` is **not** repeated inside the object: the card already carries it at the top
+level, and one fact arriving twice in one payload is two copies of a state that can drift.
 
 **Three events, and deliberately not all of them.** A descendant that *closed*, one that
 was *filed*, one that *stalled*. Not one that started — `open → in_progress` is a worker
@@ -20297,7 +20368,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | GET | `/api/beads` | `?q=` | `{beads[], warming, q}` — what [the inbox's bead search box](#finding-one-bead) drops down: up to 12 `{key, workspace, id, title, status}`, ranked exact id → id prefix → id substring → title, open before closed. **Every workspace at once**, because you type an id knowing the bead rather than knowing its tracker. The one route that can be asked once per keystroke, so it reads the graph `Bd.graph` already caches and **never waits on a `bd export`** — `warming` counts the workspaces it has not read yet, which is what lets the box say *still reading the trackers* instead of claiming a bead does not exist |
 | GET | `/api/bead/tree` | `?workspace=&id=` | `{workspace, id, title, keys[]}` — that bead's key and every descendant's, at any depth, `parent-child` edges only. What a pick in the search box narrows the inbox to. 404 for a bead the graph has never heard of. Unlike `/api/beads` this one **waits** for a cold cache: it is one request per pick, and answering "nothing is under this" from an unread graph would narrow the list to a single row and look exactly like a working filter |
-| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **Epic Advocate** on this epic — the button on the inbox's card, and the first one: the window it opens writes the waiting-on sentence that [enrols it for automatic re-entry](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs), so this is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a root anybody owns — an epic at any priority or a P0, since bc-htoy (a crash bead is refused by name — a stack trace is not an epic). **Never two on one epic**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of it no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `rootboard`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
+| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **Epic Advocate** on this epic — the button on the inbox's card, and the first one: **the tap is the assignment**, so a successful launch writes the `advocate-assigned` label that [enrols it for automatic re-entry](#the-tap-is-the-assignment--what-the-epic-carries-and-what-takes-it-off) — after the launch, never before it, and a label write that fails is a warning rather than a 500 over a window that is already open (`assigned: false` on the response says so). This is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a root anybody owns — an epic at any priority or a P0, since bc-htoy (a crash bead is refused by name — a stack trace is not an epic). **Never two on one epic**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of it no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `rootboard`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], root, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on an epic that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
 | POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via a `dismissed` event, and with the honest limit [narrowing the filter](#and-it-does-not-tidy-up-the-noise-it-already-made) ran into: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
 | GET | `/api/roots` | `?workspace=` | `{roots[]}` — every **open root** in that workspace (an epic at any priority, or a P0), `{id, title, priority, epic, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every root and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there is nothing to adopt under" |
@@ -21238,7 +21309,7 @@ to be one.
 | `advocates.planEpics` | [open an **epic worker** on an epic rather than working it](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) (default `true`) — a window that groups the epic's beads for N child-workers, writes each group's prompt, and does none of the work itself. `false` falls all the way back to handing one worker the epic and its ready children as a batch, which is what this did before plans existed and is still the right answer if a plan ever briefs badly. An epic whose planning has failed `maxAttemptsPerBead` times falls back to that on its own |
 | `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed. "Closed" is read off the tracker's own rows and never off the queue — an `unendorsed` or dependency-blocked bead is missing from the queue exactly as a closed one is, and a bead no row can be found for is not closed (bc-4bet.2) |
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
-| `advocates.reenterAdvocates` | [re-open the **Epic Advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: a P0 is enrolled once its notes carry the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and erasing that block is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
+| `advocates.reenterAdvocates` | [re-open the **Epic Advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: an epic is enrolled once it carries the [`advocate-assigned` label](#the-tap-is-the-assignment--what-the-epic-carries-and-what-takes-it-off) *or* the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and taking both records off is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
 | `advocates.reenterIntervalMinutes` | how often that sweep looks (default 10). It reads the same cached `bd export` the inbox's epic board is built from — which the EpicAdvocate roster already warms every tick — so it costs no tracker call of its own |
 | `advocates.reenterCooldownMinutes` | the floor between two *automatic* advocate windows on one P0 (default 180), alongside one window per tick per workspace. Nothing waits on an advocate — advocacy does not gate dispatch — so being three hours late costs nothing, where a Mac full of 🧭 windows costs real money |
 | `advocates.reenterStallMinutes` | how long a descendant sits `in_progress` with no window on it anywhere and no live lease elsewhere before that is a stall worth waking a supervisor for (default 60). Half of `workerTimeoutMinutes`, which releases the *slot* and never asks the question this does: the slot came back and the bead is still claimed |
