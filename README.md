@@ -5380,8 +5380,8 @@ Removing the fold takes a state field, a `localStorage` key and a tap branch wit
 the way that rots is a half-removal: a heading left as a `<button>` with an `aria-expanded`
 nothing writes, or a `state.p0shut` no longer read but still saved. `node test/p0card.mjs`
 asserts all three ends are gone — the `data-act`, the disclosure attribute, and the state
-with its key — as well as the two that stay, the heading's counts and every card, picker
-and open tab always being drawn with it. `node scripts/p0board-check.mjs` presses where the
+with its key — as well as the two that stay, the heading's counts and every card and
+open tab always being drawn with it. `node scripts/p0board-check.mjs` presses where the
 fold used to be, in headless Chrome at 393×852, and requires the board to be exactly as it
 was. `scripts/p0fold-check.mjs` is deleted with the feature it covered; its live claims —
 that the heading is inside `#list` where the delegated handler can see it, and that the

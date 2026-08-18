@@ -589,7 +589,7 @@ check('there is nothing on the board that puts the board away — bc-khoe.28', (
   assert.ok(!/(get|set)Item\('beadcause\.p0shut'/.test(APP), 'the fold is still persisted');
 });
 
-check('and the cards, the picker and the open tab are always drawn with it', () => {
+check('and the cards and the open tab are always drawn with it', () => {
   // What the fold used to take away. There is no state left that can hide any of them, so
   // this is the claim that replaces "shut, the cards are gone": the board is one thing.
   const html = board([CARD, OTHER], ['beadcause/bc-rfnr']);
