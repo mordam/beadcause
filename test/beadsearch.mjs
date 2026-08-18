@@ -21,10 +21,12 @@
  *    exception as well, because picking a suggestion empties the box while the caret is
  *    still in it. Both directions are checked here.
  *
- * 3. **The summary line must not lie in either direction.** A pill narrows the list, so
- *    the collapsed line has to name it and the control has to read as narrowed — that is
- *    the standing risk of a filter that is one line at rest. And a half-typed query
- *    narrows *nothing*, so the same line must not claim it does.
+ * 3. **The pill must not lie in either direction.** A pick narrows the list, so the pill
+ *    has to name it and read as narrowed — that is the standing risk of a filter you have
+ *    to open. And a half-typed query narrows *nothing*, so the same pill must not claim
+ *    it does. (It was one summary line over every group until bc-khoe.26; it is this
+ *    group's own pill now, which is what lets it say `bc-rfnr` rather than a share of a
+ *    comma-joined digest.)
  *
  * The chrome runs in a vm with a hand-made document, the way test/inboxkinds.mjs and
  * test/historyfilter.mjs drive the same file: a stub of the panel could not fail while
@@ -287,10 +289,7 @@ function mountBox({ hover = false, warm = true } = {}) {
 
   const host = doc.createElement('nav');
   host.replaceChildren = El.prototype.replaceChildren.bind(host);
-  const chrome = ctx.window.beadcause.filterMenu.mount(host, {
-    groups: () => [group],
-    narrowed: () => state.picks.length > 0,
-  });
+  const chrome = ctx.window.beadcause.filterMenu.mount(host, { groups: () => [group] });
   const root = host.children[0];
   const box = root.all('filter-group').find((b) => b.dataset.group === 'bead');
   return {
@@ -305,7 +304,10 @@ function mountBox({ hover = false, warm = true } = {}) {
     rows: () => box.all('suggest-row'),
     note: () => box.all('suggest-note-line')[0],
     pills: () => box.all('pill'),
+    /** What the pill says after its legend — `''` while the group is not narrowing. */
     summary: () => root.all('sel')[0].textContent,
+    /** And whether the pill looks narrowed, which since bc-khoe.26 is per control. */
+    narrowed: () => root.all('filter-summary')[0].classList.contains('on'),
     /** Type, the way a person does: the field carries the text, then the event fires. */
     type(text) {
       const el = box.all('filter-text')[0];
@@ -377,10 +379,11 @@ await check('the panel stays open on a pick, on a phone as well as a laptop', ()
   // next thing you may want is a second bead, and the box is inside the panel.
   for (const hover of [true, false]) {
     const h = mountBox({ hover });
-    h.chrome.setOpen(true);
+    // By group id since bc-khoe.26 — one pill's panel at a time, so "open" is which.
+    h.chrome.setOpen('bead');
     h.type('bc-rfnr');
     h.rows()[0].fire('click');
-    assert.equal(h.chrome.isOpen(), true, `the panel shut on a pick (hover: ${hover})`);
+    assert.equal(h.chrome.isOpen(), 'bead', `the panel shut on a pick (hover: ${hover})`);
   }
 });
 
@@ -512,28 +515,33 @@ await check('a repaint does not rebuild the pills either', () => {
   assert.equal(h.pills()[0], pill);
 });
 
-console.log('\nthe one line at rest');
+console.log('\nthe pill at rest');
 
-await check('with nothing picked the line says the group’s own word for everything', () => {
+await check('with nothing picked the pill is its legend and says nothing else', () => {
+  // `Any bead` was on the line while the line was a digest of four groups and every one
+  // of them had to contribute a word or the line read as the whole filter. A pill is one
+  // group, so a pill saying `Any bead` would be two words of chrome for a control that
+  // is not narrowing anything (bc-khoe.26).
   const h = mountBox();
-  assert.match(h.summary(), /Any bead/);
+  assert.equal(h.summary(), '');
+  assert.equal(h.narrowed(), false);
 });
 
-await check('a half-typed query is not a narrowing and the line must not claim it is', () => {
+await check('a half-typed query is not a narrowing and the pill must not claim it is', () => {
   const h = mountBox();
   h.type('bc-0xil');
-  assert.match(h.summary(), /Any bead/, 'the summary line announced a filter that is not applied');
-  assert.equal(h.root.classList.contains('narrowed'), false);
+  assert.equal(h.summary(), '', 'the pill announced a filter that is not applied');
+  assert.equal(h.narrowed(), false);
 });
 
-await check('a picked bead is named on the line, and the control reads as narrowed', () => {
-  // The standing risk of a filter that is one line at rest is forgetting it is set — and
-  // this one hides most of the screen.
+await check('a picked bead is named on the pill, and the control reads as narrowed', () => {
+  // The standing risk of a filter behind a control is forgetting it is set — and this
+  // one hides most of the screen.
   const h = mountBox();
   h.type('bc-rfnr');
   h.rows()[0].fire('click');
   assert.match(h.summary(), /bc-rfnr/);
-  assert.equal(h.root.classList.contains('narrowed'), true);
+  assert.equal(h.narrowed(), true);
 });
 
 await check('two picks are named, three are counted', () => {
@@ -548,13 +556,13 @@ await check('two picks are named, three are counted', () => {
   assert.equal(h.summary(), '3 bead');
 });
 
-await check('taking the last pill off puts the line back and un-narrows the control', () => {
+await check('taking the last pick off puts the pill back to its legend and un-narrows it', () => {
   const h = mountBox();
   h.type('bc-rfnr');
   h.rows()[0].fire('click');
   h.pills()[0].all('pill-x')[0].fire('click');
-  assert.match(h.summary(), /Any bead/);
-  assert.equal(h.root.classList.contains('narrowed'), false);
+  assert.equal(h.summary(), '');
+  assert.equal(h.narrowed(), false);
 });
 
 console.log('\nthe History tab’s plain text group is untouched');
@@ -576,25 +584,29 @@ await check('a text group with no suggestions and no picks is still one input an
   assert.equal(root.all('filter-text').length, 1);
   assert.equal(root.all('suggest').length, 0, 'the ledger box grew a dropdown');
   assert.equal(root.all('pill-row').length, 0, 'the ledger box grew a pill row');
-  // And its summary line still shows the query, because for that box the query *is* the
-  // filter — the two behaviours are opposite and both are correct.
+  // And its pill still shows the query, because for that box the query *is* the filter —
+  // the two behaviours are opposite and both are correct.
   const input = root.all('filter-text')[0];
   input.value = 'bc-nib3';
   input.fire('input');
   assert.equal(root.all('sel')[0].textContent, 'bc-nib3');
+  assert.equal(root.all('filter-summary')[0].classList.contains('on'), true);
 });
 
 /* ------------------------------------------------------------------ the wiring */
 
 console.log('\nthe page and the daemon');
 
-await check('app.js mounts the box in the panel, which is the only group left in it', () => {
+await check('app.js hands the box over as the page’s own group, and asks for nothing else', () => {
   // It was `[scopeGroup, beadGroup]` until bc-khoe.24 took the scope out onto the chrome
-  // (public/filterpills.js). The box stayed: a typeahead with a dropdown under it is the
-  // one group that genuinely wants a panel, and bc-khoe.26 is where that is re-decided.
+  // (public/filterpills.js). The box stayed and became a pill of its own in bc-khoe.26: a
+  // typeahead with a dropdown under it is the one group that genuinely wants a panel
+  // behind its pill rather than chips drawn flat.
   const app = read('public/app.js');
-  assert.match(app, /groups: \[beadGroup\]/, 'the box is not in the filter panel');
-  assert.match(app, /narrowed: \(\) => beadPicked\(\)/, 'the summary pill would stay quiet over a narrowed list');
+  assert.match(app, /groups: \[beadGroup\]/, 'the box is not among the filter pills');
+  // And the page no longer answers "is the list narrowed" for a line that no longer
+  // exists: the pill says its own picks, which names the control doing it.
+  assert.ok(!/narrowed: \(\) =>/.test(app), 'app.js still answers for a summary line there is none of');
 });
 
 await check('a picked bead replaces the epic board’s narrowing rather than stacking on it', () => {

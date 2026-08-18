@@ -374,21 +374,34 @@ body {
 }
 
 /*
-  One line, always. `#filters` held three stacked rows of chips once — the scope, then
-  the spaces, then the workspaces — and now holds two controls side by side: the scope
-  switch, flat on the chrome (public/filterpills.js, bc-khoe.24), and behind it the
-  collapsed panel with what is left of the filter in it (public/inboxfilter.js). The
-  panel is *absolutely positioned*, so opening it draws over the list instead of pushing
-  it down. That matters twice: the cards under the pointer do not move as you reach for
-  a chip, and paintScrollPos() measures this nav to decide which card you are reading,
-  so its height has to be the same open or shut.
+  The controls, on one line where they fit and two where they do not. `#filters` held
+  three stacked rows of chips once — the scope, then the spaces, then the workspaces —
+  and holds the scope switch (public/filterpills.js, bc-khoe.24) followed by one pill
+  per remaining filter (public/filtermenu.js, bc-khoe.26). The panels are *absolutely
+  positioned*, so opening one draws over the list instead of pushing it down. That
+  matters twice: the cards under the pointer do not move as you reach for a chip, and
+  paintScrollPos() measures this nav to decide which card you are reading, so its height
+  has to be the same open or shut.
 
-  **Nothing here may set `overflow`.** The obvious answer to two controls on a narrow
-  phone is the sideways scroll `.viewbar` has — and it is the wrong one: a scroll
-  container on either axis makes the other one `auto` too, so the panel that is supposed
-  to draw *over* the list would be clipped to the 34px line it hangs off. The width is
-  taken out of the summary instead, which already ellipsises, and the switch never
-  shrinks.
+  **It wraps, and the pills wrap *with* the switch rather than under it.** The switch is
+  three fixed words — 214px measured at 360 — and the three filter pills are another 431,
+  so on a phone this is two or three lines whatever is done. What decides how many is
+  whether the pills are allowed to share a line with the switch: `.filter-menu` is
+  `display: contents`, so its pills are items of *this* flex row and flow into the space
+  the switch leaves. Boxed instead, the row would take a whole line of its own and the
+  84px beside the switch would go to waste. The *view* pills are a different row entirely
+  (`.viewbar`) and are untouched by this.
+
+  **`position: relative` is here rather than on the pill row, and that is the other half
+  of the same decision.** `display: contents` generates no box, so it cannot be anything's
+  containing block — and it should not be: a 260px panel anchored to a pill two thirds of
+  the way across a phone opens off the side of the screen. Anchored to this nav they open
+  under the whole of it, at the page margin, wherever their pill ended up.
+
+  **Nothing here may set `overflow`.** The obvious answer to a crowded narrow phone is
+  the sideways scroll `.viewbar` has — and it is the wrong one: a scroll container on
+  either axis makes the other one `auto` too, so a panel that is supposed to draw *over*
+  the list would be clipped to the 34px line it hangs off.
 */
 .filters {
   /* A row of the shell rather than the first thing in the list (bc-7utr), so it no
@@ -397,36 +410,41 @@ body {
      to clear to count as the one you are reading. `flex: none` because the height of
      this line is fixed either way and the scroller under it is what takes the slack. */
   flex: none;
+  position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
   padding: 10px 16px 6px;
 }
 /*
-  The filters that are not behind anything. One row today and it is the scope; bc-khoe.26
-  brings the rest of the panel out beside it, which is why this is a flex row of groups
-  rather than a rule on the one group in it.
+  The filters that are not behind anything: the scope switch, drawn flat.
 
   `flex: none` is the half that matters on a 360px phone: the switch is three fixed words
-  and the line beside it is prose that can be cut, so the summary is what gives up the
+  and the pills beside it are a row that can wrap, so the pills are what give up the
   width. A switch squeezed to fit would put its last segment on a second line, and a
   segmented control that wraps is three chips again.
 */
 .filterpills { flex: none; display: flex; align-items: center; gap: 8px; }
-/* `min-width: 0` and not `max-width: 100%` alone: a flex item's floor is its content, so
-   without this the summary refuses to shrink, pushes the row past the viewport, and the
-   ellipsis inside `.sel` never gets to do its job. */
-.filter-menu { position: relative; min-width: 0; max-width: 100%; }
 /*
-  What the control says when nobody is reaching for it: the scope and the kinds, in
-  words, on one line. Shaped like a chip because that is what it replaced, and wide
-  enough to be an obvious target — this is the only way into the filters on a phone.
+  The filter pills (bc-khoe.26). `display: contents` rather than a box — see `.filters`
+  above for why, and note that it makes the UA's `[hidden]` rule lose, so the whole row
+  going away when no filter is offered has to be said again here.
+*/
+.filter-menu { display: contents; }
+.filter-menu[hidden] { display: none; }
+/* One pill and the panel it opens. No `position` of its own — see `.filters`. */
+.filter-one { min-width: 0; max-width: 100%; }
+/*
+  What a filter says when nobody is reaching for it: its legend, and the narrowing where
+  there is one. Shaped like a chip because that is what these replaced, and tall enough
+  to be an obvious target — on a phone this is the only way into the filters.
 */
 .filter-summary {
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; align-items: center; gap: 6px;
   max-width: 100%;
   min-height: 34px;
-  padding: 6px 12px;
+  padding: 6px 11px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
@@ -436,19 +454,43 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
-.filter-summary .sel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-summary .sel,
+.filter-note .sel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-summary .sel[hidden] { display: none; }
 .filter-summary .caret { flex: 0 0 auto; font-size: 10px; }
-.filter-menu.open .filter-summary { border-color: var(--accent); color: var(--text); }
+.filter-one.open .filter-summary { border-color: var(--accent); color: var(--text); }
 /* Narrowed is a state you have to be able to see without opening anything — the whole
-   risk of a collapsed filter is forgetting it is set. */
-.filter-menu.narrowed .filter-summary {
+   risk of a filter behind a control is forgetting it is set. Per pill since bc-khoe.26,
+   which says more than the one bold line could: it names which control is doing it. */
+.filter-summary.on {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
 }
+/*
+  The confession: a narrowing whose pill the current view cannot offer (bc-khoe.26).
+
+  Deliberately *not* pill-shaped. It does not open, it cannot be tapped, and giving it
+  the border and the target size of the controls beside it would be a button that does
+  nothing — the exact complaint the pills answer, in the one place the answer has to be
+  a sentence rather than a control.
+*/
+.filter-note {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 6px 2px;
+  color: var(--muted);
+  font-size: 13px; font-weight: 600;
+}
+.filter-note[hidden] { display: none; }
 .filter-panel {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 18;
+  /* Against the nav, not against the pill — see `.filters`. `left: 16px` is that nav's own
+     side padding, so the panel lines up with the pills above it and with the cards below
+     rather than bleeding to both edges; `min-width` is a floor rather than `100%`, because
+     a floor of the nav's full width beats `max-width` and would make every panel a sheet. */
+  position: absolute; top: calc(100% + 6px); left: 16px; z-index: 18;
   display: flex; flex-direction: column; gap: 12px;
-  min-width: max(260px, 100%);
+  min-width: 260px;
   max-width: min(420px, calc(100vw - 32px));
   padding: 12px;
   border: 1px solid var(--line);
@@ -460,20 +502,16 @@ body {
    without this the panel is open from the moment the page loads. */
 .filter-panel[hidden] { display: none; }
 /*
-  On the inbox the panel hangs off its *right* edge, and that is bc-khoe.24's doing.
+  There is no `#filters .filter-panel { right: 0 }` here any more, and its going is
+  bc-khoe.26's.
 
-  The panel is 260px wide at its narrowest and it is positioned against `.filter-menu`,
-  which used to be the first thing on the row and 16px from the left edge — so `left: 0`
-  put it comfortably on the screen. The scope switch leads now, which pushes the menu to
-  x=240 on a 360px phone, and a left-anchored panel from there runs 140px off the side of
-  the screen. Right-anchored it opens leftwards, back under the switch, and fits.
-
-  Scoped to `#filters` and not written on `.filter-panel` itself, because it is only safe
-  where the menu is the *last* thing on its row: the History tab's panel (`#hist-filters`)
-  is the first, and right-anchoring that one would push it off the other edge instead.
-  bc-khoe.26 takes this whole panel apart, and this rule goes with it.
+  It was there because one 260px panel anchored to a `.filter-menu` the scope switch had
+  pushed to x=240 ran off the side of a 360px phone, so it was opened leftwards instead —
+  which was only ever safe while the menu was the *last* thing on its row, and had to be
+  scoped to `#filters` for that reason. The panels hang off the pill *row* now, and that
+  row wraps to the page margin on exactly the phone the rule existed for, so left is
+  where they belong on both pages and there is nothing left to special-case.
 */
-#filters .filter-panel { left: auto; right: 0; }
 /*
   The 6px gap above the panel, made part of the control. Without it, moving the mouse
   from the summary to a chip crosses ordinary page and fires a pointerleave; with it
@@ -484,10 +522,15 @@ body {
   content: ''; position: absolute; left: 0; right: 0; top: -8px; height: 8px;
 }
 .filter-group { display: flex; flex-direction: column; gap: 7px; }
+/* On the pill now rather than over the chips: there is one group per panel, and the pill
+   you opened it with has already said which one. */
 .filter-legend {
+  flex: 0 1 auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--muted);
   font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
 }
+.filter-summary.on .filter-legend { color: inherit; opacity: 0.72; }
 /* Inside the panel there is room to wrap, and nothing below to scroll past — so the
    sideways scroll the rows used in the page flow would only hide chips here. */
 .filter-panel .chip-row { flex-wrap: wrap; overflow: visible; }

@@ -10265,14 +10265,15 @@
    * pill row above, and what selecting one does still arrives back through `onChange`
    * below, exactly as a chip's tap used to.
    *
-   * The panel is mounted first because filtermenu.js replaces the host's children and
-   * the pills prepend themselves in front of it; see `mount` in public/filterpills.js.
+   * The filter pills are mounted first because filtermenu.js replaces the host's
+   * children and the scope switch prepends itself in front of them; see `mount` in
+   * public/filterpills.js.
    *
-   * **What the panel offers is a function of the lit pill** (bc-khoe.3): the bead box is
-   * hidden under `Chats`, which can use no filter at all, and with nothing left to offer
-   * the panel takes itself off the row. The scope switch is not part of that — it
-   * decides which pills exist rather than narrowing within one — so the row never
-   * empties and `renderFilters` never has to hide it.
+   * **Which filter pills are drawn is a function of the lit view pill** (bc-khoe.3): the
+   * bead pill is gone under `Chats`, which can use no filter at all, and with nothing
+   * left to offer the row takes itself off the chrome. The scope switch is not part of
+   * that — it decides which view pills exist rather than narrowing within one — so it
+   * never empties and `renderFilters` never has to hide it.
    *
    * A page served without either file still works: `renderFilters` and `inKind` both
    * fall back to doing nothing, which is the unfiltered list this page has always drawn.
@@ -10281,11 +10282,6 @@
     const f = window.beadcause?.inboxFilter;
     f?.mount(filtersEl, {
       groups: [beadGroup],
-      // This page's half of "is the list narrowed". A picked bead hides most of the
-      // screen, and the summary pill has to go bold over it like it does for everything
-      // else. The kinds no longer contribute — the lit pill is where that is admitted
-      // to now; see `narrowed` in public/inboxfilter.js.
-      narrowed: () => beadPicked(),
       // Forced, because a filter tap is a decision and must not be deferred behind a
       // half-written answer. Nothing is refetched for the kinds themselves — they are a
       // view over rows already in hand — but selecting `PRs` may be the first time this
@@ -10297,9 +10293,10 @@
         loadBoard();
       },
     });
-    // In front of the panel, and after it: see the note above about who replaces whose
-    // children. The scope is its own group and nothing else is on the row yet —
-    // bc-khoe.26 is what moves the bead box and the two sub-filters out here beside it.
+    // In front of the filter pills, and mounted after them: see the note above about who
+    // replaces whose children. The scope is flat rather than a pill that opens, because
+    // three one-word options are legible without being reached for and a fourth control
+    // that opened would be the panel bc-khoe.26 took apart, one row down.
     window.beadcause?.filterPills?.mount?.(filtersEl, { groups: [scopeGroup] });
     // How the row reaches a kind this scope cannot produce. The filter knows which pill
     // was tapped and that it is unreachable; only this page knows what a scope is, so
