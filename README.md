@@ -11797,14 +11797,56 @@ never picked up, and a refusal, so one handed straight to `carry` is still not c
 filter keeps the refusal from being reached; the refusal is the guarantee, because a filter
 is one caller away from being routed around.
 
-**One repo, for now, and it says so.** An epic spanning three repos is three images with
-three UAT runs and three production runs, and they may not all pass; one bead cannot hold
-"two of three promoted" without either lying or closing early. Until that shape exists, a
-promotion bead naming more than one repo is refused **by name** rather than carried half
-way. The other refusals are the same shape and all of them happen before the bead is
-claimed: a bead that is not a promotion bead, one already closed, one another agent is
-holding, one whose title does not name its epic, a tracker that will not say what the epic
+**The refusals all happen before the bead is claimed**, because by the third call a bead is
+claimed, an image is in UAT and the half-finished state is on the tracker: a bead that is
+not a promotion bead, one already closed, one another agent is holding, one whose title does
+not name its epic, one naming no repo at all, a tracker that will not say what the epic
 closed, and a driver missing one of the four calls.
+
+### One image per repo — an epic that spans three repos, and a result that is partial
+
+An epic spanning three repos is three images, three UAT runs and three production runs, and
+**they may not all pass**. That used to be refused by name, because one bead cannot hold "two
+of three promoted" without either lying or closing early. It is now carried as **one leg per
+repo on one bead**, which takes three things:
+
+- **A per-repo outcome, written where the next run can read it.** Every run appends a ledger
+  to its own comment — a `beadcause:promotion` block of JSON, for the same reason
+  [a plan](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) is a block in
+  a comment: append-only, so a run can never destroy what an earlier one wrote, and the
+  machine-readable state sits inside the very prose a human reads about that run rather than
+  in a second place that can disagree with it. The JSON sits **inside** an HTML comment
+  rather than in a fenced block beside one, which is where it differs from a plan: a plan is
+  written to be read, and this is bookkeeping that says nothing the prose above it has not
+  already said in words — three runs of it drawn on a phone would be the card getting *less*
+  legible for having recorded more. The next run starts from the union of every ledger on the
+  bead, so **a repo verified in production is not driven again** — not re-deployed, not
+  re-tested, not re-promoted.
+- **A close that waits for all of them.** Two of three leaves the bead open with the third
+  named on the card, under *Still owed*. The bead can be partial without the board lying,
+  which is exactly what it could not do before.
+- **UAT for everything before production for anything.** The four steps stay in order within
+  a repo, but they are driven in two passes across repos: every owed repo is deployed to UAT
+  and tested there, and production is entered only if *all* of them got through. An epic is
+  one feature; putting two of its three repos live while the third is red is a half-shipped
+  feature in front of customers, and UAT is the cheap place to find that out. A repo held
+  back this way says so on the record — *held back — `beta` did not get through UAT* — rather
+  than reading as untried. A repo whose own UAT fails does not stop the next repo being
+  exercised, because a run should come back knowing as much as it can.
+
+**Only `verified: true` skips a repo**, and everything else — a garbled block, a ledger from
+before this existed, a `bd` that will not list comments — means carry it again. The two
+directions are not symmetrical: a repeat costs a deploy of an image that is already there,
+and the other way closes a bead over a repo that has never been near production. The trap
+the suite is built around is the same asymmetry one layer down: a repo that passed UAT and
+was held back has `passed` as its last step and is **not** verified, and writing that into
+the ledger would skip it for good.
+
+A partial result can still happen in production — the second repo's promote can fail after
+the first has been verified — and that is the state the ledger is for. It is not designed
+away; it is written down, and the run that follows finishes what is owed. One repo makes the
+two passes indistinguishable from the plain four calls, which is why a single-repo record and
+its close reason read exactly as they did before.
 
 ### What a P0 advocate *is* — its foundation, and what one visit consists of
 

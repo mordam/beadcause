@@ -24,6 +24,14 @@
  *    writes, so one case files a real promotion bead and carries the very bead that was
  *    filed. A body whose Repos line moved would otherwise be a release agent that refuses
  *    every promotion on this tracker, with both files passing their own tests.
+ * 6. **A result that is partial** (bc-y8k4.4). Three repos, and one of them red: the other
+ *    two must not be thrown away, the bead must not close, and the next run must not deploy
+ *    a repo that is already in production. The fake `bd` reads back exactly what was written
+ *    to it, so a resumed run here is a real one — the second `carry` parses the first one's
+ *    ledger out of the comment the first one actually wrote. The trap the assertions are
+ *    aimed at is a repo whose UAT passed and whose production was held back: its last step
+ *    says `passed`, and writing *that* into the ledger as verified would skip a repo that
+ *    has never been near production, for good.
  *
  *     npm test
  */
@@ -43,8 +51,24 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-promoterun-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { assertDriver, carry, epicOf, isEndorsed, openPromotions, readStep, reposOf, stateOf, STEPS, PASSED, FAILED, UNKNOWN } =
-  await import(LIB('promoterun.js'));
+const {
+  assertDriver,
+  carry,
+  epicOf,
+  isEndorsed,
+  ledgerFrom,
+  openPromotions,
+  parseRun,
+  readStep,
+  reposOf,
+  stateOf,
+  RUN_CLOSE,
+  RUN_OPEN,
+  STEPS,
+  PASSED,
+  FAILED,
+  UNKNOWN,
+} = await import(LIB('promoterun.js'));
 const { filePromotion } = await import(LIB('promote.js'));
 const { validatePlan } = await import(LIB('plan.js'));
 
@@ -93,7 +117,7 @@ const work = (over = {}) =>
 function fakeBd({ row = promotionBead(), graph = work(), fail = {} } = {}) {
   const bd = {
     row,
-    comments: [],
+    written: [],
     closed: [],
     assigned: [],
     statuses: [],
@@ -107,7 +131,7 @@ function fakeBd({ row = promotionBead(), graph = work(), fail = {} } = {}) {
     },
     comment: async (_ws, id, textIn) => {
       if (fail.comment) throw new Error(fail.comment);
-      bd.comments.push({ id, text: textIn });
+      bd.written.push({ id, text: textIn });
     },
     close: async (_ws, id, reason) => {
       if (fail.close) throw new Error(fail.close);
@@ -115,6 +139,13 @@ function fakeBd({ row = promotionBead(), graph = work(), fail = {} } = {}) {
     },
     reopenAbandoned: async (_ws, id) => bd.reopened.push(id),
     listLabel: async () => [row],
+    // What was written *is* what is read back, which is what makes a resumed run testable
+    // for real: carry twice against one of these and the second run reads the first run's
+    // ledger off the comment the first run actually wrote. bc-y8k4.4.
+    comments: async () => {
+      if (fail.readComments) throw new Error(fail.readComments);
+      return bd.written.map((c) => ({ text: c.text }));
+    },
   };
   return bd;
 }
@@ -218,7 +249,7 @@ await check('the handback names the environment and the check that failed', asyn
     testInUat: { state: FAILED, checks: [{ name: 'uat:login', state: FAILED, detail: 'HTTP 500' }] },
   });
   await carry(bd, WS, 'p-1', driver, { actor: 'release-agent' });
-  const [{ text }] = bd.comments;
+  const [{ text }] = bd.written;
   assert.match(text, /Stopped in \*\*uat\*\*/, 'which environment');
   assert.match(text, /`uat:login`/, 'and what failed in it');
   assert.match(text, /HTTP 500/, 'with the driver\'s own words, not a paraphrase');
@@ -237,7 +268,7 @@ await check('a production failure leaves the bead open — the image is promoted
   assert.equal(run.promoted, true, 'it did reach production');
   assert.equal(run.closed, false, 'and that is not what closes it');
   assert.deepEqual(bd.closed, []);
-  assert.match(bd.comments[0].text, /Stopped in \*\*production\*\*/);
+  assert.match(bd.written[0].text, /Stopped in \*\*production\*\*/);
 });
 
 /* ------------------------------------------------------------------ cannot say */
@@ -250,9 +281,9 @@ await check('a driver that throws is cannot-say, and cannot-say neither closes n
   assert.equal(run.state, UNKNOWN, 'a throw is ignorance, not a verdict');
   assert.deepEqual(calls(driver), ['deployToUat', 'testInUat'], 'nothing promoted');
   assert.deepEqual(bd.closed, []);
-  assert.match(bd.comments[0].text, /cannot say/);
-  assert.match(bd.comments[0].text, /timed out/, 'and the reason survives onto the bead');
-  assert.match(bd.comments[0].text, /Cannot-say neither closes nor promotes/);
+  assert.match(bd.written[0].text, /cannot say/);
+  assert.match(bd.written[0].text, /timed out/, 'and the reason survives onto the bead');
+  assert.match(bd.written[0].text, /Cannot-say neither closes nor promotes/);
 });
 
 await check('a step answering with nothing recognisable is cannot-say, never a pass', async () => {
@@ -270,7 +301,7 @@ await check('a test that passes without naming one check has not distinguished t
   });
   assert.equal(run.state, UNKNOWN, 'a green deploy of the previous image looks identical from outside');
   assert.equal(run.closed, false);
-  assert.match(bd.comments[0].text, /without naming a single check/);
+  assert.match(bd.written[0].text, /without naming a single check/);
 });
 
 await check('a deploy that passes without naming an image cannot be promoted', async () => {
@@ -279,7 +310,7 @@ await check('a deploy that passes without naming an image cannot be promoted', a
   const run = await carry(bd, WS, 'p-1', driver, { actor: 'release-agent' });
   assert.equal(run.state, UNKNOWN);
   assert.deepEqual(calls(driver), ['deployToUat'], 'nothing is tested against an image nobody can name');
-  assert.match(bd.comments[0].text, /nothing can promote what it cannot name/);
+  assert.match(bd.written[0].text, /nothing can promote what it cannot name/);
 });
 
 await check('a passed step over an unknown check is unknown; over a failed check it is failed', async () => {
@@ -304,7 +335,7 @@ await check('production coming back with a different image is a failure, not an 
   );
   assert.equal(run.state, FAILED, 'a positive answer that production holds something else');
   assert.equal(run.closed, false);
-  assert.match(bd.comments[0].text, /the same image or it is a rebuild/);
+  assert.match(bd.written[0].text, /the same image or it is a rebuild/);
 });
 
 /* -------------------------------------------------------------------- the record */
@@ -312,7 +343,7 @@ await check('production coming back with a different image is a failure, not an 
 await check('what was deployed and what was checked is on the bead, whatever the outcome', async () => {
   const bd = fakeBd();
   await carry(bd, WS, 'p-1', fakeDriver(), { actor: 'release-agent' });
-  const [{ id, text }] = bd.comments;
+  const [{ id, text }] = bd.written;
   assert.equal(id, 'p-1', 'on the bead, not only in a log');
   assert.match(text, /\*\*Image\*\* — `registry\.example\/alpha@sha256:abc123`/);
   assert.match(text, /\*\*UAT deploy\*\* — passed/);
@@ -327,7 +358,7 @@ await check('the steps that never ran say so rather than being left out', async 
   await carry(bd, WS, 'p-1', fakeDriver({ deployToUat: { state: FAILED, detail: 'stage red' } }), {
     actor: 'release-agent',
   });
-  const [{ text }] = bd.comments;
+  const [{ text }] = bd.written;
   assert.match(text, /\*\*UAT tests\*\* — not reached/);
   assert.match(text, /\*\*production promote\*\* — not reached/);
   assert.match(text, /\*\*production tests\*\* — not reached/);
@@ -340,7 +371,7 @@ await check('open work under the epic is named on the record — this promotion 
   });
   const bd = fakeBd({ graph });
   await carry(bd, WS, 'p-1', fakeDriver(), { actor: 'release-agent' });
-  assert.match(bd.comments[0].text, /\*\*Still open under `x-1`\*\* \(1\)[^\n]*`x-1\.3`/, 'bc-4bet.2, seen from the last place it can be caught');
+  assert.match(bd.written[0].text, /\*\*Still open under `x-1`\*\* \(1\)[^\n]*`x-1\.3`/, 'bc-4bet.2, seen from the last place it can be caught');
 });
 
 await check('a record that will not write is a warning, and does not stop the close', async () => {
@@ -357,6 +388,181 @@ await check('a close that will not take is loudly owed, never silently dropped',
   assert.equal(run.closed, false);
   assert.match(run.warn.join(' '), /production is verified but p-1 would not close/);
   assert.deepEqual(bd.reopened, [], 'and it is not handed back either — the work is done');
+});
+
+/* ----------------------------------------------------- more than one repo (bc-y8k4.4) */
+
+/** The same bead, spanning three repos — the Repos line `filePromotion` writes for one. */
+const REPOS = ['alpha', 'beta', 'gamma'];
+const manyBead = (over = {}) =>
+  promotionBead({ description: BODY.replace('`alpha`', REPOS.map((r) => `\`${r}\``).join(', ')), ...over });
+
+/** One image per repo, so "the same image" can be wrong per repo rather than globally. */
+const img = (repo) => `registry.example/${repo}@sha256:abc123`;
+
+/**
+ * A driver that answers per repo, and can be told to answer differently for one of them.
+ *
+ * `only` is what makes the interesting cases readable: `{ testInProd: { beta: {…} } }` is
+ * "everything is green except beta in production", which is the partial result this whole
+ * shape exists for.
+ */
+function manyDriver(only = {}) {
+  const answer = (call, ctx, fallback) => {
+    const per = only[call];
+    const said = per && Object.prototype.hasOwnProperty.call(per, ctx.repo) ? per[ctx.repo] : null;
+    if (said instanceof Error) throw said;
+    return said ?? fallback;
+  };
+  return fakeDriver({
+    deployToUat: (ctx) => answer('deployToUat', ctx, { state: PASSED, image: img(ctx.repo) }),
+    testInUat: (ctx) => answer('testInUat', ctx, { state: PASSED, checks: [{ name: `uat:${ctx.repo}`, state: PASSED }] }),
+    promoteToProd: (ctx) => answer('promoteToProd', ctx, { state: PASSED, image: ctx.image }),
+    testInProd: (ctx) => answer('testInProd', ctx, { state: PASSED, checks: [{ name: `prod:${ctx.repo}`, state: PASSED }] }),
+  });
+}
+
+const asked = (driver) => driver.asked.map((a) => `${a.call}:${a.repo}`);
+const ledgerOn = (bd, n = 0) => parseRun(bd.written[n].text);
+const rowFor = (bd, repo, n = 0) => ledgerOn(bd, n).repos.find((r) => r.repo === repo);
+
+await check('three repos: every one of them through UAT before any of them reaches production', async () => {
+  const bd = fakeBd({ row: manyBead() });
+  const driver = manyDriver();
+  const run = await carry(bd, WS, 'p-1', driver, { actor: 'release-agent' });
+
+  assert.deepEqual(
+    asked(driver),
+    [
+      'deployToUat:alpha', 'testInUat:alpha',
+      'deployToUat:beta', 'testInUat:beta',
+      'deployToUat:gamma', 'testInUat:gamma',
+      'promoteToProd:alpha', 'testInProd:alpha',
+      'promoteToProd:beta', 'testInProd:beta',
+      'promoteToProd:gamma', 'testInProd:gamma',
+    ],
+    'UAT for all three first — the cheap place to find out the third is red is before the first is live'
+  );
+  assert.equal(run.closed, true, 'and with all three verified it closes');
+  assert.deepEqual(run.legs.map((l) => l.image), REPOS.map(img), 'one image per repo, and each promote got its own');
+  assert.match(bd.closed[0].reason, /3 repos/);
+  for (const repo of REPOS) assert.match(bd.closed[0].reason, new RegExp(`\`${repo}\``), `${repo} is named in the close`);
+  assert.equal(run.repo, '', 'the flattened single-repo fields are empty rather than naming one of three');
+});
+
+await check('one repo failing in production leaves the other two promoted and the bead open', async () => {
+  const bd = fakeBd({ row: manyBead() });
+  const run = await carry(bd, WS, 'p-1', manyDriver({ testInProd: { beta: { state: FAILED, checks: [{ name: 'prod:beta', state: FAILED, detail: 'HTTP 500' }] } } }), {
+    actor: 'release-agent',
+  });
+
+  assert.equal(run.closed, false, 'two of three is not a promotion');
+  assert.deepEqual(bd.closed, []);
+  assert.deepEqual(bd.reopened, ['p-1'], 'handed back so a later run can finish beta');
+  assert.deepEqual(run.legs.filter((l) => l.verified).map((l) => l.repo), ['alpha', 'gamma']);
+
+  const [{ text }] = bd.written;
+  assert.match(text, /\*\*Still owed\*\* \(1 of 3\)[^\n]*`beta`/, 'what is still owed, on the card');
+  assert.match(text, /2 of 3 repos are verified in production/);
+  assert.match(text, /`alpha`, `gamma` are promoted and stay that way\./, 'and the two that passed are not thrown away');
+  assert.match(text, /HTTP 500/, "with the driver's own words about the one that did not");
+});
+
+await check('the ledger says which repos are in production, and a later run does not touch those', async () => {
+  const bd = fakeBd({ row: manyBead() });
+  const first = manyDriver({ testInProd: { beta: { state: FAILED, checks: [{ name: 'prod:beta', state: FAILED }] } } });
+  await carry(bd, WS, 'p-1', first, { actor: 'release-agent' });
+  assert.equal(rowFor(bd, 'alpha').verified, true);
+  assert.equal(rowFor(bd, 'alpha').image, img('alpha'), 'and the digest, so the record says what is live');
+  assert.equal(rowFor(bd, 'beta').verified, false);
+
+  // The second run reads the first run's ledger off the comment the first run actually wrote.
+  const second = manyDriver();
+  const run = await carry(bd, WS, 'p-1', second, { actor: 'release-agent' });
+  assert.deepEqual(asked(second), ['deployToUat:beta', 'testInUat:beta', 'promoteToProd:beta', 'testInProd:beta'], 'alpha and gamma are in production and are not deployed again');
+  assert.equal(run.closed, true, 'and the bead closes on the repo that was owed');
+  assert.match(bd.written[1].text, /done by an earlier run/, 'the two it skipped say why rather than reading as untried');
+  assert.match(bd.closed[0].reason, /an earlier run/);
+  assert.equal(rowFor(bd, 'alpha', 1).verified, true, 'and the ledger it writes still carries them');
+});
+
+await check('a repo red in UAT holds production back for every repo, and the held ones say so', async () => {
+  const bd = fakeBd({ row: manyBead() });
+  const driver = manyDriver({ testInUat: { beta: { state: FAILED, checks: [{ name: 'uat:beta', state: FAILED }] } } });
+  const run = await carry(bd, WS, 'p-1', driver, { actor: 'release-agent' });
+
+  assert.deepEqual(
+    asked(driver),
+    ['deployToUat:alpha', 'testInUat:alpha', 'deployToUat:beta', 'testInUat:beta', 'deployToUat:gamma', 'testInUat:gamma'],
+    'gamma is still exercised — a run comes back knowing as much as it can — and nothing is promoted'
+  );
+  assert.equal(run.promoted, false);
+  assert.equal(run.state, FAILED);
+  assert.equal(run.closed, false);
+  const [{ text }] = bd.written;
+  assert.match(text, /held back — `beta` did not get through UAT/, 'the ones that were fine say why they stopped');
+
+  // The trap this shape sets: alpha's last step passed, and writing that as verified would
+  // skip a repo that has never been near production for good.
+  assert.equal(rowFor(bd, 'alpha').verified, false, 'passing UAT is not being in production');
+  const again = manyDriver();
+  await carry(bd, WS, 'p-1', again, { actor: 'release-agent' });
+  assert.equal(asked(again).length, 12, 'so the next run carries all three of them');
+});
+
+await check('only a ledger row that says verified skips a repo, and the last word per repo wins', async () => {
+  const block = (repos) => [RUN_OPEN, JSON.stringify({ repos }), RUN_CLOSE].join('\n');
+  const found = ledgerFrom([
+    { text: `prose above it\n\n${block([{ repo: 'alpha', verified: true, image: 'one' }, { repo: 'beta', verified: false }])}` },
+    { text: 'a comment with no block at all' },
+    { text: `${RUN_OPEN}\n{ not json\n${RUN_CLOSE}` },
+    { text: block([{ repo: 'alpha', verified: true, image: 'two' }]) },
+  ]);
+  assert.equal(found.get('alpha').image, 'two', 'a later run replaces an earlier answer for the same repo');
+  assert.equal(found.get('beta').verified, false, 'and a repo only the first comment mentioned is not forgotten');
+  assert.equal(ledgerFrom([{ text: block([{ repo: 'x', verified: 'yes' }]) }]).get('x').verified, false, 'anything but true is carry-it-again');
+  assert.equal(parseRun('no block here'), null);
+  assert.equal(parseRun(`${RUN_OPEN}\n[]\n${RUN_CLOSE}`), null, 'and a block that is not a ledger is not one');
+  assert.deepEqual(
+    parseRun([RUN_OPEN, '```json', JSON.stringify({ repos: [{ repo: 'x' }] }), '```', RUN_CLOSE].join('\n')).repos,
+    [{ repo: 'x' }],
+    'a fenced block reads too, because that is the shape lib/plan.js writes and the two are one comment away from each other'
+  );
+});
+
+await check('a driver whose own words would end the comment early does not eat the ledger', async () => {
+  const bd = fakeBd({ row: manyBead() });
+  await carry(bd, WS, 'p-1', manyDriver({ testInProd: { beta: { state: FAILED, detail: 'the pipeline said <!-- go --> and stopped' } } }), {
+    actor: 'release-agent',
+  });
+  assert.equal(ledgerOn(bd).repos.length, 3, 'all three rows survive an arrow in a detail');
+  assert.match(rowFor(bd, 'beta').detail, /<!-- go --> and stopped/, 'and it comes back out as it went in');
+});
+
+await check('a bd that cannot say what it was told carries every repo again rather than closing over one', async () => {
+  const bd = fakeBd({ row: manyBead(), fail: { readComments: 'dolt lock' } });
+  const driver = manyDriver();
+  const run = await carry(bd, WS, 'p-1', driver, { actor: 'release-agent' });
+  assert.equal(asked(driver).length, 12, 'silence is never "already verified"');
+  assert.equal(run.closed, true);
+});
+
+await check('a repo the Repos line no longer names keeps the record that it was promoted', async () => {
+  const bd = fakeBd({ row: manyBead() });
+  await carry(bd, WS, 'p-1', manyDriver(), { actor: 'release-agent' });
+  // Somebody edits the body down to one repo — the line is prose, and prose gets edited.
+  bd.row.description = BODY;
+  const kept = await carry(bd, WS, 'p-1', manyDriver(), { actor: 'release-agent' });
+  assert.deepEqual(kept.legs.map((l) => l.repo), ['alpha'], 'the run is what the body says');
+  assert.deepEqual(
+    ledgerOn(bd, 1).repos.map((r) => r.repo).sort(),
+    ['alpha', 'beta', 'gamma'],
+    'and the ledger still says beta and gamma are in production'
+  );
+});
+
+await check('a repo named twice in one Repos line is one image, not two', async () => {
+  assert.deepEqual(reposOf({ description: '**Repos** (one image each): `alpha`, `beta`, `alpha`' }), ['alpha', 'beta']);
 });
 
 /* ------------------------------------------------------------------- refusals */
@@ -381,11 +587,6 @@ const refusals = [
   ],
   ['a bead whose title does not name its epic', { row: promotionBead({ title: 'Release the thing' }) }, /does not name the epic/],
   ['a bead naming no repo', { row: promotionBead({ description: 'no repos here' }) }, /names no repo/],
-  [
-    'a bead spanning more than one repo, which is bc-y8k4.4',
-    { row: promotionBead({ description: BODY.replace('`alpha`', '`alpha`, `beta`') }) },
-    /covers 2 repos.*bc-y8k4\.4/,
-  ],
   ['a tracker that will not say what the epic closed', { fail: { graph: 'bd export timed out' } }, /nothing to exercise/],
   ['a tracker that will not answer at all', { fail: { show: 'no such workspace' } }, /could not read p-1/],
   ['a bead that cannot be claimed', { fail: { claim: 'lock contention' } }, /could not claim p-1/],
@@ -399,7 +600,7 @@ for (const [name, opts, re] of refusals) {
     assert.match(run.refused || '', re);
     assert.deepEqual(calls(driver), [], 'a refusal drives nothing');
     assert.deepEqual(bd.closed, [], 'and closes nothing');
-    assert.deepEqual(bd.comments, [], 'and writes nothing on a bead it never took');
+    assert.deepEqual(bd.written, [], 'and writes nothing on a bead it never took');
   });
 }
 
