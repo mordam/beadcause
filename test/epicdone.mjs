@@ -285,7 +285,13 @@ console.log('\nthe sweep is called, and what it produces is the event the phone 
   const server = read('lib/server.js');
   check('the poll cycle calls the sweep', /await sweepEpicsDone\(\);/.test(server));
   check('and reports its own failure, like every other sweep in the cycle', /sweepFailed\('the epic-done sweep'/.test(server));
-  check('what it emits is `epicDoneEvent`, so the type and the key are lib/news.js’s', /bus\.emit\(epicDoneEvent\(/.test(server));
+  // `app.bus`, with the prefix pinned. `bus` is a local of `createApp` and is not in scope
+  // inside `startPoller` at all, so a bare one is a `ReferenceError` the first time an epic
+  // closes — bc-gdub, which is the same bug on four other lines of this poller. A loose
+  // regex here would match the broken line as happily as the working one, which is exactly
+  // how those four survived review.
+  check('what it emits is `epicDoneEvent`, so the type and the key are lib/news.js’s', /app\.bus\.emit\(epicDoneEvent\(/.test(server));
+  check('and it emits it through `app.bus`, the only bus in scope in the poller', !/(^|[^.])\bbus\.emit\(epicDoneEvent/m.test(server));
   check('a muted space silences it, as it does every other piece of good news', /epicDoneEvent\(epic, \{ quiet: mutedNews\(cfg, epic\.workspace\) \}\)/.test(server));
   check('the watcher is built once and held on the app, not per request', /const epicWatch = createEpicWatch\(\{ bd \}\);/.test(server));
 
