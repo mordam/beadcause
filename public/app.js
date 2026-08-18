@@ -4984,6 +4984,12 @@
    * Hand the control what this render is about to draw: which kinds are reachable, and
    * how many of each survived the space picker. The numbers are counted *before* the
    * kind filter, so a chip's count is what picking it would leave you with.
+   *
+   * Since bc-khoe.23 they are also what the four counted pills on the row say out loud —
+   * the filter pushes them on to public/viewbar.js from its own `paint`. That is why
+   * there is still only one place that counts: a badge is a second *reading* of this
+   * number, never a second count of the same rows, which is the only way the badge and
+   * the list under it cannot disagree.
    */
   function surveyKinds(rows) {
     const f = window.beadcause?.inboxFilter;

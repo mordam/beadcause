@@ -4252,7 +4252,10 @@ list already in hand get drawn. Off Home they are `<a href="/?kind=…">`, read 
 and the service worker matches with `ignoreSearch` so a query on the shell's own path
 still resolves to the precached document offline. Which pill is lit is therefore not
 always a fact about the path: off Home it is, and on Home the *filter* is the answer,
-pushed at the row through `window.beadcause.views.mark()`.
+pushed at the row through `window.beadcause.views.mark()`. The per-kind counts ride the
+same channel and for the same reason — `counts(map)` beside `mark(id)`, from the same
+`paint`, filling [the badge four of the pills
+carry](#getting-around--the-pill-row).
 
 **The selected kind no longer makes the summary line bold**, and that is the reverse of
 what the panel did while the kinds were in it. A narrowing has to be admitted to somewhere
@@ -5262,22 +5265,93 @@ conclusions and is never re-entered is not a persistence success with a scheduli
 it is the write-only diary this whole P0 exists to disprove, in its purest form.
 
 `lib/reenter.js` is the trigger, swept from the advocate tick. **Enrolment is the bead**,
-and that is the decision worth the most here: a P0 is enrolled when its notes carry the
-advocate's own waiting-on block — the sentence the last thing every advocate window is
-told to do writes. So the tap *is* the assignment. Press the button once, the window it
-opens writes its sentence, and from then on the sweep brings it back. Three things follow,
-and all three are why it is done this way rather than with a registry file:
+and that is the decision worth the most here: an epic is enrolled when the tracker says so,
+and the tracker is the one thing both doors read. Three things follow, and all three are
+why it is done this way rather than with a registry file:
 
 - the button and the sweep **cannot disagree** about who is enrolled, because neither of
   them holds the fact — the tracker does;
 - it **survives losing `advocates.json`**, a restart, or a machine, and beadcause restarts
   itself several times a day on its own merges;
-- **erasing the block un-enrols the P0**, which is an off switch that costs no new
-  control: an advocate that concludes a P0 needs no more supervision takes its own
-  sentence off, and nothing re-opens it.
+- **taking the record off un-enrols the epic**, which is an off switch that costs no new
+  control: an advocate that concludes an epic needs no more supervision un-assigns itself,
+  and nothing re-opens it.
 
-The cost is honest and is why the button stays: an advocate window that dies before
-writing its sentence never enrols its P0, and a tap is needed again.
+#### The tap is the assignment — what the epic carries, and what takes it off
+
+The record used to be the advocate's own **waiting-on block**: the sentence the last thing
+every advocate window is told to do writes into `notes` before it exits. That made the
+enrolment a consequence of a window having *survived long enough to write a sentence*, and
+`lib/reenter.js` named the cost out loud from the day it landed — an advocate window that
+dies before writing its sentence never enrols its epic, and a tap is needed again. That
+cost turned out to be most of the feature. On 2026-08-17, **10 of 40 open epics carried the
+block**, so an assignment Adam had made was more likely than not to be gone by the time he
+came back to it, with nothing on the card saying so.
+
+So bc-r2b5.1 moved the record to the **launch**. Both doors — the 🧭 button
+(`POST /api/bead/advocate`) and the sweep's own launch — write an **`advocate-assigned`
+label** on the epic the moment the window is up, and the sweep enrols on **either** carrier:
+
+| carrier | written by | means |
+|---|---|---|
+| `advocate-assigned` label | both launch doors, immediately after the window comes up | somebody assigned this epic. Survives a window that died in its first second, a restart, losing `advocates.json`, and another Mac |
+| the waiting-on block in `notes` | the advocate itself, as the last thing it does | an advocate has been here and left a sentence. Still enrols, so nothing already enrolled fell out on the deploy that shipped the label |
+
+A **label** rather than a second marked block, on the same argument `advocate-paused` is a
+label: `bd label add` is one atomic write, where writing into `notes` is a read, a
+concatenate and a write — with the advocate's own rewrite of its waiting-on block landing
+in the middle of it. A lost write there would un-assign an epic as a side effect of
+enrolling it, which is the one failure this must not have.
+
+Written **after** the launch and not before, because the launch has four refusals in front
+of it: an epic enrolled by a launch that was refused is one the sweep would re-argue every
+three hours for ever. And a label write that fails is a **warning, not a thrown request** —
+the window is already open, and a 500 over the top of it would say the tap did nothing.
+
+**Un-assigning is taking the record off, and there are two of them now**, so an advocate
+that concludes its epic needs no more supervision has to remove both: `bd label remove <id>
+advocate-assigned` *and* erase its waiting-on block. Either one left in place keeps the
+sweep bringing it back. `epicAdvocatePrompt` says exactly that in the brief, because an off
+switch nothing is told about is an off switch nobody presses.
+
+The button still stays, and its job is now smaller and clearer: it is what assigns an epic
+**nobody has ever assigned**, rather than a thing you press again because the last window
+died young.
+
+#### What the epic's card is told about its advocate
+
+The board card's `advocate` field was `advocateSession(…)` — a live window, or `null`. For a
+**re-entrant** supervisor that is a boolean wearing a session's clothes: an Epic Advocate
+takes a turn and exits, so between turns nothing is running to find, `null` came back, and
+the card drew *"Put an advocate on it"* over an epic that already had one. That is bc-r2b5
+in one sentence — an assignment reading as lost because the thing being drawn was a
+process rather than a decision.
+
+So each card in `rootboard` now carries an **`advocacy`** object beside the old field —
+beside, and not instead of, because the client half lands separately and swapping the field
+would blank the advocate line on every phone that had not reloaded its JavaScript. Seven
+facts, none of them a new read:
+
+| field | from | says |
+|---|---|---|
+| `assigned` | the epic's labels and notes | somebody put an advocate on this. **True between turns**, which is nearly all the time |
+| `by` | the same | `label` or `waiting` — which carrier holds it, because the two have different un-assign gestures |
+| `paused` | `advocate-paused` | assigned *and* stopped, which is a fourth state and wrong drawn as either of the other two |
+| `session` | the board's one sessions snapshot | whatever `advocate` says, passed through rather than recomputed, so the two cannot disagree |
+| `lastAt` | `advocated[id].at` in `advocates.json` | when a window last ran. "Idle since 09:40" and "idle since a fortnight ago" are the same card without it |
+| `hold` / `heldAt` | the re-entry sweep's own record | why no window is opening right now, **in the sweep's own words**, and when it decided that |
+| `finished` | `lib/finishedepic.js`'s ask marker | whether the sweep has already asked Adam if the theme is done |
+
+`hold` is **reported, not re-derived**, and that is the one decision in here worth stating.
+Three of the five reasons a window is held — the tick's one-window budget, a worker this
+advocate is holding, a live lease on another Mac — are things only a tick can see, so a
+card computing its own answer would be a second answer to one question, disagreeing with
+the daemon on exactly the epics somebody is looking at. The sweep writes what it decided
+onto the record it already persists, and the card reads it through `advocates.advocacy()`
+— a `Map` get on a request path, no `bd` call.
+
+`waitingOn` is **not** repeated inside the object: the card already carries it at the top
+level, and one fact arriving twice in one payload is two copies of a state that can drift.
 
 **Three events, and deliberately not all of them.** A descendant that *closed*, one that
 was *filed*, one that *stalled*. Not one that started — `open → in_progress` is a worker
@@ -6146,7 +6220,7 @@ So there is one row now, under the top bar on every page the bottom bar was on:
   │ ● Beadcause                              🗳  ⌨️  ⟳ │
   │ Personal ▾                                    3 ▸    │
   ├──────────────────────────────────────────────────────┤
-  │ [🎯 My Epics] ❓ Questions 🚢 PRs 💬 Chats 📜 …      │  ← scrolls sideways
+  │ [🎯 My Epics 7] ❓ Questions 3 🚢 PRs 2 💬 Chats …  │  ← scrolls sideways
   └──────────────────────────────────────────────────────┘
 ```
 
@@ -6180,13 +6254,44 @@ already, which is the thing this change exists to stop. The selected pill is scr
 view on load — done by arithmetic on the two rectangles rather than with `scrollIntoView`,
 which is allowed to scroll every ancestor and would quietly move the list under it.
 
-**No counts and no badges, on any pill.** Advocates used to carry one — how many proposals
-were waiting — and it went with the bar. A badge is a number about a page you are *not*
-looking at, and it was only ever live on the one page whose poll happened to fetch it: on
-every other page the bar drew nothing, which was honest and was also a second thing to
-have learned. The count is still served and still on screen, in the advocate console's own
-tally ("3 working · 1 to answer"), beside the repo it belongs to instead of standing in
-for all of them.
+**Four counts, and only on Home.** My Epics, Questions, PRs and Chats each carry a number:
+how many rows tapping that pill would leave you with. All Beads, History and Advocates
+carry none — the first is unbounded and says nothing you would act on, and the other two
+are pages of their own with their own polls.
+
+This reverses a decision this section used to record, and the objection it was written
+against still stands as written. Advocates carried a badge once — how many proposals were
+waiting — and it went with the bar, because a badge is a number about a page you are
+*not* looking at and it was only ever live on the one page whose poll happened to fetch
+it. What answers that is **where** the number is drawn rather than what it counts. It is
+drawn on Home alone, off data the page is already holding: `surveyKinds` in
+`public/app.js` counts the rows per kind on every render — before the kind filter and
+after the space picker, so the number is what *picking* the pill gets you rather than what
+you are already looking at — because the filter panel needed those numbers before the row
+did. The badge is a second reading of that one count, refreshed by the same 25-second poll
+that redraws the list beneath it, and there is no page it can be stale on because there is
+no other page it is drawn on. Off Home the pills are plain links with nothing on them.
+
+`My Epics` is the one number nothing counts directly, and it is derived in
+`public/inboxfilter.js` rather than by the caller. My Epics is a *place* and not a slice —
+it has no predicate, so no row is ever *of* that kind — and what tapping it does is clear
+the selection, which leaves every row that survives its own sub-filter. That is the sum of
+the four slices, so summing them is the same arithmetic done once, and the badge and the
+list cannot come to disagree about it.
+
+**Pushed at the row, never pulled by it, and written as text.** `public/viewbar.js` is
+loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
+numbers itself — they arrive through `window.beadcause.views.counts(map)`, beside the
+`mark(id)` that says which pill is lit, from the same `paint`. It is a no-op off Home and
+for any id the row draws no badge for. The update replaces the badge's *text* and never
+goes through the row's `draw()`, which rebuilds every node in it: the inbox repaints every
+25 seconds, and a row rebuilt on that timer drops the focus ring off a pill somebody is
+tabbing through. A count of zero is drawn as `0` rather than by hiding the badge, so a
+pill does not change width under a thumb already on its way to it.
+
+The count the bar used to carry is still served and still on screen, in the advocate
+console's own tally ("3 working · 1 to answer"), beside the repo it belongs to instead of
+standing in for all of them.
 
 **What is not a pill, and why.** `/admin` is the screen you least want under a stray
 thumb, so it loses the rightmost tab it had — and it does not need one: since bc-khoe.5 it
@@ -6284,6 +6389,20 @@ reaches it rather than something drawn over it; that the row is one line and scr
 sideways instead of wrapping; and that the pill saying where you are is scrolled into view
 on load, which is asked again on a viewport too narrow for the row to fit, because that
 promise is unobservable on a row with room to spare.
+
+It also holds [the four counts](#getting-around--the-pill-row), and that half is the only
+one it feeds real data for. The fixture serves a known list — three questions, two chats
+and three pull requests of which one is merged — so the badges are asserted against
+arithmetic on what was served rather than against themselves, and the merged one is the
+point of the third: `PRs` is counted through its own status sub-filter, so a badge saying
+3 there would be the pill promising a screen it does not open. Then each pill is tapped
+and the rows it leaves on screen are counted, because *the number agrees with the list* is
+the whole claim and the numbers alone cannot make it. Which pills carry a badge is read
+out of `PILLS` like everything else, so a pill gaining or losing one is an edit to the row
+rather than to the check; that no pill carries one off Home is asserted on all eight pages.
+Two more are asked by pushing numbers straight at `window.beadcause.views.counts` — that
+the badge element is the *same node* after the number moved and focus is still on the pill
+it was on, and that the row is still one line at 360px with every count at three digits.
 
 Two things about it are derivations rather than lists. The **pills** are read out of
 `PILLS` in `public/viewbar.js` — bc-khoe.4 and bc-khoe.7 each change that set, and a list
@@ -20997,7 +21116,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | GET | `/api/beads` | `?q=` | `{beads[], warming, q}` — what [the inbox's bead search box](#finding-one-bead) drops down: up to 12 `{key, workspace, id, title, status}`, ranked exact id → id prefix → id substring → title, open before closed. **Every workspace at once**, because you type an id knowing the bead rather than knowing its tracker. The one route that can be asked once per keystroke, so it reads the graph `Bd.graph` already caches and **never waits on a `bd export`** — `warming` counts the workspaces it has not read yet, which is what lets the box say *still reading the trackers* instead of claiming a bead does not exist |
 | GET | `/api/bead/tree` | `?workspace=&id=` | `{workspace, id, title, keys[]}` — that bead's key and every descendant's, at any depth, `parent-child` edges only. What a pick in the search box narrows the inbox to. 404 for a bead the graph has never heard of. Unlike `/api/beads` this one **waits** for a cold cache: it is one request per pick, and answering "nothing is under this" from an unread graph would narrow the list to a single row and look exactly like a working filter |
-| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **Epic Advocate** on this epic — the button on the inbox's card, and the first one: the window it opens writes the waiting-on sentence that [enrols it for automatic re-entry](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs), so this is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a root anybody owns — an epic at any priority or a P0, since bc-htoy (a crash bead is refused by name — a stack trace is not an epic). **Never two on one epic**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of it no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `rootboard`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
+| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **Epic Advocate** on this epic — the button on the inbox's card, and the first one: **the tap is the assignment**, so a successful launch writes the `advocate-assigned` label that [enrols it for automatic re-entry](#the-tap-is-the-assignment--what-the-epic-carries-and-what-takes-it-off) — after the launch, never before it, and a label write that fails is a warning rather than a 500 over a window that is already open (`assigned: false` on the response says so). This is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a root anybody owns — an epic at any priority or a P0, since bc-htoy (a crash bead is refused by name — a stack trace is not an epic). **Never two on one epic**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of it no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `rootboard`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], root, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on an epic that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
 | POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via a `dismissed` event, and with the honest limit [narrowing the filter](#and-it-does-not-tidy-up-the-noise-it-already-made) ran into: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
 | GET | `/api/roots` | `?workspace=` | `{roots[]}` — every **open root** in that workspace (an epic at any priority, or a P0), `{id, title, priority, epic, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every root and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there is nothing to adopt under" |
@@ -22033,7 +22152,7 @@ to be one.
 | `advocates.planEpics` | [open an **epic worker** on an epic rather than working it](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) (default `true`) — a window that groups the epic's beads for N child-workers, writes each group's prompt, and does none of the work itself. `false` falls all the way back to handing one worker the epic and its ready children as a batch, which is what this did before plans existed and is still the right answer if a plan ever briefs badly. An epic whose planning has failed `maxAttemptsPerBead` times falls back to that on its own |
 | `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed. "Closed" is read off the tracker's own rows and never off the queue — an `unendorsed` or dependency-blocked bead is missing from the queue exactly as a closed one is, and a bead no row can be found for is not closed (bc-4bet.2) |
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
-| `advocates.reenterAdvocates` | [re-open the **Epic Advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: a P0 is enrolled once its notes carry the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and erasing that block is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
+| `advocates.reenterAdvocates` | [re-open the **Epic Advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: an epic is enrolled once it carries the [`advocate-assigned` label](#the-tap-is-the-assignment--what-the-epic-carries-and-what-takes-it-off) *or* the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and taking both records off is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
 | `advocates.reenterIntervalMinutes` | how often that sweep looks (default 10). It reads the same cached `bd export` the inbox's epic board is built from — which the EpicAdvocate roster already warms every tick — so it costs no tracker call of its own |
 | `advocates.reenterCooldownMinutes` | the floor between two *automatic* advocate windows on one P0 (default 180), alongside one window per tick per workspace. Nothing waits on an advocate — advocacy does not gate dispatch — so being three hours late costs nothing, where a Mac full of 🧭 windows costs real money |
 | `advocates.reenterStallMinutes` | how long a descendant sits `in_progress` with no window on it anywhere and no live lease elsewhere before that is a stall worth waking a supervisor for (default 60). Half of `workerTimeoutMinutes`, which releases the *slot* and never asks the question this does: the slot came back and the bead is still claimed |
@@ -25973,9 +26092,11 @@ tell "somebody has that port" from "Chrome is slow", so every failure took sixty
 came out as `Chrome never exposed a page target`. There is no contended-port case left,
 but a moved install or a bad `CHROME_PATH` is still real: the spawn failure is caught and
 reported as `Chrome would not start`, an exit during startup is reported as that, and
-every path out — including the ones that throw — kills the process and deletes the
-profile. The old copies only cleaned up on success, which on a laptop that runs these all
-night is how a temp directory fills with headless Chromes nobody can account for.
+every path out — including the ones that throw — kills the process and asks for the
+profile to be deleted. The old copies only cleaned up on success, which on a laptop that
+runs these all night is how a temp directory fills with headless Chromes nobody can
+account for. *Asking* for the delete turned out not to be the same as getting it, which is
+the next section.
 
 `node test/chromeport.mjs` is what keeps it. The fix is one line and reverting it is
 invisible — nothing about a guessed port looks wrong in review, the failure it causes is
@@ -25992,6 +26113,65 @@ no browser: `npm test` does not depend on Chrome and this was not the suite to m
 one. The half that can be had without one is measured for real, by pointing the launcher
 at a binary that does not exist and asserting on both the message and the absent profile
 directory.
+
+### Killing a browser is not the same as it being gone — `test/chromeprofile.mjs`
+
+The section above ends by saying every path out of `launchChrome` kills the process and
+deletes the profile. It did both, in that order, on consecutive lines — and the deletion
+lost anyway, on the ordinary path, in a check that exited 0. Measured 2026-08-18: a
+`gate-check.mjs` run that passed 20/20 took the temp directory from seven
+`beadcause-gate-*` directories to eight, the oldest of the seven from the previous
+morning. A census the same day found **798 leaked Chrome profiles** across forty-odd
+check prefixes (bc-5e85).
+
+**`kill()` is not a wait.** It returns once the signal is queued, and what it is queued
+for is a tree — Chrome's renderer, GPU and crashpad children go on writing into the
+profile for a moment after the browser process has taken it. `rmSync` on the next line
+walks a directory that is being repopulated behind it, and there are two ways for that to
+end, both of which were watched happening against a real Chrome: it throws `ENOTEMPTY`, or
+it *succeeds against a directory that then comes straight back*. Neither says anything to
+anybody. The check has already printed its results and exited 0.
+
+`{ maxRetries: 3 }` looked like the answer to that and is not — it is `rmSync`'s own
+internal retry of a **failed unlink**, so it cannot see the second shape at all. It was
+removed rather than raised, and removing it made the teardown four times faster: the same
+real teardown took 740ms with it and 190ms without, for the same outcome, because it backs
+off inside a tree walk that is failing at several depths at once.
+
+What replaced it is `killAndRemove`: SIGTERM, then a bounded loop that deletes, asks
+whether the directory is *gone*, and keeps asking until it is. SIGTERM before SIGKILL for
+the reason `bin/router.js` gives — it is the one Chrome can act on, and a Chrome that shuts
+down properly takes its children with it, which removes the race rather than outwaiting it.
+SIGKILL is second and two seconds later because it is not free: it drops the browser
+process and leaves the children it was about to collect to be reparented to pid 1, which is
+the leak bc-1eru is about. Real measurement after the change: the same `gate-check.mjs`
+goes 8 → 8 where the old code goes 8 → 9, and a teardown costs about 175ms.
+
+**Gone is asked twice**, which is the part that is easy to leave out and was. A writer that
+is still going recreates the path within a millisecond or two of losing it, so a single
+`existsSync` taken straight after the delete can land in that gap and report a clean
+teardown to a caller whose directory reappears a moment later — the original bug, one layer
+in. The suite caught that in the first version of the fix rather than a laptop catching it
+in a month.
+
+It is all synchronous, and that is not a style choice. `close()` is called by every
+`scripts/*-check.mjs`, several of them immediately before `process.exit()`, which does not
+wait for a pending promise; an async teardown would be cut short at exactly the call sites
+that most need it to finish, and it is also registered as a process-exit teardown, where
+nothing asynchronous ever runs again. So the wait is `Atomics.wait` on a throwaway
+`SharedArrayBuffer`, the same instrument and the same reason as `test/helpers/tmp.mjs`.
+
+`node test/chromeprofile.mjs` keeps it, and launches no browser, for the reason
+`test/chromeport.mjs` gives: `npm test` does not depend on Chrome. The browser is a node
+child that does the one thing about Chrome this code cares about — it writes into the
+profile continuously, and in one scenario declines to die of SIGTERM. That is the worst
+case the escalation exists for and it is reproducible at any speed, where a real Chrome
+would only be measuring how fast this particular Mac shuts a browser down. Every scenario
+is backed by a control that must **fail**: the same stubborn child is torn down with the
+exact two lines that shipped before, and the directory is asserted to survive them. Without
+it a green run would prove only that the fake browser was easy to kill. And the counting is
+done inside a sandbox directory the suite makes for itself, because counting the shared
+temp directory is what made `test/browse.mjs` flaky through four separate bug reports.
 
 ### A guard that fires must say what it is — `test/monitorwidth.mjs`
 

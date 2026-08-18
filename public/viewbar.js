@@ -56,12 +56,36 @@
   itself would have to know the storage key, which is a second place that knows what a
   kind is — the exact thing bc-khoe.2 exists to remove.
 
-  ## What is not a pill
+  ## The four counts, and the objection they had to answer
 
-  **No counts and no badges, on any of them.** The bar carried one — the proposals
-  waiting, hung off Advocates — and it is gone with it. A number on a pill is a number
-  that is only ever live on the one page whose poll happens to carry it, and stale
-  everywhere else; the count that matters is in the list you are looking at.
+  **Four of the seven carry a number, and only on Home.** My Epics, Questions, PRs and
+  Chats each say how many rows tapping them would leave you with; All Beads, History and
+  Advocates say nothing. This is the deliberate reversal of what this header used to
+  say — *"no counts and no badges, on any of them"* — and the objection it was written
+  against is real and still stands as written: a badge is only ever live on the one page
+  whose poll happens to fetch it, and stale on the other eleven. The bar's own count (the
+  proposals waiting, hung off Advocates) was exactly that, and deleting it was right.
+
+  What answers the objection is *where* the number is drawn rather than what it counts.
+  It is drawn on **Home alone**, where the data is not fetched for the badge at all — the
+  list under the row has already been fetched, narrowed by the space picker and counted
+  per kind by `surveyKinds` in public/app.js, because the filter panel needed those
+  numbers before the row did. So the badge is a second reading of a number this page is
+  already holding, refreshed by the same 25-second poll that redraws the list beneath it,
+  and there is no page on which it can be stale because there is no other page on which
+  it is drawn. Off Home the pills are plain links with nothing on them, exactly as they
+  were.
+
+  The three without a number are three different reasons, and none is an omission. **All
+  Beads** is every live bead in the tracker: an unbounded number, and one that says
+  nothing you would act on. **History** and **Advocates** are pages of their own with
+  their own polls — a count for either is the stale badge the paragraph above refuses,
+  and it would be stale on the one screen it appears on.
+
+  Zero is drawn as `0` rather than by hiding the badge. A badge that appears when the
+  first poll lands would change the pill's width under a thumb already on its way to it.
+
+  ## What is not a pill
 
   **Admin.** It had the rightmost tab and it loses it here: it is the screen you least
   want to hit by accident. bc-khoe.5 landed while this branch was parked and put it where
@@ -128,6 +152,14 @@
     a kind is and this file knows where its pill goes, so there is no href written down
     twice for the check to have to catch.
 
+    `count` is the fourth field and the only one that is about a *number* rather than
+    about where a pill goes: it marks the four that carry one on Home. It is a flag here
+    and not a count, because this file never counts anything — `counts()` at the foot is
+    pushed the map by inboxfilter.js's `paint`, the same way `mark()` is pushed the lit
+    pill and for the same reason. A pill with no flag is not sent a number and has no
+    badge node at all, which is what makes "All Beads, History and Advocates carry none"
+    a property of this list rather than of whatever happens to be in the map.
+
     What is **not** here any more, since bc-khoe.30.2, is `paths` — every URL that *is* a
     given view. The server maps several onto one page (/monitor answers to nine of them
     now) and the phone's home screen still holds the old ones, so a pill has to recognise
@@ -143,11 +175,11 @@
     // Home with nothing narrowed: the P0 board and the work under it (bc-rfnr.9). First
     // because it is where you land, and because every pill to its right is a narrowing
     // of it rather than a different place.
-    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Epics' },
+    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Epics', count: true },
     // Questions, PRs, Chats: what is arriving, in the order it tends to need answering.
-    { id: 'question', kind: 'question', icon: '❓', label: 'Questions' },
-    { id: 'pr', kind: 'pr', icon: '🚢', label: 'PRs' },
-    { id: 'session', kind: 'session', icon: '💬', label: 'Chats' },
+    { id: 'question', kind: 'question', icon: '❓', label: 'Questions', count: true },
+    { id: 'pr', kind: 'pr', icon: '🚢', label: 'PRs', count: true },
+    { id: 'session', kind: 'session', icon: '💬', label: 'Chats', count: true },
     // The record (bc-nib3.2): where you go to ask "what happened to that". A page rather
     // than a narrowing of Home — it has its own poll, its own filter bar and its own
     // vocabulary — and it kept the position it has had since it was a tab.
@@ -209,6 +241,20 @@
   let lit = onHome ? route.HOME : view || '';
 
   /**
+   * What each counted pill's badge says right now, as text, keyed by pill id.
+   *
+   * One store rather than two, and it is deliberately the *rendered string* rather than
+   * the number: `draw()` reads it when it rebuilds the row and `counts()` writes it when
+   * a poll lands, so the badge a rebuild puts back is the badge that was there. Holding
+   * numbers instead would mean formatting in two places, and the two drifting is a badge
+   * that changes what it says every time the lit pill moves.
+   *
+   * `'0'` from the first paint, before any poll has answered — see the header. A badge
+   * that arrives later is a pill that changes width under a thumb already moving to it.
+   */
+  const shown = Object.fromEntries(PILLS.filter((p) => p.count).map((p) => [p.id, '0']));
+
+  /**
    * Draw the row.
    *
    * Three shapes of pill, and the difference between them is what a tap should do.
@@ -229,6 +275,13 @@
         : act
           ? `type="button" data-kind="${esc(p.kind)}"`
           : `href="${esc(hrefOf(p))}"`;
+      /* The badge, on the four that carry one and only on Home. Not `aria-hidden`: it is
+         the one part of a pill that is information rather than decoration, and a reader
+         that cannot see it hears "Questions 4", which is what the pill says. */
+      const badge =
+        onHome && p.count
+          ? `<span class="viewpill-count" data-count="${esc(p.id)}">${esc(shown[p.id])}</span>`
+          : '';
       /* `data-pill` and not `data-view`: the chips on /monitor already carry a `data-view`
          and it means something else there — what public/presence.js should say this device
          is looking at — so one name for two things across two rows of chrome is exactly
@@ -236,6 +289,7 @@
       return `<${tag} class="viewpill" data-pill="${esc(p.id)}" ${attrs}>` +
         `<span class="viewpill-icon" aria-hidden="true">${p.icon}</span>` +
         `<span class="viewpill-label">${esc(p.label)}</span>` +
+        badge +
         `</${tag}>`;
     }).join('');
   }
@@ -306,6 +360,39 @@
       lit = id;
       draw();
       reveal();
+    },
+    /**
+     * The four numbers, from the page that already has them.
+     *
+     * `map` is kind id → how many rows that kind would leave you with, which is exactly
+     * what `surveyKinds` in public/app.js hands the filter — counted before the kind
+     * filter and after the space picker, so it is what *picking* the pill gets you and
+     * not what you are already looking at. Only the ids flagged `count` in `PILLS` are
+     * read out of it; the rest of the map is somebody else's business, and a kind the
+     * row draws no badge for cannot grow one by appearing in it.
+     *
+     * A no-op off Home, like `mark()`, and for the same reason: this file is on twelve
+     * pages and the one that counts is on Home alone.
+     *
+     * **In place, never through `draw()`.** The inbox repaints every 25 seconds and this
+     * rides along with it — rebuilding seven nodes on that timer would drop the focus
+     * ring off a pill somebody is tabbing through, which is the whole reason `mark()`
+     * redraws only when the answer moved. A number is text, and text can be replaced
+     * without replacing the element holding it. The row is not re-`reveal()`ed either:
+     * a digit's worth of width is not a navigation, and scrolling the row under a thumb
+     * because a poll landed would be a worse bug than the pixels it corrects.
+     */
+    counts(map) {
+      if (!onHome || !map || typeof map !== 'object') return;
+      for (const p of PILLS) {
+        if (!p.count) continue;
+        const n = Number(map[p.id]);
+        const next = String(Number.isFinite(n) && n > 0 ? Math.round(n) : 0);
+        if (shown[p.id] === next) continue;
+        shown[p.id] = next;
+        const el = nav.querySelector(`.viewpill-count[data-count="${p.id}"]`);
+        if (el) el.textContent = next;
+      }
     },
   };
 })();
