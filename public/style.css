@@ -4929,9 +4929,11 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-tally { font-size: 12px; font-weight: 600; color: var(--muted); }
 .mon-tally.warn { color: var(--warn); }
 
-/* Observer mode. Beside the page title, because it says what this daemon *is*, not
-   what it is currently doing — and two consoles side by side are otherwise
-   identical. Warm rather than alarming: nothing is wrong, it simply never acts.
+/* Observer mode. At the left-hand end of the bar with the mark — beside the page title
+   on /admin, and beside the space picker on /monitor, which since bc-mtdb has no title
+   at all — because it says what this daemon *is*, not what it is currently doing, and
+   two consoles side by side are otherwise identical. Warm rather than alarming: nothing
+   is wrong, it simply never acts.
    `[hidden]` is restated because the flex display above would otherwise show it. */
 .observing {
   font-size: 11px;
@@ -5357,6 +5359,12 @@ button.viewpill { cursor: pointer; }
    under it) and below an open card (40, `position: fixed; inset: 0`). An answer takes
    the whole screen and must not have a create button sitting on top of it. */
 
+/* Not every kind has a ＋ (bc-khoe.27.1) — Questions and PRs are queues of things
+   waiting on you and have nothing to create. `hidden` alone would lose to the
+   `display: flex` below, which is the standing trap with this attribute and the reason
+   every other flexed thing in this file that can be hidden has a line like it. */
+.compose-wrap[hidden] { display: none; }
+
 .compose-wrap {
   position: fixed;
   z-index: 24;
@@ -5404,7 +5412,12 @@ button.viewpill { cursor: pointer; }
    rather than on the body, which is where it was while the body was the thing that
    scrolled: under the app shell the body is exactly one viewport tall, so padding there
    would shorten the screen by 76px and leave a gap under the last card either way. The
-   class stays on the body, because what it records is that app.js wired ＋ up at all. */
+   class stays on the body because more than the scroller reads it — see the toast below.
+
+   It comes and goes with the button now (bc-khoe.27.1) rather than being added once at
+   load. It used to record that app.js had wired ＋ up at all; what it has to record is
+   whether there is a button on *this* kind, because reserving a button's height under a
+   kind that has none is a list that ends in 76px of nothing. */
 .has-compose .pagescroll { padding-bottom: 76px; }
 /* And the toast, which is bottom-centred and would otherwise land under it on a
    narrow phone. */
@@ -7303,3 +7316,54 @@ body.editing::after {
   margin: 12px; padding: 10px 14px; border-radius: 10px;
   background: transparent; border: 1px solid var(--line); color: var(--muted); font: inherit;
 }
+
+/* The Skills view (bc-dgx7.5) — the library, its candidates and what nothing measures.
+
+   Modelled on the requirement rows above it and deliberately not merged with them: a
+   requirement row is a tap into a drill-down and carries a coverage bar, where these are
+   flat rows of record with no second screen behind them. One shared `.skill-row` for all
+   three lists, because a candidate, a shipped command and an untracked metric are the
+   same shape of statement — a name, a state, and a sentence about it. */
+.skill-list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.skill-row {
+  display: flex; flex-direction: column; gap: 6px; width: 100%;
+  padding: 12px 14px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  color: inherit; text-decoration: none;
+}
+/* What is not measured is drawn *quieter* than what is, on the surface the page uses for
+   an absence — a dashed edge rather than a solid one, so it reads as an outline of
+   something that is not there yet rather than as a record of something that is. */
+.skill-row.is-untracked { background: transparent; border-style: dashed; }
+.skill-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.skill-title { color: var(--text); font-size: 14px; line-height: 1.35; }
+.skill-meta { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.skill-meta a { color: var(--accent); }
+.skill-untracked { font-style: italic; }
+/* The two links a row can carry. The title opens the bead — a block, so the tap target is
+   the width of the row rather than the width of the words — and `endorse it` goes to the
+   queue, which is why the row itself is not a link: one of them would have had to be
+   nested inside the other. */
+.skill-open { display: block; color: var(--text); text-decoration: none; }
+.skill-open:active { color: var(--accent); }
+.skill-act { color: var(--accent); }
+.skill-caveat { color: var(--prose); }
+.skill-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px; }
+.skill-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted);
+  font-weight: 600; font-size: 11px; line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+/* Four states, and only *waiting* is filled — it is the one of the four that is asking
+   for something, and the other three are history. The rest keep the neutral chip ground
+   and say their state in the text colour, which is what keeps every one of them past AA
+   at 11px: a tinted ground under its own hue is the shape that lands around 3.9:1, which
+   is the failure bc-15tu spent a branch on. `--made-ink` rather than `--bead-made` for
+   the same reason — that token exists because the flight green is not a reading green. */
+.skill-chip.is-waiting { background: var(--accent); color: var(--accent-ink); }
+.skill-chip.is-accepted { background: var(--surface-2); color: var(--made-ink); }
+.skill-chip.is-declined { background: var(--surface-2); color: var(--danger); }
+.skill-chip.is-superseded { background: var(--surface-2); color: var(--muted); }
+.skill-chip.is-untracked { background: var(--surface-2); color: var(--warn); }

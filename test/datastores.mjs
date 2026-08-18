@@ -290,12 +290,6 @@ const S = {
   priorAnswer: 'PRIORANSWER-zzz',
   comment: 'COMMENTTEXT-zzz',
   scope: 'AMENDSCOPE-zzz',
-  landingTitle: 'LANDINGTITLE-zzz',
-  owed: 'OWEDTEXT-zzz',
-  deployError: 'DEPLOYERROR-zzz',
-  repo: 'REPONAME-zzz',
-  syncError: 'SYNCERROR-zzz',
-  syncDir: 'SYNCDIR-zzz',
   certName: 'CERTNAME-zzz',
   certDetail: 'CERTDETAIL-zzz',
   verdict: 'VERDICTLINE-zzz',
@@ -323,9 +317,15 @@ const comment = () => ({ author: 'worker', text: S.comment });
  * that existed the day this was written and covering the control.
  *
  * `carries` is the half that stops the minimal check being vacuous, and it has to be per
- * case rather than "some fixture survived": `pushSyncedAgain` legitimately has nothing in
- * it but the workspace name, so a blanket rule would have to be loose enough to pass a
- * pusher that had silently stopped saying anything at all.
+ * case rather than "some fixture survived": `pushServingAgain` legitimately has almost
+ * nothing in it, so a blanket rule would have to be loose enough to pass a pusher that
+ * had silently stopped saying anything at all.
+ *
+ * A landing, a deploy and a tracker that stopped syncing are not here because they are
+ * not ntfy pushes any more — they are events on the bus, drawn by the Android app
+ * (bc-ka5y.15.1, lib/news.js). Nothing about *this* control moved with them: the minimal
+ * mode this suite exists to police is a property of what leaves the Mac for a public
+ * relay, and those three no longer leave it at all.
  */
 const CASES = {
   pushQuestion: {
@@ -338,16 +338,6 @@ const CASES = {
   },
   pushFoundationReply: { call: (cfg) => notify.pushFoundationReply(cfg, question(), comment()), carries: [S.comment] },
   pushReply: { call: (cfg) => notify.pushReply(cfg, question(), comment()), carries: [S.comment] },
-  pushLanded: {
-    call: (cfg) =>
-      notify.pushLanded(cfg, { workspace: WS, bead: BEAD, number: 12, title: S.landingTitle, sha: 'abcdef1234', owed: S.owed }),
-    carries: [S.landingTitle, S.owed],
-  },
-  pushDeploy: {
-    call: (cfg) =>
-      notify.pushDeploy(cfg, { workspace: WS, repo: S.repo, bead: BEAD, status: 'failed', to: 'abcdef1234', error: S.deployError, id: 'dep-1' }),
-    carries: [S.repo, S.deployError],
-  },
   pushCertificate: {
     call: (cfg) => notify.pushCertificate(cfg, { state: 'expiring', daysLeft: 2, name: S.certName, detail: S.certDetail }),
     carries: [S.certName, S.certDetail],
@@ -356,11 +346,6 @@ const CASES = {
     call: (cfg) => notify.pushNoBackend(cfg, { verdict: { summary: S.verdict, lines: [S.verdict] }, disk: S.build }),
     carries: [S.verdict, S.build],
   },
-  pushSyncTrouble: {
-    call: (cfg) => notify.pushSyncTrouble(cfg, [{ workspace: WS, error: S.syncError, dir: S.syncDir, conflict: true }]),
-    carries: [S.syncError, S.syncDir, WS],
-  },
-  pushSyncedAgain: { call: (cfg) => notify.pushSyncedAgain(cfg, [{ workspace: WS }]), carries: [WS] },
   pushServingAgain: { call: (cfg) => notify.pushServingAgain(cfg, { seconds: 30, build: S.build }), carries: [S.build] },
 };
 
