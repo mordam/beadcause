@@ -254,13 +254,15 @@ check(
   'a landing in the shade does not swallow the “Answered” confirmation',
   /Tray\.snapshot\(Tray\.Chan\.WORK, Tray\.Chan\.FOUNDATION\)/.test(NOTIF)
 );
-// Immutable-by-design: Android takes a channel's sound from the first
-// createNotificationChannel and ignores every one after it, forever. Cutting the five
-// channels before their sounds exist would burn the ids bc-ka5y.15.4 needs.
+// This suite used to assert the *opposite* — that no channel was published yet, because
+// a channel's sound is immutable after createNotificationChannel and cutting one before
+// its sound existed would have burned the id. bc-ka5y.15.4 cut all five, and the whole of
+// what that bead owes is now held by test/channels.mjs. What stays here is only the join:
+// news no longer borrows the replies channel, which is what this suite was about.
 check(
-  'no channel is published before bc-ka5y.15.4 can give it a sound',
-  !/CHANNEL_MERGED|CHANNEL_RELEASED|CHANNEL_EPIC|CHANNEL_STUCK/.test(NOTIF),
-  'a channel created with the wrong sound is a channel that needs a _v2 on day one'
+  'news has its own voice now and does not borrow the replies channel',
+  /chan == Tray\.Chan\.NEWS -> newest\.voice/.test(NOTIF),
+  'bc-ka5y.15.4 gave the three sizes of good news three channels — see test/channels.mjs'
 );
 
 /* ------------------------------------------------- 6. and it reaches a real poll */

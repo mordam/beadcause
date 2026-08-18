@@ -4,20 +4,25 @@
  *
  * A notification channel's sound is immutable after `createNotificationChannel`: Android
  * takes it from the first call and ignores every one after it, forever. So the only moment
- * these three files can be argued with is *before* bc-ka5y.15.4 cuts the channels, and the
- * only place the argument is worth having is the phone — a sound that is obviously distinct
- * over laptop speakers can be three identical ticks through a trouser pocket, which is where
- * every one of these is actually heard.
+ * these four files can be argued with is *before* the channel that carries one is cut, and
+ * the only place the argument is worth having is the phone — a sound that is obviously
+ * distinct over laptop speakers can be four identical ticks through a trouser pocket, which
+ * is where every one of these is actually heard.
+ *
+ * **bc-ka5y.15.4 has cut them.** So this page has changed job rather than finished it: it
+ * is still the fastest way to hear the five voices side by side, and it is still where a
+ * disagreement starts — but a disagreement now costs a `_v2` of that one channel rather
+ * than an edit to a number, and the page says so at the bottom.
  *
  * ## Blind, and shuffled, because a named audition is not one
  *
- * The bead's acceptance criterion is the method: three sounds played in a random order and
+ * The bead's acceptance criterion is the method: the sounds played in a random order and
  * named correctly without looking. That is not ceremony. Play a file called `drop.wav` and
  * you hear a water drop whatever came out of the speaker — the label does the work the
- * sound was supposed to do. So the audition draws three anonymous pads in a shuffled order,
+ * sound was supposed to do. So the audition draws four anonymous pads in a shuffled order,
  * takes a guess for each, and only then says which was which.
  *
- * The reference list underneath is the same four files with their names on, and it is
+ * The reference list underneath is the same five files with their names on, and it is
  * *underneath* on purpose: reading it first is precisely the contamination the pads exist
  * to avoid. Nothing stops you scrolling — this is a test you are administering to yourself
  * and the only person it can be cheated by is the person it is for.
@@ -34,22 +39,25 @@
   'use strict';
 
   /**
-   * The four voices, in the order the reference list draws them.
+   * The five voices, in the order the reference list draws them — which is the epic's own
+   * order: what asks something of you, then what is wrong, then the three sizes of good
+   * news.
    *
    * `blip` is first and is not in the audition: it is the sound that already exists, the
-   * one everything else is placed against, and the three that need naming are the three
-   * that are new. A four-way blind test would also be a harder test than the phone ever
+   * one everything else is placed against, and the four that need naming are the four
+   * that are new. A five-way blind test would also be a harder test than the phone ever
    * sets: the case that matters for the pip is a decision waiting on you, and there it
    * arrives with a buzz, so it never has to be told apart by ear alone.
    */
   const SOUNDS = [
-    { id: 'blip', name: 'A question is waiting', detail: 'The pip that already exists — 75ms at C6. On Decisions it arrives with a 40ms buzz; on replies and foundation requests it comes alone.' },
+    { id: 'blip', name: 'A question is waiting', detail: 'The pip that already exists — 75ms at C6. On Decisions it arrives with a 20ms buzz, the smallest a channel pattern can ask for; on replies and foundation requests it comes alone.' },
+    { id: 'knock', name: 'Work is stuck', detail: 'Two knocks at B3, 340ms — the only low sound here, and the only one that arrives with a double buzz. Nothing else on the phone insists.' },
     { id: 'land', name: 'A merge landed', detail: '45ms at G6. Smaller than the pip on purpose: four in a row is the pipeline being audible.' },
     { id: 'drop', name: 'A release went out', detail: 'A water drop — 360ms, pitch rising, with a tail. Calm, and unmistakably not the pip.' },
     { id: 'chime', name: 'An epic completed', detail: 'Two notes, G5 up to C6, 480ms. The milestone, resolving onto the app’s own note.' },
   ];
 
-  /** The three that have to be told apart. */
+  /** The four that have to be told apart. */
   const BLIND = SOUNDS.filter((s) => s.id !== 'blip');
 
   /*
@@ -182,7 +190,7 @@
     }
 
     const all = run.order.every((s) => run.guess.has(s.id));
-    const reveal = el('button', 'primary sound-reveal', all ? 'Reveal' : `Name all three to reveal`);
+    const reveal = el('button', 'primary sound-reveal', all ? 'Reveal' : `Name all ${run.order.length} to reveal`);
     reveal.type = 'button';
     reveal.disabled = !all;
     reveal.addEventListener('click', () => {
