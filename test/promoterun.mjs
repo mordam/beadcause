@@ -658,6 +658,25 @@ await check('the epic and the repos are read out of what lib/promote.js actually
   const run = await carry(fakeBd({ row: endorsed }), WS, 'p-9', driver, { actor: 'release-agent' });
   assert.equal(run.refused, undefined, 'and once endorsed it carries as it stands, with nothing rewritten by hand');
   assert.equal(run.repo, 'alpha');
+
+  // And the same seam for the shape bc-y8k4.4 is about: a plan whose groups landed in two
+  // repos — one group per repo, because a group spanning two is refused by `validatePlan` —
+  // is a body naming two, and the run that picks it up has a leg for each.
+  const spread = validatePlan(
+    {
+      groups: [
+        { name: 'first', beads: ['x-1.2'], prs: [{ repo: 'alpha', title: 'the work' }], prompt: 'Do the one bead the plan named as one change.' },
+        { name: 'second', beads: ['x-1.3'], prs: [{ repo: 'beta', title: 'the other half' }], prompt: 'Do the other bead the plan named as one change.' },
+      ],
+    },
+    { epic: 'x-1', children: null }
+  );
+  await filePromotion(bd, WS, { id: 'x-1', title: 'the epic that landed', labels: [] }, spread);
+  const twoRepos = { id: 'p-9', title: created[1].title, description: created[1].body, status: 'open', labels: ['promote'] };
+  assert.deepEqual(reposOf(twoRepos), ['alpha', 'beta'], 'both, off the line filePromotion wrote');
+  const both = await carry(fakeBd({ row: twoRepos }), WS, 'p-9', manyDriver(), { actor: 'release-agent' });
+  assert.deepEqual(both.legs.map((l) => l.repo), ['alpha', 'beta'], 'and a leg for each rather than a refusal');
+  assert.equal(both.closed, true);
 });
 
 await check('stateOf never guesses: only the three words, or a plain boolean, are an answer', async () => {
