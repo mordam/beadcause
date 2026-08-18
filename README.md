@@ -10450,6 +10450,48 @@ it deferred. Then the sweep is held for two and a half seconds and the page is o
 again, so "the queue was on screen before the answer could have arrived" is a measurement
 rather than an impression.
 
+## May this run unattended? — the map, not the merger
+
+Every capability here eventually asks the same question a different way: does this need
+a human, or does it just go? By 2026-08-17 at least six places already answered it, each
+for a reason specific to itself — the `unendorsed` hold just above, the P2 ceiling on
+what an agent may file, `autoEndorse` skipping the hold for a workspace that asked for
+it, the pause switch on the Admin screen, `OBSERVING` refusing a second instance's writes,
+and the P0 path below that deliberately skips the first two. None of them was wrong. What
+was missing was a place to read all six at once, which is exactly the thing a new
+capability has to get right and had no single file to learn it from — so `lib/authority.js`
+is that file: not a rewrite of any of the six, a map of them, plus the one the earlier
+list missed (`lib/underroot.js`'s "is this even under something a human decided on" check,
+which rides in the identical door as the `unendorsed` one, one line below it, every time).
+
+**It is deliberately not a merger.** Two guards that look alike from a distance can still
+be answering different questions — `lib/proposedlabels.js` already made this argument for
+a smaller pair of label lists — and collapsing the six into one function would have hidden
+exactly the distinction that matters most here: a crash the app filed on itself and a bead
+an agent merely *thinks* is worth doing are not the same claim, and get different
+treatment on purpose. So `lib/authority.js` exports three outcomes — `RUN`, `ASK`, `DENY`,
+the same three the eve software factory template's `agent/lib/github/approval.ts` names
+not-applicable / user-approval / denied — and a `SITES` table naming, for each of the
+seven, the question it answers, the module and export a caller actually wants, which of
+the three it produces, and why:
+
+| site | outcome | decided in |
+|---|---|---|
+| endorsement | ASK, backstopped by DENY | `lib/endorse.js` |
+| priority ceiling | RUN (a clamp, not a gate) | `lib/filing.js` |
+| `autoEndorse` | RUN (a lever on endorsement) | `lib/spaces.js` |
+| root requirement | DENY | `lib/underroot.js` |
+| admin pause | ASK (a standing switch) | `lib/admin.js` / `lib/advocate.js` |
+| observer mode | DENY, mostly | `lib/config.js`'s `OBSERVING` |
+| the error P0 path | RUN (bypasses two of the above) | `lib/errors.js` |
+
+`lib/claims.js` is named on the bead that asked for this map and is deliberately not in
+the table: it answers who else is editing a file right now, on one machine, with no
+notion of endorsement anywhere in it — a different question that only resembles this
+family from a distance. `test/authority.mjs` imports every module the table names and
+checks the exports it points at still exist, so the table cannot drift out from under the
+code the way a comment-only map could.
+
 ## An error the app hits files itself as a P0
 
 Everything above is about work somebody decided to do. This is about the other kind:
