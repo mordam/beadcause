@@ -121,6 +121,14 @@ fs.mkdirSync(WS.dir, { recursive: true });
 const CLAIM =
   'cannot close bc-jrvh: assignee is "neadamthal@gmail.com", actor is "beadcause (neadamthal@gmail.com)"; ' +
   'reclaim or use --force to override';
+/**
+ * The same refusal once the worker signs as an agent — bc-y3qk.1, and also copied off
+ * the binary rather than paraphrased. Worth pinning separately: the assignee now has
+ * parentheses in it, and `isClaimGuard` matches on a quoted string.
+ */
+const CLAIM_AGENT =
+  'cannot close bc-jrvh: assignee is "agent (neadamthal@gmail.com)", actor is "beadcause (neadamthal@gmail.com)"; ' +
+  'reclaim or use --force to override';
 /** The other refusal that suggests `--force`, and which nothing here may override. */
 const BLOCKED = 'cannot close bc-jrvh: blocked by open issues [bc-a0vc] (use --force to override)';
 
@@ -137,6 +145,10 @@ console.log('\nanswering a bead somebody claimed\n');
 // bin/deliver.js. Asked again here rather than assumed, because the answer path now
 // depends on it too and the two beads landed hours apart without seeing each other.
 check(isClaimGuard(new Error(CLAIM)), 'the claim refusal is recognised, in bd 1.2.1’s exact words');
+check(
+  isClaimGuard(new Error(CLAIM_AGENT)),
+  'and still recognised when the claim is an agent byline, brackets and all'
+);
 check(!isClaimGuard(new Error(BLOCKED)), 'a blocked-by refusal is not mistaken for it, though it also offers --force');
 check(
   isClaimGuard(new Error(`bd close bc-jrvh --reason x failed in beadcause: ${CLAIM}`)),
