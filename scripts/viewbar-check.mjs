@@ -187,6 +187,7 @@ const ROUTES = {
   '/history': '/history.html',
   '/flow': '/flow.html',
   '/requirements': '/requirements.html',
+  '/skills': '/skills.html',
   '/admin': '/admin.html',
 };
 
@@ -252,6 +253,13 @@ function serve() {
  * `/prs` is here twice over — as its own path and as `/monitor` — because the server
  * serves one document for both and what is being asked is that arriving by either URL
  * lights the pill the row's own list says it should.
+ *
+ * Six of these light *nothing* — `/console`, `/endorse`, `/flow`, `/requirements`,
+ * `/skills`, `/admin`. No pill in `public/viewbar.js` claims their paths, and that is a
+ * decision recorded there rather than an omission here, so what each of them is asked is
+ * that the row draws with no `aria-current` at all. It is also why none of them reaches
+ * the reveal pass below: `later` asks which pill is lit, and for these the answer is
+ * none.
  */
 const PAGES = [
   { url: '/', file: 'index.html' },
@@ -262,6 +270,7 @@ const PAGES = [
   { url: '/endorse', file: 'endorse.html' },
   { url: '/flow', file: 'flow.html' },
   { url: '/requirements', file: 'requirements.html' },
+  { url: '/skills', file: 'skills.html' },
   { url: '/admin', file: 'admin.html' },
 ];
 
