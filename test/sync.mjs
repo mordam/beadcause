@@ -61,8 +61,20 @@ const check = async (name, fn) => {
 
 console.log('a shared tracker that is no longer shared');
 
-const { syncOnce, createSyncer, describeSync, isConflict, isStuck, syncEnabled, syncEveryMs, SYNC_FLOOR_SECONDS, STUCK_AFTER } =
-  await import(LIB('sync.js'));
+const {
+  syncOnce,
+  createSyncer,
+  describeSync,
+  isConflict,
+  isStuck,
+  syncEnabled,
+  syncEveryMs,
+  syncCeilingMs,
+  SYNC_FLOOR_SECONDS,
+  SYNC_CEILING_SHARE,
+  STUCK_AFTER,
+} = await import(LIB('sync.js'));
+const { BD_TIMEOUT } = await import(LIB('bd.js'));
 
 const WS = (name) => ({ name, dir: `/nowhere/${name}/.beads` });
 const DIR = (name) => `/nowhere/${name}`;
@@ -514,6 +526,155 @@ await check('and it has a floor, because there is no such thing as a usefully fa
   assert.equal(syncEveryMs({ sync: { seconds: 'nonsense' } }), 120_000);
 });
 
+/* --------------------------------------- the ceiling, against the interval (bc-y3qk.2) */
+
+// `BD_TIMEOUT` is two minutes and the default `sync.seconds` is two minutes, and those
+// two numbers being equal was nobody's decision — they are defaults picked in different
+// files for unrelated reasons. What it produced: a tick that burned its ceiling was still
+// running when the next tick came due, so `sweep` skipped that workspace and one lock
+// collision cost two intervals rather than one. Pull and push run in sequence, so the
+// real worst case was four minutes against a two-minute interval.
+//
+// "The interval is the retry" is the argument all three `bd dolt` calls are built on, and
+// it is only true while a call finishes inside the interval. That is what these assert.
+
+/** A `bd` that answers everything and remembers the options each verb was handed. */
+function ceilingBd() {
+  const opts = { pull: [], push: [], commit: [] };
+  return {
+    opts,
+    async doltRemote() {
+      return { name: 'origin', url: 'git+ssh://git@example.com/team/repo.git' };
+    },
+    async doltPull(_ws, o) {
+      opts.pull.push(o);
+    },
+    async doltPush(_ws, o) {
+      opts.push.push(o);
+    },
+    async doltCommit(_ws, o) {
+      opts.commit.push(o);
+    },
+  };
+}
+
+await check('a whole tick — pull and push — fits inside one interval, at every interval', () => {
+  for (const seconds of [30, 60, 120, 300, 600, 3600]) {
+    const cfg = { sync: { seconds } };
+    const every = syncEveryMs(cfg);
+    const ceiling = syncCeilingMs(cfg);
+    assert.ok(ceiling > 0, `${seconds}s gave a ceiling of ${ceiling}`);
+    assert.ok(
+      2 * ceiling < every,
+      `at ${seconds}s the two calls can spend ${2 * ceiling}ms of a ${every}ms interval — the skipped tick is back`
+    );
+    assert.ok(ceiling <= BD_TIMEOUT, `a long interval is not permission to let one bd run for ${ceiling}ms`);
+  }
+});
+
+await check('and it is a share of the interval rather than a second constant to keep in step', () => {
+  // A fixed number would be the same bug written down again: `sync.seconds` is a setting,
+  // so any constant is wrong for somebody's interval.
+  assert.equal(syncCeilingMs({}), Math.floor(120_000 * SYNC_CEILING_SHARE));
+  assert.equal(syncCeilingMs({ sync: { seconds: 300 } }), Math.floor(300_000 * SYNC_CEILING_SHARE));
+  // The floor applies through `syncEveryMs`, so an absurd interval cannot produce an
+  // absurd ceiling either.
+  assert.equal(syncCeilingMs({ sync: { seconds: 1 } }), Math.floor(SYNC_FLOOR_SECONDS * 1000 * SYNC_CEILING_SHARE));
+  assert.notEqual(syncCeilingMs({}), syncEveryMs({}), 'the one equality this whole bead is about');
+});
+
+await check('a sync hands that ceiling to every bd call it makes, and to none when it has none', () => {
+  return (async () => {
+    const bare = ceilingBd();
+    await syncOnce(bare, WS('team'));
+    // No ceiling named means bd's own default, which is what every one of these got
+    // before this change — so a caller that says nothing is not silently narrowed.
+    assert.deepEqual(bare.opts.pull, [{}], 'pull was handed an override it was never given');
+    assert.deepEqual(bare.opts.push, [{}]);
+
+    const under = ceilingBd();
+    await syncOnce(under, WS('team'), { timeout: 48_000 });
+    assert.deepEqual(under.opts.pull, [{ timeout: 48_000 }]);
+    assert.deepEqual(under.opts.push, [{ timeout: 48_000 }]);
+  })();
+});
+
+await check('the stuck-pull recovery runs under it too, commit and second pull alike', async () => {
+  // The recovery is three more calls on a tick that has already spent two, so it is the
+  // one path that can still overrun — but it only runs on the tick a stuck sync is
+  // discovered, `inflight` is what makes an overrun safe, and a recovery given bd's full
+  // two minutes would overrun by far more.
+  const bd = ceilingBd();
+  let pulls = 0;
+  bd.doltPull = async (_ws, o) => {
+    bd.opts.pull.push(o);
+    if (++pulls === 1) throw new Error('local changes would be stomped by merge: events');
+  };
+  const out = await syncOnce(bd, WS('team'), { timeout: 48_000 });
+  assert.equal(out.state, 'ok', 'the committed recovery cleared it');
+  assert.deepEqual(bd.opts.commit, [{ timeout: 48_000 }]);
+  assert.deepEqual(bd.opts.pull, [{ timeout: 48_000 }, { timeout: 48_000 }]);
+});
+
+await check('a workspace that has never synced keeps the full ceiling, and earns the short one', async () => {
+  // The objection the old comment raised against any shorter ceiling, and it is a real
+  // one: a large *first* sync under a ceiling set too low is not a slow tick, it is a
+  // sync that can never complete and reports as broken every time. So the short ceiling
+  // is for a workspace whose sync is a going concern, and `sweep` is the only thing that
+  // knows which those are.
+  const bd = ceilingBd();
+  const syncer = createSyncer({ bd });
+  const ws = [WS('team')];
+
+  await syncer.sweep(ws, { ceiling: 48_000 });
+  assert.deepEqual(bd.opts.pull.at(-1), {}, 'the first sync of a workspace gets bd’s own two minutes');
+
+  await syncer.sweep(ws, { ceiling: 48_000 });
+  assert.deepEqual(bd.opts.pull.at(-1), { timeout: 48_000 }, 'and every one after it fits the interval');
+});
+
+await check('and it keeps it through an outage, because established is not "the last tick worked"', async () => {
+  const bd = ceilingBd();
+  const syncer = createSyncer({ bd });
+  const ws = [WS('team')];
+  await syncer.sweep(ws, { ceiling: 48_000 });
+  await syncer.sweep(ws, { ceiling: 48_000 });
+
+  bd.doltPull = async (_ws, o) => {
+    bd.opts.pull.push(o);
+    throw new Error('fetch from origin/main: connection refused');
+  };
+  const out = await syncer.sweep(ws, { ceiling: 48_000 });
+  assert.equal(out.results[0].state, 'failed');
+  // Widening it back would put the skipped ticks straight back on the one day they cost
+  // the most: the day the tracker is already in trouble.
+  assert.deepEqual(bd.opts.pull.at(-1), { timeout: 48_000 });
+});
+
+await check('a workspace with no remote establishes nothing, so a remote added later starts generous', async () => {
+  const bd = ceilingBd();
+  bd.doltRemote = async () => null;
+  const syncer = createSyncer({ bd });
+  const ws = [WS('solo')];
+  await syncer.sweep(ws, { ceiling: 48_000 });
+  await syncer.sweep(ws, { ceiling: 48_000 });
+  assert.deepEqual(bd.opts.pull, [], 'nothing was pulled at it at all');
+
+  bd.doltRemote = async () => ({ name: 'origin', url: 'git+ssh://git@example.com/team/repo.git' });
+  await syncer.sweep(ws, { ceiling: 48_000 });
+  assert.deepEqual(bd.opts.pull.at(-1), {}, 'its first real sync is the one that may be large');
+});
+
+await check('a sweep told no ceiling behaves exactly as it did before there was one', async () => {
+  const bd = ceilingBd();
+  const syncer = createSyncer({ bd });
+  const ws = [WS('team')];
+  await syncer.sweep(ws);
+  await syncer.sweep(ws);
+  assert.deepEqual(bd.opts.pull, [{}, {}]);
+  assert.deepEqual(bd.opts.push, [{}, {}]);
+});
+
 await check('syncing can be turned off, and off is a real answer', () => {
   assert.equal(syncEnabled({}), true);
   assert.equal(syncEnabled({ sync: { enabled: false } }), false);
@@ -558,6 +719,15 @@ await check('the poll cycle syncs, and the failure it cannot handle files itself
   assert.match(SERVER, /const sweepSync = async \(\)/, 'the sweep exists');
   assert.match(SERVER, /await sweepSync\(\)/, 'and the cycle calls it');
   assert.match(SERVER, /sweepFailed\('the tracker sync'/, 'and a bug in it becomes a bead like the other five');
+});
+
+await check('and it is the cycle that names the ceiling, because it is the half holding cfg', () => {
+  // A static read because everything above it is reachable with a fake and this is not:
+  // `createSyncer` takes a `bd` and nothing else, on purpose, so the number derived from
+  // `sync.seconds` can only arrive here. Drop this one argument and every assertion in
+  // the ceiling section still passes while the daemon goes back to two minutes a call.
+  assert.match(SERVER, /syncer\.sweep\(cfg\.workspaces, \{ ceiling: syncCeilingMs\(cfg\) \}\)/);
+  assert.match(SERVER, /import \{[^}]*syncCeilingMs[^}]*\} from '\.\/sync\.js'/);
 });
 
 await check('the failure reaches the payload, in a field of its own', () => {

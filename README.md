@@ -20897,6 +20897,48 @@ slowest one. A workspace still syncing when the next tick comes round is skipped
 than queued: two `bd dolt push` against one embedded Dolt would only fight each other for
 the write lock.
 
+### The ceiling has to be smaller than the interval, and it was not
+
+"The interval is the retry" is the argument all three `bd dolt` calls are built on, and it
+is only true while a call *finishes inside the interval*. It did not. `BD_TIMEOUT` is two
+minutes and the default `sync.seconds` is two minutes as well — not a coincidence anybody
+arranged, just two defaults picked in different files for unrelated reasons — so a tick
+that burned its ceiling was **still running when the next tick came due**, got skipped,
+and one collision cost two intervals rather than one. Pull and push run in sequence, so
+the worst case was four minutes against a two-minute interval.
+
+So the ceiling is now derived from the interval rather than inherited: each call gets 40%
+of `sync.seconds`, capped at `BD_TIMEOUT`, which puts a whole tick inside the interval
+with margin at every setting including the 30-second floor. The number is computed in
+lib/sync.js because that is where the interval lives, and handed to lib/bd.js by the poll
+cycle — the only place that holds both.
+
+**A workspace that has never synced still gets the full two minutes**, and that is the
+whole reason this could not simply be a smaller constant. A short ceiling is right for a
+workspace whose sync is a going concern — its pushes are a handful of Dolt commits — and
+wrong for one that may be doing the large *first* sync, where a ceiling set too low is not
+a slow tick but a sync that can never complete and reports as broken every time. One clean
+sync earns the short ceiling and an outage afterwards does not take it away; a restart
+forgets, like everything else here, and pays one generous tick per shared workspace.
+
+### A lock is not the network, and the retry is back
+
+These three calls used to retry nothing at all, argued from the one thing that makes them
+unlike every other write: they go to the *network*, and a retry of a two-minute network
+timeout is four minutes of a poll cycle spent on a workspace that will be tried again in
+two minutes anyway. Sound — and silent about the other thing they queue behind. `bd dolt
+pull` run by hand against the `architecture` workspace finished in **four seconds** on a
+day the daemon had logged four *"still running after 120s"* lines against that same
+remote, and 56 by the time anyone counted. That time was going to embedded Dolt's single
+writer, which twenty-plus agent sessions hold in bursts — the exact collision every other
+write here retries four times for.
+
+They retry twice now, and **nothing about the network argument had to be given up**: `run`
+refuses to retry a timeout at all, so a retry can only fire on a lock refusal that came
+back in milliseconds, and a call killed at its ceiling still costs exactly one ceiling.
+Two rather than four because these are on a timer — anything 400ms and 800ms of backoff
+cannot clear is the next tick's problem by definition.
+
 ### A sync that stopped is loud, and a conflict is louder
 
 A sync that works says **nothing**. No line, no event, no push. A tick reporting "synced
@@ -26061,6 +26103,16 @@ hid that one declaration while reporting the other nine.
   on a timer across every workspace. Writes inherit it too — a write SIGTERMed mid-`bd` is
   worse than a slow one, and since a timeout is never retried this is one ceiling per
   call, not four.
+- **The three `bd dolt` verbs are the one exception, and it is not a number typed at a
+  call site.** `doltPull`, `doltPush` and `doltCommit` take a ceiling from their caller,
+  because theirs is the one that has to stay *under* something: the sync interval, which
+  lib/bd.js has never heard of and lib/sync.js owns. Equal defaults in two files is what
+  produced the skipped ticks (see [When it syncs](#when-it-syncs-and-why-the-interval-is-not-a-performance-knob)),
+  and the fix for that cannot itself be a second constant. It is still `BD_TIMEOUT` when
+  nobody names one, which is what a first sync of a large graph gets. The guard against
+  this becoming the old bug again is in test/bdtimeout.mjs, which asserts no *literal*
+  timeout in lib/bd.js is smaller than the constant, and in test/sync.mjs, which asserts
+  a whole tick fits inside the interval at every setting.
 - **A timeout says so, everywhere it is displayed.** It is the one error that arrives with
   nothing to explain itself: `bd` is SIGTERMed mid-answer, so stderr is empty and Node's
   own message is "Command failed". So `run` rewrites it as `bd … timed out in <workspace>:
