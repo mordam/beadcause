@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v81';
+const CACHE = 'beadcause-v82';
 const SHELL = [
   '/',
   '/index.html',
@@ -58,6 +58,11 @@ const SHELL = [
   // moment it is wanted is the moment a notification was opened on a phone that has
   // just woken up — the same argument as absorb.js above.
   '/dictate.js',
+  // What the URL hash means — a view, a card to open on Home, or nothing. In the shell
+  // because the two files below and above it call into it flat on boot: the row asks it
+  // which view this address is, and the inbox asks it whether the hash names a card. A
+  // page cached without it is a page that throws before it draws.
+  '/hashroute.js',
   // The pill row across the top of every page. Every one of them is useless without it
   // — it is the only way off a page — so it belongs in the shell rather than being
   // fetched once per page over a phone link.

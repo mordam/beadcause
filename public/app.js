@@ -10020,10 +10020,25 @@
     if (kinds.length && !kinds.includes('pr')) f.set([...kinds, 'pr']);
   }
 
-  /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
+  /**
+   * #workspace/id from an ntfy notification tap, or the Android shell's deep link.
+   *
+   * The hash is not this page's alone any more — bc-khoe.30 makes it how you move
+   * between views as well — so what a hash *is* comes from public/hashroute.js rather
+   * than from a decode here. Only a card is ours; a view name and a hash nobody minted
+   * both leave without touching anything.
+   *
+   * That is not tidiness. This function used to read every hash as a key, and the
+   * not-found branch below widens a persisted scope filter and reloads — so `/#history`,
+   * landing on Home under the old code, silently changed a filter on its way to doing
+   * nothing at all. The rescue is for a deep link to a card the current scope hides; it
+   * now only ever sees one.
+   */
   let hashHandled = '';
   async function focusHash() {
-    const key = decodeURIComponent(location.hash.replace(/^#/, ''));
+    const at = window.beadcause.route.parse(location.hash);
+    if (at.kind !== 'card') return;
+    const key = at.key;
     if (!key || key === hashHandled) return;
     // Before `byKey`, which reads the board rather than the filtered list and so finds a
     // pull request whether or not the chips would draw it. `expand` below is what would

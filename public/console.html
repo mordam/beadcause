@@ -164,6 +164,11 @@
        had, the other keeps it true. -->
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
+  <!-- What the URL hash means: a view, a card to open on Home, or nothing (bc-khoe.30.2).
+       Before viewbar.js and app.js because both read the answer out of it rather than
+       parsing the hash themselves, and a page that loaded them without it would have a
+       row that cannot say which view it is on and a notification tap that throws. -->
+  <script src="/hashroute.js"></script>
   <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one
