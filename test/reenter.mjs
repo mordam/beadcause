@@ -23,6 +23,12 @@
  * 3. **A stall is measured in windows, not timestamps.** `updated_at` is bumped by a
  *    comment and not by a session dying, so the state under test is "the tracker says
  *    in_progress and nothing on this Mac is in a window on it", which needs two sweeps.
+ * 4. **The two endings the brief asks for look exactly like that stall.** A delivered bead
+ *    and a handed-back bead are both left `in_progress`, assigned, with a lease that
+ *    expires — so the sweep reported every worker that did what it was told, and the two
+ *    halves have to be held apart from each other *and* from a window that really did die
+ *    (bc-xl7n.98). Getting this wrong is not visible either: it is an unattended window
+ *    opened on a bead nothing was wrong with.
  *
  * The tick half injects `openAdvocate`, so a case that would have opened an iTerm window
  * pushes a record onto an array instead. No iTerm, no `bd`, no agent, and nothing written
@@ -49,7 +55,8 @@ const REPO = path.join(tmp, 'projects', 'alpha');
 fs.mkdirSync(SESSIONS, { recursive: true });
 fs.mkdirSync(REPO, { recursive: true });
 
-const { advocatedRoots, reentryFor, REENTER_DEFAULTS } = await import(LIB('reenter.js'));
+const { advocatedRoots, handedBack, reentryFor, waitingOnMerge, REENTER_DEFAULTS } = await import(LIB('reenter.js'));
+const { pairKey } = await import(LIB('ancestry.js'));
 const { ADVOCATE_LABEL, WAITING_OPEN, WAITING_CLOSE, forgetAdvocateOpened } = await import(LIB('epicadvocate.js'));
 const { leaseLabel } = await import(LIB('lease.js'));
 const { createAdvocates } = await import(LIB('advocate.js'));
@@ -81,24 +88,52 @@ const p0 = (id, over = {}) =>
 const assigned = (id, over = {}) =>
   p0(id, { notes: '', labels: [OWNER, ADVOCATE_LABEL], ...over });
 
-/** `{ parents, beads }` the way `Bd.graph` answers it, off a flat list of rows. */
-function index(rows, edges = {}) {
+/**
+ * `{ parents, beads, edges }` the way `Bd.graph` answers it, off a flat list of rows.
+ *
+ * `deps` is `[from, to, type]` triples, keyed the way lib/ancestry.js keys them — on the
+ * *unordered* pair, because bd holds one edge per pair whatever its direction or type. The
+ * delivery half of the stall test reads exactly that map, and a fixture that keyed it by
+ * `from~to` would have made a reversed edge look like a different one rather than the same
+ * one pointing the other way, which is the case worth pinning.
+ */
+function index(rows, parentOf = {}, deps = []) {
   const beads = new Map(rows.map((r) => [r.id, r]));
-  const parents = new Map(Object.entries(edges));
-  return { parents, beads };
+  const parents = new Map(Object.entries(parentOf));
+  const edges = new Map(deps.map(([from, to, type = 'blocks']) => [pairKey(from, to), { type, from, to }]));
+  return { parents, beads, edges };
 }
 
-/** The shape every case below is about: one enrolled P0 with three children. */
-const subtree = (over = {}) =>
+/**
+ * The shape every case below is about: one enrolled P0 with three children.
+ *
+ * `extra` rows sit *outside* the subtree — a delivery card is not a child of the epic the
+ * work hangs off, and putting one under the P0 would have the stall cases quietly testing a
+ * four-child tree.
+ */
+const subtree = (over = {}, deps = [], extra = []) =>
   index(
     [
       p0('x-1', over.p0 || {}),
       bead('x-1.1', over['x-1.1'] || {}),
       bead('x-1.2', over['x-1.2'] || {}),
       bead('x-1.3', over['x-1.3'] || {}),
+      ...extra,
     ],
-    { 'x-1.1': 'x-1', 'x-1.2': 'x-1', 'x-1.3': 'x-1' }
+    { 'x-1.1': 'x-1', 'x-1.2': 'x-1', 'x-1.3': 'x-1' },
+    deps
   );
+
+/**
+ * A bead of the kind bin/deliver.js files and parks the work behind — open and waiting.
+ *
+ * Labels are passed in rather than assumed, because the two are not labelled alike and the
+ * difference is load-bearing: a `pr-delivery` card is `human` (it is a question), a
+ * `merge-queue` bead is not (it is the queue's). The *work* bead is neither — `park` is
+ * called with `label: false` precisely so nothing strands it in the inbox — which is what
+ * makes the delivery half a real second answer rather than the `human` test twice.
+ */
+const card = (id, labels, over = {}) => bead(id, { labels, priority: 1, ...over });
 
 let failures = 0;
 let ran = 0;
@@ -286,6 +321,131 @@ await check('a stall that resolved can stall again', () => {
   const again = reentryFor(picked.record, stalled(), { now: t0 + 80 * 60000 });
   assert.equal(again.reason, null, 'the clock restarts');
   assert.match(reentryFor(again.record, stalled(), { now: t0 + 200 * 60000 }).reason, /in progress for over 1h/);
+});
+
+/* ------------------------------------- the two endings that are not stalls (bc-xl7n.98) */
+
+const IN_PROGRESS = { kids: { 'x-1.1': 'open', 'x-1.2': 'in_progress', 'x-1.3': 'open' } };
+const T0 = Date.parse('2026-08-18T00:00:00Z');
+/** Two sweeps an hour apart, which is what a stall needs before it is reported at all. */
+const twoSweeps = (make, opts = {}) => {
+  const first = reentryFor(IN_PROGRESS, treeOf(make()), { ...opts, now: T0 });
+  return reentryFor(first.record, treeOf(make()), { ...opts, now: T0 + 61 * 60000 });
+};
+
+await check("a handed-back child is not a stall — the question is Adam's to answer", () => {
+  // bc-xl7n.25: the daemon's own log said it had handed the bead back, and the next sweep
+  // reported it to this epic's advocate as in progress with nobody in a window on it. Both
+  // sentences were true, and only one of them was worth a window.
+  const asked = () => subtree({ 'x-1.2': { status: 'in_progress', labels: ['human'] } });
+  assert.equal(twoSweeps(asked).reason, null, 'a question on the bead is not a dead window');
+  assert.deepEqual(twoSweeps(asked).record.stalls, {}, 'and it is not on the clock either');
+
+  // The free half is exactly one label, asked of the row the sweep already has in its hand.
+  assert.equal(handedBack({ labels: ['human'] }), true);
+  assert.equal(handedBack({ labels: ['owner:adam@example.com'] }), false);
+  assert.equal(handedBack({}), false);
+
+  // And the moment the answer lands the label comes off, so the clock starts again: a
+  // window that died *after* its question was answered is a stall like any other.
+  const answered = () => subtree({ 'x-1.2': { status: 'in_progress' } });
+  assert.match(twoSweeps(answered).reason, /`x-1\.2` has been in progress for over 1h/);
+});
+
+await check('a delivered child is not a stall — its pull request is waiting on a tap', () => {
+  // bc-8t3b: #426 open, the worktree live, a `pr-delivery` card open beside it — and the
+  // work bead carrying no `human` label at all, because `park` is called with
+  // `label: false`. The half above cannot see this one, which is why there are two.
+  const delivery = () =>
+    subtree(
+      { 'x-1.2': { status: 'in_progress' } },
+      [['x-1.2', 'q-1']],
+      [card('q-1', ['human', 'pr-delivery'])]
+    );
+  assert.equal(
+    handedBack(treeOf(delivery()).find((r) => r.id === 'x-1.2')),
+    false,
+    'the card is the `human` one; the work bead is deliberately not'
+  );
+  assert.equal(
+    twoSweeps(delivery, { delivered: waitingOnMerge(delivery()) }).reason,
+    null,
+    'a pull request waiting on a tap is not a dead window'
+  );
+
+  // The queue's own bead is the other half of the same structure, and it is not `human`.
+  const queued = () =>
+    subtree({ 'x-1.2': { status: 'in_progress' } }, [['x-1.2', 'm-1']], [card('m-1', ['merge-queue'])]);
+  assert.equal(twoSweeps(queued, { delivered: waitingOnMerge(queued()) }).reason, null);
+
+  // And when the merge lands that bead closes, so the clock restarts — a window that died
+  // after its delivery was answered is a stall like any other.
+  const merged = () =>
+    subtree(
+      { 'x-1.2': { status: 'in_progress' } },
+      [['x-1.2', 'm-1']],
+      [card('m-1', ['merge-queue'], { status: 'closed' })]
+    );
+  assert.match(
+    twoSweeps(merged, { delivered: waitingOnMerge(merged()) }).reason,
+    /`x-1\.2` has been in progress for over 1h/,
+    'an answered delivery holds nothing'
+  );
+});
+
+await check('a dead window with no pull request and no question is still reported', () => {
+  // The failure the sweep exists for, and the one thing neither half above may swallow.
+  const dead = () => subtree({ 'x-1.2': { status: 'in_progress' } });
+  assert.match(twoSweeps(dead, { delivered: waitingOnMerge(dead()) }).reason, /in progress for over 1h/);
+
+  // A blocker that is not a delivery is not one: a bead waiting on an ordinary question,
+  // or on another piece of work, is still a claim nobody is in a window on.
+  const other = () =>
+    subtree({ 'x-1.2': { status: 'in_progress' } }, [['x-1.2', 'q-9']], [card('q-9', ['human'])]);
+  assert.match(
+    twoSweeps(other, { delivered: waitingOnMerge(other()) }).reason,
+    /in progress for over 1h/,
+    'the label on the blocker is what says "delivery" — not the bare fact of being blocked'
+  );
+});
+
+await check('what `waitingOnMerge` will and will not call a delivery', () => {
+  const row = (id) => ({ id });
+  const built = (deps, extra) =>
+    waitingOnMerge(subtree({ 'x-1.2': { status: 'in_progress' } }, deps, extra));
+
+  assert.equal(built([['x-1.2', 'q-1']], [card('q-1', ['human', 'pr-delivery'])])(row('x-1.2')), true);
+  assert.equal(built([['x-1.2', 'm-1']], [card('m-1', ['merge-queue'])])(row('x-1.2')), true);
+
+  // Closed: the card was answered or the merge landed, and this bead is on its own again.
+  assert.equal(
+    built([['x-1.2', 'q-1']], [card('q-1', ['human', 'pr-delivery'], { status: 'closed' })])(row('x-1.2')),
+    false
+  );
+  // A `relates-to` to a delivery card is a mention, not a park. Only the edge `bd dep add`
+  // writes takes a bead out of the queue, so only that edge answers here.
+  assert.equal(
+    built([['x-1.2', 'q-1', 'relates-to']], [card('q-1', ['human', 'pr-delivery'])])(row('x-1.2')),
+    false
+  );
+  // Direction: the *work* is parked behind the card, never the other way about. The pair
+  // key is unordered, so this is the case a `from~to` key would quietly have got right for
+  // the wrong reason.
+  assert.equal(
+    built([['q-1', 'x-1.2']], [card('q-1', ['human', 'pr-delivery'])])(row('x-1.2')),
+    false,
+    'a card blocked by the work is not the work blocked by a card'
+  );
+  // A blocker the index has never heard of cannot be read as open: the card is filed into
+  // the same workspace as the work by construction, so a miss here is a broken export.
+  assert.equal(built([['x-1.2', 'gone']], [])(row('x-1.2')), false);
+
+  // An index with no edges at all — `Bd.graph` after a failed export, and every fixture in
+  // this file that only ever cared about parents — answers "nothing is delivered", which
+  // is the direction where a real stall is still reported.
+  assert.equal(waitingOnMerge({ beads: new Map(), edges: new Map() })(row('x-1.2')), false);
+  assert.equal(waitingOnMerge(null)(row('x-1.2')), false);
+  assert.equal(waitingOnMerge({ beads: new Map([['x-1.2', bead('x-1.2')]]) })(row('x-1.2')), false);
 });
 
 await check('the rate limit is stated in the module that argues for it', () => {
@@ -634,6 +794,56 @@ await check('a stalled child is not stalled while this advocate holds a worker o
   const loose = await tick({ graph: stalling, advocated: { 'x-1': seen } });
   assert.equal(loose.opened.length, 1, 'and with nobody on it, an hour old, it is a stall');
   assert.match(loose.opened[0].reason, /in progress for over 1h/);
+});
+
+await check('a live lease on a *child* holds the stall too — that window is on another Mac', async () => {
+  // The arm of `busy` the sweep's own sentence has always claimed and could not check: the
+  // tree rows it is asked about are `treeUnder`'s, which carry no labels, so `leasesOf`
+  // answered `[]` for every child however fresh the lease was. `labelled` in lib/reenter.js
+  // is what puts them back. The epic itself never had the gap — `busy(epic)` is handed a
+  // bead off the index — which is why nothing here caught it before.
+  const seen = { kids: { 'x-1.1': 'open', 'x-1.2': 'in_progress', 'x-1.3': 'open' }, stalls: { 'x-1.2': 1 }, at: LONG_AGO };
+  const leased = await tick({
+    graph: subtree({ 'x-1.2': { status: 'in_progress', labels: [leaseLabel('other-mac', new Date())] } }),
+    advocated: { 'x-1': seen },
+  });
+  assert.deepEqual(leased.opened, [], 'another Mac is in a window on it');
+  // And a lease from a fortnight ago is not a window, so the stall stands.
+  const stale = await tick({
+    graph: subtree({
+      'x-1.2': { status: 'in_progress', labels: [leaseLabel('other-mac', new Date(Date.parse('2020-01-01T00:00:00Z')))] },
+    }),
+    advocated: { 'x-1': seen },
+  });
+  assert.equal(stale.opened.length, 1);
+  assert.match(stale.opened[0].reason, /in progress for over 1h/);
+});
+
+await check('the two endings hold the stall through the whole tick, and nothing else does', async () => {
+  // The seam this bead is actually about: `waitingOnMerge` is built inside `reenter` off
+  // the index it already has, so a case that only drove `reentryFor` would pass with the
+  // daemon still opening the window.
+  const seen = { kids: { 'x-1.1': 'open', 'x-1.2': 'in_progress', 'x-1.3': 'open' }, stalls: { 'x-1.2': 1 }, at: LONG_AGO };
+
+  const asked = await tick({
+    graph: subtree({ 'x-1.2': { status: 'in_progress', labels: ['human'] } }),
+    advocated: { 'x-1': seen },
+  });
+  assert.deepEqual(asked.opened, [], 'a question on the bead is Adam\'s to answer, not a supervisor\'s');
+
+  const delivered = await tick({
+    graph: subtree(
+      { 'x-1.2': { status: 'in_progress' } },
+      [['x-1.2', 'q-1']],
+      [card('q-1', ['human', 'pr-delivery'])]
+    ),
+    advocated: { 'x-1': seen },
+  });
+  assert.deepEqual(delivered.opened, [], 'a pull request waiting on a tap is not a dead window');
+
+  const bare = await tick({ graph: subtree({ 'x-1.2': { status: 'in_progress' } }), advocated: { 'x-1': seen } });
+  assert.equal(bare.opened.length, 1, 'and the failure the sweep exists for still opens one');
+  assert.match(bare.opened[0].reason, /in progress for over 1h/);
 });
 
 await check('a paused advocate opens no windows of any kind', async () => {

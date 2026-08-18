@@ -5281,6 +5281,33 @@ failure: a bead claimed by a session that died, sitting `in_progress` with nobod
 back. It takes two sweeps to fire, because the clock starts the first time the state is
 seen — which is also what stops a launch racing the sweep and reading as a stall.
 
+**And the two endings that look exactly like one and are not.** A worker window has three
+endings it can reach without exiting, and the daemon names two of them where it writes
+them down: **delivered** — the merge was refused or the session asked for review, so a pull
+request is waiting on a tap — and **handback** — it needs a decision, so the question is on
+the bead under a `human` label. Both leave the bead open on purpose, and both also leave it
+`in_progress`, assigned, with a lease that then expires, which is character for character
+the state above. So every bead that reached one of the two endings the brief *asked* for
+was reported to its epic's advocate as a stall. Both fired on `bc-xl7n` inside one day and
+both were false: `bc-8t3b`, whose pull request was open with its delivery card open beside
+it, and `bc-xl7n.25`, which the daemon's own log said it had handed back. Neither is a
+loop — a bead fires once per stall episode — but each one is a whole unattended window
+opened on a false alarm, and until the question is answered or the branch merges the bead
+sits in every later brief's child list as `in_progress` for the advocate to disambiguate by
+hand.
+
+Both answers are free, off what the sweep already reads. The handback half is one label on
+a row it has in its hand. The delivery half is the same cached `bd export`: delivery is
+*structural*, because `beadcause-deliver` parks the work bead behind whichever bead it
+filed — `pr-delivery` when the merge is yours to make, `merge-queue` when the queue's —
+with a `blocks` edge, since the close gate refuses a bead with an open blocker and that is
+what stops a worker closing its own work. So a `blocks` edge to an open bead carrying one
+of those two labels *is* an open delivery, without asking GitHub anything, and it stops
+being one the moment the card is answered or the merge lands — which is exactly when the
+bead should be able to stall again. A dead window with no pull request and no question is
+untouched by either: that is the real failure, and it still fires. Fifteen `in_progress`
+beads on this tracker were sitting behind an open delivery card the day this landed.
+
 **What bounds it**, since this spends unattended windows that file beads:
 
 | bound | default | why |
@@ -18177,7 +18204,9 @@ answered out of memory; one that spawned something paid for it. That needs no ed
 cache's call site, and it is honest about the case that matters — a miss is a miss whether
 the code around it thinks of itself as cached or not. A route that knows better can say so
 (the stale-while-revalidate layer answers from memory *and* refreshes behind it, and filed
-as cold it would make the fastest kind of request there is look like the slowest).
+as cold it would make the fastest kind of request there is look like the slowest). When
+several reads in one request each say something different, [the coldest one
+wins](#a-request-is-as-cold-as-its-coldest-read).
 
 **Nothing had to be threaded through for the subprocess half**, which is why it is an
 `AsyncLocalStorage` and not a parameter. `bd` is called from a few hundred places and they
@@ -18227,6 +18256,57 @@ child, so it is *warm* by the derivation — and it has no cold samples at all. 
 the list on the cold p95 would have dropped the only genuinely slow route on that page
 out of the one list whose job is to name slow routes. The list has always been the worse
 of the two; for a while the heading over it said `cold p95`, which is what bc-fg37 fixed.
+
+### A request is as cold as its coldest read
+
+The three words used to be a scalar that each read overwrote, which is exactly right
+while a route reads one key — and it stopped being right the moment the routes this
+instrument exists to judge began fanning out. One `/api/questions` calls the shared cache
+about **thirty** times: `questions:`, `foundation:` and `agentbeads:`, once each per
+workspace, against the ten workspaces configured here. They go out under one
+`Promise.all`, so thirty writes to one field landed in whatever order they came home in,
+and the word that survived was whichever read finished last.
+
+**A single request mixing temperatures is the designed state here, not an edge case.**
+The change detector re-sweeps `questions:` on its own tick with `refresh: true`, so the
+daemon keeps that key warm without any request paying for it — and `foundation:` and
+`agentbeads:` have no such tick and stand on the ten-second window alone. So the ordinary
+`/api/questions` is ten warm reads racing twenty that may be cold, and which of
+the three families got to name the request was a coin toss.
+
+What that produced, off the live daemon on 2026-08-17:
+
+```
+[beadcause] slow GET /api/questions 47842ms stale — 47402ms of it waiting on 4 child process(es) (bd 86977ms of work), ours 440ms
+[beadcause] slow GET /api/questions 18419ms stale — 18364ms of it waiting on 4 child process(es) (bd 22857ms of work), ours 55ms
+```
+
+Those lines cannot be true. A stale hit answers out of memory and starts its refresh
+`detached`, so it is *incapable* of spending forty-seven seconds of the request's own
+wall clock — the number and the word next to it describe different requests. What
+actually happened is that the request paid a cold producer on at least one key and was
+then relabelled by a warmer read that came home later.
+
+**The direction is what makes it worth a fix rather than a footnote.** The mislabelling
+runs the flattering way: it moves the *worst* samples out of `cold` and into `stale`, the
+column this page calls the fastest kind of request there is. `overBudget` is filtered on
+those buckets, so the fan-out that made a route slow was also what excused it — and every
+figure quoted on this P0's children between the shared cache landing and this being fixed
+was read off them. Suspect in a known direction, which is worse than noisy.
+
+So `cache()` escalates instead of assigning: **cold beats stale beats warm**, and a read
+can only ever lower the temperature the request already holds. One comparison, no new
+field, and it says the honest thing — a single cold key in a fan-out *is* what the user
+waited for. It is done there rather than by having `allQuestions` report once at the end
+because the same shape is behind `/api/work` (`work:` per workspace) and `/api/prs`
+(`board:` plus `prs:` per checkout), and a per-caller fix would have to be re-derived at
+each of them and again at the next one. It does not touch the derivation: a route that
+declares `warm` is still believed over a subprocess count that would derive `cold`.
+
+**Expect the numbers to get worse on the day this lands, and that is the bug leaving.**
+Every fanned-out route moves samples back from `stale` into `cold`, so figures quoted
+before it are not comparable with figures quoted after — the earlier ones were flattered.
+Nothing about the app got slower.
 
 ### What it found the first time it ran
 
@@ -21324,6 +21404,8 @@ to be one.
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.flagNotInMain` | [file a finding about a **closed** bead whose own `worktree-*` branch never reached `main`](#the-bead-that-is-closed-over-a-branch-that-never-reached-main) (default `true`). The one sweep here whose failure costs the work rather than a window. It closes, reopens, merges and pushes nothing: the finding is a new bead in the inbox, because a card on a closed bead is never rendered |
 | `advocates.notInMainIntervalMinutes` | how often that looks (default 60). Hourly rather than ten-minutely because it is the only sweep that reads *closed* beads — half a megabyte of `bd list` — and spends a `gh pr list` per branch git says never landed. The follow-up that re-asks about cards already filed rides the same clock, for the same reason |
+| `advocates.flagFinishedEpics` | give an epic whose children have **all closed** a card instead of a worker window (default `true`). The failure it fixes is a window opened on an epic with no diff left to deliver, whose only honest ending was a hand-written card anyway — this offers the same card for free, before the window opens. Like `flagInMain` it writes the `human` label *before* the survey two lines down, so the epic is out of the queue in the same tick rather than the next one |
+| `advocates.finishedEpicIntervalMinutes` | how often that looks (default 10). One `bd ready --json` per repo plus one `bd list --parent` per epic it finds. An epic finishing is not an event anything else here watches for, so ten minutes is cheap relative to how rarely the answer changes. A sweep that throws is swallowed and recorded — it is a courtesy on top of the tick and may not take the advocate's queue down with it |
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
