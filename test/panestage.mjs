@@ -108,8 +108,29 @@ function pane(id, { pending = null } = {}) {
   return el;
 }
 
-/** Let every resolved promise and every zero-delay timer run. */
-const settle = (n = 5) => new Promise((r) => setTimeout(r, n));
+/**
+ * Let every resolved promise and every zero-delay timer run — counted in *turns of the
+ * timer queue*, never in milliseconds.
+ *
+ * The distinction is the whole of why this is not a `setTimeout(r, 5)`, and it cost main a
+ * red on the day this suite landed. What the deepest assertion here waits for is a chain of
+ * four timers, each one scheduled by the one before it: the frame callback queues a task,
+ * that task queues one build per pane, the build widens the union, and `repark` in
+ * public/stream.js goes round again through a timer of its own — deliberately, because an
+ * abort rejects a promise the loop is still awaiting and a straight `stop(); start()` finds
+ * `following` still true. Four hops of `setTimeout(…, 0)` is four milliseconds at Node's
+ * one-millisecond clamp, so a five-millisecond sleep cleared it by a single millisecond on
+ * an idle Mac and by nothing at all on a loaded CI runner: `a union that widens after the
+ * mount re-parks the one poll` failed on GitHub while passing everywhere it was written.
+ *
+ * Awaiting a zero-delay timer N times instead waits for N passes of the timer phase however
+ * long each one takes, because a timer scheduled *during* a pass is not due until the next
+ * one. Three turns is what the deepest chain needs today; the default is generous so that a
+ * fifth hop added later fails on its merits rather than on the machine it ran on.
+ */
+const settle = async (turns = 8) => {
+  for (let i = 0; i < turns; i += 1) await new Promise((r) => setTimeout(r, 0));
+};
 
 /**
  * The four real files in one room, with the document still parsing.
