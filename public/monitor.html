@@ -24,14 +24,22 @@
   <header class="topbar">
     <div class="brand">
       <span class="dot" id="pulse"></span>
-      <!-- One word, and the space picker two elements along says which space. It read
-           "Space" while this page held that space's settings; with those on /config the
-           heading and the pill that reaches this page say the same word again, which is
-           the whole of what a heading on a phone is for. -->
+      <!-- One word, and the space picker two elements along says which space. There was
+           no title here at all for a day (bc-mtdb): the word was "Space", the picker
+           beside it already read "Personal" or the repo name, and a heading naming the
+           noun that the control next to it is an instance of spends the width a 360px
+           phone has least of on something the reader already knows. That argument is
+           about the word, not about having one — the other standing views keep theirs
+           (History, Endorse, Requirements) because those name the *page*, which is not
+           what the picker says. With the settings on /config this page is the advocates
+           and their sessions again, so the word names the page too, and it is the same
+           word as the pill that reaches it. -->
       <h1>Advocates</h1>
       <!-- Filled in only on an observer instance — see OBSERVING in lib/config.js.
-           It sits next to the title rather than in the actions, because it is a fact
-           about which daemon this is, not a control. -->
+           It sits in `.brand` with the mark rather than in the actions, because it is a
+           fact about which daemon this is, not a control. That puts it beside the page
+           title, which is where every other page that carries it puts it — it sat beside
+           the picker only for as long as this page had no title. -->
       <span class="observing" id="observing" hidden>⦿ observing</span>
     </div>
     <div class="sheet-actions">
@@ -116,6 +124,10 @@
        other script, because it can only catch what loads after it — and it is purely
        additive, so a page that fails to load it behaves exactly as it did before. -->
   <script src="/report.js"></script>
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
   <!-- Whether what you are looking at is current, and the banner that says when it is
        not. Loaded on every page with a top bar, because the state it reports is a page
        that has stopped repainting — which no page can report from inside its own render.

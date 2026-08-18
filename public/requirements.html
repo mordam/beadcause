@@ -39,6 +39,10 @@
   </main>
 
   <script src="/report.js"></script>
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
   <!-- Whether what you are looking at is current, and the banner that says when it is
        not. Loaded on every page with a top bar, because the state it reports is a page
        that has stopped repainting — which no page can report from inside its own render.

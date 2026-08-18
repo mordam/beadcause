@@ -45,7 +45,9 @@
   - **`hidden()`** is whether the group's chips are on screen at all. The inbox's PR
     status group is offered only while `PRs` is selected. Hidden rather than removed, so
     the panel does not rebuild under the pointer and the chips are still there for the
-    summary line to read.
+    summary line to read. **When every group is hidden and none is `said()`, the whole
+    control hides** — the inbox's `Chats` pill can use none of them, and a summary line
+    that opens an empty box is worse chrome than no line.
   - **`said()`** is whether the summary line mentions it, and it is deliberately *wider*
     than `hidden()`. A narrowing that is still applied while its chips are off screen is
     the one thing a filter control must never do quietly.
@@ -490,6 +492,18 @@
       for (const g of live) paintGroup(g);
       ui.sel.textContent = summaryText();
       ui.root.classList.toggle('narrowed', Boolean(narrowed()));
+      // **A control with nothing in it goes away entirely** (bc-khoe.3). The inbox's
+      // groups are a function of the pill that is lit, and `Chats` can use none of them
+      // — a chat is under no bead and has no status — so what would be left is a
+      // summary line that opens an empty box. Whichever of the two is true is enough to
+      // keep it: a group whose chips are off screen while its narrowing is still biting
+      // is exactly what the line is for.
+      //
+      // The History tab's groups declare no `hidden` and no `said`, so `shown` is true
+      // for all four and this never fires there.
+      const gone = !live.some(shown) && !live.some(said);
+      if (gone) setOpen(false);
+      ui.root.hidden = gone;
     }
 
     function pick(g, id) {

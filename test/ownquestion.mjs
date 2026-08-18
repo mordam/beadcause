@@ -410,9 +410,9 @@ try {
 
   await check('a pull request stays only when it names no bead at all', () => {
     // Its key is `pr:<repo>#<n>`, which is no bead's id, so the server never marks one —
-    // and the client asks the PR rule first regardless, which is what this pins. Since
-    // bc-rfnr.9.7 a pull request naming *any* bead is a row about a bead: yours, drawn in
-    // its epic's tree, or somebody else's, which bc-rfnr.2 already hid.
+    // and the client asks the PR rule ahead of both ancestry tests regardless, which is
+    // what this pins. Since bc-rfnr.9.7 a pull request naming *any* bead is a row about a
+    // bead: yours, drawn in its epic's tree, or somebody else's, which bc-rfnr.2 hid.
     for (const key of Object.keys(board.unhomed)) {
       assert.ok(!key.includes('pr:'), `${key} is not a bead row and has no ancestry to claim`);
     }
@@ -420,6 +420,19 @@ try {
     const rows = [pr(1, ['zz-theirs.1']), pr(2, []), pr(3, ['zz-p0.9'])];
     const poisoned = { ...board, unhomed: { ...board.unhomed, 'pr:acme/thing#1': true } };
     assert.deepEqual(drawn(rows, poisoned), ['pr:acme/thing#2']);
+  });
+
+  await check('UNLESS ITS CARD IS OPEN — bc-rfnr.9.5', () => {
+    // The open-card rule is above the pull request rule and not below it, and until
+    // bc-rfnr.9.5 it was below. A pull request naming a bead was filtered out
+    // unconditionally, so opening one — from the board page's `Full view`, from a
+    // notification, or from the new control on the bead itself — put a full-screen sheet
+    // up over a row `render` had already dropped, and nothing came up at all. The
+    // comment on that line always claimed it went first; the order is what this pins.
+    const pr = (n, beads) => ({ key: `pr:acme/thing#${n}`, workspace: 'alpha', pr: { beads } });
+    const rows = [pr(1, ['zz-p0.9']), pr(2, ['zz-p0.9'])];
+    assert.deepEqual(drawn(rows, board), [], 'the board still narrows them when nothing is open');
+    assert.deepEqual(drawn(rows, board, ['pr:acme/thing#1']), ['pr:acme/thing#1']);
   });
 
   await check('and none of it applies to an install that owns no P0 — the flat list, untouched', () => {

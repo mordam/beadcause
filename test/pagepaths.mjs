@@ -168,6 +168,11 @@ const PAGES = [
   // are, which is what somebody types. Not `/space`: that reads as the picker rather than
   // as the thing the picker selects.
   { what: "the space's settings", marker: '/config.js', paths: ['/config', '/settings', '/config.html'] },
+  // The skill library and whether anything uses it (bc-dgx7.5). Two paths, because the
+  // page is reached both by what it holds and by what the programme calls the things
+  // waiting to become one. No pill claims either, which is the recorded decision in
+  // public/viewbar.js for a page you read when you are arguing about the system.
+  { what: 'the skills view', marker: '/skills.js', paths: ['/skills', '/candidates', '/skills.html'] },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
