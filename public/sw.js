@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v83';
+const CACHE = 'beadcause-v84';
 const SHELL = [
   '/',
   '/index.html',
@@ -68,6 +68,11 @@ const SHELL = [
   // the one page that is the app, it runs on boot, and a page cached without it is a page
   // whose views are three divs with no rule about which of them is up.
   '/panes.js',
+  // And what fills them: the staged boot that builds the landed-on pane first and the
+  // rest after the first paint, and the one poll it fans out to all of them. In the shell
+  // beside panes.js and for the same reason — it runs on boot on the one page that is the
+  // app, and a page cached without it is a page whose panes never get built at all.
+  '/panestage.js',
   // The pill row across the top of every page. Every one of them is useless without it
   // — it is the only way off a page — so it belongs in the shell rather than being
   // fetched once per page over a phone link.
