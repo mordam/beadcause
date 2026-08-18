@@ -292,6 +292,16 @@
        twelve and only this one has panes to swap, which is why the row reaches for it
        with `?.` and for the grammar flat. See panes.js. -->
   <script src="/panes.js"></script>
+  <!-- What goes *in* those panes, and when (bc-khoe.30.4). After panes.js, whose `onShow`
+       it hangs the safety net on and whose `showing()` is what "the view you landed on"
+       means; before every pane's own script, because each of them registers its builder
+       with this file as it loads and the staged pass runs once they all have. A page
+       without it is a page whose scripts build themselves at load, which is what they all
+       did before — the register call answers false and each falls back. Named bare, with
+       no leading slash, for the reason every other comment in this file is: the wiring
+       check in test/inboxkinds.mjs finds script tags with indexOf, and panestage.js
+       spelled the other way up here would move its answer. -->
+  <script src="/panestage.js"></script>
   <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one

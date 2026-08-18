@@ -74,9 +74,12 @@
     // the screen, because the two are opposite claims about the list below them — see
     // `syncTroubleHtml`.
     syncTrouble: [],
-    // The board (bc-rfnr.2): `{ roots[], under, unhomed, owned }` — which epics carry your
-    // `owner:<handle>`, and for every other row the id of the root it descends from, or
-    // (bc-i7tw) the fact that no root anywhere has it, which is drawn rather than hidden.
+    // The board (bc-rfnr.2): `{ roots[], under, unhomed, assigned, owned }` — which epics
+    // carry your `owner:<handle>`, and for every other row the id of the root it descends
+    // from, or (bc-i7tw) the fact that no root anywhere has it, which is drawn rather than
+    // hidden. `assigned` is the kind pills' own narrowing (bc-khoe.29) and the one field
+    // here keyed by *bead* rather than by row: `<workspace>/<id>` for every bead of yours
+    // and everything under one, so a pull request can be judged by the beads it names.
     // `owned: false` is what an install with no `me` answers, and it means the whole
     // section and the whole filter are off: the inbox is the flat list it always was.
     // **`rootboard`, not `board`** — `state.board` is the *pull request* board (`prRows`
@@ -85,7 +88,7 @@
     // Its own object rather than fields on the rows, because the *absence* of a row from
     // `under` is the filter — and a row that arrived before the board did must not read
     // as one with nothing decided above it. See `rootBoard` in lib/server.js.
-    rootboard: { roots: [], startable: [], under: {}, unhomed: {}, owned: false },
+    rootboard: { roots: [], startable: [], under: {}, unhomed: {}, assigned: {}, owned: false },
     // Epics this phone has just launched an advocate on, `key -> ms`. The server records
     // the same fact (`advocateOpened` in lib/server.js) and is the authority the moment
     // its answer arrives; this covers the seconds before it does, so the card cannot
@@ -5703,6 +5706,78 @@
   }
 
   /**
+   * What a kind pill draws. bc-khoe.29, and it is `underOwnedRoots`' question asked from
+   * a screen the board is not on.
+   *
+   * **The two are not variants of one filter and the difference is the board's presence.**
+   * `underOwnedRoots` above *removes* what the trees are already drawing — it is a
+   * de-duplication, and every word of its reasoning is "not drawn again underneath it".
+   * bc-khoe.28 took the board off every pill but My Epics, so under Questions, PRs, Chats
+   * and All Beads there are no trees, nothing is being drawn twice, and a list narrowed by
+   * that rule is narrowed against a screen that is not there: the commonest row in the
+   * tracker — a question on a bead in an epic of yours you have started — is removed from
+   * the one pill whose whole job is to show it.
+   *
+   * **So this one is a positive rule.** A row stays if its bead is yours, or descends from
+   * one of yours, at any depth — `assigned` on the payload, computed off `owner:<handle>`
+   * and the `parent-child` edges in lib/server.js, because ancestry is a `bd export` and
+   * a graph walk and neither belongs on a phone. Two gates the board's map has and this
+   * one deliberately does not: the bead above does not have to be a *root* (a question on
+   * a task of yours is yours), and it does not have to have been *started* (bc-6s96 is a
+   * rule about which epics lead the screen, not about which questions exist).
+   *
+   * **`under` is unchanged and still means what it meant.** The board narrows itself with
+   * it, `underOwnedRoots` still reads it, and this is a sixth field beside it rather than a
+   * widening of it — two questions with different answers on the same graph, which is the
+   * same reason `unhomed` is not a sentinel value inside `under`.
+   *
+   * **Keyed by bead, so a pull request follows its beads properly for the first time.**
+   * `underOwnedRoots` cannot tell your bead from a stranger's here — its map is per row and
+   * a pull request has no row of its own in it — so it drops every pull request naming any
+   * bead at all, which on the PRs pill is very nearly all of them. `assigned` is keyed
+   * `<workspace>/<id>`, exactly as `inBead` keys the same lookup, so the rule is the one
+   * the bead asks for: yours if any bead it names is yours, and kept if it names none,
+   * because nothing else on this screen can hold that row.
+   *
+   * **Four things are kept whatever the ownership says, and all four are the older rules
+   * rather than new hedges.** A chat has no bead, and it is where a new epic gets filed. A
+   * JIRA ticket has no bead until bc-0i27.4 files one. An open card is a full-screen sheet
+   * built out of a list row, so filtering the row away empties the sheet the reader is
+   * looking at — first, ahead of every other test, for the reason `underOwnedRoots` says at
+   * length. And `unhomed` is bc-i7tw: a bead with no root above it *anywhere* is on no
+   * other screen in the app, which is the one failure this inbox exists to prevent — the
+   * question you filed from your own phone thirty seconds ago has no owner label and no
+   * parent, and it is not "under somebody else's bead", it is under nothing.
+   *
+   * The two no-op cases are `isBoarded`'s first and third with the middle one dropped: an
+   * install with no `cfg.me` is not narrowed at all, and neither is one whose payload
+   * predates this field. An *empty* map is the third — you own nothing yet, or the graph
+   * could not be read — and narrowing to nothing there would hide the whole tracker behind
+   * a screen indistinguishable from a quiet afternoon. Note this does **not** gate on
+   * `roots`, which `isBoarded` does: having started nothing is exactly the state in which
+   * your questions still have to be reachable.
+   */
+  function assignedToMe(rows) {
+    const board = state.rootboard;
+    if (!board?.owned) return rows;
+    const assigned = board.assigned || {};
+    if (!Object.keys(assigned).length) return rows;
+    const unhomed = board.unhomed || {};
+    return rows.filter((q) => {
+      if (q.session) return true;
+      if (q.jira) return true;
+      if (state.open?.has(q.key)) return true;
+      if (q.pr) {
+        const named = q.pr.beads || [];
+        if (!named.length) return true;
+        return named.some((b) => Boolean(assigned[`${q.workspace}/${b?.id || b}`]));
+      }
+      if (assigned[q.key]) return true;
+      return Boolean(unhomed[q.key]);
+    });
+  }
+
+  /**
    * How many beads under these cards are themselves asking you something.
    *
    * Through `p0Progress` rather than over `c.tree` again, because bc-grut gave the card its
@@ -7283,18 +7358,17 @@
     // above the list: which *kinds* of incoming thing to show. Surveyed first so the
     // chips can carry counts of what they would leave you with, then applied.
     // And the fourth, which is not a chip and not yours to switch off: with epics owned,
-    // the list below the board is their descendants and nothing else. Applied *before*
-    // `surveyKinds` so the kind counts count what you can actually get to — a count
-    // offering six merges when the filter leaves you one is a control that lies.
+    // the list is what is *yours* — assigned to you or under something that is (bc-khoe.29)
+    // — and on the two views that draw the board, that minus whatever its trees are already
+    // holding. Applied *before* `surveyKinds` so the kind counts count what you can
+    // actually get to: a count offering six merges when the filter leaves you one is a
+    // control that lies.
     // A picked bead **replaces** the board's narrowing rather than stacking on it, and
     // that is not a shortcut. The board answers "what am I answerable for" and you did
     // not ask it; picking a bead is you saying which piece of work you want, and half the
     // beads worth reaching for are somebody else's or under nobody's root — so stacked, the
     // commonest search on this tracker would end in an empty list with a pill on screen
     // naming the bead it was hiding. An explicit filter outranks an implicit one.
-    const inBoard = beadPicked() ? inBead(inRepo) : underOwnedRoots(inRepo);
-    surveyKinds(inBoard);
-    const visible = inBoard.filter(inKind);
 
     /**
      * Which pill this render is, and therefore which of the two things on this page it
@@ -7342,6 +7416,27 @@
     const boardHere = view === null || view === 'epics';
     const boardOnly = view === 'epics' && p0Cards().length > 0;
     const listHere = !boardOnly || beadPicked() || state.open.size > 0;
+
+    /**
+     * Two narrowings, because since bc-khoe.29 the board and the pills ask different
+     * questions of the same rows — see `assignedToMe`, which is the whole of the argument.
+     *
+     * `forPills` is what a kind pill opens: everything assigned to you or under something
+     * assigned to you. `inBoard` is what *this* render draws, which is the same list except
+     * on the two views the board is on — there, and only there, the trees are drawing your
+     * beads already and `underOwnedRoots` takes them back out so the page does not hold two
+     * copies of one bead.
+     *
+     * **The survey counts `forPills`, never `inBoard`, and that is the point of splitting
+     * them.** A pill's number is what tapping it would leave you with (see `surveyKinds`),
+     * and on My Epics the list under the board is not that list — counting there would
+     * print "Questions 2" over a pill that opens eleven. A count that is not the list it
+     * offers is the one thing this control must never be.
+     */
+    const forPills = beadPicked() ? inBead(inRepo) : assignedToMe(inRepo);
+    const inBoard = beadPicked() || !boardHere ? forPills : underOwnedRoots(inRepo);
+    surveyKinds(forPills);
+    const visible = inBoard.filter(inKind);
 
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
@@ -10900,14 +10995,15 @@
    * pill row above, and what selecting one does still arrives back through `onChange`
    * below, exactly as a chip's tap used to.
    *
-   * The panel is mounted first because filtermenu.js replaces the host's children and
-   * the pills prepend themselves in front of it; see `mount` in public/filterpills.js.
+   * The filter pills are mounted first because filtermenu.js replaces the host's
+   * children and the scope switch prepends itself in front of them; see `mount` in
+   * public/filterpills.js.
    *
-   * **What the panel offers is a function of the lit pill** (bc-khoe.3): the bead box is
-   * hidden under `Chats`, which can use no filter at all, and with nothing left to offer
-   * the panel takes itself off the row. The scope switch is not part of that — it
-   * decides which pills exist rather than narrowing within one — so the row never
-   * empties and `renderFilters` never has to hide it.
+   * **Which filter pills are drawn is a function of the lit view pill** (bc-khoe.3): the
+   * bead pill is gone under `Chats`, which can use no filter at all, and with nothing
+   * left to offer the row takes itself off the chrome. The scope switch is not part of
+   * that — it decides which view pills exist rather than narrowing within one — so it
+   * never empties and `renderFilters` never has to hide it.
    *
    * A page served without either file still works: `renderFilters` and `inKind` both
    * fall back to doing nothing, which is the unfiltered list this page has always drawn.
@@ -10916,11 +11012,6 @@
     const f = window.beadcause?.inboxFilter;
     f?.mount(filtersEl, {
       groups: [beadGroup],
-      // This page's half of "is the list narrowed". A picked bead hides most of the
-      // screen, and the summary pill has to go bold over it like it does for everything
-      // else. The kinds no longer contribute — the lit pill is where that is admitted
-      // to now; see `narrowed` in public/inboxfilter.js.
-      narrowed: () => beadPicked(),
       // Forced, because a filter tap is a decision and must not be deferred behind a
       // half-written answer. Nothing is refetched for the kinds themselves — they are a
       // view over rows already in hand — but selecting `PRs` may be the first time this
@@ -10932,9 +11023,10 @@
         loadBoard();
       },
     });
-    // In front of the panel, and after it: see the note above about who replaces whose
-    // children. The scope is its own group and nothing else is on the row yet —
-    // bc-khoe.26 is what moves the bead box and the two sub-filters out here beside it.
+    // In front of the filter pills, and mounted after them: see the note above about who
+    // replaces whose children. The scope is flat rather than a pill that opens, because
+    // three one-word options are legible without being reached for and a fourth control
+    // that opened would be the panel bc-khoe.26 took apart, one row down.
     window.beadcause?.filterPills?.mount?.(filtersEl, { groups: [scopeGroup] });
     // How the row reaches a kind this scope cannot produce. The filter knows which pill
     // was tapped and that it is unreachable; only this page knows what a scope is, so
@@ -10952,20 +11044,46 @@
     renderFilters();
   }
 
-  bootToken();
-  bootScope();
-  // Warm first, then decide what to ask for. With a list on screen and a place in the
-  // event log, the refresh is a parked poll that costs the daemon nothing until
-  // something moves — so the ordinary tab tap does no `bd` sweep at all. Without
-  // either, this is the cold start it always was.
-  if (warmBoot() && canFollow()) schedulePoll();
-  else load();
-  // The pull requests, beside the questions rather than after them: the two feeds are
-  // independent and the board is the slower of the two, so starting it second and
-  // waiting for neither is what puts the questions on screen first. It is not on the
-  // delta stream either — a `gh` sweep is nothing an event log can carry.
-  loadBoard();
-  // After the list, and never blocking it: the chooser only appears inside an open
-  // card, so there is nothing on screen waiting for this.
-  loadAgents();
+  /**
+   * Everything this view does on the way up, in one function so the shell can time it.
+   *
+   * It was the last six lines of this IIFE and it still is, on the load that lands here —
+   * public/panestage.js builds the landed-on pane synchronously, and Home is where a bare
+   * `/`, an unrecognised hash and every notification link all land. What the stager buys
+   * is the *other* case: a page opened straight onto another view builds that one first
+   * and this after the first paint, so a shortcut to `/#history` does not spend its first
+   * frames sweeping `bd` for an inbox nobody asked to see (bc-khoe.30.4).
+   */
+  function buildHome() {
+    bootToken();
+    bootScope();
+    // Warm first, then decide what to ask for. With a list on screen and a place in the
+    // event log, the refresh is a parked poll that costs the daemon nothing until
+    // something moves — so the ordinary tab tap does no `bd` sweep at all. Without
+    // either, this is the cold start it always was.
+    if (warmBoot() && canFollow()) schedulePoll();
+    else load();
+    // The pull requests, beside the questions rather than after them: the two feeds are
+    // independent and the board is the slower of the two, so starting it second and
+    // waiting for neither is what puts the questions on screen first. It is not on the
+    // delta stream either — a `gh` sweep is nothing an event log can carry.
+    loadBoard();
+    // After the list, and never blocking it: the chooser only appears inside an open
+    // card, so there is nothing on screen waiting for this.
+    loadAgents();
+  }
+
+  /*
+    Offered to the stager, and built here when there is no stager to take it — a document
+    with no panes, or a service-worker cache from before that file existed. `register`
+    answering false has to leave this page exactly as it was, which is why `buildHome` is
+    the function it would have called on its own rather than something only reachable
+    through the shell.
+
+    No `wake` is declared with it: this view owns the page's real poll (the `follow` above)
+    and reads its own answers, so a second delivery through the fan-out would be the same
+    payload adopted twice. The `want` union is over the panes that ride the shell's mount,
+    and this one does not.
+  */
+  if (!window.beadcause?.stage?.register?.('epics', { build: buildHome })) buildHome();
 })();
