@@ -421,10 +421,11 @@ await check('AND THE FIELD SAYS WHICH CREATE, which is what public/app.js branch
   const makes = Object.fromEntries(list(model.KINDS).filter((k) => k.compose).map((k) => [k.id, k.compose]));
   assert.deepEqual(makes, {
     epics: 'epic',
-    // `bead` says `chat` until bc-khoe.27.3 puts a form behind it, because that is what ＋
-    // does there today. Promising a create nobody wrote is the button that does nothing.
     session: 'chat',
-    bead: 'chat',
+    // `bead` said `chat` for as long as that is what ＋ did there, and became `bead` the
+    // day bc-khoe.27.3 put a form behind it. Promising a create nobody wrote is the
+    // button that does nothing when tapped, so the word never leads the thing.
+    bead: 'bead',
   });
   const { filter } = load();
   filter.set([]);
@@ -451,6 +452,23 @@ await check('＋ follows the lit pill, and the two queues have none', () => {
   // the rest of the session by having tapped Questions once.
   filter.set([]);
   assert.equal(filter.composes(), true, '＋ did not come back on My Epics');
+});
+
+await check('＋ and what it creates are one field, so they cannot disagree on any kind', () => {
+  // The check above reads the table; this one reads it the way public/app.js does, through
+  // the lit pill, on every kind rather than on three. The pair is the point: `composes()`
+  // draws the button and `creates()` decides what it does, and they are two reads of one
+  // field precisely so that a ＋ over nothing, or a create with no way to reach it, is not
+  // a state this table can be put into.
+  const WHAT = { epics: 'epic', session: 'chat', bead: 'bead' };
+  const { filter } = load();
+  // Nothing selected is `My Epics`, the screen you land on.
+  assert.equal(filter.creates(), 'epic', 'the screen you land on stopped naming its create');
+  for (const id of SLICES) {
+    filter.set([id]);
+    assert.equal(filter.creates(), WHAT[id] || '', `＋ creates the wrong thing on ${id}`);
+    assert.equal(filter.composes(), Boolean(filter.creates()), `＋ and its create disagree on ${id}`);
+  }
 });
 
 await check('a place clears the selection, and ＋ comes back with it', () => {

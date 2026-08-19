@@ -216,10 +216,10 @@
    * still the important one — `composes()` is `Boolean` over the same field, so a row
    * with no `compose` draws no button at all.
    *
-   * The one row that does not yet say what it means is `bead`: ＋ on All Beads starts a
-   * chat today, so that is what it says, and bc-khoe.27.3 turns the word into `bead`
-   * when there is a form behind it. A row promising a create nobody wrote is a button
-   * that does nothing when tapped.
+   * All three of them say what they mean now, and `bead` was the last to get there
+   * (bc-khoe.27.3): ＋ on All Beads said `chat` for as long as there was no form behind
+   * it, because a row promising a create nobody wrote is a button that does nothing
+   * when tapped. The word moved the day the sheet did, in this one file.
    */
   const KINDS = [
     {
@@ -329,8 +329,7 @@
       // the pill next door empties this screen completely. Nothing narrows chats, so
       // the row has nothing to offer here and takes itself off screen; see `mount`.
       filters: [],
-      // The original ＋, and the only one that already does its own thing: this list is
-      // conversations, and the create is a conversation.
+      // The original ＋: this list is conversations, and the create is a conversation.
       compose: 'chat',
     },
     {
@@ -359,9 +358,8 @@
       label: 'All Beads',
       note: 'Every live bead nobody is asking you about — claimed, blocked or waiting to be picked up.',
       // A list of every live bead is the one screen where "file another one" is the
-      // obvious next thing to do (bc-khoe.27.3). Until that form exists the honest word
-      // is the one for what the button actually does here, which is start a chat.
-      compose: 'chat',
+      // obvious next thing to do, so ＋ here opens a form and files one — bc-khoe.27.3.
+      compose: 'bead',
       // `!q.held` is the endorsement half of Questions stated from the other side. It is
       // here rather than left to the order of the rows for the reason every exclusion in
       // this table is: exclusivity is the property the table is asserted on, and a
