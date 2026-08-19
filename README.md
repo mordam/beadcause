@@ -16062,7 +16062,9 @@ which were excluded). The pin names those three individually against the clause 
 each, so "the gap shrank" can never be recorded without saying how.
 
 Every common criterion is now claimed by at least one ISO control or clause, and that is
-asserted rather than asserted-about.
+asserted rather than asserted-about. What that adds up to across all three standards at once
+is [the crosswalk matrix](#the-crosswalk-matrix-generated--beadcause-crosswalk), which is
+generated from these edges rather than kept beside them.
 
 ### The text is a paraphrase, and the standard is the authority
 
@@ -18638,6 +18640,126 @@ Which leaves the purchase itself, and it inherits the missing date. `bc-4r10.17`
 window is derived from a date that does not exist — and `beadcause-engagement dates` says
 exactly that, rather than naming a quarter. That is the point of the whole module in one
 line: **no purchase window, because the observation window has no date.**
+
+## The crosswalk matrix, generated — `beadcause-crosswalk`
+
+The programme's premise is that a SOC 2 report, an ISO/IEC 27001 certificate and an
+ISO/IEC 42001 certificate describe **one implemented system** rather than three, and that a
+fourth standard therefore costs a fraction of the third. That is either true of the corpus
+or it is marketing, and the difference is a matrix somebody can read.
+
+`lib/crosswalkreport.js` is that matrix, and **nothing in it is written down**. [The
+corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) already holds every
+obligation and every crosswalk edge; a matrix typed out beside it would be a second copy of
+the edges, wrong within a quarter and wrong exactly where a buyer looks. Every cell is an
+edge asked of the corpus on the call, the suite fails the repository for any control id
+appearing in the module at all, and the numbers below are computed each time they are
+printed. It is the third [join](#the-gap-assessment-computed--beadcause-gaps) in this
+programme rather than a fourth register — the compliance leaves deliberately do not import
+each other, so it takes the corpus and [the policy
+set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+and reaches for nothing else.
+
+    beadcause-crosswalk matrix          every obligation and what claims to satisfy it
+    beadcause-crosswalk shared [n]      controls answering n standards at once (default 3)
+    beadcause-crosswalk uncovered       in-scope obligations nothing claims — the check
+    beadcause-crosswalk undecided       obligations waiting on a statement of applicability
+    beadcause-crosswalk control <id>    one record, both directions, and its indirect reach
+    beadcause-crosswalk csv             the dense grid, for a spreadsheet
+
+### Twenty-nine controls answer all three standards at once
+
+    climative · 224 obligations across 3 certifiable standards · 346 crosswalk edges · 29 answer all 3 at once · 14 in scope and unclaimed · 131 awaiting a statement of applicability
+
+Twenty-nine is the number the premise rests on, and `beadcause-crosswalk shared` is it as a
+list. A row's **span** is how many certifiable standards it touches at once — its own, plus
+every standard its edges reach — so a row of span three is one implementation with three
+names: write the control once, evidence it once, and three auditors are answered. A hundred
+and thirty-six records reach exactly two and sixty-seven reach one, and that histogram is the
+duplicated-work map the programme plans against.
+
+Span counts certifiable standards only. ISO/IEC 23894, 42005 and 5338 are guidance — nobody
+is certified against them, nothing anybody signs cites them — so a guidance row that
+elaborates one Annex A control has reached one standard, not two, however many documents
+were consulted. They are rows, because a life-cycle process that elaborates a control is
+real reuse; they are never columns, because a report that gave a reading list a column would
+be presenting it as a conformance claim.
+
+### The matrix has a direction, and the tempting error is to forget it
+
+Crosswalk edges run from controls **to** criteria and never the other way, because a
+criterion is satisfied by many controls and keeping the list on the criterion is how it goes
+stale. The consequence for a report is that inbound and outbound are different questions and
+only one of them is coverage:
+
+- *What claims to satisfy this?* — inbound, and this is coverage. An obligation with no
+  inbound edge is one nothing in the corpus answers.
+- *What does this claim to satisfy?* — outbound. Almost every control has one and almost
+  nothing points back at it.
+
+Counting outbound as coverage would report the whole of both ISO Annex A sets as covered
+while saying nothing at all, and every sum in the report would still add up. So both numbers
+are on every column, only the first is called `covered`, and the suite pins a column with
+outbound edges and no inbound — the exact record the mistake would turn green.
+
+### An empty column is not always a gap, and the difference is applicability
+
+"Nothing claims this" is a finding only where the obligation is one this organisation
+actually carries, and there are three answers rather than one — each read from somewhere
+rather than decided in the report:
+
+- **elected or declined** — a Trust Services criterion is in scope if its category was
+  elected, which is `lib/policies.js`'s answer and `bc-yfgo`'s decision. Twenty-three
+  criteria are declined, twelve of them have no inbound edge, and none of those twelve is a
+  gap: they are ISO/IEC 27701 territory in categories nobody elected.
+- **mandatory** — a management-system clause. Nobody may exclude one, so an empty clause
+  column is a real finding.
+- **undecided** — an Annex A control. Whether it applies is what a Statement of
+  Applicability decides, and there is not one yet — `bc-eqn1.14`. A hundred and thirty-one
+  controls are waiting on it.
+
+So `uncovered` is *in-scope obligations nothing claims*, deliberately narrower than "every
+empty column". Padding it with a hundred and thirty-one controls that may be excluded on the
+day somebody writes the statement would bury the fourteen that genuinely are gaps, and
+calling them covered would be worse — so `beadcause-crosswalk undecided` counts them out
+loud instead, which is what makes the narrowing visible rather than quiet. The day the
+statement of applicability lands, this reads it rather than guessing.
+
+### Every elected criterion is claimed, and every gap is the management system
+
+    14 obligations are in scope and nothing in the corpus claims them
+
+Not one of the thirty-eight elected criteria is unclaimed. All fourteen gaps are ISO/IEC
+42001 management-system clauses — scope, the AI policy, competence, awareness, operational
+planning, risk treatment, the internal audit programme, management review, corrective
+action — and that is the honest finding rather than a hole in the report: **the management
+system is work no other standard's control does for you.** A crosswalk cannot make clause 7.2
+cheaper, because nothing in 27001's Annex A or SOC 2's criteria is clause 7.2 under another
+name. Everything a matrix *can* make cheaper, it already has.
+
+`--strict` exits 1 when anything in scope is unclaimed, so a check can gate on it, and
+`--framework SOC2 --strict` passes today while the unnarrowed form does not.
+
+### The grid lives in the spreadsheet, because a terminal cannot draw it
+
+`matrix` reads down the columns and `shared` reads along the rows, and that is the whole
+difference between them: *is this obligation covered* is a column and *does this control earn
+its keep three times over* is a row. Drawn as an actual grid in a terminal it answers
+neither — two hundred and twenty-four columns is not a thing anybody reads — so
+`beadcause-crosswalk csv` is where the grid lives, with a second header line carrying each
+column's applicability so a blank column can be read without a legend. It is the same
+computation as the other verbs rather than a second rendering of the same idea, which is what
+stops the readable artefact and the shareable one disagreeing, and the suite round-trips
+every cross in the sheet back to a declared edge.
+
+`beadcause-crosswalk control <id>` is the single-record view, and it prints three things
+apart from each other on purpose: what claims this, what this claims, and what it reaches
+*indirectly*. Guidance may not claim a criterion directly — the corpus refuses the edge, so
+a life-cycle process reaches a criterion in two hops through the control that implements it —
+and that route is worth being able to ask for. But a cell is a claim somebody would defend to
+an auditor and a transitive reach is an argument about why work is not duplicated. Rendering
+them the same is how a matrix comes to assert something nobody meant, so `reach()` is a
+separate function and the label says what it is.
 
 ## What you elected to be held to — `lib/election.js`
 
