@@ -18208,7 +18208,7 @@ timestamp in the body would make every diff non-empty and throw away the whole p
 
 Every section is computed from one of three leaves: [the boundary](#the-system-boundary-as-data--beadcause-boundary)
 for what is inside, what is carved out and who the user entities are; [the control
-corpus](#the-control-corpus--soc-2-27001-and-42001-in-one-closed-vocabulary) for the
+corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) for the
 criteria, their definitions and the crosswalk to the 27001 and 42001 controls that are the
 same implementation under another name; and [the policy set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
 for the procedures component and for what claims to be the documented answer to each
