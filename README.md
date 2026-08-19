@@ -16268,6 +16268,54 @@ this one — the two of those never reach the queue at all — or the bead was
 — the one kind of work a worker here may not merge, whatever the space says. It went from
 being every delivery to being the interesting ones.
 
+### The pull request says what is happening to it
+
+A branch that will not merge looks, from GitHub's side, exactly like a branch nobody is
+working on. That was true of every queued pull request here for as long as the queue has
+existed: the merge-bead carried the whole account — which gate refused it, which window
+was opened on it, what it merged over — and the pull request carried nothing but the
+diff. Two readers, and only one of them had to know a tracker existed to find out what
+was going on. Since bc-kan5f the pull request is told three times, by the three things
+that actually know.
+
+**Approved, when Adam approves it.** `/merge` is the decision, and it lands on the pull
+request as a real approving review rather than a note claiming one happened — `approve`
+in `lib/pr.js`, submitted by the *second* GitHub account on the Mac, because GitHub
+refuses an approving review from the account that opened the pull request. Where there is
+no second account the review is skipped and said to be skipped, which is the honest
+ending: with no review on it there is no green tick to be mistaken for a person's.
+
+**Taken, when a MergeAdvocate opens on it.** The first step of that window's brief is now
+to say so, *before* it touches the tree — what it is merging into what, and what it
+expects to come out. The order is the point. A prediction posted in advance is worth
+something to whoever reads it next; the same sentence written afterwards is a report, and
+the brief already asks for one of those at the end. "This is the routine sw-cache
+renumber and I expect it green" and "these two sides disagree and I may hand it back" are
+the two useful things to have said in advance, and the second is the more useful.
+
+**Merged, when the queue merges it** — with how it got through, which is the part nothing
+else records. How many windows were opened on it, how many times `main` moved underneath
+it while it waited, what the base was already failing when it went in, who approved it,
+and how long the whole passage took. A branch merged at the fourth attempt with three
+downmerges was not a bad branch, it was an unlucky one, and a month later that
+distinction is unrecoverable from anywhere else.
+
+**What the queue's report deliberately does not do is summarise the advocate's.** The two
+have different witnesses. The advocate knows the conflicts, which side it kept and why,
+and which suites it ran against which tree — and it writes that on the bead. The queue
+knows the shape of the passage and nothing about the diff. So `mergeReport` in
+`lib/mergequeue.js` reports what it is holding in its own hand and *points* at the rest,
+because a summary of somebody else's account, written by a process that did not watch the
+merge, is the exact shape of a confident falsehood — and the queue would be the last
+thing anybody thought to doubt. `test/mergequeue.mjs` pins it from the other side: the
+report may not contain a conflict count or a suite tally, because neither is a number it
+ever had.
+
+All three posts are best-effort and none may stand between a merge and its closes. A
+report that failed to post is a comment nobody got; a report that threw into the close
+path would strand a merged pull request with two open beads, which is the failure the
+whole close sequence is written to avoid.
+
 ### When `main` itself is red — the queue holds, and something is put on the fix
 
 The gate above asks one question about every pull request: *did this branch break
