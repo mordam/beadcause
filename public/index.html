@@ -179,16 +179,40 @@
       instead of guessing or going dead. Same control the chat launcher grew for the
       same reason, and it borrows its .ws-pick styling.
 
-      Both are in the markup on every load and neither is drawn on every kind: ＋ belongs
+      All three are in the markup on every load and none is drawn on every kind: ＋ belongs
       to the view now (bc-khoe.27.1), so the wrapper is hidden — along with `has-compose`,
-      and along with the panel — on Questions and PRs, which have nothing to create. See
-      `paintCompose` in app.js and `compose` in inboxfilter.js. (Written without the
+      and along with both panels — on Questions and PRs, which have nothing to create. What
+      it *makes* belongs to the view too (bc-khoe.27.2), so the label and the `aria-controls`
+      below are the chat's — the fallback for a page whose filter script never loaded — and
+      are repainted per kind. See `paintCompose` in app.js and `compose` in inboxfilter.js.
+      (Written without the
       leading slash on purpose: some suites find the script tags at the foot of this file
       by searching for a bare slash-and-filename, so a comment up here that spells one out
       that way silently moves their answer. Two were fixed on bc-khoe.27.1 to match the
       tag; test/stream.mjs still asks the loose way, for every standing page at once.)
     -->
     <div class="compose-wrap">
+      <!--
+        The other panel, and the reason ＋ needed a second one (bc-khoe.27.2). On My Epics
+        the create is not a chat: it is one of the beads you own that you have not started
+        yet, going onto the board. Those candidates used to be a picker at the foot of the
+        board itself, opened by a ＋ Start an epic button sitting under the cards; the
+        button was where the list was, which is the far end of a scroller from the thumb,
+        and the board is *above* the inbox list so opening it grew the page under whatever
+        you were reading. Up here it grows nothing — the wrapper is fixed — so the tap has
+        no scroll to protect at all, which is the acceptance criterion falling out of the
+        move rather than being defended.
+
+        Two panels rather than one with its contents swapped: each keeps its own heading
+        for a screen reader, and ＋ points `aria-controls` at whichever one its kind opens.
+        The rows inside are the board's own `.p0-cand` shape, drawn by the same function
+        that drew them at the foot of the board, so the two-line candidate — id and count,
+        then title — is one renderer and not two.
+      -->
+      <div id="compose-epics" class="compose-pick ws-pick epics" hidden>
+        <h2 class="section-label">Start an epic</h2>
+        <div id="compose-epics-row" class="p0-picker"></div>
+      </div>
       <div id="compose-pick" class="compose-pick ws-pick" hidden>
         <h2 class="section-label">Start one in</h2>
         <div id="compose-pick-row" class="chip-row"></div>

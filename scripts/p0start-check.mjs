@@ -7,13 +7,15 @@
 // a fake `bd`. Four things about this feature are in neither half, and every one of them
 // leaves a page that looks perfectly fine:
 //
-//   • **The page must not move out from under the tap.** The picker opens at the foot of
-//     the board, which is *above* the inbox list — and `capturePlace` anchors the scroll on
-//     the first card in that list, so a repaint that grew the board scrolls the page down by
-//     exactly the height of what just opened. The button you pressed leaves the screen and
-//     you land in the middle of a list you were not reading. That is bc-rfnr.9.4's bug, one
-//     surface along, and `keepTheScreenStill` is the fix being asserted here: it is invisible
-//     in the HTML, invisible in a vm, and obvious in a browser.
+//   • **The page must not move out from under the tap.** This used to be the sharp one:
+//     the picker opened at the foot of the board, which is *above* the inbox list, and
+//     `capturePlace` anchors the scroll on the first card in that list — so a repaint that
+//     grew the board scrolled the page down by exactly the height of what had opened, the
+//     button you pressed leaving the screen. bc-khoe.27.2 moved the picker onto ＋, which is
+//     fixed to the bottom corner and adds no flow height, so the jump is designed out rather
+//     than held still by `keepTheScreenStill`. The reading stays, because "designed out" is a
+//     claim about layout that only a browser can settle — and because the panel opening
+//     *upward* off the top of a small screen is the new way to lose a row.
 //   • **The tap has to be delegated to.** Every handler on the inbox hangs off `#list`, and
 //     these controls are buttons drawn inside a section drawn inside it — one of them, the
 //     ↩ on a card, sits in a row beside a link and under a summary that is itself a button.
@@ -28,6 +30,10 @@
 // size of a phone, against fixtures served from this process, so it never touches a daemon,
 // a bead or iTerm. `--baseline` serves the committed app.js and style.css, which have no
 // picker at all, so it must fail.
+//
+// Everything below drives `#compose` — the ＋ in the bottom right — because on `My Epics`
+// that button *is* this create (bc-khoe.27.2). The page is left on the kind it lands on,
+// which is `My Epics`, so no pill is tapped to get there.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -229,17 +235,33 @@ const shot = async (name) => {
 const VIEW = `(() => {
   const el = (sel) => document.querySelector(sel);
   const top = (e) => e ? Math.round(e.getBoundingClientRect().top) : null;
-  const pick = el('.p0-pick');
+  const pick = el('#compose');
+  const panel = el('#compose-epics');
   return {
-    picks: document.querySelectorAll('.p0-pick').length,
+    // .p0-pick is the button that used to be at the foot of the board. Counted so the
+    // move is asserted rather than assumed: two controls doing one thing, with the lower
+    // one out of a thumb's reach, is exactly what bc-khoe.27.2 undoes.
+    stale: document.querySelectorAll('.p0-pick').length,
+    picks: pick && !pick.closest('[hidden]') ? 1 : 0,
     pickTag: pick?.tagName || '',
+    pickLabel: pick?.getAttribute('aria-label') || '',
+    pickControls: pick?.getAttribute('aria-controls') || '',
     pickExpanded: pick?.getAttribute('aria-expanded') || '',
     pickTop: top(pick),
     pickHeight: pick ? Math.round(pick.getBoundingClientRect().height) : 0,
     pickDisabled: pick ? !!pick.disabled : null,
-    cands: [...document.querySelectorAll('.p0-cand')].map((e) => e.dataset.bead),
-    candHeight: Math.round(el('.p0-cand')?.getBoundingClientRect().height || 0),
-    candTop: top(el('.p0-cand')),
+    panelShut: panel ? !!panel.hidden : null,
+    panelTop: panel && !panel.hidden ? top(panel) : null,
+    // The panel is anchored to the bottom corner and grows upward, so a list longer than
+    // the screen leaves through the *top* — where nothing can scroll it back. It has a
+    // max-height and its own scroller for that, and this is the reading that proves it.
+    panelBottomGap: panel && !panel.hidden ? Math.round(window.innerHeight - panel.getBoundingClientRect().bottom) : null,
+    // Scoped to the panel while it is open: the rows stay in the DOM behind a hidden
+    // panel, the same way the repo chips next door do, so an unscoped query would report
+    // a picker still offering an epic it has already shut on.
+    cands: [...document.querySelectorAll('#compose-epics:not([hidden]) .p0-cand')].map((e) => e.dataset.bead),
+    candHeight: Math.round(el('#compose-epics:not([hidden]) .p0-cand')?.getBoundingClientRect().height || 0),
+    candTop: top(el('#compose-epics:not([hidden]) .p0-cand')),
     offs: document.querySelectorAll('.p0-off').length,
     cards: [...document.querySelectorAll('.p0-card')].map((e) => e.dataset.key),
     // Every \`.pagescroll\` on the page, which is where the scrolling actually happens: since
@@ -249,7 +271,7 @@ const VIEW = `(() => {
     scrollY: [...document.querySelectorAll('.pagescroll')].map((e) => Math.round(e.scrollTop)).join('/'),
     toast: (el('.toast, #toast')?.textContent || '').replace(/\\s+/g, ' ').trim(),
     wide: document.documentElement.scrollWidth <= window.innerWidth,
-    widest: Math.max(0, ...[...document.querySelectorAll('.p0-cand, .p0-pick, .p0-card')].map((e) => Math.round(e.getBoundingClientRect().right))),
+    widest: Math.max(0, ...[...document.querySelectorAll('.p0-cand, #compose, .p0-card')].map((e) => Math.round(e.getBoundingClientRect().right))),
   };
 })()`;
 
@@ -272,34 +294,41 @@ try {
 
   await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
   await waitFor(`document.querySelector('.p0-card') !== null`, 15000);
-  await waitFor(`document.querySelector('.p0-pick') !== null`, 4000);
+  await waitFor(`document.querySelector('#compose') !== null`, 4000);
 
   let v = await evalJs(VIEW);
   const wasTop = v.pickTop;
   const wasScroll = v.scrollY;
-  check('the board offers a way to start an epic', v.picks === 1 && v.pickTag === 'BUTTON', `${v.picks} found`);
+  check('＋ is the way to start an epic', v.picks === 1 && v.pickTag === 'BUTTON', `${v.picks} found`);
+  check('AND THE BOARD NO LONGER OFFERS ITS OWN', v.stale === 0, `${v.stale} at the foot of the board`);
   check('a thumb can find it', v.pickHeight >= 34, `${v.pickHeight}px`);
-  check('and it is shut until it is asked', v.pickExpanded === 'false' && v.cands.length === 0);
+  check('it says what it would make, and names the panel that would open', /epic/i.test(v.pickLabel) && v.pickControls === 'compose-epics', `${v.pickLabel} → ${v.pickControls}`);
+  check('and it is shut until it is asked', v.pickExpanded === 'false' && v.panelShut === true && v.cands.length === 0);
   check('the card already on the board offers the reverse', v.offs === 1, `${v.offs} found`);
   await shot('shut');
 
   /* ---- the tap: the list opens, and the page does not run away with it ---- */
 
-  await press('.p0-pick');
+  await press('#compose');
   await waitFor(`document.querySelectorAll('.p0-cand').length > 0`, 4000);
   v = await evalJs(VIEW);
   check('tapping it opens the list of P0s you could start', v.cands.length === 2, v.cands.join(', '));
   check('each one is a control a thumb can hit', v.candHeight >= 34, `${v.candHeight}px`);
-  // THE ONE THIS CHECK EXISTS FOR. The picker opens above the inbox list, `capturePlace`
-  // anchors on the first card in that list, and without `keepTheScreenStill` the page
-  // scrolls down by exactly the height of what just opened — measured 0 → 486 on the
-  // neighbouring surface (bc-rfnr.9.4). The button has to still be under the thumb.
+  // THE ONE THIS CHECK EXISTS FOR, and it survived the move rather than being retired by
+  // it. Opening the picker used to grow the board above the inbox list, and `capturePlace`
+  // anchors on the first card in that list — so the page scrolled down by exactly the
+  // height of what had opened, measured 0 → 486 on the neighbouring surface (bc-rfnr.9.4).
+  // A fixed panel adds no flow height, which is the claim; this is the reading that
+  // settles it, and it also catches a repaint that scrolled the list for some other reason
+  // while the panel was open over it.
   check(
     'and the button you pressed is still where you pressed it',
     wasTop !== null && v.pickTop !== null && Math.abs(v.pickTop - wasTop) <= 2,
     `${wasTop} → ${v.pickTop} (scroll ${wasScroll} → ${v.scrollY})`
   );
-  check('the list opened below the button rather than over it', v.candTop > v.pickTop, `${v.pickTop} → ${v.candTop}`);
+  check('THE PAGE UNDER IT DID NOT MOVE EITHER', v.scrollY === wasScroll, `${wasScroll} → ${v.scrollY}`);
+  check('the list opened above the button, where the panel is anchored', v.candTop < v.pickTop, `${v.pickTop} → ${v.candTop}`);
+  check('and it did not grow off the top of the phone', v.panelTop !== null && v.panelTop >= 0, `panel top ${v.panelTop}`);
   check('nothing overflows a 393px phone', v.wide && v.widest <= VP.width, `widest ${v.widest}px`);
   await shot('open');
 
@@ -322,7 +351,7 @@ try {
   v = await evalJs(VIEW);
   check('starting one posts it too', posts.some((x) => x.path === '/api/bead/start' && x.id === PICK), JSON.stringify(posts));
   check('IT IS A CARD WITHOUT A RELOAD', v.cards.includes(`${WS}/${PICK}`), v.cards.join(', '));
-  check('the picker shuts, and stops offering what you just started', v.pickExpanded === 'false' && !v.cands.includes(PICK));
+  check('the picker shuts, and stops offering what you just started', v.pickExpanded === 'false' && v.panelShut === true && !v.cands.includes(PICK));
   await shot('started');
 
   /* ---- the reverse, from the card ---- */
