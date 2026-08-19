@@ -394,8 +394,10 @@ await check('the back button walks the panes', () => {
 
 await check('a pending pane is never shown, and its hash falls to Home', () => {
   // Both still pending, which is what this rule is about — `asShipped` has only one left.
+  // Advocates carries bc-khoe.4 here for the same reason it does in the markup (bc-khoe.30.6):
+  // the attribute names the bead whose merge deletes it, and that is the fold, not the ruling.
   const b = boot(
-    [pane('epics'), pane('history', { pending: 'bc-khoe.30.5', scroller: false }), pane('advocates', { pending: 'bc-khoe.30.6', scroller: false })],
+    [pane('epics'), pane('history', { pending: 'bc-khoe.30.5', scroller: false }), pane('advocates', { pending: 'bc-khoe.4', scroller: false })],
     { hash: '#history' }
   );
   b.run('panes.js');
