@@ -277,17 +277,29 @@ try {
       // what came down out of the top bar in this bead fits beside what was already here.
       //
       // The tally is written in rather than waited for: this fixture has no workers and no
-      // proposals, so `monitor.js` leaves it empty, and a row measured empty would pass
-      // this vacuously. The busiest sentence that renderer can produce is
-      // "N working · M to answer" and this is it at two digits each.
-      rowScrolls: (() => {
+      // proposals, so monitor.js leaves it empty, and a row measured empty would pass this
+      // vacuously. The busiest sentence that renderer can produce is
+      // "N working / M to answer" and this is it at two digits each.
+      busiest: (() => {
         const r = pane.querySelector('#mon-tabs');
         const tally = document.getElementById('tally');
-        const was = tally.textContent;
-        tally.textContent = '12 working · 34 to answer';
-        const over = r.scrollWidth > r.clientWidth + 1;
-        tally.textContent = was;
-        return over;
+        const mark = document.getElementById('observing');
+        const wasText = tally.textContent;
+        const wasHidden = mark.hidden;
+        tally.textContent = '12 working / 34 to answer';
+        mark.hidden = false;
+        const row = r.getBoundingClientRect();
+        const box = tally.getBoundingClientRect();
+        const out = {
+          // Wholly inside the row, rather than off the right-hand edge of a sideways
+          // scroller where nothing says it is there.
+          visible: box.right <= row.right + 1 && box.left >= row.left - 1,
+          scrolls: r.scrollWidth > r.clientWidth + 1,
+          rows: Math.round(row.height),
+        };
+        tally.textContent = wasText;
+        mark.hidden = wasHidden;
+        return out;
       })(),
       // One thing scrolls, and it is the section under the chip row — not the document,
       // and not the pane. Only what is painted: a hidden pane has no layout box at all.
@@ -309,7 +321,15 @@ try {
 
   check('the pane is up and the roster drew its cards', open.showing === 'advocates' && open.cards >= 12, `${open.cards} cards`);
   check('the chip row is inside it, under the pill row', open.belowViewbar && open.rowHeight > 20, String(open.rowHeight));
-  check('and the mark and the busiest tally fit beside the chips on a 393px screen', !open.rowScrolls);
+  /* Three chips, the observer mark and the busiest sentence the tally can produce, at
+     393px. They do not fit on one line and the row wraps rather than scrolling them out of
+     sight — what is asserted is that the count is on screen and that the row cost at most
+     one extra line to put it there. */
+  check(
+    'the mark and the busiest tally are on screen, on a second line rather than off the edge',
+    open.busiest.visible && !open.busiest.scrolls && open.busiest.rows <= 2 * open.rowHeight,
+    JSON.stringify(open.busiest)
+  );
   check('one visible scroller, and it is the section rather than the document', open.visibleScrollers === 1 && !open.docScrolls);
   check('the roster is longer than the screen and says so by scrolling', open.scrolls);
   check('and it still fits sideways', !open.wide);

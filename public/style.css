@@ -5399,10 +5399,18 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   display: flex;
   align-items: center;
   gap: 8px;
-  /* The row is a horizontal scroller, and on a narrow phone this pair is what would be
-     scrolled to. A little air keeps it off the chips when it is not. */
+  /* A little air, so it does not read as a fourth chip. */
   padding-left: 10px;
 }
+/* And the row wraps rather than scrolling sideways, which it does *only* for this pair.
+   Measured on a 393px screen: three chips and `⦿ observing` and the busiest sentence the
+   tally can produce ("12 working · 34 to answer") come to more than the width, and the
+   row's own `overflow-x` would answer that by putting the count off the right-hand edge
+   where nothing says it is there. A second line is the honest answer and it is only ever
+   drawn when there is something to put on it — both halves are empty on most installs,
+   and the observer mark on all but one Mac. `row-gap` rather than the `gap` above, which
+   is the 2px that separates chips from each other. */
+.mon-tabs { flex-wrap: wrap; row-gap: 8px; }
 
 /* The `hidden` attribute is a `display: none` that any later `display` beats, and
    `.work` sets `display: flex` — so the pane behind the tab you are not on kept
