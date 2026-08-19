@@ -220,16 +220,56 @@
   </div>
 
   <!--
-    The other two views, as containers with nothing in them yet.
+    The ledger — every bead this space has ever had, most recently touched first, and a
+    pane of this document rather than the separate `/history` it used to be (bc-khoe.30.5).
 
-    `data-pending` names the bead that fills each, and it is load-bearing rather than a
-    note: panes.js refuses to show a pane carrying one and the pill row asks it the same
-    question, so History and Advocates stay ordinary `<a href>` links to the documents
-    they still are. That is what lets the shell land on its own — the alternative was two
-    of seven pills leading to a blank screen on an app that deploys itself the moment a
-    branch merges. Each bead deletes its own attribute by filling its own container.
+    The markup is history.html's, unchanged, minus the top bar and the pill row that page
+    drew for itself: the shell above already has both, which is most of the point. What
+    fills it is public/history.js, the same file that page loads, which registers with the
+    stager and builds this container when asked. `/history` is still a document and still
+    answers — a home-screen shortcut to it must keep working until bc-khoe.30.7 lands it
+    here — so that file has to run in either, and it decides which by asking whether this
+    document has panes.
+
+    `id="hist-list"` rather than the `id="history"` it was, and the rename is not
+    cosmetic: the hash that names this view is `#history`, and an element of that id in
+    the same document is a **fragment target**. A browser asked to go to `#history` scrolls
+    it into view, which on the pane you are returning to is the scroll position panes.js
+    just restored, thrown away by the URL.
   -->
-  <div class="pane" data-pane="history" data-pending="bc-khoe.30.5" hidden></div>
+  <div class="pane" data-pane="history" hidden>
+    <!-- The four filters over the ledger — status, priority, who filed it, and a
+         substring of the bead id — in the same pills the inbox uses. Its own mount of
+         public/filtermenu.js rather than a share of Home's: the control holds which of
+         its pills is open and nothing else, so two panes each drawing four filters are
+         two instances, and a shared one would open History's status panel on the inbox.
+
+         All four live in the hash, as `#history?status=closed&priority=P0` — see decision
+         5 in public/hashroute.js. On the page this was they lived in the query string,
+         which is where the ledger's filters have always been written; in one document
+         that string outlives the view that wrote it, and Home is not the place to keep
+         History's filter. -->
+    <nav class="filters" id="hist-filters" hidden></nav>
+
+    <main class="work pagescroll">
+      <!-- The whole list, drawn by history.js. Everything in here is replaced on every
+           repaint, so nothing that has to survive one may live in it. -->
+      <div id="hist-list">
+        <div class="empty">Reading the ledger…</div>
+      </div>
+    </main>
+  </div>
+
+  <!--
+    The last view still a container with nothing in it.
+
+    `data-pending` names the bead that fills it, and it is load-bearing rather than a note:
+    panes.js refuses to show a pane carrying one and the pill row asks it the same
+    question, so Advocates stays an ordinary `<a href>` link to the document it still is.
+    That is what let the shell land on its own — the alternative was pills leading to a
+    blank screen on an app that deploys itself the moment a branch merges. The bead
+    deletes the attribute by filling the container, which is what the pane above just did.
+  -->
   <div class="pane" data-pane="advocates" data-pending="bc-khoe.30.6" hidden></div>
 
   <div id="toast" class="toast" role="status" hidden></div>
@@ -323,6 +363,13 @@
        inboxfilter.js, which mounts it rather than drawing one: without this file the
        inbox has no control on it at all. -->
   <script src="/filtermenu.js"></script>
+  <!-- The ledger pane. After filtermenu.js, which it mounts its four filters into, and
+       after spacebar.js, whose selection *is* its request rather than a filter over the
+       answer. It registers with the stager above and builds when asked, so on a load that
+       lands on Home it costs one script parse and no request at all. Its position among
+       the page scripts is otherwise free: the stager decides the order panes are built
+       in, not this file. See public/history.js. -->
+  <script src="/history.js"></script>
   <!-- The other half of that pair: the filters that are *not* behind a collapsed line,
        drawn flat in the same row (bc-khoe.24). The scope switch is the one tenant today
        and bc-khoe.26 moves the rest out here beside it. Before app.js, which hands it
