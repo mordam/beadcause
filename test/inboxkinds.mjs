@@ -1639,6 +1639,61 @@ await check('and an epics the caller passed is not counted into its own total', 
   assert.equal(counts.at(-1).epics, 5);
 });
 
+await check('and when My Epics is the board, it counts the cards instead — bc-khoe.49', () => {
+  // The sum above is every row that survives its own sub-filter, and bc-khoe.28 took
+  // those rows off the screen the pill opens: with an epic of yours started, My Epics is
+  // the board and there is no list under it. So the badge was promising eleven rows that
+  // one tap would not draw. The caller says how many cards are on that board, and it is
+  // the cards the badge says — the same promise, about the screen that is actually there.
+  const { filter, counts } = load();
+  filter.survey({ kinds: ANY_KINDS, counts: { question: 3, pr: 2, session: 1, bead: 6 }, board: 4 });
+  assert.equal(counts.at(-1).epics, 4, 'My Epics counted the list it no longer draws');
+  // And nothing else moved. The other three are counted before the board gate and each
+  // still opens exactly its own slice, which is why this bead is about one badge.
+  assert.equal(counts.at(-1).question, 3);
+  assert.equal(counts.at(-1).pr, 2);
+  assert.equal(counts.at(-1).session, 1);
+});
+
+await check('a board of none is `null`, not zero, and the sum comes back', () => {
+  // The two states, one after the other, through the one call the render makes. `null`
+  // is "there is a list on My Epics" — nothing started, a picked bead, an open card —
+  // and it is the default, so a caller that never heard of the board (and every other
+  // page that mounts this file) gets the derivation unchanged.
+  const { filter, counts } = load();
+  const counted = { question: 3, pr: 2 };
+  filter.survey({ kinds: ANY_KINDS, counts: counted, board: 2 });
+  assert.equal(counts.at(-1).epics, 2);
+  filter.survey({ kinds: ANY_KINDS, counts: counted, board: null });
+  assert.equal(counts.at(-1).epics, 5, 'the board number stuck to a screen that has a list');
+  filter.survey({ kinds: ANY_KINDS, counts: counted });
+  assert.equal(counts.at(-1).epics, 5, 'an omitted board is not an empty one');
+});
+
+await check('and public/app.js is what decides which of the two it is', () => {
+  // The seam, read statically, because the decision is about the *render* — how many
+  // cards `p0Cards()` leaves and whether anything puts a list back under them — and the
+  // vm above has no render. What is asserted is that the question is asked with the view
+  // forced to My Epics rather than taken from the view being drawn: the badge is on the
+  // row from every pill, so `listHere` (which is about where you are standing) is the
+  // wrong answer everywhere but one.
+  const render = APP.slice(APP.indexOf('function render(force = false)'));
+  const body = render.slice(0, render.indexOf('\n  function '));
+  assert.ok(body.includes('const epicsIsBoard ='), 'nothing asks what My Epics would draw');
+  const rule = body.slice(body.indexOf('const epicsIsBoard ='));
+  assert.ok(
+    /const epicsIsBoard = cards > 0 && !beadPicked\(\) && state\.open\.size === 0;/.test(rule),
+    'the rule is not `listHere` with the view forced to My Epics'
+  );
+  assert.ok(
+    body.includes('surveyKinds(forPills, epicsIsBoard ? cards : null)'),
+    'the count is surveyed without the board, so the badge is the old sum again'
+  );
+  // And the survey hands it on rather than counting a second time.
+  const sk = APP.slice(APP.indexOf('function surveyKinds(rows'));
+  assert.ok(sk.slice(0, sk.indexOf('\n  }')).includes('sub: { status }, board }'), 'the board never reaches the filter');
+});
+
 await check('a kind narrowed away is counted at zero, not left at its old number', () => {
   // The badge is redrawn from whatever the last survey said, so a count that stops being
   // sent is a count that stops being true. Every render calls `survey` with a fresh map.
@@ -1761,7 +1816,10 @@ await check('app.js filters the list through it, rather than only drawing it', (
   );
   // The counts are the pills' own list and not this render's — on My Epics the list under
   // the board is not what a pill would open, and a badge counting it lies about every pill.
-  assert.ok(app.includes('surveyKinds(forPills)'), 'the chips are told about the wrong list');
+  // The rows argument, which is the claim here. What the second one is — how many cards
+  // My Epics would draw, when it draws no list — is bc-khoe.49 and is asserted on its own
+  // above; this line is only that the survey is over the pills' list and not the render's.
+  assert.ok(app.includes('surveyKinds(forPills,'), 'the chips are told about the wrong list');
 });
 
 await check('a view shows its own kind — the board on My Epics, the list on the rest', () => {
@@ -1788,7 +1846,10 @@ await check('a view shows its own kind — the board on My Epics, the list on th
   // `boardOnly` is counted off the cards and not off the pill, which is bc-6s96 surviving
   // this bead: with nothing started the section switches off, and a My Epics that drew
   // neither a card nor a list would be a blank page on a fresh install.
-  assert.ok(/const boardOnly = view === 'epics' && p0Cards\(\)\.length > 0/.test(app), 'an empty board still hides the list');
+  // Counted once and read twice since bc-khoe.49 — the badge needs the same number — but
+  // it is still the *cards* it is counted off rather than the pill.
+  assert.ok(/const cards = p0Cards\(\)\.length;/.test(app), 'the cards are no longer counted for the gate');
+  assert.ok(/const boardOnly = view === 'epics' && cards > 0/.test(app), 'an empty board still hides the list');
   assert.ok(
     /const listHere = !boardOnly \|\| beadPicked\(\) \|\| state\.open\.size > 0/.test(app),
     'the list is not gated on the view'

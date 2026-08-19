@@ -4987,8 +4987,15 @@
    * there is still only one place that counts: a badge is a second *reading* of this
    * number, never a second count of the same rows, which is the only way the badge and
    * the list under it cannot disagree.
+   *
+   * `board` is the one thing this file has to tell the control that it cannot work out
+   * for itself (bc-khoe.49): how many cards My Epics would draw, when My Epics is the
+   * board and draws no list at all. It is `null` whenever there *is* a list there, which
+   * is the state the derivation over there was written for. See `epicsIsBoard` in
+   * `render`, which is where the question is decided, and `survey` in
+   * public/inboxfilter.js, which is where the number is chosen between the two.
    */
-  function surveyKinds(rows) {
+  function surveyKinds(rows, board = null) {
     const f = window.beadcause?.inboxFilter;
     if (!f) return;
     const counts = {};
@@ -5002,7 +5009,7 @@
       // get and not the thirty-five that exist. Every kind without one answers true.
       if (f.inSub?.(q) ?? true) counts[kind] = (counts[kind] || 0) + 1;
     }
-    f.survey({ kinds: kindsForScope(), counts, sub: { status } });
+    f.survey({ kinds: kindsForScope(), counts, sub: { status }, board });
   }
 
   /** Chips and the one line beside them, repainted in place. Never rebuilds either. */
@@ -7395,9 +7402,27 @@
      * exists to lead you to would open nothing.
      */
     const view = window.beadcause?.inboxFilter?.current?.() ?? null;
+    const cards = p0Cards().length;
     const boardHere = view === null || view === 'epics';
-    const boardOnly = view === 'epics' && p0Cards().length > 0;
+    const boardOnly = view === 'epics' && cards > 0;
     const listHere = !boardOnly || beadPicked() || state.open.size > 0;
+
+    /**
+     * And the same question asked about a screen we may not be on: **what would My Epics
+     * draw if it were tapped right now?** bc-khoe.49.
+     *
+     * `listHere` above is about the view we are on; this is the identical rule with the
+     * view forced to `epics`, which is the only thing a badge on that pill can honestly
+     * be about. It is `!listHere` on My Epics itself and it is the same answer from
+     * anywhere else, because the two clauses that put a list back under the board —
+     * a picked bead and an open card — are states rather than places and travel with you.
+     *
+     * What it is *for* is the count: with the board on and no list beneath it, the sum of
+     * the four slices is a number of rows that pill will not draw (`survey` in
+     * public/inboxfilter.js does the arithmetic and the whole argument is there). The
+     * cards are what it draws instead, so the cards are what it says.
+     */
+    const epicsIsBoard = cards > 0 && !beadPicked() && state.open.size === 0;
 
     /**
      * Two narrowings, because since bc-khoe.29 the board and the pills ask different
@@ -7417,7 +7442,7 @@
      */
     const forPills = beadPicked() ? inBead(inRepo) : assignedToMe(inRepo);
     const inBoard = beadPicked() || !boardHere ? forPills : underOwnedRoots(inRepo);
-    surveyKinds(forPills);
+    surveyKinds(forPills, epicsIsBoard ? cards : null);
     const visible = inBoard.filter(inKind);
 
     // The other channel, always first and never filtered. It is rare enough that
