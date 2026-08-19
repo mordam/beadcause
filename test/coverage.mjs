@@ -235,8 +235,19 @@ await check('files that are not coverage output are ignored', () => {
 });
 
 await check('a root reached through a symlink still matches what V8 reported', () => {
-  assert.notEqual(REAL, tmp, 'this Mac is expected to hand out a symlinked tmpdir');
-  const viaLink = foldCoverage(pile, { root: tmp, scope: ['lib'] });
+  // The link is made here rather than taken from the platform, and that is a change of
+  // this check's own footing rather than of what it tests. It used to lean on `os.tmpdir()`
+  // being `/var/folders/…` for a real `/private/var/folders/…`, which is true of a Mac
+  // shell and stopped being true inside the suite: scripts/test.mjs now hands every suite
+  // a `$TMPDIR` of its own, made under a `realpathSync` so that the directory it removes
+  // afterwards is the directory the suite actually wrote in (bc-5isv). So nothing arrives
+  // symlinked any more, and a precondition that asserted one made this check fail where a
+  // real symlinked root — a `~/Repos` on an external disk, a home directory behind an
+  // automounter — would still reach `foldCoverage` and still have to fold.
+  const link = path.join(tmp, 'root-link');
+  fs.symlinkSync(REAL, link);
+  assert.notEqual(fs.realpathSync(link), link, 'the link must not be its own target');
+  const viaLink = foldCoverage(pile, { root: link, scope: ['lib'] });
   assert.equal(viaLink.files.find((f) => f.path === 'lib/used.js').loaded, true);
 });
 
