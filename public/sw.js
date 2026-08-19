@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v96';
+const CACHE = 'beadcause-v98';
 const SHELL = [
   '/',
   '/index.html',
@@ -154,25 +154,22 @@ const SHELL = [
   '/archive',
   '/beadsession.html',
   '/beadsession.js',
-  // The pull request board — a pane on the advocates page now (bc-d4d5), so its three
-  // paths are three more ways of asking for monitor.html and are precached for the same
-  // reason that page's own five are: a redirect target left out of the shell is a
-  // home-screen shortcut that only works with a signal. /pulls is what you type when
-  // GitHub's own word for the tab is the one in your head; /prs.html is what a phone
-  // that bookmarked the page it used to be still asks for.
-  '/prs',
-  '/pulls',
-  '/prs.html',
+  // The pull request board — a pane of the shell's Advocates view now (bc-d4d5, folded in
+  // by bc-khoe.4), drawn by this script wherever that view is up.
+  //
+  // Its own three paths — /prs, /pulls, /prs.html — are **gone from this list**, under the
+  // same rule the ledger's two obey below: they are a 302 now, and `Cache.put` refuses a
+  // redirected response. They are the only hops in the app that carry a chip as well as a
+  // view, `#advocates?tab=prs`, and `VIEW_HOPS` answers them with it.
   '/prs.js',
   // Releases (bc-khoe.7) — where everything in flight is, and where the deploy strip went
-  // when it left the board above. In the shell because it is a pill, and because it is the
-  // page you open on a phone precisely when the daemon behind it is being restarted by the
-  // deploy it is drawing: a page that had to be fetched then is a page that is blank at the
-  // one moment it has something to say. `/deploys` is its second name for the same reason
-  // `/pulls` is the board's — it is the word most people will type.
-  '/releases',
-  '/deploys',
-  '/releases.html',
+  // when it left the board above. A pane of the shell since bc-khoe.30.14, so the script
+  // stays and its three addresses have left this list for `VIEW_HOPS`.
+  //
+  // The reason it had to be precached has not gone away, it has moved: this is the view you
+  // open on a phone precisely when the daemon behind it is being restarted by the deploy it
+  // is drawing. The shell is what is cached now, and it carries this script, so the pane
+  // still draws with no daemon to ask.
   '/releases.js',
   // The endorsement queue. Three paths for one page, the same bargain the console
   // makes with its five: /endorse is where a held card in the inbox and the advocate
@@ -191,17 +188,16 @@ const SHELL = [
   // be a blank screen rather than a degraded one, which is why it is in the shell
   // and not left to network-first.
   '/sendqueue.js',
-  // The advocate console, and the sessions view it absorbed. Five paths for one page:
-  // launchd opens '/monitor', '/advocates' is what you guess when typing, and
+  // The advocate console, and the sessions view it absorbed — a pane of the shell since
+  // bc-khoe.4, drawn by this script.
+  //
+  // All six of its addresses are **gone from this list**, for the reason the ledger's two
+  // are below: launchd opens '/monitor', '/advocates' is what you guess when typing, and
   // '/sessions', '/work' and '/work.html' are on the phone's home screen and in the
-  // Android shell's history. All five are precached, because a redirect target left
-  // out of the shell is a home-screen shortcut that only works with a signal.
-  '/monitor',
-  '/advocates',
-  '/sessions',
-  '/work',
-  '/work.html',
-  '/monitor.html',
+  // Android shell's history — and every one of them is a 302 now, which is the one
+  // response `Cache.put` refuses. Leaving a single one here would leave *nothing* cached
+  // on every installed phone for as long as this worker lived. `VIEW_HOPS` is what
+  // answers them when there is no daemon to ask.
   '/monitor.js',
   // The chip row on it, and which of its four panes is up. In the shell because that
   // page is: without this file the chips are dead and three of the four panes — the
@@ -498,6 +494,26 @@ self.addEventListener('fetch', (e) => {
 const VIEW_HOPS = {
   '/history': { view: 'history' },
   '/history.html': { view: 'history' },
+  // The advocate console (bc-khoe.4). Six, because the sessions view was merged into it
+  // and brought its three with it; `/work.html` and `/monitor.html` are the two with no
+  // file left to want them.
+  '/monitor': { view: 'advocates' },
+  '/advocates': { view: 'advocates' },
+  '/monitor.html': { view: 'advocates' },
+  '/sessions': { view: 'advocates' },
+  '/work': { view: 'advocates' },
+  '/work.html': { view: 'advocates' },
+  // The board, which is a chip of that view rather than a view of its own — so these three
+  // narrow where the six above do not. The pathname is what public/montabs.js used to read
+  // to put the chip up, and after a hop there is no pathname left; `tab=prs` in the hash is
+  // where that fact lives now.
+  '/prs': { view: 'advocates', narrow: [['tab', 'prs']] },
+  '/pulls': { view: 'advocates', narrow: [['tab', 'prs']] },
+  '/prs.html': { view: 'advocates', narrow: [['tab', 'prs']] },
+  // Releases (bc-khoe.30.14).
+  '/releases': { view: 'releases' },
+  '/deploys': { view: 'releases' },
+  '/releases.html': { view: 'releases' },
   // The ledger under the name of the one question it is most often asked (bc-nib3.7).
   // Not in SHELL and never was; the difference is that the answer is now knowable here.
   '/closed': { view: 'history', narrow: [['status', 'closed']] },

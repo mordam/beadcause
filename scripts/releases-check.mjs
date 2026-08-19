@@ -34,7 +34,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { aliasPage, pageAliases } from '../lib/pagealias.js';
+import { aliasPage, hopLocation, pageAliases, viewHops } from '../lib/pagealias.js';
 import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -253,10 +253,17 @@ const BASE_FILES = BASELINE ? { 'releases.js': headFile('releases.js'), 'style.c
    404d on one would fail the install and post the failure to /api/error. See
    lib/pagealias.js. */
 const ALIASES = pageAliases();
+/* And the ones that stopped being files at all. `/releases`, `/deploys` and
+   `/releases.html` are a 302 to `/#releases` since bc-khoe.30.7 — this view is a *pane* of
+   the shell now — so a fixture that only knew the alias table would 404 on the very
+   address this check opens with. Read out of lib/server.js for the same reason the
+   aliases are. */
+const HOPS = viewHops();
 
 function serve() {
   const server = http.createServer((req, res) => {
-    const p = new URL(req.url, 'http://x').pathname;
+    const u = new URL(req.url, 'http://x');
+    const p = u.pathname;
     const json = (b, status = 200) => {
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(b));
@@ -278,6 +285,11 @@ function serve() {
     }
     if (p.startsWith('/api/')) return json({});
 
+    const hop = hopLocation(p, u.search, HOPS);
+    if (hop) {
+      res.writeHead(302, { location: hop }).end();
+      return;
+    }
     const rel = aliasPage(p, ALIASES);
     const name = rel.replace(/^\/+/, '');
     if (BASE_FILES[name]) {
@@ -316,22 +328,22 @@ const ok = (pass, msg) => {
  * a tap is the claim, so a probe that opened the card first could not tell a summary
  * from a fold.
  */
-const CARDS = `(() => [...document.querySelectorAll('#releases .queue-card')].map((el) =>
+const CARDS = `(() => [...document.querySelectorAll('#rel-list .queue-card')].map((el) =>
   [...el.classList].filter((c) => c !== 'queue-card' && c !== 'unfolded').sort().join('+').replace(/queue-/g, '') + '|' +
   el.querySelector('.queue-title').textContent.replace(/\\s+/g, ' ').trim() + '|' +
   el.querySelector('.queue-stage').textContent.replace(/\\s+/g, ' ').trim()))()`;
 
 /** The ladder inside whichever card is open, as `state:Label`. */
-const RUNGS = `(() => [...document.querySelectorAll('#releases .queue-card.unfolded .queue-rung')].map((el) =>
+const RUNGS = `(() => [...document.querySelectorAll('#rel-list .queue-card.unfolded .queue-rung')].map((el) =>
   [...el.classList].filter((c) => c !== 'queue-rung')[0] + ':' +
   el.querySelector('.queue-rung-name').textContent.trim()))()`;
 
 /** The words on screen against the rungs nothing observed. */
-const UNTRACKED = `(() => [...document.querySelectorAll('#releases .queue-card.unfolded .queue-untracked')]
+const UNTRACKED = `(() => [...document.querySelectorAll('#rel-list .queue-card.unfolded .queue-untracked')]
   .map((el) => el.textContent.trim()))()`;
 
 /** The two section headings and their counts. */
-const SECTIONS = `(() => [...document.querySelectorAll('#releases .queue-sec')].map((el) =>
+const SECTIONS = `(() => [...document.querySelectorAll('#rel-list .queue-sec')].map((el) =>
   el.dataset.sec + '|' + el.querySelector('.queue-head').textContent.replace(/\\s+/g, ' ').trim()))()`;
 
 /**
@@ -341,15 +353,15 @@ const SECTIONS = `(() => [...document.querySelectorAll('#releases .queue-sec')].
  * whole — including the `.sr-only` "deploy:" a reader hears, since the workspace and its
  * state are two spans that only a screen makes into one phrase.
  */
-const STRIP = `(() => [...document.querySelectorAll('#releases .deploy')].map((el) =>
+const STRIP = `(() => [...document.querySelectorAll('#rel-list .deploy')].map((el) =>
   [...el.classList].filter((c) => c !== 'deploy').sort().join('+') + '|' +
   el.querySelector('.deploy-what').textContent.replace(/\\s+/g, ' ').trim()))()`;
 
-const BANNER = `document.querySelector('#releases .deploy-banner')?.textContent.trim() || ''`;
+const BANNER = `document.querySelector('#rel-list .deploy-banner')?.textContent.trim() || ''`;
 
 /** Unfold the deploy strip's first row. */
 const OPEN_DEPLOY = `(() => {
-  const b = document.querySelector('#releases .deploy [data-deploy]');
+  const b = document.querySelector('#rel-list .deploy [data-deploy]');
   if (!b) return false;
   b.click();
   return true;
@@ -357,7 +369,7 @@ const OPEN_DEPLOY = `(() => {
 
 /** What is behind it: the sentence, every step with its verdict, and the log. */
 const DEPLOY_BODY = `(() => {
-  const el = document.querySelector('#releases .deploy-body');
+  const el = document.querySelector('#rel-list .deploy-body');
   if (!el) return null;
   return {
     why: el.querySelector('.deploy-why')?.textContent.trim() || '',
@@ -441,7 +453,7 @@ try {
 
   const fit = await evalJs(s, `(() => {
     const m = document.querySelector('main.pagescroll');
-    const over = [...document.querySelectorAll('#releases *')]
+    const over = [...document.querySelectorAll('#rel-list *')]
       .filter((el) => Math.round(el.getBoundingClientRect().right) > innerWidth)
       .map((el) => el.tagName.toLowerCase() + '.' + String(el.className).split(' ')[0]);
     return { main: Math.round(m.getBoundingClientRect().width), vw: innerWidth, over: [...new Set(over)] };
@@ -455,7 +467,7 @@ try {
 
   // Aimed at the title, which is where a thumb lands — not at the chevron, which is a
   // hint about what a tap does and never the thing you have to hit.
-  await evalJs(s, `document.querySelectorAll('#releases .queue-card .queue-title')[0].click()`);
+  await evalJs(s, `document.querySelectorAll('#rel-list .queue-card .queue-title')[0].click()`);
   await sleep(200);
   let rungs4 = await evalJs(s, RUNGS);
   ok(
@@ -463,11 +475,11 @@ try {
     `tapping the title opens the whole merge ladder — ${JSON.stringify(rungs4)}`
   );
   ok(
-    (await evalJs(s, `!!document.querySelector('#releases .queue-card.unfolded .queue-rung-note')`)),
+    (await evalJs(s, `!!document.querySelector('#rel-list .queue-card.unfolded .queue-rung-note')`)),
     'and the rung it is on carries the sentence explaining it'
   );
 
-  await evalJs(s, `document.querySelectorAll('#releases .queue-card .queue-title')[0].click()`);
+  await evalJs(s, `document.querySelectorAll('#rel-list .queue-card .queue-title')[0].click()`);
   await sleep(200);
   ok((await evalJs(s, RUNGS)).length === 0, 'and tapping it again folds it');
 
@@ -477,7 +489,7 @@ try {
 
   // The live one: everything before it is behind it, and the three the deploy journal
   // cannot see are still untracked. This is the assertion the whole ladder exists for.
-  await evalJs(s, `document.querySelectorAll('#releases .queue-card .queue-title')[3].click()`);
+  await evalJs(s, `document.querySelectorAll('#rel-list .queue-card .queue-title')[3].click()`);
   await sleep(200);
   const ladder = await evalJs(s, RUNGS);
   ok(
@@ -497,7 +509,7 @@ try {
     words.length === 3 && words.every((w) => /not tracked/i.test(w)),
     `each of them says so in a word, not just in a colour — ${JSON.stringify(words)}`
   );
-  await evalJs(s, `document.querySelectorAll('#releases .queue-card .queue-title')[3].click()`);
+  await evalJs(s, `document.querySelectorAll('#rel-list .queue-card .queue-title')[3].click()`);
   await sleep(200);
 
   /* ---------------------------------------------------------- the deploy strip */
@@ -505,7 +517,7 @@ try {
   console.log('\nwhat is deploying right now');
 
   ok(
-    (await evalJs(s, `document.querySelectorAll('#releases .deploy').length`)) === 0,
+    (await evalJs(s, `document.querySelectorAll('#rel-list .deploy').length`)) === 0,
     'a repo nobody has deployed from here gets no strip at all'
   );
 
@@ -537,7 +549,7 @@ try {
     `and says which repo, which step, and that this page is about to go — "${strip[0]}"`
   );
   ok(
-    (await evalJs(s, `document.querySelectorAll('#releases .queue-card').length`)) === 4,
+    (await evalJs(s, `document.querySelectorAll('#rel-list .queue-card').length`)) === 4,
     'the queues underneath are untouched'
   );
 
@@ -550,7 +562,7 @@ try {
   );
   ok(/the runner said this/.test(body?.log || ''), 'and fetches what the runner printed');
   ok(
-    await evalJs(s, `!!document.querySelector('#releases .deploy-body .pill.id')`),
+    await evalJs(s, `!!document.querySelector('#rel-list .deploy-body .pill.id')`),
     'the bead that asked for it is a link'
   );
   await evalJs(s, OPEN_DEPLOY);
@@ -565,11 +577,11 @@ try {
   await sleep(6000);
   ok(/restarting/.test(await evalJs(s, BANNER)), `the dropped connection reads as the deploy — "${await evalJs(s, BANNER)}"`);
   ok(
-    (await evalJs(s, `document.querySelectorAll('#releases .queue-card').length`)) === 4,
+    (await evalJs(s, `document.querySelectorAll('#rel-list .queue-card').length`)) === 4,
     'and the queues that were already drawn are still there to come back to'
   );
   ok(
-    !/Can't reach the server/.test(await evalJs(s, `document.getElementById('releases').textContent`)),
+    !/Can't reach the server/.test(await evalJs(s, `document.getElementById('rel-list').textContent`)),
     'not the generic failure, which would have thrown away the thing that explains it'
   );
 
@@ -617,7 +629,7 @@ try {
   ok(/did not outlive it/.test(body?.why || ''), `the ending says what is not known, in words — "${body?.why}"`);
 
   await evalJs(s, OPEN_DEPLOY);
-  await evalJs(s, `(() => document.querySelectorAll('#releases .deploy [data-deploy]')[1].click())()`);
+  await evalJs(s, `(() => document.querySelectorAll('#rel-list .deploy [data-deploy]')[1].click())()`);
   await sleep(700);
   body = await evalJs(s, DEPLOY_BODY);
   ok(
@@ -628,6 +640,91 @@ try {
     body?.out.length === 1 && /Could not find service/.test(body.out[0]),
     `with what that step printed, and nothing from the ones that worked — ${JSON.stringify(body?.out)}`
   );
+
+  /* ------------------------------------------------- and the same view, as a pane */
+
+  // Everything above drove `/releases`, the document. Since bc-khoe.30.14 the same file
+  // also draws a pane of the shell, and the four claims below are the ones a vm cannot
+  // make: that the pill stopped being a link, that a tap costs no document load, that the
+  // scroll position survives the round trip, and that the chip did not end up in a top bar
+  // shared with every other view.
+  console.log('\nthe same view, as a pane of the shell');
+
+  // Land on Home first, so the Releases pill is one you are *not* on — the pill for the
+  // pane already up is a `<span>` by design and would answer this question the wrong way.
+  await s.send('Page.navigate', { url: `${BASE}/` });
+  await sleep(1800);
+
+  // `data-pane` rather than an href is the whole of what filling the container changed at
+  // the row: viewbar.js asks `panes.has('releases')`, which was false for as long as the
+  // container carried `data-pending`, and answers differently the moment this bead lands.
+  ok(
+    (await evalJs(s, `document.querySelector('.viewbar [data-pane="releases"]')?.tagName`)) === 'BUTTON',
+    'from Home, the Releases pill is a control rather than a link to a document this page already has open'
+  );
+  ok(
+    !(await evalJs(s, `!!document.querySelector('.viewbar a[href="/releases"]')`)),
+    'and no pill on the shell still loads /releases as a document'
+  );
+
+  // A tap costs no document load, which is the whole of what this epic buys. The marker is
+  // the proof and it has to be set before the first tap: a navigation takes it with the
+  // window it was set on, so it surviving *is* the claim.
+  await evalJs(s, `window.__stillHere = 'yes'`);
+  await evalJs(s, `document.querySelector('.viewbar [data-pane="releases"]').click()`);
+  await sleep(1500);
+
+  ok(await evalJs(s, `window.__stillHere === 'yes'`), 'tapping it showed the pane without loading a document');
+  ok(
+    await evalJs(s, `document.querySelector('[data-pane="releases"]').hidden === false`),
+    'and the pane is the one showing'
+  );
+  ok(
+    (await evalJs(s, `document.querySelectorAll('.pane:not([hidden])').length`)) === 1,
+    'with exactly one pane up, not two'
+  );
+  const paneCards = await evalJs(s, CARDS);
+  ok(paneCards.length === 4, `drawing the same four cards the document drew — found ${paneCards.length}`);
+
+  // The chip is the pane's, not the bar's: a fact about the deploys one view is drawing
+  // must not sit beside the mark over every other view.
+  ok(
+    await evalJs(s, `!!document.querySelector('[data-pane="releases"] #rel-observing')`),
+    'the observing chip is inside the pane it is about'
+  );
+  ok(
+    !(await evalJs(s, `!!document.querySelector('.topbar .observing')`)),
+    'and not up in the shell’s top bar, where it would hang over every other view'
+  );
+
+  // Scroll position across a switch is the thing this epic is buying, and `display: none`
+  // is what takes it away — a hidden element has no scrollport, so its `scrollTop` reads 0
+  // and comes back 0 unless panes.js carried the number by hand.
+  //
+  // Shrunk to a short viewport first, and that is not a fudge: four cards and a deploy
+  // strip fit inside 852px, so at the phone height everything above is drawn at there is
+  // no scroll position to lose and the assertion would pass while proving nothing. The
+  // number has to be real for its survival to mean anything.
+  const SHORT = 420;
+  await s.send('Emulation.setDeviceMetricsOverride', { width: VP.width, height: SHORT, deviceScaleFactor: VP.dpr, mobile: true });
+  await sleep(400);
+  const scroller = `document.querySelector('[data-pane="releases"] .pagescroll')`;
+  const room = await evalJs(s, `(() => { const sc = ${scroller}; return sc.scrollHeight - sc.clientHeight; })()`);
+  ok(room > 40, `the release board is long enough at ${VP.width}x${SHORT} to have a scroll position at all — ${room}px of it`);
+  const left = await evalJs(s, `(() => { const sc = ${scroller}; sc.scrollTop = Math.min(120, sc.scrollHeight - sc.clientHeight); return sc.scrollTop; })()`);
+  await evalJs(s, `document.querySelector('.viewbar [data-pane="epics"], .viewbar [data-kind="epics"]').click()`);
+  await sleep(600);
+  await evalJs(s, `document.querySelector('.viewbar [data-pane="releases"]').click()`);
+  await sleep(600);
+  const back = await evalJs(s, scroller + '.scrollTop');
+  ok(left > 0 && back === left, `where you were, when you come back — left at ${left}, returned to ${back}`);
+  ok(
+    (await evalJs(s, CARDS)).length === 4,
+    'and the board came back rather than being thrown away and re-fetched'
+  );
+  ok(await evalJs(s, `window.__stillHere === 'yes'`), 'with still no document loaded across the whole round trip');
+
+  await s.send('Emulation.setDeviceMetricsOverride', { width: VP.width, height: VP.height, deviceScaleFactor: VP.dpr, mobile: true });
 
   if (outDir) {
     await s.send('Page.navigate', { url: `${BASE}/releases` });

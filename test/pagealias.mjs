@@ -29,7 +29,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { aliasPage, pageAliases, pageRedirects, serverSource, viewHops } from '../lib/pagealias.js';
+import { aliasPage, hopLocation, pageAliases, pageRedirects, serverSource, viewHops } from '../lib/pagealias.js';
 import { shellPaths } from '../lib/swbump.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -68,11 +68,18 @@ check(() => {
 }, 'the alias table parses out of lib/server.js at all');
 
 /* One of each shape the run is written in, because they are two different regex paths:
-   the one-liner, and the braced form the endorsement queue's three paths outgrew. */
+   the one-liner, and the braced form the endorsement queue's three paths outgrew.
+
+   These used to be `/advocates` and `/work.html`, and they are the archive's two because
+   the console's nine stopped being aliases at all when bc-khoe.30.7 turned them into hops.
+   The pair is chosen for the same property, which is what the second line is about: an
+   alias whose path *is* its file is a line you could delete and not notice, because the
+   static handler would serve it anyway. `/archive` and `/terminal` have no file of those
+   names, so they are the two that only this run of `if`s can answer. */
 check(() => {
-  assert.equal(aliases['/advocates'], '/monitor.html');
-  assert.equal(aliases['/work.html'], '/monitor.html', 'the alias with no file behind it is the one that matters most');
-}, 'the one-line form is read — /advocates and /work.html reach the console');
+  assert.equal(aliases['/archive'], '/beadsession.html');
+  assert.equal(aliases['/terminal'], '/term.html', 'the alias with no file behind it is the one that matters most');
+}, 'the one-line form is read — /archive and /terminal reach the pages they name');
 check(() => {
   assert.equal(aliases['/queue'], '/endorse.html');
   assert.equal(aliases['/endorsements'], '/endorse.html');
@@ -277,6 +284,27 @@ check(() => {
   });
   assert.ok(pageRedirects(fake).includes('/hop'), 'a hop onto a page is still a hop, and is not a view');
 }, 'a view hop is read with its view and its narrowing, and a plain hop is not read as one');
+
+/* And the resolver the browser fixtures serve those hops with (bc-khoe.30.7). It is a
+   third writing of the split `viewHop` makes in lib/server.js and `viewAddress` makes in
+   public/sw.js, which is tolerable only because it is asserted — and the assertions worth
+   having are the two the other two ends are asserted on: the token stays in front of the
+   `#` because a fragment never reaches a server, and the door's own narrowing overrules
+   what arrived, because `/closed?status=open` is a contradiction and the name of the door
+   is the half that is not a typo. */
+check(() => {
+  const hops = {
+    '/plain': { view: 'uno', narrow: [] },
+    '/shut': { view: 'uno', narrow: [['status', 'closed']] },
+  };
+  assert.equal(hopLocation('/nothing', '', hops), null, 'a path that is not a hop is not one');
+  assert.equal(hopLocation('/plain', '', hops), '/#uno');
+  assert.equal(hopLocation('/plain', '?t=pair-me', hops), '/?t=pair-me#uno', 'the token stays where a server can read it');
+  assert.equal(hopLocation('/plain', '?priority=P0', hops), '/#uno?priority=P0', 'and a filter crosses the #');
+  assert.equal(hopLocation('/shut', '', hops), '/#uno?status=closed');
+  assert.equal(hopLocation('/shut', '?status=open', hops), '/#uno?status=closed', 'the door overrules what arrived');
+  assert.equal(hopLocation('/shut', '?t=x&priority=P0', hops), '/?t=x#uno?priority=P0&status=closed', 'both halves at once');
+}, 'and the fixtures resolve a hop the way both ends of the app do');
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n\x1b[32mall ${ran} checks passed\x1b[0m\n`);
 process.exit(failures ? 1 : 0);

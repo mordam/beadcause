@@ -234,10 +234,15 @@ function board({ stream = true, deploys = [] } = {}) {
     querySelector: () => null,
     classList: { add() {}, remove() {}, toggle() {} },
   });
+  /* `rel-list` and `rel-observing` rather than the `releases` and `observing` they were
+     until bc-khoe.30.14: that file runs in the shell as well now, where `#releases` is the
+     hash naming the view — an element of that id is a fragment target — and where
+     monitor.html's own `observing` is about to fold into the same document. This map is
+     the page, so the names simply follow the page. */
   const nodes = new Map([
-    ['releases', node('releases')],
+    ['rel-list', node('rel-list')],
     ['pulse', node('pulse')],
-    ['observing', node('observing')],
+    ['rel-observing', node('rel-observing')],
     ['refresh', node('refresh')],
   ]);
 

@@ -51,9 +51,46 @@
   'use strict';
 
   const token = localStorage.getItem('beadcause.token') || '';
-  const out = document.getElementById('releases');
-  const pulse = document.getElementById('pulse');
-  const observing = document.getElementById('observing');
+
+  /** The view id this file draws, in public/hashroute.js's vocabulary. */
+  const VIEW = 'releases';
+
+  const panes = (window.beadcause && window.beadcause.panes) || null;
+  const route = (window.beadcause && window.beadcause.route) || null;
+
+  /**
+   * Is this the shell's Releases pane, or the `/releases` document it also still is?
+   *
+   * Asked of the *document* rather than of a flag, and asked of `panes` rather than of the
+   * path: the eleven pages that are not the shell have no `window.beadcause.panes` at all,
+   * and a pane still marked `data-pending` answers `has()` false — which is exactly the
+   * state this view's own container was in until this bead filled it. So one question
+   * covers both "am I a page" and "is my container live yet".
+   *
+   * `/releases` and `/deploys` keep working either way, and that is not politeness: they
+   * are addresses a phone's home screen can be holding, and landing them on the pane is
+   * bc-khoe.30.7 rather than this bead.
+   */
+  const inShell = Boolean(panes && typeof panes.has === 'function' && panes.has(VIEW) && route);
+
+  /* `rel-list` rather than the `releases` it was until this bead. The hash that names this
+     view is `#releases`, and an element of that id in the shell is a **fragment target**:
+     a browser asked to go to `#releases` scrolls it into view, which on the pane you are
+     returning to is the scroll position panes.js has just restored, thrown away by the
+     URL. One id across the two documents, and it is the one that cannot collide. */
+  const out = document.getElementById('rel-list');
+  /* The brand dot. Left alone in the shell: it is the whole document's there, driven off
+     public/report.js's count of what is in flight, and a second writer toggling `busy` on
+     it would clear it under a fetch of the inbox's that is still out. */
+  const pulse = inShell ? null : document.getElementById('pulse');
+  /* `⦿ observing` — which Mac's deploys these are. Renamed with the list above, and for a
+     duller reason than the fragment target: monitor.html carries an `id="observing"` too
+     and bc-khoe.4 folded it into this same document, where it keeps the bare name because
+     this file gave it up. On the page
+     it is a chip beside the mark; in the pane it is the first line of the pane's own
+     column, because the shell's top bar belongs to every view and this fact belongs to
+     one. */
+  const observing = document.getElementById('rel-observing');
 
   /** The events that can have moved something in either queue. */
   const QUEUE_EVENTS = window.beadcause?.stream?.BOARD_EVENTS || [
@@ -553,7 +590,9 @@
 
   /* -------------------------------------------------------------------- tapping */
 
-  out.addEventListener('click', (ev) => {
+  /* Delegated on the list rather than per card, and bound in `build` rather than here: a
+     pane whose container is still `data-pending` has no list to bind against. */
+  function onTap(ev) {
     // A bead pill or the GitHub link inside a card is a navigation, not a fold.
     if (ev.target.closest('a[href]')) return;
 
@@ -575,12 +614,12 @@
       state.open = state.open === key ? null : key;
       render();
     }
-  });
+  }
 
   /* -------------------------------------------------------------------- fetching */
 
   async function load({ refresh = false } = {}) {
-    pulse.classList.add('busy');
+    pulse?.classList.add('busy');
     try {
       const res = await fetch(`/api/queues${refresh ? '?refresh=1' : ''}`, { headers: { 'x-beadcause-token': token } });
       if (!res.ok) {
@@ -592,7 +631,7 @@
       // pill. What a warm boot saves here is not the sweep, it is the blank screen over
       // it, and this is the page you open while the daemon behind it is restarting.
       window.beadcause?.warm?.write?.('/api/queues', state.data);
-      observing.hidden = !state.data.observing;
+      if (observing) observing.hidden = !state.data.observing;
       state.error = null;
       render();
       // Only from a request that came back, and only once — see public/warm.js.
@@ -604,7 +643,7 @@
       state.error = err.message;
       render();
     } finally {
-      pulse.classList.remove('busy');
+      pulse?.classList.remove('busy');
       // Whether or not that worked, and deliberately: a page opened during a deploy is
       // looking at a daemon that is restarting, and the stream is what brings it back.
       follow();
@@ -675,6 +714,18 @@
    * **The fallback is not decoration.** A page whose stream is not following has nothing to
    * wake it, and a strip that had quietly stopped refreshing would look exactly like one
    * with nothing to say.
+   *
+   * The question is asked of `stream.awake()` rather than of a handle this file holds,
+   * because as a pane it holds none: public/panestage.js owns the document's one poll and
+   * fans the answers out. `awake` answers for *any* mount on the page, which is what makes
+   * the same line right in both documents — on `/releases` the only mount there is is this
+   * file's own.
+   *
+   * **The four-second tick is not paused when the pane is hidden, and that is deliberate.**
+   * It only runs while a deploy is actually in flight — minutes, not hours — and the whole
+   * of what this epic buys is that arriving at a view costs nothing. A pane that had
+   * stopped watching would owe a fetch on the tap that showed it, which is the document
+   * load wearing a different mechanism.
    */
   let deployTimer = null;
   function scheduleDeploys() {
@@ -687,31 +738,62 @@
       deployTimer = setTimeout(loadDeploys, DEPLOY_LIVE_MS);
       return;
     }
-    if (!stream?.following) deployTimer = setTimeout(loadDeploys, DEPLOY_IDLE_MS);
+    if (!window.beadcause?.stream?.awake?.()) deployTimer = setTimeout(loadDeploys, DEPLOY_IDLE_MS);
   }
-
-  /* The space picker moved — on this device or on the other one. Nothing is refetched: the
-     payload already holds every repo, and which of them is drawn is a decision made at
-     paint time. */
-  window.beadcause?.space?.onChange(() => render());
-
-  document.getElementById('refresh').addEventListener('click', () => {
-    loadDeploys();
-    load({ refresh: true });
-  });
 
   /* ------------------------------------------------------------------- the stream */
 
   /**
-   * Follow the event log instead of re-asking on a clock.
+   * One answered poll, whichever mount asked for it.
+   *
+   * The shape is `follow`'s own `onWake` argument, which is also the shape public/panestage.js
+   * fans out — so this is the page's `onWake` and the pane's `wake`, one function under one
+   * name rather than the same logic written twice and free to drift. `resync` is the daemon
+   * saying the log rolled past where this client was, so `events` is not a list of what
+   * happened but an admission that it cannot be known: everything is re-read, and the
+   * queues bypass the daemon's twenty-second hold.
+   *
+   * **As a pane this does the work rather than deferring it, and that is the one place this
+   * view parts company with the ledger next door.** That pane sets a `dirty` flag and
+   * re-reads when you arrive, which is right for a record of what has finished — an hour
+   * old is merely an hour old. This view is *about* things moving: a merge card three rungs
+   * behind, or a deploy that ended twenty minutes ago and still says `deploying`, is the
+   * one thing it must never draw. It costs nothing extra either way — this is the
+   * document's existing poll being handed on, and the two fetches below only happen when an
+   * event says a queue actually moved.
+   */
+  function wake({ events, resync }) {
+    if (resync) {
+      loadDeploys();
+      load({ refresh: true });
+      return;
+    }
+    if (!window.beadcause.stream.touched(events, QUEUE_EVENTS)) return;
+    load();
+    // A deploy has started, or settled — lib/server.js emits the same event type for
+    // both, and the record's `status` is what tells them apart. This is the whole of
+    // the strip's clock while nothing is running.
+    if (window.beadcause.stream.touched(events, 'deploy')) loadDeploys();
+  }
+
+  /**
+   * Follow the event log instead of re-asking on a clock — on the document only.
    *
    * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll that
-   * asked for the inbox questions, and this page draws none of them — it wants to be woken,
+   * asked for the inbox questions, and this view draws none of them — it wants to be woken,
    * and then it decides for itself whether the news was about a queue.
+   *
+   * **In the shell this does nothing at all**, and the early return is the point rather
+   * than a tidy-up: the document holds exactly one poll and public/panestage.js hands its
+   * answers to every pane that asked for them. A second `follow` here would be the second
+   * socket that file exists to prevent — several parked clients from one page, each one a
+   * `bd` sweep per event on the daemon. `presence` is declared to the stager instead, in
+   * the `register` call at the foot of this file, and it is the same word for the same
+   * reason.
    */
   let stream = null;
   function follow() {
-    if (!window.beadcause?.stream) return;
+    if (inShell || !window.beadcause?.stream) return;
     if (stream) {
       stream.start();
       return scheduleDeploys();
@@ -720,20 +802,8 @@
       api: warmApi,
       want: 'presence',
       cold: true,
-      onWake({ events, resync }) {
-        if (resync) {
-          loadDeploys();
-          load({ refresh: true });
-          return;
-        }
-        if (!window.beadcause.stream.touched(events, QUEUE_EVENTS)) return;
-        load();
-        // A deploy has started, or settled — lib/server.js emits the same event type for
-        // both, and the record's `status` is what tells them apart. This is the whole of
-        // the strip's clock while nothing is running.
-        if (window.beadcause.stream.touched(events, 'deploy')) loadDeploys();
-      },
-      /** The stream has stopped — `scheduleDeploys` reads `stream.following` and puts the
+      onWake: wake,
+      /** The stream has stopped — `scheduleDeploys` asks `stream.awake()` and puts the
        *  fallback timer back, so the two cadences stay one decision made in one place. */
       onSettle() {
         scheduleDeploys();
@@ -761,14 +831,64 @@
     const hit = window.beadcause?.warm?.read?.('/api/queues');
     if (!Array.isArray(hit?.data?.repos)) return false;
     state.data = hit.data;
-    observing.hidden = !state.data.observing;
+    if (observing) observing.hidden = !state.data.observing;
     render();
     return true;
   }
 
-  if (!token) {
-    out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
-  } else {
+  /* ---------------------------------------------------------- the pane's own life */
+
+  /**
+   * This pane just became the one showing.
+   *
+   * Nothing is fetched. The pane has been following the log since it was built, so what is
+   * on it is current — and a fetch here would be the document load this epic exists to
+   * remove, arriving one pane later. What it does do is spend the clock: `scheduleDeploys`
+   * is idempotent and re-reads the two conditions, so a deploy that began while this was
+   * hidden is on its four-second tick by the time the pane is painted.
+   */
+  function shown() {
+    scheduleDeploys();
+  }
+
+  /* ------------------------------------------------------------------- the control */
+
+  /**
+   * Everything this view does on the way up, in one function so the shell can time it.
+   *
+   * It was the last dozen lines of this IIFE and it still is on the document; what the
+   * stager buys is the other case — a load that lands on Home builds this after the first
+   * paint, and a load that lands on `/#releases` builds it first and the inbox after.
+   *
+   * Every registration is in here rather than at module scope, and that is the trap this
+   * shape exists to avoid: `space.onChange` left outside would have the picker announce
+   * itself before there was anything to repaint, and the delegated click on the list would
+   * bind against a container that a pending pane does not have.
+   */
+  function build() {
+    /* The space picker moved — on this device or on the other one. Nothing is refetched:
+       the payload already holds every repo, and which of them is drawn is a decision made
+       at paint time. */
+    window.beadcause?.space?.onChange(() => render());
+
+    out.addEventListener('click', onTap);
+
+    /* ⟳. The page's own on the document; the app's, shared with every other view, in the
+       shell — which is why the handler asks whether this pane is the one showing before it
+       does anything. One tap must not sweep the daemon for two views and draw one of them. */
+    const refreshBtn = document.getElementById('refresh');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => {
+        if (inShell && panes.showing() !== VIEW) return;
+        loadDeploys();
+        load({ refresh: true });
+      });
+    }
+
+    if (!token) {
+      out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
+      return;
+    }
     warmBoot();
     // `loadDeploys` runs alongside the queues rather than after them: if a deploy is in
     // flight the other request is the one that is about to fail, and the strip is what
@@ -776,4 +896,21 @@
     load();
     loadDeploys();
   }
+
+  /*
+    Offered to the stager, and built here when there is no stager to take it — the
+    `/releases` document, or a service worker cache from before public/panestage.js existed.
+    `register` answering false has to leave this file exactly as it was, which is why
+    `build` is the function it would have called on its own rather than something only
+    reachable through the shell.
+
+    `want: 'presence'` beside the `wake`, which is the same word the page's own mount uses
+    and for the same reason: this view draws none of the inbox's questions, so the daemon
+    has no `bd` to sweep on its behalf. Declaring it here is what keeps the shell's one
+    request at the free park — the union in public/panestage.js widens only for a pane that
+    asks for more, and a pane that asked for `questions` because it was easier would put a
+    sweep per event on every device holding this app open.
+  */
+  if (!window.beadcause?.stage?.register?.(VIEW, { build, wake, want: 'presence' })) build();
+  if (inShell) panes.onShow((view) => view === VIEW && shown());
 })();

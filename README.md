@@ -6946,18 +6946,21 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**A pane can be present and unshowable, and one still is.** `data-pending` names the bead
-that fills it — **bc-khoe.4** for Advocates — and it is load-bearing rather than a note: a
-pending pane is registered nowhere, can never be shown, and the pill row asks the same
-question, so its pill stays the `<a href>` it has always been and still loads its own
-document. That is what let the shell land on its own. The alternative was two of seven pills
-leading to a blank screen until two further beads merged, on an app that
+**A pane can be present and unshowable, and none is any more.** `data-pending` names the
+bead that fills a container, and it is load-bearing rather than a note: a pending pane is
+registered nowhere, can never be shown, and the pill row asks the same question, so its pill
+stays the `<a href>` it has always been and still loads its own document. That is what let
+the shell land on its own. The alternative was two of seven pills leading to a blank screen
+until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
 History's attribute came off when
-[bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash);
-Advocates still carries one, and it names **bc-khoe.4** rather than bc-khoe.30.6 — the
-attribute names the bead whose merge deletes it, and the fold is bc-khoe.4's, behind
-bc-khoe.10 (bc-khoe.30.6, which ruled how it folds rather than folding it).
+[bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash),
+Releases' with bc-khoe.30.14, and Advocates' — the last of them — with **bc-khoe.4**, which
+folded the whole advocate console in, chip row and all. The attribute names the bead whose
+merge *deletes* it, which is why it named bc-khoe.4 rather than bc-khoe.30.6: that bead
+ruled how the fold goes rather than folding it. The mechanism is not retired with the last
+of them; it is how the next view arrives, and `test/panes.mjs` covers it against fixtures
+now that the shell itself has none.
 
 **The row asks; it does not require.** `public/viewbar.js` is drawn on twelve pages and one
 of them is the shell, so it reaches for `window.beadcause.panes` with `?.` and takes *no* as
@@ -6976,9 +6979,9 @@ pushes normally and back walks them.
 `node test/panes.mjs` runs both files in a `node:vm` against a hand-made document: which
 pane a hash lands on, that a pending one is never shown, that a scroll position survives a
 switch away and back, that a view with a pane is never an `<a>`, and that the row with no
-panes at all draws exactly the seven links it always did. What is deliberately still to come
-is landing the old addresses on the right pane (bc-khoe.30.7); until that, `/history` and
-`/monitor` are still their own documents.
+panes at all draws exactly the seven links it always did. Landing the old addresses on the
+right pane was the last piece and it has landed (bc-khoe.30.7): `/history`, `/monitor`,
+`/prs` and `/releases` are hops onto their panes now rather than documents of their own.
 
 ### The stager — built at boot, and one poll behind all of them
 
@@ -7022,9 +7025,10 @@ and nothing else; it is rethrown out of a timer so `public/report.js` still
 [files it](#an-error-the-app-hits-files-itself-as-a-p0) as the P0 it is, because a pane that
 silently did not build is a blank screen with no account of why.
 
-No standby is actually mounted yet: it goes up only when a built pane has a `wake`, and Home
-— the one pane with contents today — keeps its own poll. So the connection count is exactly
-what it was, and the machinery is waiting for bc-khoe.30.5 and bc-khoe.4.
+The standby is up now, and it is what every pane but Home rides: the ledger, the release
+board and all three sections of the advocate console declare a `wake` and open no socket of
+their own. Home still keeps its own poll, and the union of what the panes want stays at
+`presence` — the free park — because not one of them draws the inbox's questions.
 
 `node test/panestage.mjs` runs the four real files in a `node:vm` with the document still
 parsing, which is what makes the staging visible at all: that the landed-on pane is built in
@@ -7089,11 +7093,21 @@ the hops against a real server, including both halves of what one does with a qu
 and checks that each lands on the view whose own pill claims that address — a `/history`
 that hopped to `#advocates` would show one pane and light another pill.
 
-**Only the ledger's addresses are hops today.** `/monitor` and its eight siblings, and
-`/releases` and its two, are still documents and still aliases, because their panes are
-still [`data-pending`](#the-shell--one-document-one-pane-per-view). Each of those beads flips
-its own paths in the same commit that fills its container, and the suites above are what
-refuse the half of that pair that gets forgotten.
+**All sixteen are hops now**, and they arrived in three commits rather than one. The
+ledger's went first, while the other two containers were still
+[`data-pending`](#the-shell--one-document-one-pane-per-view) — a path whose pane is pending
+must keep its document, because a hop onto a pending container is Home, whatever was
+tapped. So the rule the suites above enforce runs in *both* directions: a view whose pane
+has landed owes its addresses as hops, and one still pending must not have them. That is
+what made this safe to land in pieces, and it is what caught bc-khoe.4 and bc-khoe.30.14
+filling their containers without flipping their paths — the failure names the addresses and
+the three edits each one owes.
+
+The board's three are the only hops that carry a **chip** as well as a view.
+`/prs`, `/pulls` and `/prs.html` have always meant the board rather than merely the view it
+is a section of, and `public/montabs.js` read that off `location.pathname`; after a hop
+there is no pathname left, so the fact rides behind the `#` as
+[`#advocates?tab=prs`](#the-advocate-console-is-one-pane-and-its-chip-row-stays).
 
 ### The advocate console is one pane, and its chip row stays
 
@@ -7128,12 +7142,62 @@ their own merits, before any of this. What was always wrong with the pair is tha
 rows are **drawn alike**, and that is bc-stci: restyle the chips as the segmented control
 they already are. A restyle, not a deletion.
 
-The row is also shrinking on its own. bc-khoe.10 takes **Config** out to a view of its own,
-which leaves **Advocates · PRs · Mirror** — and it is why the fold waits: folding in a
-section that another branch is deleting is work with a conflict already written into it.
-`data-pending` on the Advocates container therefore names **bc-khoe.4**, not bc-khoe.30.6.
-The attribute names the bead whose merge deletes it, and the fold is bc-khoe.4's, behind
-bc-khoe.10; bc-khoe.30.6 is the bead that decided the shape and wrote it down here.
+The row shrank on its own on the way here. bc-khoe.10 took **Config** out to a view of its
+own, which leaves **Advocates · PRs · Mirror** — and it is why the fold waited: folding in a
+section that another branch was deleting is work with a conflict already written into it.
+bc-khoe.4 did the fold once that had landed, and bc-khoe.30.6 is the bead that decided the
+shape and wrote it down here.
+
+**What the fold actually moved, and what it deliberately did not.** The markup is
+monitor.html's below the top bar, unchanged. The four scripts are not rewritten: each already
+found its elements by id and each already started and stopped on `montabs.js`'s `onChange`,
+so the row goes on owning the swap and is the pane's **one** registration with the stager —
+`register` holds one spec per view id, and the row is the only thing on the screen that knows
+which of the three is up. `build` is "put the remembered chip up"; `wake` is "hand the poll's
+answer to whichever section asked", and it hands it to all three, because each of them knows
+which half of a wake is free. Two element ids had to be decided rather than moved: `pulse` and
+`refresh` exist in both documents, so the pane takes the shell's and leaves them alone — the
+brand dot because `report.js` is already driving it and a second writer would clear it under a
+fetch still out, the ⟳ because there is one for the whole app and each pane asks whether the
+press was its own. `observing` kept its bare name only because the Releases pane gave it up
+(`rel-observing`) for exactly this collision. The ⚙ did **not** come with it: bc-khoe.5 put a
+standing Admin row in the mark's menu on every page, so a second one
+hoisted out of this pane would be the same row drawn twice.
+
+**`⦿ observing` and the roster's tally came down out of the bar into the row.** On
+monitor.html both sit at the right of that page's own top bar. In the shell the top bar
+belongs to every view and those two are facts about one of them — which Mac's daemon this is,
+and how many advocates are working — so left up there they would sit over the inbox. They are
+at the right-hand end of the chip row instead, which is the same place on the screen.
+
+The row **wraps** rather than scrolling for them, and that was measured rather than guessed.
+On a 393px phone, three chips and `⦿ observing` and the busiest sentence the tally can
+produce — `12 working · 34 to answer` — come to more than the width, and the row's own
+`overflow-x` would have answered that by putting the count off the right-hand edge where
+nothing says it is there. A second line is the honest answer and it is only ever drawn when
+there is something to put on it: both halves are empty on most installs, and the observer
+mark on every Mac but one.
+
+**The chip is on the address, and that is the third of the three ways out bc-khoe.30.6
+named.** `/#advocates?tab=prs` — the query slot
+[decision 5](#one-hash-two-claimants--the-grammar-in-publichashroutejs) opened for the ledger's
+filters, because a chip is the same kind of thing as a filter: not a view of the tracker, a
+narrowing of one. The alternatives were a second hash *form* for the chip, which bc-khoe.30.2
+decision 4 declined outright, and a `sessionStorage` handoff, which is a second place the same
+fact lives and cannot be reloaded into or sent to a phone. It is worth something on its own —
+a reload comes back to the chip you were on — and it is what makes bc-khoe.30.7's redirect
+possible at all: `/prs`, `/pulls` and `/prs.html` mean the **board**, not merely this view,
+and once they arrive as `/#advocates` there is no pathname left to read them off.
+`localStorage` stays the memory in both documents; the address says which chip *this arrival*
+wants, and the store says which one you were last on when it does not.
+
+**monitor.html stays served, and that is not politeness.** Nine paths answer with it and
+several are on a phone's home screen and in the notifications the ship path sends. Landing
+them on this pane is bc-khoe.30.7, whose commit owes each of them three edits in one go — a
+redirect in `serveStatic`, the path out of `SHELL` and into the offline hop table, and its row
+moved from `PAGES` to `REDIRECTS` in `test/pagepaths.mjs`. Until then all four of these files
+run in two documents and ask which one they are in, the same way `history.js` and
+`releases.js` do.
 
 **And this is the one pane that stands down while it is hidden.** The stager's rule is that
 a hidden pane stays live, so a pane you come back to is already right rather than catching
@@ -7142,10 +7206,23 @@ The board is a `gh` sweep per repo — real money, spent on a screen behind two 
 Mirror is worse than expensive: while it is up this device reports `view: null`, because you
 are looking at somebody else's screen rather than at anything here, and a Mirror left
 running behind Home would tell every other device in the house that this one is nowhere when
-it is in fact on the inbox. So once the row is inside a pane, *hidden* means the chip is down
-**or** the pane is, and a chip that is up inside a hidden pane is down. The roster is the
-exception to the exception, and it is free: its snapshot rides the stager's shared wake, so
-it is current the moment you come back without having asked for anything.
+it is in fact on the inbox. So inside a pane, *hidden* means the chip is down **or** the pane
+is, and a chip that is up inside a hidden pane is down.
+
+That is one question with one answer, and it is `monTabs.up(chip)` — the row's, because the
+row is the only thing that knows both halves. Each section asks it instead of reading its own
+`hidden` attribute, which was the whole answer while this was a page and is half of one now.
+The row is told the pane went away by `panes.onShow`, and it says so to its subscribers as
+the empty string: every one of them already read its own name out of that argument, so a
+hiding stands all three down through the code path that was there for a chip swap, and coming
+back is the same call a first paint is. The presence report goes `null` with it, which is the
+word this row already sends for the Mirror.
+
+The roster is the exception to the exception, and it is free: its snapshot rides the stager's
+shared wake, so it is current the moment you come back without having asked for anything.
+That is why the fan-out hands a wake to all three sections rather than only to the one that is
+up — `monitor.js` takes the free half of every wake whatever is on screen and guards only the
+requests below it, and the board, which has no free half, guards on the first line.
 
 ### The ledger — the History tab
 
@@ -8982,7 +9059,8 @@ to the same `/session?pid=…`, so the tap means the same thing wherever your th
 
 That is also what made `/sessions` redundant — the fold was the only thing it had that
 the console did not — which is why there are three places now rather than four, and why
-`/sessions` serves the console.
+`/sessions` lands on the console: a hop to `/#advocates` since bc-khoe.30.7, an alias onto
+`monitor.html` before that.
 
 The pid is the whole address, because nothing else identifies a running process — and a
 URL that named a *file* instead would be a way to read anything on the Mac. The one row
@@ -11305,6 +11383,74 @@ worker in the next room lands on the phone in the moment it was filed and an idl
 costs the daemon nothing at all. A wake that arrives while you are mid-sentence is held
 back rather than repainting over your thumb — and taken the moment the box is empty,
 which is the half a guard like that usually forgets.
+
+### Releases as a pane, and the two clocks it brought with it
+
+Everything above describes `/releases`, a document. It is a **pane of the shell** now:
+`[data-pane="releases"]` in `public/index.html`, shown by a `display: none` swap on a pill
+tap with nothing fetched and nothing rebuilt. `/releases`, `/deploys` and `/releases.html`
+still answer — any of them can be sitting on a phone's home screen — but as a **302 onto the
+pane** since bc-khoe.30.7 rather than as the document. `public/releases.js` is still one
+file written to run in either, deciding which by asking whether the one it is in has panes
+at all; `public/releases.html` is still on disk and is simply no longer reachable, the way
+`public/history.html` is not. It is the second view to make that move, after [the
+ledger](#the-ledger-as-a-pane-and-its-filters-in-the-hash), and it went the same way for
+the same reasons; what is worth writing down is the three places it did **not**.
+
+**It follows the log while it is hidden, where the ledger sets a flag and re-reads on
+arrival.** That difference is the views themselves rather than a choice about mechanism.
+The ledger is a record of what has finished, so an hour-old one is merely an hour old and
+re-reading it as you arrive costs nothing anybody notices. This view is *about things
+moving*: a merge card that is three rungs behind, or a deploy that finished twenty minutes
+ago and still says `deploying`, is the one thing it must never draw. So its `wake` does the
+work rather than deferring it, which is the same handler the document's own `onWake` runs —
+one function, registered two ways, because a pane that drew a second copy of that logic
+would be the place the two documents quietly diverge.
+
+**It has a clock of its own, and it keeps running while the pane is hidden.** A deploy's
+*steps* are a file being written on the Mac and no event carries them, so a deploy in
+flight is watched on four seconds — and that tick is deliberately not paused when you
+switch away. It only runs while something is actually deploying, which is minutes rather
+than hours, and the whole of what this epic buys is that arriving at a view costs nothing.
+A pane that had stopped watching would owe a fetch on the tap that showed it, which is the
+document load wearing a different mechanism. With nothing running there is no timer at all;
+the fallback is thirty seconds and it goes up only when the page has no stream to wake it.
+
+**Which is why `public/stream.js` grew `awake()`.** As a page this view read `following` off
+the mount it held itself. As a pane it holds none — [the
+stager](#the-stager--built-at-boot-and-one-poll-behind-all-of-them) owns the document's one
+poll and fans the answers out — and the existing `busy()` is the arbiter's question, blind
+to standbys by design. `awake()` is the other one: is *anything* on this page following the
+log. Asking `stage.standing()` instead would have answered `false` whenever the inbox owned
+the socket, which is the common case, and put a thirty-second poll up beside a stream that
+was working perfectly.
+
+**Two element ids moved with it**, and both are the kind of collision a clean merge reports
+nothing about. `id="releases"` became `id="rel-list"`, because in one document `#releases`
+is the hash that *names this view* — an element of that id is a fragment target the browser
+scrolls into view on arrival, throwing away the scroll position `panes.js` has just
+restored. And `id="observing"` became `id="rel-observing"`, because `monitor.html` carries
+one too — and bc-khoe.4 has since folded it into this same document, where the advocate
+console's keeps the bare name because this one gave it up. The `⦿ observing` chip also
+moved *inside* the pane rather than staying beside the mark: the top bar belongs to every
+view now, and which Mac's deploys these are is a fact about one of them.
+
+The brand dot and the ⟳ went the other way — the pane takes the shell's and leaves them
+alone, the dot because `public/report.js` is already driving it off its own count of what
+is in flight, and the ⟳ because there is one for the whole app, so each pane asks whether
+the press was its own before spending a sweep on it.
+
+`node test/releases.mjs` runs the real file both ways from one harness — `shell: true` is
+the only lever, because the file asks the document which it is — and the pane half pins
+what a second copy of the logic would have broken: that it registers `presence` and not a
+wider want, that it opens no mount of its own, that a wake it was handed re-reads only for
+an event that moved a queue, that arriving fetches nothing, that the shared ⟳ is spent by
+the pane that is up and by no other, and that the board it draws is card-for-card the one
+the document draws. `node scripts/releases-check.mjs` is the other half and the claims only
+a browser can make: that the pill stopped being an `<a>`, that a tap loads no document at
+all, and that the scroll position comes back — measured at a deliberately short viewport,
+because at phone height the board fits and an assertion about a scroll position that was
+never there would pass while proving nothing.
 
 ### The row is the bead, not a summary of it
 
@@ -28652,8 +28798,10 @@ failed on `["/api/error"]`, which reads as a card writing to the tracker and was
 of the sort. Each check serves `public/` from a plain static handler of its own; the page
 it serves registers the real service worker; that worker's install precaches `SHELL` with
 one all-or-nothing `caches.addAll`; and the extensionless entries in that list —
-`/monitor`, `/prs`, `/archive`, the aliases `serveStatic` rewrites onto a page — have no
-file behind them at all. So every fixture 404d all of them, the install rejected whole,
+`/archive`, `/endorse`, `/config`, the aliases `serveStatic` rewrites onto a page — have no
+file behind them at all. (`/monitor` and `/prs` were two more of them when this was
+written; they are hops now, and so are out of `SHELL` altogether — which is the *other* way
+a fixture 404s on a path, and why `lib/pagealias.js` grew a resolver for those too.) So every fixture 404d all of them, the install rejected whole,
 `public/report.js` did exactly what it is for and posted the failure, and the check's own
 assertion caught the check's own fixture (bc-zjep). It survived two sessions, both of
 which correctly ruled it out as theirs and neither of which could tell from the failure

@@ -178,6 +178,13 @@
     // the one whose entry the inbox goes on to *maintain* off
     // the stream rather than merely fill once. See `refresh` below and `MAINTAINED` in
     // public/app.js. It was second until bc-khoe.2 put five kind pills to its left.
+    //
+    // It is worth *more* since bc-khoe.4 made it a pane, not less — which is the opposite
+    // of what the fold did to the entry below. That pane is built at boot and asks for
+    // `/api/queues` on every load; this one is built at boot and asks for nothing, because
+    // its roster only mounts on the first showing of its chip. So a load that lands on Home
+    // leaves `/api/work` entirely to this list, and the tap that shows the pane is drawn
+    // from what it left. `holdOnly` would be exactly wrong here for the same reason.
     { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
     // Releases (bc-khoe.7), the eighth pill on the row. What it buys is the page you
     // open *while the daemon behind it is being restarted by the deploy it is drawing* —
@@ -190,6 +197,12 @@
     // above is held for as long as the phone keeps it, so on a reopen the next morning
     // `/api/prs` is skipped and this one would be the request that pays for the sweep
     // instead. Which is the same `gh`-per-repo bill, moved rather than avoided.
+    // Still earned after bc-khoe.30.14 made it a pane, and by a narrower argument than
+    // before. On the shell the pane is built at boot, so `/api/queues` is asked for on
+    // every load and the *background* warm of it is redundant — which is exactly what
+    // `holdOnly` already says to skip. What the entry is still for is the frame before
+    // that answer lands, and the `/releases` document, which is the address a phone's
+    // home screen holds and has no shell boot behind it at all.
     { id: 'releases', paths: ['/api/queues'], holdOnly: true },
     // The last pill (bc-khoe.10), and the second view here that warms **nothing** — for
     // History's reason, arrived at from the other end. Its boot request is

@@ -111,26 +111,6 @@ const PAGES = [
     marker: '/app.js',
     paths: ['/', '/index.html'],
   },
-  {
-    // Nine, and six of them are inherited. The sessions view was merged into this page
-    // and its three paths came with it rather than being retired under people's thumbs;
-    // the pull request board became a pane on it (bc-d4d5) and its three came the same
-    // way. `/work.html` and `/prs.html` are the two with no file behind them any more,
-    // which is exactly why they are worth a row here.
-    what: 'the advocate console',
-    marker: '/monitor.js',
-    paths: [
-      '/monitor',
-      '/advocates',
-      '/monitor.html',
-      '/sessions',
-      '/work',
-      '/work.html',
-      '/prs',
-      '/pulls',
-      '/prs.html',
-    ],
-  },
   // One live session's facts and its transcript — the page every session row in the app
   // links to, and the reason the console could absorb the sessions view at all.
   { what: 'one session', marker: '/session.js', paths: ['/session', '/session.html'] },
@@ -143,13 +123,6 @@ const PAGES = [
     marker: '/beadsession.js',
     paths: ['/bead-session', '/archive', '/beadsession.html'],
   },
-  // The board itself, which has no paths of its own any more — these are the three the
-  // advocate console above inherited from it. Listed a second time with a second marker
-  // on purpose: `/monitor.js` proves those paths reach that page, and only `/prs.js`
-  // proves the page they reach is one that can draw a board. A monitor.html that dropped
-  // the pane's script would pass every row above and serve a Ship button that is not
-  // there, which is the failure bc-d4d5 was filed about arriving by a different door.
-  { what: 'the pull request board', marker: '/prs.js', paths: ['/prs', '/pulls', '/prs.html'] },
   // The endorsement queue. Three, because the screen has two honest names — the place
   // you *endorse* and the *queue* of what is waiting — and which one comes to mind
   // depends on whether you arrived from the inbox's 🗳️ or went looking for it.
@@ -158,10 +131,6 @@ const PAGES = [
     marker: '/endorse.js',
     paths: ['/endorse', '/queue', '/endorsements', '/endorse.html'],
   },
-  // Releases (bc-khoe.7) — the two queues as cards, and the deploy strip that left the PR
-  // board. Two names for it, because the page is about the journey and the strip was what
-  // most people came for: `/releases` is what it is, `/deploys` is the word somebody types.
-  { what: 'the releases view', marker: '/releases.js', paths: ['/releases', '/deploys', '/releases.html'] },
   // The selected space's settings (bc-khoe.10). Two paths for the same reason the queue
   // has three: the screen has two honest names — it is the *config* of a space, which is
   // the word the chip it used to be was labelled with, and it is where its *settings*
@@ -243,6 +212,31 @@ const REDIRECTS = [
   { path: '/closed?priority=P0', to: '/#history?priority=P0&status=closed', what: 'a second filter, kept' },
   { path: '/closed?t=pair-me', to: '/?t=pair-me#history?status=closed', what: 'the token in front, the filters behind' },
   { path: '/closed?status=open', to: '/#history?status=closed', what: 'a contradicted status, overruled' },
+  // The advocate console's six (bc-khoe.4). They were a row in `PAGES` — the largest one
+  // in this file — until the Advocates container stopped being `data-pending`. Every one
+  // of them is on a phone's home screen, in the Android shell's history or in a
+  // notification this app has already sent, which is why they are asserted one at a time
+  // rather than as a set.
+  { path: '/monitor', to: '/#advocates', what: 'the console, which is a pane of the shell now' },
+  { path: '/advocates', to: '/#advocates', what: 'the same, under the name you guess' },
+  { path: '/monitor.html', to: '/#advocates', what: 'the same, under the name the worker used' },
+  { path: '/sessions', to: '/#advocates', what: 'the sessions view, which the console absorbed' },
+  { path: '/work', to: '/#advocates', what: 'the same, under the word on the home screen' },
+  { path: '/work.html', to: '/#advocates', what: 'the same, with no file left behind it' },
+  // The board's three, which are the only hops in the app that name a **chip** as well as
+  // a view. `/prs` meant the board and not merely the page it was a pane of, and
+  // public/montabs.js read that off `location.pathname`; after a hop there is no pathname
+  // left, so the fact crosses the `#` as `tab=prs` (bc-khoe.4). A `/prs` that landed on a
+  // bare `/#advocates` would open the console on whichever chip was last used — plausible,
+  // wrong, and invisible from the outside, which is why the `tab=` is asserted here.
+  { path: '/prs', to: '/#advocates?tab=prs', what: 'the board, which is a chip of that view' },
+  { path: '/pulls', to: '/#advocates?tab=prs', what: "the same, under GitHub's word for the tab" },
+  { path: '/prs.html', to: '/#advocates?tab=prs', what: 'the same, with no file left behind it' },
+  { path: '/prs?t=pair-me', to: '/?t=pair-me#advocates?tab=prs', what: 'the token in front, the chip behind' },
+  // Releases (bc-khoe.30.14), a pane since v96 and a hop since this one.
+  { path: '/releases', to: '/#releases', what: 'the releases view, which is a pane of the shell now' },
+  { path: '/deploys', to: '/#releases', what: 'the same, under the word somebody types' },
+  { path: '/releases.html', to: '/#releases', what: 'the same, under the name the worker used' },
 ];
 
 /* The sessions view's own files. Deleted with it, and named here so a stray copy
@@ -292,15 +286,30 @@ for (const { path: p, to, what } of REDIRECTS) {
 
 /* And that the far end of every one of those hops is a real page and not a 404 under a
    good-looking `location` — the one thing asserting the header alone cannot tell you.
-   It is the shell for all of them now, so the marker is `/history.js`: `/` answering 200
-   proves the document is there, and the ledger's own script being on it proves the
-   document that answered can draw the pane the hash names. A shell that had dropped the
-   tag would pass every row above and open on an empty pane. */
+   It is the shell for all of them now: `/` answering 200 proves the document is there, and
+   each pane's own script being on it proves the document that answered can draw the pane
+   the hash names. A shell that had dropped a tag would pass every row above and open on an
+   empty pane.
+
+   One marker per pane rather than one for the file, because they fail independently and
+   for different reasons — `/prs.js` is the one that used to be checked by a second
+   `PAGES` row of its own, on the argument that `/monitor.js` proves the paths reach the
+   console and only `/prs.js` proves what they reach can draw a board. That row is gone
+   now that those paths are hops; the claim it made is this line. */
 {
+  const PANES = [
+    ['/history.js', 'the ledger'],
+    ['/monitor.js', 'the console'],
+    ['/prs.js', 'the board it draws'],
+    ['/releases.js', 'the releases view'],
+  ];
   const res = await get('/');
   if (res.status !== 200) bad('and the far end of every hop is the shell', `HTTP ${res.status}`);
-  else if (!res.body.includes('/history.js')) bad('and the far end of every hop is the shell', 'no /history.js on it');
-  else ok('and the far end of every hop is the shell, with the ledger on it');
+  else {
+    const missing = PANES.filter(([m]) => !res.body.includes(m));
+    if (missing.length) bad('and the far end of every hop is the shell', `no ${missing.map(([m]) => m).join(', ')} on it`);
+    else ok(`and the far end of every hop is the shell, with ${PANES.map(([, w]) => w).join(', ')} on it`);
+  }
 }
 
 for (const p of GONE) {
