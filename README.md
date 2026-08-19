@@ -7099,6 +7099,14 @@ belongs to every view and those two are facts about one of them — which Mac's 
 and how many advocates are working — so left up there they would sit over the inbox. They are
 at the right-hand end of the chip row instead, which is the same place on the screen.
 
+The row **wraps** rather than scrolling for them, and that was measured rather than guessed.
+On a 393px phone, three chips and `⦿ observing` and the busiest sentence the tally can
+produce — `12 working · 34 to answer` — come to more than the width, and the row's own
+`overflow-x` would have answered that by putting the count off the right-hand edge where
+nothing says it is there. A second line is the honest answer and it is only ever drawn when
+there is something to put on it: both halves are empty on most installs, and the observer
+mark on every Mac but one.
+
 **The chip is on the address, and that is the third of the three ways out bc-khoe.30.6
 named.** `/#advocates?tab=prs` — the query slot
 [decision 5](#one-hash-two-claimants--the-grammar-in-publichashroutejs) opened for the ledger's
