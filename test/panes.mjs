@@ -237,7 +237,10 @@ await check('exactly one of them is shown, and it is Home', () => {
 });
 
 await check('the two that are not built yet name the bead that builds them', () => {
-  for (const [view, bead] of [['history', 'bc-khoe.30.5'], ['advocates', 'bc-khoe.30.6']]) {
+  // Advocates names bc-khoe.4 rather than bc-khoe.30.6 on purpose (bc-khoe.30.6): the
+  // attribute names the bead whose merge *deletes* it, and the fold is bc-khoe.4's,
+  // behind bc-khoe.10. See the comment above the two containers in index.html.
+  for (const [view, bead] of [['history', 'bc-khoe.30.5'], ['advocates', 'bc-khoe.4']]) {
     const m = new RegExp(`data-pane="${view}" data-pending="([^"]+)"`).exec(HTML);
     assert.ok(m, `${view} is either live or unmarked — if it is live, drop it from this list`);
     assert.equal(m[1], bead, `${view} names ${m[1]} rather than the bead that fills it`);
@@ -321,7 +324,7 @@ console.log('\nwhich pane is up');
 const asShipped = () => [
   pane('epics'),
   pane('history', { pending: 'bc-khoe.30.5', scroller: false }),
-  pane('advocates', { pending: 'bc-khoe.30.6', scroller: false }),
+  pane('advocates', { pending: 'bc-khoe.4', scroller: false }),
 ];
 
 /** The shell as it will be once those two land. */
@@ -369,7 +372,7 @@ await check('a pending pane is never shown, and its hash falls to Home', () => {
   b.run('panes.js');
   assert.equal(b.panes().showing(), 'epics', 'an empty container was put on screen');
   assert.equal(b.panes().has('history'), false);
-  assert.deepEqual({ ...b.panes().pending() }, { history: 'bc-khoe.30.5', advocates: 'bc-khoe.30.6' });
+  assert.deepEqual({ ...b.panes().pending() }, { history: 'bc-khoe.30.5', advocates: 'bc-khoe.4' });
 });
 
 await check('go() writes the hash and switches — including Home, which fires no hashchange', () => {
