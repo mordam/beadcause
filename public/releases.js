@@ -747,12 +747,22 @@
    * One answered poll, whichever mount asked for it.
    *
    * The shape is `follow`'s own `onWake` argument, which is also the shape public/panestage.js
-   * fans out — so this handler is the pane's `wake` and the page's `onWake` without being
-   * written twice. `resync` is the daemon saying the log rolled past where this client was,
-   * so `events` is not a list of what happened but an admission that it cannot be known:
-   * everything is re-read, and the queues bypass the daemon's twenty-second hold.
+   * fans out — so this is the page's `onWake` and the pane's `wake`, one function under one
+   * name rather than the same logic written twice and free to drift. `resync` is the daemon
+   * saying the log rolled past where this client was, so `events` is not a list of what
+   * happened but an admission that it cannot be known: everything is re-read, and the
+   * queues bypass the daemon's twenty-second hold.
+   *
+   * **As a pane this does the work rather than deferring it, and that is the one place this
+   * view parts company with the ledger next door.** That pane sets a `dirty` flag and
+   * re-reads when you arrive, which is right for a record of what has finished — an hour
+   * old is merely an hour old. This view is *about* things moving: a merge card three rungs
+   * behind, or a deploy that ended twenty minutes ago and still says `deploying`, is the
+   * one thing it must never draw. It costs nothing extra either way — this is the
+   * document's existing poll being handed on, and the two fetches below only happen when an
+   * event says a queue actually moved.
    */
-  function woken({ events, resync }) {
+  function wake({ events, resync }) {
     if (resync) {
       loadDeploys();
       load({ refresh: true });
@@ -792,7 +802,7 @@
       api: warmApi,
       want: 'presence',
       cold: true,
-      onWake: woken,
+      onWake: wake,
       /** The stream has stopped — `scheduleDeploys` asks `stream.awake()` and puts the
        *  fallback timer back, so the two cadences stay one decision made in one place. */
       onSettle() {
@@ -827,24 +837,6 @@
   }
 
   /* ---------------------------------------------------------- the pane's own life */
-
-  /**
-   * An answered poll from the shell's one mount, handed here by public/panestage.js.
-   *
-   * The same `woken` the page's own `onWake` is, and deliberately so: a pane that has been
-   * hidden for an hour has to be correct the instant it is shown, and the only way to be
-   * that is to have followed the log the whole time — which is what the page it replaced
-   * did. The Ledger next door can afford to set a `dirty` flag and re-read on arrival
-   * because a record of what has finished does not move under you; this view is *about*
-   * things moving, and a queue an hour stale is the one thing it must never draw.
-   *
-   * It costs nothing extra: this is the document's existing poll being handed on, and the
-   * two fetches behind it only happen when an event says a queue actually moved.
-   */
-  function wake(w) {
-    if (!w) return;
-    woken(w);
-  }
 
   /**
    * This pane just became the one showing.
