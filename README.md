@@ -5533,6 +5533,18 @@ advocate-assigned` *and* erase its waiting-on block. Either one left in place ke
 sweep bringing it back. `epicAdvocatePrompt` says exactly that in the brief, because an off
 switch nothing is told about is an off switch nobody presses.
 
+**And the sentence is now held to its 160 characters on the path advocates actually take**
+(bc-zjab.5). `WAITING_MAX` used to be applied only in `waitingBlock`, which nothing calls:
+an advocate is composing a whole `notes` field around the markers and writes it by hand
+through `bd update --notes`, so no code of ours was ever on that path — and `waitingOn`
+did not truncate on read either. Measured on bc-y3qk 2026-08-18, the block was **942
+characters**, written that long by four consecutive visits and drawn in full every time,
+turning a one-line card into a paragraph. Two halves, and neither alone is enough:
+`waitingOn` holds the line to `WAITING_MAX` **on read**, which is the path every drawing
+takes and is what makes the fix retroactive for blocks already in notes; and the brief now
+states the number where the sentence is asked for, because the markers it quotes say
+nothing about length. Same shape as bc-zjab.1 — a rule enforced only where nobody goes.
+
 The button still stays, and its job is now smaller and clearer: it is what assigns an epic
 **nobody has ever assigned**, rather than a thing you press again because the last window
 died young.
