@@ -208,7 +208,13 @@ console.log('\nthe console card head');
 
 {
   const css = fs.readFileSync(path.join(PUBLIC, 'style.css'), 'utf8');
-  const monitor = fs.readFileSync(path.join(PUBLIC, 'monitor.js'), 'utf8');
+  // Both files draw `.mon-card` articles: the roster is public/monitor.js and the space's
+  // settings card is public/config.js, which bc-khoe.10 made a page of its own. Read
+  // together rather than one dropped, because the rule they share is in one stylesheet
+  // and a card that stopped wearing the class would look the same wherever it moved to.
+  const monitor = ['monitor.js', 'config.js']
+    .map((f) => fs.readFileSync(path.join(PUBLIC, f), 'utf8'))
+    .join('\n');
   const top = blocks(css).found.filter((b) => !b.atRule && !b.parent && !b.stray);
   const head = top.filter((b) => b.prelude === '.mon-card .work-head');
 
@@ -236,11 +242,21 @@ console.log('\nthe console card head');
     top.filter((b) => /\.space-card\s+\.work-head/.test(b.prelude)).map((b) => `line ${b.line}: ${b.prelude}`).join(', ')
   );
 
-  // Which is only true while every card on the page wears `mon-card` — and `work-card`,
-  // which is the padding. The space card was the one without it, and lived off the 20px
-  // of margin an unstyled <h2> brings until that margin went.
+  // Which is only true while every card these two files draw wears `mon-card` — and
+  // `work-card`, which is the padding. The space card was the one without it, and lived
+  // off the 20px of margin an unstyled <h2> brings until that margin went.
+  //
+  // The floor is 4 rather than a count of what happens to be there: cards come and go
+  // (bc-khoe.10 moved one to another file, and bc-khoe.4 will move more), and a number
+  // that has to be edited every time is a number that greets the next person as a red
+  // they have to prove is not theirs. What it is guarding against is the regex silently
+  // matching nothing, which is the only way this can pass while saying nothing.
   const articles = [...monitor.matchAll(/<article class="([^"$]*)/g)].map((m) => m[1]);
-  check(`every card /monitor draws wears mon-card (${articles.length} of them)`, articles.length >= 5 && articles.every((c) => /\bmon-card\b/.test(c)), articles.filter((c) => !/\bmon-card\b/.test(c)).join(' | '));
+  check(
+    `every card the console and the space card draw wears mon-card (${articles.length} of them)`,
+    articles.length >= 4 && articles.every((c) => /\bmon-card\b/.test(c)),
+    articles.filter((c) => !/\bmon-card\b/.test(c)).join(' | ') || `only ${articles.length} found — did the regex stop matching?`
+  );
   check('and wears work-card, so it is padded', articles.every((c) => /\bwork-card\b/.test(c)), articles.filter((c) => !/\bwork-card\b/.test(c)).join(' | '));
 }
 

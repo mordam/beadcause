@@ -5181,11 +5181,12 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-tally { font-size: 12px; font-weight: 600; color: var(--muted); }
 .mon-tally.warn { color: var(--warn); }
 
-/* Observer mode. At the left-hand end of the bar with the mark — beside the page title
-   on /admin, and beside the space picker on /monitor, which since bc-mtdb has no title
-   at all — because it says what this daemon *is*, not what it is currently doing, and
-   two consoles side by side are otherwise identical. Warm rather than alarming: nothing
-   is wrong, it simply never acts.
+/* Observer mode. At the left-hand end of the bar with the mark, beside the page title —
+   because it says what this daemon *is*, not what it is currently doing, and two
+   consoles side by side are otherwise identical. It sat beside /monitor's space picker
+   instead for as long as that page had no title (bc-mtdb); bc-khoe.10 moved the settings
+   off it, and the heading it got back names the page rather than the space. Warm rather
+   than alarming: nothing is wrong, it simply never acts.
    `[hidden]` is restated because the flex display above would otherwise show it. */
 .observing {
   font-size: 11px;

@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v94';
+const CACHE = 'beadcause-v95';
 const SHELL = [
   '/',
   '/index.html',
@@ -219,6 +219,14 @@ const SHELL = [
   '/history',
   '/history.html',
   '/history.js',
+  // The selected space's own settings (bc-khoe.10). In the shell because it is a pill:
+  // every pill has to open instantly from the row whatever the link is doing. Its rows
+  // come from /api/space, which is never cached — so with no daemon it is an honest
+  // "can't reach the server" rather than a card of switches that would write nowhere.
+  '/config',
+  '/settings',
+  '/config.html',
+  '/config.js',
   // And `/closed` and `/done` are **deliberately not here**, which is the one place in
   // this list where leaving a path out is a decision rather than an oversight.
   //

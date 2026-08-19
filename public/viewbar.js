@@ -24,12 +24,13 @@
   bar and this row are flex rows above the one element that scrolls, so nothing here is
   laid out against a viewport that moves, because no viewport moves.
 
-  It **scrolls horizontally and never wraps**. There are eight pills today — the six
-  kinds bc-khoe.2 promoted out of the inbox's filter panel, plus the advocate console and
-  the Releases view bc-khoe.7 moved the deploy strip onto — and there will be nine once
-  bc-khoe.10 (Config) has landed. bc-khoe.4 adds none, which is a change: it used to
-  promise two, and bc-khoe.30.6 ruled the other way for the reasons under *The Mirror*
-  below. A row that wraps to two lines on a 360px phone is
+  It **scrolls horizontally and never wraps**. There are nine pills today — the six
+  kinds bc-khoe.2 promoted out of the inbox's filter panel, the advocate console, the
+  Releases view bc-khoe.7 moved the deploy strip onto, and the selected space's own
+  settings (bc-khoe.10). Both of the two this paragraph used to promise have landed, so
+  nine is the count rather than the forecast. bc-khoe.4 adds none, which is a change: it
+  used to promise two, and bc-khoe.30.6 ruled the other way for the reasons under *The
+  Mirror* below. A row that wraps to two lines on a 360px phone is
   the exact thing this epic exists to stop — it spends a second row of a screen that is
   mostly chrome already. So the row takes the width it needs and the current pill is
   scrolled into view on load, which is the one moment the offset can be wrong without
@@ -85,7 +86,7 @@
 
   ## The four counts, and the objection they had to answer
 
-  **Four of the seven carry a number, and only on Home.** My Epics, Questions, PRs and
+  **Four of the nine carry a number, and only on Home.** My Epics, Questions, PRs and
   Chats each say how many rows tapping them would leave you with; All Beads, Ledger and
   Advocates say nothing. This is the deliberate reversal of what this header used to
   say — *"no counts and no badges, on any of them"* — and the objection it was written
@@ -202,10 +203,11 @@
     all of them or the row shows nothing as current on a page you are plainly looking at.
     That is the same question as "what does this hash mean", asked of the other half of
     the URL, and public/hashroute.js is where it is answered now — `viewOfPath` below.
-    Three of these pills are views and it holds their addresses; the four with none are
-    the four that are only ever Home, where the filter decides which is lit rather than
-    the path. See `serveStatic` in lib/server.js, and test/pagepaths.mjs, which reads that
-    table from hashroute.js.
+    Four of these pills are views and it holds their addresses; the four that are only
+    ever Home have none, because there the filter decides which is lit rather than the
+    path. Config is the ninth and is neither: it is a page with a pill and no view, so
+    nothing is current while you are on it — see its own comment below. See `serveStatic`
+    in lib/server.js, and test/pagepaths.mjs, which reads that table from hashroute.js.
   */
   const PILLS = [
     // Home with nothing narrowed: the P0 board and the work under it (bc-rfnr.9). First
@@ -242,8 +244,8 @@
     // Advocates pane, at which point this pill stops being an `<a>` and starts being a
     // `data-pane` like the rest — the same pill, one fewer document load.
     { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates' },
-    // Where everything in flight actually is (bc-khoe.7). Last, and immediately after the
-    // pill that carries the board, because the two are read one after the other: the board
+    // Where everything in flight actually is (bc-khoe.7). Immediately after the pill that
+    // carries the board, because the two are read one after the other: the board
     // is where you decide something may land, and this is where you watch it do so. It is a
     // view rather than a fifth pane of /monitor for the reason the deploy strip left the
     // board at all — a deploy in flight is not a fact about a pull request, it is the rung
@@ -251,6 +253,23 @@
     // addresses — /releases, /deploys, /releases.html — are in public/hashroute.js with
     // every other view's, since bc-khoe.30.2; this row asks rather than knows.
     { id: 'releases', href: '/releases', icon: '🚀', label: 'Releases' },
+    // Last, and last on purpose: it is the one pill here you reach about once a month.
+    // Past Releases, which asked only to sit beside the board it follows and is happy
+    // anywhere right of it; this one asked for the end of the row specifically.
+    // The selected space's own settings (bc-khoe.10) — muted, quiet hours, who may
+    // endorse, what merges itself — which were a card at the top of the console and then
+    // a chip on it. A row you scroll sideways spends its rightmost place on what you
+    // want least often, and this is it.
+    // Knobs rather than a gear: the gear in this app is Admin — the machine's own screen,
+    // in the mark's menu — and two settings screens behind one glyph is the confusion the
+    // menu was built to end.
+    // No `paths` of its own, unlike every pill above that has an address: since
+    // bc-khoe.30.2 that table is public/hashroute.js's `VIEWS`, and `/config` is not one
+    // of the three views it holds — so the row links here and marks nothing current on
+    // the page it links to. Making Config a view is a pane in index.html and a bead to
+    // fill it (test/panes.mjs holds every view to one), which is bc-khoe.30's decision
+    // rather than this bead's; see the merge note on bc-d477.
+    { id: 'config', href: '/config', icon: '🎛', label: 'Config' },
   ];
 
   const route = window.beadcause.route;
@@ -287,7 +306,7 @@
    */
   const here = () => panes?.showing() || view;
 
-  /** Is the row over Home this second? Five of the eight pills act rather than link. */
+  /** Is the row over Home this second? Five of the nine pills act rather than link. */
   const onHome = () => here() === route.HOME;
 
   /** Can this row reach Home without asking for a document? True on every pane of the
