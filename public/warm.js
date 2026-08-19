@@ -189,6 +189,12 @@
     // above is held for as long as the phone keeps it, so on a reopen the next morning
     // `/api/prs` is skipped and this one would be the request that pays for the sweep
     // instead. Which is the same `gh`-per-repo bill, moved rather than avoided.
+    // Still earned after bc-khoe.30.14 made it a pane, and by a narrower argument than
+    // before. On the shell the pane is built at boot, so `/api/queues` is asked for on
+    // every load and the *background* warm of it is redundant — which is exactly what
+    // `holdOnly` already says to skip. What the entry is still for is the frame before
+    // that answer lands, and the `/releases` document, which is the address a phone's
+    // home screen holds and has no shell boot behind it at all.
     { id: 'releases', paths: ['/api/queues'], holdOnly: true },
     // Below the row. None of these three is a pill, and all three are still reached in
     // one tap from somewhere else — the queue from the 🗳 in the inbox's top bar or the

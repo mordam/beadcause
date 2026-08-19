@@ -21,7 +21,12 @@
            there is no button here at all (Ship stays on the PR board). The chip is kept
            because /api/queues carries `observing` and a page that shows a deploy in
            flight had better say which Mac's deploy it is. -->
-      <span class="observing" id="observing" hidden>⦿ observing</span>
+      <!-- `rel-observing` rather than the `observing` every other page calls this, and the
+           id is shared with the pane this page also is in public/index.html. There it
+           cannot be `observing`: monitor.html has one of those and folds into that same
+           document under bc-khoe.4, so the bare name is a collision waiting on a sibling
+           bead. One id across the two documents, and it is the one that cannot collide. -->
+      <span class="observing" id="rel-observing" hidden>⦿ observing</span>
     </div>
     <div class="sheet-actions">
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
@@ -30,8 +35,15 @@
 
   <main class="work pagescroll">
     <!-- Everything below is replaced on every repaint, so nothing that has to survive
-         one may live in here. -->
-    <div id="releases">
+         one may live in here.
+
+         `rel-list` rather than the `releases` it was until bc-khoe.30.14. The id is shared
+         with the pane this page became in public/index.html, where `#releases` is the hash
+         that names the view — and an element of that id there is a fragment target the
+         browser would scroll into view on every arrival, undoing the scroll position
+         panes.js had just restored. One id across the two documents, and it is the one
+         that cannot collide. -->
+    <div id="rel-list">
       <div class="empty">Asking where everything is…</div>
     </div>
   </main>

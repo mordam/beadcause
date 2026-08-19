@@ -470,6 +470,27 @@
   };
 
   /**
+   * Is *anything* on this page following the log — an ordinary mount or a standby?
+   *
+   * `busy` above is the arbiter's question and deliberately blind to standbys, because its
+   * whole job is deciding whether one should be running. This is the other one, and it is
+   * asked by a view that keeps a **fallback timer**: public/releases.js watches a deploy on
+   * four seconds while one is in flight and falls back to thirty when it has nothing to
+   * wake it, so what it needs to know is whether the document is being woken *at all*
+   * rather than which mount is doing it.
+   *
+   * It exists because that view became a pane (bc-khoe.30.14). As a page it could read
+   * `following` off the handle it held itself; as a pane it holds none — public/panestage.js
+   * owns the one poll and fans the answers out — and a pane asking `stage.standing()`
+   * instead would get `false` whenever the *inbox* owned the socket, which is the common
+   * case, and would put a thirty-second poll up beside a stream that was working.
+   */
+  const awake = () => {
+    for (const s of mounted) if (s.following) return true;
+    return false;
+  };
+
+  /**
    * Hand the socket to the ordinary mounts, and give it back to the standbys when they
    * let go.
    *
@@ -535,6 +556,7 @@
     follow,
     listen,
     wake,
+    awake,
     moved,
     touched,
     workMoved,
