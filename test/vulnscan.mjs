@@ -40,8 +40,9 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-vulnscan-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { PKG_PREFIX, SLA_DAYS, VULN_LABEL, parseAudit, pkgOf, pkgSlug, reconcile, slaDays, vulnBead, vulnClock, vulnEvidence } =
+const { CRITERIA, PKG_PREFIX, SLA_DAYS, VULN_LABEL, parseAudit, pkgOf, pkgSlug, reconcile, slaDays, vulnBead, vulnClock, vulnEvidence } =
   await import(LIB('vulnscan.js'));
+const { isControl } = await import(LIB('controls.js'));
 
 const DAY = 86_400_000;
 const T0 = Date.parse('2026-08-01T00:00:00Z');
@@ -238,6 +239,17 @@ await check('the evidence is bounded by detection, and pending is not a miss', (
   assert.equal(ev.remediation.pending, 1);
   assert.equal(ev.open, 1);
   assert.deepEqual(ev.bySeverity, { critical: 2 });
+});
+
+await check('the scan claims CC7.1 and only the half of it that it performs', () => {
+  // The corpus is imported by this suite and not by lib/vulnscan.js — the leaf keeps its
+  // ids as literals so it still loads in a release without lib/controls.js, and this is
+  // where they are held to it. The rest of the crosswalk, including that CC7.1 is claimed
+  // here and nowhere else, is asserted in test/incident.mjs alongside its other half.
+  assert.deepEqual(CRITERIA.map((c) => c.id), ['SOC2.CC7.1']);
+  assert.ok(isControl('SOC2.CC7.1'), 'claimed against a corpus that does not have it');
+  assert.match(CRITERIA[0].by, /scan/);
+  assert.ok(CRITERIA[0].how.trim(), 'a claimed criterion with no sentence under it is a claim nobody can test');
 });
 
 console.log(`\n${failures ? `${failures} of ${ran} failed` : `all ${ran} checks passed`}`);
