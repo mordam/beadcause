@@ -376,7 +376,8 @@
   </div>
 
   <!--
-    The two views still containers with nothing in them.
+    The one view still a container with nothing in it. Releases came off this list when
+    bc-khoe.30.14 filled its container below; Advocates is the last of the four.
 
     `data-pending` names the bead that fills it, and it is load-bearing rather than a note:
     panes.js refuses to show a pane carrying one and the pill row asks it the same
@@ -398,14 +399,41 @@
   <div class="pane" data-pane="advocates" data-pending="bc-khoe.4" hidden></div>
 
   <!--
-    Releases, on the same terms and for a plainer reason: bc-khoe.7 built it as its own
-    page while the shell was still a document per view, and it merged after the shell
-    landed. The grammar knows the view — that is what lights its pill on /releases and on
-    the two other addresses it answers to — so it needs a container here or the pill is a
-    view with nowhere to go. **bc-khoe.30.14** fills it, and the fold is a smaller job than
-    Advocates': one file draws the whole view off one endpoint, and nothing is leaving it.
+    Releases — where everything in flight actually is, as cards off the two queues.
+
+    An empty `data-pending` container until bc-khoe.30.14, for a plainer reason than
+    Advocates': bc-khoe.7 built it as its own page while the shell was still a document per
+    view, and it merged after the shell landed. Nothing was leaving it and nothing was
+    waiting on a sibling, so the fold is only the fold.
+
+    The markup is releases.html's, unchanged, minus the top bar and the pill row that page
+    drew for itself: the shell above already has both. What fills it is releases.js, the
+    same file that page loads, which registers with the stager and builds this container
+    when asked. `/releases` and `/deploys` are still documents and still answer — either
+    can be on a home screen — so that file has to run in both, and it decides which by
+    asking whether this document has panes.
+
+    `id="rel-list"` rather than the `id="releases"` that page had, for the reason the
+    ledger's `hist-list` is not `history`: the hash naming this view is `#releases`, and an
+    element of that id in this document is a **fragment target** the browser scrolls into
+    view on arrival — throwing away the scroll position panes.js has just restored.
+
+    The `⦿ observing` chip is inside the pane rather than up in the brand, where that page
+    keeps it. The top bar belongs to every view now and this is a fact about the deploys
+    *this* view is drawing; putting it beside the mark would leave it on screen over the
+    inbox. It is renamed with the list for a second reason as well — monitor.html carries
+    an `id="observing"` too and folds into this same document under bc-khoe.4.
   -->
-  <div class="pane" data-pane="releases" data-pending="bc-khoe.30.14" hidden></div>
+  <div class="pane" data-pane="releases" hidden>
+    <main class="work pagescroll">
+      <span class="observing" id="rel-observing" hidden>⦿ observing</span>
+      <!-- Everything below is replaced on every repaint, so nothing that has to survive
+           one may live in here. -->
+      <div id="rel-list">
+        <div class="empty">Asking where everything is…</div>
+      </div>
+    </main>
+  </div>
 
   <div id="toast" class="toast" role="status" hidden></div>
 
@@ -505,6 +533,17 @@
        the page scripts is otherwise free: the stager decides the order panes are built
        in, not this file. See public/history.js. -->
   <script src="/history.js"></script>
+  <!-- The Releases pane (bc-khoe.30.14) — the two queues as cards, and the deploy strip
+       above them. After prcard.js and not merely by convention: it takes `esc`, `plural`,
+       `ago` and `graphUrl` off it at module scope, so loaded first it throws before it
+       draws. Like the ledger above it, it registers with the stager and builds when asked,
+       so a load that lands on Home costs a script parse and no request.
+
+       It is the one pane with a clock of its own. A deploy in flight is watched on four
+       seconds because its steps are a file being written on the Mac and no event can
+       carry them; everything else here waits to be woken by the one poll the stager
+       holds. See public/releases.js. -->
+  <script src="/releases.js"></script>
   <!-- The other half of that pair: the filters that are *not* behind a collapsed line,
        drawn flat in the same row (bc-khoe.24). The scope switch is the one tenant today
        and bc-khoe.26 moves the rest out here beside it. Before app.js, which hands it

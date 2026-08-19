@@ -5201,6 +5201,11 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   white-space: nowrap;
 }
 .observing[hidden] { display: none; }
+/* In the shell the chip is not up in the brand — the top bar belongs to every view and
+   this is a fact about the deploys one of them is drawing (bc-khoe.30.14). It is the first
+   row of the Releases pane's own column instead, which is a flex column, so without this
+   the pill would stretch to the full 780px and stop reading as a pill. */
+.work > .observing { align-self: flex-start; }
 .adv-note .dim { opacity: 0.7; }
 
 /* ── The in-app terminal ─────────────────────────────────────────────────────

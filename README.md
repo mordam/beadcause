@@ -11230,6 +11230,71 @@ costs the daemon nothing at all. A wake that arrives while you are mid-sentence 
 back rather than repainting over your thumb — and taken the moment the box is empty,
 which is the half a guard like that usually forgets.
 
+### Releases as a pane, and the two clocks it brought with it
+
+Everything above describes `/releases`, a document. It is a **pane of the shell** as well
+now: `[data-pane="releases"]` in `public/index.html`, shown by a `display: none` swap on a
+pill tap with nothing fetched and nothing rebuilt. `/releases` and `/deploys` still answer
+— either can be sitting on a phone's home screen — so `public/releases.js` is one file that
+has to run in either document, and it decides which by asking whether the one it is in has
+panes at all. It is the second view to make that move, after [the
+ledger](#the-ledger-as-a-pane-and-its-filters-in-the-hash), and it went the same way for
+the same reasons; what is worth writing down is the three places it did **not**.
+
+**It follows the log while it is hidden, where the ledger sets a flag and re-reads on
+arrival.** That difference is the views themselves rather than a choice about mechanism.
+The ledger is a record of what has finished, so an hour-old one is merely an hour old and
+re-reading it as you arrive costs nothing anybody notices. This view is *about things
+moving*: a merge card that is three rungs behind, or a deploy that finished twenty minutes
+ago and still says `deploying`, is the one thing it must never draw. So its `wake` does the
+work rather than deferring it, which is the same handler the document's own `onWake` runs —
+one function, registered two ways, because a pane that drew a second copy of that logic
+would be the place the two documents quietly diverge.
+
+**It has a clock of its own, and it keeps running while the pane is hidden.** A deploy's
+*steps* are a file being written on the Mac and no event carries them, so a deploy in
+flight is watched on four seconds — and that tick is deliberately not paused when you
+switch away. It only runs while something is actually deploying, which is minutes rather
+than hours, and the whole of what this epic buys is that arriving at a view costs nothing.
+A pane that had stopped watching would owe a fetch on the tap that showed it, which is the
+document load wearing a different mechanism. With nothing running there is no timer at all;
+the fallback is thirty seconds and it goes up only when the page has no stream to wake it.
+
+**Which is why `public/stream.js` grew `awake()`.** As a page this view read `following` off
+the mount it held itself. As a pane it holds none — [the
+stager](#the-stager--built-at-boot-and-one-poll-behind-all-of-them) owns the document's one
+poll and fans the answers out — and the existing `busy()` is the arbiter's question, blind
+to standbys by design. `awake()` is the other one: is *anything* on this page following the
+log. Asking `stage.standing()` instead would have answered `false` whenever the inbox owned
+the socket, which is the common case, and put a thirty-second poll up beside a stream that
+was working perfectly.
+
+**Two element ids moved with it**, and both are the kind of collision a clean merge reports
+nothing about. `id="releases"` became `id="rel-list"`, because in one document `#releases`
+is the hash that *names this view* — an element of that id is a fragment target the browser
+scrolls into view on arrival, throwing away the scroll position `panes.js` has just
+restored. And `id="observing"` became `id="rel-observing"`, because `monitor.html` carries
+one too and folds into this same document under bc-khoe.4. The `⦿ observing` chip also
+moved *inside* the pane rather than staying beside the mark: the top bar belongs to every
+view now, and which Mac's deploys these are is a fact about one of them.
+
+The brand dot and the ⟳ went the other way — the pane takes the shell's and leaves them
+alone, the dot because `public/report.js` is already driving it off its own count of what
+is in flight, and the ⟳ because there is one for the whole app, so each pane asks whether
+the press was its own before spending a sweep on it.
+
+`node test/releases.mjs` runs the real file both ways from one harness — `shell: true` is
+the only lever, because the file asks the document which it is — and the pane half pins
+what a second copy of the logic would have broken: that it registers `presence` and not a
+wider want, that it opens no mount of its own, that a wake it was handed re-reads only for
+an event that moved a queue, that arriving fetches nothing, that the shared ⟳ is spent by
+the pane that is up and by no other, and that the board it draws is card-for-card the one
+the document draws. `node scripts/releases-check.mjs` is the other half and the claims only
+a browser can make: that the pill stopped being an `<a>`, that a tap loads no document at
+all, and that the scroll position comes back — measured at a deliberately short viewport,
+because at phone height the board fits and an assertion about a scroll position that was
+never there would pass while proving nothing.
+
 ### The row is the bead, not a summary of it
 
 Unfolded, a row shows what the agent actually wrote: what the work is, what done looks
