@@ -236,7 +236,14 @@ await check('the row still has a PRs pill, and the board’s three paths are sti
   const ids = [...bar.matchAll(/^\s*\{?\s*id: '(\w+)'/gm)].map((m) => m[1]);
   assert.ok(ids.includes('pr'), `the row has no PRs pill: ${ids.join(', ')}`);
   assert.ok(ids.includes('epics'), `the row lost Home: ${ids.join(', ')}`);
-  assert.match(bar, /'\/prs', '\/pulls', '\/prs\.html'/, 'the board’s three paths light no pill');
+  // The paths moved to public/hashroute.js with bc-khoe.30.2 — which view an address
+  // names is the same question as which view a hash names, and that file is where it is
+  // answered. Still the same claim: the board's three are on the Advocates view.
+  assert.match(
+    read('public/hashroute.js'),
+    /'\/prs', '\/pulls', '\/prs\.html'/,
+    'the board’s three paths light no pill'
+  );
   // And nothing is left of the bar that used to hold it.
   assert.ok(!fs.existsSync(path.join(ROOT, 'public/tabbar.js')), 'public/tabbar.js is back');
   assert.ok(!fs.existsSync(path.join(ROOT, 'scripts/tabbar-check.mjs')), 'scripts/tabbar-check.mjs is back');

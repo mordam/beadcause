@@ -80,6 +80,19 @@ object Tray {
         val isReply: Boolean,
         val chan: Chan = Chan.WORK,
         /**
+         * The Android notification channel this arrival should sound on, or null to take
+         * the card's own.
+         *
+         * Only [Chan.NEWS] sets it, and it is the one place a *card* and a *channel* are
+         * not the same thing: a landing, a release and an epic completing share one card
+         * because they are three sizes of the same good news, and have three channels
+         * because the pipeline is audible if they differ — four blips, then a drop, then
+         * eventually a chime. So the voice belongs to the entry rather than to the deck,
+         * and [Notifications.renderTray] takes it from whichever entry is newest, which is
+         * the one whose arrival caused the render.
+         */
+        val voice: String? = null,
+        /**
          * How long the platform should keep this card before clearing it itself, in
          * milliseconds, or 0 to keep it until it is dismissed or removed.
          *

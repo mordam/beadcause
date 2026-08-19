@@ -162,6 +162,16 @@ const PAGES = [
   // on the bottom bar since the day it existed, so the bar is the only thing that has
   // ever linked to it and there is no older name in anybody's home screen to keep alive.
   { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
+  // Releases (bc-khoe.7) — the two queues as cards, and the deploy strip that left the PR
+  // board. Two names for it, because the page is about the journey and the strip was what
+  // most people came for: `/releases` is what it is, `/deploys` is the word somebody types.
+  { what: 'the releases view', marker: '/releases.js', paths: ['/releases', '/deploys', '/releases.html'] },
+  // The selected space's settings (bc-khoe.10). Two paths for the same reason the queue
+  // has three: the screen has two honest names — it is the *config* of a space, which is
+  // the word the chip it used to be was labelled with, and it is where its *settings*
+  // are, which is what somebody types. Not `/space`: that reads as the picker rather than
+  // as the thing the picker selects.
+  { what: "the space's settings", marker: '/config.js', paths: ['/config', '/settings', '/config.html'] },
   // The skill library and whether anything uses it (bc-dgx7.5). Two paths, because the
   // page is reached both by what it holds and by what the programme calls the things
   // waiting to become one. No pill claims either, which is the recorded decision in
@@ -170,6 +180,11 @@ const PAGES = [
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
+  // The notification-sound audition (bc-ka5y.15.3). `/audition` as well as `/sounds`
+  // because that is the word the bead and the README use for what happens on it, and a
+  // channel's sound is immutable once cut — a 404 on the way to the last screen where a
+  // sound can still be argued with is an expensive 404.
+  { what: 'the sound audition', marker: '/sounds.js', paths: ['/sounds', '/audition', '/sounds.html'] },
   { what: 'the graph', marker: '/graph.js', paths: ['/graph', '/graph.html'] },
   { what: 'the reader', marker: '/doc.js', paths: ['/doc', '/doc.html'] },
   // The sign-in screen. Its alias lives in the same run of one-line `if`s as all of
@@ -276,11 +291,16 @@ for (const { path: p, why } of NEVER_MADE) {
   pill row does not recognise (bc-khoe.1).
 
   Every table above proves a shortcut still *opens* something. None of them proves the
-  navigation knows where you have landed — and the row marks the current view by matching
-  `location.pathname` against a pill's `paths`, so a phone opening the `/work` shortcut it
-  has had on its home screen for months would get the advocate console with **nothing on
-  the row current**. That reads as the page having lost its way in, on the exact devices
-  the aliases exist for.
+  navigation knows where you have landed — and the row marks the current view by asking
+  `viewOfPath` what view `location.pathname` names, so a phone opening the `/work`
+  shortcut it has had on its home screen for months would get the advocate console with
+  **nothing on the row current**. That reads as the page having lost its way in, on the
+  exact devices the aliases exist for.
+
+  The table those paths live in moved to public/hashroute.js with bc-khoe.30.2 — which
+  view an address names is the same question as which view a hash names, and the point of
+  that file is that it is asked in one place. So this reads `VIEWS` rather than `PILLS`,
+  and the word "pill" below is a view's pill: the ids are deliberately the same.
 
   So: for every page a pill points at, every alias of that page is claimed by exactly one
   pill. Exactly one, because two pills claiming a path is two current pills on one screen —
@@ -290,12 +310,12 @@ for (const { path: p, why } of NEVER_MADE) {
   pill at all, and the rule is about pages that have one.
 */
 {
-  const src = fs.readFileSync(path.join(HERE, '..', 'public', 'viewbar.js'), 'utf8');
+  const src = fs.readFileSync(path.join(HERE, '..', 'public', 'hashroute.js'), 'utf8');
   const pills = [...src.matchAll(/id: '([a-z]+)',[\s\S]{0,400}?paths: \[([^\]]*)\]/g)].map((m) => ({
     id: m[1],
     paths: [...m[2].matchAll(/'([^']+)'/g)].map((q) => q[1]),
   }));
-  if (!pills.length) bad('the pill row keeps its paths in one table', 'could not read PILLS out of public/viewbar.js');
+  if (!pills.length) bad('the pill row keeps its paths in one table', 'could not read VIEWS out of public/hashroute.js');
   else {
     const owner = new Map();
     let clash = null;

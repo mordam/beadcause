@@ -3,7 +3,7 @@
  * The inbox asks *may I merge this?* and the card is gone the moment you answer. It also
  * now carries a card per pull request (bc-l8jp.6), which is what took **PRs** off the
  * bottom bar — so this is no longer a tab, and it is still the whole of the shipping
- * screen: the release queue, the deploy in flight, and the buttons that act on one row.
+ * screen: the release queue, and the buttons that act on one row.
  *
  * **And it is a pane on /monitor now, not a page (bc-d4d5).** Taking it off the bar left
  * it with no route in at all except the link on a PR card in the inbox, which meant that
@@ -46,36 +46,58 @@
  * in a repo that declares none it opens a session on the Mac you can watch and stop, so
  * it does not. Commenting writes a sentence on GitHub and needs no guard either.
  *
- * **And above all of it, the deploy that is happening now.** The Deployed lamp answers
- * *is it running?* — the strip answers *is it being made to run, right this second?*,
- * which is a different question with a much shorter fuse, because on this repo a
- * deploy SIGKILLs the daemon serving this page. It sits at the top rather than beside
- * the lamp it belongs to: a lamp is something you scan for, and a restart in flight is
- * something you are told. Three things about it:
+ * **The deploy strip is not here any more (bc-khoe.7).** It used to sit above the cards
+ * — what is being built and restarted *right this second*, which is a different question
+ * from the Deployed lamp's *is it running?* and has a much shorter fuse, because on this
+ * repo a deploy SIGKILLs the daemon serving this page. It was at the top of this screen
+ * because this was the nearest page, not because it was about a pull request; a deploy is
+ * the rung *after* one. It is on `/releases` now (public/releases.js), beside the two
+ * queues it is a stage of, and this file no longer polls `/api/deploys` at all.
  *
- * - **It has a clock only while something is running.** Four seconds then, because a
- *   step is a file being written on the Mac and no event can carry it — the board
- *   behind it is a `gh` call per repo and could never go that fast, where /api/deploys
- *   is a directory read and can. With nothing running there is no timer at all: the
- *   daemon says on the event log when a deploy *starts* as well as when it settles, so
- *   an idle board holds a socket and asks for nothing until one does.
- * - **A dropped connection during a restart is the deploy working, not the page
- *   breaking.** When a live deploy says it restarts beadcause, a failed fetch is
- *   drawn as "it is coming back" and the last board is left on screen — where the
- *   generic "can't reach the server" would have thrown away the one thing that
- *   explains it.
- * - **Four endings, not two.** ok, failed, and the two that mean *nobody knows*:
- *   `unconfirmed` — the command ran and nothing outlived it to say what happened,
- *   which is the ordinary ending of a restart — and `lost`. Neither is drawn as a
- *   tick, for the same reason a hollow lamp is not drawn as a no.
+ * What stays is everything that is about a pull request, which includes the Ship button
+ * and the release count over it: how many merges one deploy of this repo would carry is a
+ * fact about the rows below it, and it is what makes pressing Ship a decision rather than
+ * a reflex. What a board reading this file loses is the sentence explaining a failed
+ * fetch during a restart — that line is on the Releases view, where the deploy causing it
+ * is drawn.
  */
 (() => {
   'use strict';
 
   const token = localStorage.getItem('beadcause.token') || '';
+
+  /** The view id the pane this section lives in is, in public/hashroute.js's vocabulary. */
+  const VIEW = 'advocates';
+  /** The chip this section is behind. */
+  const TAB = 'prs';
+
+  const panes = (window.beadcause && window.beadcause.panes) || null;
+
+  /**
+   * Is this the shell's Advocates pane, or the `/prs` document it also still is?
+   *
+   * Asked of the document rather than of a flag — see the same three lines at the top of
+   * public/montabs.js, which owns the row this section is a chip on.
+   */
+  const inShell = Boolean(panes && typeof panes.has === 'function' && panes.has(VIEW));
+
   const out = document.getElementById('prs');
-  const pulse = document.getElementById('pulse');
+  /* The brand dot. Left alone in the shell: it is the whole document's there, driven off
+     public/report.js's count of what is in flight, and a second writer toggling `busy` on
+     it would clear it under a fetch of the inbox's that is still out. */
+  const pulse = inShell ? null : document.getElementById('pulse');
   const observing = document.getElementById('observing');
+
+  /**
+   * Is this section the thing being looked at?
+   *
+   * `out.hidden` was the whole answer while this was a pane of a page. In the shell it is
+   * half of one — the pane holding all three sections can be hidden with this chip up, and
+   * a board that read its own attribute would go on spending a `gh` sweep per repo on
+   * every merge, all day, behind Home. That is the most expensive of the three to get
+   * wrong, which is why the row answers it rather than each section guessing.
+   */
+  const upNow = () => window.beadcause?.monTabs?.up?.(TAB) ?? !out.hidden;
 
   /* There was a minute-long `setInterval` here that re-asked for the whole board, a `gh`
      call per repo, for as long as the page was open. It is gone: the board follows the
@@ -98,21 +120,6 @@
      repo per event. */
   const BOARD_EVENTS = window.beadcause?.stream?.BOARD_EVENTS || ['merged', 'changes', 'pr-declined', 'deploy', 'advocate'];
 
-  /* The deploy strip's own clock, while something is actually running. Fast enough that
-     a step change is news rather than history — /api/deploys is a directory read, but a
-     phone in a pocket should not be asking every four seconds all day. */
-  const DEPLOY_LIVE_MS = 4000;
-
-  /* The clock while nothing is running, which is now the *fallback* and not the rule:
-     the daemon emits a `deploy` event when one starts, so a following stream is what
-     turns the strip on. This is what a page with no stream behind it falls back to —
-     see `scheduleDeploys`. */
-  const DEPLOY_IDLE_MS = 30000;
-
-  /* How many deploys the strip asks for. The last few are the subject; a history of
-     forty is a different screen and nobody has asked for it. */
-  const DEPLOY_LIMIT = 6;
-
   const state = {
     data: null,
     /** Which repo card is unfolded. At most one — that is what makes it an accordion. */
@@ -134,14 +141,6 @@
     first: true,
     /** The last board fetch's failure, if it failed. Cleared by the next one that works. */
     error: null,
-    /** `{deploys, deployable}` from /api/deploys, or null before the first answer. */
-    deploys: null,
-    /** Which deploy is unfolded, by id. */
-    deploy: null,
-    /** `{id, deploy, log}` for the unfolded one — the full record, output and all. */
-    detail: null,
-    /** True while /api/deploys itself is unreachable. Read together with a live restart. */
-    gone: false,
     /** How old the last board was, off `x-beadcause-kept` (lib/cache.js) — `null`
      *  until an answer has landed, which is what keeps the mark off a first paint.
      *  See `parseKept`. */
@@ -437,249 +436,29 @@
           : '<p class="subtitle">No pull requests here.</p>';
 
     const title = c.repo || keyOf(c);
-    const live = liveDeploys().find((r) => keyOf(r) === keyOf(c));
-    // A deploy of this repo outranks the counts: the card's own summary is about work
-    // waiting to ship, and something is shipping right now.
-    const head = live ? phaseOf(live) : summary || (c.prs.length ? 'all shipped' : 'none');
-    return cardHtml(keyOf(c), title, head, Boolean(live || open || owed), body);
-  }
-
-  /* ------------------------------------------------------------------- deploys */
-
-  /** The statuses a runner still owns — the mirror of LIVE in lib/deploy.js. */
-  const LIVE = new Set(['queued', 'pulling', 'building', 'deploying']);
-
-  /**
-   * Every status as a word and a colour.
-   *
-   * The two "we do not know" endings get their own tone rather than borrowing failure's:
-   * an `unconfirmed` restart is the *expected* ending on this repo, and painting it red
-   * every time would teach you to ignore the colour that means something broke.
-   */
-  const SAYS = {
-    queued: { word: 'starting', tone: 'live' },
-    pulling: { word: 'bringing the checkout up to date', tone: 'live' },
-    building: { word: 'rebuilding', tone: 'live' },
-    deploying: { word: 'running the deploy', tone: 'live' },
-    ok: { word: 'deployed', tone: 'good' },
-    failed: { word: 'failed', tone: 'bad' },
-    unconfirmed: { word: 'unconfirmed', tone: 'warn' },
-    lost: { word: 'lost', tone: 'warn' },
-  };
-
-  const says = (r) => SAYS[r?.status] || { word: String(r?.status || 'unknown'), tone: 'warn' };
-
-  const deploys = () => state.deploys?.deploys || [];
-  const liveDeploys = () => deploys().filter((r) => LIVE.has(r.status));
-
-  /**
-   * Is the daemon about to go away, or already gone?
-   *
-   * Only a deploy that has *declared* it restarts beadcause counts. Everything else
-   * that cannot be reached is a server that cannot be reached, and saying "it is
-   * restarting" over that would be the comfortable lie rather than the true one.
-   */
-  const restarting = () => liveDeploys().some((r) => r.restarts);
-
-  /**
-   * Which step it is on, in a phrase.
-   *
-   * The status *is* the step — the runner writes it before each phase rather than
-   * after, precisely so a record read mid-flight says where it got to. What is
-   * deliberately not read here is the last entry in `steps`: a step is appended when
-   * it *finishes*, so during a rebuild the newest one is the `git diff` before it, and
-   * "rebuilding · git diff --name-only" would be a confident sentence about the wrong
-   * thing. The unfolded row lists what has actually run, which is the honest version.
-   *
-   * The restart is called out because it is the one phase that ends this page.
-   */
-  function phaseOf(r) {
-    const { word } = says(r);
-    if (r.status === 'deploying' && r.restarts) return `${word} · restarting beadcause`;
-    return word;
-  }
-
-  /**
-   * How long it has taken, or took.
-   *
-   * A live one is measured against now, so the number grows every poll — which is the
-   * only thing on the row that distinguishes a deploy that is working from one that
-   * has been sitting on the same step for four minutes.
-   */
-  function tookOf(r) {
-    const from = Date.parse(r.startedAt || r.requestedAt || '');
-    const to = LIVE.has(r.status) ? Date.now() : Date.parse(r.finishedAt || r.heartbeatAt || '');
-    if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return '';
-    const secs = Math.round((to - from) / 1000);
-    return secs < 90 ? `${secs}s` : `${Math.round(secs / 60)}m`;
-  }
-
-  /** One step, as the two things anyone reads: did it work, and how long did it take. */
-  function stepHtml(s) {
-    const good = s.code === 0;
-    return `<li class="deploy-step ${good ? 'good' : 'bad'}">
-      <span class="deploy-tick" aria-hidden="true">${good ? '✓' : '✗'}</span>
-      <span class="deploy-step-name">${esc(s.name)}</span>
-      <span class="deploy-step-note">${good ? '' : `exit ${esc(s.code)}${s.signal ? ` (${esc(s.signal)})` : ''} · `}${esc(
-        s.ms >= 1000 ? `${(s.ms / 1000).toFixed(1)}s` : `${s.ms}ms`
-      )}</span>
-      ${s.output ? `<pre class="deploy-out">${esc(s.output.trim())}</pre>` : ''}
-    </li>`;
-  }
-
-  /**
-   * A deploy refused because the LaunchAgent it would have restarted is not this tree.
-   *
-   * `rec.error` says all of this already, in one paragraph, and a paragraph is what
-   * this used to be: `deploy-why`, wrapped, in the gap above the steps, with the
-   * program and the fix somewhere in the middle of it. That reads as narrative when
-   * what you actually want is four lookups — *which label, which program, which file,
-   * what do I type*. So each is a row with a heading, and the paths and the command are
-   * `<code>`, because a path in prose is a path you have to select carefully.
-   *
-   * The paragraph is not repeated below: the fields are the same sentences with the
-   * connective tissue removed, and printing both would only make you check whether
-   * they agreed. What is kept is `lines` — the reasoning, which is the one part the
-   * fields genuinely drop — under the fix rather than above it.
-   *
-   * `null` for every ordinary deploy, which is nearly all of them; see lib/deploy.js.
-   */
-  function launchAgentHtml(rec) {
-    const la = rec.launchAgent;
-    if (!la) return '';
-
-    // Each row only if it has an answer. An `unreadable` plist has no program, and a
-    // "Program: —" would be a field pretending to be a fact.
-    const row = (name, value, note = '') =>
-      value ? `<div class="la-row"><dt>${esc(name)}</dt><dd>${value}${note ? ` <span class="la-note">${esc(note)}</span>` : ''}</dd></div>` : '';
-
-    const code = (v) => `<code>${esc(v)}</code>`;
-    // A command when there is one, with the phrase beside it saying what running it
-    // does; the phrase alone when there is not, because a label this repo did not
-    // install has an action and no command — see lib/launchagent.js.
-    const fix = la.fixCommand
-      ? `${code(la.fixCommand)}${la.fix ? ` <span class="la-note">${esc(la.fix)}</span>` : ''}`
-      : la.fix
-        ? esc(la.fix)
-        : '';
-
-    // The reasoning, minus whichever of its lines was carrying the command — that one
-    // is now the Fix row above it, and a paragraph ending "fix it: npm run
-    // install-service" three lines under a heading that says exactly that reads as two
-    // sources you have to check against each other.
-    const why = (la.lines || []).filter((l) => !la.fixCommand || !l.includes(la.fixCommand));
-
-    return `<section class="deploy-la">
-      <p class="la-head">Refused — the LaunchAgent is not in step with this checkout.</p>
-      <dl class="la-fields">
-        ${row('Label', code(la.label))}
-        ${row('Program', code(la.program), 'is what launchd would have restarted')}
-        ${row('Plist', code(la.plist))}
-        ${row('Fix', fix)}
-      </dl>
-      ${why.length ? `<p class="la-why">${esc(why.join(' '))}</p>` : ''}
-    </section>`;
-  }
-
-  /**
-   * The unfolded deploy: what it moved, every step it ran, and the runner's own log.
-   *
-   * The log is a second request (`?id=`) because the list deliberately does not carry
-   * it — see `briefDeploy` in lib/deploy.js. Until it arrives the steps are already
-   * there, which is the part that answers "where did it stop".
-   */
-  function deployOpenHtml(r) {
-    const detail = state.detail?.id === r.id ? state.detail : null;
-    const rec = detail?.deploy || r;
-    const moved =
-      rec.from && rec.to && rec.from !== rec.to
-        ? `<code>${esc(rec.from.slice(0, 7))}</code> → <code>${esc(rec.to.slice(0, 7))}</code>${
-            rec.changed?.length ? ` · ${plural(rec.changed.length, 'file')}` : ''
-          }`
-        : rec.to
-          ? `already at <code>${esc(rec.to.slice(0, 7))}</code> — the pull moved nothing`
-          : '';
-
-    // The checkout, unless naming it would only repeat the workspace already on the
-    // row — which is the ordinary case, and a line that says "demo · demo" reads as a
-    // bug rather than as a detail.
-    const where = rec.dir?.replace(/^.*\//, '');
-    const dir = where && where !== rec.workspace && where !== rec.repo ? `<code>${esc(where)}</code>` : '';
-
-    return `<div class="deploy-body">
-      ${rec.launchAgent ? launchAgentHtml(rec) : rec.error ? `<p class="deploy-why">${esc(rec.error)}</p>` : ''}
-      <div class="deploy-where">
-        ${moved}${moved && dir ? ' · ' : ''}${dir}
-        ${rec.bead ? ` · <a class="pill id" href="${esc(graphUrl(rec.workspace, rec.bead))}">${esc(rec.bead)}</a>` : ''}
-      </div>
-      ${rec.reason ? `<p class="deploy-reason">${esc(rec.reason)}</p>` : ''}
-      ${(rec.steps || []).length ? `<ol class="deploy-steps">${rec.steps.map(stepHtml).join('')}</ol>` : ''}
-      ${
-        detail?.log
-          ? `<pre class="deploy-log">${esc(detail.log.trim().split('\n').slice(-40).join('\n'))}</pre>`
-          : // Three states, not two: still fetching, and a runner that genuinely printed
-            // nothing — which a permanent "fetching…" would misreport as a hung request.
-            `<p class="deploy-loading">${detail ? 'The runner printed nothing.' : 'Fetching what it printed…'}</p>`
-      }
-    </div>`;
-  }
-
-  function deployHtml(r) {
-    const open = state.deploy === r.id;
-    const { tone } = says(r);
-    const took = tookOf(r);
-    return `<article class="deploy ${tone}${LIVE.has(r.status) ? ' live' : ''}">
-      <button class="deploy-row" type="button" data-deploy="${esc(r.id)}" aria-expanded="${open}">
-        <span class="deploy-main">
-          <span class="deploy-what"><span class="deploy-dot" aria-hidden="true"></span>${esc(whereOf(r))}<span
-            class="sr-only"> deploy: </span><span class="deploy-said">${esc(phaseOf(r))}</span></span>
-          <span class="deploy-sub">${esc(
-            LIVE.has(r.status) ? `${took} so far` : `${took} · ${ago(r.finishedAt || r.requestedAt)}`
-          )}</span>
-        </span>
-        <span class="chev" aria-hidden="true">›</span>
-      </button>
-      ${open ? deployOpenHtml(r) : ''}
-    </article>`;
-  }
-
-  /**
-   * The strip, or nothing at all.
-   *
-   * Nothing is the ordinary state of this page and it should look like it: a repo that
-   * has never been deployed from here gets no empty box explaining that. The banner is
-   * the exception — while the daemon is unreachable *and* a restart is in flight, the
-   * strip is the only thing on the page that can say why.
-   */
-  function deploysHtml() {
-    // A deploy belongs to the repo it ships, so the strip narrows with everything else.
-    // The banner does not: a restart of beadcause itself is why this page is blank, and
-    // suppressing the one line that says so because the deploy was of another repo
-    // would leave the screen unexplained.
-    const list = deploys().filter(inSpace);
-    const banner =
-      state.gone && restarting()
-        ? `<p class="deploy-banner">beadcause is restarting — that is the deploy. This page comes back on its own.</p>`
-        : '';
-    if (!list.length) return banner ? `<section class="deploys">${banner}</section>` : '';
-    return `<section class="deploys">${banner}${list.map(deployHtml).join('')}</section>`;
+    // What is deploying right now used to outrank this line. It is on /releases with the
+    // rest of the strip (bc-khoe.7), and the summary here is what it always was underneath:
+    // what this repo has open and what it owes a ship.
+    const head = summary || (c.prs.length ? 'all shipped' : 'none');
+    return cardHtml(keyOf(c), title, head, Boolean(open || owed), body);
   }
 
   /* -------------------------------------------------------------------- render */
 
   /**
-   * The board half of the page, as markup rather than as a write.
+   * The board, as markup rather than as a write.
    *
-   * It returns a string because the deploy strip renders above it and the two arrive
-   * on different clocks: a `render()` that wrote `out.innerHTML` from here would drop
-   * whichever half had not been fetched yet, and during a restart the half that is
-   * missing is exactly the half that explains the other one.
+   * It returns a string rather than writing `out.innerHTML` itself, which is what it did
+   * while the deploy strip rendered above it on a second clock. The strip has gone to
+   * /releases (bc-khoe.7) and this is the only half left — but a renderer that hands its
+   * markup back is still the right shape, because `render` is the one place that decides
+   * what a repaint does to your scroll position.
    */
   function boardHtml() {
     const d = state.data;
     if (!d) {
       if (state.error) return `<div class="empty"><strong>Can't reach the server</strong>${esc(state.error)}</div>`;
-      return state.deploys ? '' : '<div class="empty">Asking every repo…</div>';
+      return '<div class="empty">Asking every repo…</div>';
     }
 
     if (d.unavailable) return `<div class="empty"><strong>No pull requests to show</strong>${esc(d.unavailable)}</div>`;
@@ -737,14 +516,14 @@
   }
 
   function render() {
-    if (!state.data && !state.deploys && !state.error) return;
+    if (!state.data && !state.error) return;
     // `out` is the scroller, not the window (bc-7utr): the board is the last row of a
     // viewport-height shell, so the offset that survives a repaint is its own. Read and
     // written on the same element, which is also why this keeps working if the page ever
     // goes back to scrolling as a document.
     const was = out.scrollTop;
 
-    out.innerHTML = deploysHtml() + boardHtml();
+    out.innerHTML = boardHtml();
 
     // There was a badge here — open decisions plus merged work that is not running, hung
     // off the PRs tab. The tab is gone (bc-l8jp.6) and so is the badge: what it was for
@@ -793,7 +572,6 @@
     state.said = { key, text: `Deploying ${where} — ${plural(count, 'merged pull request')}…`, bad: false };
     render();
 
-    let started = false;
     try {
       const res = await fetch('/api/release/ship', {
         method: 'POST',
@@ -805,13 +583,15 @@
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      started = true;
       // Never "shipped". A 200 means a record is on disk and a detached runner owns it;
       // on this repo the next thing that happens is the daemon being killed by its own
-      // deploy, and the outcome arrives on the strip above and on the phone.
+      // deploy, and the outcome arrives on /releases and on the phone.
       state.said = {
         key,
-        text: `Deploying ${where} — ${data.deploy?.id || 'started'}, carrying ${plural(count, 'merge')}. How it went lands on your phone.`,
+        text: `Deploying ${where} — ${data.deploy?.id || 'started'}, carrying ${plural(
+          count,
+          'merge'
+        )}. Releases is watching it; how it went lands on your phone.`,
         bad: false,
       };
     } catch (err) {
@@ -819,7 +599,6 @@
     } finally {
       state.busy = false;
       render();
-      if (started) loadDeploys();
     }
   }
 
@@ -901,9 +680,9 @@
               key,
               // Never "deployed". A 200 here means the record is on disk and a detached
               // runner owns it — for this repo the next thing that happens is the daemon
-              // being killed by its own deploy, and the outcome arrives later, on the
-              // strip at the top of this page and on this phone.
-              text: `Deploying ${whereOf(p)} — ${data.deploy?.id || 'started'}. How it went lands on your phone.`,
+              // being killed by its own deploy, and the outcome arrives later, on
+              // /releases and on this phone.
+              text: `Deploying ${whereOf(p)} — ${data.deploy?.id || 'started'}. Releases is watching it.`,
               bad: false,
             }
           : { key, text: `A session is opening in ${data.dir || 'the repo'} to deploy it.`, bad: false };
@@ -919,10 +698,6 @@
       // Merging changes the lamps on the row you are looking at, so go and find out
       // rather than leaving a board that still says "open" over a merged PR.
       if (action === 'merge') load({ refresh: true });
-      // A ship that deployed has just put a record on disk, and the strip at the top
-      // of this page is the thing that says what it is doing. Its idle timer is half a
-      // minute away, which over a restart of *this daemon* is most of the deploy.
-      if (started) loadDeploys();
     }
   }
 
@@ -947,18 +722,6 @@
 
     // A bead pill inside a row is a link into the graph, not a fold.
     if (ev.target.closest('.pill.id')) return;
-
-    const deploy = ev.target.closest('[data-deploy]');
-    if (deploy) {
-      const id = deploy.dataset.deploy;
-      state.deploy = state.deploy === id ? null : id;
-      // The detail belongs to whichever one is open; keeping the old one would flash
-      // the previous deploy's log under the row you just unfolded.
-      state.detail = null;
-      render();
-      if (state.deploy) loadDetail(state.deploy);
-      return;
-    }
 
     const row = ev.target.closest('[data-pr]');
     if (row) {
@@ -989,7 +752,7 @@
   });
 
   async function load({ refresh = false } = {}) {
-    pulse.classList.add('busy');
+    pulse?.classList.add('busy');
     try {
       const res = await fetch(`/api/prs${refresh ? '?refresh=1' : ''}`, { headers: { 'x-beadcause-token': token } });
       if (!res.ok) {
@@ -1019,125 +782,18 @@
       window.beadcause?.warm?.prewarm?.({ here: 'prs', api: warmApi });
     } catch (err) {
       // Kept in state rather than written over the page: `boardHtml` decides what a
-      // failure looks like, and with a board already on screen it is a line under the
-      // deploy strip instead of the loss of everything the page was showing.
+      // failure looks like, and with a board already on screen it is a line above it
+      // saying how old it is, instead of the loss of everything the page was showing.
       state.error = err.message;
       render();
     } finally {
-      pulse.classList.remove('busy');
+      pulse?.classList.remove('busy');
       // Whether or not that worked, and deliberately: a board opened during a deploy —
       // which is exactly when this page is opened — is looking at a daemon that is
       // restarting, and with the minute timer gone the stream is the only thing that
       // brings it back on its own. See `follow`, and its backoff.
       follow();
     }
-  }
-
-  /* ------------------------------------------------------------ the deploy poll */
-
-  /**
-   * What is deploying, on its own timer.
-   *
-   * Separate from the board's fetch, and deliberately so: this is a directory read on
-   * the daemon and can be asked every four seconds, where the board is a `gh` call per
-   * repo and cannot. It is also the request that keeps working when the board's has
-   * stopped mattering — during a restart neither answers, and this is the one whose
-   * silence the page knows how to explain.
-   */
-  async function loadDeploys() {
-    const wasLive = liveDeploys().length > 0;
-    try {
-      const res = await fetch(`/api/deploys?limit=${DEPLOY_LIMIT}`, { headers: { 'x-beadcause-token': token } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      // The stub server in scripts/prs-check.mjs answers `{}` for anything it has no
-      // opinion about, and a real daemon predating this endpoint would too. Neither is
-      // a reason to draw an empty strip over a working board.
-      state.deploys = Array.isArray(data.deploys) ? data : state.deploys;
-      state.gone = false;
-      render();
-      // A live deploy's own record is what the open row is drawing, so keep it fresh —
-      // this is how a step that finished while you were looking at it stops saying it
-      // is still running.
-      if (state.deploy && LIVE.has(deploys().find((r) => r.id === state.deploy)?.status)) loadDetail(state.deploy);
-      // A deploy that has just settled has changed a lamp on the board behind it, and
-      // the board's own poll is up to a minute away. Go and look, rather than leaving
-      // Deployed dark over a repo that came back up ten seconds ago.
-      if (wasLive && !liveDeploys().length && !state.busy && !state.armed && !state.draft) load({ refresh: true });
-    } catch {
-      // No message anywhere: with a restart in flight this is the deploy working, and
-      // without one the board's own failure is already saying it. See `deploysHtml`.
-      state.gone = true;
-      render();
-    } finally {
-      // From here, not from the caller: whoever asked — the boot, the timer, the ⟳ —
-      // has just changed the answer to "how fast should this page be asking", and the
-      // pending timeout was set against the old one.
-      scheduleDeploys();
-    }
-  }
-
-  /** The whole record and the runner's log, for the one deploy that is unfolded. */
-  async function loadDetail(id) {
-    try {
-      const res = await fetch(`/api/deploys?id=${encodeURIComponent(id)}`, { headers: { 'x-beadcause-token': token } });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      // The row may have been folded, or another opened, while this was in flight.
-      if (state.deploy !== id) return;
-      state.detail = { id, deploy: data.deploy || null, log: String(data.log || '') };
-      render();
-    } catch {
-      /* the steps are already on screen from the list; the log is the bonus */
-    }
-  }
-
-  /**
-   * The strip's clock, set from what the last answer said rather than fixed at boot —
-   * and, while nothing is running, no clock at all.
-   *
-   * A deploy's *steps* are a file being written on the Mac, and no event carries them,
-   * so a deploy in flight is still watched on a fast timer: four seconds, which is what
-   * makes a step change news rather than history. Nothing about that has changed.
-   *
-   * What has changed is the other end. This is the timer that survived the move onto the
-   * delta stream, and it survived for one reason: `bus.emit({type: 'deploy'})` used to
-   * fire only when a deploy *settled*, so nothing in the log ever said "something began
-   * shipping", and a 30-second idle tick was the only thing that would notice a deploy
-   * started somewhere else — the Ship button on another device, an agent's own
-   * `POST /api/deploy`, the release queue shipping itself. lib/server.js emits on the
-   * start too now (`beginDeploy` there), that event is already in `BOARD_EVENTS`, and
-   * `onWake` below turns this clock back on the moment one arrives. So an idle board
-   * holds a socket and asks for nothing.
-   *
-   * **The fallback is not decoration.** A page whose stream is not following has nothing
-   * to wake it, and a strip that had quietly stopped refreshing would look exactly like
-   * one with nothing to say. That is the whole failure mode public/stream.js's own
-   * `onSettle` contract exists for, so the idle tick is still here and is used whenever
-   * the stream is not up: an older service-worker shell with no stream.js at all, a stub
-   * or a proxy that keeps no log, a poll between its failure and its next retry.
-   *
-   * The previous timeout is always cleared, so a ⟳ in the middle of a wait moves the
-   * next tick rather than adding a second clock.
-   */
-  let deployTimer = null;
-  function scheduleDeploys() {
-    clearTimeout(deployTimer);
-    deployTimer = null;
-    // Not while the board is behind another chip. The strip is the one thing on this
-    // page with a clock of its own, so a hidden board that kept it would be a request
-    // every four seconds for a pane nobody is looking at — and at the *fast* cadence,
-    // because a live deploy is exactly when you are most likely to have swapped away to
-    // watch the sessions it is restarting.
-    if (out.hidden) return;
-    // Unreachable *and* a restart in flight is the fastest cadence there is a reason
-    // for: nothing on the page will change until the daemon is back, and that is the
-    // moment worth catching.
-    if (liveDeploys().length || (state.gone && restarting())) {
-      deployTimer = setTimeout(loadDeploys, DEPLOY_LIVE_MS);
-      return;
-    }
-    if (!stream?.following) deployTimer = setTimeout(loadDeploys, DEPLOY_IDLE_MS);
   }
 
   /* The space picker moved — on this device or on the other one. Nothing is refetched:
@@ -1157,21 +813,25 @@
      side that refresh different halves of one screen is worse than one that refreshes
      what you are looking at. */
   document.getElementById('refresh').addEventListener('click', () => {
-    if (out.hidden) return;
-    loadDeploys();
+    if (!upNow()) return;
     load({ refresh: true });
   });
 
   /* ------------------------------------------------------------------- the stream */
 
   /**
-   * Follow the event log instead of re-asking on a clock.
+   * One answered poll, whichever mount asked for it.
    *
-   * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll
-   * that asked for the inbox questions, and this page draws none of them — it wants to
-   * be woken, and then it decides for itself whether the news was about a pull request.
-   * `cold: true` because `/api/prs` carries no sequence, and with `want: 'presence'` the
-   * `since`-less first request that learns one costs nothing.
+   * The shape is `follow`'s own `onWake` argument, which is also what public/montabs.js
+   * fans out from the stager — so this is the document's `onWake` and the pane's `wake`,
+   * one function under one name rather than the same logic written twice and free to
+   * drift.
+   *
+   * **Nothing in here is free, so the guard is the first line rather than a middle one.**
+   * Every wake this board acts on is a `gh` sweep per repo, which is the reason the pane
+   * this section is in stands down while it is hidden at all — see the header of
+   * public/montabs.js. The roster next door takes the free half of a wake regardless; this
+   * one has no free half to take.
    *
    * **Why it re-asks for the board rather than patching the row the event names.** The
    * three lamps are not fields on the event: `merged`, `pushed` and `deployed` are the
@@ -1182,75 +842,74 @@
    * drop the board cache as they fire, so the first board through does one `gh` sweep
    * and every other open board shares it.
    */
+  function wake({ events, resync }) {
+    if (!upNow()) return;
+    // Not while you are mid-sentence or holding an armed merge: a repaint would
+    // throw the first away and disarm the second under your thumb. The ⟳ is still
+    // there, and so is the next event.
+    if (state.busy || state.armed || state.draft) return;
+    // We have lost our place in the log, so nothing on screen is provably current —
+    // this is one of the three cases that earns a forced sweep.
+    if (resync) {
+      load({ refresh: true });
+      return;
+    }
+    // `deploy` is still one of BOARD_EVENTS and still earns a sweep, because a deploy
+    // that settled has moved the Deployed and Live lamps on the rows below. What it no
+    // longer earns is a second request: the journal behind it is drawn on /releases
+    // now (bc-khoe.7), and this page has nothing to draw from it.
+    if (!window.beadcause.stream.touched(events, BOARD_EVENTS)) return;
+    load();
+  }
+
+  /* The pane's own handler, registered unconditionally and called only in the shell: on
+     monitor.html nothing invokes public/montabs.js's fan-out, because `follow` below owns
+     this section's socket there. Exactly one of the two fires per document. */
+  window.beadcause?.monTabs?.onWake?.(wake);
+
+  /**
+   * Follow the event log instead of re-asking on a clock — on the document only.
+   *
+   * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll
+   * that asked for the inbox questions, and this view draws none of them — it wants to
+   * be woken, and then it decides for itself whether the news was about a pull request.
+   * `cold: true` because `/api/prs` carries no sequence, and with `want: 'presence'` the
+   * `since`-less first request that learns one costs nothing.
+   *
+   * **In the shell this does nothing at all**, and the early return is the point rather
+   * than a tidy-up: that document holds exactly one poll and public/panestage.js hands its
+   * answers to every pane that asked for them. A second `follow` here would be one of the
+   * four parked requests one screen would otherwise hold — each a `bd` sweep per event on
+   * the daemon behind it. `presence` is declared to the stager instead, by
+   * public/montabs.js, and it is the same word for the same reason.
+   */
   let stream = null;
   function follow() {
-    if (!window.beadcause?.stream) return;
+    // See the same three lines in public/monitor.js and public/releases.js.
+    if (inShell || !window.beadcause?.stream) return;
     // Mounted once and started every time `load` runs — the boot and the ⟳ — so a stream
     // that gave up after a run of failures can be picked back up by hand. `start` on one
     // that is already parked is a no-op.
     if (stream) {
       stream.start();
-      return scheduleDeploys();
+      return;
     }
     stream = window.beadcause.stream.follow({
       api: warmApi,
       want: 'presence',
       cold: true,
-      /* Only while the board is the pane you are on. This costs more than the same guard
-         on the advocates pane does: every wake this board acts on is a `gh` sweep per
-         repo, and a hidden board following the log would spend one on every merge all
-         day for a screen nobody has open. Coming back calls `load`, which calls `follow`,
-         which restarts a stream that stood itself down. */
-      ready: () => !out.hidden,
-      onWake({ events, resync }) {
-        // Not while you are mid-sentence or holding an armed merge: a repaint would
-        // throw the first away and disarm the second under your thumb. The ⟳ is still
-        // there, and so is the next event.
-        if (state.busy || state.armed || state.draft) return;
-        // We have lost our place in the log, so nothing on screen is provably current —
-        // this is one of the three cases that earns a forced sweep.
-        if (resync) {
-          loadDeploys();
-          load({ refresh: true });
-          return;
-        }
-        if (!window.beadcause.stream.touched(events, BOARD_EVENTS)) return;
-        load();
-        // A deploy has started, or settled — lib/server.js emits the same event type for
-        // both, and the record's `status` is what tells them apart. This is the whole of
-        // the strip's clock while nothing is running: `loadDeploys` re-reads the journal
-        // and `scheduleDeploys` behind it puts the page onto the fast tick if what came
-        // back is live. The steps *within* a deploy are still a file being written on the
-        // Mac and nothing the log can carry, which is why the fast tick exists at all.
-        if (window.beadcause.stream.touched(events, 'deploy')) loadDeploys();
-      },
-      /**
-       * The stream has stopped — put the timer back until it is following again.
-       *
-       * public/stream.js retries a broken poll on its own, and this fires whether or not
-       * one is coming: a page in a pocket, a daemon mid-restart, something that answers
-       * `/api/poll` but keeps no log at all. Every one of those is a strip with nothing
-       * left to wake it, and a strip that has quietly stopped refreshing looks exactly
-       * like one with nothing to say. `scheduleDeploys` reads `stream.following` and
-       * decides; it is called here rather than reasoned about, so the fallback and the
-       * fast tick stay one decision made in one place.
-       */
-      onSettle() {
-        scheduleDeploys();
-      },
+      /* Only while the board is the section you are on. Coming back calls `load`, which
+         calls `follow`, which restarts a stream that stood itself down. */
+      ready: upNow,
+      onWake: wake,
     });
     stream.start();
-    // The strip's fallback tick was decided before this existed — the boot calls
-    // `loadDeploys` while `load` is still in flight, and `follow` runs at the end of it.
-    // Decide it again now that there is a stream to ask, or an idle board would poll
-    // once more for nothing.
-    scheduleDeploys();
   }
 
   /**
    * A plain GET, for the background warm and for the delta stream.
    *
-   * This page fetches with bare `fetch` in four places rather than through one
+   * This page fetches with bare `fetch` in a handful of places rather than through one
    * wrapper, so there is nothing here for `prewarm` to borrow. One small one, kept
    * next to the boot it is used from.
    *
@@ -1289,14 +948,14 @@
    * Everything this page used to do at boot, now that it is a pane and boots when it is
    * shown.
    *
-   * `loadDeploys` runs alongside the board rather than after it: if a deploy is in flight
-   * the board's request is the one that is about to fail, and the strip is what says why.
-   * It schedules its own next tick — see `scheduleDeploys`.
+   * One request, since bc-khoe.7 took the deploy poll off this page. A board opened during
+   * a deploy is looking at a daemon that is restarting and this fetch is the one that
+   * fails; what says why is /releases, which is where the strip that used to explain it
+   * went.
    */
   function mount() {
     warmBoot();
     load();
-    loadDeploys();
   }
 
   if (!token) {
@@ -1319,15 +978,15 @@
     if (!tabs) mount();
     else
       tabs.onChange((which) => {
-        // Away: stand the strip's clock down. `scheduleDeploys` reads `out.hidden` and
-        // decides, so the rule lives in one place — and the stream stands itself down
-        // through the same attribute, see `ready` in `follow`.
-        if (which !== 'prs') return scheduleDeploys();
+        // Away: nothing to stand down beyond the stream, which does it itself through
+        // `upNow` — see `ready` in `follow`, and `wake`'s first line in the shell. The
+        // empty string is one of the answers here now: it is the pane itself going away,
+        // which this section can no more tell from a chip swap than it needs to.
+        if (which !== TAB) return;
         if (!mounted) {
           mounted = true;
           return mount();
         }
-        loadDeploys();
         load();
       });
   }

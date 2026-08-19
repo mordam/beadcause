@@ -34,6 +34,21 @@
   of what the four non-inbox views draw. So a view that does not draw the inbox should
   say so: four parked clients all asking for questions would mean four `bd` sweeps per
   event, which is the timer's bill arriving by another route.
+
+  ## One park per page, even when the page is several views
+
+  The shell is one document with a pane per view (bc-khoe.30), so "every standing view
+  mounts this" would be five mounts behind one screen. It is not: public/panestage.js
+  fans one poll's wakes out to the panes through `listen`, and the panes' `want`s are
+  unioned into the one request rather than each becoming a park of its own.
+
+  That leaves one hole, and `standby` is what fills it. The inbox owns the real mount and
+  follows the log only in `human` scope — so on a wider scope its poll is off, and panes
+  riding its wakes would go quiet with it while the pages they replaced kept polling. A
+  standby mount runs exactly when no ordinary one is following: `arbitrate` stands them
+  down the moment an ordinary loop starts and puts them back when the last one ends, and
+  `alive()` refuses one that is started from anywhere else meanwhile. Two mounts, never
+  two sockets.
 */
 (() => {
   'use strict';
@@ -158,10 +173,21 @@
     return () => listeners.delete(fn);
   }
 
-  function tell(events) {
+  /**
+   * Hand every listener what the poll just answered.
+   *
+   * `events` is the first argument because it was the only one for public/update.js, which
+   * wants a boolean about deploys and nothing else. The payload came second when
+   * public/panestage.js started fanning wakes out to the shell's panes (bc-khoe.30.4): a
+   * pane that used to own a `follow` read `data` in its `onWake` — the advocate snapshot,
+   * the presence list, the workspace names all ride every wake — and a fan-out that dropped
+   * it would have been a channel every pane had to go and re-fetch behind. Second rather
+   * than folded into one object so the listener that predates it is untouched.
+   */
+  function tell(events, extra) {
     for (const fn of listeners) {
       try {
-        fn(events);
+        fn(events, extra);
       } catch (err) {
         console.error('[stream] listener failed', err);
       }
@@ -174,11 +200,14 @@
    * @param {object} o
    * @param {function} o.api        the page's own fetch wrapper — `(path, {signal}) => Promise<data>`
    * @param {number} [o.seq]        where in the log the screen is; 0 means "we do not know"
-   * @param {string} [o.want]       `'presence'` to park without asking the daemon to sweep `bd`
+   * @param {string|function} [o.want] `'presence'` to park without asking the daemon to sweep
+   *                                       `bd`; a function is read per request, for a mount
+   *                                       whose want is a union that can widen under it
    * @param {number} [o.wait]       seconds to let the daemon hold each request
    * @param {boolean} [o.cold]      may the first request omit `since` to learn a sequence?
    * @param {number} [o.retryMs]    how long after a broken poll to try again; 0 to stop instead
    * @param {boolean} [o.visibility] register the hidden/visible rule (default true)
+   * @param {boolean} [o.standby]   only run while no ordinary mount is following — see below
    * @param {function} [o.ready]    an extra condition of the view's own — a token, a scope, a pane
    * @param {function} [o.onWake]   `({data, events, resync})` — an answered poll
    * @param {function} [o.onSettle] the loop has ended; fall back to whatever you did before
@@ -192,6 +221,7 @@
     cold = false,
     retryMs = 5000,
     visibility = true,
+    standby = false,
     ready = () => true,
     onWake = null,
     onSettle = null,
@@ -220,8 +250,21 @@
      * the log has nothing to park on, and for the inbox that is exactly when the timer
      * takes over. `cold` lifts it for the views whose own payload carries no sequence:
      * they are allowed to go and ask the log where they are.
+     *
+     * `standby && busy()` is the last clause and it is what keeps "one park per page" true
+     * of a mount nobody times. A standby is a mount that only exists to keep the page fed
+     * when the view that owns the real poll has stood its own down, and the two would
+     * otherwise both be in flight for the seconds between one starting and the other
+     * noticing — a page holding two sockets, which is the one thing this file is for. Read
+     * here rather than only in `arbitrate` because a `start()` can arrive from anywhere: a
+     * visibility handler, `wake()`, a retry timer.
      */
-    const alive = () => !stopped && (at > 0 || cold) && ready() && !(typeof document !== 'undefined' && document.hidden);
+    const alive = () =>
+      !stopped &&
+      (at > 0 || cold) &&
+      ready() &&
+      !(typeof document !== 'undefined' && document.hidden) &&
+      !(standby && busy());
 
     function url(since) {
       const q = new URLSearchParams();
@@ -241,13 +284,22 @@
         q.set('since', String(Math.max(0, since)));
         q.set('wait', String(wait));
       }
-      if (want) q.set('want', want);
+      // Read per request rather than closed over, so a mount whose want is the union of
+      // several panes' can widen without becoming a second mount — public/panestage.js
+      // re-parks the one it has instead. A second `follow` would leave the first in
+      // `mounted` forever, and `arbitrate` would dutifully start it again.
+      const asking = typeof want === 'function' ? want() : want;
+      if (asking) q.set('want', asking);
       return `/api/poll?${q.toString()}`;
     }
 
     async function loop() {
       if (following || !alive()) return;
       following = true;
+      // An ordinary mount taking the socket is what stands every standby down — aborting
+      // the request rather than waiting for it to notice, because a standby that noticed
+      // at its own next turn would hold a second park for up to `wait` seconds.
+      if (!standby) arbitrate();
       // A deliberate ending — a stop, a scope change, an old daemon — is not a failure
       // and must not be retried. Only the catch below sets this.
       let broke = false;
@@ -292,7 +344,7 @@
           // which is the view's, because only it knows what "everything" is here.
           onWake?.({ data, events, resync: Boolean(data.resync) });
           // …and anything else on the page that wants the same events. See `listen`.
-          tell(events);
+          tell(events, { data, resync: Boolean(data.resync) });
           // Nothing that keeps a log answered, so there is nothing to follow: the
           // caller's fallback — a timer, or the ⟳ — is the refresh from here.
           if (!told) break;
@@ -310,6 +362,10 @@
       } finally {
         following = false;
         onSettle?.();
+        // …and an ordinary mount letting go is what puts them back up. `onSettle` first,
+        // because a view's fallback may itself restart this loop and a standby started
+        // ahead of that would be stood straight back down.
+        if (!standby) arbitrate();
         // The four views that mount this have no timer left behind them, so a poll that
         // broke and stayed broken is a screen that has quietly stopped refreshing —
         // the one failure this must never have. `retryMs: 0` is for the inbox, which
@@ -331,6 +387,22 @@
       clearTimeout(retryTimer);
       retryTimer = null;
       loop();
+    }
+
+    /**
+     * Drop the parked request and go round again, now.
+     *
+     * For a mount whose `want` is a function that has just answered something wider: the
+     * request in flight was built with the old one and will not be replaced for up to
+     * `wait` seconds otherwise. Through a timer rather than a straight `stop(); start()`,
+     * which is the shape that does not work: the abort rejects a promise the loop is
+     * awaiting, so `following` is still true on the next line and `start` would find the
+     * loop already running and do nothing. Same reason the retry above is a timer.
+     */
+    function repark() {
+      stop();
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(start, 0);
     }
 
     /** Stop waiting on an answer about a screen we have stopped showing. */
@@ -355,6 +427,9 @@
     const api_ = {
       start,
       stop,
+      repark,
+      /** Whether this mount yields the socket to any ordinary one — see `arbitrate`. */
+      standby,
       get seq() {
         return at;
       },
@@ -388,13 +463,83 @@
    */
   const mounted = new Set();
 
+  /** Is an ordinary — non-standby — mount holding the socket right now? */
+  const busy = () => {
+    for (const s of mounted) if (!s.standby && s.following) return true;
+    return false;
+  };
+
+  /**
+   * Is *anything* on this page following the log — an ordinary mount or a standby?
+   *
+   * `busy` above is the arbiter's question and deliberately blind to standbys, because its
+   * whole job is deciding whether one should be running. This is the other one, and it is
+   * asked by a view that keeps a **fallback timer**: public/releases.js watches a deploy on
+   * four seconds while one is in flight and falls back to thirty when it has nothing to
+   * wake it, so what it needs to know is whether the document is being woken *at all*
+   * rather than which mount is doing it.
+   *
+   * It exists because that view became a pane (bc-khoe.30.14). As a page it could read
+   * `following` off the handle it held itself; as a pane it holds none — public/panestage.js
+   * owns the one poll and fans the answers out — and a pane asking `stage.standing()`
+   * instead would get `false` whenever the *inbox* owned the socket, which is the common
+   * case, and would put a thirty-second poll up beside a stream that was working.
+   */
+  const awake = () => {
+    for (const s of mounted) if (s.following) return true;
+    return false;
+  };
+
+  /**
+   * Hand the socket to the ordinary mounts, and give it back to the standbys when they
+   * let go.
+   *
+   * A **standby** is a mount that exists only so the page is fed when the view that owns
+   * the real poll has stood its own down. public/panestage.js is the caller and the shell
+   * is the case: the inbox follows the log only in `human` scope, so on any wider scope
+   * its poll is off and a page whose History and Advocates panes ride the same stream
+   * would have gone quiet with it — panes that are hidden rather than absent, going stale
+   * where the pages they replaced were not.
+   *
+   * The rule is one park per page whichever mount is holding it, which is what this
+   * enforces centrally rather than leaving to whoever mounts second. Standbys are stopped
+   * the moment an ordinary loop starts and started again when the last of them ends, and
+   * `alive()` refuses a standby that starts from anywhere else while one is running — so
+   * a `visibilitychange` racing a `start()` cannot end with two sockets held either.
+   *
+   * Answers how many standbys it started, because `wake` below counts what it nudged.
+   */
+  function arbitrate() {
+    const taken = busy();
+    let started = 0;
+    for (const s of mounted) {
+      if (!s.standby) continue;
+      try {
+        if (taken) s.stop();
+        else {
+          s.start();
+          started += 1;
+        }
+      } catch {
+        /* one stream that will not move must not stop the next */
+      }
+    }
+    return started;
+  }
+
   /**
    * Start every stopped stream again, now. Answers how many it nudged, so a caller can
    * tell "I woke something" from "there is nothing here to wake" and fall back.
+   *
+   * The standbys are not in the loop and are left to `arbitrate`: starting one beside the
+   * ordinary mount it stands in for is exactly the second socket this file exists to
+   * avoid, and on a page whose ordinary mounts all refuse to run it is `arbitrate` that
+   * puts the standby up instead.
    */
   function wake() {
     let woke = 0;
     for (const s of mounted) {
+      if (s.standby) continue;
       try {
         s.start();
         woke += 1;
@@ -402,6 +547,7 @@
         /* one stream that will not start must not stop the next */
       }
     }
+    woke += arbitrate();
     return woke;
   }
 
@@ -410,6 +556,7 @@
     follow,
     listen,
     wake,
+    awake,
     moved,
     touched,
     workMoved,

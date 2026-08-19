@@ -30,13 +30,22 @@
  * reporting on a detector that cannot tell alive from dead — and would then pass just as
  * happily with the trap deleted. It is the same argument test/chromeport.mjs makes with
  * its `OLD`/`NEW` controls, done against a live process instead of a string.
+ *
+ * **The mechanism under test is `lib/teardown.js`.** bc-1eru and bc-5isv reached the same
+ * missing arm from opposite ends — a killed session here, a signalled check there — and
+ * `onExit`/`killAndRemoveSync` is the one registry both settled on, so this suite points
+ * at it rather than at a second copy. What it adds over test/teardown.mjs is that it needs
+ * no Chrome: a stand-in binary means the pid-level measurement runs inside `npm test`
+ * rather than only where a browser is assumed. The static scan at the bottom is the other
+ * half — a third launcher written by copying one of these two is caught by the audit, not
+ * by somebody noticing their browser will not open.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { onProcessExit, pendingCount } from '../lib/shutdown.js';
+import { onExit, armed } from '../lib/teardown.js';
 import { launchChrome } from '../scripts/helpers/chrome.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -216,24 +225,24 @@ async function startVictim() {
 // closure over every browser it had ever opened and, at exit, signal a list of pids the
 // kernel has long since handed to something else.
 {
-  const before = pendingCount();
-  const untrack = onProcessExit(() => {});
-  const during = pendingCount();
+  const before = armed();
+  const untrack = onExit(() => {});
+  const during = armed();
   untrack();
-  if (during === before + 1 && pendingCount() === before) ok('a registered teardown can be taken off again');
-  else bad('a registered teardown can be taken off again', `${before} → ${during} → ${pendingCount()}`);
+  if (during === before + 1 && armed() === before) ok('a registered teardown can be taken off again');
+  else bad('a registered teardown can be taken off again', `${before} → ${during} → ${armed()}`);
 }
 
 {
   // The same, through the launcher: a launch that fails must leave nothing registered.
-  const before = pendingCount();
+  const before = armed();
   try {
     await launchChrome('beadcause-leakreg-', { chrome: path.join(TMP, 'no-such-chrome-binary'), timeoutMs: 3000 });
   } catch {
     /* expected: there is no such binary */
   }
-  if (pendingCount() === before) ok('a failed launch leaves nothing registered');
-  else bad('a failed launch leaves nothing registered', `${before} → ${pendingCount()}`);
+  if (armed() === before) ok('a failed launch leaves nothing registered');
+  else bad('a failed launch leaves nothing registered', `${before} → ${armed()}`);
 }
 
 /* ------------------------------------- and every launcher is wired to the registry */
@@ -259,7 +268,7 @@ const unhooked = [];
 for (const full of sources) {
   const code = codeOf(fs.readFileSync(full, 'utf8'));
   if (!/--headless/.test(code)) continue;
-  if (!/onProcessExit/.test(code)) unhooked.push(path.relative(ROOT, full));
+  if (!/onExit/.test(code)) unhooked.push(path.relative(ROOT, full));
 }
 if (!unhooked.length) ok('every file that spawns a browser registers an exit teardown');
 else bad('every file that spawns a browser registers an exit teardown', unhooked.join(', '));
@@ -267,7 +276,7 @@ else bad('every file that spawns a browser registers an exit teardown', unhooked
 // And the control for that scan, because an audit that cannot fire reports the same
 // clean tree as one with nothing to find.
 const ROGUE = "spawn(CHROME, ['--headless=new', '--user-data-dir=' + profile]);";
-if (/--headless/.test(codeOf(ROGUE)) && !/onProcessExit/.test(codeOf(ROGUE))) ok('control: a launcher with no teardown is caught');
+if (/--headless/.test(codeOf(ROGUE)) && !/onExit/.test(codeOf(ROGUE))) ok('control: a launcher with no teardown is caught');
 else bad('control: a launcher with no teardown is caught', 'the scan cannot fire');
 
 /* -------------------------------------------------------------------- verdict */

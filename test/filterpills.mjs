@@ -458,12 +458,29 @@ await check('the stylesheet draws the row, and does not clip the panel beside it
   const block = css.slice(css.indexOf('\n.filters {'));
   assert.doesNotMatch(block.slice(0, block.indexOf('}')), /overflow/, '.filters became a scroll container');
   assert.match(css, /\.chip-row\.scopes \{[^}]*flex-wrap: nowrap/, 'the switch can break across two lines');
-  // The one thing the move broke, and it only shows in a browser: the panel is 260px
-  // wide and positioned against a `.filter-menu` the switch has pushed to x=240 on a
-  // 360px phone, so left-anchored it runs off the side of the screen. Measured before
-  // and after in a headless Chrome at 360×640 — 240..500 against a 360px viewport, and
-  // 84..344 with this rule.
-  assert.match(css, /#filters \.filter-panel \{[^}]*right: 0/, 'the open panel hangs off the right of a phone');
+  // The one thing the move broke, and it only shows in a browser: the panel is 260px wide
+  // and was positioned against a `.filter-menu` the switch had pushed to x=240 on a 360px
+  // phone, so left-anchored it ran off the side of the screen. bc-khoe.24 answered that by
+  // opening it leftwards (`#filters .filter-panel { right: 0 }`); bc-khoe.26 answered it at
+  // the root — the pills wrap with the switch and their panels hang off this nav — and
+  // took that rule out. The three halves of the new answer are what is pinned here.
+  const filters = css.slice(css.indexOf('\n.filters {'));
+  const body = filters.slice(0, filters.indexOf('}'));
+  assert.match(body, /flex-wrap: wrap/, 'the nav cannot drop the pills to a second line');
+  // The pills are items of *this* row, so a pill fits beside the switch instead of the
+  // whole row taking a line of its own. Measured at 360×800 with the real stylesheet:
+  // boxed, the nav is 134px and the 84px beside the switch is wasted; `display: contents`
+  // puts the bead pill up there and 393 — the phone this is thumbed on — comes back to two
+  // lines and 92px. `[hidden]` has to be said again, because `display: contents` wins over
+  // the UA rule and the row goes away entirely under `Chats`.
+  assert.match(body, /position: relative/, 'the panels have nothing to anchor to');
+  assert.match(css, /\.filter-menu \{ display: contents; \}/, 'the pill row is a box again');
+  assert.match(css, /\.filter-menu\[hidden\] \{ display: none; \}/, 'a row with nothing on it cannot hide');
+  assert.doesNotMatch(
+    css.replace(/\/\*[\s\S]*?\*\//g, ''),
+    /#filters \.filter-panel/,
+    'the right-anchored panel outlived the row that made it unnecessary'
+  );
 });
 
 await check('the README says the scope is a control you can see — it is this repo’s spec', () => {

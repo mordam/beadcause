@@ -114,6 +114,7 @@ check('a space that says nothing says null everywhere, not false', () => {
     autoEndorse: null,
     autoMerge: null,
     requireApproval: null,
+    reviewRequired: null,
     autoShip: null,
   });
 });
@@ -357,7 +358,9 @@ check('the five policy answers still take a workspace and nothing finer — the 
 });
 
 check('and the card draws the count rather than leaving it in the payload', () => {
-  const js = read('public/monitor.js');
+  // public/config.js since bc-khoe.10 — the card is its own page now, not a pane of the
+  // advocate console. The claims below are unchanged; only the file they are read from is.
+  const js = read('public/config.js');
   assert.match(js, /checkout\$\{r\.checkouts === 1 \? '' : 's'\}, one answer/, 'the row never says what it stands for');
   // The heading names the repo when the picker is pinned to one (bc-me2b), so the
   // fallback and the count are asserted apart. The count is the claim that matters: it
@@ -370,26 +373,48 @@ check('and the card draws the count rather than leaving it in the payload', () =
 
 /* ================================================================ the wiring */
 
-check('the page carries the settings card and the gear to admin', () => {
-  const html = read('public/monitor.html');
-  assert.ok(html.includes('id="gear"'), 'no gear in the top bar');
-  assert.ok(html.includes('href="/admin"'), 'the gear points nowhere');
-  const js = read('public/monitor.js');
+check('the page carries the settings card, and it is a page of its own', () => {
+  const html = read('public/config.html');
+  assert.ok(html.includes('id="space"'), 'nothing on /config for the card to be drawn into');
+  assert.ok(html.includes('src="/config.js"'), '/config draws with no script');
+  assert.ok(html.includes('src="/spacebar.js"'), 'no picker, so the page cannot know which space it is about');
+  const js = read('public/config.js');
   assert.ok(js.includes('/api/space?space='), 'the page never reads a space');
-  assert.ok(js.includes("data-space-set"), 'nothing on the page writes one');
+  assert.ok(js.includes('data-space-set'), 'nothing on the page writes one');
   // The channel is the one control here that is typed rather than pressed, so it has a
-  // press of its own that reads the field — and a draft in `state`, because this page
-  // repaints off a stream event and a half-typed id in the DOM is one a poll can take.
+  // press of its own that reads the field — and a draft in `state`, because every press
+  // on this card repaints it and a half-typed id in the DOM is one a repaint can take.
   assert.ok(js.includes('data-space-channel'), 'no way to send a typed channel');
   assert.ok(js.includes('slackDraft'), 'the typed channel is not held against a repaint');
   const css = read('public/style.css');
   assert.ok(css.includes('.space-channel input'), 'the channel field has no box');
+  // And the console does not draw it any more, which is the other half of bc-khoe.10 —
+  // asserted here rather than left to the browser check, because a merge that put the
+  // card back would leave two screens writing the same config and nothing would say so.
+  const mon = read('public/monitor.js');
+  assert.ok(!mon.includes('spaceHtml('), 'the advocate console still draws the settings card');
+  assert.ok(!read('public/monitor.html').includes('data-tab="config"'), 'the Config chip is still on the console');
 });
 
-check('and the service worker version moved, or a cached phone gets the gear without the card', () => {
-  // monitor.html, monitor.js and style.css are all already in the shell, so the version
-  // is the only thing that makes the three arrive together.
-  assert.ok(/const CACHE = 'beadcause-v(2[5-9]|[3-9]\d)'/.test(read('public/sw.js')), 'CACHE was not bumped past v24');
+check('the row reaches it, or the card is a page with nothing pointing at it', () => {
+  // The pill is the only way to /config: nothing links to it from a card, a notification
+  // or another page's chrome, which is exactly what a standing view is. A pill without
+  // the alias serves nothing and an alias without the pill is unreachable, so both.
+  const bar = read('public/viewbar.js');
+  assert.match(bar, /id: 'config',[\s\S]{0,200}?href: '\/config'/, 'no Config pill on the row');
+  assert.match(read('lib/server.js'), /urlPath === '\/config'/, "/config is not served");
+});
+
+check('and the service worker version moved, or a cached phone has the pill and not the page', () => {
+  // config.html and config.js are new files in the shell and viewbar.js is a changed one
+  // already in it, so the version is what makes the row and the page it points at arrive
+  // together. A shell one version behind draws no Config pill at all, which is the
+  // honest failure; the version is what keeps it to that.
+  assert.ok(/const CACHE = 'beadcause-v(7[7-9]|[89]\d)'/.test(read('public/sw.js')), 'CACHE was not bumped past v76');
+  const sw = read('public/sw.js');
+  for (const p of ["'/config'", "'/settings'", "'/config.html'", "'/config.js'"]) {
+    assert.ok(sw.includes(p), `${p} is not precached, so the pill only works with a signal`);
+  }
 });
 
 /* ============================================================== the server half */
