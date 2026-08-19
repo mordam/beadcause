@@ -18501,6 +18501,144 @@ one, because the corpus enumerates it. So the decomposition is one command away 
 from the assessment rather than beside it, and regenerating it after a state moves is the
 same command again.
 
+## The auditor engagement, dated by readiness — `beadcause-engagement`
+
+SOC 2 has no accredited body and no certificate. The report is signed by a licensed CPA
+firm subject to AICPA peer review, so **which firm** is a commercial decision with a
+technical half, and **when the period starts** is the decision that quietly decides whether
+the report comes back clean.
+
+`lib/engagement.js` holds both, and holds them the way the rest of this layer holds
+everything: the judgements are data, and every state read off them is derived at the moment
+of asking. It is the second module above the leaves rather than beside them — it asks [the
+gap assessment](#the-gap-assessment-computed--beadcause-gaps) for readiness instead of
+re-deriving it from the corpus, because a second opinion about whether a criterion is met is
+exactly the second copy this layer exists to refuse.
+
+    beadcause-engagement show                  the sequence, the dates and the letter
+    beadcause-engagement dates                 the Type I as-of and the window open date
+    beadcause-engagement letter                the four terms, and which of them resolve
+    beadcause-engagement firms                 the classes, the questions, what a quote must cover
+    beadcause-engagement bridge <end> <asked>  the bridge state between two dates
+
+### `dates` never prints a date, and that is the verb
+
+`bc-j0o3` was answered: **Type I now, with the Type II observation window opening the same
+day.** The Type I is largely a by-product of preparing for the Type II, so having both costs
+little, and starting the clock early is the only lever that shortens a timeline otherwise
+made of elapsed time.
+
+The rule that answer creates is the one that gets broken. The window opens when the controls
+demonstrably **operate** — not when a report is wanted. Opened earlier it does not shorten
+anything; it produces a report containing exceptions, which is commercially worse than a
+later clean one. So a stored `windowOpensOn: '2026-09-01'` is not a plan. It is a bet that
+thirty-eight criteria will be met by a date chosen before anybody looked, and the bet is
+settled by an auditor rather than by whoever typed it.
+
+There is therefore no date field, and `test/engagement.mjs` fails the repository for a date
+literal appearing anywhere in the module's code. What the command prints instead is whether
+a date **may** be set, and what is holding it:
+
+    Type I as-of         not settable
+    Type II window opens not settable
+
+    Type I — operating gate: shut, 38 holding
+
+Two gates, both read off the gap assessment. **design** is what a Type I opines on: every
+elected criterion has a described control, whether or not it has yet produced anything to
+sample. **operating** is what a window needs: every criterion is `met` — control *and*
+evidence — **and** `assessed` rather than
+[provisional](#absent-has-two-meanings-and-only-one-of-them-is-a-finding), because a control
+cannot have been tested over a population nobody has enumerated. That second half is the one
+people leave out, and it is why the operating gate can be shut on a register whose every row
+says met. The suite drives both directions on fixtures: taking the evidence off one row
+shuts the operating gate and leaves the design gate open, and a met row against an
+unsurveyed estate holds the window shut on its own.
+
+Because `bc-j0o3` put both dates on one day, the **design gate can never be the binding
+one** — `met` cannot hold without a described control, so the operating gate is strictly the
+stricter of the two. That falls out of the recorded answer rather than being written beside
+it.
+
+### The letter names four things, and two of them cannot be filled in yet
+
+An engagement letter has to name the elected criteria, the description criteria, the period
+and the subservice method. Each resolves from a neighbour rather than being restated, and
+`beadcause-engagement letter` gets two answers and two refusals:
+
+- **the elected criteria** resolve, out of the gap assessment, which takes them from [the
+  policy set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+  — one home, so the letter and the assessment cannot disagree about what the opinion covers;
+- **the description criteria** resolve, out of [the generated
+  description](#the-system-description-generated--beadcause-description)'s fourteen DC
+  section 200 sections;
+- **the period** does not, because the gates are shut;
+- **the subservice method** does not, and this is the one worth reading twice.
+
+The boundary's subservice list is empty under a **partial**
+[census](#a-census-is-a-field-because-the-alternative-is-a-blank-that-reads-as-an-answer),
+which says *nobody has surveyed the processors* rather than *there are none*. A method is a
+decision per subservice organisation, and there is no list to decide over. A letter naming
+`carve-out` today would assert a decision about organisations nobody has enumerated — and
+[each carve-out owes a CUEC](#a-carve-out-owes-a-cuec-or-a-control-has-vanished) the user
+entities have to act on. Enumerate the census and the same code says *there are none*, which
+is the opposite instruction; the suite checks both sentences.
+
+### An emptiness that says which emptiness it is
+
+No firm has been asked. `QUOTES` is empty and `ENGAGED` is `null`, and `selection()` reports
+**unsolicited** rather than leaving a blank that reads the same as a search that failed —
+the same absence [the gap assessment refuses one level
+down](#no-criterion-silently-absent-and-no-category-silently-unconsidered).
+
+`beadcause-engagement firms` prints what the choice is between rather than who to call,
+because the class is what moves the numbers and the roster inside a class turns over faster
+than this file will: an **audit-tech platform** bundles the firm with the evidence tooling
+and is fastest, a **boutique security-assurance firm** is read as more credible by the buyers
+who read the report rather than its cover page, and a **general accounting firm** with a
+small assurance practice is cheapest and least persuasive. The bundle is flagged, because it
+answers the tooling question and the firm question at once — which is convenient, and is how
+a firm comes to be chosen by a tooling decision nobody framed that way.
+
+Two questions separate them, and the list is two long and closed: *how do you test a control
+whose evidence is a git ref rather than a screenshot*, and *have you signed a report for a
+service organisation where most privileged actors are automated rather than human*. A
+question every firm answers the same way discriminates nothing and makes a comparison table
+look thorough while comparing nothing. The answers to these two predict how much of the
+observation window is spent explaining the system rather than being tested against it, which
+is the cost nobody quotes.
+
+A quote is comparable only when it covers **both** reports. `bc-j0o3` chose a sequencing, so
+a Type-II-only quote prices a different plan, and comparing it to a quote for both is how the
+cheapest number wins an argument it was not in. Two are the minimum; one quote is a price
+with nothing to compare it to.
+
+### A bridge letter is two dates and a limit
+
+A report covers a period; a customer asks for it later. The gap between period end and the
+request is what a bridge letter covers, and the state is computed from those two dates alone
+— `covered` when the request falls inside the period, `bridge` within three months of period
+end, and **`stale`** past it. Stale is not a longer bridge. It is a different purchase: what
+the buyer wants is a current report, and a firm asked for a six-month bridge says so after
+the invoice.
+
+### The non-goal is checked rather than asserted
+
+`bc-4r10.13` carries an explicit non-goal — do not buy evidence-collection tooling before
+`bc-4r10.1` and `bc-4r10.5` exist. The pitch for those platforms is that they collect
+evidence you do not otherwise have, and the premise of this programme is that the evidence is
+a by-product of work that is already gated; buying first is paying a subscription to
+re-photograph a git ref. Both are readable from here rather than taken on trust: the corpus
+is present when the elected criteria enumerate, and `bc-4r10.5` landed when CC8.1 carries
+evidence in the assessment. A comment saying they landed would still say so after somebody
+deleted one.
+
+Which leaves the purchase itself, and it inherits the missing date. `bc-4r10.17` answered
+*buy a compliance platform two to three months before the window opens*, so the purchase
+window is derived from a date that does not exist — and `beadcause-engagement dates` says
+exactly that, rather than naming a quarter. That is the point of the whole module in one
+line: **no purchase window, because the observation window has no date.**
+
 ## What you elected to be held to — `lib/election.js`
 
 Beadcause **records** unconditionally. Sessions are archived against their bead, merges
