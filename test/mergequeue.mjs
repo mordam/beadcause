@@ -282,6 +282,78 @@ await check('and a downmerge GitHub refuses is a wait, not an attempt', async ()
   assert.equal(bd.calls.updates.length, 0);
 });
 
+/* --------------------------------------------------- taking a card back (bc-91srt) */
+
+/**
+ * The behavioural half of `cardedFor`. A carded bead is not in `queued` at all, so nothing
+ * below the reclaim can reach it — which is exactly how #475 sat for a day with a green
+ * check, and #433 and #438 sat conflicting with checks that passed.
+ *
+ * The bead is built by hand rather than through `raiseMergeCard` so the test states the
+ * shape it depends on: `merge-queue` off, `human` and the delivery label on, and a
+ * sentence in the queue block saying what the queue gave up over.
+ */
+const CARDED = ['human', 'pr-delivery'];
+
+await check('a card whose check has gone green is taken back, with its attempts reset', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  const out = await run(bd, fakePr(openPr()));
+
+  assert.deepEqual(out.restored, ['zz-merge'], 'it came back');
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  assert.ok(written, 'and the bead was written');
+  assert.deepEqual(written.addLabels, ['merge-queue'], 'the label the queue selects on is put back');
+  assert.deepEqual(written.removeLabels, ['human', 'pr-delivery'], 'and the card comes out of the inbox');
+  const state = queueState({ notes: written.notes });
+  assert.equal(state.attempts, 0, 'a fresh budget — the old one was spent on a reason that has gone');
+  assert.equal(state.refused, null, 'and the sentence with it');
+  assert.equal(state.reclaims, 1, 'counted, because a flapping check must not do this for ever');
+  // The line every other reclaim here draws: this says the queue may act, never that Adam
+  // approved anything.
+  assert.equal(state.approved, false, 'taking a card back must not fabricate an approval');
+});
+
+await check('a card that still conflicts is taken back too — that is the one thing the queue fixes', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: 'the branch conflicts with `main`.' }) })],
+  });
+  const out = await run(bd, fakePr(openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' })));
+  assert.deepEqual(out.restored, ['zz-merge'], 'a conflict is work for a resolver, not a decision for Adam');
+});
+
+await check('a card whose check is still red stays a card', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  const red = { failed: ['test'], failing: 1, pending: 0, total: 3, state: 'failing' };
+  const out = await run(bd, fakePr(openPr({ checks: red })));
+  assert.deepEqual(out.restored, [], 'the handover was right and it stands');
+  assert.equal(bd.calls.updates.length, 0, 'and nothing is written over it');
+});
+
+await check('and one already taken back too often is left alone, out loud', async () => {
+  const said = [];
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, reclaims: 3, refused: '1 check failing (test).' }) })],
+  });
+  const out = await run(bd, fakePr(openPr()), { log: (l) => said.push(l) });
+  assert.deepEqual(out.restored, [], 'the cap holds');
+  assert.ok(
+    said.some((l) => /taken back 3 times already/.test(l)),
+    `a cap nobody is told about reads as the feature not working — said: ${said.join(' | ')}`
+  );
+});
+
+await check('a merged pull request is never taken back, whatever its card says', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  const out = await run(bd, fakePr(openPr({ state: 'MERGED' })));
+  assert.deepEqual(out.restored, []);
+});
+
 /* ------------------------------------------------------------ the conflict */
 
 await check('a conflicted branch opens a resolver rather than being retried', async () => {
