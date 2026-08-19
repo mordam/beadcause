@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v88';
+const CACHE = 'beadcause-v90';
 const SHELL = [
   '/',
   '/index.html',
@@ -68,6 +68,11 @@ const SHELL = [
   // the one page that is the app, it runs on boot, and a page cached without it is a page
   // whose views are three divs with no rule about which of them is up.
   '/panes.js',
+  // And what fills them: the staged boot that builds the landed-on pane first and the
+  // rest after the first paint, and the one poll it fans out to all of them. In the shell
+  // beside panes.js and for the same reason — it runs on boot on the one page that is the
+  // app, and a page cached without it is a page whose panes never get built at all.
+  '/panestage.js',
   // The pill row across the top of every page. Every one of them is useless without it
   // — it is the only way off a page — so it belongs in the shell rather than being
   // fetched once per page over a phone link.
@@ -188,11 +193,13 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
-  // The chip row on it, and which of its three panes is up. In the shell because that
-  // page is: without this file the chips are dead and two of the three panes — the board
-  // and the mirror — are unreachable from a cached advocates page. (bc-khoe.4 is where
-  // that row is dismantled and this line goes; bc-khoe.1 only took its `--topbar-h`
-  // observer, which the app shell made unnecessary.)
+  // The chip row on it, and which of its four panes is up. In the shell because that
+  // page is: without this file the chips are dead and three of the four panes — the
+  // board, the settings and the mirror — are unreachable from a cached advocates page.
+  // (This line is not going anywhere: bc-khoe.30.6 ruled that the row stays a mode
+  // switch rather than becoming pills, so bc-khoe.4 folds it into the shell's Advocates
+  // pane intact. bc-khoe.1 only took its `--topbar-h` observer, which the app shell made
+  // unnecessary.)
   '/montabs.js',
   // The ledger. In the shell because it is a tab: every tab has to open instantly from
   // the bar whatever the link is doing, and this is the one page in the app you might

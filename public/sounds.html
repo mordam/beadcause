@@ -23,18 +23,20 @@
 
       A notification channel's sound is immutable after `createNotificationChannel` —
       Android takes the first call and ignores every one after it, forever — so the
-      last moment a sound can be argued with is *before* the channel is cut. This is
-      that moment, and it is on the phone because the phone in a pocket is the only
-      place any of this is judged.
+      last moment a sound can be argued with for free is *before* the channel is cut.
+      bc-ka5y.15.4 cut all five, so this screen is no longer that moment; it is where
+      the five are heard side by side, on the phone, because the phone in a pocket is
+      the only place any of this is judged.
     -->
     <p class="admin-lede">
-      Four voices, and each one has to be nameable from a pocket without looking. A
-      channel's sound <strong>cannot be changed once the channel exists</strong>, so the
-      time to disagree with one of these is now.
+      Five voices, and each one has to be nameable from a pocket without looking. A
+      channel's sound <strong>cannot be changed once the channel exists</strong>, and as of
+      bc-ka5y.15.4 all five exist — so disagreeing with one of these is still worth doing,
+      and now costs that channel a new id.
     </p>
 
     <!--
-      The acceptance test, mechanised. Three sounds in a random order with their names
+      The acceptance test, mechanised. Four sounds in a random order with their names
       hidden, because an audition where you can see which file you tapped is not an
       audition — you hear the label. Blind and shuffled is the whole method.
     -->
@@ -43,7 +45,7 @@
         <h2>Blind audition</h2>
       </div>
       <p class="admin-detail">
-        Three sounds, shuffled, unnamed. Play each, say which it is, then reveal. Do it
+        Four sounds, shuffled, unnamed. Play each, say which it is, then reveal. Do it
         once with the phone on the desk and once with it in a pocket — the second is the
         one that counts.
       </p>
@@ -67,8 +69,9 @@
          somebody is deciding how loud a sound is. -->
     <p class="admin-said" id="caveat">
       This page plays at <strong>media</strong> volume; a real notification plays at
-      notification volume, on a channel with its own level. So judge the sounds against
-      each other here, and judge absolute loudness on the phone once the channels exist.
+      notification volume, on a channel with its own level. So judge the sounds against each
+      other here, and judge absolute loudness in Android's own notification settings, where
+      each of the five now has its own row.
     </p>
   </main>
 
@@ -92,8 +95,8 @@
        row that cannot say which view it is on and a notification tap that throws. -->
   <script src="/hashroute.js"></script>
   <!-- The pill row, so this screen is not a dead end. No pill of its own: it is a
-       thing you are sent to once, before the channels are cut, rather than a view you
-       keep coming back to — and the row is already the width of the phone. -->
+       thing you are sent to when a sound is in question, rather than a view you keep
+       coming back to — and the row is already the width of the phone. -->
   <script src="/viewbar.js"></script>
   <script src="/sounds.js"></script>
 </body>

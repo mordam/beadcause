@@ -179,16 +179,40 @@
       instead of guessing or going dead. Same control the chat launcher grew for the
       same reason, and it borrows its .ws-pick styling.
 
-      Both are in the markup on every load and neither is drawn on every kind: ＋ belongs
+      All three are in the markup on every load and none is drawn on every kind: ＋ belongs
       to the view now (bc-khoe.27.1), so the wrapper is hidden — along with `has-compose`,
-      and along with the panel — on Questions and PRs, which have nothing to create. See
-      `paintCompose` in app.js and `compose` in inboxfilter.js. (Written without the
+      and along with both panels — on Questions and PRs, which have nothing to create. What
+      it *makes* belongs to the view too (bc-khoe.27.2), so the label and the `aria-controls`
+      below are the chat's — the fallback for a page whose filter script never loaded — and
+      are repainted per kind. See `paintCompose` in app.js and `compose` in inboxfilter.js.
+      (Written without the
       leading slash on purpose: some suites find the script tags at the foot of this file
       by searching for a bare slash-and-filename, so a comment up here that spells one out
       that way silently moves their answer. Two were fixed on bc-khoe.27.1 to match the
       tag; test/stream.mjs still asks the loose way, for every standing page at once.)
     -->
     <div class="compose-wrap">
+      <!--
+        The other panel, and the reason ＋ needed a second one (bc-khoe.27.2). On My Epics
+        the create is not a chat: it is one of the beads you own that you have not started
+        yet, going onto the board. Those candidates used to be a picker at the foot of the
+        board itself, opened by a ＋ Start an epic button sitting under the cards; the
+        button was where the list was, which is the far end of a scroller from the thumb,
+        and the board is *above* the inbox list so opening it grew the page under whatever
+        you were reading. Up here it grows nothing — the wrapper is fixed — so the tap has
+        no scroll to protect at all, which is the acceptance criterion falling out of the
+        move rather than being defended.
+
+        Two panels rather than one with its contents swapped: each keeps its own heading
+        for a screen reader, and ＋ points `aria-controls` at whichever one its kind opens.
+        The rows inside are the board's own `.p0-cand` shape, drawn by the same function
+        that drew them at the foot of the board, so the two-line candidate — id and count,
+        then title — is one renderer and not two.
+      -->
+      <div id="compose-epics" class="compose-pick ws-pick epics" hidden>
+        <h2 class="section-label">Start an epic</h2>
+        <div id="compose-epics-row" class="p0-picker"></div>
+      </div>
       <div id="compose-pick" class="compose-pick ws-pick" hidden>
         <h2 class="section-label">Start one in</h2>
         <div id="compose-pick-row" class="chip-row"></div>
@@ -228,9 +252,19 @@
     they still are. That is what lets the shell land on its own — the alternative was two
     of seven pills leading to a blank screen on an app that deploys itself the moment a
     branch merges. Each bead deletes its own attribute by filling its own container.
+
+    Advocates names **bc-khoe.4** rather than bc-khoe.30.6, and the swap is a sequencing
+    fact rather than a rename (bc-khoe.30.6). This container is the advocate console —
+    monitor.html's chip row and all four of its sections, which is monitor.js, prs.js,
+    mirror.js and montabs.js in one pane — and one of those four sections is *leaving*:
+    bc-khoe.10 takes the space's settings out to a view of their own. Filling this
+    container before that lands would mean folding in a Config pane already deleted on
+    another branch, so the fold is bc-khoe.4's, behind bc-khoe.10, and bc-khoe.30.6 is
+    the bead that decided that and wrote down the two rulings the fold needs. See
+    "The advocate console is one pane, and its chip row stays" in README.md.
   -->
   <div class="pane" data-pane="history" data-pending="bc-khoe.30.5" hidden></div>
-  <div class="pane" data-pane="advocates" data-pending="bc-khoe.30.6" hidden></div>
+  <div class="pane" data-pane="advocates" data-pending="bc-khoe.4" hidden></div>
 
   <div id="toast" class="toast" role="status" hidden></div>
 
@@ -292,6 +326,16 @@
        twelve and only this one has panes to swap, which is why the row reaches for it
        with `?.` and for the grammar flat. See panes.js. -->
   <script src="/panes.js"></script>
+  <!-- What goes *in* those panes, and when (bc-khoe.30.4). After panes.js, whose `onShow`
+       it hangs the safety net on and whose `showing()` is what "the view you landed on"
+       means; before every pane's own script, because each of them registers its builder
+       with this file as it loads and the staged pass runs once they all have. A page
+       without it is a page whose scripts build themselves at load, which is what they all
+       did before — the register call answers false and each falls back. Named bare, with
+       no leading slash, for the reason every other comment in this file is: the wiring
+       check in test/inboxkinds.mjs finds script tags with indexOf, and panestage.js
+       spelled the other way up here would move its answer. -->
+  <script src="/panestage.js"></script>
   <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one

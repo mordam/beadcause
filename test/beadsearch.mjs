@@ -612,8 +612,14 @@ await check('app.js hands the box over as the page’s own group, and asks for n
 await check('a picked bead replaces the epic board’s narrowing rather than stacking on it', () => {
   // Stacked, a search for a bead under somebody else's P0 — most of them — would answer
   // with an empty list and a pill on screen naming the bead it was hiding.
+  //
+  // Two lines rather than one since bc-khoe.29, and `beadPicked()` leads both: the pills'
+  // narrowing (`assignedToMe`) is what a pick replaces, and the board's own de-duplication
+  // is skipped outright when one is picked, so neither can quietly re-narrow a list you
+  // asked for by name.
   const app = read('public/app.js');
-  assert.match(app, /const inBoard = beadPicked\(\) \? inBead\(inRepo\) : underOwnedRoots\(inRepo\)/);
+  assert.match(app, /const forPills = beadPicked\(\) \? inBead\(inRepo\) : assignedToMe\(inRepo\)/);
+  assert.match(app, /const inBoard = beadPicked\(\) \|\| !boardHere \? forPills : underOwnedRoots\(inRepo\)/);
 });
 
 await check('the empty state names the bead rather than sending you after the wrong control', () => {

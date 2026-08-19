@@ -49,8 +49,10 @@
  *    Bead status is the opposite and is asserted to be: nothing chosen is every rung,
  *    and the line stays quiet about a group that is not narrowing anything.
  *
- * 7. **Three of the six have a ＋ and two do not (bc-khoe.27.1).** `compose` is a flag
- *    per kind, and `composes()` answers it for whichever pill is lit. The failure it
+ * 7. **Three of the six have a ＋ and two do not (bc-khoe.27.1), and the field says what
+ *    each one makes (bc-khoe.27.2).** `compose` is a word per kind — `epic`, `chat` —
+ *    with `composes()` answering "is there a button" and `creates()` answering "what
+ *    would it make", both off that one field so the two can never disagree. The failure it
  *    guards is a create on a screen with nothing to create — Questions and PRs are
  *    queues of things waiting on a word from you — and the failure on the other side is
  *    a kind that quietly loses the app's primary action. Both directions are asserted
@@ -410,6 +412,29 @@ await check('three of the six carry a ＋ and three carry none, by name', () => 
   // Stated a third way, because the loop above would still pass if a seventh kind
   // arrived carrying a flag nobody thought about: the two lists are the whole row.
   assert.deepEqual([...COMPOSE, ...NO_COMPOSE].sort(), [...PILLS].sort());
+});
+
+await check('AND THE FIELD SAYS WHICH CREATE, which is what public/app.js branches on', () => {
+  // One field read two ways. A separate flag would have let "has a ＋" and "makes an epic"
+  // drift apart, and the drift is silent in the direction that matters: a button drawn
+  // with nothing behind it does nothing at all when tapped.
+  const makes = Object.fromEntries(list(model.KINDS).filter((k) => k.compose).map((k) => [k.id, k.compose]));
+  assert.deepEqual(makes, {
+    epics: 'epic',
+    // `bead` says `chat` until bc-khoe.27.3 puts a form behind it, because that is what ＋
+    // does there today. Promising a create nobody wrote is the button that does nothing.
+    session: 'chat',
+    bead: 'chat',
+  });
+  const { filter } = load();
+  filter.set([]);
+  assert.equal(filter.creates(), 'epic', 'the screen you land on stopped naming its create');
+  filter.set(['session']);
+  assert.equal(filter.creates(), 'chat');
+  // And nothing at all where there is no button, rather than a word a caller could act on.
+  filter.set(['question']);
+  assert.equal(filter.creates(), '', 'a kind with no ＋ named a create anyway');
+  assert.equal(filter.composes(), false);
 });
 
 await check('＋ follows the lit pill, and the two queues have none', () => {
@@ -1717,16 +1742,26 @@ await check('app.js filters the list through it, rather than only drawing it', (
   // actually get to. What this check is about is that `inKind` still narrows the list
   // rather than only colouring the chips — whichever variable it is handed.
   assert.ok(/inBoard\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
-  // The epic board still narrows it — bc-rfnr.2 — but bc-0xil put one thing ahead of it:
-  // a bead picked in the search box *replaces* the board's narrowing rather than
-  // stacking on it, because half the beads worth searching for are under somebody
-  // else's P0 or under none, and stacked they would answer an explicit search with an
-  // empty list. So what this asserts is the branch, not the bare call.
+  // The board still narrows it — bc-rfnr.2 — but bc-0xil put one thing ahead of it: a bead
+  // picked in the search box *replaces* the board's narrowing rather than stacking on it,
+  // because half the beads worth searching for are under somebody else's P0 or under none,
+  // and stacked they would answer an explicit search with an empty list. So what this
+  // asserts is the branch, not the bare call.
+  //
+  // And since bc-khoe.29 there are two narrowings, because a kind pill draws a screen the
+  // board is not on: `assignedToMe` is everything of yours, `underOwnedRoots` takes back
+  // out what the trees are drawing, and only the views that draw the trees get the second.
   assert.ok(
-    /const inBoard = beadPicked\(\) \? inBead\(inRepo\) : underOwnedRoots\(inRepo\)/.test(app),
+    /const forPills = beadPicked\(\) \? inBead\(inRepo\) : assignedToMe\(inRepo\)/.test(app),
+    'the pills stopped being narrowed to what is assigned to you'
+  );
+  assert.ok(
+    /const inBoard = beadPicked\(\) \|\| !boardHere \? forPills : underOwnedRoots\(inRepo\)/.test(app),
     'the epic board no longer narrows the list'
   );
-  assert.ok(app.includes('surveyKinds('), 'the chips are never told what is on screen');
+  // The counts are the pills' own list and not this render's — on My Epics the list under
+  // the board is not what a pill would open, and a badge counting it lies about every pill.
+  assert.ok(app.includes('surveyKinds(forPills)'), 'the chips are told about the wrong list');
 });
 
 await check('a view shows its own kind — the board on My Epics, the list on the rest', () => {

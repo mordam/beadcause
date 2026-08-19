@@ -26,8 +26,9 @@
 
   It **scrolls horizontally and never wraps**. There are seven pills today — the six
   kinds bc-khoe.2 promoted out of the inbox's filter panel, plus the advocate console —
-  and there will be roughly nine once bc-khoe.4 (Advocates, Mirror) and bc-khoe.7
-  (Releases) have landed. A row that wraps to two lines on a 360px phone is
+  and there will be nine once bc-khoe.10 (Config) and bc-khoe.7 (Releases) have landed.
+  bc-khoe.4 adds none, which is a change: it used to promise two, and bc-khoe.30.6 ruled
+  the other way for the reasons under *The Mirror* below. A row that wraps to two lines on a 360px phone is
   the exact thing this epic exists to stop — it spends a second row of a screen that is
   mostly chrome already. So the row takes the width it needs and the current pill is
   scrolled into view on load, which is the one moment the offset can be wrong without
@@ -136,14 +137,21 @@
   A page can be reachable, load-bearing, and not a view.
 
   **The Mirror.** A mode of /monitor rather than a view — it follows *another* device and
-  drops its own, so it is meaningless on the phone a pill is tapped from. bc-khoe.4 is
-  where that is re-decided, together with the chip row it lives on.
+  drops its own, so it is meaningless on the phone a pill is tapped from. That was
+  re-decided by bc-khoe.30.6, together with the chip row it lives on, and it came out the
+  same way twice: the Mirror is the one surface here that is *about* another device, so a
+  pill for it on this one would be a view of nothing. It stays a mode, and the chips stay
+  the row that switches modes — inside the Advocates pane once bc-khoe.4 folds the console
+  into it.
 
   **The pull request board.** `/prs` had a pill of its own until bc-khoe.2 needed the
   word for the kind, and the three paths that serve it are on the Advocates pill now —
   they resolve to monitor.html with its board chip up, so the pill that lights there is
-  the pill that points at that page. The board is two taps rather than one; bc-khoe.4 is
-  where the console comes apart and that is re-decided.
+  the pill that points at that page. The board is two taps rather than one, and it stays
+  two: bc-khoe.30.6 re-decided this with the rest of the chip row and left it a mode of
+  the console. A second pill labelled **PRs** beside the kind pill already called **PRs**
+  is the confusion this paragraph exists to record, and the row is going to nine without
+  it.
 
   It is built here rather than pasted into eight <head>-alike blocks of HTML because
   there is no templating in this app, and a row that says different things on different
@@ -217,8 +225,11 @@
     // of their own: /prs, /pulls and /prs.html all serve monitor.html with its board
     // chip up (see `serveStatic`), so the pill that is current there is the pill that
     // points at that page — and the `PRs` label now belongs to the kind above, which is
-    // the pull requests *in Home*. bc-khoe.4 is where the console comes apart and this
-    // is re-decided; until then two taps still reach the board and nothing is stranded.
+    // the pull requests *in Home*. bc-khoe.30.6 re-decided it and the answer did not
+    // move: the board stays a chip inside the console, so two taps reach it and this pill
+    // keeps its three extra paths. bc-khoe.4 folds that console into the shell's
+    // Advocates pane, at which point this pill stops being an `<a>` and starts being a
+    // `data-pane` like the rest — the same pill, one fewer document load.
     { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates' },
   ];
 

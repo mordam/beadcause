@@ -81,6 +81,11 @@ import {
   poisonable,
   startupError,
 } from '../lib/startup.js';
+// A leaf with no imports of its own, for the same reason lib/startup.js is one: the rule
+// for when an outage has earned the phone's attention is read while the port is held with
+// nothing behind it, which is precisely the moment a policy that could fail to load would
+// cost you the port.
+import { HOLD_TICKS, speaks } from '../lib/voices.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BACKEND = path.join(ROOT, 'bin', 'beadcause.js');
@@ -639,14 +644,31 @@ async function bringUp(reason) {
  * looking. Announced once — a retry loop that pushes every two seconds is a phone you
  * turn off — and again when it comes back, because an alert you are never told is over
  * is an alert you learn to ignore.
+ *
+ * **The push waits for the second consecutive failure; the log does not.** An outage is
+ * class 2 (bc-ka5y.15), which is the one voice on the phone allowed to insist, and this
+ * function is called from the failure path of a bring-up that *this same file* is about to
+ * retry in two seconds — having just written a log line saying a slow start is evidence
+ * about the machine and not about the build. Pushing on the first failure therefore meant
+ * a swap that came up on its second attempt cost a knock and a "serving again" twenty
+ * seconds later, about an app nobody could have opened in the gap. `speaks` in
+ * lib/voices.js is the rule and [HOLD_TICKS] is the count; the whole argument for damping
+ * class 2 at all is over there. The log keeps saying it every time, because the log is
+ * the record somebody reconstructs an evening from and the damping is about a sound.
  */
 function stillServingNothing(build, err) {
   const first = !outage;
-  outage = outage || { since: Date.now(), build, reason: err?.message || String(err), announced: false };
+  outage = outage || { since: Date.now(), build, reason: err?.message || String(err), announced: false, ticks: 0 };
   outage.build = build;
   outage.reason = err?.message || String(err);
+  outage.ticks += 1;
   if (first) warn('NOTHING IS BEING SERVED — the router holds the port and every request is a 503');
-  if (outage.announced) return;
+  if (!speaks({ ticks: outage.ticks, spoken: outage.announced })) {
+    if (!outage.announced && outage.ticks < HOLD_TICKS) {
+      log(`not telling the phone yet — an outage speaks once it has survived ${HOLD_TICKS} attempts, and this is ${outage.ticks}`);
+    }
+    return;
+  }
   outage.announced = true;
   // Lazily, and never fatally: lib/notify.js is not a leaf, and an outage caused by a
   // broken lib/ is exactly the case where importing it throws. See notifyCertificate.
@@ -656,7 +678,15 @@ function stillServingNothing(build, err) {
     .catch((e) => warn(`could not push the outage (${e.message}) — the log is the only surface left`));
 }
 
-/** The other half of the promise above: say when it is over. */
+/**
+ * The other half of the promise above: say when it is over.
+ *
+ * Never damped, and never in the stuck voice. A recovery has already waited — it cannot
+ * arrive before the warning it cancels, because `announced` gates it — and it is `CLEAR`
+ * in lib/voices.js rather than one of the five: a warning that has stopped being true is
+ * not an arrival, and a phone that knocks twice to tell you something is fine is a phone
+ * you silence. Hence `pushServingAgain` at priority 2 rather than anything louder.
+ */
 function recovered() {
   if (!outage) return;
   const down = Math.round((Date.now() - outage.since) / 1000);
