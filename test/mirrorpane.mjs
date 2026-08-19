@@ -151,14 +151,26 @@ check(
    now two facts — the Mirror chip names no view, and the row publishes whatever the chip
    names. Asserting only the second would pass a Mirror chip that had quietly been given
    one, which is exactly the regression this pair exists to catch. */
+check(() => {
+  assert.match(monitor, /data-tab="mirror"[^>]*data-view=""/);
+  // And in the shell, where the same row is the Advocates pane (bc-khoe.4). One chip in
+  // two documents, and a `data-view` quietly added to either would be the regression.
+  assert.match(uncommentHtml(read('index.html')), /data-tab="mirror"[^>]*data-view=""/);
+}, 'and the Mirror chip still claims no view of its own, in both documents');
 check(
-  () => assert.match(monitor, /data-tab="mirror"[^>]*data-view=""/),
-  'and the Mirror chip still claims no view of its own'
-);
-check(
-  () => assert.match(decomment(read('montabs.js')), /presence\?\.report\(\{ view: viewOf\.get\(which\) \|\| null \}\)/),
+  () => assert.match(decomment(read('montabs.js')), /presence\?\.report\(\{ view: \(eff && viewOf\.get\(eff\)\) \|\| null \}\)/),
   'and the row that swaps the panes is what publishes it'
 );
+/* The third fact, and it arrived with the fold (bc-khoe.4). In the shell the row can be
+   told the whole pane went away, and it reports `null` for that too — `eff` is the empty
+   string then, and the `&&` is what makes it fall to null rather than looking a chip up.
+   Without it a phone that left the Mirror up and tapped Home would go on telling every
+   other device in the house that this one is nowhere, while the thumb is on the inbox. */
+check(() => {
+  const src = decomment(read('montabs.js'));
+  assert.match(src, /const eff = visible \? active : '';/);
+  assert.match(src, /if \(inShell\) panes\.onShow\(\(\) => setVisible\(panes\.showing\(\) === VIEW\)\);/);
+}, 'and it reports nothing at all when the pane itself is the thing that went away');
 
 console.log(failures ? `\n${failures}/${ran} failed\n` : `\n${ran}/${ran} passed\n`);
 process.exit(failures ? 1 : 0);

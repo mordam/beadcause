@@ -5386,6 +5386,23 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .mon-tabs::-webkit-scrollbar { display: none; }
 .mon-tabs .chip { position: relative; }
+/* The far end of the chip row: the observer mark and the roster's tally (bc-khoe.4).
+   On monitor.html those two sit at the right of that page's own top bar. In the shell the
+   top bar belongs to every view and these are facts about one of them, so they came down
+   into the pane — and the right-hand end of the row under it is the same place on the
+   screen. `margin-left: auto` rather than `justify-content: space-between` on the row,
+   because the chips must stay a group when the pair is empty, which is what it is on every
+   install that is not observing and has nothing running. */
+.mon-tabs .mon-meta {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* The row is a horizontal scroller, and on a narrow phone this pair is what would be
+     scrolled to. A little air keeps it off the chips when it is not. */
+  padding-left: 10px;
+}
 
 /* The `hidden` attribute is a `display: none` that any later `display` beats, and
    `.work` sets `display: flex` — so the pane behind the tab you are not on kept

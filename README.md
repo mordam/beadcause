@@ -6946,18 +6946,21 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**A pane can be present and unshowable, and one still is.** `data-pending` names the bead
-that fills it — **bc-khoe.4** for Advocates — and it is load-bearing rather than a note: a
-pending pane is registered nowhere, can never be shown, and the pill row asks the same
-question, so its pill stays the `<a href>` it has always been and still loads its own
-document. That is what let the shell land on its own. The alternative was two of seven pills
-leading to a blank screen until two further beads merged, on an app that
+**A pane can be present and unshowable, and none is any more.** `data-pending` names the
+bead that fills a container, and it is load-bearing rather than a note: a pending pane is
+registered nowhere, can never be shown, and the pill row asks the same question, so its pill
+stays the `<a href>` it has always been and still loads its own document. That is what let
+the shell land on its own. The alternative was two of seven pills leading to a blank screen
+until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
 History's attribute came off when
-[bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash);
-Advocates still carries one, and it names **bc-khoe.4** rather than bc-khoe.30.6 — the
-attribute names the bead whose merge deletes it, and the fold is bc-khoe.4's, behind
-bc-khoe.10 (bc-khoe.30.6, which ruled how it folds rather than folding it).
+[bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash),
+Releases' with bc-khoe.30.14, and Advocates' — the last of them — with **bc-khoe.4**, which
+folded the whole advocate console in, chip row and all. The attribute names the bead whose
+merge *deletes* it, which is why it named bc-khoe.4 rather than bc-khoe.30.6: that bead
+ruled how the fold goes rather than folding it. The mechanism is not retired with the last
+of them; it is how the next view arrives, and `test/panes.mjs` covers it against fixtures
+now that the shell itself has none.
 
 **The row asks; it does not require.** `public/viewbar.js` is drawn on twelve pages and one
 of them is the shell, so it reaches for `window.beadcause.panes` with `?.` and takes *no* as
@@ -7022,9 +7025,10 @@ and nothing else; it is rethrown out of a timer so `public/report.js` still
 [files it](#an-error-the-app-hits-files-itself-as-a-p0) as the P0 it is, because a pane that
 silently did not build is a blank screen with no account of why.
 
-No standby is actually mounted yet: it goes up only when a built pane has a `wake`, and Home
-— the one pane with contents today — keeps its own poll. So the connection count is exactly
-what it was, and the machinery is waiting for bc-khoe.30.5 and bc-khoe.4.
+The standby is up now, and it is what every pane but Home rides: the ledger, the release
+board and all three sections of the advocate console declare a `wake` and open no socket of
+their own. Home still keeps its own poll, and the union of what the panes want stays at
+`presence` — the free park — because not one of them draws the inbox's questions.
 
 `node test/panestage.mjs` runs the four real files in a `node:vm` with the document still
 parsing, which is what makes the staging visible at all: that the landed-on pane is built in
@@ -7067,12 +7071,54 @@ their own merits, before any of this. What was always wrong with the pair is tha
 rows are **drawn alike**, and that is bc-stci: restyle the chips as the segmented control
 they already are. A restyle, not a deletion.
 
-The row is also shrinking on its own. bc-khoe.10 takes **Config** out to a view of its own,
-which leaves **Advocates · PRs · Mirror** — and it is why the fold waits: folding in a
-section that another branch is deleting is work with a conflict already written into it.
-`data-pending` on the Advocates container therefore names **bc-khoe.4**, not bc-khoe.30.6.
-The attribute names the bead whose merge deletes it, and the fold is bc-khoe.4's, behind
-bc-khoe.10; bc-khoe.30.6 is the bead that decided the shape and wrote it down here.
+The row shrank on its own on the way here. bc-khoe.10 took **Config** out to a view of its
+own, which leaves **Advocates · PRs · Mirror** — and it is why the fold waited: folding in a
+section that another branch was deleting is work with a conflict already written into it.
+bc-khoe.4 did the fold once that had landed, and bc-khoe.30.6 is the bead that decided the
+shape and wrote it down here.
+
+**What the fold actually moved, and what it deliberately did not.** The markup is
+monitor.html's below the top bar, unchanged. The four scripts are not rewritten: each already
+found its elements by id and each already started and stopped on `montabs.js`'s `onChange`,
+so the row goes on owning the swap and is the pane's **one** registration with the stager —
+`register` holds one spec per view id, and the row is the only thing on the screen that knows
+which of the three is up. `build` is "put the remembered chip up"; `wake` is "hand the poll's
+answer to whichever section asked", and it hands it to all three, because each of them knows
+which half of a wake is free. Two element ids had to be decided rather than moved: `pulse` and
+`refresh` exist in both documents, so the pane takes the shell's and leaves them alone — the
+brand dot because `report.js` is already driving it and a second writer would clear it under a
+fetch still out, the ⟳ because there is one for the whole app and each pane asks whether the
+press was its own. `observing` kept its bare name only because the Releases pane gave it up
+(`rel-observing`) for exactly this collision. The ⚙ did **not** come with it: bc-khoe.5 put a
+standing Admin row in the mark's menu on every page, so a second one
+hoisted out of this pane would be the same row drawn twice.
+
+**`⦿ observing` and the roster's tally came down out of the bar into the row.** On
+monitor.html both sit at the right of that page's own top bar. In the shell the top bar
+belongs to every view and those two are facts about one of them — which Mac's daemon this is,
+and how many advocates are working — so left up there they would sit over the inbox. They are
+at the right-hand end of the chip row instead, which is the same place on the screen.
+
+**The chip is on the address, and that is the third of the three ways out bc-khoe.30.6
+named.** `/#advocates?tab=prs` — the query slot
+[decision 5](#one-hash-two-claimants--the-grammar-in-publichashroutejs) opened for the ledger's
+filters, because a chip is the same kind of thing as a filter: not a view of the tracker, a
+narrowing of one. The alternatives were a second hash *form* for the chip, which bc-khoe.30.2
+decision 4 declined outright, and a `sessionStorage` handoff, which is a second place the same
+fact lives and cannot be reloaded into or sent to a phone. It is worth something on its own —
+a reload comes back to the chip you were on — and it is what makes bc-khoe.30.7's redirect
+possible at all: `/prs`, `/pulls` and `/prs.html` mean the **board**, not merely this view,
+and once they arrive as `/#advocates` there is no pathname left to read them off.
+`localStorage` stays the memory in both documents; the address says which chip *this arrival*
+wants, and the store says which one you were last on when it does not.
+
+**monitor.html stays served, and that is not politeness.** Nine paths answer with it and
+several are on a phone's home screen and in the notifications the ship path sends. Landing
+them on this pane is bc-khoe.30.7, whose commit owes each of them three edits in one go — a
+redirect in `serveStatic`, the path out of `SHELL` and into the offline hop table, and its row
+moved from `PAGES` to `REDIRECTS` in `test/pagepaths.mjs`. Until then all four of these files
+run in two documents and ask which one they are in, the same way `history.js` and
+`releases.js` do.
 
 **And this is the one pane that stands down while it is hidden.** The stager's rule is that
 a hidden pane stays live, so a pane you come back to is already right rather than catching
@@ -7081,10 +7127,23 @@ The board is a `gh` sweep per repo — real money, spent on a screen behind two 
 Mirror is worse than expensive: while it is up this device reports `view: null`, because you
 are looking at somebody else's screen rather than at anything here, and a Mirror left
 running behind Home would tell every other device in the house that this one is nowhere when
-it is in fact on the inbox. So once the row is inside a pane, *hidden* means the chip is down
-**or** the pane is, and a chip that is up inside a hidden pane is down. The roster is the
-exception to the exception, and it is free: its snapshot rides the stager's shared wake, so
-it is current the moment you come back without having asked for anything.
+it is in fact on the inbox. So inside a pane, *hidden* means the chip is down **or** the pane
+is, and a chip that is up inside a hidden pane is down.
+
+That is one question with one answer, and it is `monTabs.up(chip)` — the row's, because the
+row is the only thing that knows both halves. Each section asks it instead of reading its own
+`hidden` attribute, which was the whole answer while this was a page and is half of one now.
+The row is told the pane went away by `panes.onShow`, and it says so to its subscribers as
+the empty string: every one of them already read its own name out of that argument, so a
+hiding stands all three down through the code path that was there for a chip swap, and coming
+back is the same call a first paint is. The presence report goes `null` with it, which is the
+word this row already sends for the Mirror.
+
+The roster is the exception to the exception, and it is free: its snapshot rides the stager's
+shared wake, so it is current the moment you come back without having asked for anything.
+That is why the fan-out hands a wake to all three sections rather than only to the one that is
+up — `monitor.js` takes the free half of every wake whatever is on screen and guards only the
+requests below it, and the board, which has no free half, guards on the first line.
 
 ### The ledger — the History tab
 
@@ -11274,7 +11333,8 @@ nothing about. `id="releases"` became `id="rel-list"`, because in one document `
 is the hash that *names this view* — an element of that id is a fragment target the browser
 scrolls into view on arrival, throwing away the scroll position `panes.js` has just
 restored. And `id="observing"` became `id="rel-observing"`, because `monitor.html` carries
-one too and folds into this same document under bc-khoe.4. The `⦿ observing` chip also
+one too — and bc-khoe.4 has since folded it into this same document, where the advocate
+console's keeps the bare name because this one gave it up. The `⦿ observing` chip also
 moved *inside* the pane rather than staying beside the mark: the top bar belongs to every
 view now, and which Mac's deploys these are is a fact about one of them.
 

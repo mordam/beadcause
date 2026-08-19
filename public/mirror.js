@@ -40,6 +40,26 @@
   const pane = document.getElementById('mirror');
   const dot = document.getElementById('mirror-dot');
 
+  /** The view id the pane this section lives in is, in public/hashroute.js's vocabulary. */
+  const VIEW = 'advocates';
+  /** The chip this section is behind. */
+  const TAB = 'mirror';
+
+  const panes = (window.beadcause && window.beadcause.panes) || null;
+
+  /**
+   * Is this the shell's Advocates pane, or the `/monitor` document it also still is?
+   *
+   * Asked of the document rather than of a flag — see the same three lines at the top of
+   * public/montabs.js, which owns the row this section is a chip on.
+   *
+   * This is the section the standing-down was written for. A Mirror left following the log
+   * behind Home would publish `view: null` for this device — you are nowhere, because you
+   * are looking at somebody else's screen — while the thumb is actually on the inbox, and
+   * every other device in the house would believe it.
+   */
+  const inShell = Boolean(panes && typeof panes.has === 'function' && panes.has(VIEW));
+
   /* How long after a broken console poll to try again. The presence feed used to share
      this and no longer does — `stream.js` owns that backoff now; see feed() below. */
   const RETRY_MS = 3000;
@@ -832,31 +852,56 @@
    * the first lines of this IIFE — a mirror pane with no tabs at all, rather than one
    * that does not follow.
    */
+  /**
+   * One answered poll, whichever mount asked for it.
+   *
+   * The shape is `follow`'s own `onWake` argument, which is also what public/montabs.js
+   * fans out from the stager — so this is the page's `onWake` and the pane's `wake`, one
+   * function under one name rather than the same logic written twice and free to drift.
+   *
+   * **Every expensive line in here is already behind `state.active`, and that is what
+   * makes this section cheap to stand down.** The chip going down — or, in the shell, the
+   * whole pane going away — sets it false through the subscription at the foot of this
+   * file, and what is left is a device list kept current off a poll that was parked
+   * anyway, and the dot on the chip that says something moved while you were not looking.
+   * Those two are the point of the dot; stopping them would leave it lying.
+   */
+  async function wake({ data, events, resync }) {
+    const before = targetKey(target());
+    if (Array.isArray(data?.presence)) state.devices = data.presence.filter(notMe);
+    const after = targetKey(target());
+    if (after !== before) {
+      if (state.active) await ensureDetail();
+      else state.moved = true;
+    } else if (state.active) {
+      // The devices list itself may have moved — a heartbeat, a screen going off.
+      render();
+    }
+    // Something happened to the bead we are showing. Nothing else would tell us:
+    // presence says where the phone is, not what the tracker did underneath it. A
+    // resync is the log having rolled past us, which empties `events` and so would
+    // read as "nothing moved" — the one case where the honest answer is to re-read.
+    const key = target()?.key;
+    const touched = resync || (events || []).some((ev) => ev.type !== 'presence' && ev.key && ev.key === key);
+    if (touched && state.active) await ensureDetail(true);
+    dot.hidden = !state.moved;
+  }
+
+  /* The pane's own handler, registered unconditionally and called only in the shell: on
+     monitor.html nothing invokes public/montabs.js's fan-out, because `feed` below owns
+     this section's socket there. Exactly one of the two fires per document. */
+  window.beadcause?.monTabs?.onWake?.(wake);
+
   function feed() {
+    // **Nothing at all in the shell** — that document holds one poll, and
+    // public/panestage.js hands its answers on. See the same three lines in
+    // public/monitor.js, public/prs.js and public/releases.js.
+    if (inShell) return;
     const stream = window.beadcause?.stream?.follow?.({
       api,
       want: 'presence',
       cold: true,
-      async onWake({ data, events, resync }) {
-        const before = targetKey(target());
-        if (Array.isArray(data.presence)) state.devices = data.presence.filter(notMe);
-        const after = targetKey(target());
-        if (after !== before) {
-          if (state.active) await ensureDetail();
-          else state.moved = true;
-        } else if (state.active) {
-          // The devices list itself may have moved — a heartbeat, a screen going off.
-          render();
-        }
-        // Something happened to the bead we are showing. Nothing else would tell us:
-        // presence says where the phone is, not what the tracker did underneath it. A
-        // resync is the log having rolled past us, which empties `events` and so would
-        // read as "nothing moved" — the one case where the honest answer is to re-read.
-        const key = target()?.key;
-        const touched = resync || (events || []).some((ev) => ev.type !== 'presence' && ev.key && ev.key === key);
-        if (touched && state.active) await ensureDetail(true);
-        dot.hidden = !state.moved;
-      },
+      onWake: wake,
     });
     stream?.start();
   }
@@ -940,7 +985,10 @@
      with three panes, "not the mirror" stopped being a name for one page. */
   function watchTabs() {
     window.beadcause?.monTabs?.onChange((which) => {
-      state.active = which === 'mirror';
+      /* The empty string is one of the answers here now (bc-khoe.4): it is the pane this
+         section is in going away, which is the same thing to this file as another chip
+         coming up, and it is the case the standing-down exists for. */
+      state.active = which === TAB;
       if (state.active) {
         state.moved = false;
         dot.hidden = true;
