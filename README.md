@@ -18121,6 +18121,120 @@ against it.
 thing it can check is whether the record admits what it does not know, and that is what
 `test/boundary.mjs` spends most of its checks on.
 
+## The system description, generated — `beadcause-description`
+
+Section 3 of a SOC 2 report is management's description of the system, and it has to meet
+the description criteria in **DC section 200**: the services provided, the principal
+service commitments and system requirements, the components — infrastructure, software,
+people, procedures, data — the relevant aspects of the control environment, risk
+assessment, monitoring and communication, the applicable criteria and the controls meeting
+them, the complementary user entity controls, the subservice organisations and the method
+applied to each, the criteria that are not relevant and why, and the changes and incidents
+in the period.
+
+Written by hand it drifts from reality within a quarter, and the drift is exactly what the
+auditor tests: the description says four environments and there are six, it names a
+processor replaced in March, it lists a policy nobody approved. So it is generated, in
+`lib/systemdescription.js`, from records this release already ships — and **the diff
+between two periods' descriptions is itself a reviewable artefact**, which is the second
+reason and the reason nothing in the output stamps the moment it ran. A generation
+timestamp in the body would make every diff non-empty and throw away the whole point.
+
+    beadcause-description show         the whole description, as markdown
+    beadcause-description sections     one line per section, and what state it is in
+    beadcause-description holes        everything the description admits it does not know
+    beadcause-description criteria     the criteria in scope, and what claims to meet each
+    beadcause-description assertion    the management assertion draft, unsigned
+
+### Three registers meet here, and nothing else does
+
+Every section is computed from one of three leaves: [the boundary](#the-system-boundary-as-data--beadcause-boundary)
+for what is inside, what is carved out and who the user entities are; [the control
+corpus](#the-control-corpus--soc-2-27001-and-42001-in-one-closed-vocabulary) for the
+criteria, their definitions and the crosswalk to the 27001 and 42001 controls that are the
+same implementation under another name; and [the policy set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+for the procedures component and for what claims to be the documented answer to each
+criterion. None of the three imports its neighbours — `lib/policies.js` takes the corpus as
+a *parameter* for exactly that reason — and a description is the one artefact that needs
+all three at once, which is why the joining lives in a file of its own.
+
+**What it refuses to reach for is the sharper half.** Beadcause carries an incident
+register, an access register, a supplier register and a change sample, and wiring any of
+them in would be the mistake `lib/boundary.js` exists to make impossible: beadcause is
+carved out of this boundary, so a daemon crash is not an incident in the described system.
+Out of the boundary is not out of the audit — CC8.1 is still tested against beadcause — but
+the *description* is about what a user entity reaches. `test/systemdescription.mjs` reads
+the module's own import list and fails the repo if one of them appears, because that
+argument cannot be held by a paragraph. The policy set is the exception, and only because
+`HELD_BY` says the policies are Climative's rather than this daemon's.
+
+### A section that cannot be written says so
+
+The tempting shape is a template with blanks, and a blank in a description reads as an
+assertion that there is nothing to say. So every section carries a state, computed and
+never declared — `generated`, `partial`, or `unavailable` with the kind of source that
+holds the answer named beside it.
+
+    $ beadcause-description sections
+    Climative — Energy Navigator / Insights
+      generated    services          2 entries
+      unavailable  commitments       0 entries
+      partial      infrastructure    0 entries  2 holes
+      …
+      unavailable  environment       0 entries
+      partial      criteria         38 entries  1 hole
+      unavailable  incidents         0 entries
+
+    Climative · Energy Navigator / Insights · no period stated · 38 criteria (presumed) ·
+    1 generated, 9 partial, 4 unavailable · 10 holes
+
+`holes` is the one worth running: it flattens every gap the records admit to into an errand
+list, each with where the answer is held. Most of them are the boundary's partial censuses
+arriving one layer up — the census argument is what makes an empty section mean *there are
+none* in one record and *nobody has looked* in another, and the description inherits the
+distinction rather than flattening it back out. `--strict` exits 1 while anything is
+outstanding, so a readiness review can gate on it.
+
+Four sections have no source in this release at all — commitments, the control-environment
+narrative, changes and incidents — and they get a **seam** rather than a permanent red, for
+the reason `lib/boundary.js` gives about its CUEC gap: a gate nobody can ever pass is a gate
+somebody deletes. A caller may hand in a record for those four, held to the same bar as
+everything else, where every entry names where the fact is written down. It is deliberately
+not reachable from the command line: a flag would put a hand-written section one step away,
+which is the thing the whole file refuses.
+
+**No criterion is described twice.** The control-environment section is the description of
+CC1 to CC5, and those are common criteria, so they are already stated in full — with their
+definitions and what claims to be the documented answer — under the criteria section.
+Giving that section its own copy printed the same seventeen definitions on consecutive
+pages, so it names the other one instead. What it is genuinely missing is the narrative: how
+the organisation actually communicates its objectives, assesses its risks and evaluates its
+own internal control, which is a thing somebody writes down rather than a thing a register
+holds.
+
+### The generator produces the draft; a person signs it
+
+A management assertion is a signed statement, so it is a human act. `assertion` always
+hands back `signed: false` and there is no argument that makes it true — a generator that
+could emit a signed assertion is a generator that can forge one. What it does emit is the
+draft, with everything standing between it and a signature printed underneath:
+
+    > **This draft may not be signed yet.**
+    > - 4 sections cannot be written from any record in this release (commitments,
+    >   environment, changes, incidents) — the first thing management asserts is that the
+    >   description meets the description criteria, and a description with a section nobody
+    >   can write does not
+    > - the criteria in scope are presumed from the policy set rather than elected
+    > - the record admits to 10 holes across 9 sections
+
+The operating-effectiveness statement appears only over a period and never at a date, which
+is the whole difference between a Type I and a Type II report and is a rule here rather than
+a formatting choice (`bc-j0o3` owns the decision). The criteria in scope come from the
+install's own [election](#what-you-elected-to-be-held-to--libelectionjs) when it has one,
+and from the categories the policy set is already written against when it does not — in
+which case the document says `presumed` on its face, because a presumption said out loud is
+a different artefact from a default nobody noticed.
+
 ## What you elected to be held to — `lib/election.js`
 
 Beadcause **records** unconditionally. Sessions are archived against their bead, merges
