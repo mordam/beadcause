@@ -19531,6 +19531,19 @@ whether or not a phone in another room hears about it.
 `test/news.mjs` covers all of it, including a real `POST /api/landed` into a real
 `createApp` and the `GET /api/poll` that answers with it.
 
+**Three of those emitters live in the poller, where `bus` is not a name.** `createApp` is
+one long closure holding `bus`, `bd`, `advocates` and `syncer` as locals; `startPoller` is
+a separate top-level function beside it that gets the same objects as `app.bus`, `app.bd`
+and so on. So a line copied down from one to the other parses, boots, and throws
+`bus is not defined` on the first deploy the daemon settles — which is bc-gdub, filed by
+the daemon against itself, and it cost every settled deploy its card on the phone while
+the board still drew the deploy as finished. Reading the source for `bus.emit(deployEvent`
+does not catch it, because `app.bus.emit(deployEvent` contains that text; the checks in
+`test/news.mjs` are pinned to the `app.` prefix for that reason, and `test/pollerbus.mjs`
+is the other half — it plants a settled deploy record on disk, runs a real poller over it,
+and reads the events off a real bus, then sweeps the whole of `startPoller` for any daemon
+singleton named bare.
+
 ### Noticing in five seconds — and not sweeping to find out
 
 The park above is only as quick as the daemon behind it, and for a long time the daemon
