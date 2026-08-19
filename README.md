@@ -18261,6 +18261,76 @@ screen with the old sound. `test/channels.mjs` is the suite that holds all of th
 class to its sound, every retired id to the delete list, and every sound to a file that
 actually ships.
 
+### Which arrival speaks in which voice, and what stops the loud one crying wolf
+
+Giving one class the only insistent voice is only safe while that class cannot be wrong,
+and it was. `bc-y3qk.4` counted **nineteen notifications about one workspace in one day**,
+from a tracker that alternated failing and recovering nearly every tick, because the code
+talked on every transition — and half of them were *good* news. A phone that knocks twice
+about something that fixed itself two minutes later is a phone whose knock you train
+yourself out of hearing, and then the one outage that mattered arrives in a sound that
+means nothing. So `lib/voices.js` holds two halves of one argument, and `test/voices.mjs`
+pins both.
+
+**Every notification this daemon can make, assigned to exactly one class:**
+
+| Emitter | Class | Where it goes |
+|---|---|---|
+| `pushQuestion`, `pushFoundationRequest`, `pushFoundationReply`, `pushReply` | 1 · answer this | native, with ntfy as the fallback for a phone that is not the app |
+| `pushCertificate`, `pushNoBackend` | 2 · stuck | ntfy only — both report a failure of the very path a native card would travel |
+| `pushServingAgain` | *clear* | ntfy, at the calm end |
+| `landedEvent` | 3 · merged | native |
+| `deployEvent` — `ok`, `unconfirmed` | 4 · released | native |
+| `deployEvent` — `failed`, `lost` | 2 · stuck | native |
+| `syncStuckEvent`, `syncFlappingEvent` | 2 · stuck | native |
+| `deployClearEvent`, `syncClearEvent` | *clear* | native, and it posts nothing — it removes a card |
+| `epicDoneEvent` | 5 · epic completed | native |
+
+A table in code rather than a paragraph here, because the assignment is exactly the sort
+of thing that goes quietly wrong: a new detection lands, picks whichever emitter looked
+nearest, and inherits a sound nobody chose for it. The suite parses the exports of
+`lib/notify.js` and `lib/news.js` and fails the repo for one that appears in neither the
+table nor a class — and for a table row naming an emitter that has since been deleted,
+which reads as coverage and is an empty promise.
+
+**A recovery is not a sixth class.** It is `CLEAR`: the other half of a state rather than
+an arrival of its own. On the phone it *removes* the card and posts nothing at all
+(`Notifications.stuck` returns before `Tray.add` when `state == "clear"`, and the suite
+reads that out of the Kotlin rather than assuming it); over ntfy it is priority 2. Nothing
+that clears may ever reach `stuck_v1`.
+
+**And every class-2 detection has to say what stops it flapping.** Four detections, three
+shapes of damping, because what "flapping" even means differs:
+
+| Detection | Rule | Where |
+|---|---|---|
+| the router serving nothing | must hold **2 consecutive attempts** | `bin/router.js` — `stillServingNothing` |
+| a tracker not syncing, or flapping | 4 transitions in an hour, then silence until it holds | `lib/sync.js` — `record()` |
+| a certificate expiring or absent | once per problem; a failing renewal nags on a timer | `lib/tls.js` |
+| a deploy that failed or was lost | **none, deliberately** | `lib/server.js` — `settleDeploys` |
+
+The last row is the interesting one and it has to be argued for rather than left blank: a
+deploy is an arrival with an outcome, not a state that can alternate, so damping it would
+swallow the second real failure of the evening. The first row is what this bead added —
+the router announces an outage on the *second* consecutive failed bring-up, not the first,
+because that same file is about to retry in two seconds having just logged that a slow
+start is evidence about the machine rather than about the build. Announcing immediately
+meant a swap that came up on its second attempt cost a knock and a "serving again" twenty
+seconds later, about an app nobody could have opened in the gap. **The log is not damped**,
+only the sound: the log is the record somebody reconstructs an evening from.
+
+**`unconfirmed` moved from class 2 to class 4**, reversing what `bc-ka5y.15.1` landed. The
+argument for stuck was that "we ran it and nothing outlived it to check" is not a release
+you can rely on — still true, and still what the card says. What was wrong was the sound.
+`sweepDeploys` writes that word only for a deploy with `restarts` set, so it is **the
+ordinary ending of every deploy beadcause makes of itself**, which meant the commonest
+release in this repo was also the loudest noise the phone can make, several times a day,
+about a deploy that had almost certainly worked. `lib/queues.js` had already reached the
+same conclusion from the other end: its `RELEASED` set is `['ok', 'unconfirmed']`, because
+the running build you are reading this on came up out of one of them. Nothing is given
+away by the move — the card still says "deploy unconfirmed" rather than "deployed", and a
+previous failure's card is still only cleared by an `ok`.
+
 ### The five sounds, and auditioning one before it is permanent
 
 `res/raw` holds five voices — `blip.wav`, `knock.wav`, `land.wav`, `drop.wav`, `chime.wav`,
@@ -18350,8 +18420,8 @@ it cannot lay out. Four more event types moved them onto the same wire as everyt
 | type | what it is | card | may a muted space silence it? |
 |---|---|---|---|
 | `landed` | a pull request went into `main` | news | yes |
-| `released` | a deploy succeeded — what is running is what is on `main` | news | yes |
-| `stuck` | a deploy failed, was lost or is unconfirmed; or a tracker is not syncing | its own | **no** |
+| `released` | a deploy succeeded, or ended `unconfirmed` — [which is the ordinary ending of a restart](#which-arrival-speaks-in-which-voice-and-what-stops-the-loud-one-crying-wolf) | news | yes |
+| `stuck` | a deploy failed or was lost; or a tracker is not syncing | its own | **no** |
 | `epic-done` | an epic completed | news | yes |
 
 **Four types rather than one `news` type with a `kind` field**, because a client has to be
