@@ -376,7 +376,7 @@
   </div>
 
   <!--
-    The last view still a container with nothing in it.
+    The two views still containers with nothing in them.
 
     `data-pending` names the bead that fills it, and it is load-bearing rather than a note:
     panes.js refuses to show a pane carrying one and the pill row asks it the same
@@ -396,6 +396,16 @@
     "The advocate console is one pane, and its chip row stays" in README.md.
   -->
   <div class="pane" data-pane="advocates" data-pending="bc-khoe.4" hidden></div>
+
+  <!--
+    Releases, on the same terms and for a plainer reason: bc-khoe.7 built it as its own
+    page while the shell was still a document per view, and it merged after the shell
+    landed. The grammar knows the view — that is what lights its pill on /releases and on
+    the two other addresses it answers to — so it needs a container here or the pill is a
+    view with nowhere to go. **bc-khoe.30.14** fills it, and the fold is a smaller job than
+    Advocates': one file draws the whole view off one endpoint, and nothing is leaving it.
+  -->
+  <div class="pane" data-pane="releases" data-pending="bc-khoe.30.14" hidden></div>
 
   <div id="toast" class="toast" role="status" hidden></div>
 

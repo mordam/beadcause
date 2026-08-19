@@ -162,6 +162,10 @@ const PAGES = [
   // on the bottom bar since the day it existed, so the bar is the only thing that has
   // ever linked to it and there is no older name in anybody's home screen to keep alive.
   { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
+  // Releases (bc-khoe.7) — the two queues as cards, and the deploy strip that left the PR
+  // board. Two names for it, because the page is about the journey and the strip was what
+  // most people came for: `/releases` is what it is, `/deploys` is the word somebody types.
+  { what: 'the releases view', marker: '/releases.js', paths: ['/releases', '/deploys', '/releases.html'] },
   // The skill library and whether anything uses it (bc-dgx7.5). Two paths, because the
   // page is reached both by what it holds and by what the programme calls the things
   // waiting to become one. No pill claims either, which is the recorded decision in

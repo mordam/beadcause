@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v93';
+const CACHE = 'beadcause-v94';
 const SHELL = [
   '/',
   '/index.html',
@@ -164,6 +164,16 @@ const SHELL = [
   '/pulls',
   '/prs.html',
   '/prs.js',
+  // Releases (bc-khoe.7) — where everything in flight is, and where the deploy strip went
+  // when it left the board above. In the shell because it is a pill, and because it is the
+  // page you open on a phone precisely when the daemon behind it is being restarted by the
+  // deploy it is drawing: a page that had to be fetched then is a page that is blank at the
+  // one moment it has something to say. `/deploys` is its second name for the same reason
+  // `/pulls` is the board's — it is the word most people will type.
+  '/releases',
+  '/deploys',
+  '/releases.html',
+  '/releases.js',
   // The endorsement queue. Three paths for one page, the same bargain the console
   // makes with its five: /endorse is where a held card in the inbox and the advocate
   // console's `N held for endorsement` pill both point, /queue is what you type, and
