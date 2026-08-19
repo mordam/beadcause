@@ -151,6 +151,22 @@ check('the control-environment criteria are read off the corpus, not listed by h
   );
 });
 
+check('no criterion is described twice: the environment section names the criteria section rather than repeating it', () => {
+  const environment = section(shipped, 'environment');
+  assert.equal(environment.state, 'unavailable', 'the narrative it asks for is in no record here');
+  assert.match(environment.heldElsewhere, /under the criteria section/);
+  const doc = render(shipped);
+  for (const id of ENVIRONMENT_CRITERIA) {
+    assert.equal(doc.split(`**${id} — `).length - 1, 1, `${id} is stated more than once in the document`);
+  }
+});
+
+check('a scope missing a common criterion is not a SOC 2 description, and the document says so', () => {
+  const narrow = describe(climative, { criteria: ['SOC2.CC8.1'], period: PERIOD });
+  assert.ok(descriptionProblems(narrow).some((p) => /common criteria are outside the stated scope/.test(p)));
+  assert.deepEqual(descriptionProblems(shipped), [], 'and the presumed scope contains every one of them');
+});
+
 /* --------------------------------- 2. what it refuses, so nothing looks finished */
 
 check('a record the boundary refuses cannot be described at all', () => {

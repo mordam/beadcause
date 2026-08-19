@@ -18181,11 +18181,12 @@ holds the answer named beside it.
       unavailable  commitments       0 entries
       partial      infrastructure    0 entries  2 holes
       …
+      unavailable  environment       0 entries
       partial      criteria         38 entries  1 hole
       unavailable  incidents         0 entries
 
     Climative · Energy Navigator / Insights · no period stated · 38 criteria (presumed) ·
-    1 generated, 10 partial, 3 unavailable · 11 holes
+    1 generated, 9 partial, 4 unavailable · 10 holes
 
 `holes` is the one worth running: it flattens every gap the records admit to into an errand
 list, each with where the answer is held. Most of them are the boundary's partial censuses
@@ -18194,13 +18195,22 @@ none* in one record and *nobody has looked* in another, and the description inhe
 distinction rather than flattening it back out. `--strict` exits 1 while anything is
 outstanding, so a readiness review can gate on it.
 
-Three sections have no source in this release at all — commitments, changes and incidents —
-and they get a **seam** rather than a permanent red, for the reason `lib/boundary.js` gives
-about its CUEC gap: a gate nobody can ever pass is a gate somebody deletes. A caller may
-hand in a record for those three, held to the same bar as everything else, where every
-entry names where the fact is written down. It is deliberately not reachable from the
-command line: a flag would put a hand-written section one step away, which is the thing the
-whole file refuses.
+Four sections have no source in this release at all — commitments, the control-environment
+narrative, changes and incidents — and they get a **seam** rather than a permanent red, for
+the reason `lib/boundary.js` gives about its CUEC gap: a gate nobody can ever pass is a gate
+somebody deletes. A caller may hand in a record for those four, held to the same bar as
+everything else, where every entry names where the fact is written down. It is deliberately
+not reachable from the command line: a flag would put a hand-written section one step away,
+which is the thing the whole file refuses.
+
+**No criterion is described twice.** The control-environment section is the description of
+CC1 to CC5, and those are common criteria, so they are already stated in full — with their
+definitions and what claims to be the documented answer — under the criteria section.
+Giving that section its own copy printed the same seventeen definitions on consecutive
+pages, so it names the other one instead. What it is genuinely missing is the narrative: how
+the organisation actually communicates its objectives, assesses its risks and evaluates its
+own internal control, which is a thing somebody writes down rather than a thing a register
+holds.
 
 ### The generator produces the draft; a person signs it
 
@@ -18210,11 +18220,12 @@ could emit a signed assertion is a generator that can forge one. What it does em
 draft, with everything standing between it and a signature printed underneath:
 
     > **This draft may not be signed yet.**
-    > - 3 sections cannot be written from any record in this release (commitments, changes,
-    >   incidents) — the first thing management asserts is that the description meets the
-    >   description criteria, and a description with a section nobody can write does not
+    > - 4 sections cannot be written from any record in this release (commitments,
+    >   environment, changes, incidents) — the first thing management asserts is that the
+    >   description meets the description criteria, and a description with a section nobody
+    >   can write does not
     > - the criteria in scope are presumed from the policy set rather than elected
-    > - the record admits to 11 holes across 10 sections
+    > - the record admits to 10 holes across 9 sections
 
 The operating-effectiveness statement appears only over a period and never at a date, which
 is the whole difference between a Type I and a Type II report and is a rule here rather than
