@@ -28,6 +28,18 @@
 //     other view — so it is driven by tapping the pill row for real and asking what is on
 //     the screen either side of the tap.
 //
+//   • **bc-khoe.29 is what that pill then holds, and it is the opposite of what this file
+//     used to assert.** Once the board is off a pill, `rootboard.under` is a narrowing
+//     against a screen that is not there — it exists to stop a bead being drawn twice, and
+//     on Questions nothing is drawing it once. #498 replaced it there with `assignedToMe`,
+//     a positive rule off the payload's `assigned` map: a row stays if its bead is yours
+//     or descends from one of yours. So the bead the board draws on My Epics is on the
+//     Questions pill *on purpose* — that is the commonest row in the tracker, and 38 of
+//     Adam's 97 live question rows were on no screen at all without it. The assertion here
+//     was inverted rather than deleted (bc-7wwbb), and the fixture gained `assigned`: with
+//     no such map `assignedToMe` returns its rows untouched, so this check was passing the
+//     two pills' half of its claim without ever running the code that decides it.
+//
 // The fixture keeps a question under nobody's P0 — `unhomed`, bc-i7tw — because that is
 // the one row a tree cannot hold, and therefore the row that has to be on the Questions
 // pill and nowhere else. Before bc-khoe.28 it was also the scroll anchor `restorePlace`
@@ -74,11 +86,15 @@ const committed = (rel) => execFileSync('git', ['-C', ROOT, 'show', `HEAD:${rel}
 
 const WS = 'alpha';
 const P0 = { id: 'a-p0', title: 'Make the phone the whole interface' };
-// The bead that is asking you something, and the one nobody has homed anywhere.
+// The bead that is asking you something, the one nobody has homed anywhere, and one on
+// somebody else's P0 — the third is bc-khoe.29's negative case and the only row here that
+// the kind pills are supposed to leave out.
 const ASKS = 'a-p0.7';
 const LOOSE = 'a-loose';
+const OTHERS = 'b-p0.3';
 const ASKS_TITLE = 'Which way should the caret point?';
 const LOOSE_TITLE = 'A question you filed from your own phone';
+const OTHERS_TITLE = 'A question on an epic that is somebody else’s';
 
 /**
  * Twelve rows, because the jump this measures is proportional to the tree.
@@ -132,6 +148,10 @@ const bead = (id, title) => ({
 const LOOSE_IDS = Array.from({ length: 12 }, (_, i) => (i ? `${LOOSE}.${i}` : LOOSE));
 const QUESTIONS = [
   { ...toQuestion(WS, bead(ASKS, ASKS_TITLE)), space: 'Work', comments: [] },
+  // Under a P0 that is not yours: in no tree on this board, in neither `unhomed` nor
+  // `assigned`, and therefore on no pill of yours. It is what keeps the assertion below
+  // from being satisfied by a list that has stopped narrowing at all.
+  { ...toQuestion(WS, bead(OTHERS, OTHERS_TITLE)), space: 'Work', comments: [] },
   ...LOOSE_IDS.map((id, i) => ({
     ...toQuestion(WS, bead(id, i ? `Another one filed with no parent, ${i}` : LOOSE_TITLE)),
     space: 'Work',
@@ -170,6 +190,13 @@ const board = () => ({
   // be. See the header.
   under: { [`${WS}/${ASKS}`]: P0.id },
   unhomed: Object.fromEntries(LOOSE_IDS.map((id) => [`${WS}/${id}`, true])),
+  // bc-khoe.29's sixth field, and the kind pills' own narrowing — keyed by **bead** where
+  // the two above are keyed by row, because a pull request has no row in either of them.
+  // lib/server.js fills it with every bead carrying your `owner:<handle>` and everything
+  // under one at any depth, so here that is the epic and its whole tree. The loose
+  // questions are under nothing and `b-p0.3` is under somebody else's P0, so neither is in
+  // it — the first is kept anyway by `unhomed` (bc-i7tw) and the second is not kept at all.
+  assigned: Object.fromEntries([[`${WS}/${P0.id}`, true], ...TREE.map((r) => [r.key, true])]),
   roots: [
     {
       key: `${WS}/${P0.id}`,
@@ -358,7 +385,21 @@ try {
   check('THE BOARD IS NOT ON THE QUESTIONS PILL IN ANY FORM', v.cards === 0 && v.headTop === null, `${v.cards} cards`);
   check('and the question under nobody’s P0 is', v.hasLoose && v.listKeys.includes(`${WS}/${LOOSE}`), v.listKeys.join(' ') || 'no rows');
   check('so there is a card in the list for the scroll anchor to find', v.listRows >= 1, `${v.listRows} rows`);
-  check('and the bead the board would have drawn is still not doubled into it', !v.listKeys.includes(`${WS}/${ASKS}`));
+  // bc-7wwbb: this asked the opposite until bc-khoe.29, and the inversion is the bead's
+  // whole finding rather than a relaxation of it. "Not doubled into it" was about a bead
+  // being drawn twice on one screen — and the assertion two lines up is the half of that
+  // which is still true, because there is no board here to draw it the first time. What
+  // `under` did on this pill was remove a question in an epic of yours from the pill whose
+  // whole job is to show it; `assignedToMe` keeps it, because the bead above it is yours.
+  check(
+    'AND THE BEAD THE BOARD DRAWS IS ON THIS PILL, BECAUSE IT IS A QUESTION IN AN EPIC OF YOURS',
+    v.listKeys.includes(`${WS}/${ASKS}`),
+    v.listKeys.join(' ') || 'no rows'
+  );
+  // And the pill is still a narrowing. Without this the line above passes on a build with
+  // `assignedToMe` deleted — an unnarrowed list holds that row too — which is exactly the
+  // shape this fixture was in before it carried `assigned` at all.
+  check('and a question under somebody else’s P0 is not', !v.listKeys.includes(`${WS}/${OTHERS}`), v.listKeys.join(' ') || 'no rows');
   await shot('questions');
 
   await press('button.viewpill[data-pill="epics"]');

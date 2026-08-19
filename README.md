@@ -4314,6 +4314,18 @@ that owns nothing yet, are not narrowed — but *having started nothing* is exac
 questions most need to be reachable, which is the whole of the difference.
 `node test/assignedrows.mjs` holds it, from `bd export` through to the real client filter.
 
+**And the two screens either side of the tap are `scripts/p0board-check.mjs`'s**, which is
+where the rule was caught disagreeing with itself. That check was written for bc-khoe.28
+and asked, on the Questions pill, that the bead the board draws is "still not doubled into
+it" — the rule bc-khoe.29 then reversed — so main was red on it for a day after #498
+landed, on a check that needs real Chrome and is therefore not in `npm test` (bc-7wwbb).
+The assertion is inverted now rather than deleted, because there is no board on that pill
+to double anything into and the row's presence is the whole of what #498 bought. Its
+fixture gained an `assigned` map at the same time: without one `assignedToMe` returns its
+rows untouched, so the check had been passing this half of its claim without ever running
+the code that decides it, and a question under somebody else's P0 is in the fixture now to
+keep that from happening again.
+
 **The row carries a copy of the six, and the copy is checked.** `public/viewbar.js` is
 loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
 table at paint time. `test/inboxkinds.mjs` holds the two lists to the same six ids, labels
