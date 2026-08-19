@@ -145,7 +145,7 @@ const CORE = [
   </a>
   <a class="viewpill" data-pill="history" href="#">
     <span class="viewpill-icon" aria-hidden="true">📜</span>
-    <span class="viewpill-label">History</span>
+    <span class="viewpill-label">Ledger</span>
   </a>
   <a class="viewpill" data-pill="advocates" href="#">
     <span class="viewpill-icon" aria-hidden="true">📣</span>

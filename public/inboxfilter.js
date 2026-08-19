@@ -136,7 +136,7 @@
    *
    * A kind with no `test` is a **place**. `My Epics` is Home with nothing narrowed —
    * the P0 board and the work under it, which is a card (bc-rfnr.9) and not a category
-   * of row — and `History` is a different page altogether. Neither is a filter, so
+   * of row — and `Ledger` is a different page altogether. Neither is a filter, so
    * neither can be selected: `set()` drops them, exactly as it drops an id the table
    * has never heard of. They are in this table anyway, because the pill row is one row
    * of six and a reader asking "what are the six" must not have to find two of them
@@ -339,8 +339,14 @@
       // the row it is on is the same row as the five above and below it.
       side: 'any',
       icon: '📜',
-      label: 'History',
-      note: 'What already happened — the ledger of answered questions, merges and deploys.',
+      label: 'Ledger',
+      // The note used to say "what already happened — the ledger of answered questions,
+      // merges and deploys", and the list has never been that. `parseQuery` in
+      // lib/history.js starts at `status: null` and applies no default, so an open bead
+      // filed a minute ago is in it beside a bead closed last month. bc-khoe.53 moved
+      // the label to the word the page already uses for itself and made the note say
+      // what is actually in the list.
+      note: 'Every bead this space has ever had, open and closed, most recently touched first.',
       // A place, and a different page at that: /history has a filter bar of its own
       // (public/history.js, the same public/filtermenu.js behind it) and this panel
       // never narrows it. `set()` refuses to select a place, so this is the honest
@@ -540,7 +546,7 @@
    * an empty list whose cause is off screen, and the only thing worse than a filter you
    * cannot see is one you cannot see selecting something that does not exist here.
    *
-   * A **place** — `My Epics`, `History` — is dropped the same way and for a plainer
+   * A **place** — `My Epics`, `Ledger` — is dropped the same way and for a plainer
    * reason: it has no predicate, so selecting it would hide every row in the list. The
    * pill row treats `My Epics` as the empty selection this leaves behind, which is what
    * it means: Home, with nothing narrowed.

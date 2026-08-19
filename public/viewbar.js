@@ -56,7 +56,7 @@
     would be a full document load — a refetch of every workspace, a rebuild of forty
     cards, an open card thrown away — to change which rows of a list already in hand get
     drawn. On the shell that holds from every pane, not just from Home: tapping `PRs`
-    while History is up carries `data-view` as well as `data-kind`, so the tap switches
+    while the Ledger is up carries `data-view` as well as `data-kind`, so the tap switches
     pane and narrows in one go. On a page that is not the shell it is an
     `<a href="/?kind=…">` that goes there and arrives narrowed; `?kind=` is read once, at
     load, by public/inboxfilter.js.
@@ -85,7 +85,7 @@
   ## The four counts, and the objection they had to answer
 
   **Four of the seven carry a number, and only on Home.** My Epics, Questions, PRs and
-  Chats each say how many rows tapping them would leave you with; All Beads, History and
+  Chats each say how many rows tapping them would leave you with; All Beads, Ledger and
   Advocates say nothing. This is the deliberate reversal of what this header used to
   say — *"no counts and no badges, on any of them"* — and the objection it was written
   against is real and still stands as written: a badge is only ever live on the one page
@@ -104,7 +104,7 @@
 
   The three without a number are three different reasons, and none is an omission. **All
   Beads** is every live bead in the tracker: an unbounded number, and one that says
-  nothing you would act on. **History** and **Advocates** are pages of their own with
+  nothing you would act on. **Ledger** and **Advocates** are pages of their own with
   their own polls — a count for either is the stale badge the paragraph above refuses,
   and it would be stale on the one screen it appears on.
 
@@ -173,9 +173,11 @@
 
     Five of the six are **Home under a different narrowing** — they are the kinds table
     in public/inboxfilter.js, promoted out of a collapsed filter panel and onto the one
-    row of chrome this app has. `History` is the sixth and is a page of its own, which is
-    why it is the only kind here carrying an `href` at all: the other five get theirs
-    from `hrefOf`, and only off Home.
+    row of chrome this app has. `Ledger` is the sixth and has an address of its own, which
+    is why it is the only kind here carrying an `href` at all: the other five get theirs
+    from `hrefOf`, and only off Home. It was a page and nothing but a page when that was
+    written; since bc-khoe.30.5 it is *also* a pane of the shell, and the `href` is what
+    the eleven documents that have no panes still follow.
 
     `kind` is the id of the row in that table, and the two lists are held to the same six
     ids, labels and icons by test/inboxkinds.mjs — this file is loaded on twelve pages
@@ -190,7 +192,7 @@
     and not a count, because this file never counts anything — `counts()` at the foot is
     pushed the map by inboxfilter.js's `paint`, the same way `mark()` is pushed the lit
     pill and for the same reason. A pill with no flag is not sent a number and has no
-    badge node at all, which is what makes "All Beads, History and Advocates carry none"
+    badge node at all, which is what makes "All Beads, Ledger and Advocates carry none"
     a property of this list rather than of whatever happens to be in the map.
 
     What is **not** here any more, since bc-khoe.30.2, is `paths` — every URL that *is* a
@@ -217,7 +219,15 @@
     // The record (bc-nib3.2): where you go to ask "what happened to that". A page rather
     // than a narrowing of Home — it has its own poll, its own filter bar and its own
     // vocabulary — and it kept the position it has had since it was a tab.
-    { id: 'history', kind: 'history', href: '/history', icon: '📜', label: 'History' },
+    //
+    // `Ledger` rather than `History`, since bc-khoe.53. The list is every bead the space
+    // has ever had — `parseQuery` in lib/history.js starts at `status: null` and applies
+    // no default, so open, blocked and deferred beads are in it beside the closed ones —
+    // and `History` promised only the closed half. It is the page's own word for itself
+    // (the first line of public/history.js) and it does not collide with `All Beads`,
+    // which is live beads only. The `id`, the `kind` and the path stay `history`: the
+    // label moved and nothing addressable did.
+    { id: 'history', kind: 'history', href: '/history', icon: '📜', label: 'Ledger' },
     // The work nobody is asking you about, which is why it is past the three that are —
     // and past the record of the ones that are finished.
     { id: 'bead', kind: 'bead', icon: '🧿', label: 'All Beads' },
@@ -340,7 +350,7 @@
    * argument for each is in the doc comment above. Two `data-` attributes carry the two
    * things a tap can ask for and a pill may carry **both**: `data-pane` is the view to
    * show and `data-kind` is the narrowing to move to within Home. `My Epics` tapped from
-   * the History pane is exactly that pair, and so is every other kind pill tapped from a
+   * the Ledger pane is exactly that pair, and so is every other kind pill tapped from a
    * pane that is not Home — switch, then narrow, in one tap and no document load.
    *
    * `showable` is `false` for the pane already up, so the pill for the pane you are on —
