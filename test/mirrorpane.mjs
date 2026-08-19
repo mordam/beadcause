@@ -168,8 +168,9 @@ check(
    other device in the house that this one is nowhere, while the thumb is on the inbox. */
 check(() => {
   const src = decomment(read('montabs.js'));
-  assert.match(src, /const eff = visible \? active : '';/);
-  assert.match(src, /if \(inShell\) panes\.onShow\(\(\) => setVisible\(panes\.showing\(\) === VIEW\)\);/);
+  assert.match(src, /const eff = onScreen\(\) \? active : '';/);
+  assert.match(src, /const onScreen = \(\) => !inShell \|\| panes\.showing\(\) === VIEW;/);
+  assert.match(src, /if \(inShell\) panes\.onShow\(moved\);/);
 }, 'and it reports nothing at all when the pane itself is the thing that went away');
 
 console.log(failures ? `\n${failures}/${ran} failed\n` : `\n${ran}/${ran} passed\n`);

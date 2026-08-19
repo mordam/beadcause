@@ -397,6 +397,10 @@ try {
       showing: window.beadcause.panes.showing(),
       chip: window.beadcause.monTabs.active(),
       shown: [...document.querySelectorAll('#mon, #prs, #mirror')].filter((e) => !e.hidden).map((e) => e.id),
+      // The pane it landed on knows it is on screen. panes.js's own first sync runs before
+      // montabs.js loads, so an onShow subscriber never hears about this one — which is
+      // why the row asks panes.showing() rather than keeping a flag of its own.
+      up: window.beadcause.monTabs.up('prs'),
       builtFirst: window.beadcause.stage.built()[0],
       board: asked('/api/prs'),
       work: asked('/api/work'),
@@ -406,8 +410,13 @@ try {
   console.log(`    ${JSON.stringify(cold)}\n`);
 
   check('the address put the board up, not the chip that was stored', cold.chip === 'prs' && cold.shown.join(',') === 'prs', `${cold.chip} / ${cold.shown}`);
+  check('and the pane it landed on knows it is the one on screen', cold.up, 'the row thinks its own pane is hidden');
   check('the pane was built first, ahead of the inbox', cold.builtFirst === 'advocates', cold.builtFirst);
-  check('the board asked for itself once', cold.board === 1, `${cold.board} requests`);
+  /* Not pinned to a number, because public/warm.js's background warm asks for this path
+     too and there is no baseline to subtract on a cold load. The count that means something
+     is the pair: the section the address named went and got itself, and the one beside it —
+     which the warm layer would have fetched just as readily — did not. */
+  check('the board went and got itself', cold.board >= 1, `${cold.board} requests`);
   check('and the roster it did not show asked for nothing', cold.work === 0, `${cold.work} requests`);
   check('the hash survived the load unchanged', cold.hash === '#advocates?tab=prs', cold.hash);
 

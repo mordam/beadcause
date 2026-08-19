@@ -153,10 +153,22 @@
   const wakes = [];
   /** Which chip is up. Unchanged by the pane being hidden — coming back is not a reset. */
   let active = null;
-  /** Is the pane itself on screen? Always true on the document, which has no panes. */
-  let visible = !inShell;
   /** What the subscribers were last told, so a repeat costs nothing and a hide is one call. */
   let told = null;
+
+  /**
+   * Is the pane itself on screen?
+   *
+   * Asked of public/panes.js every time rather than kept in a variable here, and that is
+   * not a style point: that file's own first `sync()` runs as it loads, which is *before*
+   * this one does, so an `onShow` subscriber registered here never hears about the pane it
+   * landed on. A flag seeded `false` and waiting for a callback that has already happened
+   * would leave every section stood down on a cold load straight onto `#advocates` —
+   * a blank console under a working chip row, and nothing in the log.
+   *
+   * Always true on the document, which has no panes to be one of.
+   */
+  const onScreen = () => !inShell || panes.showing() === VIEW;
 
   const known = (which) => paneOf.has(which);
 
@@ -186,7 +198,7 @@
       // Only while this pane is the one showing. The staged boot puts a chip up while Home
       // is on screen, and a tab written into the hash from behind a pane nobody is looking
       // at would move the address out from under the view that owns it.
-      if (!inShell || panes.showing() !== VIEW) return;
+      if (!inShell || !onScreen()) return;
       // The first chip is the pane's own default and is left off the address, so the bare
       // `#advocates` a pill tap writes is not immediately rewritten into a longer form
       // that means the same thing.
@@ -232,7 +244,7 @@
    * and the difference is the whole of the standing-down above: a section whose chip is up
    * inside a hidden pane has `hidden === false` and is not being looked at.
    */
-  const up = (which) => visible && active === which;
+  const up = (which) => onScreen() && active === which;
 
   /**
    * Tell the subscribers what is on screen, and tell the daemon.
@@ -247,7 +259,7 @@
    * inbox, and `null` is the word this row already sends for the Mirror.
    */
   function announce() {
-    const eff = visible ? active : '';
+    const eff = onScreen() ? active : '';
     if (eff === told) return;
     const prev = told;
     told = eff;
@@ -297,14 +309,13 @@
    *
    * The chip is left exactly where it was: coming back to this view is not a reset, and
    * `active` is what the address and the store both hold. All that moves is whether the
-   * sections are being looked at.
+   * sections are being looked at — and `announce` is a comparison and a return when they
+   * were not the thing that moved, which is every other pane's show.
    */
-  function setVisible(on) {
-    if (visible === Boolean(on)) return;
-    visible = Boolean(on);
+  function moved() {
     // Back on screen, so the chip belongs on the address again: a pill tap writes the bare
     // `#advocates`, exactly as it does for the ledger's filters.
-    if (visible) address.write(active);
+    address.write(active);
     announce();
   }
 
@@ -411,5 +422,5 @@
        *whether* this pane is the first one built. */
     document.addEventListener('DOMContentLoaded', build);
   }
-  if (inShell) panes.onShow(() => setVisible(panes.showing() === VIEW));
+  if (inShell) panes.onShow(moved);
 })();
