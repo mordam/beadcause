@@ -3233,12 +3233,6 @@ button.work-row {
 
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
-/* The right-hand end of an epic section's foot: its Pause button beside the link out to
-   the graph. A flex row rather than the bare link the foot used to end in, because the
-   two belong together — one says what this epic is, the other says whether it is running
-   — and `justify-content: space-between` above would otherwise push them to opposite
-   ends of the card with the meta line stranded in the middle. Wraps on a phone. */
-.adv-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .work-graph {
   flex: none; min-height: 36px; display: inline-flex; align-items: center;
   padding: 6px 12px;
@@ -4813,6 +4807,68 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-card .work-head h2 { margin: 0; }
 .mon-card.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
 .mon-card.plain { opacity: 0.82; }
+
+/* An EpicAdvocate's card — the same card as the repo's, and its head is its fold.
+
+   bc-henk made every advocate a top-level card, because an EpicAdvocate has its own
+   budget, its own state, its own pause and its own queue and none of those belong to the
+   repo advocate it used to be folded inside. What that costs is the one thing the fold
+   was good at: a repo with a dozen open P0s used to be one card with twelve 40px lines in
+   it, and twelve free-standing cards is a wall.
+
+   So the height is bought back in the head, and the numbers are measured rather than
+   hoped for — headless Chrome at 393x852, one repo with twelve assigned epics and a
+   window on none of them, everything shut:
+
+     | shape                                        | the repo and its twelve epics |
+     |----------------------------------------------|-------------------------------|
+     | twelve folds inside one card (before bc-henk) |                        2304px |
+     | thirteen cards, each head its own fold (this) |          1656px = 372 + 12x107 |
+
+   Which is the answer to this bead's own acceptance: a repo with a dozen open P0s is
+   *shorter* after being taken apart into cards than it was as one card, because a fold
+   whose summary strip sat under a two-line head cost more than a head that is the fold.
+
+   Three things do it, and none of them is indentation — a left margin would make the card
+   narrower than the one above and re-say the containment the markup just stopped claiming:
+
+   - **The head is the summary.** No separate 40px section strip under it, and no card foot
+     either; the caret, the epic and its id are one row, and everything else is behind it.
+     The toggle is a `<button>` with the controls as its *siblings*, because a button
+     inside a button is not markup and Pause has to be pressable without opening anything.
+   - **One line of title.** These are sentences — "Something that needs deciding about the
+     shape of the queue" — and two of them wrapped is 45px per card, twelve times. Clipped
+     with the full text on `title=`, and the id beside it is exact either way.
+   - **Smaller controls.** `.adv-btn` is 32px and `.work-graph` 36px because both normally
+     sit alone; here they are a pair in a head that has to stay one line where it can.
+
+   And a rule down the left edge, in the accent, so a run of them still reads as belonging
+   to the repo above without being inside it. */
+.mon-card.epic-card {
+  padding: 6px 12px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+/* `align-items: baseline` rather than the `center` `.mon-card .work-head` uses: the
+   summary button is 40px tall and the state chip beside it is one line of 12.5px text, so
+   centring hangs the chip in the middle of the button's whitespace instead of sitting it
+   on the title's line. */
+.mon-card.epic-card .work-head { align-items: baseline; row-gap: 2px; }
+.epic-sum { flex: 1 1 200px; min-width: 0; min-height: 34px; padding-inline: 0; }
+/* Not a section header: this one is a card's name. Sentence case at reading size, where
+   `.mon-sum` is the 12px uppercase strip the folds inside a card use. */
+.epic-sum .mon-sum-title {
+  font-size: 14.5px; font-weight: 650; letter-spacing: 0; text-transform: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.epic-sum .pill.id { flex: none; }
+.mon-card.epic-card.open .mon-caret { transform: rotate(0deg); color: var(--accent); }
+/* The pair in the head, sized to each other. A 32px button next to a 36px link reads as
+   two kinds of control, and they are one. */
+.mon-card.epic-card .adv-btn,
+.mon-card.epic-card .work-graph {
+  min-height: 28px; padding: 2px 10px; font-size: 12px; font-weight: 550;
+}
+.mon-card.epic-card .mon-body { padding-top: 4px; padding-bottom: 0; }
 
 /* What launchd is actually running, above every card — see serviceHtml in
    public/monitor.js for why this is drawn on a good day as well as a bad one.
