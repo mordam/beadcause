@@ -13039,6 +13039,78 @@ the batch and group sections and is asserted the same way — by comparing a rel
 against an unrelayed one, so a section that leaked into an ordinary worker's page would be
 a failure rather than a thing somebody noticed later.
 
+### The relay journal — every step and handoff, on the bead and on the epic card
+
+A relay runs four or five roles in one window with nobody watching, and that was allowed on
+a condition: *"Full Relay, but all the steps and handoffs are recorded in the bead for me to
+view/access in the EpicCards"*. The journal is that recording, and it is not a nicety
+attached to the answer — it is the whole mitigation for the cost the answer carries. A bad
+early choice now propagates through three more roles before anyone sees it, and from outside
+a relay stalled at step 2 and one quietly working step 4 are the same silence. That is the
+argument [the waiting-on sentence](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs)
+makes for an epic, one grain finer, because here the steps are the thing.
+
+The window writes one entry per handoff, before it starts the next role:
+
+```
+beadcause-relay -w deluvia -b dv-abc --role clio --step check --next aria \
+  --flag "two dates unsourced" -m "fact pass done, everything else holds"
+```
+
+Five steps are legal — `draft`, `check`, `revise`, `file` and `handback`. The first four are
+the derived chain; `handback` is the one thing that chain cannot contain, and it is the
+entry the card most needs, because it is the only one that says the relay is not going to
+move again until something launches it. It is written *alongside* the assignee, and the two
+are not the same fact twice: the assignee is what the next launch reads to rebuild the
+chain, and the `handback` step is what says on the card that this relay stopped rather than
+went quiet.
+
+**It goes in `notes`, and the reason is the half of the bead that renders it.** A trail is
+append-only, and comments are the append-only surface here — bd stamps each with a time,
+nothing can rewrite an earlier one, and both [the plan](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window)
+and the promotion ledger live there. But `bd export` carries `notes` and does not carry
+comments, and the epic card's tree is sixty rows off one export per workspace: a
+comment-stored trail is a `bd comments` spawn per descendant per tick, which is not a slower
+board but no board at all. So it is `notes`, and the append-only property is kept by hand —
+one appended block per entry, never a rewritten field. Every other marked block in this
+program is a *current answer* that later writes replace, which is why the merge bead's
+cutter has to be careful about where a block ends; this one has no cutter and cannot have
+one, so an entry physically cannot destroy an earlier entry, a hand-written note, or another
+agent's block. The cost is that a journal is never tidied, which is the right side to fail
+on: the trail of a relay that went wrong is the one thing worth keeping.
+
+The payload is JSON *inside* the HTML comment, so it draws nothing where the notes field is
+rendered and appears only where it is rendered as a trail. `-->` inside a role's own words is
+escaped, because otherwise a sentence about an arrow ends the comment and takes the rest of
+the notes out of the document with it.
+
+**It is parsed where the notes still exist, which is not where you would put it.** The
+index `bd export` builds keeps `notes` for a *root* and blanks them for everything else —
+seven hundred bodies of prose have no business in a minute-long cache, and until this
+landed nothing but the epic-advocate's waiting-on sentence read the field, which is only
+ever on a root. A relay runs on the *leaves*. So a mark parsed on the request path, off the
+row the board draws, would have answered "no relay" for every row in every tree, for ever,
+with nothing anywhere saying so. It is parsed in `lib/ancestry.js` instead, where the export
+text is still in hand, and what is kept on the row is the mark — six short fields, `null` unless
+a relay has actually run — rather than the prose it came from.
+
+**Two readers, because two surfaces want different amounts of it.** Each row of an epic's
+tree carries the last entry alone — `⇄ clio · check · 2 steps · 40m ago`, with a `⚑` when
+something was flagged and a warning colour when the last step was a hand-back. There is no
+threshold in that: nobody has decided what *stalled* means for a role that reads a
+hundred-page charter first, so the row states the age and the reader judges it. It says how
+far the relay has got and not how far it has to go, because the chain comes off the assignee
+and the claim destroyed that — a denominator here would be one the board cannot honestly
+produce. Open the bead and the whole trail is there, oldest first, one row per step with what
+it handed on and what it flagged. Oldest first unlike everything else on that screen: the
+pull requests are a queue you check, and this is a story, and a story read backwards loses
+the one thing it is for.
+
+`lib/relayjournal.js` and `bin/relaystep.js`, marked onto the index row in
+`lib/ancestry.js`, drawn by `p0RelayHtml` and `p0RelayTrailHtml` in `public/app.js`.
+`node test/relayjournal.mjs`, and the end-to-end from an export line to a tree row is in
+`node test/p0tree.mjs`.
+
 ### What a P0 advocate *is* — its foundation, and what one visit consists of
 
 [The advocate that comes back](#the-advocate-that-comes-back--what-re-opens-an-epic-advocate-and-what-it-costs)
@@ -14222,6 +14294,82 @@ that later entered a worktree does not show as being *in* it — the lock is wha
 actually protects it, which is why `EnterWorktree` taking one matters. And the sweep
 runs whether or not the advocate is paused: pausing means "open no more sessions",
 not "leave the mess". `tidyWorktrees: false` is the setting that means that.
+
+### The Chromes and scratch directories nothing was clearing up
+
+A worktree is not the only thing a run leaves behind. Every browser check makes a
+throwaway `--user-data-dir` under `$TMPDIR` and hands it to a headless Chrome; every
+test suite makes a scratch directory beside it. All of them are removed in a `finally`
+— and **a `finally` covers exactly one of the three ways a process ends**. It runs on a
+return and on a throw. It does not run when the process is *signalled*, and being
+signalled is the ordinary case here, not the exotic one: `scripts/checks.mjs` sends
+`SIGTERM` to any check that overruns its timeout, and Ctrl-C sends `SIGINT`. When that
+happens Chrome is reparented to launchd and runs forever, because nothing about a
+headless Chrome makes it notice that whoever asked for it has gone.
+
+What that costs, measured on this Mac (bc-5isv): **15 orphaned processes and 9,324
+`beadcause-*` directories totalling 15.38 GB** — essentially the whole of `$TMPDIR`. Two
+days later, after 1,907 of them had already been swept by hand: **13,458 directories,
+7,922 of them over a day old, and 18 headless Chromes, four still running from four days
+before.** Nothing bounded it but macOS's own periodic purge. One of the orphans was a
+fixture `bin/beadcause.js` still listening on a loopback port out of a worktree that had
+since been retired into the attic — a running process does not lock a worktree, so the
+sweep above had removed the code it was executing out from under it.
+
+**Not leaking is the first half, and it is three lines in three files.** `onExit` in
+`lib/teardown.js` is the arm a `finally` cannot reach: the same teardown, run on `SIGINT`,
+`SIGTERM`, `SIGHUP` and an uncaught throw, exactly once either way. `launchChrome` in
+`scripts/helpers/chrome.mjs` registers one, so **every** browser check takes its Chrome
+and its profile with it however it dies; `lib/browse.js` does the same for the browse an
+agent asked for, which used to leak on every daemon restart; and the two checks that
+start a real daemon take that with them too.
+
+Two details in there had to be learnt rather than reasoned out. **Listening for a signal
+disables Node's default action for it**, so each handler re-raises after running — a
+handler that forgot would leave a process calmly ignoring the `SIGTERM` it was just sent,
+which is worse than the leak. And **`kill()` is not a wait**: it returns once the signal
+is queued, Chrome's renderer and GPU children go on writing for a moment after their
+parent is signalled, and a delete in that moment races them. Written as signal-then-delete
+the guard left the profile behind *every* time. There is nothing to `await` from an exit
+handler — the event loop has already stopped — so `killAndRemoveSync` keeps removing and
+re-checking until the directory is gone and stays gone.
+
+**The scratch directories are fixed one level up instead**, because 242 files under `test/`
+and `scripts/` call `mkdtempSync` and fixing each one is a chance per site to get one wrong. `scripts/test.mjs` and
+`scripts/checks.mjs` now give each child a `TMPDIR` of its own and remove it from the
+parent when the child exits. `os.tmpdir()` reads the variable on every call and the
+environment is inherited, so everything a suite makes — and everything made by anything
+it spawns — lands somewhere the runner owns. A suite that never cleaned up is now
+indistinguishable from one that did, and nothing in any suite had to change. A run that
+*fails* keeps its scratch and the runner says where it is, which is strictly more than
+survived before: it used to go into a `$TMPDIR` twenty sessions share, under a name
+nothing recorded.
+
+**`lib/strays.js` is the other half** — what earlier runs already stranded, and what
+`SIGKILL`, the one signal nothing can catch, will still strand tomorrow. It runs on the
+daemon's slow clock, on its own hourly cadence, and it is the only sweep in beadcause
+that signals a process it did not start. Everything about it is therefore a refusal:
+
+| it will not | because |
+|---|---|
+| touch anything younger than `strayHours` | a check another session started thirty seconds ago looks exactly like one abandoned thirty seconds ago, and only waiting tells them apart. Three were watched finishing normally between two measurements of the pile. No real run lasts a day; every orphan does |
+| match on "an orphaned Chrome" | your own browser is `PPID 1` and is a Chrome. A match needs `--headless=new`, a `--user-data-dir` under a top-level `beadcause-` directory in `$TMPDIR`, **and** an executable whose own name contains "chrom" |
+| match itself | a `ps \| grep -- --headless=new` finds its own `grep`, every time, because the pattern is on that process's command line. The executable test is what refuses it |
+| remove a directory a live Chrome is on | whatever its age. The profiles of *every* matching Chrome are collected, the young ones included, and held out of the removal pass |
+| reap at all inside a test | twenty-odd suites boot a real daemon, which runs the real cycle. `lib/launchguard.js`'s predicate gates it, and `BEADCAUSE_ALLOW_LAUNCH` does **not** open it: that variable means a stub is in front of the window opener, and there is no stub in front of `process.kill` |
+| signal a process it has not just re-read | the pid is checked against a fresh `ps` between the `SIGTERM` and the `SIGKILL`. Two seconds is not long enough for macOS to recycle a pid in practice, and "in practice" is not the standard for the one act with no undo |
+
+It kills the browser before its `--type=` children, because a Chrome that shuts down
+properly takes them with it, and it kills before it removes, so no directory is ever
+taken from under a live browser. Directory removals are bounded per pass and the
+remainder is **reported** rather than dropped — a sweep that stops at a cap and says
+"removed 2000" reads as a sweep that found 2000. It reports counts and not bytes: a `du`
+over eight thousand trees costs more than removing them.
+
+A settled machine says nothing at all, which after the first pass is every pass.
+`test/strays.mjs` holds the refusals and `test/teardown.mjs` holds the claim that
+matters — a real `launchChrome` in a child that is killed mid-check, and afterwards no
+Chrome on that profile and no profile.
 
 ### The merge that happened somewhere else
 
@@ -23202,6 +23350,7 @@ to be one.
 | `pollSeconds` | how often the daemon *sweeps* — one `bd human list` per workspace, plus a `bd comments` per conversation you are waiting on (default 30). A cost, not a latency: `detectSeconds` is what decides how quickly a change is noticed, and this is the backstop under it |
 | `detectSeconds` | how often it asks *whether anything moved*, which is a ~150-byte read per workspace and spawns nothing (default 5). Setting it equal to `pollSeconds` turns the mechanism off and restores the single-clock cycle — see [noticing in five seconds](#noticing-in-five-seconds--and-not-sweeping-to-find-out) |
 | `agentLogRetentionMonths` | how long an archived agent run's **body** is kept, in months (default 24). Not a free number: 24 is `RETENTION_FLOOR_MONTHS` in `lib/evidence.js`, set from the report — a Type II window is twelve months and the report is relied on for about twelve months after issuance. **Raising it is a setting; lowering it is ignored**, because a shorter period is a disk decision with a retention rule written beside it. The chained record of each run is permanent either way. See [the run that survives its own reset](#the-run-that-survives-its-own-reset--libagentarchivejs-testagentarchivemjs) |
+| `strayHours` | how old a stranded headless Chrome or `beadcause-*` scratch directory must be before the daemon reaps it, in hours (default 24). **The number is the whole safety margin** — a browser check another session started thirty seconds ago is indistinguishable from one abandoned thirty seconds ago. Raising it is a setting; anything under an hour is raised to an hour, and `0` switches the sweep off, which is the only way to. See [the Chromes and scratch directories nothing was clearing up](#the-chromes-and-scratch-directories-nothing-was-clearing-up) |
 | `slowRequestMs` | a request past this is named in the log with where its time went (default `1000` — the page-load budget itself, so a line means "this missed the budget" rather than "this was slower than its neighbours"). `0` turns **the log** off and nothing else: the per-route figures behind `/api/timings` are always collected. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | `sync.enabled` | keep a shared tracker shared — `bd dolt pull` then `bd dolt push`, per workspace, on a timer (default `true`). It is on for everybody and it does nothing at all on a workspace with no Dolt remote, which is every workspace until you add one. See [A tracker two Macs share](#a-tracker-two-macs-share) |
 | `sync.seconds` | how often (default 120, floor 30). **Not a performance knob** — it is the width of the window in which two machines can act on stale information, which is why it is a setting and not a constant. There is deliberately no list of *which* workspaces sync: a Dolt remote is that list |

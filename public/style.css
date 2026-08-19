@@ -6698,6 +6698,25 @@ a.pill { text-decoration: none; }
    not: without it a long unbroken token pushes the row wider than the card, and a card
    wider than the screen shrink-fits the whole page (see the note on measuring layout). */
 .p0-row-title { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; }
+/* Where a relay on this bead has got to (bc-bmry.4). *After* the title and not with the
+   marks above, which is the one row element that breaks that rule on purpose: it is a
+   status line rather than a mark, it is the longest thing on the row, and a relay runs on
+   a handful of beads where every row has an id and a title. Ahead of the title it would
+   push sixty titles right to draw four lines. `flex-basis: 100%` puts it on its own line
+   the moment the title has taken the width, which is where a status line belongs. */
+.p0-relay {
+  flex: 1 1 100%;
+  font-size: 11px; color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* The two states worth a colour, and they get the same one on purpose. A hand-back says
+   nothing will move until something launches it; a flag says a check found something the
+   next role has to answer. They are different facts and they call for the same action —
+   read this one — so one colour and two words is honest, where two colours would be
+   asking a glance to remember which amber meant which. The words are in the text either
+   way (`⇄ … handback`, `⚑`), which is what a phone can actually act on. */
+.p0-relay.back,
+.p0-relay.flagged { color: var(--warn); }
 /* A bead that is itself asking you something. It is the reason to open a tree at all —
    and once bc-rfnr.9.7 takes the flat list away, the only place a question is drawn. */
 .p0-row.asks { border-left-color: var(--warn); }
@@ -6794,6 +6813,33 @@ button.p0-row {
    is one: an empty expansion is indistinguishable from a tap that did nothing. */
 .p0-bead-note { font-size: 12px; color: var(--muted); }
 .p0-bead-note.bad { color: var(--danger); }
+/* The relay's trail (bc-bmry.4). A column of rows rather than a table, because the note is
+   a sentence and the three fields before it are two words each: a table would give the
+   sentence a quarter of a phone and hyphenate it into a column. */
+.p0-trail { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+/* One step. The leading edge is what makes six of them read as a sequence rather than as
+   six paragraphs, and it is the same 2px rule `.p0-bead-closed` uses for the same job. */
+.p0-trail-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+  font-size: 12px;
+}
+/* The hand-back is the only row that says nothing will move on its own, so it is the only
+   one that gets a colour — see `.p0-relay.back`, which is the same fact one screen out. */
+.p0-trail-row.back { border-left-color: var(--warn); }
+.p0-trail-who { flex: none; font-weight: 600; color: var(--text); }
+.p0-trail-step { flex: none; }
+.p0-trail-when { flex: none; font-size: 11px; color: var(--muted); }
+/* The sentence, on its own line — `flex: 1 1 100%` for `.p0-rel-row`'s reason: beside the
+   three marks above it, it wraps into their column and reads as a caption on the last one. */
+.p0-trail-note { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+/* What a check found. Its own line under the note, because it is the one thing on this
+   screen somebody might act on and a clause appended to a sentence is not read. */
+.p0-trail-flag { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; color: var(--warn); }
+/* The count beside the heading — "4 steps · 1 flagged · handed back". Quiet, in the
+   heading's own case, because it is a summary of the rows directly under it. */
+.p0-relay-sum { margin-left: 6px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--muted); }
 /* What the bead is under and what it is behind. Above the description because "what is
    this part of, and what is it stuck on" is the question you have before you read a word
    of it — and a bead with no edges draws nothing here at all. */

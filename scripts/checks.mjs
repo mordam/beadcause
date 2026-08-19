@@ -57,6 +57,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { audit, discover } from '../lib/checkaudit.js';
+import { onExit, killAndRemoveSync } from '../lib/teardown.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -142,12 +143,83 @@ if (AUDIT_ONLY) await leave(auditFailed ? 1 : 0);
  * Full output per child, kept whether it passed or not — a check that passes noisily is
  * still worth reading, and `--keep` on the ones that take it writes paths into it.
  */
-const logDir = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-checks-'));
+const logDir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'beadcause-checks-'));
+
+/**
+ * A `$TMPDIR` per check, and the run's own directory removed when it is over — bc-5isv.
+ *
+ * Two leaks, one shape. The logs above were kept unconditionally, so every green run left
+ * a directory nobody would ever read: **2,545 `beadcause-checks-*` directories** were
+ * counted on this Mac, the largest single bucket in a `$TMPDIR` that had reached 15 GB.
+ * And each check makes its own scratch and removes it in a `finally`, which does not run
+ * when the check is *signalled* — which is exactly what happens to any check that
+ * overruns `--timeout` below, by this file's own hand.
+ *
+ * Setting `TMPDIR` for the child fixes the second without touching a single check:
+ * `os.tmpdir()` reads it on every call, so everything a check `mkdtemp`s — and everything
+ * spawned by it, environment being inherited — lands somewhere this process owns. What a
+ * check failed to clean up is cleaned up anyway, and a check that *fails* keeps its
+ * scratch, which is strictly more than survived before.
+ *
+ * `onExit` rather than a plain removal at the bottom, for the third time in this diff and
+ * for the same reason each time: a runner that is Ctrl-C'd halfway through is the ordinary
+ * way one of these ends. See lib/teardown.js.
+ */
+const sandbox = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'beadcause-checkrun-'));
+const rmQuietly = (dir) => {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  } catch {
+    /* a teardown must never be why a run ends badly — lib/strays.js collects the rest */
+  }
+};
+/**
+ * The checks still running, so the exit guard can end them before it removes anything.
+ *
+ * This is the half that had to be measured rather than assumed. Interrupting a real run
+ * and counting what survived, the sandbox was **still there** afterwards — because a
+ * signal sent to this process is sent to this process, and the check it had spawned went
+ * on running, went on writing into the directory being removed, and went on holding the
+ * Chrome it had started. A runner that tidies up without ending its children tidies up
+ * nothing. (Ctrl-C in a terminal happens to signal the whole foreground process *group*
+ * and so hides this; nothing else does.)
+ *
+ * Each one gets the same SIGTERM-then-SIGKILL a timeout gives it, which is also what runs
+ * the check's *own* exit guard — so its Chrome and its profile go with it.
+ */
+const live = new Set();
+/**
+ * What survives the run, and it is two different answers to two different questions.
+ *
+ * `keepLogs` starts **true**: a run that failed, and a run somebody stopped, both leave
+ * the output behind, because on a run somebody stopped the log is the reason they stopped
+ * and it is now the only copy of it. Only an all-green summary clears it.
+ *
+ * `keepScratch` starts **false** and is set only by the failure branch of that same
+ * summary — so it can never be set by a run that was interrupted, which is deliberate.
+ * The scratch of a check killed mid-flight is not a diagnostic anybody wants and it is
+ * where the bytes are; the scratch of a check that *failed on its own* is the config it
+ * was working in, and the run prints where it is. Whatever is kept, lib/strays.js
+ * collects it a day later.
+ */
+let keepLogs = true;
+let keepScratch = false;
+onExit(() => {
+  for (const child of live) killAndRemoveSync(child, null, { timeoutMs: 1500, killAfterMs: 700 });
+  if (!keepScratch) rmQuietly(sandbox);
+  if (!keepLogs) rmQuietly(logDir);
+});
 
 const run = (rel) =>
   new Promise((resolve) => {
     const started = Date.now();
-    const child = spawn(process.execPath, [path.join(ROOT, rel)], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    const scratch = fs.mkdtempSync(path.join(sandbox, `${path.basename(rel, '.mjs')}-`));
+    const child = spawn(process.execPath, [path.join(ROOT, rel)], {
+      cwd: ROOT,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, TMPDIR: scratch },
+    });
+    live.add(child);
     let out = '';
     let timedOut = false;
     child.stdout.on('data', (d) => (out += d));
@@ -161,15 +233,27 @@ const run = (rel) =>
         }, TIMEOUT)
       : null;
     child.on('error', (err) => {
+      live.delete(child);
+      // Nothing ran, so there is nothing in the scratch to keep.
+      rmQuietly(scratch);
       if (timer) clearTimeout(timer);
       resolve({ rel, status: 1, out: `could not start — ${err.message}\n`, ms: Date.now() - started });
     });
     child.on('close', (status, signal) => {
+      live.delete(child);
       if (timer) clearTimeout(timer);
       if (timedOut) out += `\ntimed out after ${TIMEOUT / 1000}s — killed\n`;
       const log = path.join(logDir, `${path.basename(rel, '.mjs')}.log`);
       fs.writeFileSync(log, out);
-      resolve({ rel, status: timedOut || signal ? 1 : status, signal, timedOut, out, log, ms: Date.now() - started });
+      const ok = !timedOut && !signal && status === 0;
+      // The real exit code is kept — `why` prints it, and "exit 2" and "exit 1" are
+      // different facts about a check that failed.
+      const code = timedOut || signal ? 1 : status;
+      // A check that passed has nothing in its scratch anyone wants; one that did not is
+      // the only directory worth keeping, and it is now named rather than lost in a
+      // `$TMPDIR` twenty sessions share.
+      if (ok) rmQuietly(scratch);
+      resolve({ rel, status: code, signal, timedOut, out, log, scratch: ok ? null : scratch, ms: Date.now() - started });
     });
   });
 
@@ -259,17 +343,24 @@ for (const r of failed) {
   const lines = r.out.trimEnd().split('\n');
   for (const line of lines.slice(-25)) console.log(`   ${line}`);
   if (lines.length > 25) console.log(dim(`   … ${lines.length - 25} earlier lines in ${r.log}`));
+  if (r.scratch) console.log(dim(`   scratch kept in ${r.scratch}`));
 }
 
 const wall = (results.reduce((a, r) => a + r.ms, 0) / 1000).toFixed(0);
 console.log('');
 if (failed.length) {
+  // The scratch of each failing check is named above and has to still be there when
+  // somebody goes to look — see `keepScratch`.
+  keepScratch = true;
   console.log(red(`${failed.length} of ${results.length} checks failed:`));
   for (const r of failed) console.log(red(`  • ${r.rel}`));
   console.log(dim(`\nfull output: ${logDir}  (${wall}s of check time)\n`));
 } else if (auditFailed) {
   console.log(amber(`all ${results.length} checks passed, but the selector audit above did not\n`));
 } else {
+  // Nothing failed, so nothing in `logDir` will ever be read — see the header above the
+  // sandbox. `keepLogs` is what the exit guard consults; the other two arms leave it set.
+  keepLogs = false;
   console.log(green(`all ${results.length} checks passed`) + dim(` (${wall}s of check time)\n`));
 }
 
