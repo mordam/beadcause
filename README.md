@@ -15838,7 +15838,7 @@ setting that keeps applying as you add repos to a shared space, instead of being
 forgotten. A quiet space's advocate **watches without launching**: the same asymmetry
 as the notifications, where quiet means "not into my evening", never "hidden".
 
-## The control corpus — SOC 2, 27001 and 42001 in one closed vocabulary
+## The control corpus — six standards in one closed vocabulary
 
 A compliance framework is a vocabulary before it is anything else, and the failure it invites
 is the same one the requirements corpus above exists to prevent: an agent asked to name a
@@ -15851,15 +15851,20 @@ refused at the door rather than stored and believed.
 shape — a file per standard — is how the same control gets implemented three times and
 evidenced three times, because nothing in it can say that SOC 2's `CC6.1`, 27001's `A.8.3`
 and half a dozen 42001 controls are *one implementation with three names*. Instead a record
-carries a **framework**, an **id within it**, and **crosswalk edges** to its counterparts:
+carries a **framework**, an **id within it**, a **kind**, and **crosswalk edges** to its
+counterparts:
 
-| Framework | Edition | Holds | Count |
-|---|---|---|---|
-| `SOC2` | AICPA TSC 2017, with the 2022 revised points of focus | criteria — CC1–CC9, plus A1, C1, PI1 and P1–P8 | 61 |
-| `ISO27001` | 27001:2022 Annex A | controls — organizational, people, physical, technological | 93 |
-| `ISO42001` | 42001:2023 Annex A | controls — A.2 to A.10 | 38 |
+| Framework | Edition | Holds | Kind | Count |
+|---|---|---|---|---|
+| `SOC2` | AICPA TSC 2017, with the 2022 revised points of focus | criteria — CC1–CC9, plus A1, C1, PI1 and P1–P8 | criterion | 61 |
+| `ISO27001` | 27001:2022 Annex A | controls — organizational, people, physical, technological | control | 93 |
+| `ISO42001` | 42001:2023 | Annex A controls — A.2 to A.10 | control | 38 |
+| `ISO42001` | 42001:2023 | management-system clauses — 4 to 10 | clause | 32 |
+| `ISO23894` | 23894:2023 | risk management — principles, framework, process | process | 22 |
+| `ISO42005` | 42005:2025 | impact assessment — how it is run, what it covers | process | 16 |
+| `ISO5338` | 5338:2023 | AI system life cycle processes | process | 31 |
 
-192 records and 213 crosswalk edges, all of it shipped with beadcause. Unlike the
+293 records and 346 crosswalk edges, all of it shipped with beadcause. Unlike the
 requirements corpus this one does not ride in another repo: the standard does not change per
 install, so an absent corpus here is not a state to degrade into, it is a broken build. There
 is no config key, no environment variable and no loader — the tables are in the file and the
@@ -15874,10 +15879,59 @@ things and would resolve whichever it read last — the silent-wrong-match failu
 argues about with matching an epic by its title. So the id **is** `ISO27001.A.5.2` and
 `ISO42001.A.5.2`, and there is no way to write one down without saying which standard you meant.
 
-That is also what makes the corpus extend rather than fork. ISO/IEC 23894 risk ids or 42005
-impact-assessment ids later are a fourth token and a fourth table, not a fourth module with
-its own idea of what a control is — exactly as the Climative requirements corpus carries `EN`,
-`AS` and `CDP` in one set.
+That is also what makes the corpus extend rather than fork, and it has now been extended
+three times over: ISO/IEC 23894 risk-process ids, 42005 impact-assessment ids and 5338
+life-cycle-process ids are three more tokens and three more tables, not three more modules
+with their own idea of what a control is — exactly as the Climative requirements corpus
+carries `EN`, `AS` and `CDP` in one set.
+
+### One standard asks for two different things, and they are audited differently
+
+ISO/IEC 42001 has two halves and only one of them is a control set. Its **management-system
+clauses 4 to 10** are audited *by record*: there is a scope statement or there is not, a
+management review happened or it did not, and what an auditor asks for is the document. Its
+**Annex A controls** are audited *by evidence of the control operating*, over a period, on a
+sample. Using one word for both is how a programme comes to hold a filing cabinet and call
+it a control set — and it is the more common direction of the mistake, because Annex A is
+the part that looks like work.
+
+So `kind` is on the **record**, from a closed set of four — `criterion`, `control`, `clause`,
+`process` — and a framework declares which kinds it may hold. `ISO42001` holds two, and
+`ISO42001.Clause8.3` and `ISO42001.A.6.2.8` are both real ids under one token. `byKind('clause')`
+is the question a gate asks when it wants the whole management system regardless of which
+standard wrote it down, which no id shape can answer on its own.
+
+The clause ids also close the last of the common-criteria gap. Clause 6.1.3 — select the
+controls, compare them against Annex A, and record what was excluded and why in a Statement
+of Applicability — is the requirement a certificate is actually issued against. Annex A on
+its own is a reference set with nothing that decides which of it applies.
+
+### A certifiable standard is cited by number, a guidance standard by name
+
+`ISO42001.Clause8.3` quotes the numbering of 42001, because that numbering is load-bearing
+outside this repo: a certificate, a Statement of Applicability and an audit finding all point
+at a clause *number*, and an id that did not match would be wrong in the one place it is read
+by somebody who is not us.
+
+ISO/IEC 23894, 42005 and 5338 are **guidance**. Nobody is certified against them, nothing
+anybody signs cites their numbering, and what they are worth here is their subject matter. So
+their ids name that subject instead — `ISO23894.Process.RiskIdentification`,
+`ISO42005.Impacts.Groups`, `ISO5338.Technical.ContinuousValidation` — and `certifiable: false`
+on the framework says so in a field rather than in a convention somebody has to remember.
+
+This is the paraphrase rule below applied to the *id* rather than to the text. Minting
+`ISO42005.Clause6.4.3` would assert a numbering nobody in this repo can check, and a clause
+number that turns out to be somebody else's clause is the same failure as an invented
+control: plausible, unfalsifiable from inside, and wrong exactly where an auditor looks.
+Naming the subject cannot be wrong that way, and `test/controls.mjs` enforces the split in
+both directions — every id in a certifiable framework carries a digit, and no id in a
+guidance one carries any.
+
+The flag is load-bearing on the crosswalk too: **guidance may not claim a criterion.**
+`ISO5338.Technical.Verification` reaches `SOC2.CC8.1` through `ISO42001.A.6.2.4`, in two hops,
+because a direct edge would put a document nobody is audited against into the answer to *what
+satisfies this criterion*. Guidance elaborates a requirement, a control satisfies a criterion,
+and the build refuses the edge that would blur the two.
 
 ### The crosswalk runs one way, and it is on the control
 
@@ -15895,29 +15949,33 @@ closed in both directions rather than only on the way in.
 ```js
 crosswalk('ISO42001.A.6.2.8')   // ['SOC2.CC7.2', 'ISO27001.A.8.15'] — event logs, three names
 satisfiedBy('SOC2.CC6.1')       // twelve 27001 controls and two 42001 ones, one programme
+satisfiedBy('ISO42001.Clause6.1.2')  // what 23894 says a defensible risk process contains
+byKind('clause')                // the management system, regardless of which standard wrote it
 controlsIn(bead.description)    // ids by shape, then kept only if the corpus has them
 keepControls(declared)          // { ids, dropped } — and `dropped` is said out loud
-unclaimed('SOC2')               // the fifteen criteria nothing claims, on purpose
+unclaimed('SOC2')               // the twelve criteria nothing claims, on purpose
 ```
 
-### Fifteen criteria that nothing claims, and why that is the honest answer
+### Twelve criteria that nothing claims, and why that is the honest answer
 
 `unclaimed('SOC2')` is not empty and is not meant to become empty. Inventing an edge to make
 the matrix look full is the one failure this whole file exists to prevent, so the gap is
 pinned as an exact list in `test/controls.mjs` and has to be argued with rather than drifted
-past. There are two distinct reasons for it:
+past. What is left is one reason: **`PI1.4`, `PI1.5` and ten privacy criteria** — output
+delivery, stored-record integrity, consent mechanics, data-subject access and disclosure
+records are ISO/IEC 27701 territory. That standard is not in this corpus, and a criterion is
+better shown unclaimed than mapped to the nearest 27001 control that merely sounds similar.
 
-- **`CC1.2`, `CC3.3`, `CC5.2`** — board oversight, fraud risk and technology general controls
-  are not Annex A controls in either ISO standard. They are management-system **clause**
-  matter (27001 clause 5, 42001 clauses 5 and 6) and COSO umbrellas over a whole theme. The
-  42001 clause half of this corpus is still to come, and these three are most of what it closes.
-- **`PI1.4`, `PI1.5` and ten privacy criteria** — output delivery, stored-record integrity,
-  consent mechanics, data-subject access and disclosure records are ISO/IEC 27701 territory.
-  That standard is not in this corpus, and a criterion is better shown unclaimed than mapped
-  to the nearest 27001 control that merely sounds similar.
+It was fifteen until the 42001 clauses landed. **`CC1.2`, `CC3.3` and `CC5.2`** — board
+oversight, fraud risk and technology general controls — are not Annex A controls in either
+ISO standard and never will be; they are management-system clause matter, and they are
+claimed now by clause 5.1 (leadership and commitment), clause 6.1.2 (the risk assessment that
+has to consider misuse and override) and clause 6.1.3 (selecting the controls and saying
+which were excluded). The pin names those three individually against the clause that claims
+each, so "the gap shrank" can never be recorded without saying how.
 
-Every other common criterion — 30 of the 33 — is claimed by at least one ISO control, and
-that is asserted rather than asserted-about.
+Every common criterion is now claimed by at least one ISO control or clause, and that is
+asserted rather than asserted-about.
 
 ### The text is a paraphrase, and the standard is the authority
 
@@ -15925,7 +15983,7 @@ Every definition in the corpus is plain language for *what conformity looks like
 system*: derived, on the SOC 2 side, from the 2022 revised points of focus rather than
 invented, and on the ISO side from the control's stated purpose. None of it is normative text
 and none of it is quoted — an auditor reads the standard. The corpus exists to join a bead to
-a control and a control to its counterparts; it is not a copy of three copyrighted documents
+a control and a control to its counterparts; it is not a copy of six copyrighted documents
 and must never grow into one, which `test/controls.mjs` enforces by failing any definition
 that has swollen into a block quote.
 
