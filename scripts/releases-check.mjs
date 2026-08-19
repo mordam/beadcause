@@ -34,7 +34,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { aliasPage, pageAliases } from '../lib/pagealias.js';
+import { aliasPage, hopLocation, pageAliases, viewHops } from '../lib/pagealias.js';
 import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -253,10 +253,17 @@ const BASE_FILES = BASELINE ? { 'releases.js': headFile('releases.js'), 'style.c
    404d on one would fail the install and post the failure to /api/error. See
    lib/pagealias.js. */
 const ALIASES = pageAliases();
+/* And the ones that stopped being files at all. `/releases`, `/deploys` and
+   `/releases.html` are a 302 to `/#releases` since bc-khoe.30.7 — this view is a *pane* of
+   the shell now — so a fixture that only knew the alias table would 404 on the very
+   address this check opens with. Read out of lib/server.js for the same reason the
+   aliases are. */
+const HOPS = viewHops();
 
 function serve() {
   const server = http.createServer((req, res) => {
-    const p = new URL(req.url, 'http://x').pathname;
+    const u = new URL(req.url, 'http://x');
+    const p = u.pathname;
     const json = (b, status = 200) => {
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(b));
@@ -278,6 +285,11 @@ function serve() {
     }
     if (p.startsWith('/api/')) return json({});
 
+    const hop = hopLocation(p, u.search, HOPS);
+    if (hop) {
+      res.writeHead(302, { location: hop }).end();
+      return;
+    }
     const rel = aliasPage(p, ALIASES);
     const name = rel.replace(/^\/+/, '');
     if (BASE_FILES[name]) {

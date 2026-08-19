@@ -26,9 +26,10 @@
 //   * **the chip is on the address.** `#advocates?tab=prs` has to survive a reload, which
 //     is what makes bc-khoe.30.7's redirect for `/prs` possible at all.
 //
-// And the compatibility half, at the end: `/monitor` is still its own document until
-// bc-khoe.30.7, so the same four files have to draw the same three sections there, off the
-// path rather than off the hash.
+// And the compatibility half, at the end: `/monitor` and `/prs` are a **302 onto the pane**
+// since bc-khoe.30.7, so what those two sections assert is the far end of a hop — that the
+// nine addresses on people's home screens still arrive somewhere that draws the console,
+// and that `/prs` still means the *board* once there is no pathname left to read it off.
 //
 // Not part of `npm test`: it wants Chrome. It is self-contained otherwise — its own HTTP
 // server over `public/` with fixtures behind the four payloads, no daemon, no `bd`, no
@@ -37,6 +38,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hopLocation, viewHops } from '../lib/pagealias.js';
 import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -123,18 +125,12 @@ const TYPES = {
   '.png': 'image/png',
   '.webmanifest': 'application/manifest+json',
 };
-/* The rewrites in `serveStatic` (lib/server.js) this file needs, written out rather than
-   imported: importing the server would bring a config, a tracker and a daemon. All nine of
-   the console's paths still answer with that document — landing them on the pane is
-   bc-khoe.30.7 — and `/prs` is here because the last section of this file drives it. */
-const ROUTES = {
-  '/monitor': '/monitor.html',
-  '/advocates': '/monitor.html',
-  '/sessions': '/monitor.html',
-  '/work': '/monitor.html',
-  '/prs': '/monitor.html',
-  '/pulls': '/monitor.html',
-};
+/* The hops in `serveStatic` (lib/server.js) this file needs, read out of its source rather
+   than restated — lib/pagealias.js does that with a regex and brings no config, no tracker
+   and no daemon with it. All nine of the console's addresses are a 302 onto the pane since
+   bc-khoe.30.7, and the board's three carry the chip with them, because after the hop there
+   is no pathname left for montabs.js to read it off. */
+const HOPS = viewHops();
 
 /** Every parked poll this run has open at once — the number this file is really about. */
 let parked = 0;
@@ -166,8 +162,12 @@ function serve() {
     }
     if (p === '/auth/whoami') return json({ signedIn: true });
     if (p.startsWith('/api/')) return json({});
-    const rel = ROUTES[p] || p;
-    const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel.replace(/^\/+/, ''));
+    const hop = hopLocation(p, u.search, HOPS);
+    if (hop) {
+      res.writeHead(302, { location: hop }).end();
+      return;
+    }
+    const file = path.join(PUBLIC, p === '/' ? 'index.html' : p.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404).end('no');
       return;
@@ -458,13 +458,13 @@ try {
   check('and the roster it did not show asked for nothing', cold.work === 0, `${cold.work} requests`);
   check('the hash survived the load unchanged', cold.hash === '#advocates?tab=prs', cold.hash);
 
-  /* ------------------------------------------ /monitor, still its own document */
+  /* -------------------------------------------- /monitor, which is a hop now */
 
-  console.log('\nand /monitor is still a document\n');
+  console.log('\nand /monitor lands on the pane\n');
   // The stored chip is `prs` by now — the reload above put the board up and the row
-  // remembers, in both documents and deliberately. Cleared first, so what this section
-  // asserts is the document's own default rather than the previous page's memory.
-  await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/monitor?t=x` });
+  // remembers. Cleared first, so what this section asserts is the address's own answer
+  // rather than the previous page's memory.
+  await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=x` });
   await sleep(1200);
   await evaluate(`(() => { localStorage.removeItem('beadcause.mon.tab'); localStorage.removeItem('beadcause.mirror.tab'); })()`);
   await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/monitor?t=x` });
@@ -473,26 +473,27 @@ try {
     const asked = (path) => performance.getEntriesByType('resource').filter((e) => e.name.includes(path)).length;
     return {
       panes: Boolean(window.beadcause.panes),
+      showing: window.beadcause.panes ? window.beadcause.panes.showing() : null,
       chip: window.beadcause.monTabs.active(),
       up: window.beadcause.monTabs.up('advocates'),
       cards: document.querySelectorAll('#mon .mon-card').length,
       work: asked('/api/work'),
-      // Its own top bar, with the mark and the tally in it where that page keeps them.
-      metaInBar: Boolean(document.querySelector('.topbar #observing') && document.querySelector('.topbar #tally')),
-      gear: Boolean(document.getElementById('gear')),
-      scrollers: [...document.querySelectorAll('.pagescroll')].filter((el) => el.offsetParent !== null).length,
+      path: location.pathname,
       hash: location.hash,
     };
   })()`);
   console.log(`    ${JSON.stringify(doc)}\n`);
 
-  check('it has no panes to be one of', !doc.panes);
-  check('it draws the roster on its own', doc.cards >= 12 && doc.work === 1, `${doc.cards} cards, ${doc.work} requests`);
-  check('with the mark and the tally in its own bar, and its own ⚙', doc.metaInBar && doc.gear);
-  check('its chip row still owns the swap', doc.chip === 'advocates' && doc.up);
-  check('it is one scroller, and it writes no hash', doc.scrollers === 1 && doc.hash === '', `${doc.scrollers} ${doc.hash}`);
+  // The whole point of a 302 over serving the shell under the old path: the address ends
+  // up saying which view is up. Served at `/monitor` with no hash, this same screen would
+  // be Home on the next tap, with nothing on it having looked wrong on the way.
+  check('the hop landed on the shell rather than a document of its own', doc.panes && doc.path === '/', `${doc.path}`);
+  check('and the address says which view is up', doc.hash === '#advocates', doc.hash);
+  check('it is the Advocates pane that is showing', doc.showing === 'advocates', doc.showing);
+  check('which drew the roster', doc.cards >= 12 && doc.work === 1, `${doc.cards} cards, ${doc.work} requests`);
+  check('and its chip row still owns the swap', doc.chip === 'advocates' && doc.up);
 
-  /* ---------------------------------------------------- and /prs is still /prs */
+  /* ------------------------------------------- and /prs still means the board */
 
   console.log('\nand /prs still opens on the board\n');
   await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/prs?t=x` });
@@ -500,12 +501,17 @@ try {
   const prs = await evaluate(`(() => ({
     chip: window.beadcause.monTabs.active(),
     shown: [...document.querySelectorAll('#mon, #prs, #mirror')].filter((e) => !e.hidden).map((e) => e.id),
+    hash: location.hash,
   }))()`);
   console.log(`    ${JSON.stringify(prs)}\n`);
 
-  // The path, on the document — and it is the behaviour bc-khoe.30.7 has to keep when
-  // these nine addresses become redirects and there is no pathname left to read.
-  check('the path put the board up, whatever chip was stored', prs.chip === 'prs' && prs.shown.join(',') === 'prs', `${prs.chip} / ${prs.shown}`);
+  // The behaviour the hop had to keep. `/prs` meant the *board*, not merely the view it is
+  // a chip of, and montabs.js read that off `location.pathname`; after the hop there is no
+  // pathname left, so the fact rides behind the `#` as `tab=prs`. A `/prs` that landed on a
+  // bare `#advocates` would open on whichever chip was stored — which is `advocates` by the
+  // line above, so this section would pass while being wrong if the narrowing were dropped.
+  check('the hop put the board up, whatever chip was stored', prs.chip === 'prs' && prs.shown.join(',') === 'prs', `${prs.chip} / ${prs.shown}`);
+  check('and it is the address that says so', prs.hash === '#advocates?tab=prs', prs.hash);
 } catch (err) {
   bad('the run itself', String(err && err.message).slice(0, 500));
 } finally {
