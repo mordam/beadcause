@@ -18185,7 +18185,7 @@ pins both.
 | Emitter | Class | Where it goes |
 |---|---|---|
 | `pushQuestion`, `pushFoundationRequest`, `pushFoundationReply`, `pushReply` | 1 · answer this | native, with ntfy as the fallback for a phone that is not the app |
-| `pushCertificate`, `pushNoBackend` | 2 · stuck | ntfy only — [both report a failure of the path a native card travels](#the-five-voices-and-the-channels-that-carry-them) |
+| `pushCertificate`, `pushNoBackend` | 2 · stuck | ntfy only — both report a failure of the very path a native card would travel |
 | `pushServingAgain` | *clear* | ntfy, at the calm end |
 | `landedEvent` | 3 · merged | native |
 | `deployEvent` — `ok`, `unconfirmed` | 4 · released | native |
