@@ -724,7 +724,7 @@ others nothing to fix.** `/monitor` is *the details of the selected space*, so a
 reading `Space` sat immediately left of a control reading `Personal` — the noun and its
 instance, twice, on the row where a 360px phone has the least to spare. It is gone
 (bc-mtdb): that bar is the mark, the picker, and the page's own tally. The other standing
-views keep theirs — History, Endorse, Requirements name the *page*, which is not what the
+views keep theirs — Ledger, Endorse, Requirements name the *page*, which is not what the
 picker says, so nothing on them is doubled.
 
 Pick `beadcause` and it is beadcause's questions in the inbox, beadcause's advocate on
@@ -4227,12 +4227,12 @@ navigation nobody uses. Four rows went into two:
 | **Questions** | Everything waiting on a word from you | `proposal`, `jira`, `endorsement` |
 | **PRs** | Pull requests, and the finished branches waiting on a merge | `delivery` (Merges) |
 | **Chats** | The conversations you have open | — |
-| **History** | The ledger — a page of its own | — |
+| **Ledger** | Every bead the space has ever had — a page of its own | — |
 | **All Beads** | Every live bead nobody is asking you about | `claimed`, `blocked`, `unclaimed`, as a sub-filter |
 
 **Two of the six are places rather than slices.** A kind with a `test` is a predicate over
 the rows the list holds, and the four of those partition it — every row answers exactly
-one. `My Epics` and `History` have no predicate: the first is Home with nothing selected,
+one. `My Epics` and `Ledger` have no predicate: the first is Home with nothing selected,
 the second is a different page. They are in the table anyway, because the row is six pills
 and a reader asking "what are the six" must not have to find two of them somewhere else,
 and `set()` refuses to select one — a place has no predicate, so selecting it would match
@@ -4496,7 +4496,7 @@ the filter pills that view pill can use, and nothing else in the file decides it
 | **PRs** | the bead search, PR status | The one pill with both: a pull request follows its beads, so the search narrows it too. |
 | **Chats** | *nothing* | A chat is in no tracker. It is under no bead, and it has no rung. |
 | **All Beads** | the bead search, bead status | — |
-| **History** | *nothing* | A page of its own, with a filter bar of its own. |
+| **Ledger** | *nothing* | A page of its own, with a filter bar of its own. |
 
 **`Chats` is the case that was actually broken, not merely noisy.** `inBead` in
 `public/app.js` hides every row that is not a bead — deliberately, because a filter you
@@ -4628,7 +4628,7 @@ across all of them was a control whose meaning depended on a pill it did not loo
 | **PRs** | **no** | The same, arriving off `gh` |
 | **Chats** | yes | Start a conversation — what ＋ has always done |
 | **All Beads** | yes | File a bead, from a form (bc-khoe.27.3) |
-| **History** | — | A page of its own, and it never had one |
+| **Ledger** | — | A page of its own, and it never had one |
 
 **Questions and PRs are the interesting half.** Neither is a place you make something;
 both are lists of things somebody else has put in front of you, and the only honest
@@ -5831,8 +5831,8 @@ thing finishes. So until bc-lco2 there was no way to say *stop* to one epic. You
 close it, or you could pause the whole repo — which stops the four other epics that were
 fine.
 
-**Pause is a per-P0 control on its section of `/monitor`, and the fact lives on the bead**
-as an `advocate-paused` label. A label rather than a marked block in `notes`, which is the
+**Pause is a per-P0 control in the head of its own card on `/monitor`, and the fact lives
+on the bead** as an `advocate-paused` label. A label rather than a marked block in `notes`, which is the
 opposite of the choice the waiting-on sentence makes one file over, and the two facts are
 why: a waiting-on sentence is prose only the advocate writes, so it needs a field that can
 hold a clause; a pause is a boolean somebody toggles from a phone, and `bd label add` is
@@ -6588,7 +6588,7 @@ So there is one row now, under the top bar on every page the bottom bar was on:
 
 Seven pills today, on eight pages: the [six kinds](#one-list-six-kinds--and-the-two-sub-filters)
 bc-khoe.2 promoted out of the inbox's filter panel — My Epics, Questions, PRs, Chats,
-History, All Beads — plus Advocates. The other five pages that used to load the bottom bar
+Ledger, All Beads — plus Advocates. The other five pages that used to load the bottom bar
 (`/admin`, `/console`, `/endorse`, `/flow`, `/requirements`) draw the row with **nothing on
 it current**, which is their way off a page that would otherwise be reachable only by the
 browser's back gesture.
@@ -6605,7 +6605,7 @@ since bc-khoe.30.3 the app is one document with a container per view, so the pil
 the hash and the pane swaps, and nothing is fetched. The second is a kind, which is Home
 under a different narrowing (bc-khoe.2) — five of the seven pills are that, and as links
 they would each be a full document load to change which rows of a list already in hand get
-drawn. On the shell that holds from *every* pane: `PRs` tapped while History is up carries
+drawn. On the shell that holds from *every* pane: `PRs` tapped while the Ledger is up carries
 both the pane to show and the kind to select, so one tap does both. On a page that is not
 the shell it is an ordinary link, `/?kind=pr`, read once at load — so the pill behaves the
 same way from anywhere and only the mechanism differs.
@@ -6626,7 +6626,7 @@ view on load — done by arithmetic on the two rectangles rather than with `scro
 which is allowed to scroll every ancestor and would quietly move the list under it.
 
 **Four counts, and only on Home.** My Epics, Questions, PRs and Chats each carry a number:
-how many rows tapping that pill would leave you with. All Beads, History and Advocates
+how many rows tapping that pill would leave you with. All Beads, Ledger and Advocates
 carry none — the first is unbounded and says nothing you would act on, and the other two
 are pages of their own with their own polls.
 
@@ -6855,6 +6855,14 @@ things:
   blank pane, and none is a reason to write anything.
 * **One slot, so the last write wins.** There is no combined form, because a card already
   names its view: there is nothing to hold alongside it.
+* **A view may carry a query, and only a view may.** `#history?status=closed&priority=P0`
+  is [the ledger](#the-ledger-as-a-pane-and-its-filters-in-the-hash) narrowed, and the
+  part after the `?` is handed back as an opaque string for that view to read — this file
+  has no opinion about what a filter means, only about where one is written down. The split
+  is on the **raw** hash, at the **first** `?`, before any decoding, and only a head that is
+  one of the closed list of view names may have one: a card key is percent-encoded, so a `?`
+  inside one arrives as `%3F` and can never start a query, and a hash whose head is not a
+  view name is parsed exactly as it was before this decision existed.
 
 **The bug it exists to prevent is not hypothetical.** `focusHash` in `public/app.js` used to
 decode the whole hash and hand it to `byKey`, and when `byKey` came back empty on the
@@ -6916,13 +6924,18 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**Two panes are empty on purpose.** `data-pending` names the bead that fills each —
-bc-khoe.30.5 for History, bc-khoe.4 for Advocates — and it is load-bearing rather than a
-note: a pending pane is registered nowhere, can never be shown, and the pill row asks the
-same question, so those two pills stay the `<a href>` they have always been and still load
-their own documents. That is what let the shell land on its own. The alternative was two of
-seven pills leading to a blank screen until two further beads merged, on an app that
+**A pane can be present and unshowable, and one still is.** `data-pending` names the bead
+that fills it — **bc-khoe.4** for Advocates — and it is load-bearing rather than a note: a
+pending pane is registered nowhere, can never be shown, and the pill row asks the same
+question, so its pill stays the `<a href>` it has always been and still loads its own
+document. That is what let the shell land on its own. The alternative was two of seven pills
+leading to a blank screen until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
+History's attribute came off when
+[bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash);
+Advocates still carries one, and it names **bc-khoe.4** rather than bc-khoe.30.6 — the
+attribute names the bead whose merge deletes it, and the fold is bc-khoe.4's, behind
+bc-khoe.10 (bc-khoe.30.6, which ruled how it folds rather than folding it).
 
 **The row asks; it does not require.** `public/viewbar.js` is drawn on twelve pages and one
 of them is the shell, so it reaches for `window.beadcause.panes` with `?.` and takes *no* as
@@ -7052,6 +7065,17 @@ exception to the exception, and it is free: its snapshot rides the stager's shar
 it is current the moment you come back without having asked for anything.
 
 ### The ledger — the History tab
+
+**The pill reads `Ledger`, and has since bc-khoe.53.** This section keeps the old word in
+its heading because the anchor is linked from two places above and because the paragraphs
+below are the record of a decision made when it *was* a tab. The rename is one word and no
+mechanism: the id, the kind, `/history`, `/history.html` and the `#history` hash all stay
+exactly what they were. What moved is the promise. `History` said *what already happened*
+and the note under it said *the ledger of answered questions, merges and deploys*, and the
+list has never been either — `parseQuery` in `lib/history.js` opens at `status: null` and
+applies no default, so an open bead filed a minute ago is in it beside a bead closed last
+month. `Ledger` is the word the page has always used for itself in its own first line, and
+it does not collide with `All Beads`, which is live beads only.
 
 There was no way to look back. The inbox is what is arriving, the advocate console is what
 is running this minute, and a bead that closed last week had left both lists by definition:
@@ -7209,6 +7233,73 @@ id box waits 250ms for you to stop typing, since `bc-nib3` is otherwise seven sw
 clearing the last chip is a bare address, a request with none of the four parameters on it,
 and the whole list back with no reload — which is the acceptance criterion this was built
 against.
+
+### The ledger as a pane, and its filters in the hash
+
+Everything above describes `/history`, a document. It is a **pane of the shell** as well
+now: `[data-pane="history"]` in `public/index.html`, shown by a `display: none` swap on a
+pill tap with nothing fetched and nothing rebuilt. `/history` still answers — home screens
+hold it, [`/closed`](#closed-and-done--what-got-finished-as-a-place) redirects to it, and
+landing those on the pane is bc-khoe.30.7 rather than this — so `public/history.js` is one
+file that has to run in either document, and it decides which by asking whether the one it
+is in has panes at all. Three things differ, and they are the whole of the difference.
+
+**Where the filters are written.** On the page, the query string, exactly as above. In the
+shell, the hash's own query — `/#history?status=closed`, which is
+[decision 5](#one-hash-two-claimants--the-grammar-in-publichashroutejs) of the grammar. The
+slot had to move, because in one document `location.search` outlives the view that wrote
+it: narrow History to P0, tap Home, and the address the phone's home screen holds is
+`/?status=P0`, carrying a filter for a view you are not on. `route.go('')` keeps `search` on
+purpose — that is where `?t=` and everything else lives — so nothing else was going to drop
+it. In the hash it is part of the name of the view, and leaving the view is what drops it.
+Everything above about the URL being the state still holds; only the slot moved. A pill tap
+writes the bare `#history`, so the pane puts its filters back on the address as it is shown
+— otherwise the URL you could copy off the screen would be a wider list than the one on it.
+
+**When it is built.** [The stager](#the-stager--built-at-boot-and-one-poll-behind-all-of-them)
+builds the landed-on pane first and the rest after the first paint, so the ledger's boot is
+offered to it and called by hand only when there is no stager to take it — a document, or a
+service worker cache from before that file existed. A load that lands on Home costs one
+script parse and no request at all; a load that lands on `/#history?status=closed` makes its
+very first request the narrowed one, because the address is read before anything is drawn.
+
+**What ⟳ means, and what keeps a pane honest.** The page had a ⟳ of its own; the shell has
+one for the whole app, so it means *read the view I am looking at again* — each pane asks
+whether the press was its own before spending a sweep on it, and `public/app.js` asks the
+mirror of that question before reloading the inbox. And because a pane is built once rather
+than fetched by the act of arriving at it, a ledger you came back to an hour later would be
+an hour old with nothing saying so. So the pane does now listen to the shell's one poll —
+**not** to fetch on an event, which would be a `bd` sweep per wake against a record of what
+already happened, but to remember that *something moved* and re-read once, quietly, the next
+time you look at it. Quietly means the rows you left stay under your thumb until the first
+page of the new read lands and replaces them: a pane that blanked itself to *Reading the
+ledger…* on every return would be the document load this whole epic exists to remove,
+wearing a different mechanism. It declares no `want`, so the poll it rides is the free park,
+and it is the first pane to put that standby mount up at all.
+
+One id changed with the markup and it is not cosmetic: the list container is `hist-list`
+rather than `history`, in both documents. The hash naming this view is `#history`, and an
+element of that id in the same document is a **fragment target** — a browser asked to go to
+`#history` scrolls it into view, which on the pane you are returning to is the scroll
+position `panes.js` had just restored, thrown away by the URL.
+
+`node test/historyfilter.mjs` runs the real `public/history.js` and `public/filtermenu.js`
+in a `node:vm` in both documents: on the page every check above, and in the shell that
+nothing is fetched before the stager builds it, that the hash it landed on narrows the first
+request, that a chip writes the hash and leaves the query string alone, that leaving and
+coming back keeps the filters and puts them back on the address, that a wake which moved
+something is re-read on the next look with the rows left up meanwhile, that a `presence`
+event costs nothing, and that ⟳ is spent by the pane that is up and by no other.
+
+`node scripts/historypane-check.mjs` is the other half, and a different kind of claim: the
+real `panes.js`, `panestage.js`, `viewbar.js` and stylesheet, in a real Chrome at 393px,
+against its own fixture ledger and no daemon. Four things are only true in a browser — that
+the pane lays out as one scroller inside the shell's column, that the scroll position comes
+back (which is the single thing this epic is buying), that the pill stopped being an `<a>`,
+and that landing on `/#history?status=closed` builds the ledger *first* and makes one
+narrowed request rather than a wide one corrected afterwards. It ends by loading `/history`
+as a document and asserting the same list with its filters in the query string, which is the
+compatibility half this bead is standing on until bc-khoe.30.7.
 
 ### `/closed` and `/done` — what got finished, as a place
 
@@ -12263,6 +12354,38 @@ Reconciliation closes as well as files, and the closing half is the one that is 
 leave out. A register that only ever files grows for ever and evidences nothing — `closed_at`
 is the entire measurement.
 
+### Which criteria this answers, and for which system
+
+    beadcause-incidents --criteria    the crosswalk, and the scope line above it
+
+The scope line comes first, and it is the thing that makes the rest of the table honest.
+Everything above measures **beadcause** — the daemon, its sweeps, its surfaces — and
+bc-228x settled that the system a SOC 2 report here describes is Climative's Energy
+Navigator / Insights, which **carves beadcause out**. A daemon crash is not an incident in
+the described system. Printed without that line, "CC7.2 — monitoring — `lib/errors.js`"
+reads as monitoring of the audited system, and an auditor handed that reading has been
+misled by a report rather than by anybody.
+
+So the described system's own CC7 is a gap, not a silence: `lib/gapassessment.js` carries
+the CC7.1–CC7.5 rows, and the breach-notification windows CC7.4 turns on are in the
+NYSERDA and TD agreements rather than in this repo. Carved out of the description is still
+inside the audit — `lib/boundary.js` records the carve-out with a `bearsOn` naming CC8.1.
+
+The ids are `lib/controls.js`'s and **neither `lib/incident.js` nor `lib/vulnscan.js`
+imports it**. That is the same leaf discipline `lib/servicescope.js` keeps: a register that
+pulls the corpus in stops loading in a release where the corpus is not there, so the ids
+are literals in the module and are resolved against the corpus in the tests. Only the
+SOC 2 ids appear, and the ISO 27001 and 42001 counterparts printed under each are the
+corpus's own crosswalk read backwards — `A.5.26` names `SOC2.CC7.4`, so `satisfiedBy`
+answers the three-framework question from one edge set. A second list here would be the
+second corpus [the corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) exists to
+prevent.
+
+CC7.1 is split and claimed once: the scanning half is `lib/vulnscan.js`, and the
+configuration-baseline half, over a host estate this repo has never seen, is on the gap
+assessment. Claiming a whole criterion from an `npm audit` wrapper is the shape of an
+overstatement an auditor finds in an afternoon.
+
 
 ## The nonconformity, and why a refusal is not one — `beadcause-capa`
 
@@ -12641,6 +12764,61 @@ are daemon-written markers whose loss costs an explanation rather than an hour. 
 in lib/advocate.js is the whole of it, and `test/plandispatch.mjs` is what pins the brief's
 spelling of the prefix to the code's, because the brief cannot import it — lib/advocate.js
 imports lib/session.js to open the windows, so the reverse would be a cycle.
+
+### One card per advocate — an EpicAdvocate is not a fold inside the repo's card
+
+The advocates view draws one card per repo, and until bc-henk every EpicAdvocate under
+that repo was a **collapsed section inside it**, listed under an "Advocates" fold whose
+count was `1 + epicsOf(a).length`. A repo with fourteen open P0s was one card with fifteen
+advocates folded into it, and the nesting made a claim that is not true: that an
+EpicAdvocate is a part of the repo advocate. It is not. It has [its own
+budget](#config--configbeadcauseconfigjson) (`maxEpicAdvocates`, rationed separately from
+`maxWorkers`), its own state, [its own pause](#pausing-one-epic--the-button-that-stops-dispatch-under-a-p0-without-stopping-the-repo),
+and its own queue — the beads under one epic. The only thing it shares with the repo
+advocate is the repo.
+
+**So an advocate is a card.** The repo advocate keeps its own, with its state chip, its
+stepper and its five controls; each epic with an advocate assigned gets a card at the same
+level, headed by the epic's title, its id, what its advocate is doing, and the two controls
+that were previously buried in a section's foot — Pause/Resume and *Open the epic*. Cards
+are emitted **repo, then that repo's epics**, rather than every repo followed by every
+epic: on a phone the second shape puts the reason a repo is dispatching groups a whole
+screen away from the repo doing it.
+
+**The half you cannot see from the layout is where the windows went.** A group dispatched
+from an epic's plan carries the epic it came from (`w.group.epic`), so those sessions are
+now rows on *that epic's* card, and the repo card's "Working now" is only the work no epic
+claimed. Before this they were rows in the repo's list, indistinguishable from the beads
+the repo advocate picked up one at a time — a plan that put four windows up had nothing on
+screen tying them together. No window is drawn on two cards.
+
+**"Working now" keeps counting every coder, and that is not a bug in the arithmetic.** The
+section's count is `codersOf(a).length/limit` — all of them, including the ones an epic
+claimed — because `limit` is what the daemon actually rations per repo, and a section
+headed `2/4` over a repo with four coding windows would be the card disagreeing with what
+`tickOne` will do next. The rows are the subset; a line underneath says how many went to an
+epic's card, so the difference is stated rather than left as arithmetic you have to notice.
+
+**The head of an epic card *is* its fold**, and that is the decision that makes a dozen of
+them affordable. A card cannot be the 40px a collapsed section was — it has a border, its
+own padding and a head — so instead of a head sitting above a collapsed strip, the head is
+the summary: the caret, the epic's title on one line, its id, what its advocate is doing,
+and Pause plus *Open the epic*. Everything else is behind it. The toggle is a `<button>`
+with the controls as its siblings rather than its children, because a button inside a
+button is not markup and Pause has to be pressable without opening anything.
+
+Measured in a headless Chrome at 393×852 — one repo, twelve assigned epics, a window on
+none of them, everything shut:
+
+| shape | the repo and its twelve epics |
+|---|---|
+| twelve folds inside one card (before this) | 2304px |
+| thirteen cards, each head its own fold | 1656px = 372 + 12×107 |
+
+So a repo with a dozen open P0s is **shorter** after being taken apart into cards than it
+was as one card. A fold whose 40px summary strip sat under a two-line card head cost more
+than a head that is the fold. The fold also keeps the key it had as a section
+(`<ws>:epic:<id>`), so an epic you had open before this landed is still open after it.
 
 ### What to test is asked of the tracker, not read off the bead — `beadcause-promotework`
 
@@ -15758,7 +15936,7 @@ setting that keeps applying as you add repos to a shared space, instead of being
 forgotten. A quiet space's advocate **watches without launching**: the same asymmetry
 as the notifications, where quiet means "not into my evening", never "hidden".
 
-## The control corpus — SOC 2, 27001 and 42001 in one closed vocabulary
+## The control corpus — six standards in one closed vocabulary
 
 A compliance framework is a vocabulary before it is anything else, and the failure it invites
 is the same one the requirements corpus above exists to prevent: an agent asked to name a
@@ -15771,15 +15949,20 @@ refused at the door rather than stored and believed.
 shape — a file per standard — is how the same control gets implemented three times and
 evidenced three times, because nothing in it can say that SOC 2's `CC6.1`, 27001's `A.8.3`
 and half a dozen 42001 controls are *one implementation with three names*. Instead a record
-carries a **framework**, an **id within it**, and **crosswalk edges** to its counterparts:
+carries a **framework**, an **id within it**, a **kind**, and **crosswalk edges** to its
+counterparts:
 
-| Framework | Edition | Holds | Count |
-|---|---|---|---|
-| `SOC2` | AICPA TSC 2017, with the 2022 revised points of focus | criteria — CC1–CC9, plus A1, C1, PI1 and P1–P8 | 61 |
-| `ISO27001` | 27001:2022 Annex A | controls — organizational, people, physical, technological | 93 |
-| `ISO42001` | 42001:2023 Annex A | controls — A.2 to A.10 | 38 |
+| Framework | Edition | Holds | Kind | Count |
+|---|---|---|---|---|
+| `SOC2` | AICPA TSC 2017, with the 2022 revised points of focus | criteria — CC1–CC9, plus A1, C1, PI1 and P1–P8 | criterion | 61 |
+| `ISO27001` | 27001:2022 Annex A | controls — organizational, people, physical, technological | control | 93 |
+| `ISO42001` | 42001:2023 | Annex A controls — A.2 to A.10 | control | 38 |
+| `ISO42001` | 42001:2023 | management-system clauses — 4 to 10 | clause | 32 |
+| `ISO23894` | 23894:2023 | risk management — principles, framework, process | process | 22 |
+| `ISO42005` | 42005:2025 | impact assessment — how it is run, what it covers | process | 16 |
+| `ISO5338` | 5338:2023 | AI system life cycle processes | process | 31 |
 
-192 records and 213 crosswalk edges, all of it shipped with beadcause. Unlike the
+293 records and 346 crosswalk edges, all of it shipped with beadcause. Unlike the
 requirements corpus this one does not ride in another repo: the standard does not change per
 install, so an absent corpus here is not a state to degrade into, it is a broken build. There
 is no config key, no environment variable and no loader — the tables are in the file and the
@@ -15794,10 +15977,59 @@ things and would resolve whichever it read last — the silent-wrong-match failu
 argues about with matching an epic by its title. So the id **is** `ISO27001.A.5.2` and
 `ISO42001.A.5.2`, and there is no way to write one down without saying which standard you meant.
 
-That is also what makes the corpus extend rather than fork. ISO/IEC 23894 risk ids or 42005
-impact-assessment ids later are a fourth token and a fourth table, not a fourth module with
-its own idea of what a control is — exactly as the Climative requirements corpus carries `EN`,
-`AS` and `CDP` in one set.
+That is also what makes the corpus extend rather than fork, and it has now been extended
+three times over: ISO/IEC 23894 risk-process ids, 42005 impact-assessment ids and 5338
+life-cycle-process ids are three more tokens and three more tables, not three more modules
+with their own idea of what a control is — exactly as the Climative requirements corpus
+carries `EN`, `AS` and `CDP` in one set.
+
+### One standard asks for two different things, and they are audited differently
+
+ISO/IEC 42001 has two halves and only one of them is a control set. Its **management-system
+clauses 4 to 10** are audited *by record*: there is a scope statement or there is not, a
+management review happened or it did not, and what an auditor asks for is the document. Its
+**Annex A controls** are audited *by evidence of the control operating*, over a period, on a
+sample. Using one word for both is how a programme comes to hold a filing cabinet and call
+it a control set — and it is the more common direction of the mistake, because Annex A is
+the part that looks like work.
+
+So `kind` is on the **record**, from a closed set of four — `criterion`, `control`, `clause`,
+`process` — and a framework declares which kinds it may hold. `ISO42001` holds two, and
+`ISO42001.Clause8.3` and `ISO42001.A.6.2.8` are both real ids under one token. `byKind('clause')`
+is the question a gate asks when it wants the whole management system regardless of which
+standard wrote it down, which no id shape can answer on its own.
+
+The clause ids also close the last of the common-criteria gap. Clause 6.1.3 — select the
+controls, compare them against Annex A, and record what was excluded and why in a Statement
+of Applicability — is the requirement a certificate is actually issued against. Annex A on
+its own is a reference set with nothing that decides which of it applies.
+
+### A certifiable standard is cited by number, a guidance standard by name
+
+`ISO42001.Clause8.3` quotes the numbering of 42001, because that numbering is load-bearing
+outside this repo: a certificate, a Statement of Applicability and an audit finding all point
+at a clause *number*, and an id that did not match would be wrong in the one place it is read
+by somebody who is not us.
+
+ISO/IEC 23894, 42005 and 5338 are **guidance**. Nobody is certified against them, nothing
+anybody signs cites their numbering, and what they are worth here is their subject matter. So
+their ids name that subject instead — `ISO23894.Process.RiskIdentification`,
+`ISO42005.Impacts.Groups`, `ISO5338.Technical.ContinuousValidation` — and `certifiable: false`
+on the framework says so in a field rather than in a convention somebody has to remember.
+
+This is the paraphrase rule below applied to the *id* rather than to the text. Minting
+`ISO42005.Clause6.4.3` would assert a numbering nobody in this repo can check, and a clause
+number that turns out to be somebody else's clause is the same failure as an invented
+control: plausible, unfalsifiable from inside, and wrong exactly where an auditor looks.
+Naming the subject cannot be wrong that way, and `test/controls.mjs` enforces the split in
+both directions — every id in a certifiable framework carries a digit, and no id in a
+guidance one carries any.
+
+The flag is load-bearing on the crosswalk too: **guidance may not claim a criterion.**
+`ISO5338.Technical.Verification` reaches `SOC2.CC8.1` through `ISO42001.A.6.2.4`, in two hops,
+because a direct edge would put a document nobody is audited against into the answer to *what
+satisfies this criterion*. Guidance elaborates a requirement, a control satisfies a criterion,
+and the build refuses the edge that would blur the two.
 
 ### The crosswalk runs one way, and it is on the control
 
@@ -15815,29 +16047,35 @@ closed in both directions rather than only on the way in.
 ```js
 crosswalk('ISO42001.A.6.2.8')   // ['SOC2.CC7.2', 'ISO27001.A.8.15'] — event logs, three names
 satisfiedBy('SOC2.CC6.1')       // twelve 27001 controls and two 42001 ones, one programme
+satisfiedBy('ISO42001.Clause6.1.2')  // what 23894 says a defensible risk process contains
+byKind('clause')                // the management system, regardless of which standard wrote it
 controlsIn(bead.description)    // ids by shape, then kept only if the corpus has them
 keepControls(declared)          // { ids, dropped } — and `dropped` is said out loud
-unclaimed('SOC2')               // the fifteen criteria nothing claims, on purpose
+unclaimed('SOC2')               // the twelve criteria nothing claims, on purpose
 ```
 
-### Fifteen criteria that nothing claims, and why that is the honest answer
+### Twelve criteria that nothing claims, and why that is the honest answer
 
 `unclaimed('SOC2')` is not empty and is not meant to become empty. Inventing an edge to make
 the matrix look full is the one failure this whole file exists to prevent, so the gap is
 pinned as an exact list in `test/controls.mjs` and has to be argued with rather than drifted
-past. There are two distinct reasons for it:
+past. What is left is one reason: **`PI1.4`, `PI1.5` and ten privacy criteria** — output
+delivery, stored-record integrity, consent mechanics, data-subject access and disclosure
+records are ISO/IEC 27701 territory. That standard is not in this corpus, and a criterion is
+better shown unclaimed than mapped to the nearest 27001 control that merely sounds similar.
 
-- **`CC1.2`, `CC3.3`, `CC5.2`** — board oversight, fraud risk and technology general controls
-  are not Annex A controls in either ISO standard. They are management-system **clause**
-  matter (27001 clause 5, 42001 clauses 5 and 6) and COSO umbrellas over a whole theme. The
-  42001 clause half of this corpus is still to come, and these three are most of what it closes.
-- **`PI1.4`, `PI1.5` and ten privacy criteria** — output delivery, stored-record integrity,
-  consent mechanics, data-subject access and disclosure records are ISO/IEC 27701 territory.
-  That standard is not in this corpus, and a criterion is better shown unclaimed than mapped
-  to the nearest 27001 control that merely sounds similar.
+It was fifteen until the 42001 clauses landed. **`CC1.2`, `CC3.3` and `CC5.2`** — board
+oversight, fraud risk and technology general controls — are not Annex A controls in either
+ISO standard and never will be; they are management-system clause matter, and they are
+claimed now by clause 5.1 (leadership and commitment), clause 6.1.2 (the risk assessment that
+has to consider misuse and override) and clause 6.1.3 (selecting the controls and saying
+which were excluded). The pin names those three individually against the clause that claims
+each, so "the gap shrank" can never be recorded without saying how.
 
-Every other common criterion — 30 of the 33 — is claimed by at least one ISO control, and
-that is asserted rather than asserted-about.
+Every common criterion is now claimed by at least one ISO control or clause, and that is
+asserted rather than asserted-about. What that adds up to across all three standards at once
+is [the crosswalk matrix](#the-crosswalk-matrix-generated--beadcause-crosswalk), which is
+generated from these edges rather than kept beside them.
 
 ### The text is a paraphrase, and the standard is the authority
 
@@ -15845,7 +16083,7 @@ Every definition in the corpus is plain language for *what conformity looks like
 system*: derived, on the SOC 2 side, from the 2022 revised points of focus rather than
 invented, and on the ISO side from the control's stated purpose. None of it is normative text
 and none of it is quoted — an auditor reads the standard. The corpus exists to join a bead to
-a control and a control to its counterparts; it is not a copy of three copyrighted documents
+a control and a control to its counterparts; it is not a copy of six copyrighted documents
 and must never grow into one, which `test/controls.mjs` enforces by failing any definition
 that has swollen into a block quote.
 
@@ -16029,6 +16267,54 @@ this one — the two of those never reach the queue at all — or the bead was
 [typed into the running app](#the-worker-at-the-far-end-and-the-one-thing-it-may-not-do)
 — the one kind of work a worker here may not merge, whatever the space says. It went from
 being every delivery to being the interesting ones.
+
+### The pull request says what is happening to it
+
+A branch that will not merge looks, from GitHub's side, exactly like a branch nobody is
+working on. That was true of every queued pull request here for as long as the queue has
+existed: the merge-bead carried the whole account — which gate refused it, which window
+was opened on it, what it merged over — and the pull request carried nothing but the
+diff. Two readers, and only one of them had to know a tracker existed to find out what
+was going on. Since bc-kan5f the pull request is told three times, by the three things
+that actually know.
+
+**Approved, when Adam approves it.** `/merge` is the decision, and it lands on the pull
+request as a real approving review rather than a note claiming one happened — `approve`
+in `lib/pr.js`, submitted by the *second* GitHub account on the Mac, because GitHub
+refuses an approving review from the account that opened the pull request. Where there is
+no second account the review is skipped and said to be skipped, which is the honest
+ending: with no review on it there is no green tick to be mistaken for a person's.
+
+**Taken, when a MergeAdvocate opens on it.** The first step of that window's brief is now
+to say so, *before* it touches the tree — what it is merging into what, and what it
+expects to come out. The order is the point. A prediction posted in advance is worth
+something to whoever reads it next; the same sentence written afterwards is a report, and
+the brief already asks for one of those at the end. "This is the routine sw-cache
+renumber and I expect it green" and "these two sides disagree and I may hand it back" are
+the two useful things to have said in advance, and the second is the more useful.
+
+**Merged, when the queue merges it** — with how it got through, which is the part nothing
+else records. How many windows were opened on it, how many times `main` moved underneath
+it while it waited, what the base was already failing when it went in, who approved it,
+and how long the whole passage took. A branch merged at the fourth attempt with three
+downmerges was not a bad branch, it was an unlucky one, and a month later that
+distinction is unrecoverable from anywhere else.
+
+**What the queue's report deliberately does not do is summarise the advocate's.** The two
+have different witnesses. The advocate knows the conflicts, which side it kept and why,
+and which suites it ran against which tree — and it writes that on the bead. The queue
+knows the shape of the passage and nothing about the diff. So `mergeReport` in
+`lib/mergequeue.js` reports what it is holding in its own hand and *points* at the rest,
+because a summary of somebody else's account, written by a process that did not watch the
+merge, is the exact shape of a confident falsehood — and the queue would be the last
+thing anybody thought to doubt. `test/mergequeue.mjs` pins it from the other side: the
+report may not contain a conflict count or a suite tally, because neither is a number it
+ever had.
+
+All three posts are best-effort and none may stand between a merge and its closes. A
+report that failed to post is a comment nobody got; a report that threw into the close
+path would strand a merged pull request with two open beads, which is the failure the
+whole close sequence is written to avoid.
 
 ### When `main` itself is red — the queue holds, and something is put on the fix
 
@@ -18041,6 +18327,499 @@ against it.
 thing it can check is whether the record admits what it does not know, and that is what
 `test/boundary.mjs` spends most of its checks on.
 
+## The system description, generated — `beadcause-description`
+
+Section 3 of a SOC 2 report is management's description of the system, and it has to meet
+the description criteria in **DC section 200**: the services provided, the principal
+service commitments and system requirements, the components — infrastructure, software,
+people, procedures, data — the relevant aspects of the control environment, risk
+assessment, monitoring and communication, the applicable criteria and the controls meeting
+them, the complementary user entity controls, the subservice organisations and the method
+applied to each, the criteria that are not relevant and why, and the changes and incidents
+in the period.
+
+Written by hand it drifts from reality within a quarter, and the drift is exactly what the
+auditor tests: the description says four environments and there are six, it names a
+processor replaced in March, it lists a policy nobody approved. So it is generated, in
+`lib/systemdescription.js`, from records this release already ships — and **the diff
+between two periods' descriptions is itself a reviewable artefact**, which is the second
+reason and the reason nothing in the output stamps the moment it ran. A generation
+timestamp in the body would make every diff non-empty and throw away the whole point.
+
+    beadcause-description show         the whole description, as markdown
+    beadcause-description sections     one line per section, and what state it is in
+    beadcause-description holes        everything the description admits it does not know
+    beadcause-description criteria     the criteria in scope, and what claims to meet each
+    beadcause-description assertion    the management assertion draft, unsigned
+
+### Three registers meet here, and nothing else does
+
+Every section is computed from one of three leaves: [the boundary](#the-system-boundary-as-data--beadcause-boundary)
+for what is inside, what is carved out and who the user entities are; [the control
+corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) for the
+criteria, their definitions and the crosswalk to the 27001 and 42001 controls that are the
+same implementation under another name; and [the policy set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+for the procedures component and for what claims to be the documented answer to each
+criterion. None of the three imports its neighbours — `lib/policies.js` takes the corpus as
+a *parameter* for exactly that reason — and a description is the one artefact that needs
+all three at once, which is why the joining lives in a file of its own.
+
+**What it refuses to reach for is the sharper half.** Beadcause carries an incident
+register, an access register, a supplier register and a change sample, and wiring any of
+them in would be the mistake `lib/boundary.js` exists to make impossible: beadcause is
+carved out of this boundary, so a daemon crash is not an incident in the described system.
+Out of the boundary is not out of the audit — CC8.1 is still tested against beadcause — but
+the *description* is about what a user entity reaches. `test/systemdescription.mjs` reads
+the module's own import list and fails the repo if one of them appears, because that
+argument cannot be held by a paragraph. The policy set is the exception, and only because
+`HELD_BY` says the policies are Climative's rather than this daemon's.
+
+### A section that cannot be written says so
+
+The tempting shape is a template with blanks, and a blank in a description reads as an
+assertion that there is nothing to say. So every section carries a state, computed and
+never declared — `generated`, `partial`, or `unavailable` with the kind of source that
+holds the answer named beside it.
+
+    $ beadcause-description sections
+    Climative — Energy Navigator / Insights
+      generated    services          2 entries
+      unavailable  commitments       0 entries
+      partial      infrastructure    0 entries  2 holes
+      …
+      unavailable  environment       0 entries
+      partial      criteria         38 entries  1 hole
+      unavailable  incidents         0 entries
+
+    Climative · Energy Navigator / Insights · no period stated · 38 criteria (presumed) ·
+    1 generated, 9 partial, 4 unavailable · 10 holes
+
+`holes` is the one worth running: it flattens every gap the records admit to into an errand
+list, each with where the answer is held. Most of them are the boundary's partial censuses
+arriving one layer up — the census argument is what makes an empty section mean *there are
+none* in one record and *nobody has looked* in another, and the description inherits the
+distinction rather than flattening it back out. `--strict` exits 1 while anything is
+outstanding, so a readiness review can gate on it.
+
+Four sections have no source in this release at all — commitments, the control-environment
+narrative, changes and incidents — and they get a **seam** rather than a permanent red, for
+the reason `lib/boundary.js` gives about its CUEC gap: a gate nobody can ever pass is a gate
+somebody deletes. A caller may hand in a record for those four, held to the same bar as
+everything else, where every entry names where the fact is written down. It is deliberately
+not reachable from the command line: a flag would put a hand-written section one step away,
+which is the thing the whole file refuses.
+
+**No criterion is described twice.** The control-environment section is the description of
+CC1 to CC5, and those are common criteria, so they are already stated in full — with their
+definitions and what claims to be the documented answer — under the criteria section.
+Giving that section its own copy printed the same seventeen definitions on consecutive
+pages, so it names the other one instead. What it is genuinely missing is the narrative: how
+the organisation actually communicates its objectives, assesses its risks and evaluates its
+own internal control, which is a thing somebody writes down rather than a thing a register
+holds.
+
+### The generator produces the draft; a person signs it
+
+A management assertion is a signed statement, so it is a human act. `assertion` always
+hands back `signed: false` and there is no argument that makes it true — a generator that
+could emit a signed assertion is a generator that can forge one. What it does emit is the
+draft, with everything standing between it and a signature printed underneath:
+
+    > **This draft may not be signed yet.**
+    > - 4 sections cannot be written from any record in this release (commitments,
+    >   environment, changes, incidents) — the first thing management asserts is that the
+    >   description meets the description criteria, and a description with a section nobody
+    >   can write does not
+    > - the criteria in scope are presumed from the policy set rather than elected
+    > - the record admits to 10 holes across 9 sections
+
+The operating-effectiveness statement appears only over a period and never at a date, which
+is the whole difference between a Type I and a Type II report and is a rule here rather than
+a formatting choice (`bc-j0o3` owns the decision). The criteria in scope come from the
+install's own [election](#what-you-elected-to-be-held-to--libelectionjs) when it has one,
+and from the categories the policy set is already written against when it does not — in
+which case the document says `presumed` on its face, because a presumption said out loud is
+a different artefact from a default nobody noticed.
+
+## The gap assessment, computed — `beadcause-gaps`
+
+Before an auditor is engaged, every elected criterion needs an honest state: **met** — a
+control exists and produces evidence; **partial** — one of the two; **absent** — neither. A
+readiness assessment sold by a firm is that exercise with an invoice attached, and doing it
+first makes the engagement cheap or unnecessary.
+
+`lib/gapassessment.js` is it, for Climative's Energy Navigator / Insights platform — the
+subject `bc-228x` settled — across the thirty-eight criteria `bc-yfgo` elected. It is the
+first module in this programme that is a **join** rather than a register: it imports [the
+boundary](#the-system-boundary-as-data--beadcause-boundary), [the control
+corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) and [the policy
+set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+exactly as [the description](#the-system-description-generated--beadcause-description)
+does, and for the same reason — the three leaves deliberately do not import each other, so
+anything that needs two of them is a file of its own.
+
+    beadcause-gaps show              every elected criterion, by category
+    beadcause-gaps owners            what each owning function is carrying
+    beadcause-gaps criterion <id>    one criterion in full, with what claims it
+    beadcause-gaps declined          the categories considered and left out
+    beadcause-gaps beads             the one-bead-per-criterion payload, for beadcause-file
+
+### A state nobody typed is a state that cannot go stale
+
+No record carries a state. It carries two halves — a `control` sentence and an `evidence`
+sentence, either of which may be `null` — and the word is derived from them.
+
+That is not tidiness. A hand-written state is the field that goes green first and stays
+green: somebody writes `met` in a planning meeting, the control is descoped a month later,
+and the row still says met because nothing about deleting a control touches a string
+somewhere else. Deriving it means **`met` cannot be written without naming both halves**,
+and removing either one moves the state on its own — which `test/gapassessment.mjs` proves
+by taking the control off a met fixture and watching it fall to partial with no other edit.
+It is the argument [the policy set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+makes about a review date, applied to the other field auditors read first.
+
+The two halves are also the only place a judgement lives. Everything else on a row is
+asked of a neighbour at the moment of asking: **which control ids claim to satisfy a
+criterion** comes from the corpus's `satisfiedBy()`, because `bc-4r10.1` settled that a
+crosswalk edge has exactly one home, and **which policy is the documented answer** comes
+from `policiesFor()`. A second copy of either, written here for reference, is how a
+criterion comes to cite a control that stopped covering it a year ago — so the suite fails
+the repository for any ISO control id appearing anywhere in the module.
+
+### Absent has two meanings, and only one of them is a finding
+
+"We looked and there is no control" and "nobody has enumerated the population this would be
+tested against" are both absences. Only the first is a finding; the second is an
+instruction to go and survey something. A gap assessment that renders them the same hands a
+remediation plan to the wrong people, and thirty-seven identical `absent` rows tell nobody
+where to start.
+
+So every row names the [census kinds](#a-census-is-a-field-because-the-alternative-is-a-blank-that-reads-as-an-answer)
+its criterion is tested against, and the confidence is read out of the boundary rather than
+written down: any kind the boundary records as `partial` makes the row **provisional**, and
+a row tested against documents and management rather than an enumerated estate is
+**assessed**. Six of the seven censuses are partial today, so twenty of the thirty-eight
+rows are provisional — and because it is derived, **surveying the estate upgrades them with
+no edit here**, and letting a census lapse downgrades them the same way. The suite checks
+both directions.
+
+The same rule bites in the other direction: a row claiming `met` against a population
+nobody has enumerated is refused outright. You cannot have tested a control over a list
+that does not exist.
+
+### No criterion silently absent, and no category silently unconsidered
+
+The failure the bead is named for. A criterion with no control is a row that says so and
+somebody reads it; a criterion missing from the list is invisible, and the report is
+written without it. A hand-kept list cannot refuse that — it agrees with itself by
+construction and is silent about exactly the thing that went missing.
+
+So the list is not hand-kept. The corpus enumerates, and the register is required to hold
+exactly one record per elected criterion, none for an unelected one, and no duplicates.
+The check runs **at import**, so a criterion added to `lib/controls.js` and not assessed
+here is a failing import in every suite rather than a blank in a report.
+
+Election has the same hole one level up: a category nobody mentions and a category somebody
+declined look identical in a register that lists only what is in scope. `NOT_ELECTED`
+records the two that were left out — Processing Integrity deferred to renewal, Privacy
+declined — with `bc-yfgo` beside each, and a category that is neither elected nor recorded
+as declined is refused. `beadcause-gaps declined` is the verb nobody thinks to run and the
+one that answers "why is there nothing about privacy in here".
+
+### Zero met is the finding, not a gap in the assessment
+
+    Climative · Energy Navigator / Insights · 38 elected criteria · 0 met, 1 partial, 37 absent · 20 provisional
+
+Eighteen rows are assessed-absent: organisational controls where nothing has been written
+down, and the policy set already enumerates the fifteen documents that would write them.
+Nineteen are provisional-absent, waiting on a survey of the estate rather than on a
+control. One is partial — **CC8.1, change management, and it is evidence without a
+control** rather than the other way round. Beadcause holds a per-change record for the
+repositories it drives, which the boundary names as precisely why the daemon is [carved out
+of the description and still inside the audit](#out-of-the-boundary-is-not-out-of-the-audit);
+nothing describes or approves how a change reaches production in Energy Navigator, so there
+is no control to test.
+
+That number is worth stating plainly because the bead predicted otherwise: that CC8 and
+parts of CC6 would already be strong because beadcause enforces them. That prediction was
+written before `bc-228x` chose the subject and only held under the other answer. Beadcause's
+endorsement gate and merge queue govern how source changes are authored, which is one input
+to CC8.1 and none of CC6 — and writing a comfortable number here anyway would produce a
+register that passes every check and is false in the only way that matters.
+
+### One bead per criterion, emitted rather than typed
+
+`beadcause-gaps beads` renders the whole assessment as the filing payload `beadcause-file`
+takes — a bead per criterion, carrying its state, its owner, the control ids that claim it,
+what would be sampled and where the answer is held:
+
+    beadcause-gaps beads | beadcause-file -w beadcause --from bc-4r10.4
+
+It emits rather than files, and that is the point. Thirty-eight beads typed once and never
+regenerated drift from the register within a quarter, and a criterion quietly dropped from
+the tracker is the exact failure the register exists to refuse — the register cannot lose
+one, because the corpus enumerates it. So the decomposition is one command away and derived
+from the assessment rather than beside it, and regenerating it after a state moves is the
+same command again.
+
+## The auditor engagement, dated by readiness — `beadcause-engagement`
+
+SOC 2 has no accredited body and no certificate. The report is signed by a licensed CPA
+firm subject to AICPA peer review, so **which firm** is a commercial decision with a
+technical half, and **when the period starts** is the decision that quietly decides whether
+the report comes back clean.
+
+`lib/engagement.js` holds both, and holds them the way the rest of this layer holds
+everything: the judgements are data, and every state read off them is derived at the moment
+of asking. It is the second module above the leaves rather than beside them — it asks [the
+gap assessment](#the-gap-assessment-computed--beadcause-gaps) for readiness instead of
+re-deriving it from the corpus, because a second opinion about whether a criterion is met is
+exactly the second copy this layer exists to refuse.
+
+    beadcause-engagement show                  the sequence, the dates and the letter
+    beadcause-engagement dates                 the Type I as-of and the window open date
+    beadcause-engagement letter                the four terms, and which of them resolve
+    beadcause-engagement firms                 the classes, the questions, what a quote must cover
+    beadcause-engagement bridge <end> <asked>  the bridge state between two dates
+
+### `dates` never prints a date, and that is the verb
+
+`bc-j0o3` was answered: **Type I now, with the Type II observation window opening the same
+day.** The Type I is largely a by-product of preparing for the Type II, so having both costs
+little, and starting the clock early is the only lever that shortens a timeline otherwise
+made of elapsed time.
+
+The rule that answer creates is the one that gets broken. The window opens when the controls
+demonstrably **operate** — not when a report is wanted. Opened earlier it does not shorten
+anything; it produces a report containing exceptions, which is commercially worse than a
+later clean one. So a stored `windowOpensOn: '2026-09-01'` is not a plan. It is a bet that
+thirty-eight criteria will be met by a date chosen before anybody looked, and the bet is
+settled by an auditor rather than by whoever typed it.
+
+There is therefore no date field, and `test/engagement.mjs` fails the repository for a date
+literal appearing anywhere in the module's code. What the command prints instead is whether
+a date **may** be set, and what is holding it:
+
+    Type I as-of         not settable
+    Type II window opens not settable
+
+    Type I — operating gate: shut, 38 holding
+
+Two gates, both read off the gap assessment. **design** is what a Type I opines on: every
+elected criterion has a described control, whether or not it has yet produced anything to
+sample. **operating** is what a window needs: every criterion is `met` — control *and*
+evidence — **and** `assessed` rather than
+[provisional](#absent-has-two-meanings-and-only-one-of-them-is-a-finding), because a control
+cannot have been tested over a population nobody has enumerated. That second half is the one
+people leave out, and it is why the operating gate can be shut on a register whose every row
+says met. The suite drives both directions on fixtures: taking the evidence off one row
+shuts the operating gate and leaves the design gate open, and a met row against an
+unsurveyed estate holds the window shut on its own.
+
+Because `bc-j0o3` put both dates on one day, the **design gate can never be the binding
+one** — `met` cannot hold without a described control, so the operating gate is strictly the
+stricter of the two. That falls out of the recorded answer rather than being written beside
+it.
+
+### The letter names four things, and two of them cannot be filled in yet
+
+An engagement letter has to name the elected criteria, the description criteria, the period
+and the subservice method. Each resolves from a neighbour rather than being restated, and
+`beadcause-engagement letter` gets two answers and two refusals:
+
+- **the elected criteria** resolve, out of the gap assessment, which takes them from [the
+  policy set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+  — one home, so the letter and the assessment cannot disagree about what the opinion covers;
+- **the description criteria** resolve, out of [the generated
+  description](#the-system-description-generated--beadcause-description)'s fourteen DC
+  section 200 sections;
+- **the period** does not, because the gates are shut;
+- **the subservice method** does not, and this is the one worth reading twice.
+
+The boundary's subservice list is empty under a **partial**
+[census](#a-census-is-a-field-because-the-alternative-is-a-blank-that-reads-as-an-answer),
+which says *nobody has surveyed the processors* rather than *there are none*. A method is a
+decision per subservice organisation, and there is no list to decide over. A letter naming
+`carve-out` today would assert a decision about organisations nobody has enumerated — and
+[each carve-out owes a CUEC](#a-carve-out-owes-a-cuec-or-a-control-has-vanished) the user
+entities have to act on. Enumerate the census and the same code says *there are none*, which
+is the opposite instruction; the suite checks both sentences.
+
+### An emptiness that says which emptiness it is
+
+No firm has been asked. `QUOTES` is empty and `ENGAGED` is `null`, and `selection()` reports
+**unsolicited** rather than leaving a blank that reads the same as a search that failed —
+the same absence [the gap assessment refuses one level
+down](#no-criterion-silently-absent-and-no-category-silently-unconsidered).
+
+`beadcause-engagement firms` prints what the choice is between rather than who to call,
+because the class is what moves the numbers and the roster inside a class turns over faster
+than this file will: an **audit-tech platform** bundles the firm with the evidence tooling
+and is fastest, a **boutique security-assurance firm** is read as more credible by the buyers
+who read the report rather than its cover page, and a **general accounting firm** with a
+small assurance practice is cheapest and least persuasive. The bundle is flagged, because it
+answers the tooling question and the firm question at once — which is convenient, and is how
+a firm comes to be chosen by a tooling decision nobody framed that way.
+
+Two questions separate them, and the list is two long and closed: *how do you test a control
+whose evidence is a git ref rather than a screenshot*, and *have you signed a report for a
+service organisation where most privileged actors are automated rather than human*. A
+question every firm answers the same way discriminates nothing and makes a comparison table
+look thorough while comparing nothing. The answers to these two predict how much of the
+observation window is spent explaining the system rather than being tested against it, which
+is the cost nobody quotes.
+
+A quote is comparable only when it covers **both** reports. `bc-j0o3` chose a sequencing, so
+a Type-II-only quote prices a different plan, and comparing it to a quote for both is how the
+cheapest number wins an argument it was not in. Two are the minimum; one quote is a price
+with nothing to compare it to.
+
+### A bridge letter is two dates and a limit
+
+A report covers a period; a customer asks for it later. The gap between period end and the
+request is what a bridge letter covers, and the state is computed from those two dates alone
+— `covered` when the request falls inside the period, `bridge` within three months of period
+end, and **`stale`** past it. Stale is not a longer bridge. It is a different purchase: what
+the buyer wants is a current report, and a firm asked for a six-month bridge says so after
+the invoice.
+
+### The non-goal is checked rather than asserted
+
+`bc-4r10.13` carries an explicit non-goal — do not buy evidence-collection tooling before
+`bc-4r10.1` and `bc-4r10.5` exist. The pitch for those platforms is that they collect
+evidence you do not otherwise have, and the premise of this programme is that the evidence is
+a by-product of work that is already gated; buying first is paying a subscription to
+re-photograph a git ref. Both are readable from here rather than taken on trust: the corpus
+is present when the elected criteria enumerate, and `bc-4r10.5` landed when CC8.1 carries
+evidence in the assessment. A comment saying they landed would still say so after somebody
+deleted one.
+
+Which leaves the purchase itself, and it inherits the missing date. `bc-4r10.17` answered
+*buy a compliance platform two to three months before the window opens*, so the purchase
+window is derived from a date that does not exist — and `beadcause-engagement dates` says
+exactly that, rather than naming a quarter. That is the point of the whole module in one
+line: **no purchase window, because the observation window has no date.**
+
+## The crosswalk matrix, generated — `beadcause-crosswalk`
+
+The programme's premise is that a SOC 2 report, an ISO/IEC 27001 certificate and an
+ISO/IEC 42001 certificate describe **one implemented system** rather than three, and that a
+fourth standard therefore costs a fraction of the third. That is either true of the corpus
+or it is marketing, and the difference is a matrix somebody can read.
+
+`lib/crosswalkreport.js` is that matrix, and **nothing in it is written down**. [The
+corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) already holds every
+obligation and every crosswalk edge; a matrix typed out beside it would be a second copy of
+the edges, wrong within a quarter and wrong exactly where a buyer looks. Every cell is an
+edge asked of the corpus on the call, the suite fails the repository for any control id
+appearing in the module at all, and the numbers below are computed each time they are
+printed. It is the third [join](#the-gap-assessment-computed--beadcause-gaps) in this
+programme rather than a fourth register — the compliance leaves deliberately do not import
+each other, so it takes the corpus and [the policy
+set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+and reaches for nothing else.
+
+    beadcause-crosswalk matrix          every obligation and what claims to satisfy it
+    beadcause-crosswalk shared [n]      controls answering n standards at once (default 3)
+    beadcause-crosswalk uncovered       in-scope obligations nothing claims — the check
+    beadcause-crosswalk undecided       obligations waiting on a statement of applicability
+    beadcause-crosswalk control <id>    one record, both directions, and its indirect reach
+    beadcause-crosswalk csv             the dense grid, for a spreadsheet
+
+### Twenty-nine controls answer all three standards at once
+
+    climative · 224 obligations across 3 certifiable standards · 346 crosswalk edges · 29 answer all 3 at once · 14 in scope and unclaimed · 131 awaiting a statement of applicability
+
+Twenty-nine is the number the premise rests on, and `beadcause-crosswalk shared` is it as a
+list. A row's **span** is how many certifiable standards it touches at once — its own, plus
+every standard its edges reach — so a row of span three is one implementation with three
+names: write the control once, evidence it once, and three auditors are answered. A hundred
+and thirty-six records reach exactly two and sixty-seven reach one, and that histogram is the
+duplicated-work map the programme plans against.
+
+Span counts certifiable standards only. ISO/IEC 23894, 42005 and 5338 are guidance — nobody
+is certified against them, nothing anybody signs cites them — so a guidance row that
+elaborates one Annex A control has reached one standard, not two, however many documents
+were consulted. They are rows, because a life-cycle process that elaborates a control is
+real reuse; they are never columns, because a report that gave a reading list a column would
+be presenting it as a conformance claim.
+
+### The matrix has a direction, and the tempting error is to forget it
+
+Crosswalk edges run from controls **to** criteria and never the other way, because a
+criterion is satisfied by many controls and keeping the list on the criterion is how it goes
+stale. The consequence for a report is that inbound and outbound are different questions and
+only one of them is coverage:
+
+- *What claims to satisfy this?* — inbound, and this is coverage. An obligation with no
+  inbound edge is one nothing in the corpus answers.
+- *What does this claim to satisfy?* — outbound. Almost every control has one and almost
+  nothing points back at it.
+
+Counting outbound as coverage would report the whole of both ISO Annex A sets as covered
+while saying nothing at all, and every sum in the report would still add up. So both numbers
+are on every column, only the first is called `covered`, and the suite pins a column with
+outbound edges and no inbound — the exact record the mistake would turn green.
+
+### An empty column is not always a gap, and the difference is applicability
+
+"Nothing claims this" is a finding only where the obligation is one this organisation
+actually carries, and there are three answers rather than one — each read from somewhere
+rather than decided in the report:
+
+- **elected or declined** — a Trust Services criterion is in scope if its category was
+  elected, which is `lib/policies.js`'s answer and `bc-yfgo`'s decision. Twenty-three
+  criteria are declined, twelve of them have no inbound edge, and none of those twelve is a
+  gap: they are ISO/IEC 27701 territory in categories nobody elected.
+- **mandatory** — a management-system clause. Nobody may exclude one, so an empty clause
+  column is a real finding.
+- **undecided** — an Annex A control. Whether it applies is what a Statement of
+  Applicability decides, and there is not one yet — `bc-eqn1.14`. A hundred and thirty-one
+  controls are waiting on it.
+
+So `uncovered` is *in-scope obligations nothing claims*, deliberately narrower than "every
+empty column". Padding it with a hundred and thirty-one controls that may be excluded on the
+day somebody writes the statement would bury the fourteen that genuinely are gaps, and
+calling them covered would be worse — so `beadcause-crosswalk undecided` counts them out
+loud instead, which is what makes the narrowing visible rather than quiet. The day the
+statement of applicability lands, this reads it rather than guessing.
+
+### Every elected criterion is claimed, and every gap is the management system
+
+    14 obligations are in scope and nothing in the corpus claims them
+
+Not one of the thirty-eight elected criteria is unclaimed. All fourteen gaps are ISO/IEC
+42001 management-system clauses — scope, the AI policy, competence, awareness, operational
+planning, risk treatment, the internal audit programme, management review, corrective
+action — and that is the honest finding rather than a hole in the report: **the management
+system is work no other standard's control does for you.** A crosswalk cannot make clause 7.2
+cheaper, because nothing in 27001's Annex A or SOC 2's criteria is clause 7.2 under another
+name. Everything a matrix *can* make cheaper, it already has.
+
+`--strict` exits 1 when anything in scope is unclaimed, so a check can gate on it, and
+`--framework SOC2 --strict` passes today while the unnarrowed form does not.
+
+### The grid lives in the spreadsheet, because a terminal cannot draw it
+
+`matrix` reads down the columns and `shared` reads along the rows, and that is the whole
+difference between them: *is this obligation covered* is a column and *does this control earn
+its keep three times over* is a row. Drawn as an actual grid in a terminal it answers
+neither — two hundred and twenty-four columns is not a thing anybody reads — so
+`beadcause-crosswalk csv` is where the grid lives, with a second header line carrying each
+column's applicability so a blank column can be read without a legend. It is the same
+computation as the other verbs rather than a second rendering of the same idea, which is what
+stops the readable artefact and the shareable one disagreeing, and the suite round-trips
+every cross in the sheet back to a declared edge.
+
+`beadcause-crosswalk control <id>` is the single-record view, and it prints three things
+apart from each other on purpose: what claims this, what this claims, and what it reaches
+*indirectly*. Guidance may not claim a criterion directly — the corpus refuses the edge, so
+a life-cycle process reaches a criterion in two hops through the control that implements it —
+and that route is worth being able to ask for. But a cell is a claim somebody would defend to
+an auditor and a transitive reach is an argument about why work is not duplicated. Rendering
+them the same is how a matrix comes to assert something nobody meant, so `reach()` is a
+separate function and the label says what it is.
+
 ## What you elected to be held to — `lib/election.js`
 
 Beadcause **records** unconditionally. Sessions are archived against their bead, merges
@@ -18748,6 +19527,19 @@ whether or not a phone in another room hears about it.
 
 `test/news.mjs` covers all of it, including a real `POST /api/landed` into a real
 `createApp` and the `GET /api/poll` that answers with it.
+
+**Three of those emitters live in the poller, where `bus` is not a name.** `createApp` is
+one long closure holding `bus`, `bd`, `advocates` and `syncer` as locals; `startPoller` is
+a separate top-level function beside it that gets the same objects as `app.bus`, `app.bd`
+and so on. So a line copied down from one to the other parses, boots, and throws
+`bus is not defined` on the first deploy the daemon settles — which is bc-gdub, filed by
+the daemon against itself, and it cost every settled deploy its card on the phone while
+the board still drew the deploy as finished. Reading the source for `bus.emit(deployEvent`
+does not catch it, because `app.bus.emit(deployEvent` contains that text; the checks in
+`test/news.mjs` are pinned to the `app.` prefix for that reason, and `test/pollerbus.mjs`
+is the other half — it plants a settled deploy record on disk, runs a real poller over it,
+and reads the events off a real bus, then sweeps the whole of `startPoller` for any daemon
+singleton named bare.
 
 ### An epic finishing — a diff of the tracker, never your own tap
 

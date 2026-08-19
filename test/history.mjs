@@ -175,7 +175,9 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     window,
     document: {
       getElementById: (id) =>
-        id === 'history' ? out : id === 'pulse' ? pulse : id === 'hist-refresh' ? refresh : null,
+        // `hist-list` since bc-khoe.30.5 — see the note on the same lookup in
+        // test/historyfilter.mjs.
+        id === 'hist-list' ? out : id === 'pulse' ? pulse : id === 'hist-refresh' ? refresh : null,
     },
     localStorage: { getItem: (k) => store.get(k) ?? null },
     fetch: fetchStub,
