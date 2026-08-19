@@ -820,13 +820,18 @@
   /* ------------------------------------------------------------------- the stream */
 
   /**
-   * Follow the event log instead of re-asking on a clock.
+   * One answered poll, whichever mount asked for it.
    *
-   * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll
-   * that asked for the inbox questions, and this page draws none of them — it wants to
-   * be woken, and then it decides for itself whether the news was about a pull request.
-   * `cold: true` because `/api/prs` carries no sequence, and with `want: 'presence'` the
-   * `since`-less first request that learns one costs nothing.
+   * The shape is `follow`'s own `onWake` argument, which is also what public/montabs.js
+   * fans out from the stager — so this is the document's `onWake` and the pane's `wake`,
+   * one function under one name rather than the same logic written twice and free to
+   * drift.
+   *
+   * **Nothing in here is free, so the guard is the first line rather than a middle one.**
+   * Every wake this board acts on is a `gh` sweep per repo, which is the reason the pane
+   * this section is in stands down while it is hidden at all — see the header of
+   * public/montabs.js. The roster next door takes the free half of a wake regardless; this
+   * one has no free half to take.
    *
    * **Why it re-asks for the board rather than patching the row the event names.** The
    * three lamps are not fields on the event: `merged`, `pushed` and `deployed` are the
@@ -836,19 +841,6 @@
    * makes the re-ask cheap instead is on the daemon: the three events that move a row
    * drop the board cache as they fire, so the first board through does one `gh` sweep
    * and every other open board shares it.
-   */
-  /**
-   * One answered poll, whichever mount asked for it.
-   *
-   * The shape is `follow`'s own `onWake` argument, which is also what public/montabs.js
-   * fans out from the stager — so this is the page's `onWake` and the pane's `wake`, one
-   * function under one name rather than the same logic written twice and free to drift.
-   *
-   * **Nothing here is free, so the guard is the first line rather than a middle one.**
-   * Every wake this board acts on is a `gh` sweep per repo, which is the reason the pane
-   * this section is in stands down while it is hidden at all — see the header of
-   * public/montabs.js. The roster next door takes the free half of a wake regardless; this
-   * one has no free half to take.
    */
   function wake({ events, resync }) {
     if (!upNow()) return;
@@ -875,11 +867,25 @@
      this section's socket there. Exactly one of the two fires per document. */
   window.beadcause?.monTabs?.onWake?.(wake);
 
+  /**
+   * Follow the event log instead of re-asking on a clock — on the document only.
+   *
+   * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll
+   * that asked for the inbox questions, and this view draws none of them — it wants to
+   * be woken, and then it decides for itself whether the news was about a pull request.
+   * `cold: true` because `/api/prs` carries no sequence, and with `want: 'presence'` the
+   * `since`-less first request that learns one costs nothing.
+   *
+   * **In the shell this does nothing at all**, and the early return is the point rather
+   * than a tidy-up: that document holds exactly one poll and public/panestage.js hands its
+   * answers to every pane that asked for them. A second `follow` here would be one of the
+   * four parked requests one screen would otherwise hold — each a `bd` sweep per event on
+   * the daemon behind it. `presence` is declared to the stager instead, by
+   * public/montabs.js, and it is the same word for the same reason.
+   */
   let stream = null;
   function follow() {
-    // **Nothing at all in the shell** — that document holds one poll, and
-    // public/panestage.js hands its answers on. See the same three lines in
-    // public/monitor.js and public/releases.js.
+    // See the same three lines in public/monitor.js and public/releases.js.
     if (inShell || !window.beadcause?.stream) return;
     // Mounted once and started every time `load` runs — the boot and the ⟳ — so a stream
     // that gave up after a run of failures can be picked back up by hand. `start` on one

@@ -2617,20 +2617,6 @@
   /* ------------------------------------------------------------------- the stream */
 
   /**
-   * Follow the event log instead of re-asking on a clock.
-   *
-   * `want: 'presence'` is what makes the park free — this page draws none of the inbox
-   * questions, so it asks the daemon not to sweep `bd` on its behalf and goes and gets
-   * what it needs itself, for the events that need it. `cold: true` because `/api/work`
-   * carries no sequence, and the `since`-less first request that learns one costs
-   * nothing under `want: 'presence'`.
-   *
-   * The pane is only followed while it is the one you are looking at: the mirror tab
-   * sits over this one, and a hidden page must not keep asking about every tracker on
-   * the Mac. That was true of the timer this replaces and it is truer here, because the
-   * park is a held socket rather than a tick.
-   */
-  /**
    * One answered poll, whichever mount asked for it.
    *
    * The shape is `follow`'s own `onWake` argument, which is also what public/montabs.js
@@ -2676,13 +2662,29 @@
      this section's socket there. Exactly one of the two fires per document. */
   window.beadcause?.monTabs?.onWake?.(wake);
 
+  /**
+   * Follow the event log instead of re-asking on a clock — on the document only.
+   *
+   * `want: 'presence'` is what makes the park free — this view draws none of the inbox
+   * questions, so it asks the daemon not to sweep `bd` on its behalf and goes and gets
+   * what it needs itself, for the events that need it. `cold: true` because `/api/work`
+   * carries no sequence, and the `since`-less first request that learns one costs
+   * nothing under `want: 'presence'`.
+   *
+   * It is followed only while this section is the one you are looking at: the mirror chip
+   * sits over it, and now the whole pane can be hidden behind Home. That was true of the
+   * timer this replaces and it is truer here, because the park is a held socket rather
+   * than a tick.
+   *
+   * **In the shell this does nothing at all**, and the early return is the point rather
+   * than a tidy-up: that document holds exactly one poll and public/panestage.js hands its
+   * answers to every pane that asked. A second `follow` here would be one of the four
+   * parked requests one screen would otherwise hold — each a `bd` sweep per event on the
+   * daemon behind it. `presence` is declared to the stager instead, by public/montabs.js,
+   * and it is the same word for the same reason.
+   */
   let stream = null;
   function follow() {
-    // **Nothing at all in the shell**, and the early return is the point rather than a
-    // tidy-up: that document holds exactly one poll and public/panestage.js hands its
-    // answers to every pane that asked. A second `follow` here would be one of the four
-    // parked requests this page would otherwise hold from one screen — and each of them is
-    // a `bd` sweep per event on the daemon behind it.
     if (inShell || !window.beadcause?.stream) return;
     // Mounted once and started every time. `load` is what calls this — the boot, the ⟳,
     // and the mirror tab handing the pane back (`window.beadcause.monitor.refresh`) —

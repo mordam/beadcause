@@ -816,43 +816,6 @@
   /* ---------------------------------------------------------------------- feed */
 
   /**
-   * The delta stream, followed for presence — the sixth and last mount of stream.js.
-   *
-   * This was a `for (;;)` of its own until bc-2ml3, and the reason given for leaving it
-   * out of the conversion was that three of the shared loop's rules are inverted here:
-   * it runs whether or not its pane is showing, it never stops, and it has no fallback
-   * to stand down to. Read against what `stream.js` actually offers, none of the three
-   * survives — which is why this is a mount and not a sixth hand-rolled long poll:
-   *
-   *   - **"Whether or not the pane is showing" is not the visibility rule.** The pane
-   *     here is the mirror/advocates toggle *inside* one document, and stream.js has no
-   *     opinion about it: its rule is `document.hidden`, the browser tab. So passing no
-   *     `ready` keeps exactly the property this comment used to defend — the feed runs
-   *     while you are looking at the advocates pane, which is what makes the dot able to
-   *     say the phone has moved behind it. A window merely unfocused on a second screen
-   *     is `visible`, and that is the mirror's whole use case; hidden means minimised or
-   *     a background tab, where nothing here is being read by anyone.
-   *   - **"Never stops" is the retry, and it is the default.** `retryMs` walks a broken
-   *     poll out to a minute instead of re-asking a daemon that has gone every three
-   *     seconds for as long as the page is open, which is what this loop did.
-   *   - **"No fallback" is `onSettle` being optional.** A mount with a retry and no
-   *     settle handler is precisely "come back, there is nothing to stand down to".
-   *
-   * What the conversion adds beyond the backoff: an abort when the tab hides rather than
-   * a socket held in the dark, and a `resync` this loop had no concept of.
-   *
-   * `want: 'presence'` keeps the listener from making the daemon sweep every tracker on
-   * each event — this page reads `presence`, and nothing else here. `cold: true` because
-   * nothing else on this page carries a sequence, so the first request has to go and ask
-   * the log where it is; without it the pane would wait for the first event before it
-   * knew there were any devices at all.
-   *
-   * Optional throughout, as on the inbox: `monitor.html` loads `/stream.js` above this
-   * file, but a shell cached before that was true would make a bare call a TypeError in
-   * the first lines of this IIFE — a mirror pane with no tabs at all, rather than one
-   * that does not follow.
-   */
-  /**
    * One answered poll, whichever mount asked for it.
    *
    * The shape is `follow`'s own `onWake` argument, which is also what public/montabs.js
@@ -892,10 +855,52 @@
      this section's socket there. Exactly one of the two fires per document. */
   window.beadcause?.monTabs?.onWake?.(wake);
 
+  /**
+   * The delta stream, followed for presence — the sixth and last mount of stream.js.
+   *
+   * This was a `for (;;)` of its own until bc-2ml3, and the reason given for leaving it
+   * out of the conversion was that three of the shared loop's rules are inverted here:
+   * it runs whether or not its pane is showing, it never stops, and it has no fallback
+   * to stand down to. Read against what `stream.js` actually offers, none of the three
+   * survives — which is why this is a mount and not a sixth hand-rolled long poll:
+   *
+   *   - **"Whether or not the pane is showing" is not the visibility rule.** The pane
+   *     here is the mirror/advocates toggle *inside* one document, and stream.js has no
+   *     opinion about it: its rule is `document.hidden`, the browser tab. So passing no
+   *     `ready` keeps exactly the property this comment used to defend — the feed runs
+   *     while you are looking at the advocates pane, which is what makes the dot able to
+   *     say the phone has moved behind it. A window merely unfocused on a second screen
+   *     is `visible`, and that is the mirror's whole use case; hidden means minimised or
+   *     a background tab, where nothing here is being read by anyone.
+   *   - **"Never stops" is the retry, and it is the default.** `retryMs` walks a broken
+   *     poll out to a minute instead of re-asking a daemon that has gone every three
+   *     seconds for as long as the page is open, which is what this loop did.
+   *   - **"No fallback" is `onSettle` being optional.** A mount with a retry and no
+   *     settle handler is precisely "come back, there is nothing to stand down to".
+   *
+   * What the conversion adds beyond the backoff: an abort when the tab hides rather than
+   * a socket held in the dark, and a `resync` this loop had no concept of.
+   *
+   * `want: 'presence'` keeps the listener from making the daemon sweep every tracker on
+   * each event — this page reads `presence`, and nothing else here. `cold: true` because
+   * nothing else on this page carries a sequence, so the first request has to go and ask
+   * the log where it is; without it the pane would wait for the first event before it
+   * knew there were any devices at all.
+   *
+   * Optional throughout, as on the inbox: `monitor.html` loads `/stream.js` above this
+   * file, but a shell cached before that was true would make a bare call a TypeError in
+   * the first lines of this IIFE — a mirror pane with no tabs at all, rather than one
+   * that does not follow.
+   *
+   * **In the shell none of that applies, because there is no mount here at all.** That
+   * document holds exactly one poll and public/panestage.js hands its answers to every
+   * pane that asked; a second `follow` here would be one of the four parked requests one
+   * screen would otherwise hold, each a `bd` sweep per event on the daemon behind it.
+   * `presence` is declared to the stager instead, by public/montabs.js, and it is the same
+   * word for the same reason. See the same three lines in public/monitor.js,
+   * public/prs.js and public/releases.js.
+   */
   function feed() {
-    // **Nothing at all in the shell** — that document holds one poll, and
-    // public/panestage.js hands its answers on. See the same three lines in
-    // public/monitor.js, public/prs.js and public/releases.js.
     if (inShell) return;
     const stream = window.beadcause?.stream?.follow?.({
       api,
