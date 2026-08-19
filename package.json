@@ -35,7 +35,8 @@
     "beadcause-management": "bin/management.js",
     "beadcause-attest": "bin/attest.js",
     "beadcause-capa": "bin/capa.js",
-    "beadcause-gaps": "bin/gaps.js"
+    "beadcause-gaps": "bin/gaps.js",
+    "beadcause-engagement": "bin/engagement.js"
   },
   "scripts": {
     "start": "node bin/router.js",
