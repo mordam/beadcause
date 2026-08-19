@@ -1881,9 +1881,10 @@
   }
 
   /**
-   * The four settings a repo row may answer for itself, in the order they happen to
-   * work: a filing arrives, a pull request merges, a review gates that merge, the merge
-   * deploys. Reading down a row is reading the life of one piece of work.
+   * The five settings a repo row may answer for itself, in the order they happen to
+   * work: a filing arrives, a pull request merges, your approval gates that merge, an
+   * agent's review gates it too, the merge deploys. Reading down a row is reading the
+   * life of one piece of work.
    *
    * `on`/`off` are the sentences the *buttons* promise, so each one says what pressing
    * it does to this repo rather than naming the field again — a title reading
@@ -1917,6 +1918,16 @@
       off: 'green checks are enough',
     },
     {
+      key: 'reviewRequired',
+      what: 'An agent reviews it first',
+      // Moot for the same reason the row above it is: with auto-merge off the pull
+      // request is already a question in your hand, and a review loop in front of a
+      // decision you are going to make yourself is a round trip nobody asked for.
+      moot: (r) => !r.autoMerge,
+      on: 'nothing merges until the ReviewAdvocate has read the diff and approved it',
+      off: 'the merge queue merges without anything reading the diff',
+    },
+    {
       key: 'autoShip',
       what: 'Merges ship themselves',
       on: 'a merge runs this repo’s deploy without waiting for Ship',
@@ -1941,7 +1952,7 @@
    * carries that per field; `r.own` is `null` for every field this repo leaves alone,
    * which is what puts Inherit on.
    *
-   * A row whose payload predates `own`/`inherits` draws nothing rather than four rows of
+   * A row whose payload predates `own`/`inherits` draws nothing rather than five rows of
    * buttons that would all read Inherit (off) and write the wrong answer on a press — the
    * same reasoning the server side gives for treating an unreadable override as absent.
    */
@@ -2146,6 +2157,13 @@
         g.requireApproval
       ),
       tri(
+        'reviewRequired',
+        'An agent reviews it first',
+        'On means nothing merges here until the ReviewAdvocate has read the diff and approved it — a second gate in front of the queue, not a substitute for your own. Leave it off in a repo where nothing is reviewing: on, with no reviewer, is a queue that stops rather than one that waits.',
+        s.reviewRequired,
+        g.reviewRequired
+      ),
+      tri(
         'autoShip',
         'Merges ship themselves',
         'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
@@ -2206,6 +2224,7 @@
               <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
               <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
+              ${r.autoMerge && r.reviewRequired ? '<span class="tag warn">reviewed first</span>' : ''}
               <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
               ${
                 // Only where Slack is on at all: a "no slack" tag on every repo of every

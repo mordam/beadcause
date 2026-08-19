@@ -164,6 +164,12 @@ check(
    is what the whole of bc-khoe exists to stop, and there will be roughly nine pills. */
 check('the row scrolls sideways rather than wrapping', has('.viewbar', 'overflow-x\\s*:\\s*auto'));
 check('and no pill is allowed to squeeze or stretch', has('.viewpill', 'flex\\s*:\\s*none'));
+/* The counts on the four Home pills (bc-khoe.23) land on a 25-second poll, so the badge
+   has to be a fixed width or the pills to its right shuffle under a thumb already moving
+   to one of them. Two declarations, both about the same promise: `min-width` holds one
+   digit to the width of two, and `tabular-nums` holds the digits to each other. */
+check('a count does not change the width of the pill it is on', has('.viewpill-count', 'min-width'));
+check('and its digits are all one width', has('.viewpill-count', 'font-variant-numeric\\s*:\\s*tabular-nums'));
 
 /* ------------------------------------------------- nothing scrolls the window again */
 

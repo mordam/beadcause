@@ -295,13 +295,22 @@ function load({ search = '', respond, hover = false } = {}) {
   return { out, host, doc, calls, location, written, refresh, button };
 }
 
-/* The panel, by shape rather than by selector — `.filter-menu` holds the summary button
-   and then the panel, and the panel holds one box per group with its legend and its row. */
+/* The row, by shape rather than by selector — `.filter-menu` holds one `.filter-one` per
+   group since bc-khoe.26, and each of those is its pill, the note drawn in the pill's
+   place where a view cannot offer it, and the panel the pill opens. */
 const root = (h) => h.host.children[0];
-const summaryLine = (h) => root(h).children[0].textContent;
-const panel = (h) => root(h).children[1];
-const groupBox = (h, id) => panel(h).children.find((b) => b.dataset.group === id);
-const chipsOf = (h, id) => groupBox(h, id).children[1].children;
+const one = (h, id) => root(h).children.find((b) => b.dataset.group === id);
+const pillOf = (h, id) => one(h, id).children[0];
+/** `Legend: value` where the group is narrowing, and the bare legend where it is not. */
+const says = (h, id) => {
+  const value = pillOf(h, id).children[1].textContent;
+  const legend = pillOf(h, id).children[0].textContent;
+  // The legend carries its own colon when there is a value — see `paintGroup`.
+  return value ? `${legend} ${value}` : legend;
+};
+const panel = (h, id) => one(h, id).children[2];
+const groupBox = (h, id) => panel(h, id).children[0];
+const chipsOf = (h, id) => groupBox(h, id).children[0].children;
 const chipIn = (h, gid, cid) => chipsOf(h, gid).find((c) => c.dataset.chip === cid);
 const pressed = (h, gid) => chipsOf(h, gid).filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.dataset.chip);
 /* By class rather than by position: bc-0xil put the input inside a wrapper so that a
@@ -473,14 +482,21 @@ await check('priority is taken as 1, p1 or P1 and written back as P1', async () 
   assert.deepEqual(pressed(h, 'priority').sort(), ['P1', 'P3']);
 });
 
-await check('the summary line names the narrowing without the panel being opened', async () => {
+await check('each pill names its own narrowing, without anything being opened', async () => {
+  // What one comma-joined line used to say, said by the controls themselves (bc-khoe.26).
+  // It is strictly more than the line could: `Closed` on the status pill says *which*
+  // control is narrowing the ledger, where `Closed · All priorities · nib3` left you to
+  // work out which of the four to reach for.
   const h = load({ search: '?status=closed&id=nib3', respond: ledgerOf(ROWS) });
   await settle();
-  const said = summaryLine(h);
-  assert.match(said, /Closed/);
-  assert.match(said, /nib3/);
-  assert.match(said, /All priorities/, 'a group with nothing chosen has to say so, or the line reads as the whole filter');
-  assert.ok(root(h).classes().includes('narrowed'), 'nothing on the collapsed line marks it as narrowed');
+  assert.equal(says(h, 'status'), 'Status: Closed');
+  assert.equal(says(h, 'beadid'), 'Bead id: nib3');
+  assert.ok(pillOf(h, 'status').classes().includes('on'), 'nothing marks the narrowed pill as narrowed');
+  // And a group nobody has touched is its legend and nothing else. `All priorities` on a
+  // pill would be a control announcing a filter that is not filtering, which is the same
+  // noise the one line made — one pill at a time.
+  assert.equal(says(h, 'priority'), 'Priority');
+  assert.ok(!pillOf(h, 'priority').classes().includes('on'));
 });
 
 await check('the token is not left in a link you would send to a phone', async () => {
