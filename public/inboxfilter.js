@@ -216,10 +216,10 @@
    * still the important one — `composes()` is `Boolean` over the same field, so a row
    * with no `compose` draws no button at all.
    *
-   * The one row that does not yet say what it means is `bead`: ＋ on All Beads starts a
-   * chat today, so that is what it says, and bc-khoe.27.3 turns the word into `bead`
-   * when there is a form behind it. A row promising a create nobody wrote is a button
-   * that does nothing when tapped.
+   * All three of them say what they mean now, and `bead` was the last to get there
+   * (bc-khoe.27.3): ＋ on All Beads said `chat` for as long as there was no form behind
+   * it, because a row promising a create nobody wrote is a button that does nothing
+   * when tapped. The word moved the day the sheet did, in this one file.
    */
   const KINDS = [
     {
@@ -329,8 +329,7 @@
       // the pill next door empties this screen completely. Nothing narrows chats, so
       // the row has nothing to offer here and takes itself off screen; see `mount`.
       filters: [],
-      // The original ＋, and the only one that already does its own thing: this list is
-      // conversations, and the create is a conversation.
+      // The original ＋: this list is conversations, and the create is a conversation.
       compose: 'chat',
     },
     {
@@ -359,9 +358,8 @@
       label: 'All Beads',
       note: 'Every live bead nobody is asking you about — claimed, blocked or waiting to be picked up.',
       // A list of every live bead is the one screen where "file another one" is the
-      // obvious next thing to do (bc-khoe.27.3). Until that form exists the honest word
-      // is the one for what the button actually does here, which is start a chat.
-      compose: 'chat',
+      // obvious next thing to do, so ＋ here opens a form and files one — bc-khoe.27.3.
+      compose: 'bead',
       // `!q.held` is the endorsement half of Questions stated from the other side. It is
       // here rather than left to the order of the rows for the reason every exclusion in
       // this table is: exclusivity is the property the table is asserted on, and a
@@ -421,7 +419,8 @@
      * whether a sub-filter is narrowing anything worth naming on the summary line, and
      * `paint` pushes the whole map at the pill row, where four of the ids are drawn as a
      * badge (public/viewbar.js). `epics` is in here too and is the only key not counted
-     * by the caller — see `survey`.
+     * by the caller at all: it is derived, from the slices or — since bc-khoe.49, when My
+     * Epics is the board — from the cards. See `survey`.
      */
     counts: {},
     /** sub group id → option id → the same, one level down. */
@@ -664,8 +663,13 @@
    * paragraph above is the badge's claim as well as the chip's: `Questions 4` is a
    * promise about the screen a tap opens, and the only way to keep it is to count what
    * this function counts, where it counts it.
+   *
+   * `board` is the caller's answer to the one question that promise turns on and this
+   * file cannot see: how many cards My Epics would draw when it draws no list (bc-khoe.49
+   * — `epicsIsBoard` in public/app.js). A number means the board; `null` means there is a
+   * list there and the derivation below is the right one.
    */
-  function survey({ kinds, counts, sub } = {}) {
+  function survey({ kinds, counts, sub, board = null } = {}) {
     if (sub && typeof sub === 'object') state.subCounts = sub;
     if (Array.isArray(kinds)) {
       state.usable = KINDS.filter((k) => kinds.includes(k.id)).map((k) => k.id);
@@ -693,7 +697,29 @@
         (n, [id, c]) => (BY_ID.get(id)?.test ? n + (Number(c) || 0) : n),
         0
       );
-      state.counts = { ...counts, epics: rows };
+      /*
+        **Except when there is no list to sum, which is bc-khoe.49.**
+
+        The paragraph above was true of every Home there was when it was written, and
+        bc-khoe.28 made it conditional: with an epic of yours started, My Epics is the
+        *board* and the list below it is gone. Everything the sum is built on still holds
+        — those rows do survive their own sub-filters, and picking the pill does clear the
+        selection — and not one of them gets drawn, so the number was a promise about a
+        screen that no longer exists. The other three badges are untouched by that,
+        because they are counted before the gate and each still opens exactly its own
+        slice.
+
+        So the caller says which of the two screens the pill opens, and this picks the
+        number that describes it: the cards when the board is what a tap leaves you with,
+        the rows when the list is. It is still one count read twice rather than two counts
+        of one thing — what changed is only *which* list the badge is a second reading of.
+
+        Deliberately not a third answer (no badge at all, or the board's card count added
+        to the rows). A pill that lost its number on the one install with an epic started
+        would be the count disappearing exactly when there is something to count, and a
+        sum of cards and rows would be a number nothing on the screen adds up to.
+      */
+      state.counts = { ...counts, epics: typeof board === 'number' ? board : rows };
     }
     paint();
   }
