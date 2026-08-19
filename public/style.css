@@ -5501,6 +5501,16 @@ button.viewpill { cursor: pointer; }
 }
 .compose-pick .section-label { margin: 0 0 6px; padding-top: 0; border-top: 0; }
 .compose-pick .chip-row { flex-wrap: wrap; }
+/* The epics one is a column of the board's own candidate rows rather than a wrap of chips,
+   so it needs a width: `.compose-pick` is `max-content`, which for two-line cards means
+   "as wide as the longest title", and a bead title is arbitrarily long. Capped at the same
+   `min(80vw, 420px)` the wrap above allows, and given it outright so short titles do not
+   draw a panel narrower than the button it hangs over. It is also the taller panel by far,
+   so it scrolls inside itself rather than growing past the top of the phone — the wrapper
+   is fixed to the bottom corner, so an unbounded panel grows *upward* off the screen and
+   the row you wanted would be the one that left. */
+.compose-pick.epics { width: min(80vw, 420px); }
+.compose-pick.epics .p0-picker { max-height: min(58vh, 420px); overflow-y: auto; }
 
 /* Room at the foot of the list for the button sitting over it. On the **scroller**
    rather than on the body, which is where it was while the body was the thing that
@@ -6937,21 +6947,12 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   cursor: pointer;
 }
 .p0-off:disabled { opacity: 0.6; cursor: default; }
-.p0-pick {
-  display: block;
-  width: 100%;
-  min-height: 40px;
-  margin-top: 8px;
-  padding: 8px 12px;
-  border: 1px dashed var(--line);
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit; font-size: 13px;
-  cursor: pointer;
-}
-.p0-pick[aria-expanded='true'] { color: var(--text); border-style: solid; background: var(--surface); }
-.p0-picker { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+/* `.p0-pick` was here — the dashed ＋ Start an epic button at the foot of the board, and
+   the panel of candidates it unfolded. bc-khoe.27.2 moved that create onto the floating ＋,
+   so the button is gone entirely and the rows below are drawn inside `#compose-epics`
+   instead. `.p0-picker` is the column they sit in either way, minus the top margin it had
+   under a button that is no longer above it. */
+.p0-picker { display: flex; flex-direction: column; gap: 6px; }
 /* One row per P0 you could start: the same two-line shape a card has — identity and count
    on the first line, the title on the second — so the list reads as a board of cards that
    are not there yet rather than as a menu of ids. */
@@ -6970,10 +6971,10 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
 .p0-cand:disabled { opacity: 0.6; cursor: default; }
 .p0-cand-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .p0-cand-title { min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.35; }
-/* Nothing started yet: the section is the offer and nothing else, so it carries none of
-   the board's own chrome — no heading, no fold, no count of nothing. */
-.p0-board.bare { margin-bottom: 10px; }
-.p0-board.bare .p0-pick { margin-top: 0; }
+/* `.p0-board.bare` was here: nothing started yet, and the section drawn as the offer and
+   nothing else. With the offer on ＋ there is no such section — an empty board draws
+   nothing at all now, and the way to end that state is a button that is always on screen
+   rather than one that appeared where the cards would have been. */
 
 /* The epic, filling the tab (bc-grut) — `p0FullHtml`.
 

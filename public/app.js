@@ -288,16 +288,14 @@
      * where which epic is unfolded is where you happen to be looking.
      */
     p0status: localStorage.getItem('beadcause.p0status') || 'live',
-    /**
-     * Is the picker at the foot of the board open? bc-s8mc.
-     *
-     * Page state and not persisted, like `p0open` and unlike `p0status`: it is a thing you
-     * are doing rather than a way you like the board, and a picker still hanging open the
-     * next morning would be the app remembering a decision you had already made. It is
-     * closed by a successful start for the same reason — the answer to "which one" has
-     * been given, and the card is on the way.
-     */
-    p0picker: false,
+    /*
+      `p0picker` was here — is the picker at the foot of the board open — and went with
+      the picker in bc-khoe.27.2. It had to be state because the picker was drawn by
+      `render`, and a repaint that forgot it open would have shut it under your finger
+      on every poll. The panel above ＋ is not drawn by `render` at all: it is a floating
+      menu that outlives repaints, so its own `hidden` attribute is the whole record and
+      a second copy here could only disagree with it.
+    */
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -7233,7 +7231,14 @@
   }
 
   /**
-   * The foot of the board: one button, and the P0s a tap on it would offer. bc-s8mc.
+   * The P0s a tap on ＋ offers, as rows. bc-s8mc, moved onto ＋ by bc-khoe.27.2.
+   *
+   * **This used to be the foot of the board** — a ＋ Start an epic button under the cards,
+   * with these rows unfolding beneath it — and the button is what moved, not the list. On
+   * My Epics ＋ *is* this create (see `compose` in public/inboxfilter.js), so a second
+   * control offering the same thing further down the same screen was two ways to do one
+   * thing, and the lower one was the one a thumb could not reach. What is left here is the
+   * rows; `paintEpicPick` puts them in the panel above the button.
    *
    * **`startable` is the server's list and this draws it whole.** Which P0s may be offered
    * is a question about the tracker — endorsed, not superseded, not a crash this app filed
@@ -7246,24 +7251,29 @@
    * one with sixty children left" is how the board itself is ordered, and an id and a title
    * alone put the decision back on your memory of the tracker.
    *
-   * The tap that opens this grows the board, which is *above* the inbox list — see
-   * `keepTheScreenStill`, which the handler wraps the repaint in. Without it the list's own
-   * place-restore scrolls the page down by exactly the height of what just opened, and the
-   * control you tapped leaves the screen.
+   * **The scroll problem went with the move.** The tap used to grow the board, which is
+   * *above* the inbox list, so the handler wrapped its repaint in `keepTheScreenStill` or
+   * the list's own place-restore scrolled the page down by exactly the height of what had
+   * opened — taking the button you pressed off the screen. The panel is inside the fixed
+   * `.compose-wrap` and adds no flow height at all, so there is nothing above the anchor to
+   * grow: the jump is designed out rather than held still, the way `p0FullHtml`'s is.
    */
-  function p0PickerHtml(rows) {
-    const on = !!state.p0picker;
-    const head = `<button type="button" class="p0-pick" data-act="p0-pick" aria-expanded="${on}"${
-      on ? ' aria-controls="p0picker"' : ''
-    }>${on ? '\u2715 Never mind' : '\uff0b Start an epic'}</button>`;
-    if (!on) return head;
-    // Nothing to offer is a sentence rather than an empty box, and it says which of the two
-    // reasons it is: a tracker where every P0 of yours is already started reads exactly
-    // like a picker that failed to load its list.
-    if (!rows.length) {
-      return `${head}<div class="p0-picker" id="p0picker"><div class="p0-none">Nothing to start — every P0 you own is either on the board already or not open.</div></div>`;
+  function p0CandsHtml(rows) {
+    // Nothing to offer is a sentence rather than an empty box, and it says which of the
+    // *three* reasons it is. A tracker where every P0 of yours is already started reads
+    // exactly like a picker that failed to load its list — and an install that has never
+    // been told who it is reads like both, because with `me` unset the server answers
+    // `owned: false` and every list here is empty by construction rather than by fact.
+    // The board itself could stay silent about that, since with nothing owned it draws
+    // nothing at all; ＋ cannot, because it is drawn on My Epics either way and a tap has
+    // to say something.
+    if (!state.rootboard?.owned) {
+      return `<div class="p0-none">This Mac does not know who you are — set <code>me</code> in the config and the epics you own turn up here.</div>`;
     }
-    return `${head}<div class="p0-picker" id="p0picker" role="group" aria-label="P0s you own that have not been started">${rows
+    if (!rows.length) {
+      return `<div class="p0-none">Nothing to start — every P0 you own is either on the board already or not open.</div>`;
+    }
+    return `${rows
       .map(
         (r) => `<button type="button" class="p0-cand" data-act="p0-start" data-ws="${esc(r.workspace)}" data-bead="${esc(
           r.id
@@ -7274,22 +7284,71 @@
           <span class="p0-cand-title">${esc(r.title || '')}</span>
         </button>`
       )
-      .join('')}</div>`;
+      .join('')}`;
+  }
+
+  /**
+   * On the board, or off it — the one write, from either of the two controls that make it.
+   *
+   * They are one write in opposite directions and they used to be one branch of the list's
+   * click handler, because both controls were in the list: the picker at the foot of the
+   * board and the card's own *Take it off*. bc-khoe.27.2 moved the picker into the panel
+   * above ＋, which is outside the list and outside that handler's delegation — so the
+   * write became a function rather than being written a second time next to the panel. A
+   * second copy is what would drift: the refusal handling below is the feature, not
+   * incidental to it.
+   *
+   * **The refusal is the point.** The server answers 409 with a sentence for every state
+   * the picker's list — up to a poll old, and older still now that the panel is filled when
+   * it opens rather than on every repaint — could not have known about: the bead closed,
+   * somebody started it from the other device, it was superseded while you were reading.
+   * The acceptance criterion for this feature is that such a write is loud rather than a
+   * card that silently never appears, so the button comes back and the reason goes in a
+   * toast, exactly as the advocate launch does.
+   *
+   * **`load()` and not a hand-made card.** The daemon refreshed that workspace's graph
+   * inside the write, so the very next payload has the card with its tree and its counts
+   * on it — a card assembled here from the picker row would be a second renderer of the
+   * board's hardest shape, wrong in the counts until the real one landed. Every other
+   * device gets the same thing off its parked log request, woken by the `p0board` event.
+   */
+  async function setOnBoard(btn, on) {
+    const bead = btn.dataset.bead;
+    const was = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = on ? 'Starting…' : 'Taking it off…';
+    try {
+      await api(on ? '/api/bead/start' : '/api/bead/unstart', {
+        method: 'POST',
+        body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
+      });
+      // The question the picker asked has been answered; leaving it open would put the
+      // epic you just started back in front of you as something to start. Shutting it
+      // also takes the row this tap is on off the screen, which is why nothing below
+      // touches `btn` again on the way out.
+      if (on) hideComposePick();
+      toast(on ? `${bead} is on the board` : `${bead} is off the board — ＋ on My Epics puts it back`);
+      await load();
+    } catch (err) {
+      btn.disabled = false;
+      btn.innerHTML = was;
+      toast(err.message, 'refused');
+    }
   }
 
   function p0SectionHtml() {
     const mine = p0Cards();
-    const canStart = p0Cards(state.rootboard?.startable);
-    // Nothing started, and something that could be. The board is off — that is bc-6s96's
-    // rule and the list below is drawn flat, untouched — but the one control that would
-    // *end* that state has to be reachable, or the screen that says what the week is about
-    // is the one screen that cannot change it. Just the offer: no heading, and no count
-    // of nothing.
-    if (!mine.length) {
-      return canStart.length
-        ? `<section class="p0-board bare" aria-label="${P0_SECTION_LABEL}">${p0PickerHtml(canStart)}</section>`
-        : '';
-    }
+    // Nothing started: no board, and nothing where it would have been (bc-6s96 — the list
+    // below is drawn flat, untouched).
+    //
+    // **This used to be a `bare` section holding the offer on its own**, and the argument
+    // for it was reachability: with the picker inside the section, an empty board hid the
+    // one control that would end the state. bc-khoe.27.2 answered that from the other end
+    // — ＋ is drawn on My Epics whether or not anything is started, and it is the picker
+    // now — so the section has nothing left to draw here and drawing it anyway would put
+    // an empty box above the list. The reachability claim did not weaken; it moved to a
+    // button that is always on screen.
+    if (!mine.length) return '';
     const cards = mine.map(p0CardHtml).join('');
     // At most one, because the tab is a fixed layer and a second would stack on the first
     // with no way to tell which epic you were reading. The `p0` handler is what keeps the
@@ -7319,7 +7378,7 @@
         ${P0_SECTION_LABEL}
         ${asks ? `<span class="p0-kind-asks">${asks === 1 ? '1 asks you' : `${asks} ask you`}</span>` : ''}
         <span class="p0-kind-n">${mine.length}</span>
-      </h2><div class="p0-cards">${cards}</div>${p0PickerHtml(canStart)}${open ? p0FullHtml(open) : ''}${
+      </h2><div class="p0-cards">${cards}</div>${open ? p0FullHtml(open) : ''}${
       advOn ? p0AdvFullHtml(advOn) : ''
     }</section>`;
   }
@@ -8341,29 +8400,16 @@
     }
 
     /**
-     * Open the picker at the foot of the board, or shut it. bc-s8mc.
+     * Take a root off the board. bc-s8mc; its other half moved onto ＋ in bc-khoe.27.2.
      *
-     * `keepTheScreenStill` and not a plain `render(true)`, which is the whole of what makes
-     * this tap usable: the picker opens *above* the inbox list, `capturePlace` anchors the
-     * scroll on the first card in that list, and restoring it after a repaint that grew the
-     * board scrolls the page down by exactly the height of what just opened — the button
-     * you pressed leaving the screen, the list you were not looking at staying put. The
-     * offset is exact rather than approximate here, because everything inserted is below
-     * the anchor row and nothing above it changes height.
-     */
-    if (act === 'p0-pick') {
-      state.p0picker = !state.p0picker;
-      keepTheScreenStill(() => render(true));
-      return;
-    }
-
-    /**
-     * Start a root from the picker, or take one off the board. bc-s8mc.
+     * One branch used to carry both directions, because they are one write in opposite
+     * directions and the two controls sat one above the other in the same section. The
+     * *start* half is now a row in the panel above ＋ and out of this list entirely, so
+     * what is left here is the card's own control — and `setOnBoard` is where the write
+     * they share went, rather than a copy of it landing beside the picker.
      *
-     * Both directions through one branch because they are one write in opposite
-     * directions, and both keyed on `data-bead` rather than `data-key` for the reason the
-     * advocate button above is: these are board controls, not inbox rows, and every branch
-     * below reads a bead key.
+     * `data-bead` rather than `data-key`: this is a board control, not an inbox row, and
+     * every branch below reads a bead key.
      *
      * **The refusal is the point.** The server answers 409 with a sentence for every state
      * the picker's list — up to a poll old — could not have known about: the bead closed,
@@ -8378,27 +8424,8 @@
      * board's hardest shape, wrong in the counts until the real one landed. Every other
      * device gets the same thing off its parked log request, woken by the `p0board` event.
      */
-    if (act === 'p0-start' || act === 'p0-unstart') {
-      const on = act === 'p0-start';
-      const bead = btn.dataset.bead;
-      const was = btn.innerHTML;
-      btn.disabled = true;
-      btn.textContent = on ? 'Starting…' : 'Taking it off…';
-      try {
-        await api(on ? '/api/bead/start' : '/api/bead/unstart', {
-          method: 'POST',
-          body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
-        });
-        // The question the picker asked has been answered; leaving it open would put the
-        // epic you just started back in front of you as something to start.
-        if (on) state.p0picker = false;
-        toast(on ? `${bead} is on the board` : `${bead} is off the board — ＋ Start an epic puts it back`);
-        await load();
-      } catch (err) {
-        btn.disabled = false;
-        btn.innerHTML = was;
-        toast(err.message, 'refused');
-      }
+    if (act === 'p0-unstart') {
+      await setOnBoard(btn, false);
       return;
     }
 
@@ -10653,6 +10680,7 @@
   */
   const composeEl = $('#compose');
   const composePickEl = $('#compose-pick');
+  const composeEpicsEl = $('#compose-epics');
   const composeWrapEl = $('.compose-wrap');
   let composing = false;
 
@@ -10664,8 +10692,17 @@
     return state.workspaces;
   };
 
+  /**
+   * Shut whatever ＋ has open — both panels, and always both.
+   *
+   * There are two now (bc-khoe.27.2) and only one can be open, because only one ＋ can be
+   * tapped; closing the pair rather than the one this kind uses is what keeps that true
+   * across a kind change, where the panel that is open belongs to the kind you just left.
+   * `aria-expanded` is on the button and so is single either way.
+   */
   function hideComposePick() {
     composePickEl.hidden = true;
+    if (composeEpicsEl) composeEpicsEl.hidden = true;
     composeEl.setAttribute('aria-expanded', 'false');
   }
 
@@ -10686,15 +10723,36 @@
    *   take the button away. It was opened to answer "which repo do I start this in",
    *   and the moment the view changes it is answering a question nobody asked — on the
    *   three that keep ＋, the create it belongs to is a different create.
+   * - **What the button says it does**, since bc-khoe.27.2. The label is the only thing
+   *   on this control that tells you what a tap will do, and a ＋ announcing "start a
+   *   chat session" on the screen where it starts an epic is worse than an unlabelled
+   *   one — a screen reader would be reading out the wrong promise rather than none.
+   *   `aria-controls` moves with it for the same reason: it has to name the panel this
+   *   kind's tap actually opens.
    *
    * The fallback is `true`: a page served without inboxfilter.js has always drawn ＋,
    * and losing the app's primary action to a missing script is a worse failure than
-   * drawing it one screen too wide.
+   * drawing it one screen too wide. `creates` falls back the same way, to `chat` — the
+   * one thing ＋ did on every kind before any of this.
    */
+  const COMPOSE_SAYS = {
+    chat: {
+      label: 'Start a chat session — talk through what the next bead should be',
+      controls: 'compose-pick',
+    },
+    epic: {
+      label: 'Start an epic — put one of the beads you own on the board',
+      controls: 'compose-epics',
+    },
+  };
+
   function paintCompose() {
     const on = window.beadcause?.inboxFilter?.composes?.() ?? true;
+    const says = COMPOSE_SAYS[window.beadcause?.inboxFilter?.creates?.() || 'chat'] || COMPOSE_SAYS.chat;
     hideComposePick();
     if (composeWrapEl) composeWrapEl.hidden = !on;
+    composeEl.setAttribute('aria-label', says.label);
+    composeEl.setAttribute('aria-controls', says.controls);
     document.body.classList.toggle('has-compose', on);
   }
 
@@ -10708,6 +10766,30 @@
     composePickEl.hidden = false;
     composeEl.setAttribute('aria-expanded', 'true');
     row.querySelector('.chip')?.focus();
+  }
+
+  /**
+   * The other panel: the epics you could start, offered where the thumb is. bc-khoe.27.2.
+   *
+   * **Filled when it opens, not on every repaint**, which is the one thing that changed
+   * about this list when it left the board. Inside `p0SectionHtml` it was rebuilt by every
+   * poll and so could never be more than a tick stale; up here it is a floating menu with
+   * its own lifetime, and rebuilding it under an open finger would move the row being
+   * reached for. The staleness that buys is small and already handled: `setOnBoard` is
+   * built around the server refusing a bead that closed, moved or was started elsewhere
+   * while the panel sat open, and it says so in a toast.
+   *
+   * Through `p0Cards` rather than off `startable` raw, so the space and workspace filters
+   * apply exactly as they do to the cards — offering an epic from a repo this screen is not
+   * showing would put a card on a board you would then have to switch spaces to see.
+   */
+  function showEpicPick() {
+    if (!composeEpicsEl) return;
+    const row = $('#compose-epics-row');
+    row.innerHTML = p0CandsHtml(p0Cards(state.rootboard?.startable));
+    composeEpicsEl.hidden = false;
+    composeEl.setAttribute('aria-expanded', 'true');
+    row.querySelector('.p0-cand')?.focus();
   }
 
   async function startChat(workspace) {
@@ -10736,9 +10818,26 @@
      last week's index.html for one load. An unguarded listener there throws before
      the poll is scheduled — which turns a missing button into a blank inbox. */
   if (composeEl && composePickEl) {
+    /**
+     * One button, and the view says what it makes. bc-khoe.27.2.
+     *
+     * The branch is on `creates()` — the word on this kind's row in public/inboxfilter.js
+     * — and deliberately not on a list of kind ids kept here. That table is the only place
+     * that knows what the six kinds are, and a second one in this file is a second thing
+     * that can be wrong about them with nothing to say which is right. bc-khoe.27.3 adds
+     * its branch here the same way, on `bead`.
+     *
+     * An open panel closes first, whichever of the two it is, so a second tap on ＋ is
+     * always "never mind" — the state it is toggling belongs to the button, not to a kind.
+     */
     composeEl.addEventListener('click', () => {
-      if (!composePickEl.hidden) {
+      const open = !composePickEl.hidden || !composeEpicsEl?.hidden;
+      if (open) {
         hideComposePick();
+        return;
+      }
+      if ((window.beadcause?.inboxFilter?.creates?.() || 'chat') === 'epic') {
+        showEpicPick();
         return;
       }
       const repos = startableRepos();
@@ -10751,13 +10850,26 @@
       if (chip) startChat(chip.dataset.ws);
     });
 
+    // The candidate rows carry `data-act="p0-start"` and `data-ws`, exactly as they did at
+    // the foot of the board — but the list's `[data-act]` delegation is on `#list` and this
+    // panel is not in it, so the rows need a listener of their own. `data-ws` is why the
+    // test is on `data-act` and not on that: a chip in the panel next door carries the same
+    // attribute and means the other create entirely.
+    $('#compose-epics-row')?.addEventListener('click', (ev) => {
+      const cand = ev.target.closest('[data-act="p0-start"]');
+      if (cand) setOnBoard(cand, true);
+    });
+
     // Tapping past it closes it, which is the same bargain the kind filter's panel
     // makes: a panel over the list must not still be there when you reach for a card.
+    // Either panel — `composeOpen` rather than the repo one, because the epic picker is
+    // the taller of the two and covers more of the list it is sitting over.
+    const composeOpen = () => !composePickEl.hidden || !composeEpicsEl?.hidden;
     document.addEventListener('pointerdown', (ev) => {
-      if (!composePickEl.hidden && !ev.target.closest('.compose-wrap')) hideComposePick();
+      if (composeOpen() && !ev.target.closest('.compose-wrap')) hideComposePick();
     });
     document.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape' && !composePickEl.hidden) {
+      if (ev.key === 'Escape' && composeOpen()) {
         hideComposePick();
         composeEl.focus();
       }
