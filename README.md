@@ -12361,6 +12361,38 @@ Reconciliation closes as well as files, and the closing half is the one that is 
 leave out. A register that only ever files grows for ever and evidences nothing — `closed_at`
 is the entire measurement.
 
+### Which criteria this answers, and for which system
+
+    beadcause-incidents --criteria    the crosswalk, and the scope line above it
+
+The scope line comes first, and it is the thing that makes the rest of the table honest.
+Everything above measures **beadcause** — the daemon, its sweeps, its surfaces — and
+bc-228x settled that the system a SOC 2 report here describes is Climative's Energy
+Navigator / Insights, which **carves beadcause out**. A daemon crash is not an incident in
+the described system. Printed without that line, "CC7.2 — monitoring — `lib/errors.js`"
+reads as monitoring of the audited system, and an auditor handed that reading has been
+misled by a report rather than by anybody.
+
+So the described system's own CC7 is a gap, not a silence: `lib/gapassessment.js` carries
+the CC7.1–CC7.5 rows, and the breach-notification windows CC7.4 turns on are in the
+NYSERDA and TD agreements rather than in this repo. Carved out of the description is still
+inside the audit — `lib/boundary.js` records the carve-out with a `bearsOn` naming CC8.1.
+
+The ids are `lib/controls.js`'s and **neither `lib/incident.js` nor `lib/vulnscan.js`
+imports it**. That is the same leaf discipline `lib/servicescope.js` keeps: a register that
+pulls the corpus in stops loading in a release where the corpus is not there, so the ids
+are literals in the module and are resolved against the corpus in the tests. Only the
+SOC 2 ids appear, and the ISO 27001 and 42001 counterparts printed under each are the
+corpus's own crosswalk read backwards — `A.5.26` names `SOC2.CC7.4`, so `satisfiedBy`
+answers the three-framework question from one edge set. A second list here would be the
+second corpus [the corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) exists to
+prevent.
+
+CC7.1 is split and claimed once: the scanning half is `lib/vulnscan.js`, and the
+configuration-baseline half, over a host estate this repo has never seen, is on the gap
+assessment. Claiming a whole criterion from an `npm audit` wrapper is the shape of an
+overstatement an auditor finds in an afternoon.
+
 
 ## The nonconformity, and why a refusal is not one — `beadcause-capa`
 

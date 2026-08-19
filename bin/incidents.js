@@ -10,6 +10,7 @@
  *   beadcause-incidents -w beadcause --vulns --file   file what is new, close what is fixed
  *   beadcause-incidents -w beadcause --tabletop       the scenarios worth walking
  *   beadcause-incidents -w beadcause --tabletop night-exit --file --with "Adam" --when 2026-09-01
+ *   beadcause-incidents --criteria                    which criteria this answers, for which system
  *
  * **Nothing here is a source of truth and that is the point.** Every number is derived,
  * on the spot, from timestamps bd wrote while people and agents did their ordinary work:
@@ -26,9 +27,11 @@ import path from 'node:path';
 
 import { Bd } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
+import { control as corpusRecord, frameworkOf, isControl, satisfiedBy } from '../lib/controls.js';
 import { beadToIssue } from '../lib/filing.js';
 import {
   breaches,
+  CRITERIA,
   EXERCISES,
   exerciseBead,
   humanMinutes,
@@ -37,9 +40,10 @@ import {
   register,
   reviewBead,
   reviewsOwed,
+  SCOPE,
   SEVERITIES,
 } from '../lib/incident.js';
-import { reconcile, scan, vulnClock, vulnEvidence, VULN_LABEL } from '../lib/vulnscan.js';
+import { CRITERIA as VULN_CRITERIA, reconcile, scan, vulnClock, vulnEvidence, VULN_LABEL } from '../lib/vulnscan.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -52,9 +56,17 @@ const has = (...names) => names.some((n) => process.argv.includes(n));
 
 const cfg = loadConfig();
 const wsName = arg('--workspace', '-w');
+// Before the workspace guard on purpose: the crosswalk is answered out of source and
+// reads no tracker at all, so requiring a workspace for it would be asking for a thing it
+// does not use in order to print a thing that cannot vary by install.
+if (has('--criteria')) {
+  criteria();
+  process.exit(0);
+}
+
 const ws = cfg.workspaces.find((w) => w.name === wsName);
 if (!ws) {
-  console.error('usage: beadcause-incidents -w <workspace> [--period 90d] [--reviews|--vulns] [--file]');
+  console.error('usage: beadcause-incidents -w <workspace> [--period 90d] [--reviews|--vulns|--criteria] [--file]');
   console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
   process.exit(1);
 }
@@ -82,6 +94,44 @@ const verdict = (met) => (met === true ? 'met' : met === false ? 'MISSED' : 'pen
 if (has('--vulns')) await vulns();
 else if (has('--tabletop')) await tabletop();
 else await incidents();
+
+/* ------------------------------------------------------------------ the crosswalk */
+
+/**
+ * **Which criteria this register answers, and — first, in its own paragraph — for which
+ * system.**
+ *
+ * The scope line is above the table rather than in a footnote because it is the thing that
+ * makes the table honest. Printed on its own, "CC7.2 — monitoring — lib/errors.js" reads
+ * as monitoring of the audited system; it is monitoring of a component that system's
+ * boundary carves out, and an auditor handed the first reading has been misled by a
+ * report rather than by anybody.
+ *
+ * The ISO counterparts are the corpus's `satisfiedBy` and not a second list held here —
+ * one edge set, read backwards, which is the whole reason lib/controls.js has an inverse.
+ */
+function criteria() {
+  // Its own padding rather than the shared `pad`, because this runs before the workspace
+  // guard and therefore before that const is initialised — a temporal-dead-zone throw is
+  // the whole cost of printing something early.
+  const col = (text = '') => String(text).padEnd(12);
+  const rows = [...CRITERIA, ...VULN_CRITERIA].sort((a, b) => a.id.localeCompare(b.id));
+  console.log(`covers          ${SCOPE.covers}`);
+  console.log(`carved out of   ${SCOPE.carvedOutOf}  (${SCOPE.settledBy})`);
+  console.log(`held elsewhere  ${SCOPE.held}`);
+  console.log('');
+  for (const row of rows) {
+    const record = isControl(row.id) ? corpusRecord(row.id) : null;
+    console.log(`${col(row.id)}${record ? record.title : 'NOT IN THE CORPUS'}`);
+    console.log(`${col()}${row.by}`);
+    console.log(`${col()}${row.how}`);
+    // A criterion nothing else in the corpus points at is not an error — it means no
+    // ISO clause crosswalks to it — so an empty line here is silence rather than a gap.
+    const also = satisfiedBy(row.id).filter((id) => frameworkOf(id) !== 'SOC2');
+    if (also.length) console.log(`${col()}also: ${also.join(', ')}`);
+    console.log('');
+  }
+}
 
 /* ------------------------------------------------------------------- the exercise */
 
