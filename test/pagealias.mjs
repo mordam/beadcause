@@ -270,6 +270,13 @@ check(() => {
     "    if (urlPath === '/one' || urlPath === '/one.html') {",
     "      return redirect(res, viewHop('uno', url));",
     '    }',
+    // The shape the daemon actually writes: a hop asks whether this navigation has to sign
+    // in before it answers, so the `return` is not the first statement in the block.
+    "    if (urlPath === '/gated') {",
+    '      const signIn = hopGate(req, url);',
+    '      if (signIn) return redirect(res, signIn);',
+    "      return redirect(res, viewHop('uno', url));",
+    '    }',
     "    if (urlPath === '/shut') {",
     "      return redirect(res, viewHop('uno', url, [['status', 'closed']]));",
     '    }',
@@ -280,9 +287,22 @@ check(() => {
   assert.deepEqual(viewHops(fake), {
     '/one': { view: 'uno', narrow: [] },
     '/one.html': { view: 'uno', narrow: [] },
+    '/gated': { view: 'uno', narrow: [] },
     '/shut': { view: 'uno', narrow: [['status', 'closed']] },
   });
   assert.ok(pageRedirects(fake).includes('/hop'), 'a hop onto a page is still a hop, and is not a view');
+  // The failure the guard-tolerating regex could have introduced: a *braced alias* sits in
+  // this run too, and a match that ran past its closing brace would read the next hop's
+  // view as belonging to it. `/queue` is an alias and must come back as no hop at all.
+  const withAlias = [
+    "    if (urlPath === '/queue') {",
+    "      urlPath = '/endorse.html';",
+    '    }',
+    "    if (urlPath === '/two') {",
+    "      return redirect(res, viewHop('dos', url));",
+    '    }',
+  ].join('\n');
+  assert.deepEqual(viewHops(withAlias), { '/two': { view: 'dos', narrow: [] } }, 'a braced alias was read as a hop');
 }, 'a view hop is read with its view and its narrowing, and a plain hop is not read as one');
 
 /* And the resolver the browser fixtures serve those hops with (bc-khoe.30.7). It is a

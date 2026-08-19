@@ -414,11 +414,15 @@ await check('a path still precached under its own name is answered from the cach
 });
 
 await check('and a path that names no view is untouched — it still falls to the index', async () => {
+  // `/endorse` rather than `/monitor`, which was this fixture until bc-khoe.30.7 turned it
+  // into a hop. The queue is a document and is meant to stay one — no pill points at it and
+  // no container in index.html is waiting for it — so it is a stabler stand-in for "a path
+  // the table says nothing about" than any address the epic is still moving.
   const cache = cacheOf(['/']);
   const sw = loadWorker({ fetch: () => Promise.reject(new Error('Failed to fetch')), match: cache.match });
-  const out = await outcome(sw.request('/monitor'));
+  const out = await outcome(sw.request('/endorse'));
   await settle();
-  assert.deepEqual(out.value, { body: 'cached /' }, 'the hop table has grown a path whose pane has not landed');
+  assert.deepEqual(out.value, { body: 'cached /' }, 'the hop table has grown a path that names no view');
 });
 
 await check('the login page is still never served from cache — a next= param widens onto nothing', async () => {

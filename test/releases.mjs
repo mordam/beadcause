@@ -42,6 +42,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { viewHops } from '../lib/pagealias.js';
+import { shellPaths } from '../lib/swbump.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -815,18 +817,33 @@ await check('the pill row has a Releases pill pointing at the page', () => {
   assert.match(grammar, /paths: \['\/releases', '\/deploys', '\/releases\.html'\]/);
 });
 
-await check('the service worker precaches the page and moved its version', () => {
+await check('the service worker precaches the pane and answers the old addresses', () => {
   const sw = read('public/sw.js');
-  for (const p of ['/releases', '/deploys', '/releases.html', '/releases.js']) {
-    assert.ok(sw.includes(`'${p}'`), `${p} is not in the shell`);
+  // The script stays in `SHELL` — the pane is drawn with it. Its three *addresses* left in
+  // bc-khoe.30.7 and are hops now, and this has to tell the two apart by table rather than
+  // by text: every one of the four appears in this file either way, so the string test this
+  // replaced would have gone on passing while the shell tried to precache three redirects.
+  const shell = shellPaths(sw);
+  assert.ok(shell.includes('/releases.js'), '/releases.js is not in the shell');
+  for (const p of ['/releases', '/deploys', '/releases.html']) {
+    assert.ok(!shell.includes(p), `${p} is a redirect and cannot be precached`);
+    assert.match(sw, new RegExp(`'${p.replace('.', '\\.')}': \\{ view: 'releases'`), `${p} is not a hop onto the pane`);
   }
   const version = sw.match(/const CACHE = 'beadcause-v(\d+)'/);
   assert.ok(version, 'no cache version at all');
   assert.ok(Number(version[1]) >= 73, `the pill and the page it points at must arrive together — v${version[1]} predates them`);
 });
 
-await check('the daemon serves /releases and /deploys', () => {
-  assert.match(read('lib/server.js'), /urlPath === '\/releases' \|\| urlPath === '\/deploys'\) urlPath = '\/releases\.html'/);
+await check('the daemon lands /releases, /deploys and /releases.html on the pane', () => {
+  // A hop since bc-khoe.30.7 rather than a rewrite onto the document: the view is a pane,
+  // a pane is chosen by the hash, and a hash is never sent to a server — so serving
+  // index.html here would open the app on Home whatever was tapped. test/pagepaths.mjs
+  // drives all three against a real server; this is the source-level half, and it is here
+  // because this file is the one that fails when the Releases view moves.
+  const hops = viewHops(read('lib/server.js'));
+  for (const p of ['/releases', '/deploys', '/releases.html']) {
+    assert.deepEqual(hops[p], { view: 'releases', narrow: [] }, `${p} does not hop to the pane`);
+  }
 });
 
 /* The point of bc-khoe.7 is not that a new page draws a deploy. It is that the board
