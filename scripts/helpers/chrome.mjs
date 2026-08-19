@@ -52,12 +52,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { onExit, killAndRemoveSync } from '../../lib/teardown.js';
 
 /** Where Chrome is on this machine. `CHROME_PATH` first, so a moved install is sayable. */
 export const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 /** How long Chrome gets to start, publish a port and open a page before it is a failure. */
 export const LAUNCH_TIMEOUT_MS = 20_000;
+
+/** How long a Chrome asked politely to leave has before it is killed outright. */
+export const SIGKILL_AFTER_MS = 2_000;
+
+/** And the whole budget for the teardown, after which the directory is somebody else's. */
+export const TEARDOWN_TIMEOUT_MS = 8_000;
+
+/** How long a directory has to stay deleted before the deletion is believed. See below. */
+const CONFIRM_MS = 40;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -166,12 +176,107 @@ export function connect(url) {
 }
 
 /**
+ * End Chrome, wait for the writing to stop, then delete the profile — and say whether it went.
+ *
+ * `kill()` is not a wait. It returns once the signal is queued, and what it is queued for
+ * is a *tree*: Chrome's renderer, GPU and crashpad children go on writing into the profile
+ * for a moment after the browser process has taken the signal. A `rmSync` fired in that
+ * moment races them and loses — and it loses quietly, because the losing shape is not an
+ * exception. `rmSync` walks a directory that is being repopulated behind it, so it either
+ * throws `ENOTEMPTY` or *succeeds* against a directory that then comes straight back —
+ * and both were watched happening against a real Chrome while this was written. Neither
+ * says anything: the check exits 0 either way. Measured on 2026-08-18, a `gate-check.mjs`
+ * run that succeeded took TMPDIR from seven `beadcause-*` directories to eight, the oldest
+ * of them from the previous morning (bc-5e85).
+ *
+ * **`{ maxRetries: 3 }` is therefore gone rather than raised.** It is `rmSync`'s own
+ * internal retry of a *failed unlink*, so it cannot see the second shape at all, and it is
+ * not free either — it backs off inside a tree walk that is failing at several depths at
+ * once. Measured here: the same real teardown took 740ms with it and 190ms without, for
+ * the same outcome. The retry that belongs to this problem is the loop below, which
+ * re-asks the only question that settles it — *is the directory gone* — and keeps asking
+ * until it is or the budget runs out.
+ *
+ * `lib/browse.js` reached the same three steps from the same evidence (bc-rcrt) and is the
+ * place to read them argued at length; the difference here is that this one may not await,
+ * and that is not a style choice. `close()` is called by every `scripts/*-check.mjs`, several of them immediately
+ * before `process.exit()`, which does not wait for a pending promise — an async teardown
+ * would be cut short at exactly the call sites that most need it to finish. It is also
+ * registered as a process-exit teardown, where nothing asynchronous ever runs again. So
+ * the wait is `Atomics.wait` on a throwaway `SharedArrayBuffer`, which is what
+ * `test/helpers/tmp.mjs` uses for the same reason, and the event loop stops for it.
+ *
+ * SIGTERM first, and only then SIGKILL, for the reason `bin/router.js` gives: SIGTERM is
+ * the one Chrome can act on, and a Chrome that shuts down properly takes its children
+ * with it — which removes the race rather than outwaiting it. SIGKILL is for one that
+ * will not go, and it is second because it is not free: it drops the browser process and
+ * leaves the children it was about to collect to be reparented to pid 1, which is the
+ * leak bc-1eru is about. Two seconds is long enough that no healthy Chrome ever reaches it.
+ *
+ * @param {import('node:child_process').ChildProcess} proc the browser process.
+ * @param {string} profile its `--user-data-dir`, which this deletes.
+ * @returns {boolean} whether the directory is gone. False is a real answer, not a throw:
+ *   the caller is on its way out and a browser this cannot end is not one it can fix.
+ */
+export function killAndRemove(proc, profile, { sigkillAfterMs = SIGKILL_AFTER_MS, timeoutMs = TEARDOWN_TIMEOUT_MS } = {}) {
+  try {
+    proc.kill('SIGTERM');
+  } catch {
+    /* already gone */
+  }
+  const clock = new Int32Array(new SharedArrayBuffer(4));
+  const started = Date.now();
+  let hardened = false;
+  // Backed off rather than flat, and the first wait comes *before* the first attempt: the
+  // common case is a Chrome that goes in a few tens of milliseconds, and deleting a
+  // profile out from under one that is still in it is how a run earns a crashpad dump to
+  // delete as well. The ceiling is low because the whole budget is small.
+  for (let wait = 25; ; wait = Math.min(wait * 2, 250)) {
+    const elapsed = Date.now() - started;
+    if (!hardened && elapsed >= sigkillAfterMs) {
+      hardened = true;
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+    Atomics.wait(clock, 0, 0, wait);
+    try {
+      fs.rmSync(profile, { recursive: true, force: true });
+    } catch {
+      /* still letting go of it */
+    }
+    // Not the absence of a throw — see above; the directory can come back after a call
+    // that reported success, and that is the shape this whole function exists for.
+    //
+    // Which is also why *gone* is not the answer on its own. A writer that is still going
+    // recreates the path within a millisecond or two of losing it, so a single `existsSync`
+    // taken straight after the delete can land in that gap and report a clean teardown to
+    // a caller whose directory reappears a moment later — the original bug, one layer in.
+    // Asked twice, with a wait between, that gap closes: anything still writing is caught
+    // by the second look, and a browser that has actually gone cannot fail it.
+    if (!fs.existsSync(profile)) {
+      Atomics.wait(clock, 0, 0, CONFIRM_MS);
+      if (!fs.existsSync(profile)) return true;
+    }
+    if (Date.now() - started >= timeoutMs) return false;
+  }
+}
+
+/**
  * Launch one, attach to its page, and hand back `{ s, close, port, profile }`.
  *
  * `prefix` names the temp profile so a leaked one is traceable to the check that leaked
  * it — `beadcause-space-`, `beadcause-warm-`. `port` is returned for the same reason: it
  * is worth being able to print which Chrome a run was actually talking to, now that the
  * answer is no longer derivable from the pid.
+ *
+ * Both endings go through `killAndRemove`, which is where the interesting part is: the
+ * delete has to outlast the browser rather than merely follow it. `close()` therefore
+ * blocks for as long as that takes — about 175ms against a real Chrome — and stays
+ * synchronous on purpose, because every check calls it and several of them call
+ * `process.exit()` on the next line.
  *
  * Every failure path kills the process and deletes the profile before it throws. The old
  * copies did not, and a check that threw left a headless Chrome and a temp directory
@@ -186,17 +291,42 @@ export async function launchChrome(prefix, { chrome = CHROME, args = [], timeout
     proc.spawnFailure = e;
   });
   const teardown = () => {
-    try {
-      proc.kill();
-    } catch {
-      /* already gone */
-    }
-    try {
-      fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-    } catch {
-      /* Chrome is still letting go of a temp dir */
+    // First, so the ordinary path cannot also be torn down by the exit handler below.
+    disarm();
+    // Said out loud, because the alternative is the state this was filed from: a laptop
+    // with eight profile directories in TMPDIR and nothing anywhere naming what left them.
+    if (!killAndRemove(proc, profile)) {
+      process.stderr.write(`  note  ${profile} outlived its teardown and was left for the OS\n`);
     }
   };
+  /**
+   * The same teardown again, for the endings a `finally` cannot reach — bc-5isv.
+   *
+   * Every caller of this function wraps its work in `try … finally { close() }`, and that
+   * covers a return and a throw. It does not cover a signal, and a signal is how a check
+   * usually dies when something has gone wrong: `scripts/checks.mjs` sends `SIGTERM` to
+   * anything that overruns its timeout, and Ctrl-C sends `SIGINT`. In both, `close()` is
+   * never called, Chrome is reparented to launchd, and it runs forever — fifteen of them
+   * and 15 GB of profiles were counted on this Mac before this line existed. `disarm()`
+   * above is what stops the ordinary path doing it twice.
+   *
+   * The lesson underneath it is the one thing here that had to be learnt rather than
+   * reasoned out, and bc-1eru arrived at it from the other side at the same time. A signal
+   * followed by an `rmSync` in the same breath left the profile behind **every time**:
+   * Chrome's renderer and GPU children go on writing for a moment after their parent is
+   * signalled, so the directory comes back after `rmSync` reported it gone — and from an
+   * exit handler there is nothing to `await`, because the event loop has already stopped.
+   * Both arms now remove, look, and go round again until it stays gone: `teardown` above
+   * through `killAndRemove`, this one through `killAndRemoveSync`.
+   *
+   * They stay two functions because they are not the same call. `killAndRemove` is this
+   * file's, sized for a real Chrome on the ordinary path and covered by
+   * test/chromeprofile.mjs; `killAndRemoveSync` is the repo-wide one every other signal
+   * path already uses — lib/browse.js, scripts/checks.mjs, the two daemon checks — on a
+   * tighter budget, because an exit handler is holding up a process that has been told to
+   * go. See lib/teardown.js.
+   */
+  const disarm = onExit(() => killAndRemoveSync(proc, profile));
   try {
     const deadline = Date.now() + timeoutMs;
     const port = await activePort(profile, proc, deadline);

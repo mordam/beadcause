@@ -24,15 +24,18 @@
     "beadcause-endorse": "bin/endorse.js",
     "beadcause-checkin": "bin/checkin.js",
     "beadcause-plan": "bin/plan.js",
+    "beadcause-relay": "bin/relaystep.js",
     "beadcause-promotework": "bin/promotework.js",
     "beadcause-attic": "bin/attic.js",
     "beadcause-requirements": "bin/requirements.js",
     "beadcause-access": "bin/access.js",
     "beadcause-incidents": "bin/incidents.js",
     "beadcause-boundary": "bin/boundary.js",
+    "beadcause-description": "bin/description.js",
     "beadcause-management": "bin/management.js",
     "beadcause-attest": "bin/attest.js",
-    "beadcause-capa": "bin/capa.js"
+    "beadcause-capa": "bin/capa.js",
+    "beadcause-gaps": "bin/gaps.js"
   },
   "scripts": {
     "start": "node bin/router.js",
@@ -46,6 +49,7 @@
     "qr": "node bin/beadcause.js --qr",
     "vendor": "node scripts/vendor.js",
     "icons": "node scripts/icons.mjs",
+    "sounds": "node scripts/sounds.mjs",
     "postinstall": "node scripts/vendor.js",
     "monitor": "node bin/monitor.js",
     "timings": "node scripts/timings.mjs",

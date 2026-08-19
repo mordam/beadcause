@@ -5,13 +5,28 @@
  * things you tap. What separates them is that everything here is a **mode** of the page
  * you already watch work from: the same space's repos and sessions, seen another way.
  *
- * **This file is on its way out and the bead that ends it is bc-khoe.4**, which folds
- * Advocates and Mirror into the pill row and re-points the standing-down below at the
- * page's own lifecycle. bc-khoe.1 deleted the bottom bar and this file's `--topbar-h`
- * observer and stopped there, deliberately: a chip row that still works is a smaller
- * thing to hand over than half a fold-in.
+ * **This row was going to be deleted, and it is not** (bc-khoe.30.6). bc-khoe.4 used to
+ * say that Advocates and Mirror become pills in the row above, which would have left
+ * nothing here to own; the pane model settled it the other way, and the ruling is worth
+ * having where the file it saves lives. Two things decided it. The Mirror **cannot** be a
+ * pill by its own argument — it follows *another* device and drops its own, so on the
+ * phone a pill is tapped from it is a screen with nothing to show — and a row of chips
+ * that dissolves down to a row of one is a worse shape than the row it replaced. And
+ * these are modes rather than views: one space's work, seen as what is running, as what
+ * is waiting to ship, and as what another device is looking at. The pill row moves
+ * between views; this one moves within one. What was ever wrong with the pair was that
+ * the two are drawn alike, which is bc-stci — a restyle, not a deletion.
  *
- * There are three of them now, which is why this file exists at all.
+ * So what bc-khoe.4 does now is fold this whole page into the Advocates pane of
+ * `public/index.html`, chip row and all, and re-point the standing-down below: the panes
+ * of the shell stay live while hidden (bc-khoe.30.4), and this is the one that must not —
+ * see the note on standing down further down. bc-khoe.1 deleted the bottom bar and this
+ * file's `--topbar-h` observer and stopped there, deliberately: a chip row that still
+ * works is a smaller thing to hand over than half a fold-in.
+ *
+ * There are four of them today and there will be three: bc-khoe.10 takes **Config** out
+ * to a view of its own, which is also why the fold waits for it — folding in a section
+ * that is being deleted on another branch is work with a conflict already in it.
  *
  *   - **Advocates** is the page itself: what is running this minute.
  *   - **PRs** is the shipping screen (bc-d4d5). It was `/prs` with a fifth of the bottom
@@ -19,6 +34,9 @@
  *     inbox card, which meant that on a day with no PR card in the inbox there was no
  *     route to the **Ship** button at all. It is a mode of this page by the same
  *     argument the Mirror is: you glance at it, act on one row and leave.
+ *   - **Config** is the selected space's settings (bc-me2b), and the only one of the four
+ *     that arrived by *leaving* this pane rather than by folding a page into it. It leaves
+ *     again under bc-khoe.10, for a view of its own.
  *   - **Mirror** is the phone's screen on a screen with room for it (bc-3xb).
  *
  * The swap was two lines in mirror.js while there were two panes, and a two-way boolean
@@ -33,6 +51,19 @@
  * two panes nobody is looking at. Every subscriber gets told which chip is up on every
  * change *and once at boot*, so "start when I am shown, stop when I am not" is the same
  * piece of code as "start at boot" and there is no first-paint special case to forget.
+ *
+ * **That rule has to survive the fold, and it is the one place bc-khoe.30.4's rule is
+ * wrong.** A pane of the shell stays live while hidden, on the argument that a pane you
+ * come back to should already be right rather than catching up. It is the correct default
+ * and it is the wrong answer for all three of these. The board is a `gh` sweep per repo,
+ * which is money spent on a screen behind two hidings. The Mirror is worse than
+ * expensive: it publishes `view: null` for this device — you are nowhere, because you are
+ * looking at somebody else — and a Mirror left running while you read Home would tell
+ * every other device in the house that this one is nowhere, when it is on the inbox. So
+ * once this row is inside a pane, "hidden" means the chip is down **or** the pane is, and
+ * a chip that is up inside a hidden pane is down. The roster is the exception to the
+ * exception and costs nothing: its snapshot rides the stager's shared wake, so it is
+ * current when you come back without having asked for anything.
  *
  * The mapping lives in the HTML — `data-pane` is the section a chip shows and
  * `data-view` is what public/presence.js should say this device is looking at — because

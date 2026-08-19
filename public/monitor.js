@@ -798,9 +798,11 @@
    * Both decide what gets worked on; only one of them was visible, and the other was
    * indistinguishable from an ordinary session in "Working now".
    *
-   * This section is the repo advocate alone. Each EpicAdvocate gets a section of its
-   * own — `epicSections` below — because an advocate is a thing with a state, a queue
-   * and a window, not a row in somebody else's list.
+   * This section is the repo advocate alone. Each EpicAdvocate gets a **card** of its
+   * own — `epicCard` below, at the same level as this one — because an advocate is a
+   * thing with a state, a queue, a budget and a pause of its own, not a row in somebody
+   * else's list and not a fold inside somebody else's card. It was a fold until bc-henk,
+   * and the nesting said the EpicAdvocates belonged to the repo advocate; they do not.
    */
   function advocatesHtml(a) {
     // Deliberately *not* `stateOf(a)`: that sentence is already the chip in this card's
@@ -838,17 +840,51 @@
       repo +
       `<p class="subtitle">${esc(
         epicsOf(a).length
-          ? `${plural(epicsOf(a).length, 'epic')} below have an advocate assigned — one section each, for as long as the epic is open.`
+          ? `${plural(epicsOf(a).length, 'epic')} have an advocate assigned — one card each, directly below this one, for as long as the epic is open.`
           : 'No epic has an advocate assigned. One is assigned per epic that is open, owned and not a crash.'
       )}</p>`
     );
   }
 
   /**
-   * One section per epic with an advocate assigned.
+   * The windows this epic's own plan put up.
+   *
+   * A group is dispatched by an EpicAdvocate's judgement and carries the epic it came
+   * from (`w.group.epic`, written at the launch seam in lib/advocate.js), so the sessions
+   * an epic is responsible for are knowable rather than guessed at. Coders only: the
+   * planner window is `e.window` and is drawn once, at the top of this card.
+   */
+  const dispatchedFrom = (a, id) => codersOf(a).filter((w) => w.group?.epic === id);
+
+  /** Every epic id on this repo that has a card of its own, so nothing is drawn twice. */
+  const carded = (a) => new Set(epicsOf(a).map((e) => e.id));
+
+  /**
+   * What one epic's advocate is doing, as the chip in its own card's head.
+   *
+   * The four states the old section badge carried, in the same order and for the same
+   * reason: **paused wins over a window that is still up**, because that combination is
+   * the normal first minute of a pause — the epic has stopped and the session in it is
+   * finishing — and a head that said "planning" over it would describe the one thing
+   * about this epic that is no longer true.
+   *
+   * The reason there is no window is the chip's text rather than something you have to
+   * open the card to read, which is the whole of `why`: out of budget and nothing-ready
+   * are both actionable and they are actionable in different places.
+   */
+  function epicStateOf(e) {
+    if (e.paused) return { text: 'paused · nothing new below it', tone: 'held' };
+    const w = e.window;
+    if (w && w.ended) return { text: 'the window has exited', tone: 'warn' };
+    if (w) return { text: "writing this epic's plan", tone: 'live' };
+    return { text: e.why || 'no window', tone: '' };
+  }
+
+  /**
+   * One epic with an advocate assigned — a card, at the same level as the repo's.
    *
    * The lifetime is the whole design, and it is the graph's rather than a window's: a
-   * section appears when an epic is open and owned, and it is gone when that epic **closes**
+   * card appears when an epic is open and owned, and it is gone when that epic **closes**
    * — not when a window exits. Before this, an EpicAdvocate *was* its window, so it
    * existed for the few minutes one was up: on 2026-08-13 twenty epics had an advocate
    * assigned in this repo, one had a window, and the console drew one row.
@@ -858,96 +894,165 @@
    * is a fault and both are actionable — the first by stepping `maxEpicAdvocates`, the
    * second by looking at what is under the epic.
    *
-   * Sections rather than rows because there are ordinarily a dozen or more, and a section
-   * is the one thing on this page that is legible collapsed: the summary carries the epic
-   * and its state, so a card with fourteen of them is fourteen lines until you open one.
+   * **A card rather than a section inside the repo's, which is bc-henk.** An EpicAdvocate
+   * has its own budget (`maxEpicAdvocates`), its own state, its own pause and its own
+   * queue; drawing it folded inside the repo advocate's card said it was a part of that
+   * advocate, and it is not one. It also cost the sessions it dispatches a home: they
+   * were rows in the repo's "Working now", indistinguishable from the beads the repo
+   * advocate picked up one at a time, and the plan that put four windows up had nothing
+   * on screen tying them together.
+   *
+   * What keeps a repo with a dozen open P0s readable is that the head *is* the fold: it
+   * carries the epic, its id, what its advocate is doing and the two controls, and
+   * everything else is behind it. The key is the one the section used (`<ws>:epic:<id>`),
+   * so an epic somebody had open before this landed is still open after it.
    */
-  function epicSections(a, key, held) {
-    return epicsOf(a)
-      .map((e) => {
-        const w = e.window;
-        const live = w && livePid(w.pid);
-        const tone = e.paused ? 'warn' : w ? (w.ended ? 'warn' : 'live') : '';
-        // Paused wins the badge over everything, including a window that is still up:
-        // that combination is the normal first minute of a pause — the epic has stopped
-        // and the session in it is finishing — and a summary that said "planning" over it
-        // would describe the one thing about this epic that is no longer true.
-        const badge = e.paused
-          ? '<span class="tag warn">paused</span>'
-          : w
-            ? w.ended
-              ? '<span class="tag warn">the window has exited</span>'
-              : `<span class="tag live"><span class="spark"></span>planning</span>`
-            : `<span class="tag dim">${esc(e.why || 'no window')}</span>`;
-        const body = `
-          ${
-            w
-              ? `<a class="work-row adv-worker" href="${esc(live ? sessionUrl(w.pid) : graphUrl(a.workspace, e.id))}">
-                  <span class="work-phase">${live && !w.ended ? '<span class="spark"></span>' : '◍'}</span>
-                  <span class="work-main">
-                    <span class="work-title">Writing this epic's plan</span>
-                    <span class="work-sub">
-                      ${w.beads ? `<span class="tag">over ${esc(plural(w.beads, 'bead'))}</span>` : ''}
-                      ${w.claimed ? '<span class="tag ok">claimed</span>' : '<span class="tag">not claimed yet</span>'}
-                      ${
-                        w.checkedInAt
-                          ? `<span class="tag ok">checked in ${esc(age(w.checkedInAt))} ago</span>`
-                          : w.asked
-                            ? `<span class="tag warn">asked to check in ${esc(age(w.asked))} ago</span>`
-                            : ''
-                      }
-                      ${w.pid ? `<span class="tag dim">pid ${esc(w.pid)}</span>` : ''}
-                      ${w.reachable === false ? '<span class="tag dim">no window handle</span>' : ''}
-                    </span>
-                  </span>
-                  <time>${esc(age(w.at))}</time>
-                </a>`
-              : // Said in the body as well as the summary badge, because a collapsed
-                // section shows the badge and an open one is where you came to read why.
-                `<p class="subtitle">No window right now — ${esc(e.why || 'no reason recorded')}. The advocate stays assigned to this epic either way; it goes when the epic closes.</p>`
-          }
-          ${
-            e.paused
-              ? `<p class="subtitle">Paused. Nothing new will be dispatched anywhere under ${esc(
-                  e.id
-                )} — no advocate window, and no session on any bead below it — until it is resumed. Windows that were already open were told, keep their slots, and were asked to write a debrief before they exit, so whatever opens after the resume starts from what they knew.</p>`
-              : ''
-          }
-          ${
-            state.epicNotes.get(`${a.workspace}/${e.id}`)
-              ? `<div class="adv-note">${esc(state.epicNotes.get(`${a.workspace}/${e.id}`))}</div>`
-              : ''
-          }
-          ${
-            // Beads found under this epic that nobody has endorsed yet — see
-            // `heldByAdvocate`. Inside the epic's own section rather than beside it,
-            // because it is a fact about this advocate and not about the repo, and drawn
-            // only when there are some: a dozen epics each carrying an empty
-            // `Requested endorsements 0` is a card you stop reading.
-            heldSection(
-              `${key}:epic:${e.id}:held`,
-              a.workspace,
-              (held?.byEpic?.get(e.id) || []),
-              'Filed under this epic and waiting on you. Nothing will open a session on them until they are endorsed.'
-            )
-          }
-          <div class="work-foot">
-            <div class="meta">${esc(e.type)} · ${esc(e.id)}</div>
-            <div class="adv-controls">
-              <button class="adv-btn" data-epic="${e.paused ? 'epicResume' : 'epicPause'}" data-ws="${esc(
-                a.workspace
-              )}" data-id="${esc(e.id)}" title="${esc(
-                e.paused
-                  ? 'Start dispatching under this epic again'
-                  : 'Stop dispatching anything new under this epic. Windows already open keep their slots, finish their own work, and are asked to write a debrief first.'
-              )}">${e.paused ? 'Resume' : 'Pause'}</button>
-              <a class="work-graph" href="${esc(graphUrl(a.workspace, e.id))}">Open the epic →</a>
-            </div>
-          </div>`;
-        return section(`${key}:epic:${e.id}`, e.title, e.id, body, { tone, badge });
-      })
-      .join('');
+  function epicCard(a, e, heldRows) {
+    const key = a.workspace;
+    const st = epicStateOf(e);
+    const w = e.window;
+    const live = w && livePid(w.pid);
+    const mine = dispatchedFrom(a, e.id);
+    const note = state.epicNotes.get(`${key}/${e.id}`);
+    // The same key the section used before this was a card, so an epic somebody had open
+    // survives the deploy that changed the shape of what it opens.
+    const fold = `${key}:epic:${e.id}`;
+    const open = isOpen(fold);
+
+    // Both controls in the head, beside the state they act on. Pause is a button and
+    // "Open the epic" is a link, exactly as they were in the old section's foot — the
+    // pair has not changed, only where it is: a card that can be paused has to be
+    // pausable from the part of it you can see when it is shut.
+    const controls =
+      `<button class="adv-btn" data-epic="${e.paused ? 'epicResume' : 'epicPause'}" data-ws="${esc(
+        key
+      )}" data-id="${esc(e.id)}" title="${esc(
+        e.paused
+          ? 'Start dispatching under this epic again'
+          : 'Stop dispatching anything new under this epic. Windows already open keep their slots, finish their own work, and are asked to write a debrief first.'
+      )}">${e.paused ? 'Resume' : 'Pause'}</button>` +
+      `<a class="work-graph" href="${esc(graphUrl(key, e.id))}">Open the epic →</a>`;
+
+    const body = `
+      ${
+        w
+          ? `<a class="work-row adv-worker" href="${esc(live ? sessionUrl(w.pid) : graphUrl(key, e.id))}">
+              <span class="work-phase">${live && !w.ended ? '<span class="spark"></span>' : '◍'}</span>
+              <span class="work-main">
+                <span class="work-title">Writing this epic's plan</span>
+                <span class="work-sub">
+                  ${w.beads ? `<span class="tag">over ${esc(plural(w.beads, 'bead'))}</span>` : ''}
+                  ${w.claimed ? '<span class="tag ok">claimed</span>' : '<span class="tag">not claimed yet</span>'}
+                  ${
+                    w.checkedInAt
+                      ? `<span class="tag ok">checked in ${esc(age(w.checkedInAt))} ago</span>`
+                      : w.asked
+                        ? `<span class="tag warn">asked to check in ${esc(age(w.asked))} ago</span>`
+                        : ''
+                  }
+                  ${w.pid ? `<span class="tag dim">pid ${esc(w.pid)}</span>` : ''}
+                  ${w.reachable === false ? '<span class="tag dim">no window handle</span>' : ''}
+                </span>
+              </span>
+              <time>${esc(age(w.at))}</time>
+            </a>`
+          : // Said in the body as well as the head chip, because a shut card is only its
+            // head, and an open one is where you came to read why.
+            `<p class="subtitle">No window right now — ${esc(
+              e.why || 'no reason recorded'
+            )}. The advocate stays assigned to this epic either way; it goes when the epic closes.</p>`
+      }
+      ${
+        e.paused
+          ? `<p class="subtitle">Paused. Nothing new will be dispatched anywhere under ${esc(
+              e.id
+            )} — no advocate window, and no session on any bead below it — until it is resumed. Windows that were already open were told, keep their slots, and were asked to write a debrief before they exit, so whatever opens after the resume starts from what they knew.</p>`
+          : ''
+      }
+      ${
+        // The sessions this epic's own plan dispatched — the same `workerRow` the repo
+        // card draws, and *not* also drawn there (see `advocateCard`). A labelled run
+        // rather than a fold of its own: one more collapsed strip per card is the cost
+        // this whole layout is trying not to pay, and by the time you are reading this
+        // you have already opened the card.
+        mine.length
+          ? `<div class="session-label">Working now <span>${esc(
+              plural(mine.length, 'session')
+            )} dispatched from this epic's plan.</span></div>` + mine.map((x) => workerRow(a, x)).join('')
+          : ''
+      }
+      ${
+        // Beads found under this epic that nobody has endorsed yet — see
+        // `heldByAdvocate`. It arrived (bc-8t3b) as a section inside the epic's section,
+        // for the reason that outlived the section: it is a fact about *this* advocate
+        // and not about the repo, so it belongs on the epic's own card rather than beside
+        // it. Drawn only when there are some — a dozen epics each carrying an empty
+        // `Requested endorsements 0` is a card you stop reading — and keyed
+        // `<ws>:epic:<id>:held` exactly as it was, so one left open stays open.
+        heldSection(
+          `${fold}:held`,
+          key,
+          heldRows || [],
+          'Filed under this epic and waiting on you. Nothing will open a session on them until they are endorsed.'
+        )
+      }`;
+
+    // No `data-ws` on this article, deliberately: `.mon-card[data-ws]` means "a repo card"
+    // to three browser checks and to anything written after them, and an epic card
+    // answering that selector would be a repo card as far as every one of them is
+    // concerned. The workspace is on the controls inside, where it is acted on.
+    //
+    // **The head *is* the fold**, which is the one decision that keeps this layout
+    // affordable — a card cannot be the 40px a collapsed section was, and twelve of them
+    // is the wall this bead's own acceptance says not to build. Measured in a real Chrome
+    // at 393×852, one repo with twelve assigned epics and everything shut: 2304px as
+    // twelve folds inside one card, 1656px as thirteen cards. See the rule in style.css.
+    //
+    // The toggle is a `<button>` and the controls are its *siblings* rather than its
+    // children: a button inside a button is not markup, and Pause has to be reachable
+    // without opening anything. The key is the one the section used, so an epic somebody
+    // had open before this landed is still open after it.
+    return `<article class="card work-card mon-card epic-card${open ? ' open' : ''}" data-epic-card="${esc(e.id)}">
+      <div class="work-head epic-head">
+        <button class="mon-sum epic-sum" data-toggle="${esc(fold)}" aria-expanded="${open}" title="${esc(e.title)}">
+          <span class="mon-caret" aria-hidden="true">▾</span>
+          <span class="mon-sum-title">${esc(e.title)}</span>
+          <span class="pill id">${esc(e.id)}</span>
+        </button>
+        <span class="mon-state ${st.tone}">${esc(st.text)}</span>
+        <span class="adv-actions">${controls}</span>
+      </div>
+      ${
+        // What the press you just made actually did — how many windows were told, and how
+        // many could not be reached. **Above the fold, not in it**, and that is the whole
+        // reason it is written here rather than beside the paused paragraph it reads like:
+        // Pause is a button in the head, so a note inside a shut card would be the answer
+        // to a press you cannot see. `epicControl` writes it and `load()` repaints.
+        note ? `<div class="adv-note">${esc(note)}</div>` : ''
+      }
+      ${open ? `<div class="mon-body">${body}</div>` : ''}
+    </article>`;
   }
+
+  /**
+   * Every epic card for one repo, in the order the daemon assigned them.
+   *
+   * Emitted immediately after that repo's own card rather than gathered into a block of
+   * their own, so a repo and its epics stay one readable run on a phone: you scroll past
+   * beadcause and its four epics, then climative and its two, rather than past every repo
+   * and then every epic in the space.
+   */
+  const epicCards = (w, a) => {
+    if (!a) return '';
+    // The same split the repo card reads, computed again rather than threaded through
+    // `advocateCard`: it is a pure derivation over `heldRows`, and the two readers are on
+    // opposite sides of the card boundary now that an epic is not drawn inside the repo.
+    // `rest` is the repo card's half and is not read here.
+    const held = heldByAdvocate(w, a);
+    return epicsOf(a)
+      .map((e) => epicCard(a, e, held.byEpic.get(e.id) || []))
+      .join('');
+  };
 
   /**
    * One session the advocate opened.
@@ -1390,23 +1495,33 @@
       .filter(Boolean)
       .join('');
 
-    // Split once, read twice: the epic sections take their own beads out of it and this
-    // card's own section takes what is left. See `heldByAdvocate` for why the two halves
-    // exist and which of them a bead lands in.
+    // The coders this repo's advocate opened that no epic's plan claims. The ones an
+    // EpicAdvocate dispatched are on that epic's own card — one window, one card, which
+    // is the half of bc-henk you can see. `carded` rather than `w.group?.epic` alone: a
+    // group whose epic has since closed has lost its card, and its windows have to land
+    // somewhere rather than nowhere.
+    const claimed = carded(a);
+    const unclaimed = codersOf(a).filter((w) => !claimed.has(w.group?.epic));
+    const elsewhereCount = codersOf(a).length - unclaimed.length;
+
+    // The half of the split this card draws: what no epic above it claimed. The other
+    // half goes to the epic *cards*, which are no longer inside this one and so compute
+    // the same split themselves (`epicCards`) rather than being handed it — bc-8t3b wrote
+    // this as "split once, read twice" when an epic was a section in here, and bc-henk
+    // moved the second reader out of the function without changing what it reads. See
+    // `heldByAdvocate` for why the two halves exist and which of them a bead lands in.
     const held = heldByAdvocate(w, a);
 
     const secs = [
       // First, because it answers "who is deciding what happens in this repo" — and every
-      // section under it is one of those decisions playing out. The count is the whole
-      // roster, the repo advocate plus every epic that has one assigned, so a shut panel
-      // still says how many advocates this repo has.
-      section(`${key}:advocates`, 'Advocates', String(1 + epicsOf(a).length), advocatesHtml(a), {
+      // section under it is one of those decisions playing out. **This advocate alone**:
+      // the count used to be `1 + epicsOf(a).length` and the epics used to be folds under
+      // it, which is exactly what bc-henk took apart. What stays here is the pair of
+      // numbers the daemon rations against — coders against `limit`, planners against
+      // `epicLimit` — because those are facts about *this* advocate.
+      section(`${key}:advocates`, 'The repo advocate', '', advocatesHtml(a), {
         tone: a.paused || a.error ? 'warn' : 'live',
       }),
-      // Then one per epic. They sit above the work rather than below it because they are
-      // what decides the work: an epic being planned now is the reason some of what is in
-      // "Up next" will be dispatched as a group rather than one bead at a time.
-      epicSections(a, key, held),
       section(
         `${key}:work`,
         'Working now',
@@ -1415,11 +1530,25 @@
         // while `tickOne` still has a slot to give away, which is the one number on this
         // page that has to agree with the daemon.
         codersOf(a).length ? `${codersOf(a).length}/${a.limit}` : `0/${a.limit}`,
-        codersOf(a).length
-          ? codersOf(a)
-              .map((x) => workerRow(a, x))
-              .join('')
-          : '<p class="subtitle">No coding sessions open from this advocate. EpicAdvocates have their own sections above.</p>',
+        // **The count is every coder and the rows are only the unclaimed ones**, and that
+        // is deliberate rather than a mismatch to fix. The number has to agree with the
+        // daemon — `limit` rations coders per repo, all of them, including the ones an
+        // epic's plan dispatched — so a section headed `2/4` over four windows would be
+        // the card disagreeing with what `tickOne` will actually do. The rows are split
+        // because a window belongs to one card, and the line underneath says where the
+        // rest of them went rather than leaving the arithmetic to you.
+        (unclaimed.length
+          ? unclaimed.map((x) => workerRow(a, x)).join('')
+          : `<p class="subtitle">${
+              elsewhereCount
+                ? 'No coding session here that an epic has not claimed.'
+                : 'No coding sessions open from this advocate.'
+            } EpicAdvocates have cards of their own below.</p>`) +
+          (elsewhereCount
+            ? `<p class="subtitle">${esc(
+                plural(elsewhereCount, 'more session')
+              )} came out of an epic's plan and ${elsewhereCount === 1 ? 'is' : 'are'} on that epic's card below.</p>`
+            : ''),
         { tone: codersOf(a).length ? 'live' : '' }
       ),
       // Only drawn when there is one, and there usually is not: a window sits here for
@@ -1462,7 +1591,7 @@
         key,
         held.rest,
         held.byEpic.size
-          ? 'Waiting on you, and not produced by any advocate above — the rest are in their own sections.'
+          ? 'Waiting on you, and not produced by any advocate above — the rest are on their own cards.'
           : 'Waiting on you. Nothing will open a session on them until they are endorsed.',
         { more: held.dropped }
       ),
@@ -1881,9 +2010,10 @@
   }
 
   /**
-   * The four settings a repo row may answer for itself, in the order they happen to
-   * work: a filing arrives, a pull request merges, a review gates that merge, the merge
-   * deploys. Reading down a row is reading the life of one piece of work.
+   * The five settings a repo row may answer for itself, in the order they happen to
+   * work: a filing arrives, a pull request merges, your approval gates that merge, an
+   * agent's review gates it too, the merge deploys. Reading down a row is reading the
+   * life of one piece of work.
    *
    * `on`/`off` are the sentences the *buttons* promise, so each one says what pressing
    * it does to this repo rather than naming the field again — a title reading
@@ -1917,6 +2047,16 @@
       off: 'green checks are enough',
     },
     {
+      key: 'reviewRequired',
+      what: 'An agent reviews it first',
+      // Moot for the same reason the row above it is: with auto-merge off the pull
+      // request is already a question in your hand, and a review loop in front of a
+      // decision you are going to make yourself is a round trip nobody asked for.
+      moot: (r) => !r.autoMerge,
+      on: 'nothing merges until the ReviewAdvocate has read the diff and approved it',
+      off: 'the merge queue merges without anything reading the diff',
+    },
+    {
       key: 'autoShip',
       what: 'Merges ship themselves',
       on: 'a merge runs this repo’s deploy without waiting for Ship',
@@ -1941,7 +2081,7 @@
    * carries that per field; `r.own` is `null` for every field this repo leaves alone,
    * which is what puts Inherit on.
    *
-   * A row whose payload predates `own`/`inherits` draws nothing rather than four rows of
+   * A row whose payload predates `own`/`inherits` draws nothing rather than five rows of
    * buttons that would all read Inherit (off) and write the wrong answer on a press — the
    * same reasoning the server side gives for treating an unreadable override as absent.
    */
@@ -2146,6 +2286,13 @@
         g.requireApproval
       ),
       tri(
+        'reviewRequired',
+        'An agent reviews it first',
+        'On means nothing merges here until the ReviewAdvocate has read the diff and approved it — a second gate in front of the queue, not a substitute for your own. Leave it off in a repo where nothing is reviewing: on, with no reviewer, is a queue that stops rather than one that waits.',
+        s.reviewRequired,
+        g.reviewRequired
+      ),
+      tri(
         'autoShip',
         'Merges ship themselves',
         'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
@@ -2206,6 +2353,7 @@
               <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
               <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
+              ${r.autoMerge && r.reviewRequired ? '<span class="tag warn">reviewed first</span>' : ''}
               <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
               ${
                 // Only where Slack is on at all: a "no slack" tag on every repo of every
@@ -2367,11 +2515,16 @@
     // ever asks it for its own name.
     const roster = new Map((data.roster || []).map((r) => [r.workspace, r]));
 
+    // A repo's card, then immediately its epics' cards — every advocate at one level,
+    // and a repo still one readable run on a phone (bc-henk). Deliberately not gathered
+    // into a block of epic cards after all the repo cards: on a phone that would put the
+    // reason a repo is dispatching groups a whole screen away from the repo doing it.
+    const runFor = (w, a, proposals, r) => advocateCard(w, a, proposals, r) + epicCards(w, a);
     const cards =
       withAdv
-        .map((w) => advocateCard(w, advocates.get(w.name), state.proposals.get(w.name) || [], roster.get(w.name)))
+        .map((w) => runFor(w, advocates.get(w.name), state.proposals.get(w.name) || [], roster.get(w.name)))
         .join('') +
-      orphans.map((n) => advocateCard(null, advocates.get(n), state.proposals.get(n) || [], roster.get(n))).join('') +
+      orphans.map((n) => runFor(null, advocates.get(n), state.proposals.get(n) || [], roster.get(n))).join('') +
       without.map((w) => plainCard(w, roster.get(w.name))).join('') +
       elsewhereHtml(data.elsewhere || []);
 

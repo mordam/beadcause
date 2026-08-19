@@ -8,32 +8,32 @@ export const SURFACES = [
     cards: [
       {
         path: 'filters/filter-menu.html',
-        name: 'Filter menu',
-        subtitle: 'One line at rest, chips when opened',
-        viewport: { width: 440, height: 420 },
-        note: `The inbox's whole filter, behind <b>one line</b>. It held three permanent rows once, coarsest first — scope, space, workspace — and two rows of chips above the list is two questions you cannot see on a phone. So it collapses to a sentence saying what is selected, and opens on hover with a pointer and on a tap without one. The same control is the History tab's filter bar.`,
+        name: 'Filter pills',
+        subtitle: 'One pill per filter, and the note where a pill cannot go',
+        viewport: { width: 460, height: 420 },
+        note: `One pill per filter, each opening its own chips (bc-khoe.26). It was one collapsed line over every group at once, and what that line said was a comma-joined digest of three questions you then had to open a panel to change. A pill is <b>its legend at rest</b> and <b>its legend and the narrowing</b> the moment there is one — so the answer stays legible without opening anything even though the choices do not. The third shape is the <b>note</b>: a narrowing whose pill the current view cannot offer, said in the same words without the border or the caret, because a statement is not a control. The same row is the History tab's filter bar.`,
         markup: `<div class="ds-stack">
   <div class="filter-menu">
-    <button class="filter-summary" aria-expanded="false"><span class="sel">Needs me · questions, proposals</span><span class="caret" aria-hidden="true">▾</span></button>
+    <div class="filter-one">
+      <button class="filter-summary" aria-expanded="false"><span class="filter-legend">Bead</span><span class="sel" hidden></span><span class="caret" aria-hidden="true">▾</span></button>
+    </div>
+    <div class="filter-one">
+      <button class="filter-summary on" aria-expanded="false"><span class="filter-legend">PR status:</span><span class="sel">unmerged</span><span class="caret" aria-hidden="true">▾</span></button>
+    </div>
+    <span class="filter-note"><span class="filter-legend">Bead status:</span><span class="sel">Blocked</span></span>
   </div>
 
   <div class="filter-menu">
-    <button class="filter-summary" aria-expanded="true"><span class="sel">Needs me · questions, proposals</span><span class="caret" aria-hidden="true">▾</span></button>
-    <div class="filter-panel">
-      <div class="filter-group">
-        <span class="filter-legend">Scope</span>
-        <div class="chip-row scopes" role="group">
-          <button class="chip" aria-pressed="true"><span class="chip-label">Needs me</span></button>
-          <button class="chip" aria-pressed="false"><span class="chip-label">Everything</span></button>
-        </div>
-      </div>
-      <div class="filter-group">
-        <span class="filter-legend">Kinds</span>
-        <div class="chip-row kinds" role="group">
-          <button class="chip" aria-pressed="true"><span class="chip-label">Questions</span><span class="chip-count">4</span></button>
-          <button class="chip" aria-pressed="true"><span class="chip-label">Proposals</span><span class="chip-count">2</span></button>
-          <button class="chip" aria-pressed="false"><span class="chip-label">Deliveries</span><span class="chip-count">1</span></button>
-          <button class="chip none" aria-pressed="false"><span class="chip-label">Endorsements</span><span class="chip-count">0</span></button>
+    <div class="filter-one open">
+      <button class="filter-summary on" aria-expanded="true"><span class="filter-legend">PR status:</span><span class="sel">Deployed, Live</span><span class="caret" aria-hidden="true">▾</span></button>
+      <div class="filter-panel">
+        <div class="filter-group">
+          <div class="chip-row statuss" role="group" aria-label="PR status">
+            <button class="chip" aria-pressed="false"><span class="chip-label">Review</span><span class="chip-count">4</span></button>
+            <button class="chip none" aria-pressed="false"><span class="chip-label">Merged</span><span class="chip-count">0</span></button>
+            <button class="chip" aria-pressed="true"><span class="chip-label">Deployed</span><span class="chip-count">2</span></button>
+            <button class="chip" aria-pressed="true"><span class="chip-label">Live</span><span class="chip-count">1</span></button>
+          </div>
         </div>
       </div>
     </div>

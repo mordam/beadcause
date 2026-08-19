@@ -114,13 +114,17 @@ check('a release says where it ran and what went live', released.title.includes(
 check('a failed deploy is a blockage rather than a release', stuck.type === 'stuck' && stuck.source === 'deploy', JSON.stringify(stuck));
 check('and it carries the daemon’s own verdict', stuck.text.includes('exit 1'), JSON.stringify(stuck.text));
 
-// Rounding `unconfirmed` to either side is exactly the lie the deploy notification has
-// always refused: the deploy that restarts beadcause kills the process reporting on it.
-check(
-  'an unconfirmed deploy is not reported as a release',
-  deployEvent({ workspace: 'demo', id: 'd-3', status: 'unconfirmed' }).type === 'stuck'
-);
-check('and neither is a lost one', deployEvent({ workspace: 'demo', id: 'd-4', status: 'lost' }).type === 'stuck');
+// `unconfirmed` was a blockage here until bc-ka5y.15.5 and is news now. `sweepDeploys`
+// writes that word only for a deploy with `restarts` set, so it is the ordinary ending of
+// every deploy beadcause makes of itself — and the insistent voice going off several times
+// a day about a deploy that almost certainly worked is what teaches somebody to ignore it.
+// The card still says "unconfirmed" rather than "deployed"; only the sound moved. The whole
+// argument is in lib/voices.js and it is pinned by test/voices.mjs.
+const unconfirmed = deployEvent({ workspace: 'demo', id: 'd-3', status: 'unconfirmed' });
+check('an unconfirmed deploy does not use the insistent voice', unconfirmed.type === 'released', JSON.stringify(unconfirmed.type));
+check('but the card still refuses to call it deployed', unconfirmed.title.includes('unconfirmed'), unconfirmed.title);
+check('and it is filed as news, so the card expires on its own', unconfirmed.key.startsWith('news/'), unconfirmed.key);
+check('a lost deploy is still a blockage', deployEvent({ workspace: 'demo', id: 'd-4', status: 'lost' }).type === 'stuck');
 
 check('an epic says which epic', epic.title.includes('Five notification voices'), epic.title);
 check('and how many beads closed under it', epic.text.includes('6 beads'), epic.text);
@@ -254,13 +258,15 @@ check(
   'a landing in the shade does not swallow the “Answered” confirmation',
   /Tray\.snapshot\(Tray\.Chan\.WORK, Tray\.Chan\.FOUNDATION\)/.test(NOTIF)
 );
-// Immutable-by-design: Android takes a channel's sound from the first
-// createNotificationChannel and ignores every one after it, forever. Cutting the five
-// channels before their sounds exist would burn the ids bc-ka5y.15.4 needs.
+// This suite used to assert the *opposite* — that no channel was published yet, because
+// a channel's sound is immutable after createNotificationChannel and cutting one before
+// its sound existed would have burned the id. bc-ka5y.15.4 cut all five, and the whole of
+// what that bead owes is now held by test/channels.mjs. What stays here is only the join:
+// news no longer borrows the replies channel, which is what this suite was about.
 check(
-  'no channel is published before bc-ka5y.15.4 can give it a sound',
-  !/CHANNEL_MERGED|CHANNEL_RELEASED|CHANNEL_EPIC|CHANNEL_STUCK/.test(NOTIF),
-  'a channel created with the wrong sound is a channel that needs a _v2 on day one'
+  'news has its own voice now and does not borrow the replies channel',
+  /chan == Tray\.Chan\.NEWS -> newest\.voice/.test(NOTIF),
+  'bc-ka5y.15.4 gave the three sizes of good news three channels — see test/channels.mjs'
 );
 
 /* ------------------------------------------------- 6. and it reaches a real poll */
