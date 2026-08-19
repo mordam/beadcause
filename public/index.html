@@ -221,6 +221,97 @@
         aria-label="Start a chat session — talk through what the next bead should be">＋</button>
     </div>
 
+
+    <!--
+      The create form ＋ opens on All Beads (bc-khoe.27.3).
+
+      ＋ means *new*, and what new is belongs to the view rather than to the button. On
+      Chats it starts a conversation; on this screen — every live bead in the tracker —
+      it files one, and this is the form. It is a sheet rather than a page because the
+      list behind it is the reason you are filing: you tapped ＋ while looking at what is
+      already there, and a navigation away and back would cost you that.
+
+      **Parent is the field this form exists to have.** A bead with nothing decided above
+      it is not workable (bc-rfnr.7) and is drawn on no screen either, so a create that
+      quietly made orphans would be a button for filing beads nobody will ever see. Blank
+      is not "no parent": the daemon asks lib/homing.js, exactly as it does for every bead
+      an agent files, and lands it under the repo's `unsorted` root. The placeholder says
+      so, because a field whose empty case does something has to admit it.
+
+      **Which repo is the same question ＋ already answers for a chat**, and it is answered
+      the same way: `space.inside()` is what the picker in the top bar allows. One
+      candidate is stated rather than asked about; more than one is a row of chips, since a
+      form that filed into a repo you are not looking at is the one thing the picker exists
+      to stop.
+
+      Everything else — the fields, their order, the chip rows for type and priority — is
+      the chat console's proposal sheet, which has edited exactly these fields on a phone
+      since bc-l8jp. Same classes, same stylesheet, on purpose: two editors for one bead
+      shape that drifted apart would be two answers to "what is a bead" with nothing
+      saying which is right.
+    -->
+    <section id="beadform" class="sheet beadform" hidden role="dialog" aria-modal="true"
+      aria-label="File a new bead">
+      <div class="sheet-grip"></div>
+      <header class="sheet-head">
+        <strong class="beadform-head">New bead</strong>
+        <div class="sheet-actions">
+          <button id="beadform-close" class="icon-btn" type="button" aria-label="Close without filing">✕</button>
+        </div>
+      </header>
+      <form id="beadform-form" class="sheet-body">
+        <div class="field" id="beadform-ws-field">
+          <span>Workspace</span>
+          <div id="beadform-ws" class="chip-row"></div>
+        </div>
+
+        <label class="field">
+          <span>Title</span>
+          <textarea rows="2" id="beadform-title" required
+            placeholder="One line: what needs doing."></textarea>
+        </label>
+        <div class="field">
+          <span>Type</span>
+          <div id="beadform-type" class="chip-row"></div>
+        </div>
+
+        <div class="field">
+          <span>Priority</span>
+          <div id="beadform-priority" class="chip-row"></div>
+        </div>
+
+        <label class="field">
+          <span>Description</span>
+          <textarea rows="4" id="beadform-description"
+            placeholder="Why this exists and what needs doing."></textarea>
+        </label>
+
+        <label class="field">
+          <span>Acceptance</span>
+          <textarea rows="2" id="beadform-acceptance"
+            placeholder="How we would know it is done."></textarea>
+        </label>
+
+        <label class="field">
+          <span>Parent</span>
+          <input type="text" id="beadform-parent" autocapitalize="none" autocorrect="off"
+            spellcheck="false" placeholder="a bead id — blank files it under the unsorted root">
+        </label>
+
+        <label class="field">
+          <span>Labels</span>
+          <input type="text" id="beadform-labels" autocapitalize="none" autocorrect="off"
+            placeholder="comma, separated">
+        </label>
+
+        <p id="beadform-say" class="beadform-say" hidden></p>
+
+        <div class="beadform-actions">
+          <button type="button" id="beadform-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="beadform-file" class="primary">File it</button>
+        </div>
+      </form>
+    </section>
     <!--
       ✏️ — the one thing on this screen that changes the screen rather than the tracker.
 
@@ -252,9 +343,19 @@
     they still are. That is what lets the shell land on its own — the alternative was two
     of seven pills leading to a blank screen on an app that deploys itself the moment a
     branch merges. Each bead deletes its own attribute by filling its own container.
+
+    Advocates names **bc-khoe.4** rather than bc-khoe.30.6, and the swap is a sequencing
+    fact rather than a rename (bc-khoe.30.6). This container is the advocate console —
+    monitor.html's chip row and all four of its sections, which is monitor.js, prs.js,
+    mirror.js and montabs.js in one pane — and one of those four sections is *leaving*:
+    bc-khoe.10 takes the space's settings out to a view of their own. Filling this
+    container before that lands would mean folding in a Config pane already deleted on
+    another branch, so the fold is bc-khoe.4's, behind bc-khoe.10, and bc-khoe.30.6 is
+    the bead that decided that and wrote down the two rulings the fold needs. See
+    "The advocate console is one pane, and its chip row stays" in README.md.
   -->
   <div class="pane" data-pane="history" data-pending="bc-khoe.30.5" hidden></div>
-  <div class="pane" data-pane="advocates" data-pending="bc-khoe.30.6" hidden></div>
+  <div class="pane" data-pane="advocates" data-pending="bc-khoe.4" hidden></div>
 
   <div id="toast" class="toast" role="status" hidden></div>
 

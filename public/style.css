@@ -5527,6 +5527,50 @@ button.viewpill { cursor: pointer; }
    narrow phone. */
 .has-compose .toast { bottom: calc(env(safe-area-inset-bottom) + 78px); }
 
+/* The create form ＋ opens on All Beads (bc-khoe.27.3).
+
+   It is `.sheet` — the same drawer /graph opens a bead in — because it is the same
+   gesture: something arrives over the list you are looking at, and the list is still
+   there behind it. Everything inside it is `.field`, which is the chat console's
+   proposal sheet, so there is nothing here about how a bead's fields are laid out; what
+   is left is the handful of things a *form* has and a detail drawer does not.
+
+   z-index is the sheet's own 30, which puts it over ＋ (24) and under an open card (40).
+   That ordering is not decorative: ＋ is what opened this, so a button still sitting on
+   top of the form would be a control offering to open what is already open. */
+/* Taller than the 72dvh a detail drawer takes, because this one is a form: eight fields
+   and two buttons, and at 72dvh a phone shows four of them. Not the whole screen either —
+   the strip of list left above it is what says this is over Home rather than a page you
+   navigated to, and it is the way back if the ✕ is not where your thumb is. */
+.beadform { height: 88dvh; }
+.beadform .sheet-body { display: flex; flex-direction: column; gap: 14px; }
+.beadform-head { font-size: 15px; font-weight: 650; padding-left: 4px; }
+
+/* One repo is a statement, not a choice — the same bargain ＋ makes for a chat, where a
+   single candidate starts without asking. The chip is left in place rather than swapped
+   for a line of text so the row does not change shape between one workspace and two,
+   and it is inert because tapping the only answer can do nothing. */
+#beadform-ws-field.one .chip { pointer-events: none; }
+
+/* What the form says about itself, and it is deliberately in the sheet rather than in a
+   toast. A refusal is a sentence you have to be able to read next to the field that
+   caused it, and a warning — "filed with no parent, so nothing will work it" — is one
+   you have to be able to read twice; a toast is gone in 2.6 seconds and takes both with
+   it. */
+.beadform-say {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px; line-height: 1.45;
+  color: var(--muted);
+}
+.beadform-say[hidden] { display: none; }
+.beadform-say.bad { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); }
+.beadform-say.warn { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); color: var(--warn); }
+
+.beadform-actions { display: flex; gap: 8px; }
+
 /* A conversation, as one row in the inbox.
 
    `.card` for the surface the rest of the list is made of, `.work-row` for the layout

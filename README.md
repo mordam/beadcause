@@ -4314,6 +4314,18 @@ that owns nothing yet, are not narrowed — but *having started nothing* is exac
 questions most need to be reachable, which is the whole of the difference.
 `node test/assignedrows.mjs` holds it, from `bd export` through to the real client filter.
 
+**And the two screens either side of the tap are `scripts/p0board-check.mjs`'s**, which is
+where the rule was caught disagreeing with itself. That check was written for bc-khoe.28
+and asked, on the Questions pill, that the bead the board draws is "still not doubled into
+it" — the rule bc-khoe.29 then reversed — so main was red on it for a day after #498
+landed, on a check that needs real Chrome and is therefore not in `npm test` (bc-7wwbb).
+The assertion is inverted now rather than deleted, because there is no board on that pill
+to double anything into and the row's presence is the whole of what #498 bought. Its
+fixture gained an `assigned` map at the same time: without one `assignedToMe` returns its
+rows untouched, so the check had been passing this half of its claim without ever running
+the code that decides it, and a question under somebody else's P0 is in the fixture now to
+keep that from happening again.
+
 **The row carries a copy of the six, and the copy is checked.** `public/viewbar.js` is
 loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
 table at paint time. `test/inboxkinds.mjs` holds the two lists to the same six ids, labels
@@ -4636,15 +4648,24 @@ to the one click listener in `public/app.js`, which branches on it. A boolean wo
 sent that listener looking somewhere else for what to do, and the somewhere else is always
 a second list of kind ids, which is the thing this table exists to make unnecessary. Absent
 is still the third answer and still the important one: `composes()` is `Boolean` over the
-same field, so a row with no `compose` draws no button. The `bead` row says `chat` today,
-because ＋ on All Beads starts a chat until bc-khoe.27.3 puts a form behind it — a row
-promising a create nobody wrote is a button that does nothing when tapped.
+same field, so a row with no `compose` draws no button. The `bead` row said `chat` for as
+long as ＋ on All Beads started one, and became `bead` the day the [create
+form](#a-bead-you-file-yourself-from-the-form-behind-) landed behind it (bc-khoe.27.3) — a
+row promising a create nobody wrote is a button that does nothing when tapped, so the word
+moves with the thing it names and not before.
 
 There are two panels above ＋, and it opens whichever one its kind names: `#compose-pick`
 asks which repo to start a chat in, `#compose-epics` offers [the epics you could
 start](#starting-an-epic-from-the-board-and-taking-one-off). Both live inside the fixed
 `.compose-wrap`, so hiding the wrapper hides them, and `hideComposePick` shuts *both*
 whichever was open — the one that is open belongs to the kind you just left.
+
+**The third create is not one of those panels**, and the asymmetry is the form's size
+rather than an oversight: `bead` opens `#beadform`, a full `.sheet` over the list, because
+eight fields do not fit in a panel the width of a button. So `public/app.js` guards that
+branch on the sheet's *markup* as well as on the word — a phone can be running today's
+script against last week's document for one load, and a ＋ that silently did nothing would
+be worse than the chat it replaced, so a missing `#beadform` falls back to the chat.
 
 **Three things move together in `public/app.js`, and any one of them moving alone is the
 bug.** `paintCompose` does all three on every change of kind:
@@ -4675,6 +4696,71 @@ failure than drawing the button one screen too wide.
 padding, the picker outliving its button, the picker outliving a kind change that keeps
 it, and the fallback — and `node test/inboxkinds.mjs` holds the table to the three and
 the three.
+
+### A bead you file yourself, from the form behind ＋
+
+`All Beads` is every live bead in the tracker nobody is asking you about, which makes it
+the one screen where *file another one* is the obvious next thing to do. ＋ there opens a
+sheet — title, type, priority, description, acceptance, parent, labels, and the workspace
+it lands in — and filing it creates the bead.
+
+**It is not the chat console, and the difference is what you already know.** The console
+is right when the question is *what should be filed*: an agent argues a proposal into
+shape and you edit the cards it draws. It is the wrong tool for a bug you just hit, or a
+thing you noticed two rows down this very list — a create whose turnaround is measured in
+replies is not a create. The fields are the console's all the same, in the console's
+order, with the same `.field` markup and the same chip rows, because two editors for one
+bead shape that drifted apart would be two answers to "what is a bead" with nothing saying
+which is right.
+
+**One `bd create`, two doors.** `createBead` in `lib/server.js` is the whole of the write,
+shared with `POST /api/console/create`, which now calls it once per card in the draft.
+The alternative was a second create with the same eight fields beside the first, and the
+two would then have been free to disagree about which labels survive, where a
+[declared surface](#a-card-says-which-files-its-bead-expects-to-touch) goes, and whether `created_by` is
+stamped. What the form decides on its own is only what a form has and a draft does not.
+
+**What it is deliberately not is `fileBeads`.** That is the seam an *agent* files through
+(`lib/filing.js`), and it stamps what an agent-filed bead has to carry: `unendorsed`,
+`agent-filed`, a `discovered-from` edge, and a provenance note that opens "Filed by an
+agent". None of that is true of a bead you typed, and one filed from your own phone
+arriving held for your own endorsement reads as a bug in the tracker rather than as a
+policy. `node test/beadform.mjs` asserts the absence of all four by name on the argv `bd`
+was really spawned with, because it is the sort of thing a later tidy-up puts back.
+
+**Parent is the field the form exists to have.** Per this tracker's own discipline a bead
+with nothing decided above it is not workable — no advocate queues it and no session opens
+on it — and `underOwnedRoots` draws only what descends from a root you own, so it is
+invisible as well as held. A create that quietly made those would be a button for filing
+beads nobody will ever see. So blank does **not** mean parentless: it goes through the same
+[filing seam](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists)
+every agent-filed bead does, and lands under the repo's `unsorted` root. Five states, and
+they are five different sentences:
+
+| What you typed | What happens |
+|---|---|
+| A bead id that exists | Filed under it, untouched |
+| A bead id that does not | **400**, and nothing is filed — a blank field is "you decide" and a typo is not |
+| Nothing, and the repo has an `unsorted` root | Filed under that root, and the reply says which |
+| Nothing, and it has roots but no pile | Filed parentless, with a warning naming the `unsorted` label as the fix |
+| Nothing, and it has no roots at all | Filed parentless, and **no** warning — the gate fails open, so the bead is workable and a hold nobody is applying would be a false claim |
+
+**Which repo is the same question ＋ already answers for a chat**, from the same
+`startableRepos`: `space.inside()` is what the picker in the top bar allows. One candidate
+is stated rather than asked about, more than one is a chip row, and a workspace the picker
+stops allowing while the sheet is open does not stay selected — filing into a repo you are
+not looking at is the one thing that filter exists to stop.
+
+**A refusal stays on the sheet.** bd's own first line, in the form, with everything you
+typed still in it; a create that failed and closed would be a bead you have to write out
+again to find out why. Warnings are the same and for a sharper reason — "filed with no
+parent, so nothing will work it" is a sentence you have to be able to read twice, and a
+toast is gone in 2.6 seconds. A clean filing closes the sheet, toasts the id, and the row
+arrives in the list off the `created` bus event without a reload.
+
+`node test/beadform.mjs` drives the real route against a `bd` that records its argv — the
+fields as typed, all five parent states, the refusal, the labels guard — and lifts the
+form's own painting into a `vm` for the workspace row.
 
 ### The scope is a control you can see
 
@@ -5532,6 +5618,18 @@ that concludes its epic needs no more supervision has to remove both: `bd label 
 advocate-assigned` *and* erase its waiting-on block. Either one left in place keeps the
 sweep bringing it back. `epicAdvocatePrompt` says exactly that in the brief, because an off
 switch nothing is told about is an off switch nobody presses.
+
+**And the sentence is now held to its 160 characters on the path advocates actually take**
+(bc-zjab.5). `WAITING_MAX` used to be applied only in `waitingBlock`, which nothing calls:
+an advocate is composing a whole `notes` field around the markers and writes it by hand
+through `bd update --notes`, so no code of ours was ever on that path — and `waitingOn`
+did not truncate on read either. Measured on bc-y3qk 2026-08-18, the block was **942
+characters**, written that long by four consecutive visits and drawn in full every time,
+turning a one-line card into a paragraph. Two halves, and neither alone is enough:
+`waitingOn` holds the line to `WAITING_MAX` **on read**, which is the path every drawing
+takes and is what makes the fix retroactive for blocks already in notes; and the brief now
+states the number where the sentence is asked for, because the markers it quotes say
+nothing about length. Same shape as bc-zjab.1 — a rule enforced only where nobody goes.
 
 The button still stays, and its job is now smaller and clearer: it is what assigns an epic
 **nobody has ever assigned**, rather than a thing you press again because the last window
@@ -6552,6 +6650,21 @@ the selection, which leaves every row that survives its own sub-filter. That is 
 the four slices, so summing them is the same arithmetic done once, and the badge and the
 list cannot come to disagree about it.
 
+**Unless there is no list there, which is the board (bc-khoe.49).** With an epic of yours
+started, My Epics is the board and bc-khoe.28 took the list out from under it — so the sum
+above went on describing rows that the one pill it is drawn on would not draw. The badge
+is **the number of cards on the board** in that state, and the sum of the slices in every
+other, which keeps it the same promise it makes everywhere else: what a tap leaves you
+looking at. Which of the two screens the tap opens is a question about the render rather
+than about the filter, so `public/app.js` answers it — `epicsIsBoard`, which is the rule
+that decides whether a list is drawn under the board (`listHere`) asked with the view
+forced to My Epics, because a picked bead and an open card put a list back there from
+wherever you happen to be standing. The other three badges never had the problem:
+`surveyKinds` runs ahead of that gate, so `Questions`, `PRs` and `Chats` still count
+exactly the rows tapping them draws. The two answers this is not: dropping the badge on a
+board would take the number away on the one install with something to count, and adding
+the cards to the rows would print a total nothing on the screen adds up to.
+
 **Pushed at the row, never pulled by it, and written as text.** `public/viewbar.js` is
 loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
 numbers itself — they arrive through `window.beadcause.views.counts(map)`, beside the
@@ -6585,7 +6698,9 @@ made it a chip on the advocates page; bc-khoe.1 gave it a pill back. bc-khoe.2 n
 label — **PRs** is the kind pill now, the pull requests and the finished branches *in
 Home* — so the board's three paths (`/prs`, `/pulls`, `/prs.html`) moved to the Advocates
 pill, which is the pill that points at the page they actually serve. The board is two taps
-rather than one, and bc-khoe.4 is where the console comes apart and that is re-decided.
+rather than one, and it stays two: bc-khoe.30.6 re-decided it with the rest of the chip row
+and left it a mode of the console — see
+[The advocate console is one pane, and its chip row stays](#the-advocate-console-is-one-pane-and-its-chip-row-stays).
 
 ⟳ stays in the top bar of the views that have it: it acts on the view you
 are looking at rather than taking you off it. ⌨️ (the terminal) and ⚖️ (the
@@ -6678,7 +6793,7 @@ the badge element is the *same node* after the number moved and focus is still o
 it was on, and that the row is still one line at 360px with every count at three digits.
 
 Two things about it are derivations rather than lists. The **pills** are read out of
-`PILLS` in `public/viewbar.js` — bc-khoe.4 and bc-khoe.7 each change that set, and a list
+`PILLS` in `public/viewbar.js` — bc-khoe.10 and bc-khoe.7 each change that set, and a list
 copied into the check would make both of them a check edit as well; which pill should be
 lit on a given page comes from that same array's `paths`, so *nothing is current* on
 `/console` or `/admin` is asserted exactly as firmly as *`advocates` is* on `/monitor`. The
@@ -6802,7 +6917,7 @@ same turn as the unhide: the content was never unbuilt, only unpainted, so there
 height still to arrive and no frame to wait for.
 
 **Two panes are empty on purpose.** `data-pending` names the bead that fills each —
-bc-khoe.30.5 for History, bc-khoe.30.6 for Advocates — and it is load-bearing rather than a
+bc-khoe.30.5 for History, bc-khoe.4 for Advocates — and it is load-bearing rather than a
 note: a pending pane is registered nowhere, can never be shown, and the pill row asks the
 same question, so those two pills stay the `<a href>` they have always been and still load
 their own documents. That is what let the shell land on its own. The alternative was two of
@@ -6874,7 +6989,7 @@ silently did not build is a blank screen with no account of why.
 
 No standby is actually mounted yet: it goes up only when a built pane has a `wake`, and Home
 — the one pane with contents today — keeps its own poll. So the connection count is exactly
-what it was, and the machinery is waiting for bc-khoe.30.5 and .30.6.
+what it was, and the machinery is waiting for bc-khoe.30.5 and bc-khoe.4.
 
 `node test/panestage.mjs` runs the four real files in a `node:vm` with the document still
 parsing, which is what makes the staging visible at all: that the landed-on pane is built in
@@ -6883,6 +6998,58 @@ what it showed, that a throwing builder is contained and never retried, that the
 union and widening it moves the one request rather than opening a second, and that the
 standby yields the socket the instant a view wants it and takes it back when the view lets
 go.
+
+### The advocate console is one pane, and its chip row stays
+
+The Advocates pane is the biggest of the three by a distance and the only one with an
+argument in it. `public/monitor.js` is 3,357 lines and it does not arrive alone:
+`public/prs.js` (1,334), `public/mirror.js` (965) and `public/montabs.js` come with it,
+because `/monitor` is not one screen — it is a chip row over four sections. So the pane
+that costs the most to build is also the one that raises the question this epic exists to
+ask, and it raises it *inside itself*: **two rows of things you tap, one above the other,
+is the shape [the pill row](#getting-around--the-pill-row) was written to remove** — and
+the chip row is the last one left. bc-khoe.30.6 is where that was settled, and the answer
+is that it stays. Three reasons, in the order they decide it.
+
+**The Mirror cannot be a pill, so the row cannot be dissolved.** It follows *another*
+device and drops its own — the whole of
+[The Mirror is a pane, not a tab](#the-mirror-is-a-pane-not-a-tab) — so a pill for it on
+the phone the pill is tapped from leads to a screen that says "Looking for a device…" and
+means it. That has now been tested three times against three different empty slots (a sixth
+bottom tab, a bottom bar with room after PRs left, and this row) and come out the same way
+each time. Whatever else happens to the chips, one of them is staying a mode.
+
+**A row of one is worse than the row it replaced.** If the board and the settings became
+pills and the Mirror did not, what is left is a single chip floating above the roster, which
+is a control with no row to explain it — the reader has to work out that it is a switch
+rather than a heading. The pair only reads as a switch because there is more than one of it.
+
+**These are modes, not views.** A view is a different question about the tracker; the pill
+row moves between those. What is under these chips is *one space's work* asked three ways —
+what is running this minute, what is waiting to ship, and what another device is looking at
+— which is the argument bc-3xb made for the Mirror and bc-d4d5 made again for the board, on
+their own merits, before any of this. What was always wrong with the pair is that the two
+rows are **drawn alike**, and that is bc-stci: restyle the chips as the segmented control
+they already are. A restyle, not a deletion.
+
+The row is also shrinking on its own. bc-khoe.10 takes **Config** out to a view of its own,
+which leaves **Advocates · PRs · Mirror** — and it is why the fold waits: folding in a
+section that another branch is deleting is work with a conflict already written into it.
+`data-pending` on the Advocates container therefore names **bc-khoe.4**, not bc-khoe.30.6.
+The attribute names the bead whose merge deletes it, and the fold is bc-khoe.4's, behind
+bc-khoe.10; bc-khoe.30.6 is the bead that decided the shape and wrote it down here.
+
+**And this is the one pane that stands down while it is hidden.** The stager's rule is that
+a hidden pane stays live, so a pane you come back to is already right rather than catching
+up, and that rule is correct everywhere else. It is wrong for all three of these sections.
+The board is a `gh` sweep per repo — real money, spent on a screen behind two hidings. The
+Mirror is worse than expensive: while it is up this device reports `view: null`, because you
+are looking at somebody else's screen rather than at anything here, and a Mirror left
+running behind Home would tell every other device in the house that this one is nowhere when
+it is in fact on the inbox. So once the row is inside a pane, *hidden* means the chip is down
+**or** the pane is, and a chip that is up inside a hidden pane is down. The roster is the
+exception to the exception, and it is free: its snapshot rides the stager's shared wake, so
+it is current the moment you come back without having asked for anything.
 
 ### The ledger — the History tab
 
@@ -7272,8 +7439,10 @@ There was a third reason when this was decided — *the bar is full at five, and
 it* — and it has **twice since expired**: PRs left the bar in bc-l8jp.6, and then bc-khoe.1
 deleted the bar for a row that scrolls sideways and has no fullness to be at. The decision
 does not move, and that is exactly the point of writing the other two down: the next person
-to notice the room should not have to re-derive why the Mirror is not what goes in it.
-bc-khoe.4 is where it is properly re-decided, together with the chip row it lives on.
+to notice the room should not have to re-derive why the Mirror is not what goes in it. It
+*was* properly re-decided, by bc-khoe.30.6, together with the chip row it lives on, and it
+came out the same way a third time — see
+[The advocate console is one pane, and its chip row stays](#the-advocate-console-is-one-pane-and-its-chip-row-stays).
 
 ### The board is a pane too
 
@@ -7292,7 +7461,9 @@ rather than by folding a page into it — see
 paths to `monitor.html` with the second chip up. (Those three are also the PRs pill's own
 `paths` since bc-khoe.1, so
 the row across the top marks it current on all of them while the chip row puts the board
-up — the duplication is transitional, and bc-khoe.4 is where the chip row goes.)
+up — the duplication is not transitional after all, and
+[The advocate console is one pane, and its chip row stays](#the-advocate-console-is-one-pane-and-its-chip-row-stays)
+says why.)
 
 What that cost, and what it did not:
 
@@ -18183,6 +18354,76 @@ screen with the old sound. `test/channels.mjs` is the suite that holds all of th
 class to its sound, every retired id to the delete list, and every sound to a file that
 actually ships.
 
+### Which arrival speaks in which voice, and what stops the loud one crying wolf
+
+Giving one class the only insistent voice is only safe while that class cannot be wrong,
+and it was. `bc-y3qk.4` counted **nineteen notifications about one workspace in one day**,
+from a tracker that alternated failing and recovering nearly every tick, because the code
+talked on every transition — and half of them were *good* news. A phone that knocks twice
+about something that fixed itself two minutes later is a phone whose knock you train
+yourself out of hearing, and then the one outage that mattered arrives in a sound that
+means nothing. So `lib/voices.js` holds two halves of one argument, and `test/voices.mjs`
+pins both.
+
+**Every notification this daemon can make, assigned to exactly one class:**
+
+| Emitter | Class | Where it goes |
+|---|---|---|
+| `pushQuestion`, `pushFoundationRequest`, `pushFoundationReply`, `pushReply` | 1 · answer this | native, with ntfy as the fallback for a phone that is not the app |
+| `pushCertificate`, `pushNoBackend` | 2 · stuck | ntfy only — both report a failure of the very path a native card would travel |
+| `pushServingAgain` | *clear* | ntfy, at the calm end |
+| `landedEvent` | 3 · merged | native |
+| `deployEvent` — `ok`, `unconfirmed` | 4 · released | native |
+| `deployEvent` — `failed`, `lost` | 2 · stuck | native |
+| `syncStuckEvent`, `syncFlappingEvent` | 2 · stuck | native |
+| `deployClearEvent`, `syncClearEvent` | *clear* | native, and it posts nothing — it removes a card |
+| `epicDoneEvent` | 5 · epic completed | native |
+
+A table in code rather than a paragraph here, because the assignment is exactly the sort
+of thing that goes quietly wrong: a new detection lands, picks whichever emitter looked
+nearest, and inherits a sound nobody chose for it. The suite parses the exports of
+`lib/notify.js` and `lib/news.js` and fails the repo for one that appears in neither the
+table nor a class — and for a table row naming an emitter that has since been deleted,
+which reads as coverage and is an empty promise.
+
+**A recovery is not a sixth class.** It is `CLEAR`: the other half of a state rather than
+an arrival of its own. On the phone it *removes* the card and posts nothing at all
+(`Notifications.stuck` returns before `Tray.add` when `state == "clear"`, and the suite
+reads that out of the Kotlin rather than assuming it); over ntfy it is priority 2. Nothing
+that clears may ever reach `stuck_v1`.
+
+**And every class-2 detection has to say what stops it flapping.** Four detections, three
+shapes of damping, because what "flapping" even means differs:
+
+| Detection | Rule | Where |
+|---|---|---|
+| the router serving nothing | must hold **2 consecutive attempts** | `bin/router.js` — `stillServingNothing` |
+| a tracker not syncing, or flapping | 4 transitions in an hour, then silence until it holds | `lib/sync.js` — `record()` |
+| a certificate expiring or absent | once per problem; a failing renewal nags on a timer | `lib/tls.js` |
+| a deploy that failed or was lost | **none, deliberately** | `lib/server.js` — `settleDeploys` |
+
+The last row is the interesting one and it has to be argued for rather than left blank: a
+deploy is an arrival with an outcome, not a state that can alternate, so damping it would
+swallow the second real failure of the evening. The first row is what this bead added —
+the router announces an outage on the *second* consecutive failed bring-up, not the first,
+because that same file is about to retry in two seconds having just logged that a slow
+start is evidence about the machine rather than about the build. Announcing immediately
+meant a swap that came up on its second attempt cost a knock and a "serving again" twenty
+seconds later, about an app nobody could have opened in the gap. **The log is not damped**,
+only the sound: the log is the record somebody reconstructs an evening from.
+
+**`unconfirmed` moved from class 2 to class 4**, reversing what `bc-ka5y.15.1` landed. The
+argument for stuck was that "we ran it and nothing outlived it to check" is not a release
+you can rely on — still true, and still what the card says. What was wrong was the sound.
+`sweepDeploys` writes that word only for a deploy with `restarts` set, so it is **the
+ordinary ending of every deploy beadcause makes of itself**, which meant the commonest
+release in this repo was also the loudest noise the phone can make, several times a day,
+about a deploy that had almost certainly worked. `lib/queues.js` had already reached the
+same conclusion from the other end: its `RELEASED` set is `['ok', 'unconfirmed']`, because
+the running build you are reading this on came up out of one of them. Nothing is given
+away by the move — the card still says "deploy unconfirmed" rather than "deployed", and a
+previous failure's card is still only cleared by an `ok`.
+
 ### The five sounds, and auditioning one before it is permanent
 
 `res/raw` holds five voices — `blip.wav`, `knock.wav`, `land.wav`, `drop.wav`, `chime.wav`,
@@ -18272,8 +18513,8 @@ it cannot lay out. Four more event types moved them onto the same wire as everyt
 | type | what it is | card | may a muted space silence it? |
 |---|---|---|---|
 | `landed` | a pull request went into `main` | news | yes |
-| `released` | a deploy succeeded — what is running is what is on `main` | news | yes |
-| `stuck` | a deploy failed, was lost or is unconfirmed; or a tracker is not syncing | its own | **no** |
+| `released` | a deploy succeeded, or ended `unconfirmed` — [which is the ordinary ending of a restart](#which-arrival-speaks-in-which-voice-and-what-stops-the-loud-one-crying-wolf) | news | yes |
+| `stuck` | a deploy failed or was lost; or a tracker is not syncing | its own | **no** |
 | `epic-done` | an epic completed | news | yes |
 
 **Four types rather than one `news` type with a `kind` field**, because a client has to be
@@ -21831,6 +22072,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
 | POST | `/api/space` | `{space, workspace?, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. With a `workspace`, it writes that **repo's own** override instead — `autoEndorse` only, and a repo the named space does not contain is a 400. Either way the reply is the whole `spaceDetail`, and it writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
+| POST | `/api/bead/create` | `{workspace, title, type?, priority?, description?, acceptance?, parent?, labels?}` | `{ok, id, key, workspace, parent, warnings[]}` — the [create form](#a-bead-you-file-yourself-from-the-form-behind-) behind ＋ on **All Beads**. One bead, through the same `createBead` the chat console's accept button calls, so the two doors cannot disagree about labels, the surface block or `created_by`. **Not** `fileBeads`: a bead you typed carries no `unendorsed`, no `agent-filed` and no agent provenance. A blank `parent` is [`lib/homing.js`](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists) and lands it under the repo's `unsorted` root — a *named* parent that does not exist is a `400` with nothing filed, because a blank field is "you decide" and a typo is not. `400` for no title or an unknown workspace; `502` carries bd's own first line, which the form keeps on screen |
 | POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
 | POST | `/api/edits` | `{changes[], page?, view?, at?, workspace?}` | `{ok, workspace, root, session, filed[], dropped[]}` — a pass made with [edit mode](#editing-the-app-from-inside-the-app) on, filed as one P1 session bead and one P2 child per change, under a standing P0 root that is found by its `edit-root` marker or created here. The workspace is **this checkout's own**, not the one on screen: an edit typed into this screen is a change to *this app*. `400` on an empty pass, and `502` carries `filed[]` — the phone drops exactly those entries and keeps the rest, because the change list is the only copy of what was said. See [Save files the pass](#save-files-the-pass) |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |

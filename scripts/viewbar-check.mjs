@@ -50,11 +50,25 @@
 //     pill is tapped and the list it leaves is counted, because "the number agrees with
 //     the list" is the whole claim and it is one the numbers alone cannot make.
 //
+// A fourth arrived with bc-khoe.49, and it is the same claim asked of the one screen this
+// file could not previously reach:
+//
+//   * **My Epics, with an epic of yours started, is the board and draws no list** — so the
+//     badge there is the cards and not the rows. The fixture above owns nothing, which is
+//     what keeps every other number in this file arithmetic on a served list rather than
+//     on somebody's ownership rules; it is also the one state in which that badge cannot
+//     be wrong, which is how a pill counting a list bc-khoe.28 had already deleted got
+//     past this check twice. The last section flips the fixture (`BOARDED`) and asserts
+//     the whole shape at once: the cards are drawn, nothing is listed under them, the
+//     badge says how many cards, and the other three badges have not moved — they are
+//     counted ahead of the board's gate and each still opens exactly its own slice.
+//
 // ## The pill list is read, never repeated
 //
 // `PILLS` in `public/viewbar.js` is the one place a view is added, and it keeps moving:
 // bc-khoe.2 replaced four pills with seven while this file was being written, and
-// bc-khoe.4 (Advocates, Mirror) and bc-khoe.7 (Releases) each change the set again. A
+// bc-khoe.10 (Config) and bc-khoe.7 (Releases) each change the set again — bc-khoe.4 no
+// longer does, see the Mirror note in public/viewbar.js. A
 // list copied into this file would make every one of those a check edit as well, and a
 // check that has to be edited to keep passing is a check that gets edited rather than
 // believed — the same run that took the row from four pills to seven was green here
@@ -227,6 +241,61 @@ const PRS = [
 /** What the badges must say, derived from the fixture above rather than from the app. */
 const WANT = { epics: 7, question: 3, pr: 2, session: 2 };
 
+/*
+  And the second state the same fixture can be in: **an epic of yours started** (bc-khoe.49).
+
+  Everything above is served with the board's own narrowing off — `owned: false`, no roots
+  — which is the install that has never been told who it is, and it is deliberately the
+  state most of this file runs in: with the board on, the list is filtered by which epics
+  the fixture pretends you own, and every number above would then depend on a different
+  check's argument.
+
+  It is also exactly the state in which the `My Epics` badge cannot be wrong, which is how
+  a badge counting a list that pill no longer draws got past this file. bc-khoe.28 made My
+  Epics *the board* — with something started there is no list under it at all — and the
+  badge went on saying the sum of the four slices, seven rows one tap would not show. So
+  the last section of this run flips `BOARDED` and asks the same question of that screen:
+  two cards on the board, no rows beneath them, and a badge that says two.
+
+  `assigned` is empty on purpose. It is the map `assignedToMe` narrows the *pills'* list
+  by, and an empty one is a documented no-op there — which is what keeps the other three
+  badges at the numbers the fixture above serves, and lets this section be about one pill
+  rather than about the ownership rules. `under` and `unhomed` are empty for the same
+  reason; with no list drawn there is nothing for either to narrow.
+*/
+let BOARDED = false;
+const EPICS = [
+  { id: 'a-p0', title: 'The first epic, and it is started', of: 4, done: 1 },
+  { id: 'b-p0', title: 'The second one', of: 3, done: 0 },
+];
+const ROOTS = EPICS.map((p) => {
+  const tree = Array.from({ length: p.of }, (_, i) => ({
+    id: `${p.id}.${i + 1}`,
+    title: `A child of ${p.id}, number ${i + 1}`,
+    status: i < p.done ? 'closed' : 'open',
+    parent: p.id,
+    depth: 1,
+    key: `${WS}/${p.id}.${i + 1}`,
+    pending: false,
+  }));
+  return {
+    key: `${WS}/${p.id}`,
+    workspace: WS,
+    id: p.id,
+    title: p.title,
+    status: 'open',
+    issue_type: 'epic',
+    owners: ['adam'],
+    open: tree.filter((r) => r.status !== 'closed').length,
+    inFlight: 0,
+    waitingOn: null,
+    advocate: null,
+    tree,
+  };
+});
+/** What the row must say once the board is on: the cards, and the other three unmoved. */
+const WANT_BOARDED = { epics: ROOTS.length, question: 3, pr: 2, session: 2 };
+
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -280,11 +349,15 @@ function serve() {
         consoles: CONSOLES,
         ...SPACEPAY,
         scope: 'human',
-        /* The board's own narrowing off. It is not what this file is about, and with it
-           on the list would be filtered by which epics the fixture pretends you own —
-           which is a different check's argument (test/underownedroots.mjs) and would
-           make every number below depend on it. */
-        rootboard: { roots: [], under: {}, unhomed: {}, owned: false },
+        /* The board's own narrowing off, for every section but the last. It is not what
+           this file is about, and with it on the list would be filtered by which epics
+           the fixture pretends you own — which is a different check's argument
+           (test/underownedroots.mjs) and would make every number below depend on it. The
+           last section flips it, because the one badge that *is* about the board cannot
+           be asked anything at all from this side of the switch — see `BOARDED`. */
+        rootboard: BOARDED
+          ? { roots: ROOTS, under: {}, unhomed: {}, assigned: {}, owned: true }
+          : { roots: [], under: {}, unhomed: {}, owned: false },
         summary: { questions: QUESTIONS.length, sessions: CONSOLES.length, proposals: 0 },
         seq: 1,
       });
@@ -408,7 +481,7 @@ const SIZES = [
  * So the row is put into the state it is promising something about, by giving it less
  * width than it needs, and this pass **fails if the row turns out to fit** — the
  * precondition is asserted rather than hoped for. It is not a phone; it stands in for the
- * phone the row is heading towards as bc-khoe.4 and bc-khoe.7 add to it, and the
+ * phone the row is heading towards as bc-khoe.10 and bc-khoe.7 add to it, and the
  * arithmetic `reveal()` does is the same either way.
  */
 const PINCH = { width: 240, height: 640 };
@@ -482,6 +555,9 @@ const PROBE = `(() => {
      the same class, because it borrows the launcher's row markup (see chatRowHtml in
      public/app.js), and counting articles alone quietly reports Chats as empty. */
   out.rows = document.querySelectorAll('#list .card[data-key]').length;
+  /* And the other thing a tap on My Epics can leave you looking at, which since bc-khoe.28
+     is the *only* thing it leaves you looking at once something is started. */
+  out.cards = document.querySelectorAll('.p0-board .p0-card[data-key]').length;
   if (!nav) return out;
   const cs = getComputedStyle(nav);
   const nr = nav.getBoundingClientRect();
@@ -1064,6 +1140,94 @@ try {
     if (m.lines.length === 1 && m.downBy <= 0) ok(`${at}: and it is still one line`);
     else bad(`${at}: the row is still one line`, `${m.lines.length} lines, ${m.downBy}px clipped downwards`);
   }
+
+  /* ------------------------------------------------ the badge on the board itself */
+
+  /*
+    bc-khoe.49, and it is the one number on this row that no amount of counting rows can
+    check: with an epic of yours started, `My Epics` draws **no rows at all**.
+
+    Everything above this point ran against a fixture that owns nothing, where the board
+    is off and Home is the flat list it has always been — and on that screen the badge's
+    old arithmetic (the sum of the four slices, because picking the pill clears the
+    selection and leaves every row that survives its own sub-filter) is exactly right.
+    bc-khoe.28 made My Epics the board and took the list out from under it, and the sum
+    went on being drawn: seven, over a screen with no list on it.
+
+    The claim asserted here is the one the other three pills have made all along — the
+    number is what a tap leaves you looking at — so on this screen it has to be the cards.
+    The other three are asserted again on the same screen and must not have moved:
+    `surveyKinds` counts ahead of the board gate, so `Questions`, `PRs` and `Chats` still
+    open exactly what they say, and a fix that quietly renumbered them would be a worse
+    bug than the one it fixed.
+
+    Last, and after the pinch, because flipping the fixture is not something to leave on
+    behind another section's back. The stored kind goes first: the section above lands on
+    `All Beads`, and a Home narrowed to a kind draws no board at all (`boardHere`), which
+    would make this pass for the wrong reason.
+  */
+  console.log(`\n\x1b[1mMy Epics with something started — the board, and no list under it\x1b[0m`);
+  {
+    BOARDED = true;
+    await s.send('Emulation.setDeviceMetricsOverride', { ...SIZES[1], deviceScaleFactor: 2, mobile: true });
+    await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=viewbar-check-board` });
+    await sleep(900);
+    /* And the warm payload with it, which is not tidiness. `keep()` in public/app.js
+       trims what it stores down to what `adopt` reads *of a list* — the board is not in
+       it — so a document that paints warm and then parks on `/api/poll` has no board
+       until a poll lands. Against this fixture that poll never lands (it is parked the
+       way the daemon parks it, so the run is over first), and the section would be
+       measuring the warm path rather than the render. A cold boot is the state this
+       check is about. */
+    await evalJs(
+      s,
+      `Object.keys(localStorage).filter((k) => k.startsWith('beadcause.warm:')).forEach((k) => localStorage.removeItem(k)),
+       localStorage.removeItem('beadcause.kinds'), localStorage.setItem('beadcause.scope', 'human'), 1`
+    );
+    await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=viewbar-check-board-2` });
+    await sleep(1600);
+
+    const m = await evalJs(s, PROBE);
+    const lit = m.pills.find((p) => p.current === 'page')?.id ?? null;
+    const said = Object.fromEntries(m.pills.filter((p) => p.count !== null).map((p) => [p.id, p.count]));
+
+    if (lit === 'epics') ok('Home comes up on My Epics, which is where the board is drawn');
+    else bad('Home comes up on My Epics', `the row lights ${lit ?? 'nothing'} — the rest of this section is measuring another screen`);
+
+    if (m.cards === ROOTS.length) ok(`and the board drew its ${m.cards} card(s)`);
+    else
+      bad(
+        `the board draws ${ROOTS.length} card(s)`,
+        `it drew ${m.cards} — the fixture's roots did not reach the screen, so the badge below is being asked about a board that is not there`
+      );
+
+    if (m.rows === 0) ok('and there is no list under it at all, which is what the badge has to be about');
+    else
+      bad(
+        'nothing is listed under the board',
+        `${m.rows} row(s) are drawn — bc-khoe.28's gate is off, and the old sum would be the right answer again`
+      );
+
+    if (said.epics === String(WANT_BOARDED.epics))
+      ok(`so "My Epics" says ${said.epics} — the cards on the board, not the ${WANT.epics} rows it no longer draws`);
+    else
+      bad(
+        `"My Epics" counts the board it opens`,
+        `the badge says ${said.epics ?? '(none)'} and the board holds ${m.cards} card(s)` +
+          (said.epics === String(WANT.epics) ? ' — that is the sum of the four slices, which is bc-khoe.49 exactly' : '')
+      );
+
+    const moved = ['question', 'pr', 'session'].filter((id) => said[id] !== String(WANT_BOARDED[id]));
+    if (!moved.length)
+      ok(`and the other three are where they were — ${['question', 'pr', 'session'].map((id) => `${id} ${said[id]}`).join(' · ')}`);
+    else
+      bad(
+        'the other three badges are untouched by the board',
+        moved.map((id) => `${id} says ${said[id] ?? '(no badge)'} and the fixture holds ${WANT_BOARDED[id]}`).join('; ') +
+          ' — they are counted ahead of the board gate and each still opens its own slice'
+      );
+  }
+
 } finally {
   close();
   server.close();

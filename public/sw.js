@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v90';
+const CACHE = 'beadcause-v91';
 const SHELL = [
   '/',
   '/index.html',
@@ -193,11 +193,13 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
-  // The chip row on it, and which of its three panes is up. In the shell because that
-  // page is: without this file the chips are dead and two of the three panes — the board
-  // and the mirror — are unreachable from a cached advocates page. (bc-khoe.4 is where
-  // that row is dismantled and this line goes; bc-khoe.1 only took its `--topbar-h`
-  // observer, which the app shell made unnecessary.)
+  // The chip row on it, and which of its four panes is up. In the shell because that
+  // page is: without this file the chips are dead and three of the four panes — the
+  // board, the settings and the mirror — are unreachable from a cached advocates page.
+  // (This line is not going anywhere: bc-khoe.30.6 ruled that the row stays a mode
+  // switch rather than becoming pills, so bc-khoe.4 folds it into the shell's Advocates
+  // pane intact. bc-khoe.1 only took its `--topbar-h` observer, which the app shell made
+  // unnecessary.)
   '/montabs.js',
   // The ledger. In the shell because it is a tab: every tab has to open instantly from
   // the bar whatever the link is doing, and this is the one page in the app you might
