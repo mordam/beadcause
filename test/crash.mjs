@@ -621,6 +621,11 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the conflict sweep',
       'the cycle',
       'the deploy sweep',
+      // lib/epicdone.js. `createEpicWatch().sweep` lands a tracker it could not read in
+      // its outcome and leaves that workspace's snapshot alone, so what reaches this
+      // catch is the watcher's own bookkeeping — and getting it wrong is quiet twice
+      // over, because the symptom is a milestone that never chimes.
+      'the epic-done sweep',
       // lib/mergequeue.js. Its own guard rather than the advocate tick's, though it runs
       // beside it: a queue that cannot reach GitHub and an advocate that cannot open
       // windows fail for different reasons, and one crash card naming both would send
