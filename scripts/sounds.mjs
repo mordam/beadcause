@@ -2,17 +2,18 @@
 /*
   The notification sounds, as source rather than as binaries.
 
-  ## Why a generator and not three files somebody dragged in
+  ## Why a generator and not four files somebody dragged in
 
   `res/raw/blip.wav` arrived as a binary and nothing in the repo says what it is. That is
-  survivable for one file; it is not survivable for four, because the whole argument of
+  survivable for one file; it is not survivable for five, because the whole argument of
   bc-ka5y.15 is that these sounds are *relative to each other* — a merge landing has to be
   audibly smaller than a question, a release audibly calmer than a merge, an epic audibly
-  bigger than a release. A pile of opaque .wavs cannot be reviewed for that. A pile of
-  numbers can: the pitches are a fifth and a fourth apart on purpose, the peaks descend on
-  purpose, and every one of those decisions is a line below with the reason beside it.
+  bigger than a release, and a blockage unlike all four. A pile of opaque .wavs cannot be
+  reviewed for that. A pile of numbers can: the pitches are a fifth and a fourth apart on
+  purpose, the peaks descend on purpose, and every one of those decisions is a line below
+  with the reason beside it.
 
-  So the three sounds are **generated**, committed, and pinned. `test/sounds.mjs` re-renders
+  So the four sounds are **generated**, committed, and pinned. `test/sounds.mjs` re-renders
   them from this file and fails the repo if a committed byte differs, which is what makes a
   binary in a pull request reviewable: the diff that matters is the diff to this script, and
   the .wav either follows from it or the suite is red.
@@ -55,18 +56,29 @@
     frequency sweeps *up* 680→1240Hz over the first 60ms and then rings, with a second quiet
     620Hz resonance under it for the tail the bead asks for. Nothing else here glides, which
     is what makes it unmistakably not the blip.
+  - **knock** — work is stuck. Two hits of the same note 155ms apart, B3 with a quiet
+    octave over it, 340ms and peaking at 0.44 — the loudest thing here and the only low
+    thing here. Everything else lives between 680 and 3150Hz because everything else is
+    either good news or a question; a blockage is neither, and an octave and a half down
+    is what survives a pocket without simply being louder than a question, which it must
+    not be. Two attacks of the *same* note rather than a rising pair: the chime resolves,
+    which is what makes it a milestone, and a knock repeats itself, which is what makes it
+    a knock. It is the one sound in this file the audition never got to argue with before
+    its channel was cut (bc-ka5y.15.4 needed it and bc-ka5y.15.3 had already landed), so
+    it is the one most likely to owe a `_v2`.
   - **chime** — an epic completed. Two notes, G5 then C6, a rising fourth landing on the
     same C the question pip has always been: the milestone resolves onto the app's own note.
     Three partials rather than one give it the body the drop deliberately lacks, and the
     second note carries the longer tail because it is the one being arrived at. 480ms all
     in, under the half second the bead caps it at.
 
-  All three peak **below** the question pip's 0.457, and that ordering is deliberate rather
-  than incidental: of the five voices only a question asks anything of the reader. Good news
-  does not get to be the loudest thing the phone does at 2am. The phone's own per-channel
-  volume is still the real control (bc-ka5y.15.4 gives each class its own channel precisely
-  so that screen becomes the mixer), but a file that is quiet to begin with is the default
-  nobody has to go and fix.
+  All four peak **below** the question pip's 0.457, and that ordering is deliberate rather
+  than incidental: of the five voices only a question asks anything of the reader, and the
+  knock is next because a blockage is the one class where being missed is the failure. Good
+  news does not get to be the loudest thing the phone does at 2am. The phone's own
+  per-channel volume is still the real control (bc-ka5y.15.4 gave each class its own channel
+  precisely so that screen is the mixer), but a file that is quiet to begin with is the
+  default nobody has to go and fix.
 */
 
 import fs from 'node:fs';
@@ -169,6 +181,26 @@ export const SOUNDS = {
       { voice: tone(880), gain: 0.2, env: pluck({ attackMs: 8, tenthMs: 190, delayMs: 12 }) },
     ],
   },
+  knock: {
+    title: 'Work is stuck',
+    // Two hits, 155ms apart, and the only sound here that is *low*. Everything else in
+    // this file lives between 680 and 3150Hz because everything else is good news or a
+    // question; a blockage is neither, and the cheapest way to make one sound unlike the
+    // other four through a pocket is to move it an octave and a half down rather than to
+    // make it louder. It is also the only one with two attacks of the *same* note — the
+    // chime's two notes rise and resolve, which is what makes it a milestone; a knock
+    // repeats itself, which is what makes it a knock.
+    ms: 340,
+    peak: 0.44,
+    parts: [
+      // B3 and its octave, twice. `tenthMs` well under the gap so the first hit is over
+      // before the second lands: two hits that overlap are one rolled thud.
+      { voice: tone(246.94), gain: 1, env: pluck({ attackMs: 2, tenthMs: 45 }) },
+      { voice: tone(493.88), gain: 0.3, env: pluck({ attackMs: 2, tenthMs: 30 }) },
+      { voice: tone(246.94), gain: 1, env: pluck({ attackMs: 2, tenthMs: 45, delayMs: 155 }) },
+      { voice: tone(493.88), gain: 0.3, env: pluck({ attackMs: 2, tenthMs: 30, delayMs: 155 }) },
+    ],
+  },
   chime: {
     title: 'An epic completed',
     ms: 480,
@@ -188,7 +220,7 @@ export const SOUNDS = {
 };
 
 /** How long the closing ramp is, per sound: long enough to be inaudible, short enough not to eat the tail. */
-const FADE_MS = { land: 5, drop: 14, chime: 22 };
+const FADE_MS = { land: 5, drop: 14, chime: 22, knock: 18 };
 
 /* -------------------------------------------------------------------- render */
 

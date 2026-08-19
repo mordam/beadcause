@@ -52,6 +52,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { onExit, killAndRemoveSync } from '../../lib/teardown.js';
 
 /** Where Chrome is on this machine. `CHROME_PATH` first, so a moved install is sayable. */
 export const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -290,12 +291,42 @@ export async function launchChrome(prefix, { chrome = CHROME, args = [], timeout
     proc.spawnFailure = e;
   });
   const teardown = () => {
+    // First, so the ordinary path cannot also be torn down by the exit handler below.
+    disarm();
     // Said out loud, because the alternative is the state this was filed from: a laptop
     // with eight profile directories in TMPDIR and nothing anywhere naming what left them.
     if (!killAndRemove(proc, profile)) {
       process.stderr.write(`  note  ${profile} outlived its teardown and was left for the OS\n`);
     }
   };
+  /**
+   * The same teardown again, for the endings a `finally` cannot reach — bc-5isv.
+   *
+   * Every caller of this function wraps its work in `try … finally { close() }`, and that
+   * covers a return and a throw. It does not cover a signal, and a signal is how a check
+   * usually dies when something has gone wrong: `scripts/checks.mjs` sends `SIGTERM` to
+   * anything that overruns its timeout, and Ctrl-C sends `SIGINT`. In both, `close()` is
+   * never called, Chrome is reparented to launchd, and it runs forever — fifteen of them
+   * and 15 GB of profiles were counted on this Mac before this line existed. `disarm()`
+   * above is what stops the ordinary path doing it twice.
+   *
+   * The lesson underneath it is the one thing here that had to be learnt rather than
+   * reasoned out, and bc-1eru arrived at it from the other side at the same time. A signal
+   * followed by an `rmSync` in the same breath left the profile behind **every time**:
+   * Chrome's renderer and GPU children go on writing for a moment after their parent is
+   * signalled, so the directory comes back after `rmSync` reported it gone — and from an
+   * exit handler there is nothing to `await`, because the event loop has already stopped.
+   * Both arms now remove, look, and go round again until it stays gone: `teardown` above
+   * through `killAndRemove`, this one through `killAndRemoveSync`.
+   *
+   * They stay two functions because they are not the same call. `killAndRemove` is this
+   * file's, sized for a real Chrome on the ordinary path and covered by
+   * test/chromeprofile.mjs; `killAndRemoveSync` is the repo-wide one every other signal
+   * path already uses — lib/browse.js, scripts/checks.mjs, the two daemon checks — on a
+   * tighter budget, because an exit handler is holding up a process that has been told to
+   * go. See lib/teardown.js.
+   */
+  const disarm = onExit(() => killAndRemoveSync(proc, profile));
   try {
     const deadline = Date.now() + timeoutMs;
     const port = await activePort(profile, proc, deadline);

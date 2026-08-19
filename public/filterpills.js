@@ -20,19 +20,20 @@
 
   A group here is exactly what filtermenu.js takes —
   `{ id, legend, all?, multi?, options(), pick(id), hidden?() }` — and that is the whole
-  design. bc-khoe.26 takes the bead search and the two status sub-filters out of the
-  panel and puts them on this row; if a group had to be rewritten to move, the move would
-  be a rewrite of the page rather than a change of container, and the two containers
-  would drift into meaning different things by `on` and `all`. A page hands the same
-  object to whichever of the two it wants, and moves it between them by editing the list
-  it is in.
+  design. It paid for itself immediately: bc-khoe.26 took the bead search and the two
+  status sub-filters out of the collapsed panel and made each of them a pill of its own,
+  and not one of the three descriptors changed. If a group had to be rewritten to move,
+  the move would be a rewrite of the page rather than a change of container, and the two
+  containers would drift into meaning different things by `on` and `all`. A page hands
+  the same object to whichever it wants, and moves it by editing the list it is in.
 
-  What this file does *not* support is the two shapes that only make sense inside a
-  panel: `text` groups (the bead typeahead, which needs a dropdown under it) and `said`
-  (which is about a summary line, and there is no summary line here — the chips are the
-  summary). bc-khoe.26 is where the typeahead's own shape is decided; a half-drawn text
-  box on the chrome today would be a control that looks finished and is not, so a group
-  carrying `text` is skipped and says so rather than being drawn wrong.
+  What this file does *not* support is the two shapes that need somewhere to open into:
+  `text` groups (the bead typeahead, which needs a dropdown under it) and `said`/
+  `narrowing` (which are about what a pill says about itself, and there is no pill here —
+  the chips are on screen, so they are the whole statement). Those belong to
+  filtermenu.js, and a half-drawn text box on the chrome would be a control that looks
+  finished and is not, so a group carrying `text` is skipped and says so rather than
+  being drawn wrong.
 
   ## Why a segmented switch and not a pill that opens three chips
 
@@ -41,12 +42,14 @@
   armed one is legible *without opening anything*. A pill saying `Human ▾` would be
   legible too, and it would cost a second tap to change and would re-introduce the thing
   being removed: a set of choices you have to open to see. Three words fit across a
-  phone. Five would not, which is why bc-khoe.26 gets to decide the other shape, for the
-  groups that have five.
+  phone. Five would not, which is the shape bc-khoe.26 chose for the groups that have
+  five — a pill that opens, saying its narrowing on its own face so that the *answer* is
+  still legible without opening anything even though the choices are not.
 
   The look is `.chip-row.scopes` in public/style.css, which is where it already was: this
   bead moves the switch out of the panel, it does not redraw it. Somebody who used the
-  old one finds the same control in front of the panel instead of inside it.
+  old one finds the same control in front of the filter pills instead of inside a panel
+  with them.
 
   ## Painting
 
@@ -118,11 +121,11 @@
    * Draw these groups into `host`, flat.
    *
    * **Prepended, not replacing.** On Home this host is `#filters`, which
-   * public/filtermenu.js also mounts into — with `replaceChildren` — so the pills go in
-   * after it and go to the head of the row, which is where the coarsest control belongs:
-   * the scope decides what the panel behind it is even filtering. public/app.js is what
-   * mounts the two in that order, and its `renderFilters` is what unhides the row once
-   * either of them has put something in it.
+   * public/filtermenu.js also mounts into — with `replaceChildren` — so the switch goes
+   * in after it and goes to the head of the row, which is where the coarsest control
+   * belongs: the scope decides what the filter pills beside it are even filtering.
+   * public/app.js is what mounts the two in that order, and its `renderFilters` is what
+   * unhides the row once either of them has put something in it.
    *
    * A group is a `role="group"` carrying its `legend` as the accessible name rather than
    * a visible one. The legend was a line of its own inside the panel, where there was

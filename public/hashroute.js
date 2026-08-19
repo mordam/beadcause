@@ -55,6 +55,28 @@
   Setting a view hash drops any card that was in the slot, and opening a card drops the
   view, and both are correct because both are what a tap just asked for.
 
+  **5. A view may carry a query, and only a view may (bc-khoe.30.5).** `#history?status=
+  closed&priority=P0` is the History pane narrowed, and the part after the `?` is handed
+  back as an opaque string for that view to read — this file has no opinion about what a
+  filter means, only about where one is written down. It is a *query* rather than more
+  path because that is the spelling the ledger has always used (`/history?status=closed`,
+  which `parseQuery` in lib/history.js takes), so a pane that used to be a page keeps one
+  vocabulary for its filters instead of growing a second.
+
+  Why the hash at all, when the ledger had a perfectly good query string: on the shell
+  there is one address for every view, so a filter left in `location.search` outlives the
+  pane that wrote it. Tap History, narrow it to P0, tap Home, and Home's URL is
+  `/?status=P0` — the address the phone's home screen holds, carrying another view's
+  filter, and `route.go('')` keeps `search` on purpose (it is where `?t=` and everything
+  else lives). In the hash it is part of the name of the view, so leaving the view is what
+  drops it.
+
+  The split is on the **raw** hash and at the **first** `?`, before any decoding, and only
+  a head that is one of the closed list of view names may have one. That is what keeps
+  decision 1 intact: a card key is encoded (`hashForCard`), so a `?` inside one arrives as
+  `%3F` and can never be read as the start of a query, and a hash whose head is not a view
+  name is parsed exactly as it was before this decision existed.
+
   ## The bug this exists to prevent
 
   `focusHash` in public/app.js used to take the whole hash, decode it, and hand it
@@ -134,12 +156,15 @@
    * What a hash means. Answers for every input, including nonsense and undefined.
    *
    *   parse('#history')                  -> { kind: 'view', view: 'history', key: null }
+   *   parse('#history?status=closed')    -> { kind: 'view', view: 'history', query: 'status=closed' }
    *   parse('#beadcause%2Fbc-khoe')      -> { kind: 'card', view: 'epics', key: 'beadcause/bc-khoe' }
    *   parse('')                          -> { kind: 'view', view: 'epics', key: null }
    *   parse('#wat')                      -> { kind: 'none', view: 'epics', key: null }
    *
    * `view` is always a view id and `key` is null unless `kind` is `card`, so a caller that
-   * only wants one of the two never has to test `kind` first.
+   * only wants one of the two never has to test `kind` first. `query` is always a string
+   * and is `''` for everything but a view hash that carries one — never null, so a reader
+   * can hand it straight to `URLSearchParams` without testing it.
    *
    * The decode is inside a `try`: `decodeURIComponent` throws on a lone `%`, and a
    * malformed hash — which is to say, a URL somebody hand-edited — must not be able to
@@ -148,7 +173,16 @@
    */
   function parse(hash) {
     const raw = String(hash == null ? '' : hash).replace(/^#/, '');
-    if (!raw) return { kind: 'view', view: HOME, key: null, raw: '' };
+    if (!raw) return { kind: 'view', view: HOME, key: null, query: '', raw: '' };
+    /* Decision 5, and it is deliberately the *first* thing done to the string: the split
+       is on the raw hash, so a `%3F` inside an encoded card key is still one character of
+       that key rather than the start of a query. Only a bare view name may carry one —
+       anything else falls through to exactly the code that was here before. */
+    const at = raw.indexOf('?');
+    if (at !== -1) {
+      const named = NAMED.get(raw.slice(0, at));
+      if (named) return { kind: 'view', view: named, key: null, query: raw.slice(at + 1), raw };
+    }
     let key = raw;
     try {
       key = decodeURIComponent(raw);
@@ -156,9 +190,9 @@
       /* taken as written */
     }
     const view = NAMED.get(key);
-    if (view) return { kind: 'view', view, key: null, raw };
-    if (isCardKey(key)) return { kind: 'card', view: HOME, key, raw };
-    return { kind: 'none', view: HOME, key: null, raw };
+    if (view) return { kind: 'view', view, key: null, query: '', raw };
+    if (isCardKey(key)) return { kind: 'card', view: HOME, key, query: '', raw };
+    return { kind: 'none', view: HOME, key: null, query: '', raw };
   }
 
   /**
@@ -166,10 +200,20 @@
    *
    * Home's is `''`, which is a legal answer and not a refusal — hence `null` rather than
    * `''` for the failure, so the two are told apart by a caller writing what it is given.
+   *
+   * `query` is decision 5's half — the string a view wants kept beside its name, with or
+   * without a leading `?`, and empty or absent for the bare hash every other caller wants.
+   * Home is the one view a query cannot be hung on: its hash is the empty string, so
+   * there is no name for one to belong to, and `/?…` is the address the phone's home
+   * screen holds. Asked for one anyway it answers the bare hash, because the caller's next
+   * line writes whatever this returns and a `null` there would be a pill that stopped
+   * working over a filter Home does not have.
    */
-  const hashFor = (view) => {
+  const hashFor = (view, query) => {
     const v = VIEWS.find((one) => one.id === view);
-    return v ? v.hash : null;
+    if (!v) return null;
+    const q = String(query == null ? '' : query).replace(/^\?/, '');
+    return q && v.hash ? `${v.hash}?${q}` : v.hash;
   };
 
   /**

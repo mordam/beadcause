@@ -37,8 +37,15 @@
 
   <main class="work pagescroll">
     <!-- The whole list, drawn by history.js. Everything below is replaced on every
-         repaint, so nothing that has to survive one may live in here. -->
-    <div id="history">
+         repaint, so nothing that has to survive one may live in here.
+
+         `hist-list` rather than the `history` it was until bc-khoe.30.5. The id is shared
+         with the pane this page became in public/index.html, where `#history` is the hash
+         that names the view — and an element of that id there is a fragment target the
+         browser would scroll into view on every arrival, undoing the scroll position
+         panes.js had just restored. One id across the two documents, and it is the one
+         that cannot collide. -->
+    <div id="hist-list">
       <div class="empty">Reading the ledger…</div>
     </div>
   </main>

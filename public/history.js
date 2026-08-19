@@ -83,6 +83,41 @@
  * **Nothing here writes.** No token is spent, no bead is touched, and there is no
  * control on this page that reaches the Mac — which is also why it carries no
  * `⦿ observing` chip. See public/history.html.
+ *
+ * ## A page and a pane, out of one file (bc-khoe.30.5)
+ *
+ * The ledger is a **pane of the shell** now: a `[data-pane="history"]` container in
+ * public/index.html that a pill tap shows with a `display: none` swap, no document
+ * fetched and nothing rebuilt. But `/history` is still a document and still answers —
+ * home screens hold it, `/closed` and `/done` redirect to it, and landing those on the
+ * pane is bc-khoe.30.7 rather than this — so this one file has to be both, and it decides
+ * which by asking whether the document it is in has panes at all.
+ *
+ * Three things differ between the two, and they are the whole of the difference:
+ *
+ * **Where the filters are written.** On the page, the query string, which is where the
+ * ledger's filters have always lived and what `/closed` turns into. In the shell, the
+ * **hash** — `/#history?status=closed`, decision 5 in public/hashroute.js — because in one
+ * document `location.search` outlives the view that wrote it: narrow History, tap Home,
+ * and the address the phone's home screen holds is `/?status=P0`, carrying a filter for a
+ * view you are not on. In the hash it is part of the name of the view, so leaving is what
+ * drops it. Everything above about the URL being the state still holds; only the slot
+ * moved.
+ *
+ * **When it is built.** public/panestage.js builds the landed-on pane first and the rest
+ * after the first paint, so `build` below is offered to it and called by hand when there
+ * is no stager to take it — a document, or a service worker cache from before that file
+ * existed. Nothing at all happens at load in the shell if you landed on Home: one script
+ * parse, no request.
+ *
+ * **What ⟳ means, and what keeps it honest.** The page had a ⟳ of its own; the shell has
+ * one for the whole app, so this file takes it only while its pane is the one showing
+ * (public/app.js does the same in the other direction). And because a pane is built once
+ * rather than fetched on every visit, a ledger you come back to an hour later would be an
+ * hour old with nothing saying so. So this pane does now listen to the shell's one poll —
+ * not to fetch on an event, which would be a `bd` sweep per wake against a record of the
+ * past, but to remember that **something moved**, and re-read once, quietly, on the next
+ * time you look at it. It declares no `want`, so the poll it rides is the free park.
  */
 (() => {
   'use strict';
@@ -95,9 +130,32 @@
     }
   })();
 
-  const out = document.getElementById('history');
-  const pulse = document.getElementById('pulse');
-  const refreshBtn = document.getElementById('hist-refresh');
+  /** The view id this file draws, in public/hashroute.js's vocabulary. */
+  const VIEW = 'history';
+
+  const panes = (window.beadcause && window.beadcause.panes) || null;
+  const route = (window.beadcause && window.beadcause.route) || null;
+
+  /**
+   * Is this the shell's History pane, or the `/history` document it also still is?
+   *
+   * Asked of the *document* rather than of a flag, and asked of `panes` rather than of the
+   * path: the eleven pages that are not the shell have no `window.beadcause.panes` at all,
+   * and a pane still marked `data-pending` answers `has()` false — which is exactly the
+   * state this bead's own container was in until it was filled. So one question covers
+   * both "am I a page" and "is my container live yet".
+   */
+  const inShell = Boolean(panes && typeof panes.has === 'function' && panes.has(VIEW) && route);
+
+  const out = document.getElementById('hist-list');
+  /* The brand dot. Left alone in the shell: it is the whole document's there, driven off
+     public/report.js's count of what is in flight, and a second writer toggling `busy` on
+     it would clear it under a fetch of the inbox's that is still out. */
+  const pulse = inShell ? null : document.getElementById('pulse');
+  /* ⟳. The page's own on the document; the app's, shared with every other view, in the
+     shell — which is why the handler asks whether this pane is the one showing before it
+     does anything. */
+  const refreshBtn = document.getElementById(inShell ? 'refresh' : 'hist-refresh');
   const filterHost = document.getElementById('hist-filters');
 
   /* One screenful and a bit, which is one request. The server pages over a list it has
@@ -128,6 +186,10 @@
     kept: null,
     /** What is on screen, newest first, in the order the server sent it. */
     rows: [],
+    /** Should the next page landing *replace* `rows` rather than be appended to them?
+     *  Set by a quiet rebuild — the re-read that happens when you come back to this pane
+     *  — so the list you left stays under your thumb until the new one has arrived. */
+    replace: false,
     /** Bumped on every rebuild. An in-flight fetch whose generation has moved on
      *  belongs to a space you are no longer looking at, and must not append to this
      *  list — the picker is a dropdown and two taps in a second is normal. */
@@ -238,8 +300,8 @@
    */
   const filters = { status: [], priority: [], provenance: '', id: '' };
 
-  /** Is the list showing less than the whole selection? What the summary line's
-   *  `narrowed` mark means, and what the count line has to say out loud. */
+  /** Is the list showing less than the whole selection? What the count line has to say
+   *  out loud — the pills say their own half, each on its own face (bc-khoe.26). */
   const narrowed = () =>
     filters.status.length > 0 || filters.priority.length > 0 || Boolean(filters.provenance) || Boolean(filters.id);
 
@@ -257,10 +319,58 @@
    *  exactly as typed, to be refused as typed. */
   const canonPriority = (raw) => (/^[pP]?[0-9]$/.test(raw) ? `P${raw.replace(/^[pP]/, '')}` : raw);
 
-  /** The filters off the address bar. Called once, at load — this page never has two
-   *  sources for them. */
+  /**
+   * The slot the four filters are kept in — and it is not the same slot in the two
+   * documents this file runs in. See the header: the query string on `/history`, the
+   * hash's own query on the shell's History pane.
+   *
+   * An adapter rather than an `if` at each of the three call sites, because the two halves
+   * have to agree about *both* directions: a reader that took the hash and a writer that
+   * wrote the search would be a filter bar that could not be reloaded into, and it would
+   * look exactly like a filter bar that worked.
+   *
+   * `replaceState` in both, and for the reason the page always had: a filter chip is not
+   * a place you go back *to*, and a panel of them would otherwise fill the back stack with
+   * steps between you and the screen you arrived from.
+   */
+  const address = inShell
+    ? {
+        read: () => new URLSearchParams(route.parse(location.hash).query),
+        write(mine) {
+          // Only while this pane is the one showing. The staged boot builds this
+          // container while Home is on screen, and a filter written into the hash from
+          // behind a pane nobody is looking at would move the address out from under the
+          // view that owns it.
+          if (panes.showing() !== VIEW) return;
+          const next = location.pathname + location.search + route.hashFor(VIEW, mine);
+          if (next !== location.pathname + location.search + location.hash) {
+            history.replaceState(null, '', next);
+          }
+        },
+      }
+    : {
+        read: () => new URLSearchParams(location.search),
+        write(mine) {
+          // Every other parameter on the address is kept, and `t` is the one dropped —
+          // the token is picked up into localStorage by spacebar.js before this file runs,
+          // and a filter link is a thing you send to a phone rather than a credential.
+          const q = new URLSearchParams(location.search);
+          for (const k of ['status', 'priority', 'provenance', 'id', 't']) q.delete(k);
+          for (const [k, v] of new URLSearchParams(mine)) q.set(k, v);
+          const search = q.toString();
+          const next = location.pathname + (search ? `?${search}` : '') + location.hash;
+          // Only when it actually moved. A no-op replaceState is harmless but it is also
+          // a lie in a debugger, and the picker announcing itself on load calls here.
+          if (next !== location.pathname + location.search + location.hash) {
+            history.replaceState(null, '', next);
+          }
+        },
+      };
+
+  /** The filters off the address, whichever slot this document keeps them in. Called once
+   *  as this view is built — neither document ever has two sources for them. */
   function readUrl() {
-    const q = new URLSearchParams(location.search);
+    const q = address.read();
     filters.status = splitList(q.get('status')).map((v) => v.toLowerCase());
     filters.priority = splitList(q.get('priority')).map(canonPriority);
     filters.provenance = String(q.get('provenance') || '')
@@ -269,28 +379,9 @@
     filters.id = String(q.get('id') || '').trim();
   }
 
-  /**
-   * And back again, so a reload and a shared link are the same screen.
-   *
-   * `replaceState` rather than `pushState`: a filter chip is not a place you go back
-   * *to*, and a panel of them would otherwise fill the back stack with steps between
-   * you and the page you arrived from. Every other parameter on the address is kept, and
-   * `t` is the one dropped — the token is picked up into localStorage by spacebar.js
-   * before this file runs, and a filter link is a thing you send to a phone rather than
-   * a credential.
-   */
+  /** And back again, so a reload and a shared link are the same screen. */
   function writeUrl() {
-    const q = new URLSearchParams(location.search);
-    for (const k of ['status', 'priority', 'provenance', 'id', 't']) q.delete(k);
-    if (filters.status.length) q.set('status', filters.status.join(','));
-    if (filters.priority.length) q.set('priority', filters.priority.join(','));
-    if (filters.provenance) q.set('provenance', filters.provenance);
-    if (filters.id) q.set('id', filters.id);
-    const search = q.toString();
-    const next = location.pathname + (search ? `?${search}` : '') + location.hash;
-    // Only when it actually moved. A no-op replaceState is harmless but it is also a
-    // lie in a debugger, and the picker announcing itself on load calls through here.
-    if (next !== location.pathname + location.search + location.hash) history.replaceState(null, '', next);
+    address.write(filterParams(new URLSearchParams()).toString());
   }
 
   /** The filters as the endpoint takes them. Empty ones are absent rather than blank —
@@ -441,7 +532,13 @@
     state.kept = parseKept(res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-beadcause-kept') : null);
     const data = await res.json();
     const rows = Array.isArray(data.rows) ? data.rows : [];
-    state.rows.push(...rows);
+    // A quiet rebuild left the old list up and asked for page one underneath it; this is
+    // where the swap happens, in the same turn as the paint that follows. Cleared as it is
+    // used, so page two of the new list appends to it the way every other page does.
+    if (state.replace) {
+      state.rows = rows;
+      state.replace = false;
+    } else state.rows.push(...rows);
     state.offset += rows.length;
     if (Number.isFinite(data.total)) state.total = data.total;
     // A repo whose `bd` fell over is a row in here and a **200** — not a failed request,
@@ -496,23 +593,38 @@
    * list the server sorted over one particular selection, and it means nothing once that
    * selection has changed underneath it.
    */
-  function rebuild(scope, refresh = false) {
+  function rebuild(scope, refresh = false, quiet = false) {
     state.gen += 1;
     state.scope = scope;
-    state.rows = [];
+    // `quiet` is the re-read that happens when you come back to this pane after something
+    // moved (see `shown` below). The rows you left stay on screen until the first page of
+    // the new read lands and replaces them — a pane that blanked itself to "Reading the
+    // ledger…" on every return would be the document load this epic exists to remove,
+    // wearing a different mechanism. Everything the answer carries — the count, the
+    // trouble lines, the kept mark — is left standing with the rows it is about, because
+    // the response overwrites all three anyway.
+    const keep = quiet && state.rows.length > 0;
+    state.replace = keep;
+    if (!keep) {
+      state.rows = [];
+      state.total = null;
+      state.errors = [];
+      state.kept = null;
+      // There is always something to ask for now — every selection is a legal request,
+      // including the empty one — so the page is never `ready` before an answer.
+      state.ready = false;
+    }
     state.offset = 0;
     state.more = true;
-    state.total = null;
-    state.errors = [];
-    state.kept = null;
     // Cleared here rather than on the next answer: a refusal is about the request that
     // is being replaced, and leaving it up while a corrected one is in flight is the
     // page still complaining about a word you have already taken off.
     state.refusal = null;
     state.loading = false;
-    // There is always something to ask for now — every selection is a legal request,
-    // including the empty one — so the page is never `ready` before an answer.
-    state.ready = false;
+    // Whatever was waiting to be re-read, this is the re-read. Cleared here rather than in
+    // the one caller that sets it, so a ⟳ pressed while the flag is up also spends it —
+    // otherwise the next switch away and back would ask again for a list that just arrived.
+    dirty = false;
     paint();
     loadMore(refresh);
   }
@@ -765,12 +877,13 @@
     rebuild(scope);
   }
 
-  if (window.beadcause && window.beadcause.space) {
-    window.beadcause.space.onChange(follow);
-  }
-
   if (refreshBtn) {
     refreshBtn.addEventListener('click', () => {
+      // In the shell this is the app's one ⟳, shared with every other view, so the first
+      // question is whether it is this pane's press at all. public/app.js asks the mirror
+      // of it before reloading the inbox, which is what keeps one tap from sweeping `bd`
+      // twice for two views and drawing only one of them.
+      if (inShell && panes.showing() !== VIEW) return;
       // Deliberately not `follow()`: the selection has not moved, so `follow` would
       // decide there was nothing to do. ⟳ means "read it again" whatever the picker
       // says — and `refresh=1` with it, because the daemon holds the sweep for ten
@@ -780,25 +893,111 @@
     });
   }
 
-  /* ------------------------------------------------------------ the control */
+  /* ---------------------------------------------------------- the pane's own life */
 
-  /* The address bar first, and before anything is drawn or asked for: the very first
-     request this page makes has to be the narrowed one, or a link to `?status=closed`
-     is a screenful of open beads that then rearranges itself. */
-  readUrl();
+  /**
+   * Something moved in the tracker since this list was read.
+   *
+   * Not "something moved that this list is drawing" — that is a question only a second
+   * request could answer, and answering it per event is the `bd` sweep per wake this pane
+   * exists without. A boolean is enough because of what it is used for: the *next* time
+   * you look at the ledger, read it again, once.
+   */
+  let dirty = false;
 
-  /* And the panel it is shown in — the inbox's, from public/filtermenu.js. A page that
-     fails to load that file still lists the whole ledger, with whatever the URL asked
-     for still applied: the filters live in `filters` and the chrome only moves them, so
-     the missing half is the controls rather than the narrowing. */
-  if (filterHost && window.beadcause && window.beadcause.filterMenu) {
-    window.beadcause.filterMenu.mount(filterHost, { groups: filterGroups, narrowed });
+  /**
+   * An answered poll from the shell's one mount, handed here by public/panestage.js.
+   *
+   * No fetch, ever. A record of what has already happened is the one view in this app
+   * with nothing to gain from being live — its own argument for not streaming is above and
+   * still stands — and what changed with the pane is only that it is no longer re-fetched
+   * by the act of arriving at it. So a wake sets a flag and costs nothing, and `shown`
+   * spends it.
+   *
+   * `resync` counts as movement on its own: it is the daemon saying the log rolled past
+   * where this client was, so `events` is not a list of what happened but an admission
+   * that it cannot be known.
+   */
+  function wake(w) {
+    const stream = window.beadcause && window.beadcause.stream;
+    if (!w || (!w.resync && !(stream && stream.moved(w.events)))) return;
+    dirty = true;
   }
 
-  paint();
-  // The picker fires `follow` itself once /api/spaces lands. This is the case where it
-  // never will — no token, or a page opened with the picker already loaded — and it
-  // costs nothing when the announcement does arrive, because `follow` is idempotent
-  // against `state.key`.
-  if (token) follow();
+  /**
+   * This pane just became the one showing.
+   *
+   * Two things, and the first is the address: a pill tap writes the bare `#history`, so
+   * the filters this view is still holding have to be put back on it — otherwise the URL
+   * you could copy off the screen is a wider list than the one on it.
+   *
+   * Then the re-read, if anything moved while this was hidden. Quiet, so the rows stay up
+   * until the new ones arrive: switching to a view you have already got must not look like
+   * loading one.
+   */
+  function shown() {
+    writeUrl();
+    if (!dirty || !token) return;
+    dirty = false;
+    rebuild(state.scope || scopeOf(filterNow()), false, true);
+  }
+
+  /* ------------------------------------------------------------ the control */
+
+  /**
+   * Everything this view does on the way up, in one function so the shell can time it.
+   *
+   * It was the last dozen lines of this IIFE and it still is on the document; what the
+   * stager buys is the other case — a load that lands on Home builds this after the first
+   * paint, and a load that lands on `/#history` builds it first and the inbox after.
+   */
+  function build() {
+    /* The address first, and before anything is drawn or asked for: the very first
+       request this view makes has to be the narrowed one, or a link to `?status=closed`
+       is a screenful of open beads that then rearranges itself. */
+    readUrl();
+
+    /* And the pills it is shown in — the inbox's, from public/filtermenu.js. Four of them
+       since bc-khoe.26, one per filter, each opening its own chips: this view's groups
+       were the reason that file exists and they came apart with the inbox's, which is the
+       whole of what sharing one component is for. Its own mount rather than a share of
+       Home's, because the control holds which of its pills is open — one instance across
+       two panes would open this bar's status panel on the inbox. A page that fails to
+       load the file still lists the whole ledger, with whatever the URL asked for still
+       applied: the filters live in `filters` and the chrome only moves them, so the
+       missing half is the controls rather than the narrowing. */
+    if (filterHost && window.beadcause && window.beadcause.filterMenu) {
+      window.beadcause.filterMenu.mount(filterHost, { groups: filterGroups });
+    }
+
+    /* Registered here rather than at load, so nothing is fetched before `readUrl` has
+       run: the picker announces itself the moment /api/spaces lands, and a `follow` that
+       beat the filters would ask for the whole ledger and then not ask again, because
+       `follow` is idempotent against the selection it already has. */
+    if (window.beadcause && window.beadcause.space) {
+      window.beadcause.space.onChange(follow);
+    }
+
+    paint();
+    // The picker fires `follow` itself once /api/spaces lands. This is the case where it
+    // never will — no token, or a view built with the picker already loaded — and it
+    // costs nothing when the announcement does arrive, because `follow` is idempotent
+    // against `state.key`.
+    if (token) follow();
+  }
+
+  /*
+    Offered to the stager, and built here when there is no stager to take it — the
+    `/history` document, or a service worker cache from before public/panestage.js existed.
+    `register` answering false has to leave this file exactly as it was, which is why
+    `build` is the function it would have called on its own rather than something only
+    reachable through the shell.
+
+    No `want` beside the `wake`: `wake` never fetches, so the widest thing this pane needs
+    from the shell's one request is that it happens at all. `'presence'` — the default for
+    a pane that declares nothing — is what makes that park free, and asking for the inbox's
+    questions to carry a flag would be a `bd` sweep per event for a boolean.
+  */
+  if (!window.beadcause?.stage?.register?.(VIEW, { build, wake })) build();
+  if (inShell) panes.onShow((view) => view === VIEW && shown());
 })();

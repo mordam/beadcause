@@ -74,9 +74,12 @@
     // the screen, because the two are opposite claims about the list below them — see
     // `syncTroubleHtml`.
     syncTrouble: [],
-    // The board (bc-rfnr.2): `{ roots[], under, unhomed, owned }` — which epics carry your
-    // `owner:<handle>`, and for every other row the id of the root it descends from, or
-    // (bc-i7tw) the fact that no root anywhere has it, which is drawn rather than hidden.
+    // The board (bc-rfnr.2): `{ roots[], under, unhomed, assigned, owned }` — which epics
+    // carry your `owner:<handle>`, and for every other row the id of the root it descends
+    // from, or (bc-i7tw) the fact that no root anywhere has it, which is drawn rather than
+    // hidden. `assigned` is the kind pills' own narrowing (bc-khoe.29) and the one field
+    // here keyed by *bead* rather than by row: `<workspace>/<id>` for every bead of yours
+    // and everything under one, so a pull request can be judged by the beads it names.
     // `owned: false` is what an install with no `me` answers, and it means the whole
     // section and the whole filter are off: the inbox is the flat list it always was.
     // **`rootboard`, not `board`** — `state.board` is the *pull request* board (`prRows`
@@ -85,7 +88,7 @@
     // Its own object rather than fields on the rows, because the *absence* of a row from
     // `under` is the filter — and a row that arrived before the board did must not read
     // as one with nothing decided above it. See `rootBoard` in lib/server.js.
-    rootboard: { roots: [], startable: [], under: {}, unhomed: {}, owned: false },
+    rootboard: { roots: [], startable: [], under: {}, unhomed: {}, assigned: {}, owned: false },
     // Epics this phone has just launched an advocate on, `key -> ms`. The server records
     // the same fact (`advocateOpened` in lib/server.js) and is the authority the moment
     // its answer arrives; this covers the seconds before it does, so the card cannot
@@ -256,23 +259,19 @@
      */
     p0beadarc: new Map(),
     /**
-     * Is the whole board folded away? bc-eevn.
+     * Which epic has its **advocate** open, by card key — or null. bc-r2b5.2.
      *
-     * The opposite of `p0open` on both counts, and deliberately.
+     * A string and not a Set, unlike the two above, and the difference is the point: this
+     * is a fixed layer over `p0FullHtml`, which is itself a fixed layer, so a second one
+     * would be a third sheet with nothing on any of them saying which epic you were
+     * reading. `p0open` is a Set holding at most one for that reason and has to be asked
+     * `has(key)` per card while the board is drawn; this is asked once, by the section, so
+     * there is nothing to be gained by making the single a convention the tap has to keep.
      *
-     * **It is stored shut-side-true**, so the default — an absent key, an older page,
-     * a test's state object that predates the field — is the board *open*. The board is
-     * the point of bc-rfnr.2; a field whose falsy default hid it would be one typo away
-     * from an inbox that silently lost its epics.
-     *
-     * **And it is persisted, where `p0open` is not.** Which epic you have unfolded is
-     * where you are looking now; whether you want the board over your list at all is a
-     * standing preference, like the kind filter — you fold it because this phone is for
-     * answering questions, and having to fold it again at every reload is the fold not
-     * working. Read synchronously here rather than after the first poll, so the first
-     * frame is already the shape you left it in.
+     * Page state and not persisted, for the reasons written above `p0open`: which
+     * advocate you were reading is where you are looking *now*.
      */
-    p0shut: localStorage.getItem('beadcause.p0shut') === '1',
+    p0adv: null,
     /**
      * Which statuses the board's trees draw — one filter over every card. bc-rfnr.9.6.
      *
@@ -284,21 +283,19 @@
      *
      * **Stored by id rather than as a set of statuses**, so an unknown value — a newer
      * page's option, a hand-edited key — falls back to the default in `p0StatusFilter`
-     * instead of drawing an empty board. Persisted like `p0shut` and unlike `p0open`:
+     * instead of drawing an empty board. Persisted, unlike `p0open`:
      * whether you are reading what is left or what has landed is a standing preference,
      * where which epic is unfolded is where you happen to be looking.
      */
     p0status: localStorage.getItem('beadcause.p0status') || 'live',
-    /**
-     * Is the picker at the foot of the board open? bc-s8mc.
-     *
-     * Page state and not persisted, like `p0open` and unlike `p0shut`: it is a thing you
-     * are doing rather than a way you like the board, and a picker still hanging open the
-     * next morning would be the app remembering a decision you had already made. It is
-     * closed by a successful start for the same reason — the answer to "which one" has
-     * been given, and the card is on the way.
-     */
-    p0picker: false,
+    /*
+      `p0picker` was here — is the picker at the foot of the board open — and went with
+      the picker in bc-khoe.27.2. It had to be state because the picker was drawn by
+      `render`, and a repaint that forgot it open would have shut it under your finger
+      on every poll. The panel above ＋ is not drawn by `render` at all: it is a floating
+      menu that outlives repaints, so its own `hidden` attribute is the whole record and
+      a second copy here could only disagree with it.
+    */
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -4990,8 +4987,15 @@
    * there is still only one place that counts: a badge is a second *reading* of this
    * number, never a second count of the same rows, which is the only way the badge and
    * the list under it cannot disagree.
+   *
+   * `board` is the one thing this file has to tell the control that it cannot work out
+   * for itself (bc-khoe.49): how many cards My Epics would draw, when My Epics is the
+   * board and draws no list at all. It is `null` whenever there *is* a list there, which
+   * is the state the derivation over there was written for. See `epicsIsBoard` in
+   * `render`, which is where the question is decided, and `survey` in
+   * public/inboxfilter.js, which is where the number is chosen between the two.
    */
-  function surveyKinds(rows) {
+  function surveyKinds(rows, board = null) {
     const f = window.beadcause?.inboxFilter;
     if (!f) return;
     const counts = {};
@@ -5005,7 +5009,7 @@
       // get and not the thirty-five that exist. Every kind without one answers true.
       if (f.inSub?.(q) ?? true) counts[kind] = (counts[kind] || 0) + 1;
     }
-    f.survey({ kinds: kindsForScope(), counts, sub: { status } });
+    f.survey({ kinds: kindsForScope(), counts, sub: { status }, board });
   }
 
   /** Chips and the one line beside them, repainted in place. Never rebuilds either. */
@@ -5707,6 +5711,78 @@
   }
 
   /**
+   * What a kind pill draws. bc-khoe.29, and it is `underOwnedRoots`' question asked from
+   * a screen the board is not on.
+   *
+   * **The two are not variants of one filter and the difference is the board's presence.**
+   * `underOwnedRoots` above *removes* what the trees are already drawing — it is a
+   * de-duplication, and every word of its reasoning is "not drawn again underneath it".
+   * bc-khoe.28 took the board off every pill but My Epics, so under Questions, PRs, Chats
+   * and All Beads there are no trees, nothing is being drawn twice, and a list narrowed by
+   * that rule is narrowed against a screen that is not there: the commonest row in the
+   * tracker — a question on a bead in an epic of yours you have started — is removed from
+   * the one pill whose whole job is to show it.
+   *
+   * **So this one is a positive rule.** A row stays if its bead is yours, or descends from
+   * one of yours, at any depth — `assigned` on the payload, computed off `owner:<handle>`
+   * and the `parent-child` edges in lib/server.js, because ancestry is a `bd export` and
+   * a graph walk and neither belongs on a phone. Two gates the board's map has and this
+   * one deliberately does not: the bead above does not have to be a *root* (a question on
+   * a task of yours is yours), and it does not have to have been *started* (bc-6s96 is a
+   * rule about which epics lead the screen, not about which questions exist).
+   *
+   * **`under` is unchanged and still means what it meant.** The board narrows itself with
+   * it, `underOwnedRoots` still reads it, and this is a sixth field beside it rather than a
+   * widening of it — two questions with different answers on the same graph, which is the
+   * same reason `unhomed` is not a sentinel value inside `under`.
+   *
+   * **Keyed by bead, so a pull request follows its beads properly for the first time.**
+   * `underOwnedRoots` cannot tell your bead from a stranger's here — its map is per row and
+   * a pull request has no row of its own in it — so it drops every pull request naming any
+   * bead at all, which on the PRs pill is very nearly all of them. `assigned` is keyed
+   * `<workspace>/<id>`, exactly as `inBead` keys the same lookup, so the rule is the one
+   * the bead asks for: yours if any bead it names is yours, and kept if it names none,
+   * because nothing else on this screen can hold that row.
+   *
+   * **Four things are kept whatever the ownership says, and all four are the older rules
+   * rather than new hedges.** A chat has no bead, and it is where a new epic gets filed. A
+   * JIRA ticket has no bead until bc-0i27.4 files one. An open card is a full-screen sheet
+   * built out of a list row, so filtering the row away empties the sheet the reader is
+   * looking at — first, ahead of every other test, for the reason `underOwnedRoots` says at
+   * length. And `unhomed` is bc-i7tw: a bead with no root above it *anywhere* is on no
+   * other screen in the app, which is the one failure this inbox exists to prevent — the
+   * question you filed from your own phone thirty seconds ago has no owner label and no
+   * parent, and it is not "under somebody else's bead", it is under nothing.
+   *
+   * The two no-op cases are `isBoarded`'s first and third with the middle one dropped: an
+   * install with no `cfg.me` is not narrowed at all, and neither is one whose payload
+   * predates this field. An *empty* map is the third — you own nothing yet, or the graph
+   * could not be read — and narrowing to nothing there would hide the whole tracker behind
+   * a screen indistinguishable from a quiet afternoon. Note this does **not** gate on
+   * `roots`, which `isBoarded` does: having started nothing is exactly the state in which
+   * your questions still have to be reachable.
+   */
+  function assignedToMe(rows) {
+    const board = state.rootboard;
+    if (!board?.owned) return rows;
+    const assigned = board.assigned || {};
+    if (!Object.keys(assigned).length) return rows;
+    const unhomed = board.unhomed || {};
+    return rows.filter((q) => {
+      if (q.session) return true;
+      if (q.jira) return true;
+      if (state.open?.has(q.key)) return true;
+      if (q.pr) {
+        const named = q.pr.beads || [];
+        if (!named.length) return true;
+        return named.some((b) => Boolean(assigned[`${q.workspace}/${b?.id || b}`]));
+      }
+      if (assigned[q.key]) return true;
+      return Boolean(unhomed[q.key]);
+    });
+  }
+
+  /**
    * How many beads under these cards are themselves asking you something.
    *
    * Through `p0Progress` rather than over `c.tree` again, because bc-grut gave the card its
@@ -5905,6 +5981,36 @@
   const p0Step = (row) => Math.min(Math.max(Number(row.depth) || 1, 1), P0_INDENT_CAP + 1) - 1;
 
   /**
+   * Where a department relay on this bead has got to, in one span. bc-bmry.4.
+   *
+   * **The age is the point of it.** A relay runs through four or five roles in one
+   * unattended window (lib/relay.js), and from outside, one stalled at step 2 and one
+   * quietly working step 4 are the same silence — which is the cost `dv-vzg` accepted when
+   * it chose the full relay, on condition the steps were readable from here. `⇄ clio ·
+   * check · 3 steps · 40m ago` is the whole sentence that separates them, and there is no
+   * threshold in it: nobody has decided what "stalled" is for a role that reads a
+   * hundred-page charter first, so the row states the age and the reader judges it.
+   *
+   * `steps` is how far it has got and not how far it has to go, because the chain is
+   * derived from the assignee and `--claim` overwrote that (lib/relay.js) — a denominator
+   * here would be one the board cannot honestly produce.
+   *
+   * The flag is a mark and not the text. One flagged check is the ordinary output of a
+   * check and the row has no width for the clause; what it is, is two lines down in the
+   * trail once you open the bead.
+   */
+  function p0RelayHtml(relay) {
+    if (!relay?.role || !relay?.step) return '';
+    const when = relTime(relay.at);
+    const bits = [relay.role, relay.step, relay.steps > 1 ? `${relay.steps} steps` : '', when].filter(Boolean);
+    return `<span class="p0-relay${relay.step === 'handback' ? ' back' : ''}${
+      relay.flagged ? ' flagged' : ''
+    }" title="${esc(relay.flag || `relay: ${bits.join(' · ')}`)}">⇄ ${esc(bits.join(' · '))}${
+      relay.flagged ? ` ⚑${relay.flagged > 1 ? relay.flagged : ''}` : ''
+    }</span>`;
+  }
+
+  /**
    * One descendant, as a row in its epic's tree.
    *
    * **A button since bc-rfnr.9.4, where it was a link to the graph.** The tap opens the
@@ -5954,6 +6060,7 @@
           : `<span class="pill st-${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>`
       }
       <span class="p0-row-title">${esc(row.title || '')}</span>
+      ${p0RelayHtml(row.relay)}
     </button>`;
   }
 
@@ -6251,6 +6358,45 @@
   }
 
   /**
+   * Every step a department relay took on this bead, oldest first. bc-bmry.4.
+   *
+   * The rows are the journal `bin/relaystep.js` wrote as the window ran — one per handoff,
+   * parsed on the daemon by lib/relayjournal.js and arriving as `relay` on `/api/bead`.
+   * Nothing here is markdown: an entry is one clamped line by construction, and running it
+   * through `renderMarkdown` would let a role's own prose draw headings inside a trail.
+   *
+   * **Oldest first, unlike every other list on this screen.** The pull requests are newest
+   * first because they are a queue you check; this is a story, and a story read backwards
+   * loses the one thing it is for — which choice was made early and carried.
+   *
+   * The `handback` row is marked rather than drawn as an ordinary step, because it is the
+   * only entry that says the relay is *not* going to move again on its own — and it is
+   * also the row that says which role a new window would resume as, which nothing else on
+   * the bead records once `--claim` has taken the assignee.
+   */
+  function p0RelayTrailHtml(relay) {
+    const rows = Array.isArray(relay?.entries) ? relay.entries : [];
+    if (!rows.length) return '';
+    const head = [
+      `${rows.length} ${rows.length === 1 ? 'step' : 'steps'}`,
+      relay.flagged ? `${relay.flagged} flagged` : '',
+      relay.handedBack ? 'handed back' : '',
+    ].filter(Boolean);
+    return `<div class="section-label">Relay <span class="p0-relay-sum">${esc(head.join(' · '))}</span></div>
+      <div class="p0-trail">${rows
+        .map(
+          (e) => `<div class="p0-trail-row${e.step === 'handback' ? ' back' : ''}">
+          <span class="p0-trail-who">${esc(e.role)}${e.next ? ` → ${esc(e.next)}` : ''}</span>
+          <span class="pill p0-trail-step">${esc(e.step)}</span>
+          <span class="p0-trail-when">${esc(relTime(e.at))}</span>
+          <span class="p0-trail-note">${esc(e.note)}</span>
+          ${e.flag ? `<span class="p0-trail-flag">⚑ ${esc(e.flag)}</span>` : ''}
+        </div>`
+        )
+        .join('')}</div>`;
+  }
+
+  /**
    * The bead itself, in the order the questions come: what kind of thing it is, how it
    * ended if it has, what it is under and behind, what it says, what has been said about
    * it, and what happened to it.
@@ -6320,6 +6466,13 @@
     // everything before this is the bead as `bd` holds it and this is the trail out of
     // the tracker: it is the answer to "and then what", which is a question you have
     // after reading a bead rather than before.
+    // The relay's own trail, above the pull requests and below the thread — it is the same
+    // question `p0HappenedHtml` answers, at the grain of the roles rather than the branch,
+    // and it is what `dv-vzg` asked for in as many words: every step and handoff readable
+    // from the epic card. Below the thread because the thread is what a *person* said about
+    // this bead and this is what the window did; above the pull requests because the
+    // delivery is the end of the chain and reads as its last line. bc-bmry.4.
+    parts.push(p0RelayTrailHtml(b.relay));
     parts.push(p0HappenedHtml(card, b));
     // The answer first and the graph after it, which is the order of how much they are
     // worth: one of them is the reason this bead is on the screen at all, and the other is
@@ -6331,6 +6484,18 @@
     );
     return parts.filter(Boolean).join('');
   }
+
+  /**
+   * Is anything on the screen drawn from what this key just fetched? bc-r2b5.2.
+   *
+   * Two readers now, and the second is why this is a function rather than the
+   * `p0beadopen.has(key)` both loaders below asked. The advocate sheet asks for the
+   * *epic's* bead and archive — a key that is in no tree and can never be in `p0beadopen` —
+   * and for the archive of every child, under the children's own keys. Asked as "is the
+   * sheet up" rather than "is this key the sheet's", because a child's archive landing is
+   * exactly a repaint the sheet wants and its key is not the sheet's key.
+   */
+  const p0Drawn = (key) => state.p0beadopen.has(key) || Boolean(state.p0adv);
 
   /**
    * Ask `bd` for one bead in the tree, and repaint when it answers. bc-rfnr.9.4.
@@ -6371,7 +6536,7 @@
     // Through `keepTheScreenStill` for the same reason the tap is: this is the moment a
     // one-line "reading…" becomes six hundred pixels of bead, and the anchor would take
     // that growth out of the page offset with the reader's eyes already on the block.
-    if (state.p0beadopen.has(key)) keepTheScreenStill(() => render());
+    if (p0Drawn(key)) keepTheScreenStill(() => render());
   }
 
   /**
@@ -6409,7 +6574,7 @@
       arc = { failed: true, sessions: [] };
     }
     state.p0beadarc.set(key, arc);
-    if (state.p0beadopen.has(key)) keepTheScreenStill(() => render());
+    if (p0Drawn(key)) keepTheScreenStill(() => render());
   }
 
   /**
@@ -6487,13 +6652,17 @@
    * correction: the expansion inserts nothing into the flow above the list, so there is
    * no height for `capturePlace` to hold still and no scroll to jump.
    *
-   * **And the section itself folds (bc-eevn).** The heading is a second disclosure, one
-   * level up from the cards': it puts the whole board away, because on a phone four
-   * epics is the entire first screen and there are days when what you came for is the
-   * questions underneath. Two things keep that from being a way to lose the board — the
-   * count stays on the shut line, and the fold is display only, so the list below is
-   * narrowed to your epics' descendants exactly as it was. See `state.p0shut`, which is
-   * stored shut-side-true so that every default there has ever been reads as open.
+   * **And the section no longer folds (bc-khoe.28, undoing bc-eevn).** The heading was a
+   * disclosure one level up from the cards': it put the whole board away, on the argument
+   * that on a phone four epics is the entire first screen and there are days when what you
+   * came for is the questions underneath. The pill row is that argument's real answer —
+   * the questions are one tap away on their own pill now, and My Epics is the board and
+   * nothing else. So what the fold *used* to reveal is not below the board any more, and
+   * a fold on a view with one section in it is a control whose whole effect is to leave
+   * the screen blank. Persisted, as `beadcause.p0shut` was, it would have left it blank
+   * for good. The heading stays, and keeps both counts — how many epics, and how many
+   * beads under them are asking you something — because that line is what the board says
+   * at a glance; it is a heading now rather than a button.
    *
    * **And one status filter (bc-rfnr.9.6), which moved into the tab with the tree
    * (bc-grut).** It used to sit between the heading and the cards, and the argument for
@@ -6506,35 +6675,159 @@
    * out of a tree is still a question you are being asked.
    */
   /**
-   * The one control on a card, in its three states — and the point of bc-d6yk is that
-   * there are three.
+   * The card's own reading of `advocacy` — one derivation, so the card, the tab and the
+   * sheet can never disagree about which of the four states an epic is in. bc-r2b5.2.
+   *
+   * **`advocate` and `advocacy.session` are the same object** (`rootCard` hoists one
+   * `advocateSession` call and hands it to both), so this prefers the object and falls
+   * back to the old field: a page whose JavaScript predates bc-r2b5.1's payload still
+   * has `advocate`, and one talking to a daemon that predates it has only that.
+   *
+   * `opening` is suppressed while a window is live for the same reason the server's own
+   * `advocateSession` prefers the session over the grace window — "opening" over a window
+   * that is up is a state that resolves itself and reads, for the ten minutes it lasts,
+   * as the launch not having worked.
+   */
+  function p0AdvState(c) {
+    const a = c.advocacy || {};
+    const key = c.key || `${c.workspace}/${c.id}`;
+    const live = a.session?.pid ? a.session : c.advocate?.pid ? c.advocate : null;
+    return {
+      key,
+      assigned: Boolean(a.assigned),
+      by: a.by || null,
+      paused: Boolean(a.paused),
+      finished: Boolean(a.finished),
+      lastAt: a.lastAt || null,
+      hold: a.hold || null,
+      heldAt: a.heldAt || null,
+      live,
+      opening: !live && Boolean(c.advocate?.opening || a.session?.opening || openingHere(key)),
+    };
+  }
+
+  /**
+   * "last looked 3h ago" — the half of an idle card that makes idle readable.
+   *
+   * **Never "idle" on its own**, which is the whole of what the sentence is for: an epic
+   * whose advocate ran twenty minutes ago and one whose advocate last ran a fortnight ago
+   * are the same card without it, and only one of them is a problem. An epic that has been
+   * assigned but never opened a window says so rather than borrowing "just now" — that is
+   * the third state the record genuinely has (`advocated[id].at` is absent until the sweep
+   * writes it), and drawing it as a time would be inventing one.
+   */
+  function p0AdvWhen(s) {
+    if (!s.lastAt) return 'no window has run on it yet';
+    const when = relTime(s.lastAt);
+    return when ? `last looked ${when}` : 'when it last looked is not recorded';
+  }
+
+  /** The sub-line under the state: why nothing is up, or when it last was. */
+  function p0AdvLine(s) {
+    if (s.live) return s.live.name || `pid ${s.live.pid}`;
+    if (s.paused) return `paused · ${p0AdvWhen(s)}`;
+    if (s.hold) return `${s.hold} · ${p0AdvWhen(s)}`;
+    return p0AdvWhen(s);
+  }
+
+  /**
+   * Every child closed, and the close offered rather than left for you to notice.
+   *
+   * `advocacy.finished` is lib/finishedepic.js's own fingerprint — that sweep has already
+   * asked the question, on the bead, with a `decision` block and the `human` label. So the
+   * only thing owed here is the way *in* to the card it wrote, and that is `p0-answer`:
+   * the same one line `p0AnswerHtml` uses, opening the inbox card with its parsed options,
+   * its arm-then-confirm and its submit queue rather than a second answer surface.
+   *
+   * **And where there is no row to open, it says where the close is instead of offering a
+   * tap that does nothing.** `byKey` answers off the payload this page asked for, and
+   * `/api/questions?scope=agent` sweeps no questions at all — so on that scope the fact is
+   * still true and the control is honestly not available, which is a different thing from
+   * the epic not being finished.
+   */
+  function p0DoneHtml(c) {
+    const key = c.key || `${c.workspace}/${c.id}`;
+    const q = byKey(key);
+    if (!q || q.agent) {
+      return `<span class="p0-done is-none">🎉 Every child is closed — the close is on its inbox card</span>`;
+    }
+    return `<button type="button" class="p0-done" data-act="p0-answer" data-key="${esc(
+      key
+    )}">🎉 Every child is closed — close it</button>`;
+  }
+
+  /**
+   * The advocate line itself: what state the assignment is in, and the way into what it
+   * has been doing. bc-r2b5.2.
+   *
+   * Drawn only where there is an assignment, because everything behind it is about one —
+   * the plan, the sessions it has archived, what it dispatched under each child. A tap on
+   * an epic nobody is on would open a sheet of four "not tracked"s.
+   */
+  function p0AdvOpenHtml(c, s) {
+    const what = s.live ? '🧭 What it has done' : s.paused ? '⏸ Advocate paused' : '🧭 Advocated';
+    return `<button type="button" class="p0-advocate p0-adv-open" data-act="p0-adv" data-p0="${esc(
+      s.key
+    )}" aria-haspopup="dialog" aria-expanded="${state.p0adv === s.key}">
+      <span class="p0-adv-what">${what}</span>
+      <span class="p0-adv-when">${esc(p0AdvLine(s))}</span>
+    </button>`;
+  }
+
+  /**
+   * The controls on a card, in the four states the payload now carries — bc-r2b5.2, and
+   * the point of bc-r2b5 is that a boolean could only ever draw two of them.
    *
    * It used to be one button that offered to open an advocate whatever was already
    * running, so the moment after you tapped it the card went back to offering the same
-   * thing and the only way to see what you had started was to find it on the advocate
-   * console. Now the card answers the question the tap raises: **where is it?**
+   * thing (bc-d6yk gave it a live and an opening state). What it still could not draw was
+   * the state a re-entrant supervisor is in nearly all the time: **assigned, with nothing
+   * running.** `advocate` is a live window or null, and null was drawn as the offer to put
+   * somebody there — so an epic that had been advocated for a fortnight read, every time
+   * it was opened, as one nobody had ever been put on.
    *
    *   - **A live advocate** — an anchor to `/session?pid=…`, which public/drawer.js opens
    *     over the inbox rather than navigating away from it, so a look at what the
-   *     advocate is doing costs neither your place in the list nor a trip back.
+   *     advocate is doing costs neither your place in the list nor a trip back. Unchanged.
    *   - **Opening** — a disabled button saying so. There is no pid to link to yet (a
    *     window carries no bead id in its name until its first turn), and the honest thing
    *     to do with a control that would 409 is to say why it is not offered.
+   *   - **Assigned, and idle** — who has it, when its last window ran, and why one is not
+   *     up right now if something is holding it. **Not a button offering to make a second
+   *     one**: the launch would be refused by `/api/bead/advocate`'s own rule, and an offer
+   *     whose only outcome is a 409 is worse than no offer at all.
+   *   - **Done** — every child closed and lib/finishedepic.js has already asked. The close
+   *     is offered here rather than left to be noticed in the inbox, and the launch is not:
+   *     there is nothing left under this epic for an advocate to plan.
    *   - **Nobody on it** — the offer, exactly as it was.
+   *
+   * The done offer and the advocate line are not exclusive with the two above them, which
+   * is why this builds a list rather than returning at the first match: an epic can be
+   * finished *and* have a window up, and a card that drew one of those facts and swallowed
+   * the other would be hiding whichever one the reader came for.
    */
   function p0Control(c) {
-    const adv = c.advocate;
+    const s = p0AdvState(c);
+    // Through `p0AdvState` rather than off `c.advocate` directly, so the anchor and the
+    // state line are looking at one object: the payload carries the same session twice
+    // (`advocate` and `advocacy.session`) and a card that read one for the link and the
+    // other for the state would be two answers to "is a window up".
+    const adv = s.live;
+    const out = [];
+    if (s.finished) out.push(p0DoneHtml(c));
     if (adv?.pid) {
-      return `<a class="p0-advocate" href="/session?pid=${encodeURIComponent(adv.pid)}"
+      out.push(`<a class="p0-advocate" href="/session?pid=${encodeURIComponent(adv.pid)}"
         aria-label="${esc(adv.name || `pid ${adv.pid}`)} — what the advocate on ${esc(c.id)} is doing"
-        >${adv.status === 'busy' ? '<span class="spark"></span>' : '🧭'} What the advocate is doing</a>`;
+        >${adv.status === 'busy' ? '<span class="spark"></span>' : '🧭'} What the advocate is doing</a>`);
+    } else if (s.opening) {
+      out.push(`<button type="button" class="p0-advocate" disabled>🧭 An advocate is opening…</button>`);
+    } else if (!s.assigned && !s.finished) {
+      out.push(`<button type="button" class="p0-advocate" data-act="advocate" data-ws="${esc(
+        c.workspace
+      )}" data-bead="${esc(c.id)}">🧭 Put an advocate on it</button>`);
     }
-    if (adv?.opening || openingHere(c.key)) {
-      return `<button type="button" class="p0-advocate" disabled>🧭 An advocate is opening…</button>`;
-    }
-    return `<button type="button" class="p0-advocate" data-act="advocate" data-ws="${esc(
-      c.workspace
-    )}" data-bead="${esc(c.id)}">🧭 Put an advocate on it</button>`;
+    if (s.assigned) out.push(p0AdvOpenHtml(c, s));
+    return out.join('');
   }
 
   /** Did this phone launch one in the last ten minutes, with nothing back from the server yet? */
@@ -6670,6 +6963,254 @@
     </div>`;
   }
 
+  /** The markers lib/plan.js writes a plan between, in the comment it writes it as. */
+  const PLAN_OPEN = '<!-- beadcause:plan -->';
+  const PLAN_CLOSE = '<!-- /beadcause:plan -->';
+
+  /**
+   * The plan on an epic's thread — lib/plan.js's `planFrom`, from the reading end.
+   * bc-r2b5.2.
+   *
+   * **Not a second format, and that is what makes a client-side read of it defensible.**
+   * A plan comment is a human-readable header, the group bullets, and then the plan itself
+   * as JSON between two markers — written by `formatPlan` precisely so that the machine
+   * half is unambiguous and separable. This finds the markers and parses what is between
+   * them, which is `parsePlan`'s whole rule; anything it does not recognise is `null` and
+   * draws as "no plan", never as an empty one.
+   *
+   * **The last comment that parses**, exactly as `planFrom`: a plan is revised, a
+   * supervisor re-entered because a child filed new work writes a second one, and the
+   * second is the plan. The first stays on the bead, which is why it is a comment at all.
+   */
+  function p0PlanIn(text) {
+    const body = String(text ?? '');
+    const from = body.indexOf(PLAN_OPEN);
+    if (from === -1) return null;
+    const to = body.indexOf(PLAN_CLOSE, from);
+    const inner = to === -1 ? body.slice(from + PLAN_OPEN.length) : body.slice(from + PLAN_OPEN.length, to);
+    const json = inner.replace(/^\s*```(?:json)?/, '').replace(/```\s*$/, '').trim();
+    if (!json) return null;
+    try {
+      const plan = JSON.parse(json);
+      return plan && typeof plan === 'object' && Array.isArray(plan.groups) ? plan : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The last comment on the thread that carries one, with the prose it was written in.
+   *
+   * `text`/`body`/`comment` because those are the three spellings a comment body arrives
+   * under here — the tolerant read lib/landed.js and lib/plan.js already share.
+   */
+  function p0PlanFrom(comments) {
+    let found = null;
+    for (const c of comments || []) {
+      const text = c?.text ?? c?.body ?? c?.comment ?? '';
+      const plan = p0PlanIn(text);
+      // The marker without a plan behind it is a third answer and it is kept: it means the
+      // epic *was* planned and this reader could not make sense of what was written, which
+      // must not be drawn as "nobody has planned this".
+      if (plan) found = { plan, text: String(text) };
+      else if (String(text).includes(PLAN_OPEN)) found = { plan: null, text: String(text) };
+    }
+    return found;
+  }
+
+  /** The epic's own children — one level, which is what "per child" means. */
+  const p0AdvKids = (c) => (c.tree || []).filter((row) => row.parent === c.id);
+
+  /**
+   * One labelled fact in the advocate sheet, or the honest absence of it.
+   *
+   * `miss` is drawn when there is nothing, and it is never blank: the rule this whole sheet
+   * is written to is that "we have not looked" and "there is nothing" are different answers
+   * and only one of them may be silent. See `p0SessionRowsHtml`, which keeps the same rule
+   * for the archive.
+   */
+  const p0AdvFactHtml = (label, value, miss = 'not tracked') =>
+    `<div class="p0-adv-fact"><span class="p0-adv-key">${esc(label)}</span><span class="p0-adv-val${
+      value ? '' : ' is-none'
+    }">${value || esc(miss)}</span></div>`;
+
+  /**
+   * Where the work has got to, off the plan the advocate wrote. bc-r2b5.2.
+   *
+   * The groups are the stage: each one is a window's worth of work in one checkout, and
+   * how many of its beads have closed is the only progress figure on this screen that came
+   * from the advocate's own judgement rather than from counting rows. The counts are read
+   * off the tree the card already carries, so this costs nothing beyond the `bd show` the
+   * sheet already asked for.
+   *
+   * A bead the plan names that the tree has no row for is drawn as unknown rather than as
+   * open: it is a bead that has moved out from under this epic since the plan was written,
+   * and calling it either done or not done would be this screen guessing.
+   */
+  function p0AdvPlanHtml(c, detail) {
+    const got = p0PlanFrom(detail?.bead?.comments);
+    if (!got) {
+      return detail?.bead
+        ? `<div class="p0-adv-none">No plan has been written on ${esc(c.id)} — its advocate groups the work mechanically until one is.</div>`
+        : `<div class="p0-adv-none">Reading ${esc(c.id)} from bd…</div>`;
+    }
+    if (!got.plan) {
+      // The prose half is still the advocate's own account of the plan, so it is drawn
+      // rather than replaced by a complaint about the block underneath it.
+      return `<div class="p0-adv-warn">The plan on ${esc(
+        c.id
+      )} could not be read as a plan — what it says, as it was written:</div><div class="md">${renderMarkdown(
+        got.text.split(PLAN_OPEN)[0],
+        FROM_BD
+      )}</div>`;
+    }
+    const status = new Map((c.tree || []).map((row) => [row.id, String(row.status || 'open')]));
+    return `<div class="p0-adv-groups">${got.plan.groups
+      .map((g) => {
+        const beads = (g.beads || []).map((id) => ({ id, status: status.get(id) || null }));
+        const done = beads.filter((b) => b.status === 'closed').length;
+        const unknown = beads.filter((b) => !b.status).length;
+        return `<div class="p0-adv-group">
+          <span class="p0-adv-group-head"><span class="p0-adv-group-name">${esc(g.name || '')}</span><span class="p0-adv-group-n">${done} of ${
+          beads.length
+        } done${unknown ? ` · ${unknown} no longer under it` : ''}</span></span>
+          <span class="p0-adv-group-beads">${beads
+            .map(
+              (b) =>
+                // `id` for the monospace, un-uppercased pill every bead id in this app
+                // wears, and `st-closed` for the fade a landed one has everywhere else —
+                // a group's progress has to be readable without counting the pills.
+                `<span class="pill id${b.status === 'closed' ? ' st-closed' : ''}">${esc(b.id)}</span>`
+            )
+            .join('')}</span>
+          ${
+            (g.files || []).length
+              ? `<span class="p0-adv-group-files">touches ${esc((g.files || []).join(', '))}</span>`
+              : ''
+          }
+        </div>`;
+      })
+      .join('')}</div>`;
+  }
+
+  /**
+   * The advocate, filling the tab: where it is, what it planned, and what it has done.
+   * bc-r2b5.2.
+   *
+   * **A layer over the layer**, `.p0-full`'s four rows reused verbatim by class rather than
+   * re-styled, because it is the same problem: a head that stays and a body that scrolls on
+   * its own. It sits at `z-index: 41` so it is over the epic's own tab, which the reader may
+   * have opened it from — the one place in this app where two of these genuinely stack, and
+   * the back button is what separates them.
+   *
+   * Four sections, in the order the questions come:
+   *
+   *   - **Where it is** — the assignment, its carrier, and what is holding it. Every one of
+   *     these already existed in the daemon and reached no screen before bc-r2b5.1 put them
+   *     on the payload.
+   *   - **What it is waiting on** — the advocate's own sentence, in full. The card shows it
+   *     truncated to a line; this is the whole of it, which is where the reasoning is.
+   *   - **The plan** — lib/plan.js's groups, with how many beads of each have closed.
+   *   - **What has run** — its own archived sessions, and then per child what ran on that
+   *     child. `p0SessionRowsHtml` draws both, so the three states it keeps (looking,
+   *     present, absent — and "we asked and could not find out" offering the link anyway)
+   *     are kept here for free rather than re-argued.
+   */
+  function p0AdvFullHtml(c) {
+    const s = p0AdvState(c);
+    const ws = c.workspace;
+    const detail = state.p0beaddetail?.get?.(s.key) || null;
+    const arc = state.p0beadarc?.get?.(s.key) || null;
+    const kids = p0AdvKids(c);
+    const where = [
+      p0AdvFactHtml(
+        'Assignment',
+        s.assigned
+          ? esc(
+              s.by === 'label'
+                ? 'recorded on the bead, by the label the launch stamps'
+                : s.by === 'waiting'
+                ? "recorded by the advocate's own waiting-on block"
+                : 'recorded'
+            )
+          : '',
+        'nobody is on this epic'
+      ),
+      p0AdvFactHtml(
+        'A window',
+        s.live
+          ? `<a href="/session?pid=${encodeURIComponent(s.live.pid)}">${esc(
+              s.live.name || `pid ${s.live.pid}`
+            )}</a>`
+          : esc(p0AdvWhen(s)),
+        'no window has run on it yet'
+      ),
+      p0AdvFactHtml(
+        'Why none is up',
+        s.live ? '' : s.hold ? esc(`${s.hold}${s.heldAt && relTime(s.heldAt) ? ` · ${relTime(s.heldAt)}` : ''}`) : '',
+        s.live ? 'one is up' : 'nothing is holding it — the next tick may open one'
+      ),
+      s.paused ? p0AdvFactHtml('Paused', esc('this epic is paused — no window will be opened on it')) : '',
+      s.finished
+        ? p0AdvFactHtml('Finished', esc('every child is closed, and the close is waiting on you'))
+        : '',
+    ]
+      .filter(Boolean)
+      .join('');
+    return `<div class="p0-full p0-adv" id="p0adv-${cardId(s.key)}" role="dialog" aria-modal="true" aria-label="${esc(
+      `the advocate on ${c.id}`
+    )}">
+      <div class="p0-full-top p0-adv-top">
+        <button type="button" class="p0-back p0-adv-back" data-act="p0-adv-close"><span aria-hidden="true">‹</span> ${esc(
+          c.id
+        )}</button>
+      </div>
+      <div class="p0-full-head p0-adv-head">
+        <span class="p0-adv-title">🧭 The advocate on ${esc(c.id)}</span>
+        <span class="p0-adv-sub">${esc(p0AdvLine(s))}</span>
+        ${s.finished ? `<span class="p0-adv-done">${p0DoneHtml(c)}</span>` : ''}
+      </div>
+      <div class="p0-full-body p0-adv-body">
+        <div class="section-label">Where it is</div>
+        <div class="p0-adv-facts">${where}</div>
+        <div class="section-label">What it is waiting on</div>
+        ${
+          c.waitingOn
+            ? `<div class="p0-adv-waiting">${esc(c.waitingOn)}</div>`
+            : `<div class="p0-adv-none">Not tracked — no window has written its waiting-on sentence yet.</div>`
+        }
+        <div class="section-label">The plan</div>
+        ${p0AdvPlanHtml(c, detail)}
+        <div class="section-label">Its own sessions</div>
+        <div class="p0-adv-haps">${p0SessionRowsHtml(ws, c.id, { session: s.live }, arc).join('')}</div>
+        <div class="section-label">What ran on each child</div>
+        ${
+          kids.length
+            ? kids
+                .map(
+                  (row) => `<div class="p0-adv-kid">
+          <span class="p0-adv-kid-head"><span class="p0-adv-kid-id">${esc(row.id)}</span>${
+                    String(row.status || 'open') === 'open'
+                      ? ''
+                      : `<span class="pill st-${esc(String(row.status))}">${esc(
+                          STATUS_LABEL[String(row.status)] || String(row.status)
+                        )}</span>`
+                  }<span class="p0-adv-kid-title">${esc(row.title || '')}</span></span>
+          <div class="p0-adv-haps">${p0SessionRowsHtml(
+            ws,
+            row.id,
+            row,
+            state.p0beadarc?.get?.(`${ws}/${row.id}`) || null
+          ).join('')}</div>
+        </div>`
+                )
+                .join('')
+            : `<div class="p0-adv-none">Nothing hangs off ${esc(c.id)} yet, so nothing has been dispatched under it.</div>`
+        }
+      </div>
+    </div>`;
+  }
+
   /**
    * The cards this screen's two scope filters leave on the board.
    *
@@ -6697,7 +7238,14 @@
   }
 
   /**
-   * The foot of the board: one button, and the P0s a tap on it would offer. bc-s8mc.
+   * The P0s a tap on ＋ offers, as rows. bc-s8mc, moved onto ＋ by bc-khoe.27.2.
+   *
+   * **This used to be the foot of the board** — a ＋ Start an epic button under the cards,
+   * with these rows unfolding beneath it — and the button is what moved, not the list. On
+   * My Epics ＋ *is* this create (see `compose` in public/inboxfilter.js), so a second
+   * control offering the same thing further down the same screen was two ways to do one
+   * thing, and the lower one was the one a thumb could not reach. What is left here is the
+   * rows; `paintEpicPick` puts them in the panel above the button.
    *
    * **`startable` is the server's list and this draws it whole.** Which P0s may be offered
    * is a question about the tracker — endorsed, not superseded, not a crash this app filed
@@ -6710,24 +7258,29 @@
    * one with sixty children left" is how the board itself is ordered, and an id and a title
    * alone put the decision back on your memory of the tracker.
    *
-   * The tap that opens this grows the board, which is *above* the inbox list — see
-   * `keepTheScreenStill`, which the handler wraps the repaint in. Without it the list's own
-   * place-restore scrolls the page down by exactly the height of what just opened, and the
-   * control you tapped leaves the screen.
+   * **The scroll problem went with the move.** The tap used to grow the board, which is
+   * *above* the inbox list, so the handler wrapped its repaint in `keepTheScreenStill` or
+   * the list's own place-restore scrolled the page down by exactly the height of what had
+   * opened — taking the button you pressed off the screen. The panel is inside the fixed
+   * `.compose-wrap` and adds no flow height at all, so there is nothing above the anchor to
+   * grow: the jump is designed out rather than held still, the way `p0FullHtml`'s is.
    */
-  function p0PickerHtml(rows) {
-    const on = !!state.p0picker;
-    const head = `<button type="button" class="p0-pick" data-act="p0-pick" aria-expanded="${on}"${
-      on ? ' aria-controls="p0picker"' : ''
-    }>${on ? '\u2715 Never mind' : '\uff0b Start an epic'}</button>`;
-    if (!on) return head;
-    // Nothing to offer is a sentence rather than an empty box, and it says which of the two
-    // reasons it is: a tracker where every P0 of yours is already started reads exactly
-    // like a picker that failed to load its list.
-    if (!rows.length) {
-      return `${head}<div class="p0-picker" id="p0picker"><div class="p0-none">Nothing to start — every P0 you own is either on the board already or not open.</div></div>`;
+  function p0CandsHtml(rows) {
+    // Nothing to offer is a sentence rather than an empty box, and it says which of the
+    // *three* reasons it is. A tracker where every P0 of yours is already started reads
+    // exactly like a picker that failed to load its list — and an install that has never
+    // been told who it is reads like both, because with `me` unset the server answers
+    // `owned: false` and every list here is empty by construction rather than by fact.
+    // The board itself could stay silent about that, since with nothing owned it draws
+    // nothing at all; ＋ cannot, because it is drawn on My Epics either way and a tap has
+    // to say something.
+    if (!state.rootboard?.owned) {
+      return `<div class="p0-none">This Mac does not know who you are — set <code>me</code> in the config and the epics you own turn up here.</div>`;
     }
-    return `${head}<div class="p0-picker" id="p0picker" role="group" aria-label="P0s you own that have not been started">${rows
+    if (!rows.length) {
+      return `<div class="p0-none">Nothing to start — every P0 you own is either on the board already or not open.</div>`;
+    }
+    return `${rows
       .map(
         (r) => `<button type="button" class="p0-cand" data-act="p0-start" data-ws="${esc(r.workspace)}" data-bead="${esc(
           r.id
@@ -6738,53 +7291,103 @@
           <span class="p0-cand-title">${esc(r.title || '')}</span>
         </button>`
       )
-      .join('')}</div>`;
+      .join('')}`;
+  }
+
+  /**
+   * On the board, or off it — the one write, from either of the two controls that make it.
+   *
+   * They are one write in opposite directions and they used to be one branch of the list's
+   * click handler, because both controls were in the list: the picker at the foot of the
+   * board and the card's own *Take it off*. bc-khoe.27.2 moved the picker into the panel
+   * above ＋, which is outside the list and outside that handler's delegation — so the
+   * write became a function rather than being written a second time next to the panel. A
+   * second copy is what would drift: the refusal handling below is the feature, not
+   * incidental to it.
+   *
+   * **The refusal is the point.** The server answers 409 with a sentence for every state
+   * the picker's list — up to a poll old, and older still now that the panel is filled when
+   * it opens rather than on every repaint — could not have known about: the bead closed,
+   * somebody started it from the other device, it was superseded while you were reading.
+   * The acceptance criterion for this feature is that such a write is loud rather than a
+   * card that silently never appears, so the button comes back and the reason goes in a
+   * toast, exactly as the advocate launch does.
+   *
+   * **`load()` and not a hand-made card.** The daemon refreshed that workspace's graph
+   * inside the write, so the very next payload has the card with its tree and its counts
+   * on it — a card assembled here from the picker row would be a second renderer of the
+   * board's hardest shape, wrong in the counts until the real one landed. Every other
+   * device gets the same thing off its parked log request, woken by the `p0board` event.
+   */
+  async function setOnBoard(btn, on) {
+    const bead = btn.dataset.bead;
+    const was = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = on ? 'Starting…' : 'Taking it off…';
+    try {
+      await api(on ? '/api/bead/start' : '/api/bead/unstart', {
+        method: 'POST',
+        body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
+      });
+      // The question the picker asked has been answered; leaving it open would put the
+      // epic you just started back in front of you as something to start. Shutting it
+      // also takes the row this tap is on off the screen, which is why nothing below
+      // touches `btn` again on the way out.
+      if (on) hideComposePick();
+      toast(on ? `${bead} is on the board` : `${bead} is off the board — ＋ on My Epics puts it back`);
+      await load();
+    } catch (err) {
+      btn.disabled = false;
+      btn.innerHTML = was;
+      toast(err.message, 'refused');
+    }
   }
 
   function p0SectionHtml() {
     const mine = p0Cards();
-    const canStart = p0Cards(state.rootboard?.startable);
-    // Nothing started, and something that could be. The board is off — that is bc-6s96's
-    // rule and the list below is drawn flat, untouched — but the one control that would
-    // *end* that state has to be reachable, or the screen that says what the week is about
-    // is the one screen that cannot change it. Just the offer: no heading, no fold, no
-    // count of nothing.
-    if (!mine.length) {
-      return canStart.length
-        ? `<section class="p0-board bare" aria-label="${P0_SECTION_LABEL}">${p0PickerHtml(canStart)}</section>`
-        : '';
-    }
+    // Nothing started: no board, and nothing where it would have been (bc-6s96 — the list
+    // below is drawn flat, untouched).
+    //
+    // **This used to be a `bare` section holding the offer on its own**, and the argument
+    // for it was reachability: with the picker inside the section, an empty board hid the
+    // one control that would end the state. bc-khoe.27.2 answered that from the other end
+    // — ＋ is drawn on My Epics whether or not anything is started, and it is the picker
+    // now — so the section has nothing left to draw here and drawing it anyway would put
+    // an empty box above the list. The reachability claim did not weaken; it moved to a
+    // button that is always on screen.
+    if (!mine.length) return '';
     const cards = mine.map(p0CardHtml).join('');
     // At most one, because the tab is a fixed layer and a second would stack on the first
     // with no way to tell which epic you were reading. The `p0` handler is what keeps the
     // set to one; this is only where the promise is spent.
     const open = mine.find((c) => state.p0open.has(c.key || `${c.workspace}/${c.id}`));
-    // Shut, the heading is the whole section — but it still carries the count, because a
-    // fold that hides *that there is anything folded* is a section you forget you own.
+    // And the advocate over the top of that — a second fixed layer, and the only place in
+    // this app where two of them stack on purpose. It is drawn from a card in `mine` rather
+    // than from the key alone, so an epic taken off the board while its advocate was open
+    // takes the sheet with it instead of leaving a layer over a board it is not on.
+    const advOn = mine.find((c) => (c.key || `${c.workspace}/${c.id}`) === state.p0adv);
+    // The heading, and it is a heading rather than a control since bc-khoe.28 — the fold
+    // it used to be is gone with the list it used to reveal (see the section comment
+    // above, and `state.p0status` for the persisted preference this one no longer is).
     // The label is drawn once and used twice, so the thing a screen reader announces for
-    // the region and the thing printed on the control cannot drift apart.
+    // the region and the thing printed on the line cannot drift apart.
     //
-    // The tab goes away with the cards, like everything else the fold hides — and it is
-    // bc-eevn's rule rather than an exception to it: the fold leaves `state.p0open`
-    // alone, so unfolding brings back the epic you were reading. Shut-with-one-open is
-    // not a state a tap can reach either way, because the fold's own control is behind
-    // the tab whenever there is one.
-    const shut = !!state.p0shut;
-    // And the same count once more for the whole board, on the line that is the only
-    // thing left when it is folded away. bc-rfnr.9.7 again: the fold is a drawer, and a
-    // drawer you shut on Monday must still be able to tell you on Friday that four agents
-    // are waiting on an answer. It leads the number of epics rather than following it,
-    // because it is the one of the two you would act on.
+    // Both counts stay, and they are the whole reason the line is still here. How many
+    // epics, and how many beads under them are asking you something: bc-rfnr.9.7 put the
+    // second one on so that a board you had shut on Monday could still say on Friday that
+    // four agents were waiting, and it earns its place on an unfoldable board for the
+    // plainer reason that a question four levels down a folded tree is otherwise a number
+    // nothing on the screen carries. It leads the number of epics rather than following
+    // it, because it is the one of the two you would act on.
     const asks = p0AsksN(mine);
     return `<section class="p0-board" aria-label="${P0_SECTION_LABEL}">
-      <button type="button" class="p0-kind" data-act="p0-fold" aria-expanded="${shut ? 'false' : 'true'}">
-        <span class="chev" aria-hidden="true">›</span>
+      <h2 class="p0-kind">
         ${P0_SECTION_LABEL}
         ${asks ? `<span class="p0-kind-asks">${asks === 1 ? '1 asks you' : `${asks} ask you`}</span>` : ''}
         <span class="p0-kind-n">${mine.length}</span>
-      </button>${
-        shut ? '' : `<div class="p0-cards">${cards}</div>${p0PickerHtml(canStart)}${open ? p0FullHtml(open) : ''}`
-      }</section>`;
+      </h2><div class="p0-cards">${cards}</div>${open ? p0FullHtml(open) : ''}${
+      advOn ? p0AdvFullHtml(advOn) : ''
+    }</section>`;
   }
 
   function render(force = false) {
@@ -6821,17 +7424,102 @@
     // above the list: which *kinds* of incoming thing to show. Surveyed first so the
     // chips can carry counts of what they would leave you with, then applied.
     // And the fourth, which is not a chip and not yours to switch off: with epics owned,
-    // the list below the board is their descendants and nothing else. Applied *before*
-    // `surveyKinds` so the kind counts count what you can actually get to — a count
-    // offering six merges when the filter leaves you one is a control that lies.
+    // the list is what is *yours* — assigned to you or under something that is (bc-khoe.29)
+    // — and on the two views that draw the board, that minus whatever its trees are already
+    // holding. Applied *before* `surveyKinds` so the kind counts count what you can
+    // actually get to: a count offering six merges when the filter leaves you one is a
+    // control that lies.
     // A picked bead **replaces** the board's narrowing rather than stacking on it, and
     // that is not a shortcut. The board answers "what am I answerable for" and you did
     // not ask it; picking a bead is you saying which piece of work you want, and half the
     // beads worth reaching for are somebody else's or under nobody's root — so stacked, the
     // commonest search on this tracker would end in an empty list with a pill on screen
     // naming the bead it was hiding. An explicit filter outranks an implicit one.
-    const inBoard = beadPicked() ? inBead(inRepo) : underOwnedRoots(inRepo);
-    surveyKinds(inBoard);
+
+    /**
+     * Which pill this render is, and therefore which of the two things on this page it
+     * draws. bc-khoe.28.
+     *
+     * Home draws every view on top of the same page, and until this bead it drew *both*
+     * halves on all of them: the board above and the list below, whichever pill was lit.
+     * So no pill showed only its own kind — Questions had the epic board over it, and My
+     * Epics, which is the empty selection (`current()` in public/inboxfilter.js), drew
+     * every row the sweep produced underneath a board that already held the same work in
+     * its trees.
+     *
+     * A view shows its own kind. **My Epics is the board**, and there is no list beneath
+     * it: each card already expands to its own tree, so the rows below were a second,
+     * flatter copy of what the cards hold. **A kind pill is the list**, and the board is
+     * not on the screen in any form — not collapsed to a heading, not a count. The four
+     * kind pills are slices of the list and the board is not one of them.
+     *
+     * `null` is the control never having loaded, and it draws both — the shape this page
+     * had before there was a pill row, which is the same fallback `inKind` makes for the
+     * same reason: a page served without public/inboxfilter.js must not be a page with
+     * half its content missing and nothing on screen saying why.
+     *
+     * Three things put a list back under the board, and none is a hedge on the rule.
+     *
+     * **A board with no cards on it**, which is bc-6s96 unchanged: with nothing started the
+     * section switches off and Home is the flat list it has always been. `boardOnly` is
+     * therefore counted off `p0Cards()` rather than off the pill — the bare "start one"
+     * offer is a control on an empty screen, not a board, and a My Epics that drew neither
+     * a card nor a list would be a blank page on the one install most likely to see it.
+     *
+     * **A picked bead**, which is the `inBoard` argument directly above stated once more:
+     * an explicit filter outranks an implicit one. The bead box is in the panel on every
+     * pill, so a search run from My Epics with no list to answer into would be a control
+     * that does nothing.
+     *
+     * **An open card**, which is not a list at all — `.card.open` is a full-screen sheet,
+     * and it is built out of a list row. That is the same exception `underOwnedRoots`
+     * makes ("the card that is up"), and it is load-bearing rather than tidy: `p0-answer`
+     * on a bead in a tree is the ordinary way to answer a question from the board, and it
+     * works by opening exactly that sheet. Without this clause the one control the board
+     * exists to lead you to would open nothing.
+     */
+    const view = window.beadcause?.inboxFilter?.current?.() ?? null;
+    const cards = p0Cards().length;
+    const boardHere = view === null || view === 'epics';
+    const boardOnly = view === 'epics' && cards > 0;
+    const listHere = !boardOnly || beadPicked() || state.open.size > 0;
+
+    /**
+     * And the same question asked about a screen we may not be on: **what would My Epics
+     * draw if it were tapped right now?** bc-khoe.49.
+     *
+     * `listHere` above is about the view we are on; this is the identical rule with the
+     * view forced to `epics`, which is the only thing a badge on that pill can honestly
+     * be about. It is `!listHere` on My Epics itself and it is the same answer from
+     * anywhere else, because the two clauses that put a list back under the board —
+     * a picked bead and an open card — are states rather than places and travel with you.
+     *
+     * What it is *for* is the count: with the board on and no list beneath it, the sum of
+     * the four slices is a number of rows that pill will not draw (`survey` in
+     * public/inboxfilter.js does the arithmetic and the whole argument is there). The
+     * cards are what it draws instead, so the cards are what it says.
+     */
+    const epicsIsBoard = cards > 0 && !beadPicked() && state.open.size === 0;
+
+    /**
+     * Two narrowings, because since bc-khoe.29 the board and the pills ask different
+     * questions of the same rows — see `assignedToMe`, which is the whole of the argument.
+     *
+     * `forPills` is what a kind pill opens: everything assigned to you or under something
+     * assigned to you. `inBoard` is what *this* render draws, which is the same list except
+     * on the two views the board is on — there, and only there, the trees are drawing your
+     * beads already and `underOwnedRoots` takes them back out so the page does not hold two
+     * copies of one bead.
+     *
+     * **The survey counts `forPills`, never `inBoard`, and that is the point of splitting
+     * them.** A pill's number is what tapping it would leave you with (see `surveyKinds`),
+     * and on My Epics the list under the board is not that list — counting there would
+     * print "Questions 2" over a pill that opens eleven. A count that is not the list it
+     * offers is the one thing this control must never be.
+     */
+    const forPills = beadPicked() ? inBead(inRepo) : assignedToMe(inRepo);
+    const inBoard = beadPicked() || !boardHere ? forPills : underOwnedRoots(inRepo);
+    surveyKinds(forPills, epicsIsBoard ? cards : null);
     const visible = inBoard.filter(inKind);
 
     // The other channel, always first and never filtered. It is rare enough that
@@ -6860,7 +7548,12 @@
     // Above the sweep's own caveats and above the list: this is the thing the screen is
     // for. Below the shade and the foundation requests, which are decisions waiting on a
     // tap rather than a standing picture of the week.
-    const roots = p0SectionHtml();
+    // On My Epics alone, since bc-khoe.28. `boardHere` is the whole of that rule and it is
+    // applied here rather than inside `p0SectionHtml` so that the section keeps meaning
+    // "what the board would be" — `loadBoard` still sweeps for it under a kind pill,
+    // because the counts on the pill row and in the monitor are about what you are
+    // answerable for and not about which view happens to be up.
+    const roots = boardHere ? p0SectionHtml() : '';
     if (roots) chunks.push({ key: '@p0', html: roots });
     const missed = troubleHtml();
     if (missed) chunks.push({ key: '@trouble', html: missed });
@@ -6874,44 +7567,26 @@
     // `rows`, not `state.questions`: with no beads at all but a pull request open or a
     // conversation on the go, the list is not empty — and the first-run copy `emptyHtml`
     // writes would be sitting above a chat you are in the middle of.
-    if (!rows.length) {
+    //
+    // The whole of it is behind `listHere` since bc-khoe.28, empty state included. On My
+    // Epics the board is the view and a list of anything at all under it — a card, or a
+    // line saying there are no cards — is the second copy this bead removes. There is
+    // therefore no longer a branch of the empty state that says "on the board above":
+    // there is no board above a list any more on any pill, and copy that named one was
+    // the app pointing at something that is not on the screen.
+    if (!listHere) {
+      /* the board is the view */
+    } else if (!rows.length) {
       chunks.push({ key: '@empty', html: emptyHtml() });
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
-      // Which of the two filters emptied it. The kind filter is collapsed to one line
-      // by design, so an empty list that it caused has to name it — otherwise the
-      // reason the screen is blank is a word you have to hover to read.
+      // Which of the two filters emptied it. The kind filter is the lit pill above, so an
+      // empty list that it caused has to name it — otherwise the reason the screen is
+      // blank is a pill you have to look up at to read.
       const kinded = inRepo.length > 0;
-      // And since bc-rfnr.9.7 there is a third, which on a machine with epics is the
-      // ordinary state of this screen rather than a corner of it: the board took the
-      // beads. "Nothing waiting" printed under a board with four questions marked on it
-      // is the app contradicting the thing directly above it, and an empty line that is a
-      // lie is worse than no line at all — the whole argument `boardTrouble` makes.
-      // Counted off `p0Cards`, the same cards the section drew, so the two cannot differ.
-      // Not while a bead is picked, though: that filter *replaces* the board's narrowing
-      // (see `inBoard` above), so an empty list there is the pill's doing and `beadNudge`
-      // is the sentence that names the way out of it.
-      //
-      // A lit pill is the same shape of thing and now gets the same exemption
-      // (bc-khoe.3). With `Chats` selected and no conversation on the go, "your epics
-      // are on the board above" is a true sentence about the wrong screen: the board is
-      // not why this list is empty, the pill is, and the way out is a tap on the row
-      // rather than a look at the board. `kinded` below is what decides whether the pill
-      // is really the cause — with nothing in this repo at all it is not.
-      const pilled = kinded && Boolean(window.beadcause?.inboxFilter?.selected?.().length);
-      const boarded = Boolean(roots) && !beadPicked() && !pilled;
-      const asks = boarded ? p0AsksN(p0Cards()) : 0;
       chunks.push({
         key: '@empty',
-        html: boarded
-          ? `<div class="empty">${
-              asks
-                ? `${asks === 1 ? 'One question is' : `${asks} questions are`} waiting on the board above${
-                    where ? ` in ${esc(where)}` : ''
-                  }, and nothing else is.`
-                : `Nothing waiting${where ? ` in ${esc(where)}` : ''} — your epics are on the board above.`
-            }${boardTrouble()}</div>`
-          : `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
+        html: `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
           beadPicked() ? beadNudge() : kinded ? kindNudge() : widenNudge()
         }${boardTrouble()}</div>`,
       });
@@ -6967,8 +7642,9 @@
     // it can still hold a ticket you cancelled last week and want back, and a fold that
     // only existed when there was something else on screen would be unreachable exactly
     // when the list is quiet enough to go looking. One chunk, at the foot, counted by
-    // nothing — see `cancelledTicketsHtml`.
-    const cancelled = cancelledTicketsHtml();
+    // nothing — see `cancelledTicketsHtml`. Behind `listHere` all the same: it is a row of
+    // the list rather than a pane of the page, and My Epics draws no rows.
+    const cancelled = listHere ? cancelledTicketsHtml() : '';
     if (cancelled) chunks.push({ key: '@jira-cancelled', html: cancelled });
     paintList(chunks);
 
@@ -7014,6 +7690,11 @@
     // monitor quietly saying the opposite of what the phone is saying. The two sets cannot
     // overlap — a bead in a tree is out of the list unless its card is open, and an open
     // card is reported as itself rather than as a count.
+    //
+    // Both halves are counted on every pill, including the ones that draw only one of them
+    // (`boardHere`/`listHere`, bc-khoe.28). This is a claim about what is waiting on you
+    // rather than about what is on the screen: a monitor whose "N waiting" fell by four
+    // because a phone had tapped Chats would be reporting the phone, not the tracker.
     const listBeads = visible.filter((q) => !q.pr && !q.session && !q.jira).length;
     publishView(listBeads + (beadPicked() ? 0 : p0AsksN(p0Cards())));
   }
@@ -7744,29 +8425,16 @@
     }
 
     /**
-     * Open the picker at the foot of the board, or shut it. bc-s8mc.
+     * Take a root off the board. bc-s8mc; its other half moved onto ＋ in bc-khoe.27.2.
      *
-     * `keepTheScreenStill` and not a plain `render(true)`, which is the whole of what makes
-     * this tap usable: the picker opens *above* the inbox list, `capturePlace` anchors the
-     * scroll on the first card in that list, and restoring it after a repaint that grew the
-     * board scrolls the page down by exactly the height of what just opened — the button
-     * you pressed leaving the screen, the list you were not looking at staying put. The
-     * offset is exact rather than approximate here, because everything inserted is below
-     * the anchor row and nothing above it changes height.
-     */
-    if (act === 'p0-pick') {
-      state.p0picker = !state.p0picker;
-      keepTheScreenStill(() => render(true));
-      return;
-    }
-
-    /**
-     * Start a root from the picker, or take one off the board. bc-s8mc.
+     * One branch used to carry both directions, because they are one write in opposite
+     * directions and the two controls sat one above the other in the same section. The
+     * *start* half is now a row in the panel above ＋ and out of this list entirely, so
+     * what is left here is the card's own control — and `setOnBoard` is where the write
+     * they share went, rather than a copy of it landing beside the picker.
      *
-     * Both directions through one branch because they are one write in opposite
-     * directions, and both keyed on `data-bead` rather than `data-key` for the reason the
-     * advocate button above is: these are board controls, not inbox rows, and every branch
-     * below reads a bead key.
+     * `data-bead` rather than `data-key`: this is a board control, not an inbox row, and
+     * every branch below reads a bead key.
      *
      * **The refusal is the point.** The server answers 409 with a sentence for every state
      * the picker's list — up to a poll old — could not have known about: the bead closed,
@@ -7781,27 +8449,8 @@
      * board's hardest shape, wrong in the counts until the real one landed. Every other
      * device gets the same thing off its parked log request, woken by the `p0board` event.
      */
-    if (act === 'p0-start' || act === 'p0-unstart') {
-      const on = act === 'p0-start';
-      const bead = btn.dataset.bead;
-      const was = btn.innerHTML;
-      btn.disabled = true;
-      btn.textContent = on ? 'Starting…' : 'Taking it off…';
-      try {
-        await api(on ? '/api/bead/start' : '/api/bead/unstart', {
-          method: 'POST',
-          body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
-        });
-        // The question the picker asked has been answered; leaving it open would put the
-        // epic you just started back in front of you as something to start.
-        if (on) state.p0picker = false;
-        toast(on ? `${bead} is on the board` : `${bead} is off the board — ＋ Start an epic puts it back`);
-        await load();
-      } catch (err) {
-        btn.disabled = false;
-        btn.innerHTML = was;
-        toast(err.message, 'refused');
-      }
+    if (act === 'p0-unstart') {
+      await setOnBoard(btn, false);
       return;
     }
 
@@ -7938,46 +8587,69 @@
     if (act === 'p0-answer') {
       closeMenu();
       closeAgentMenu();
+      // The advocate sheet is `z-index: 41` and `.card.open` is 40, so a close offered from
+      // inside that sheet would open the card *underneath* it and look like a tap that did
+      // nothing. bc-r2b5.2. Cleared for the offer on the board card too, which costs
+      // nothing there — the sheet is not up — and means one rule rather than two.
+      state.p0adv = null;
       await expand(btn.dataset.key);
       return;
     }
 
     /**
-     * Fold the whole board away, or bring it back. bc-eevn.
+     * Open what the advocate on this epic has been doing, or come back from it. bc-r2b5.2.
      *
-     * Written to `localStorage` on the tap rather than at some later save, because the
-     * next thing that happens to this page is usually a poll and there is no later:
-     * the only record that the fold happened is `state.p0shut`, and a reload before it
-     * was persisted is the fold undoing itself.
+     * The same shape as the `p0` toggle above — a state write and a repaint, nothing poked
+     * in the DOM — because it survives the poll for the same reason: the board is one
+     * reconcile chunk replaced whole every 25 seconds, and `state.p0adv` is the only record
+     * that the sheet is up.
      *
-     * It does **not** touch `state.p0open`. Folding the board is putting it away, not
-     * closing the epic you had open inside it — bring the board back and the tree you
-     * were reading is still unfolded, which is the behaviour a drawer has.
+     * **Then three fetches, and they cost three different things.** The epic's own bead is
+     * a `bd show` and is what the plan is read out of (`/api/bead` carries the thread); its
+     * archive is one `git log`; and each child's archive is one more. The children are
+     * asked for one level only, which is what "per child" means and is the same question
+     * lib/finishedepic.js asks — a whole subtree would be a `git log` per descendant on one
+     * tap, which is the cost `/api/session-archive` is a separate route to avoid paying by
+     * accident. `loadBeadArchive` keeps what it fetched, so a second open of the same
+     * advocate pays none of it again.
      *
-     * And it does not touch the list below either. `underOwnedRoots` narrows the inbox to
-     * what descends from your epics whether or not the board is on screen: the board is
-     * a display of what you are answerable for, and hiding a display must not change
-     * what is in the list under it.
+     * **No `keepTheScreenStill`**, unlike the taps in the tree: this sheet covers the page,
+     * so where the board underneath it is scrolled to is not a thing anybody can see, and
+     * holding it would be a promise about a screen you are leaving. Same rule as
+     * `p0-answer` above it.
      */
-    if (act === 'p0-fold') {
-      state.p0shut = !state.p0shut;
-      localStorage.setItem('beadcause.p0shut', state.p0shut ? '1' : '0');
-      // And through `keepTheScreenStill` as well, which bc-rfnr.9.9 asked of this branch
-      // on the grounds that it *shrinks* the board. It grows it too — every fold is a
-      // tap away from an unfold, and unfolding a board of four epics inserts the whole
-      // section above the list, which is the `act === 'p0'` jump with more in it. The
-      // shrinking direction wants the same treatment for its own reason: the control you
-      // tapped is the heading, the heading sits above everything that just disappeared,
-      // and holding the page offset is what keeps it under your thumb rather than
-      // sliding it down the screen to hold a card you were not looking at.
-      keepTheScreenStill(() => render(true));
+    if (act === 'p0-adv' || act === 'p0-adv-close') {
+      closeMenu();
+      closeAgentMenu();
+      const was = state.p0adv;
+      const want = act === 'p0-adv' && btn.dataset.p0 !== was ? btn.dataset.p0 : null;
+      state.p0adv = want;
+      render(true);
+      if (want) {
+        const card = p0Cards().find((x) => (x.key || `${x.workspace}/${x.id}`) === want);
+        if (card) {
+          loadBeadDetail(want, card.workspace, card.id);
+          loadBeadArchive(want, card.workspace, card.id);
+          for (const row of p0AdvKids(card)) {
+            loadBeadArchive(`${card.workspace}/${row.id}`, card.workspace, row.id);
+          }
+        }
+      }
+      // Focus follows the layer, exactly as it does for the epic's own tab: opening leaves
+      // the keyboard on a control that is now behind a full-screen sheet, and coming back
+      // leaves it on one that no longer exists.
+      const land = want
+        ? listEl.querySelector('.p0-adv .p0-adv-back')
+        : was && listEl.querySelector(`.p0-adv-open[data-p0="${CSS.escape(was)}"]`);
+      land?.focus({ preventScroll: true });
       return;
     }
 
     /**
      * Which statuses every tree on the board draws. bc-rfnr.9.6.
      *
-     * The same shape as the fold above and for the same reasons: a state write, a
+     * The same shape the board's fold had until bc-khoe.28 took it out, and for the same
+     * reasons: a state write, a
      * `localStorage` write on the tap because the next thing that happens to this page is
      * a poll and there is no later save, and a repaint. Nothing is poked in the DOM — the
      * board is one reconcile chunk that is replaced whole every 25 seconds, so a filter
@@ -10002,7 +10674,18 @@
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  $('#refresh').addEventListener('click', load);
+  /*
+    ⟳ is the app's now, not this view's — one button in the mark's menu, shared with every
+    pane of the shell (bc-khoe.30.5). So it means "read the view I am looking at again",
+    and each pane asks whether the press was its own before spending a sweep on it;
+    public/history.js asks the mirror of this line. On the eleven pages that have no panes
+    `showing()` is not there to ask, and the answer is the one it has always been.
+  */
+  $('#refresh').addEventListener('click', () => {
+    const showing = window.beadcause?.panes?.showing?.();
+    if (showing && showing !== 'epics') return;
+    load();
+  });
 
   /* ------------------------------------------------------------------- ＋ */
 
@@ -10033,6 +10716,7 @@
   */
   const composeEl = $('#compose');
   const composePickEl = $('#compose-pick');
+  const composeEpicsEl = $('#compose-epics');
   const composeWrapEl = $('.compose-wrap');
   let composing = false;
 
@@ -10044,8 +10728,17 @@
     return state.workspaces;
   };
 
+  /**
+   * Shut whatever ＋ has open — both panels, and always both.
+   *
+   * There are two now (bc-khoe.27.2) and only one can be open, because only one ＋ can be
+   * tapped; closing the pair rather than the one this kind uses is what keeps that true
+   * across a kind change, where the panel that is open belongs to the kind you just left.
+   * `aria-expanded` is on the button and so is single either way.
+   */
   function hideComposePick() {
     composePickEl.hidden = true;
+    if (composeEpicsEl) composeEpicsEl.hidden = true;
     composeEl.setAttribute('aria-expanded', 'false');
   }
 
@@ -10066,15 +10759,36 @@
    *   take the button away. It was opened to answer "which repo do I start this in",
    *   and the moment the view changes it is answering a question nobody asked — on the
    *   three that keep ＋, the create it belongs to is a different create.
+   * - **What the button says it does**, since bc-khoe.27.2. The label is the only thing
+   *   on this control that tells you what a tap will do, and a ＋ announcing "start a
+   *   chat session" on the screen where it starts an epic is worse than an unlabelled
+   *   one — a screen reader would be reading out the wrong promise rather than none.
+   *   `aria-controls` moves with it for the same reason: it has to name the panel this
+   *   kind's tap actually opens.
    *
    * The fallback is `true`: a page served without inboxfilter.js has always drawn ＋,
    * and losing the app's primary action to a missing script is a worse failure than
-   * drawing it one screen too wide.
+   * drawing it one screen too wide. `creates` falls back the same way, to `chat` — the
+   * one thing ＋ did on every kind before any of this.
    */
+  const COMPOSE_SAYS = {
+    chat: {
+      label: 'Start a chat session — talk through what the next bead should be',
+      controls: 'compose-pick',
+    },
+    epic: {
+      label: 'Start an epic — put one of the beads you own on the board',
+      controls: 'compose-epics',
+    },
+  };
+
   function paintCompose() {
     const on = window.beadcause?.inboxFilter?.composes?.() ?? true;
+    const says = COMPOSE_SAYS[window.beadcause?.inboxFilter?.creates?.() || 'chat'] || COMPOSE_SAYS.chat;
     hideComposePick();
     if (composeWrapEl) composeWrapEl.hidden = !on;
+    composeEl.setAttribute('aria-label', says.label);
+    composeEl.setAttribute('aria-controls', says.controls);
     document.body.classList.toggle('has-compose', on);
   }
 
@@ -10088,6 +10802,30 @@
     composePickEl.hidden = false;
     composeEl.setAttribute('aria-expanded', 'true');
     row.querySelector('.chip')?.focus();
+  }
+
+  /**
+   * The other panel: the epics you could start, offered where the thumb is. bc-khoe.27.2.
+   *
+   * **Filled when it opens, not on every repaint**, which is the one thing that changed
+   * about this list when it left the board. Inside `p0SectionHtml` it was rebuilt by every
+   * poll and so could never be more than a tick stale; up here it is a floating menu with
+   * its own lifetime, and rebuilding it under an open finger would move the row being
+   * reached for. The staleness that buys is small and already handled: `setOnBoard` is
+   * built around the server refusing a bead that closed, moved or was started elsewhere
+   * while the panel sat open, and it says so in a toast.
+   *
+   * Through `p0Cards` rather than off `startable` raw, so the space and workspace filters
+   * apply exactly as they do to the cards — offering an epic from a repo this screen is not
+   * showing would put a card on a board you would then have to switch spaces to see.
+   */
+  function showEpicPick() {
+    if (!composeEpicsEl) return;
+    const row = $('#compose-epics-row');
+    row.innerHTML = p0CandsHtml(p0Cards(state.rootboard?.startable));
+    composeEpicsEl.hidden = false;
+    composeEl.setAttribute('aria-expanded', 'true');
+    row.querySelector('.p0-cand')?.focus();
   }
 
   async function startChat(workspace) {
@@ -10116,9 +10854,38 @@
      last week's index.html for one load. An unguarded listener there throws before
      the poll is scheduled — which turns a missing button into a blank inbox. */
   if (composeEl && composePickEl) {
+    /**
+     * One button, and the view says what it makes. bc-khoe.27.2.
+     *
+     * The branch is on `creates()` — the word on this kind's row in public/inboxfilter.js
+     * — and deliberately not on a list of kind ids kept here. That table is the only place
+     * that knows what the six kinds are, and a second one in this file is a second thing
+     * that can be wrong about them with nothing to say which is right. bc-khoe.27.3's
+     * branch is here the same way, on `bead`, and reads the same word.
+     *
+     * An open panel closes first, whichever of the two it is, so a second tap on ＋ is
+     * always "never mind" — the state it is toggling belongs to the button, not to a kind.
+     */
     composeEl.addEventListener('click', () => {
-      if (!composePickEl.hidden) {
+      const open = !composePickEl.hidden || !composeEpicsEl?.hidden;
+      if (open) {
         hideComposePick();
+        return;
+      }
+      // *What* ＋ creates is the view's, and public/inboxfilter.js is the only file that
+      // knows what the views are — see `creates`. Anything this script does not
+      // recognise, an older page included, is the chat: losing the app's primary action
+      // to a table that moved is worse than one screen offering the wrong create.
+      if ((window.beadcause?.inboxFilter?.creates?.() || 'chat') === 'epic') {
+        showEpicPick();
+        return;
+      }
+      // `beadFormEl` as well as the answer, and for the same reason one level along: a
+      // phone can be running today's script against last week's document for one load,
+      // and the sheet is markup. Without the guard ＋ on All Beads would be a button
+      // that does nothing at all — silently, which is worse than the chat it replaced.
+      if (window.beadcause?.inboxFilter?.creates?.() === 'bead' && beadFormEl && beadFormFormEl) {
+        openBeadForm();
         return;
       }
       const repos = startableRepos();
@@ -10131,13 +10898,26 @@
       if (chip) startChat(chip.dataset.ws);
     });
 
+    // The candidate rows carry `data-act="p0-start"` and `data-ws`, exactly as they did at
+    // the foot of the board — but the list's `[data-act]` delegation is on `#list` and this
+    // panel is not in it, so the rows need a listener of their own. `data-ws` is why the
+    // test is on `data-act` and not on that: a chip in the panel next door carries the same
+    // attribute and means the other create entirely.
+    $('#compose-epics-row')?.addEventListener('click', (ev) => {
+      const cand = ev.target.closest('[data-act="p0-start"]');
+      if (cand) setOnBoard(cand, true);
+    });
+
     // Tapping past it closes it, which is the same bargain the kind filter's panel
     // makes: a panel over the list must not still be there when you reach for a card.
+    // Either panel — `composeOpen` rather than the repo one, because the epic picker is
+    // the taller of the two and covers more of the list it is sitting over.
+    const composeOpen = () => !composePickEl.hidden || !composeEpicsEl?.hidden;
     document.addEventListener('pointerdown', (ev) => {
-      if (!composePickEl.hidden && !ev.target.closest('.compose-wrap')) hideComposePick();
+      if (composeOpen() && !ev.target.closest('.compose-wrap')) hideComposePick();
     });
     document.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape' && !composePickEl.hidden) {
+      if (ev.key === 'Escape' && composeOpen()) {
         hideComposePick();
         composeEl.focus();
       }
@@ -10154,6 +10934,211 @@
     // And once now, for the kind restored from disk or named by `?kind=`. Both are
     // settled before this script runs; see the foot of public/inboxfilter.js.
     paintCompose();
+  }
+
+  /* ---------------------------------------------- the create form on All Beads */
+
+  /*
+    ＋ on All Beads opens a form, and filing it makes the bead — bc-khoe.27.3.
+
+    **Why a form and not a chat.** The chat console is the right tool when the question
+    is *what should be filed*: an agent argues a proposal into shape and you edit the
+    cards. It is the wrong tool when you already know — a bug you just hit, a thing you
+    noticed while reading this very list — and a conversation you have to have with an
+    agent before a bead exists is a create with a turnaround measured in replies.
+
+    **It reuses the console's fields rather than inventing a layout.** Title, type,
+    priority, description, acceptance, labels, in that order, with the same `.field`
+    markup and the same chip rows; public/console.js has been editing exactly this bead
+    shape on a phone since bc-l8jp, and two editors for one shape that drifted apart
+    would be two answers to "what is a bead" with nothing saying which is right.
+
+    **Parent is the field the form exists to have.** Per this tracker's own discipline a
+    bead with nothing decided above it is not workable (bc-rfnr.7) *and* is drawn on no
+    screen, so a create that quietly made orphans would be a button for filing beads
+    nobody will ever see. Blank does not mean parentless: the daemon asks lib/homing.js
+    for the repo's `unsorted` root, exactly as it does for every bead an agent files, and
+    says so in `warnings` when there is nowhere for it to go.
+
+    **Which repo is the same question ＋ already answers**, from the same `startableRepos`
+    the chat uses — so the two creates cannot come to disagree about what the space
+    picker allows. One candidate is stated and not asked about; more than one is a chip
+    row, first one preselected.
+
+    **Nothing here refreshes the list.** The daemon emits `created` on the bus the moment
+    the bead exists, which is what public/stream.js is parked on, so the row arrives the
+    way every other row does. `load()` is called anyway on the way out — the stream is a
+    long poll and a create you just made is the one row worth not waiting a beat for.
+  */
+  const beadFormEl = $('#beadform');
+  const beadFormFormEl = $('#beadform-form');
+  const beadFormSayEl = $('#beadform-say');
+  /** bd's own five, in bd's order. Mirrors `TYPES` in lib/draft.js, which normalises them. */
+  const BEAD_TYPES = ['task', 'bug', 'feature', 'epic', 'chore'];
+  const BEAD_PRIORITIES = [0, 1, 2, 3, 4];
+  const priorityWord = (n) => ['critical', 'high', 'medium', 'low', 'backlog'][n] ?? 'medium';
+
+  const beadForm = { workspace: '', type: 'task', priority: 2, filing: false, filed: '' };
+
+  /** What the form is saying about itself: a refusal, a warning, or nothing. */
+  function sayOnForm(text, tone = '') {
+    if (!beadFormSayEl) return;
+    beadFormSayEl.textContent = text || '';
+    beadFormSayEl.classList.toggle('bad', tone === 'bad');
+    beadFormSayEl.classList.toggle('warn', tone === 'warn');
+    beadFormSayEl.hidden = !text;
+    // The sheet is a scroller with eight fields in it, and this line sits at the foot
+    // under all of them. A refusal you have to scroll to find is a form that looks like
+    // it did nothing — which is the exact failure "a refused write says so" is about.
+    // The *button* is what is scrolled to rather than the line: it is the row below it,
+    // so both arrive, and the thing you have to press next is under your thumb.
+    if (text) $('#beadform-file')?.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  const beadChip = (group, value, label, on) =>
+    `<button type="button" class="chip" data-form="${esc(group)}" data-value="${esc(value)}"
+      aria-pressed="${on}">${esc(label)}</button>`;
+
+  /**
+   * Redraw the three chip rows off `beadForm`.
+   *
+   * The workspace row is the one that can be empty, and it says so rather than drawing
+   * nothing: a form with no repo to file into is refused on the button, and a blank
+   * space where the choice should be reads as a control that failed to load.
+   */
+  function paintBeadForm() {
+    const repos = startableRepos();
+    if (!repos.includes(beadForm.workspace)) beadForm.workspace = repos[0] || '';
+    const wsRow = $('#beadform-ws');
+    const wsField = $('#beadform-ws-field');
+    if (wsRow) {
+      wsRow.innerHTML = repos.length
+        ? repos.map((w) => beadChip('workspace', w, w, w === beadForm.workspace)).join('')
+        : `<span class="hint">${
+            state.workspaces.length ? 'No workspaces in this space.' : 'No workspaces configured.'
+          }</span>`;
+    }
+    // One candidate is not a choice, so it is stated rather than asked about — the same
+    // bargain ＋ makes for a chat, one control along. The row stays visible because
+    // *which repo this lands in* is worth reading before you file, even when there was
+    // never a second answer.
+    if (wsField) wsField.classList.toggle('one', repos.length === 1);
+    const typeRow = $('#beadform-type');
+    if (typeRow) {
+      typeRow.innerHTML = BEAD_TYPES.map((t) => beadChip('type', t, t, t === beadForm.type)).join('');
+    }
+    const prioRow = $('#beadform-priority');
+    if (prioRow) {
+      prioRow.innerHTML = BEAD_PRIORITIES.map((n) =>
+        beadChip('priority', String(n), `P${n} ${priorityWord(n)}`, n === beadForm.priority)
+      ).join('');
+    }
+    const fileBtn = $('#beadform-file');
+    if (fileBtn) fileBtn.disabled = beadForm.filing || !beadForm.workspace;
+  }
+
+  function openBeadForm() {
+    if (!beadFormEl) return;
+    beadForm.type = 'task';
+    beadForm.priority = 2;
+    beadForm.filing = false;
+    beadForm.filed = '';
+    for (const id of ['title', 'description', 'acceptance', 'parent', 'labels']) {
+      const el = $(`#beadform-${id}`);
+      if (el) el.value = '';
+    }
+    const fileBtn = $('#beadform-file');
+    if (fileBtn) fileBtn.textContent = 'File it';
+    sayOnForm('');
+    paintBeadForm();
+    beadFormEl.hidden = false;
+    beadFormEl.classList.add('open');
+    $('#beadform-title')?.focus();
+  }
+
+  function closeBeadForm() {
+    if (!beadFormEl) return;
+    beadFormEl.classList.remove('open');
+    beadFormEl.hidden = true;
+  }
+
+  if (beadFormEl && beadFormFormEl) {
+    beadFormFormEl.addEventListener('click', (ev) => {
+      const chip = ev.target.closest('[data-form]');
+      if (!chip) return;
+      const group = chip.dataset.form;
+      beadForm[group] = group === 'priority' ? Number(chip.dataset.value) : chip.dataset.value;
+      paintBeadForm();
+    });
+
+    $('#beadform-close')?.addEventListener('click', closeBeadForm);
+    $('#beadform-cancel')?.addEventListener('click', closeBeadForm);
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !beadFormEl.hidden) closeBeadForm();
+    });
+
+    beadFormFormEl.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      // The second press after a filing that landed with something to say is the way
+      // out, not a second bead — see the warnings branch below.
+      if (beadForm.filed) {
+        closeBeadForm();
+        return;
+      }
+      if (beadForm.filing) return;
+      const title = String($('#beadform-title')?.value || '').trim();
+      if (!title) {
+        sayOnForm('A title is the one field a bead cannot be filed without.', 'bad');
+        $('#beadform-title')?.focus();
+        return;
+      }
+      if (!beadForm.workspace) {
+        sayOnForm('There is no workspace in this space to file into.', 'bad');
+        return;
+      }
+      beadForm.filing = true;
+      paintBeadForm();
+      sayOnForm('Filing…');
+      try {
+        const made = await api('/api/bead/create', {
+          method: 'POST',
+          body: JSON.stringify({
+            workspace: beadForm.workspace,
+            title,
+            type: beadForm.type,
+            priority: beadForm.priority,
+            description: String($('#beadform-description')?.value || ''),
+            acceptance: String($('#beadform-acceptance')?.value || ''),
+            parent: String($('#beadform-parent')?.value || '').trim(),
+            labels: String($('#beadform-labels')?.value || ''),
+          }),
+        });
+        const warnings = made.warnings || [];
+        // A warning is not a failure and it is not a toast either: "filed with no parent,
+        // so nothing will work it" is a sentence you have to be able to read twice, and a
+        // toast is gone in 2.6 seconds. It stays on the sheet that produced it, the way
+        // the console keeps its own screen up over one, and the button becomes the way
+        // out. The bead exists either way, so the list is refreshed either way.
+        if (warnings.length) {
+          beadForm.filed = made.id;
+          beadForm.filing = false;
+          const fileBtn = $('#beadform-file');
+          if (fileBtn) fileBtn.textContent = 'Done';
+          sayOnForm(`Filed ${made.id}. ${warnings.join(' ')}`, 'warn');
+          paintBeadForm();
+        } else {
+          closeBeadForm();
+          toast(`Filed ${made.id}${made.parent ? ` under ${made.parent}` : ''}`);
+        }
+        load();
+      } catch (err) {
+        beadForm.filing = false;
+        paintBeadForm();
+        // The form stays up with everything you typed still in it. A create that failed
+        // and closed would be a bead you have to write out again to find out why.
+        if (err.message !== 'token rejected') sayOnForm(err.message, 'bad');
+      }
+    });
   }
 
   /*
@@ -10375,14 +11360,15 @@
    * pill row above, and what selecting one does still arrives back through `onChange`
    * below, exactly as a chip's tap used to.
    *
-   * The panel is mounted first because filtermenu.js replaces the host's children and
-   * the pills prepend themselves in front of it; see `mount` in public/filterpills.js.
+   * The filter pills are mounted first because filtermenu.js replaces the host's
+   * children and the scope switch prepends itself in front of them; see `mount` in
+   * public/filterpills.js.
    *
-   * **What the panel offers is a function of the lit pill** (bc-khoe.3): the bead box is
-   * hidden under `Chats`, which can use no filter at all, and with nothing left to offer
-   * the panel takes itself off the row. The scope switch is not part of that — it
-   * decides which pills exist rather than narrowing within one — so the row never
-   * empties and `renderFilters` never has to hide it.
+   * **Which filter pills are drawn is a function of the lit view pill** (bc-khoe.3): the
+   * bead pill is gone under `Chats`, which can use no filter at all, and with nothing
+   * left to offer the row takes itself off the chrome. The scope switch is not part of
+   * that — it decides which view pills exist rather than narrowing within one — so it
+   * never empties and `renderFilters` never has to hide it.
    *
    * A page served without either file still works: `renderFilters` and `inKind` both
    * fall back to doing nothing, which is the unfiltered list this page has always drawn.
@@ -10391,11 +11377,6 @@
     const f = window.beadcause?.inboxFilter;
     f?.mount(filtersEl, {
       groups: [beadGroup],
-      // This page's half of "is the list narrowed". A picked bead hides most of the
-      // screen, and the summary pill has to go bold over it like it does for everything
-      // else. The kinds no longer contribute — the lit pill is where that is admitted
-      // to now; see `narrowed` in public/inboxfilter.js.
-      narrowed: () => beadPicked(),
       // Forced, because a filter tap is a decision and must not be deferred behind a
       // half-written answer. Nothing is refetched for the kinds themselves — they are a
       // view over rows already in hand — but selecting `PRs` may be the first time this
@@ -10407,9 +11388,10 @@
         loadBoard();
       },
     });
-    // In front of the panel, and after it: see the note above about who replaces whose
-    // children. The scope is its own group and nothing else is on the row yet —
-    // bc-khoe.26 is what moves the bead box and the two sub-filters out here beside it.
+    // In front of the filter pills, and mounted after them: see the note above about who
+    // replaces whose children. The scope is flat rather than a pill that opens, because
+    // three one-word options are legible without being reached for and a fourth control
+    // that opened would be the panel bc-khoe.26 took apart, one row down.
     window.beadcause?.filterPills?.mount?.(filtersEl, { groups: [scopeGroup] });
     // How the row reaches a kind this scope cannot produce. The filter knows which pill
     // was tapped and that it is unreachable; only this page knows what a scope is, so
@@ -10427,20 +11409,46 @@
     renderFilters();
   }
 
-  bootToken();
-  bootScope();
-  // Warm first, then decide what to ask for. With a list on screen and a place in the
-  // event log, the refresh is a parked poll that costs the daemon nothing until
-  // something moves — so the ordinary tab tap does no `bd` sweep at all. Without
-  // either, this is the cold start it always was.
-  if (warmBoot() && canFollow()) schedulePoll();
-  else load();
-  // The pull requests, beside the questions rather than after them: the two feeds are
-  // independent and the board is the slower of the two, so starting it second and
-  // waiting for neither is what puts the questions on screen first. It is not on the
-  // delta stream either — a `gh` sweep is nothing an event log can carry.
-  loadBoard();
-  // After the list, and never blocking it: the chooser only appears inside an open
-  // card, so there is nothing on screen waiting for this.
-  loadAgents();
+  /**
+   * Everything this view does on the way up, in one function so the shell can time it.
+   *
+   * It was the last six lines of this IIFE and it still is, on the load that lands here —
+   * public/panestage.js builds the landed-on pane synchronously, and Home is where a bare
+   * `/`, an unrecognised hash and every notification link all land. What the stager buys
+   * is the *other* case: a page opened straight onto another view builds that one first
+   * and this after the first paint, so a shortcut to `/#history` does not spend its first
+   * frames sweeping `bd` for an inbox nobody asked to see (bc-khoe.30.4).
+   */
+  function buildHome() {
+    bootToken();
+    bootScope();
+    // Warm first, then decide what to ask for. With a list on screen and a place in the
+    // event log, the refresh is a parked poll that costs the daemon nothing until
+    // something moves — so the ordinary tab tap does no `bd` sweep at all. Without
+    // either, this is the cold start it always was.
+    if (warmBoot() && canFollow()) schedulePoll();
+    else load();
+    // The pull requests, beside the questions rather than after them: the two feeds are
+    // independent and the board is the slower of the two, so starting it second and
+    // waiting for neither is what puts the questions on screen first. It is not on the
+    // delta stream either — a `gh` sweep is nothing an event log can carry.
+    loadBoard();
+    // After the list, and never blocking it: the chooser only appears inside an open
+    // card, so there is nothing on screen waiting for this.
+    loadAgents();
+  }
+
+  /*
+    Offered to the stager, and built here when there is no stager to take it — a document
+    with no panes, or a service-worker cache from before that file existed. `register`
+    answering false has to leave this page exactly as it was, which is why `buildHome` is
+    the function it would have called on its own rather than something only reachable
+    through the shell.
+
+    No `wake` is declared with it: this view owns the page's real poll (the `follow` above)
+    and reads its own answers, so a second delivery through the fan-out would be the same
+    payload adopted twice. The `want` union is over the panes that ride the shell's mount,
+    and this one does not.
+  */
+  if (!window.beadcause?.stage?.register?.('epics', { build: buildHome })) buildHome();
 })();

@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url';
 import { freePort } from '../test/helpers/net.mjs';
 import { SETTINGS } from '../lib/spaces.js';
 import { CHROME, launchChrome } from './helpers/chrome.mjs';
+import { onExit, killAndRemoveSync } from '../lib/teardown.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VP = { width: 393, height: 852, dpr: 3 };
@@ -105,6 +106,17 @@ const daemon = spawn(process.execPath, [path.join(ROOT, 'bin', 'beadcause.js')],
   env: { ...process.env, BEADCAUSE_CONFIG_DIR: CONFIG_DIR },
   stdio: 'ignore',
 });
+/**
+ * And again for the endings the `finally` at the bottom cannot reach — bc-5isv.
+ *
+ * This is the only check that starts a *daemon*, and a daemon that outlives its check is
+ * worse than a leaked Chrome: it goes on listening on a loopback port, out of a worktree
+ * that the attic sweep will later remove out from under it, because a running process
+ * does not lock a worktree. One was found doing exactly that, seven days after the run
+ * that started it. `scripts/checks.mjs` SIGTERMs anything that overruns its timeout, and
+ * a `finally` does not run on a signal. See lib/teardown.js.
+ */
+const disarmExit = onExit(() => killAndRemoveSync(daemon, KEEP ? null : tmp));
 
 const BASE = `http://127.0.0.1:${port}`;
 for (let i = 0; i < 80; i += 1) {
@@ -527,6 +539,7 @@ try {
     )
   );
 } finally {
+  disarmExit();
   close();
   daemon.kill();
   if (!KEEP) fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3 });

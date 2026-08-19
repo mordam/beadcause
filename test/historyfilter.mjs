@@ -178,7 +178,7 @@ const row = (i, extra = {}) => ({
  * address the page is opened at, which is the whole of what a reload or a shared link
  * amounts to here.
  */
-function load({ search = '', respond, hover = false } = {}) {
+function load({ search = '', hash = '', respond, hover = false, shell = false } = {}) {
   const mk = () => {
     const el = {
       innerHTML: '',
@@ -218,17 +218,39 @@ function load({ search = '', respond, hover = false } = {}) {
   };
 
   const host = doc.createElement('nav');
+  // `hist-list` rather than `history` since bc-khoe.30.5: in the shell the hash that names
+  // this view is `#history`, and an element of that id there is a fragment target. `refresh`
+  // is the app's one ⟳, which the pane shares with every other view; `hist-refresh` is the
+  // document's own.
+  const appRefresh = mk();
   doc.getElementById = (id) =>
-    id === 'history' ? out : id === 'pulse' ? pulse : id === 'hist-refresh' ? refresh : id === 'hist-filters' ? host : null;
+    shell && id === 'refresh'
+      ? appRefresh
+      : id === 'hist-list'
+        ? out
+        : id === 'pulse'
+          ? pulse
+          : id === 'hist-refresh'
+            ? refresh
+            : id === 'hist-filters'
+              ? host
+              : null;
 
-  const location = { pathname: '/history', search, hash: '' };
+  const location = { pathname: shell ? '/' : '/history', search, hash };
   /** Every address the page has written, so a check can see that it wrote one at all. */
   const written = [];
   const history = {
     replaceState: (_s, _t, url) => {
       written.push(String(url));
-      const at = String(url).indexOf('?');
-      location.search = at === -1 ? '' : String(url).slice(at);
+      // Both halves, because in the shell the filters are in the hash and on the document
+      // they are in the query string — a fake that tracked only one would pass whichever
+      // of the two the code got wrong.
+      const raw = String(url);
+      const hashAt = raw.indexOf('#');
+      const head = hashAt === -1 ? raw : raw.slice(0, hashAt);
+      location.hash = hashAt === -1 ? '' : raw.slice(hashAt);
+      const at = head.indexOf('?');
+      location.search = at === -1 ? '' : head.slice(at);
     },
   };
 
@@ -289,19 +311,77 @@ function load({ search = '', respond, hover = false } = {}) {
     Promise,
     console,
   });
+  /*
+    The shell half (bc-khoe.30.5): the same file, in the document that has panes. The real
+    grammar out of public/hashroute.js, a stand-in for public/panes.js that has only three
+    questions to answer, and a stand-in for the stager that hands `build` back so a check
+    can decide when this view goes up — which is the whole point of the staged boot.
+  */
+  const shown = [];
+  let showing = 'history';
+  let spec = null;
+  if (shell) {
+    vm.runInContext(read('public/hashroute.js'), ctx, { filename: 'hashroute.js' });
+    const route = window.beadcause.route;
+    window.beadcause.panes = {
+      has: (v) => route.VIEWS.some((one) => one.id === v),
+      showing: () => showing,
+      onShow: (fn) => shown.push(fn),
+      go(v) {
+        showing = v;
+        location.hash = route.hashFor(v);
+        for (const fn of shown) fn(v);
+      },
+    };
+    window.beadcause.stage = {
+      register(view, s2) {
+        spec = { view, ...s2 };
+        return true;
+      },
+    };
+    window.beadcause.stream = { moved: (events) => (events || []).some((e) => e && e.type !== 'presence') };
+  }
+
   vm.runInContext(read('public/filtermenu.js'), ctx, { filename: 'filtermenu.js' });
   vm.runInContext(read('public/history.js'), ctx, { filename: 'history.js' });
 
-  return { out, host, doc, calls, location, written, refresh, button };
+  return {
+    out,
+    host,
+    doc,
+    calls,
+    location,
+    written,
+    refresh,
+    appRefresh,
+    button,
+    /** What this view handed the stager, or null on the document. */
+    spec: () => spec,
+    /** Build the pane, the way public/panestage.js would. */
+    build: () => spec.build(),
+    /** Hand it an answered poll, the way public/panestage.js fans one out. */
+    wake: (events) => spec.wake({ data: null, events, resync: false }),
+    /** Move to another pane, or back to this one, the way a pill tap does. */
+    go: (v) => window.beadcause.panes.go(v),
+  };
 }
 
-/* The panel, by shape rather than by selector — `.filter-menu` holds the summary button
-   and then the panel, and the panel holds one box per group with its legend and its row. */
+/* The row, by shape rather than by selector — `.filter-menu` holds one `.filter-one` per
+   group since bc-khoe.26, and each of those is its pill, the note drawn in the pill's
+   place where a view cannot offer it, and the panel the pill opens. */
 const root = (h) => h.host.children[0];
-const summaryLine = (h) => root(h).children[0].textContent;
-const panel = (h) => root(h).children[1];
-const groupBox = (h, id) => panel(h).children.find((b) => b.dataset.group === id);
-const chipsOf = (h, id) => groupBox(h, id).children[1].children;
+const one = (h, id) => root(h).children.find((b) => b.dataset.group === id);
+const pillOf = (h, id) => one(h, id).children[0];
+/** `Legend: value` where the group is narrowing, and the bare legend where it is not. */
+const says = (h, id) => {
+  const value = pillOf(h, id).children[1].textContent;
+  const legend = pillOf(h, id).children[0].textContent;
+  // The legend carries its own colon when there is a value — see `paintGroup`.
+  return value ? `${legend} ${value}` : legend;
+};
+const panel = (h, id) => one(h, id).children[2];
+const groupBox = (h, id) => panel(h, id).children[0];
+const chipsOf = (h, id) => groupBox(h, id).children[0].children;
 const chipIn = (h, gid, cid) => chipsOf(h, gid).find((c) => c.dataset.chip === cid);
 const pressed = (h, gid) => chipsOf(h, gid).filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.dataset.chip);
 /* By class rather than by position: bc-0xil put the input inside a wrapper so that a
@@ -473,14 +553,21 @@ await check('priority is taken as 1, p1 or P1 and written back as P1', async () 
   assert.deepEqual(pressed(h, 'priority').sort(), ['P1', 'P3']);
 });
 
-await check('the summary line names the narrowing without the panel being opened', async () => {
+await check('each pill names its own narrowing, without anything being opened', async () => {
+  // What one comma-joined line used to say, said by the controls themselves (bc-khoe.26).
+  // It is strictly more than the line could: `Closed` on the status pill says *which*
+  // control is narrowing the ledger, where `Closed · All priorities · nib3` left you to
+  // work out which of the four to reach for.
   const h = load({ search: '?status=closed&id=nib3', respond: ledgerOf(ROWS) });
   await settle();
-  const said = summaryLine(h);
-  assert.match(said, /Closed/);
-  assert.match(said, /nib3/);
-  assert.match(said, /All priorities/, 'a group with nothing chosen has to say so, or the line reads as the whole filter');
-  assert.ok(root(h).classes().includes('narrowed'), 'nothing on the collapsed line marks it as narrowed');
+  assert.equal(says(h, 'status'), 'Status: Closed');
+  assert.equal(says(h, 'beadid'), 'Bead id: nib3');
+  assert.ok(pillOf(h, 'status').classes().includes('on'), 'nothing marks the narrowed pill as narrowed');
+  // And a group nobody has touched is its legend and nothing else. `All priorities` on a
+  // pill would be a control announcing a filter that is not filtering, which is the same
+  // noise the one line made — one pill at a time.
+  assert.equal(says(h, 'priority'), 'Priority');
+  assert.ok(!pillOf(h, 'priority').classes().includes('on'));
 });
 
 await check('the token is not left in a link you would send to a phone', async () => {
@@ -619,6 +706,137 @@ await check('correcting the filter clears the refusal', async () => {
 /* ================================================================ 5. the two vocabularies */
 
 console.log('\nthe chips and the daemon name the same things');
+
+/* ============================================== 3b. the same bar, as a pane of the shell */
+
+/*
+  bc-khoe.30.5 made the ledger a pane of public/index.html and left `/history` a document
+  as well, so this file runs in two places and the four filters are written in two slots:
+  the query string on the page, the hash's own query in the shell (`/#history?status=closed`
+  — decision 5 in public/hashroute.js). Everything else about them is the same, and these
+  are the checks that say so.
+
+  The slot moved because in one document `location.search` outlives the view that wrote it:
+  narrow History, tap Home, and the URL the phone's home screen holds is `/?status=P0`,
+  carrying another view's filter. `route.go('')` keeps `search` on purpose — that is where
+  `?t=` lives — so nothing else could have dropped it.
+*/
+
+console.log('\nas a pane of the shell');
+
+await check('nothing at all happens until the stager builds it', async () => {
+  const h = load({ shell: true, hash: '#history?status=closed', respond: ledgerOf(ROWS) });
+  await settle();
+  assert.ok(h.spec(), 'it did not offer itself to the stager');
+  assert.equal(h.spec().view, 'history');
+  assert.deepEqual(h.calls, [], 'it asked for the ledger while Home was the pane on screen');
+  assert.equal(h.host.children.length, 0, 'it drew a filter bar into a pane nobody had asked for');
+});
+
+await check('and the hash it landed on narrows the very first request', async () => {
+  const h = load({ shell: true, hash: '#history?status=closed&priority=P0', respond: ledgerOf(ROWS) });
+  h.build();
+  await settle();
+  assert.equal(h.calls.length, 1, 'a cold pane asked twice');
+  assert.equal(h.calls[0].status, 'closed');
+  assert.equal(h.calls[0].priority, 'P0');
+  // The whole point of reading the address before drawing: a link to `#history?status=
+  // closed` must not be a screenful of open beads that then rearranges itself.
+  assert.deepEqual(idsOn(h), ['bc-004']);
+  assert.deepEqual(pressed(h, 'status'), ['closed']);
+});
+
+await check('a chip writes the hash, and leaves the query string alone', async () => {
+  const h = load({ shell: true, hash: '#history', respond: ledgerOf(ROWS) });
+  h.build();
+  await settle();
+  chipIn(h, 'status', 'open').fire('click');
+  await settle();
+  assert.equal(h.location.hash, '#history?status=open', `the hash says ${h.location.hash}`);
+  assert.equal(h.location.search, '', `the filter went into the query string: ${h.location.search}`);
+  assert.equal(last(h).status, 'open');
+  // Still replaceState, for the reason it always was: a chip is not a place you go back to.
+  assert.ok(h.written.length >= 1, 'the address never moved');
+});
+
+await check('leaving the pane and coming back keeps the filters, and puts them back on the address', async () => {
+  const h = load({ shell: true, hash: '#history?status=closed', respond: ledgerOf(ROWS) });
+  h.build();
+  await settle();
+  const asked = h.calls.length;
+
+  h.go('epics');
+  // A pill tap writes the bare hash for the view it is going to, so Home's address must
+  // carry nothing of this pane's — that is the whole reason the slot moved.
+  assert.equal(h.location.hash, '');
+  assert.equal(h.location.search, '');
+
+  h.go('history');
+  assert.equal(h.location.hash, '#history?status=closed', 'the filters did not go back on the address');
+  assert.deepEqual(pressed(h, 'status'), ['closed'], 'the chips forgot what they were showing');
+  assert.deepEqual(idsOn(h), ['bc-002', 'bc-004'], 'the rows were thrown away by a switch');
+  await settle();
+  assert.equal(h.calls.length, asked, 'coming back to a pane nothing had happened to re-read it anyway');
+});
+
+await check('something moving is re-read the next time you look, with the rows left up meanwhile', async () => {
+  const h = load({ shell: true, hash: '#history', respond: ledgerOf(ROWS) });
+  h.build();
+  await settle();
+  const asked = h.calls.length;
+
+  h.go('epics');
+  h.wake([{ type: 'created' }]);
+  h.go('history');
+  // Synchronously, before anything has been fetched: the list you left is still there.
+  // A pane that blanked itself to "Reading the ledger…" on every return would be the
+  // document load this epic exists to remove, wearing a different mechanism.
+  assert.deepEqual(idsOn(h), ['bc-001', 'bc-002', 'bc-003', 'bc-004']);
+
+  await settle();
+  assert.equal(h.calls.length, asked + 1, 'the ledger was not re-read after something moved');
+  assert.equal(last(h).offset, 0, 'it asked for the next page rather than for the list again');
+  assert.deepEqual(idsOn(h), ['bc-001', 'bc-002', 'bc-003', 'bc-004'], 'the swap lost rows');
+
+  // Once, not once per look: the flag is spent by the read.
+  h.go('epics');
+  h.go('history');
+  await settle();
+  assert.equal(h.calls.length, asked + 1, 'it re-reads on every switch, which is the fetch it saved');
+});
+
+await check('and presence alone is not something moving', async () => {
+  const h = load({ shell: true, hash: '#history', respond: ledgerOf(ROWS) });
+  h.build();
+  await settle();
+  const asked = h.calls.length;
+  h.go('epics');
+  // A thumb on a phone somewhere. It wakes the poll on purpose and it has not changed a
+  // bead, so a pane that re-read for it would have built a timer out of somebody scrolling.
+  h.wake([{ type: 'presence' }]);
+  h.go('history');
+  await settle();
+  assert.equal(h.calls.length, asked, 'a presence event cost a sweep');
+});
+
+await check('the app\u2019s one \u27f3 is spent by the pane that is up, and by no other', async () => {
+  const h = load({ shell: true, hash: '#history', respond: ledgerOf(ROWS) });
+  h.build();
+  await settle();
+  const asked = h.calls.length;
+
+  h.go('epics');
+  h.appRefresh.events.click({});
+  await settle();
+  assert.equal(h.calls.length, asked, 'the ledger swept `bd` for a press meant for the inbox');
+
+  h.go('history');
+  await settle();
+  h.appRefresh.events.click({});
+  await settle();
+  assert.equal(h.calls.length, asked + 1, 'it did nothing on the pane it was pressed on');
+  assert.equal(last(h).refresh, true, 'the press that means "I do not believe this" was answered from the cache');
+});
 
 await check('every status the endpoint takes has a chip, and no chip is invented', () => {
   const js = read('public/history.js');
