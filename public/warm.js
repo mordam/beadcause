@@ -135,7 +135,7 @@
    */
   const VIEWS = [
     // **The order is the pill row's, and since bc-khoe.2 the row is not one pill per
-    // entry.** Six of the seven pills are the inbox's kinds and four of those are Home
+    // entry.** Six of the nine pills are the inbox's kinds and four of those are Home
     // under a different narrowing, so `inbox` is first because it is what four pills
     // reach — including the one you land on. test/warm.mjs holds this list to the row
     // through that mapping rather than by matching ids, because the ids stopped being
@@ -173,12 +173,13 @@
     // about what has already happened, where an instant first frame of slightly stale
     // rows buys less than it does anywhere else.
     { id: 'history', paths: [] },
-    // The last pill, and still the heaviest `bd` on the list: `/api/work` is two calls
-    // per workspace, and it is the one whose entry the inbox goes on to *maintain* off
+    // The seventh pill — last until Releases and Config arrived to its right — and still
+    // the heaviest `bd` on the list: `/api/work` is two calls per workspace, and it is
+    // the one whose entry the inbox goes on to *maintain* off
     // the stream rather than merely fill once. See `refresh` below and `MAINTAINED` in
     // public/app.js. It was second until bc-khoe.2 put five kind pills to its left.
     { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
-    // Releases (bc-khoe.7), and the last pill on the row. What it buys is the page you
+    // Releases (bc-khoe.7), the eighth pill on the row. What it buys is the page you
     // open *while the daemon behind it is being restarted by the deploy it is drawing* —
     // the moment a cold first frame is a blank screen rather than a slow one.
     //
@@ -196,6 +197,14 @@
     // that answer lands, and the `/releases` document, which is the address a phone's
     // home screen holds and has no shell boot behind it at all.
     { id: 'releases', paths: ['/api/queues'], holdOnly: true },
+    // The last pill (bc-khoe.10), and the second view here that warms **nothing** — for
+    // History's reason, arrived at from the other end. Its boot request is
+    // `/api/space?space=<whichever the picker is on>`, so there is no constant this file
+    // could hold; warming every space would be a request per space to fill a cache for a
+    // page opened about once a month. It is also the one view that needs a warm least:
+    // `/api/space` is a read of the config object the daemon already has in memory — no
+    // `bd`, no `gh`, no disk — which is what a cold first frame here costs.
+    { id: 'config', paths: [] },
     // Below the row. None of these three is a pill, and all three are still reached in
     // one tap from somewhere else — the queue from the 🗳 in the inbox's top bar or the
     // advocate console's `N held for endorsement` pill, /admin from the ⚙ on /monitor

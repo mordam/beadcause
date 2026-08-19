@@ -719,13 +719,16 @@ The cut is affordable for the same reason the row was not: what the picker has t
 common case — is not cut at all. `scripts/topbar-check.mjs` measures both halves and
 fails the repo if the bar ever needs a second row again.
 
-**One page has no title beside it, and that is what the picker being there costs the
-others nothing to fix.** `/monitor` is *the details of the selected space*, so a heading
-reading `Space` sat immediately left of a control reading `Personal` — the noun and its
-instance, twice, on the row where a 360px phone has the least to spare. It is gone
-(bc-mtdb): that bar is the mark, the picker, and the page's own tally. The other standing
-views keep theirs — Ledger, Endorse, Requirements name the *page*, which is not what the
-picker says, so nothing on them is doubled.
+**A title beside it has to name the page and not the space, which is the whole of what
+the picker being there costs.** `/monitor` was *the details of the selected space*, so a
+heading reading `Space` sat immediately left of a control reading `Personal` — the noun
+and its instance, twice, on the row where a 360px phone has the least to spare. That
+heading was dropped outright (bc-mtdb), leaving the mark, the picker and the page's own
+tally. It is back as one word the picker never says: bc-khoe.10 moved the settings to
+`/config`, so what is left on that page is the advocates and their sessions, and the
+heading reads `Advocates` — the same word as the pill that opens it. The other standing
+views never had the problem — Ledger, Endorse, Requirements and Config name the *page*,
+which is not what the picker says, so nothing on them is doubled.
 
 Pick `beadcause` and it is beadcause's questions in the inbox, beadcause's advocate on
 the advocate console, beadcause's pull requests on the board, beadcause's chats in the
@@ -927,7 +930,7 @@ as its own failure, because that is how the old bug gets back in. `/monitor` is 
 second time with one workspace, in the shorter bar, because the two heights are still the
 two states this ships in and the pill row has to sit against the bar in both.
 
-### Space details — the page the advocate console became
+### Space details — every setting a space has, on a page of its own
 
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
 in an editor, on the Mac, with the daemon running. That was fine while a space was two
@@ -939,14 +942,14 @@ and whether that merge then deploys itself (`autoShip`) — because the moment y
 of those is set wrong is the moment you are looking at what it did, on a phone, at the
 weekend.
 
-So **`/monitor` is the details of the space the picker has selected**, and its settings
-are on it — under the **Config** chip on that page's own row:
+So a space's settings are **`/config`**, a standing view with a pill of its own — the
+ninth on the row, and the rightmost, because it is the one you reach least often:
 
 ```
 ┌──────────────────────────────────────────────┐
-│  ●  ▣⚙   [ Personal      ▾ ]   2 working     │
+│  ●  ▣⚙   [ Personal    ▾ ]  Config      ⟳    │
 ├──────────────────────────────────────────────┤
-│  Advocates    PRs   [Config]   Mirror        │
+│ …       📣 Advocates  🚀 Releases  🎛 Config │
 ├──────────────────────────────────────────────┤
 │  Personal                    may reach you   │
 │  ▾ SETTINGS                                  │
@@ -967,27 +970,35 @@ are on it — under the **Config** chip on that page's own row:
 └──────────────────────────────────────────────┘
 ```
 
-Nothing the page already did has gone: the advocates and their pause, reclaim and
+**It took two moves to get here and the second is the one that matters.** The card was
+drawn *above* the advocate cards for a year, on the argument that `/monitor` is the
+details of a space and this is what a space *is* — and what that meant in practice is
+that the pane you open to see what is running this minute opened on eleven switches and a
+row per repo, with the first advocate below the fold of a phone. bc-me2b moved it to a
+**Config** chip on that page's own row, which fixed the fold. bc-khoe.10 took it off the
+page: a chip fixed *where on the console* the settings were and left standing the reason
+they should not be on the console at all, which is that "what this space is" and "what
+this space is doing" are two questions, and the second is a screen you watch while the
+first is a screen you visit. The pill row is how everything else in this app is reached,
+and this is now reached the same way. `spaceHtml` still has not changed; only which
+document draws it has, twice.
+
+**It is the cheapest standing view in the app.** `/api/space` is a read of the config
+object the daemon is already holding — no `bd`, no `gh`, no disk — where the console's own
+payload is two `bd` calls per workspace and the board's is a `gh` call per repo. So this
+page fetches one thing, once, and again when the picker moves; it parks no `/api/poll` and
+runs no clock (`public/history.js`'s reason: its one request carries the picker's
+selection, so there is no constant path for `public/warm.js` to fill and nothing a wake
+could say that the ⟳ does not). Which also means somebody who opened the app to change a
+setting no longer sweeps every tracker on the Mac on the way.
+
+Nothing the console already did has gone: the advocates and their pause, reclaim and
 limit controls, the sessions view it absorbed (`/sessions`, `/work` and `/work.html`
 still serve it), the proposal cards, the launchd and router health lines, [the mirror
-pane](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it).
-
-**It is a chip of its own, and it got there by leaving the roster (bc-me2b).** The card
-was drawn *above* the advocate cards for a year, on the argument that it is what the page
-is the details of — and what that meant in practice is that the pane you open to see what
-is running this minute opened on eleven switches and a row per repo, with the first
-advocate below the fold of a phone. The same test the Mirror and the board are on decides
-it: this is a **mode** of the page — the same space, seen as its configuration rather than
-as its work — so it is a chip on that row, sitting third between the board and the
-Mirror, rather than the top of the first pane.
-`spaceHtml` did not change; only where its output is written did.
-
-**The pane is stood down like the others, and stands down more cheaply.** Advocates holds
-a parked `/api/poll`, the board a `gh` sweep per repo behind every wake, the Mirror a poll
-of its own; Config holds nothing. Tapping the chip fetches `/api/space` and stops — a read
-of the config object the daemon is already holding, with no `bd` and no disk behind it —
-and the ⟳ while it is up re-reads that and only that. Which also means the Advocates pane
-is no longer swept at all by somebody who opened the page to change a setting.
+pane](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it). What it has instead
+is an advocate as the first thing under the health lines, which is what somebody opening
+it came for — and its heading says **Advocates** again rather than **Space**, because the
+one part of it that was a space's details is elsewhere.
 
 **And it shows the repo you picked.** The picker has two levels (`Personal`, and
 `beadcause` inside it) and this card only ever read the coarse one: pinning to `beadcause`
@@ -1266,7 +1277,7 @@ only ever reaches a merge that is already on `origin/main`, and the only ways to
 there are that gated merge or your own thumb. What these move is the tap, not the test.
 
 **Set them from the repo row**, on the space details card at
-[`/monitor`](#space-details--the-page-the-advocate-console-became): each row under
+[`/monitor`](#space-details--every-setting-a-space-has-on-a-page-of-its-own): each row under
 *What each repo resolves to* already stated the answers for that repo and had nothing to
 press, so the buttons went where the answers were — four rows of three. On / Off /
 **Inherit**, and Inherit names what it resolves to through the space — `Inherit (on)`
@@ -6586,13 +6597,21 @@ So there is one row now, under the top bar on every page the bottom bar was on:
   └──────────────────────────────────────────────────────┘
 ```
 
-Eight pills today, on nine pages: the [six kinds](#one-list-six-kinds--and-the-two-sub-filters)
+Nine pills today, on ten pages: the [six kinds](#one-list-six-kinds--and-the-two-sub-filters)
 bc-khoe.2 promoted out of the inbox's filter panel — My Epics, Questions, PRs, Chats,
-Ledger, All Beads — plus Advocates and
-[Releases](#releases--the-view-those-queues-are-drawn-on). The other five pages that used
-to load the bottom bar (`/admin`, `/console`, `/endorse`, `/flow`, `/requirements`) draw
-the row with **nothing on it current**, which is their way off a page that would otherwise
-be reachable only by the browser's back gesture.
+Ledger, All Beads — plus Advocates, plus
+[Releases](#releases--the-view-those-queues-are-drawn-on), plus
+[Config](#space-details--every-setting-a-space-has-on-a-page-of-its-own), the selected
+space's own settings, which bc-khoe.10 took off the advocate console. Releases sits next to
+Advocates because the two are read one after the other — the board is where you decide
+something may land and Releases is where you watch it do so — and Config is rightmost
+because the row is ordered by how often a thumb reaches a pill and this is the one you
+reach about once a month. Its glyph is knobs and not a gear: the gear in this app is
+`/admin`, which is the *machine's* settings and is in the mark's menu, and two settings
+screens behind one glyph is the confusion that menu exists to end. The other five pages
+that used to load the bottom bar (`/admin`, `/console`, `/endorse`, `/flow`,
+`/requirements`) draw the row with **nothing on it current**, which is their way off a page
+that would otherwise be reachable only by the browser's back gesture.
 
 **A pill is a link only when there is somewhere to go, and the current one is a `<span>`.**
 Tapping where you already are should do nothing, not throw away the list, the conversation
@@ -6604,7 +6623,7 @@ one that can — because colour alone is not a mark.
 The first is a view whose [pane is in this document](#the-shell--one-document-one-pane-per-view):
 since bc-khoe.30.3 the app is one document with a container per view, so the pill writes
 the hash and the pane swaps, and nothing is fetched. The second is a kind, which is Home
-under a different narrowing (bc-khoe.2) — five of the eight pills are that, and as links
+under a different narrowing (bc-khoe.2) — five of the nine pills are that, and as links
 they would each be a full document load to change which rows of a list already in hand get
 drawn. On the shell that holds from *every* pane: `PRs` tapped while the Ledger is up carries
 both the pane to show and the kind to select, so one tap does both. On a page that is not
@@ -6619,18 +6638,19 @@ there, pushed at the row by `public/inboxfilter.js` rather than read by it. The 
 twelve pages and the filter on one; a row that read the selection itself would have to know
 the storage key, which is the second place that knows what a kind is.
 
-**The row scrolls sideways and never wraps.** There are eight pills today — Releases
-joined them when the deploy strip left the PR board — and there will be roughly nine once
-Advocates and Mirror fold in. A row that wrapped to a second line on a 360px phone would
-spend a row of a screen that is mostly chrome already, which is the thing this change
-exists to stop. The selected pill is scrolled into view on load — done by arithmetic on
-the two rectangles rather than with `scrollIntoView`, which is allowed to scroll every
-ancestor and would quietly move the list under it.
+**The row scrolls sideways and never wraps.** There are nine pills today — Releases joined
+them when the deploy strip left the PR board, and Config when the space's settings left the
+advocate console — and there will be roughly ten once Advocates and Mirror fold in. A row
+that wrapped to a second line on a 360px phone would spend a row of a screen that is mostly
+chrome already, which is the thing this change exists to stop. The selected pill is scrolled
+into view on load — done by arithmetic on the two rectangles rather than with
+`scrollIntoView`, which is allowed to scroll every ancestor and would quietly move the list
+under it.
 
 **Four counts, and only on Home.** My Epics, Questions, PRs and Chats each carry a number:
-how many rows tapping that pill would leave you with. All Beads, Ledger, Advocates and Releases
-carry none — the first is unbounded and says nothing you would act on, and the other three
-are pages of their own with their own polls.
+how many rows tapping that pill would leave you with. All Beads, Ledger, Advocates, Releases
+and Config carry none — the first is unbounded and says nothing you would act on, and the
+other four are pages of their own with their own polls.
 
 This reverses a decision this section used to record, and the objection it was written
 against still stands as written. Advocates carried a badge once — how many proposals were
@@ -7547,11 +7567,13 @@ bc-d4d5 put it back as the **third chip on this same row**, between Advocates an
 on the Mirror's own two reasons: it is a mode of the advocates page (the same space's
 repos, seen as work waiting to ship rather than work running), and it is somewhere you
 glance and act on rather than somewhere you live. bc-me2b added **Config** on the same
-test, and it is the only one of the four that arrived by *leaving* the Advocates pane
-rather than by folding a page into it — see
-[Space details](#space-details--the-page-the-advocate-console-became). So the row reads
-**Advocates · PRs · Config · Mirror**, and `/prs`, `/pulls` and `/prs.html` are three more
-paths to `monitor.html` with the second chip up. (Those three are also the PRs pill's own
+test and bc-khoe.10 took it off again — the only one of the four that ever arrived by
+*leaving* the Advocates pane rather than by folding a page into it, and the only one to
+fail the test on a second reading: a space's configuration is not a mode of the page that
+shows its work, it is [a view of its own](#space-details--every-setting-a-space-has-on-a-page-of-its-own).
+So the row reads **Advocates · PRs · Mirror** again,
+and `/prs`, `/pulls` and `/prs.html` are three more paths to `monitor.html` with the second
+chip up. (Those three are also the PRs pill's own
 `paths` since bc-khoe.1, so
 the row across the top marks it current on all of them while the chip row puts the board
 up — the duplication is not transitional after all, and
@@ -7571,10 +7593,9 @@ What that cost, and what it did not:
   `public/montabs.js` owns the row, the panes subscribe, and each of them answers only
   for itself. The mapping — which section a chip shows, and what `presence.js` should say
   this device is looking at — is declared on the chips in the HTML.
-- **A hidden pane is stood down, not merely invisible.** Three of the four hold a parked
+- **A hidden pane is stood down, not merely invisible.** All three hold a parked
   `/api/poll`, and the board's wakes are a `gh` call per repo; the subscription is what
-  stops them running at once. Nothing is fetched for the board until its chip is up, and
-  Config's one `/api/space` read is not sent until its chip is.
+  stops them running at once. Nothing is fetched for the board until its chip is up.
 - **The top bar is shared.** One ⟳ for the page, and each pane ignores it while it is
   hidden — rather than a second refresh button that would mean a different half of the same
   screen depending on where your thumb landed.
@@ -7616,7 +7637,7 @@ restyle needs to be able to move it without moving the other page.
 
 **The strip is sticky, and for a while that bought nothing.** It has to be — the
 advocates list is long enough that halfway down it there is nothing on screen saying
-which of the four panes you are in, and no way to the other three without scrolling to
+which of the three panes you are in, and no way to the other two without scrolling to
 the top first. It was sticky at `top: 0`, inherited wholesale from `.agent-tabs` on the
 foundations page, where zero is correct because that strip's scroll container is a
 `.launcher` that already *starts* below the top bar. Here the scroll container is the
@@ -19648,13 +19669,10 @@ still holds all three sizes of good news, because the argument for one card is a
 shade and the argument for three channels is about the ear; the card takes its voice from
 whichever arrival caused the render.
 
-**`epic-done` has a shape and no emitter yet, and that is the shape of bc-ka5y.15.2.**
-Nothing closes an epic on its own here — `lib/bd.js` refuses an epic close on a merge,
-because a pull request is no evidence about a theme — so the event is the bead
-*transitioning* to closed, and the detection owes one suppression that has to be built with
-it: an epic you closed yourself, from the app in your hand, must not chime. What is settled
-here is what it will carry (the epic's title, and how many beads closed under it) and what
-the phone does with it when it arrives.
+**`epic-done` is the only one of the four whose *moment* is not a call site**, and it gets
+its own section below: nothing closes an epic on its own here, so the trigger is a diff of
+the tracker rather than a hook, and it owes one suppression — see
+[An epic finishing](#an-epic-finishing--a-diff-of-the-tracker-never-your-own-tap).
 
 **One landing comes from outside the daemon.** The merge queue runs in-process and calls
 the bus directly; `bin/deliver.js` is a worker's own process with no bus, and it still
@@ -19679,6 +19697,81 @@ does not catch it, because `app.bus.emit(deployEvent` contains that text; the ch
 is the other half — it plants a settled deploy record on disk, runs a real poller over it,
 and reads the events off a real bus, then sweeps the whole of `startPoller` for any daemon
 singleton named bare.
+
+### An epic finishing — a diff of the tracker, never your own tap
+
+`epicDoneEvent` sat in `lib/news.js` for a day with nothing calling it, and the gap was
+deliberate: the *shape* of the card is a decision about layout, and the *moment* an epic
+finishes is a judgement. bc-ka5y.15.2 is the judgement, and it is `lib/epicdone.js`.
+
+**There is no call site to hook, so the trigger is a diff.** Nothing in this app closes an
+epic on its own. `lib/bd.js` refuses an epic close on a merge reason — *a pull request is
+no evidence about a theme* — after six epics closed that way on 2026-08-12/13 with sixty
+adoptees still open, and bd cannot be taught the rule either, because it has no pre-close
+hook (`bd hooks` installs git hooks and nothing else). So an epic closes because somebody
+decided it had, in one of four places: a tap on this app, `bd close` typed at a terminal
+here, a worker session an advocate opened, or the same on the other Mac arriving over `bd
+dolt pull`. Three of those four are other processes. What all four have in common is a row
+that changes, which is why the poller holds the set of epics that were **not** closed last
+time it looked and announces the ones that have since become so.
+
+**The read is free.** The sweep asks `bd.graph(workspace)` — one `bd export` per workspace,
+cached for sixty seconds and shared with the inbox's epic board — so on a daemon anybody
+has a phone open against this reads memory rather than the tracker. It runs on the cycle's
+ordinary slow clock with no interval of its own, late in the beat, because an epic that
+finished is exactly as finished a minute from now.
+
+**The first pass over a workspace seeds and says nothing.** A daemon that has just come up
+must not announce every epic that finished last month, which is `sweptReleasesAt`'s
+argument. What that costs is an epic closed while the daemon was down going unannounced,
+and that is the right thing to lose. The snapshot is in memory for the same reason there is
+no state file here to gitignore and nothing for `lib/evidence.js` to claim.
+
+**A tracker that would not read leaves the snapshot alone.** `bd.graph` answers an *empty
+index carrying `.error`* rather than throwing, so an export that timed out reads as "every
+epic has vanished" to anything that believes it — and in a diffing sweep it would also make
+the next good pass see the whole tracker as newly filed. That workspace is skipped whole
+and reported on stderr.
+
+#### The suppression, and why it is `actor` rather than a list of handlers
+
+**An epic you closed yourself, from the app in your hand, must not chime.** A notification
+for your own tap is the fastest way to teach somebody that a sound means nothing, and this
+is the one of the four sources above where the phone already knows — you were looking at it
+when it happened.
+
+What marks a close as yours is the `actor` on it. `actorFor(req)` in `lib/server.js` is
+`sessionOf(req)?.email || null`: a signed-in browser or app session and nothing else. Every
+token caller — an agent, `bin/deliver.js`, an ntfy action button, the poller itself — passes
+null and always has, so `actor` already means, exactly, *a person tapped this here*. The
+record is taken in **`Bd.run`**, the single funnel every `bd close` this daemon spawns goes
+through, rather than at the handlers that close things: a fifth path added next month gets
+the suppression without knowing `lib/epicdone.js` exists, and the failure mode of forgetting
+a registration would be a chime for an epic you closed while watching the screen.
+
+The ledger is **not** drained by the sweep that reads it, and that is the ordering trap.
+The graph is cached for a minute, so the beat right after a tap routinely reads a tracker in
+which the epic is still open; the transition is seen a minute later, and a ledger emptied on
+first read would have forgotten by then. Entries expire on a six-hour clock instead, under a
+cap, so a tap you have long forgotten cannot silence a real close of an epic that was
+reopened.
+
+**Two more closes are not milestones either.** A **superseded** epic is a duplicate being
+tidied away and an **unendorsed** one is a proposal being turned down; both are dropped
+here rather than in the emitter, because both are facts about the bead and `lib/news.js`
+only ever sees the four fields the card is drawn from. Neither is in bc-ka5y.15.2's
+acceptance — both are usually a tap and so already silent — but *usually* is not the bar
+when what is at stake is whether the sound means anything.
+
+The card itself is `epicDoneEvent`'s and unchanged: the epic's **title**, and **how many
+beads closed under it**. That count is children *and* adoptees, de-duplicated across the
+two, because a grouping epic keeps its work in an `Adopts:` line rather than as `bc-x.1`
+and counting only children would tell you an epic of eleven adopted beads finished with
+nothing under it. Closed only — an epic can be closed over a `deferred` child, and calling
+a deferred bead finished would be the count inventing a fact.
+
+`test/epicdone.mjs` covers it, including a real `Bd` against a stub `bd` binary, so the
+suppression is proved through the funnel rather than by reading a line of `lib/bd.js`.
 
 ### Noticing in five seconds — and not sweeping to find out
 
@@ -22595,7 +22688,7 @@ private side project turning up in a channel other people read.
 A channel id (`C…`) or a DM id (`D…`), not a `#name` — the API takes ids, and a name
 that has been renamed since you typed it fails at post time rather than at configure
 time. Both `slackChannel` and `slackDetail` are rows on the
-[space details screen](#space-details--the-page-the-advocate-console-became), so the
+[space details screen](#space-details--every-setting-a-space-has-on-a-page-of-its-own), so the
 per-space half of this is a thing you change from a phone rather than by opening
 `config.json` on the Mac; `npm run configure` asks for the global channel and the global
 detail alongside its ntfy question, which is how a fresh install finds out this exists at
@@ -22757,7 +22850,7 @@ are decisions rather than layout:
   perfectly well — so the summary line is `publishing into ENG, reading nothing` rather
   than the word "on", which would be true of an install whose agents read nothing at all.
 
-**Neither answer is on the [space details screen](#space-details--the-page-the-advocate-console-became),
+**Neither answer is on the [space details screen](#space-details--every-setting-a-space-has-on-a-page-of-its-own),
 and that is the same decision twice.** `confluenceSpace` is not there for the reason the
 next section gives, and `readSpaces` is not there for a reason of its own: it is a single
 global list rather than a per-space one — see [the two edges](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with)
@@ -22785,7 +22878,7 @@ publishing the day a global default appears. Leave `confluence.space` unset enti
 **nothing** publishes except the spaces that name their own, which is the way round to
 configure it if most of what you read is not the team's business.
 
-This is deliberately **not** on the [space details screen](#space-details--the-page-the-advocate-console-became)
+This is deliberately **not** on the [space details screen](#space-details--every-setting-a-space-has-on-a-page-of-its-own)
 with the settings that are. It is the same line `name` and `workspaces` sit on the far
 side of: choosing which wiki an evening's work is published to is a config-file act, not
 a thing to do with a thumb, and an integration whose whole point is being deliberate
@@ -23165,7 +23258,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/account` | `{email}` | switch account — the whole of what **Switch accounts** does. Server-side like the filter below it, so the phone and the laptop agree and the push path reads the same value. An address naming no account is a 400. Filing follows it: the daemon's byline, addressee and owner stamps become that address at once |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Notifications already unread for beads the new filter excludes are left exactly as they are — [nothing tidies them](#and-it-does-not-tidy-up-the-noise-it-already-made) |
 | GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], filter}`. Costs no `bd` call — the spaces are cached off the last sweep — because it is fetched on every page load of every standing view. **No counts**: the picker draws none |
-| GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
+| GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--every-setting-a-space-has-on-a-page-of-its-own) screen: `{settings, effective, repos[], defaults, missing[], observing}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. `observing` rides along the way it does on `/api/prs`: `/config` is a page whose only payload is this one, and an instance that merely watches has to draw every control on it disabled. 404 for anything that is not a configured space, the synthetic `Other` group included |
 | POST | `/api/space` | `{space, workspace?, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. With a `workspace`, it writes that **repo's own** override instead — `autoEndorse` only, and a repo the named space does not contain is a 400. Either way the reply is the whole `spaceDetail`, and it writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/bead/create` | `{workspace, title, type?, priority?, description?, acceptance?, parent?, labels?}` | `{ok, id, key, workspace, parent, warnings[]}` — the [create form](#a-bead-you-file-yourself-from-the-form-behind-) behind ＋ on **All Beads**. One bead, through the same `createBead` the chat console's accept button calls, so the two doors cannot disagree about labels, the surface block or `created_by`. **Not** `fileBeads`: a bead you typed carries no `unendorsed`, no `agent-filed` and no agent provenance. A blank `parent` is [`lib/homing.js`](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists) and lands it under the repo's `unsorted` root — a *named* parent that does not exist is a `400` with nothing filed, because a blank field is "you decide" and a typo is not. `400` for no title or an unknown workspace; `502` carries bd's own first line, which the form keeps on screen |
@@ -24304,9 +24397,9 @@ to be one.
 | `ntfy.minimalWorkspaces` | forced to `minimal` regardless — put shared/work trackers here |
 | `ntfy.actionButtons` | answer straight from the notification (default `true`). ntfy allows at most 3 action buttons |
 | `slack.enabled` | post questions to a Slack channel with a button per option (default `false`). Off until this **and** a channel **and** a bot token all exist — see [Slack](#slack--the-same-decision-in-a-channel) |
-| `slack.channel` | the default channel, as an id (`C…`) or a DM id (`D…`), not a `#name` (default `null`). Asked by `npm run configure`. A [space](#spaces--keeping-work-out-of-your-evening) overrides it with `slackChannel`, in either direction — `""` there means that space never posts — and that override is a row on the [space details screen](#space-details--the-page-the-advocate-console-became) |
+| `slack.channel` | the default channel, as an id (`C…`) or a DM id (`D…`), not a `#name` (default `null`). Asked by `npm run configure`. A [space](#spaces--keeping-work-out-of-your-evening) overrides it with `slackChannel`, in either direction — `""` there means that space never posts — and that override is a row on the [space details screen](#space-details--every-setting-a-space-has-on-a-page-of-its-own) |
 | `slack.excludeWorkspaces` | one repo that never posts, outranking its space. The same idea as `ntfy.minimalWorkspaces` |
-| `slack.detail` | `full` = question + option buttons; `minimal` = a nudge with a link. Defaults to `full`, unlike ntfy, because a channel you named is not a public relay. Per space with `slackDetail`, which is a three-state row on the [space details screen](#space-details--the-page-the-advocate-console-became) |
+| `slack.detail` | `full` = question + option buttons; `minimal` = a nudge with a link. Defaults to `full`, unlike ntfy, because a channel you named is not a public relay. Per space with `slackDetail`, which is a three-state row on the [space details screen](#space-details--every-setting-a-space-has-on-a-page-of-its-own) |
 | `slack.buttons`, `slack.maxButtons` | answer straight from the channel (default `true`), and how many options fit in the row (default 5; the rest stay in the app, and the message says how many) |
 | `slack.botTokenFile`, `slack.appTokenFile` | where the two tokens are read from. Default `null`, meaning `~/.config/beadcause/slack-bot.key` and `slack-app.key`. **There is deliberately no `botToken` or `appToken` field** — this file is committed to the git repo in that directory, and one typed in there aborts the next snapshot |
 | `slack.apiBase` | the API root (default `https://slack.com/api`). No reason to change it on a real install — it exists so a suite can point it at a server it started itself |
@@ -25812,7 +25905,7 @@ tracker: take it out of `approved` and give it its own workspace, which is what 
 non-Climative repo already is.
 
 **And it could not be set from where these get set.** The
-[space details card](#space-details--the-page-the-advocate-console-became) exists because a
+[space details card](#space-details--every-setting-a-space-has-on-a-page-of-its-own) exists because a
 policy you can only change by editing `config.json` at a keyboard stays wrong until you
 are next at one. A per-repo answer would live in the `repos` block — a config-file act,
 which is the failure that card ended — and making it phone-settable means forty rows of
@@ -28840,7 +28933,7 @@ head of every card on `/monitor` — had `align-items: center` and `flex-wrap: w
 { margin-left: auto }` was dead beside them for the same reason. The head laid out as a
 plain block and stacked the repo's name, the state line and the controls on three lines:
 127px of head on a phone where the row is 88px, and the two cards with no controls 80px
-where the row is 36px. The sketch under [Space details](#space-details--the-page-the-advocate-console-became)
+where the row is 36px. The sketch under [Space details](#space-details--every-setting-a-space-has-on-a-page-of-its-own)
 above draws that head as one line, because one line is what it was written to be — the
 page had simply never done it. Nothing complained, and nothing could: two properties that
 do nothing render as exactly the layout you would have had without them, which is why this

@@ -739,13 +739,15 @@ await check('every pill the row draws is warmed — and three views are delibera
    *
    * **This stopped being an identity in bc-khoe.2** and the map is the whole of what
    * changed here. The row used to be one pill per page, so a pill id and a view id were
-   * the same word; six of the eight pills are now the inbox's *kinds*, and four of those
+   * the same word; six of the nine pills are now the inbox's *kinds*, and four of those
    * six are Home under a different narrowing — one page, one payload, one warm entry.
    * `PRs` is the exception among them and it is not an exception to the rule: tapping it
    * is the first thing on Home that wants a board at all (`loadBoard` in public/app.js),
    * so its first frame comes off `/api/prs` exactly as the board page's does. Releases
-   * (bc-khoe.7) is the one pill added since, and it is an identity again for the ordinary
-   * reason the old ones were: a page of its own, with a payload of its own.
+   * (bc-khoe.7) and Config (bc-khoe.10) are the two pills added since, and both are
+   * identities again for the ordinary reason the old ones were: a page of its own each.
+   * Config's payload is the empty one — `/api/space` is per-space and so warms nothing,
+   * which is a view that exists and holds no paths rather than a pill with no view.
    *
    * The check the map serves is unchanged: a pill whose payload nothing warms is a view
    * that stays cold, which is invisible until you are on a phone wondering why one is
@@ -760,6 +762,7 @@ await check('every pill the row draws is warmed — and three views are delibera
     history: 'history',
     advocates: 'advocates',
     releases: 'releases',
+    config: 'config',
   };
   const views = plain(warm.VIEWS).map((v) => v.id);
   for (const pill of ids) {
@@ -797,15 +800,24 @@ await check('every pill the row draws is warmed — and three views are delibera
     firstOther === -1 || firstOther > lastPill,
     `${views[firstOther]} is warmed before a pill is — the pills come first, and this list is the warm order`
   );
-  // A view may warm nothing, and exactly one does. `paths: []` satisfies the loop above
+  // A view may warm nothing, and exactly two do. `paths: []` satisfies the loop above
   // without prefetching a byte, so it is the obvious way to *silence* this check rather
-  // than answer it — and the answer is only defensible for History, whose boot request
-  // carries the space picker's current selection and is therefore not a constant this
-  // file could hold. Any other pathless view is a tab that stays cold behind an entry
-  // claiming it does not, which is worse than the missing entry this check was written
-  // to catch.
+  // than answer it — and the answer is only defensible where the page's boot request is
+  // not a constant this file could hold. Both of these are that case, and for the same
+  // reason: History's carries the space picker's selection (`workspace=`, or `space=`, or
+  // neither) and Config's *is* one space (`/api/space?space=…`), so any path written here
+  // would be right only for whoever happened to have the picker set the way this file
+  // guessed. Config has a second half History does not: its payload is a read of the
+  // config object the daemon already holds, with no `bd`, no `gh` and no disk behind it,
+  // so a cold first frame there costs about as little as a warm one would. Any *other*
+  // pathless view is a pill that stays cold behind an entry claiming it does not, which
+  // is worse than the missing entry this check was written to catch.
   const empty = plain(warm.VIEWS).filter((v) => !plain(v.paths).length).map((v) => v.id);
-  assert.deepEqual(empty, ['history'], `a view that warms nothing has to be a decision: ${empty.join(', ')}`);
+  assert.deepEqual(
+    empty,
+    ['history', 'config'],
+    `a view that warms nothing has to be a decision: ${empty.join(', ')}`
+  );
 });
 
 await check('the inbox draws its list through the reconciler, not through innerHTML', () => {

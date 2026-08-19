@@ -166,6 +166,12 @@ const PAGES = [
   // board. Two names for it, because the page is about the journey and the strip was what
   // most people came for: `/releases` is what it is, `/deploys` is the word somebody types.
   { what: 'the releases view', marker: '/releases.js', paths: ['/releases', '/deploys', '/releases.html'] },
+  // The selected space's settings (bc-khoe.10). Two paths for the same reason the queue
+  // has three: the screen has two honest names — it is the *config* of a space, which is
+  // the word the chip it used to be was labelled with, and it is where its *settings*
+  // are, which is what somebody types. Not `/space`: that reads as the picker rather than
+  // as the thing the picker selects.
+  { what: "the space's settings", marker: '/config.js', paths: ['/config', '/settings', '/config.html'] },
   // The skill library and whether anything uses it (bc-dgx7.5). Two paths, because the
   // page is reached both by what it holds and by what the programme calls the things
   // waiting to become one. No pill claims either, which is the recorded decision in
