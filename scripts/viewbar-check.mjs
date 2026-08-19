@@ -46,8 +46,10 @@
 // believed — the same run that took the row from four pills to seven was green here
 // without a line of this file changing. So the array is read out of the source the way
 // `test/mirrorpane.mjs` reads it, and everything below is derived from it: which pills
-// there should be, in what order, and — from each pill's own `paths` — which one should
-// be lit on the page being looked at.
+// there should be, in what order, and — from `VIEWS` in `public/hashroute.js`, which is
+// where each view's addresses live since bc-khoe.30.2 — which one should be lit on the
+// page being looked at. Two source files rather than one, because they are two questions:
+// what the row draws, and what an address means.
 //
 // The *page* list is derived too. Every `public/*.html` that pulls in `/viewbar.js` has
 // to appear below, and a page that starts drawing the row without being added here fails
@@ -112,32 +114,35 @@ const decomment = (src) =>
  * point of this file is that there is no hardcoded list, and a check that quietly falls
  * back to one is a check that goes on passing after the row has changed underneath it.
  */
-function pillsFromSource() {
-  const src = decomment(fs.readFileSync(path.join(PUBLIC, 'viewbar.js'), 'utf8'));
-  const m = src.match(/const PILLS = (\[[\s\S]*?\n {2}\]);/);
+function arrayFromSource(file, name) {
+  const src = decomment(fs.readFileSync(path.join(PUBLIC, file), 'utf8'));
+  const m = src.match(new RegExp(`const ${name} = (\\[[\\s\\S]*?\\n {2}\\]);`));
   if (!m) {
     console.error(
-      'could not find the PILLS array in public/viewbar.js — this check reads the row\'s own list\n' +
-        'rather than repeating it, so a rename or a reshape of that array has to be reflected here.'
+      `could not find the ${name} array in public/${file} — this check reads the row's own lists\n` +
+        'rather than repeating them, so a rename or a reshape of that array has to be reflected here.'
     );
     process.exit(1);
   }
   try {
     return vm.runInNewContext(`(${m[1]})`, Object.create(null), { timeout: 1000 });
   } catch (err) {
-    console.error(`public/viewbar.js's PILLS array did not evaluate as data: ${err.message}`);
+    console.error(`public/${file}'s ${name} array did not evaluate as data: ${err.message}`);
     process.exit(1);
   }
 }
 
-const PILLS = pillsFromSource();
+const PILLS = arrayFromSource('viewbar.js', 'PILLS');
+/* Which addresses are which view. A view's id is its pill's id on purpose, so this joins
+   to the array above by that id and no mapping is written down anywhere. */
+const VIEWS = arrayFromSource('hashroute.js', 'VIEWS');
 const IDS = PILLS.map((p) => p.id);
 
 /** The path a pill claims, normalised the way the row itself normalises `location`. */
 const norm = (p) => p.replace(/\/+$/, '') || '/';
 
 /**
- * Which pill should be lit on this path, per the row's own `paths` — or `null`.
+ * Which pill should be lit on this path, per `VIEWS` in public/hashroute.js — or `null`.
  *
  * `null` is a real answer and not a gap. /console, /endorse, /flow, /requirements and
  * /admin are pages the row is drawn on and none of them is a view: /admin in particular
@@ -145,7 +150,7 @@ const norm = (p) => p.replace(/\/+$/, '') || '/';
  * in the mark's menu and on no row). A pill lit there would be a lie about where you are,
  * so "nothing is current" is asserted just as firmly as "this one is".
  */
-const litFor = (urlPath) => PILLS.find((p) => p.paths?.includes(norm(urlPath)))?.id ?? null;
+const litFor = (urlPath) => VIEWS.find((v) => v.paths.includes(norm(urlPath)))?.id ?? null;
 
 /* ---------------------------------------------------------------- the fixture */
 
@@ -189,11 +194,18 @@ const ROUTES = {
   '/deploys': '/releases.html',
   '/flow': '/flow.html',
   '/requirements': '/requirements.html',
+  '/skills': '/skills.html',
   '/admin': '/admin.html',
 };
 
+/* Every URL the fixture was asked for, in order. One assertion needs it: "tapping All
+   Beads refetches" is a claim about a request going out, and no amount of reading the
+   page afterwards can tell you whether one did. */
+const HITS = [];
+
 function serve() {
   const server = http.createServer((req, res) => {
+    HITS.push(req.url);
     const p = new URL(req.url, 'http://x').pathname;
     const json = (b) => {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -248,6 +260,13 @@ function serve() {
  * `/prs` is here twice over — as its own path and as `/monitor` — because the server
  * serves one document for both and what is being asked is that arriving by either URL
  * lights the pill the row's own list says it should.
+ *
+ * Six of these light *nothing* — `/console`, `/endorse`, `/flow`, `/requirements`,
+ * `/skills`, `/admin`. No pill in `public/viewbar.js` claims their paths, and that is a
+ * decision recorded there rather than an omission here, so what each of them is asked is
+ * that the row draws with no `aria-current` at all. It is also why none of them reaches
+ * the reveal pass below: `later` asks which pill is lit, and for these the answer is
+ * none.
  */
 const PAGES = [
   { url: '/', file: 'index.html' },
@@ -259,6 +278,7 @@ const PAGES = [
   { url: '/endorse', file: 'endorse.html' },
   { url: '/flow', file: 'flow.html' },
   { url: '/requirements', file: 'requirements.html' },
+  { url: '/skills', file: 'skills.html' },
   { url: '/admin', file: 'admin.html' },
 ];
 
@@ -367,7 +387,11 @@ const PROBE = `(() => {
     admin: !chip ? null : hoisted ? 'hoisted' : adminRow && !adminRow.hidden ? 'menu' : null,
     plus: null,
   };
-  if (plus) {
+  /* Zero-sized means the kind you are on has no ＋ (bc-khoe.27.1) — Questions and PRs
+     have nothing to create, and the wrapper is hidden there. Nothing to measure and
+     nothing to complain about: the assertion below is that a drawn ＋ takes its own
+     taps, not that one is drawn. */
+  if (plus && plus.getBoundingClientRect().width) {
     const r = plus.getBoundingClientRect();
     const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     out.plus = { w: Math.round(r.width), h: Math.round(r.height), takes: !!hit && (hit === plus || plus.contains(hit)), hit: hit ? name(hit) : null };
@@ -554,18 +578,18 @@ try {
         );
       } else bad(`${at}: the row scrolls sideways`, `overflow-x is ${m.overflowX} — a row that cannot scroll is a row that wraps or clips`);
 
-      // Exactly what the row's own `paths` say is current, and nothing where they say nothing.
+      // Exactly what the view table's `paths` say is current, and nothing where they say nothing.
       const cur = m.pills.filter((p) => p.current === 'page');
       if (cur.length === (want ? 1 : 0) && cur[0]?.id === (want ?? undefined))
         ok(
           want
-            ? `${at}: "${want}" is the one current pill — public/viewbar.js's own paths say so`
-            : `${at}: no pill is current, which is what the row's paths say for this page`
+            ? `${at}: "${want}" is the one current pill — public/hashroute.js's VIEWS say so`
+            : `${at}: no pill is current, which is what the view table says for this page`
         );
       else
         bad(
           want ? `${at}: "${want}" is the one current pill` : `${at}: no pill is current on this page`,
-          `aria-current is on ${cur.length ? cur.map((p) => p.id).join(', ') : 'nothing'}; the row's paths say ${want ?? 'nothing'}`
+          `aria-current is on ${cur.length ? cur.map((p) => p.id).join(', ') : 'nothing'}; the view table says ${want ?? 'nothing'}`
         );
 
       // Tapping where you are does nothing — and the mark is not only colour.
@@ -662,6 +686,91 @@ try {
          and is never noticed by anybody who was not looking for it. */
       if (m.spare) notices.push(`\x1b[33m!\x1b[0m ${at}: the row and ${m.spare} are two ways Home in one page's chrome`);
     }
+  }
+
+  /* ------------------------------------------- a pill the scope cannot fetch */
+
+  /*
+    The one pill on the row that is not simply a narrowing of what is already in hand.
+
+    `bead` is the only kind with a `side` (public/inboxfilter.js), and the scope decides
+    which sweep runs — so under `Human`, the default and the scope nearly every phone is
+    on, the beads have not been fetched and could not be shown. The row does not know
+    that: viewbar.js draws all seven pills on all twelve pages, which is what lets one
+    row say the same thing everywhere. So for a while `All Beads` under `Human` was a
+    pill whose tap was swallowed — `set()` dropped the selection, `current()` fell back
+    and the row lit `My Epics` (bc-khoe.25).
+
+    Driven here rather than only in `test/inboxkinds.mjs` because everything that suite
+    can reach is the *filter*: this is three files agreeing across a real tap — the row's
+    click handler, the filter's widen seam, and public/app.js answering it with the scope
+    switch beside the row. The refetch is asserted off the fixture's own request log,
+    because a page read afterwards cannot tell you whether one went out.
+  */
+  console.log(`\n\x1b[1mAll Beads, from the scope that cannot fetch one\x1b[0m`);
+  {
+    await s.send('Emulation.setDeviceMetricsOverride', { ...SIZES[1], deviceScaleFactor: 2, mobile: true });
+    /* Once to have an origin to write in, then again so the page boots with the scope
+       parked where the pill was dead. The stored kinds go too — a previous run of this
+       file leaves `bead` in there, which would be the check passing on its own history. */
+    await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=viewbar-check-scope` });
+    await sleep(900);
+    await evalJs(s, `localStorage.setItem('beadcause.scope', 'human'), localStorage.removeItem('beadcause.kinds'), 1`);
+    await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=viewbar-check-scope-2` });
+    await sleep(1200);
+
+    const STATE = `(() => {
+      const armed = document.querySelector('.filterpills .chip-row.scopes .chip[aria-pressed="true"]');
+      const cur = document.querySelector('.viewbar [aria-current="page"]');
+      const bead = document.querySelector('.viewbar [data-pill="bead"]');
+      return {
+        scope: armed ? armed.dataset.chip : null,
+        lit: cur ? cur.dataset.pill : null,
+        beadTag: bead ? bead.tagName.toLowerCase() : null,
+        stored: localStorage.getItem('beadcause.scope'),
+      };
+    })()`;
+
+    const before = await evalJs(s, STATE);
+    if (before.scope === 'human') ok('Home comes up on Human, which is the scope the beads are not fetched on');
+    else bad('Home comes up on Human', `the armed scope chip says ${before.scope ?? 'nothing'} — the rest of this section is measuring something else`);
+    if (before.lit === 'epics') ok('and My Epics is lit, which is Home with nothing narrowed');
+    else bad('My Epics is lit before the tap', `the row says ${before.lit ?? 'nothing'}`);
+    if (before.beadTag === 'button') ok('All Beads is drawn as a tappable button on this scope, not hidden and not inert');
+    else bad('All Beads is a tappable button on Human', `it is a <${before.beadTag ?? 'nothing'}> — a pill you cannot tap is the other way to make this bug`);
+
+    const asked = HITS.length;
+    const hit = await evalJs(s, `!!document.querySelector('.viewbar button.viewpill[data-pill="bead"]')?.click() || true`);
+    await sleep(1400);
+    const after = await evalJs(s, STATE);
+
+    if (after.lit === 'bead') ok('tapping it leaves All Beads lit');
+    else
+      bad(
+        'tapping All Beads leaves All Beads lit',
+        after.lit === 'epics'
+          ? 'the row bounced back to My Epics — the selection was dropped rather than reached, which is bc-khoe.25 exactly'
+          : `the row lights ${after.lit ?? 'nothing'}`
+      );
+    if (after.scope === 'both') ok('and the scope switch beside it has moved to Both, where the beads are fetched');
+    else bad('the scope switch moves to Both', `it says ${after.scope ?? 'nothing'} — the widening is invisible, or did not happen`);
+    if (after.stored === 'both') ok('and it is stored, so the widening survives a reload like every other scope change');
+    else bad('the widened scope is stored', `beadcause.scope is ${after.stored ?? 'unset'}`);
+
+    const refetched = HITS.slice(asked).filter((u) => u.startsWith('/api/questions?scope=both'));
+    if (refetched.length) ok(`and the beads were actually asked for (${refetched[0]})`);
+    else
+      bad(
+        'the tap refetches on the wider scope',
+        `nothing asked for /api/questions?scope=both — the pill lit a slice of a payload that was never fetched. Since the tap: ${HITS.slice(asked).join(', ') || 'no requests at all'}`
+      );
+    /* The other half of the bead, and the one a green check above could hide: the widening
+       is a request *on a tap*, and the Human poll it left behind must not have grown one.
+       bc-w156.4 refused paying for a per-workspace bead query on every Human poll and that
+       refusal stands. */
+    const onHuman = HITS.slice(0, asked).filter((u) => u.startsWith('/api/questions?scope=') && !u.startsWith('/api/questions?scope=human'));
+    if (!onHuman.length) ok('and nothing went out on a wider scope before the tap — the Human poll is unchanged');
+    else bad('the Human poll asks for nothing wider', `it asked for ${[...new Set(onHuman)].join(', ')}`);
   }
 
   /* ------------------------------------------------- the row that does not fit */

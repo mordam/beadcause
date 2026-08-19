@@ -166,6 +166,11 @@ const PAGES = [
   // board. Two names for it, because the page is about the journey and the strip was what
   // most people came for: `/releases` is what it is, `/deploys` is the word somebody types.
   { what: 'the releases view', marker: '/releases.js', paths: ['/releases', '/deploys', '/releases.html'] },
+  // The skill library and whether anything uses it (bc-dgx7.5). Two paths, because the
+  // page is reached both by what it holds and by what the programme calls the things
+  // waiting to become one. No pill claims either, which is the recorded decision in
+  // public/viewbar.js for a page you read when you are arguing about the system.
+  { what: 'the skills view', marker: '/skills.js', paths: ['/skills', '/candidates', '/skills.html'] },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
@@ -275,11 +280,16 @@ for (const { path: p, why } of NEVER_MADE) {
   pill row does not recognise (bc-khoe.1).
 
   Every table above proves a shortcut still *opens* something. None of them proves the
-  navigation knows where you have landed — and the row marks the current view by matching
-  `location.pathname` against a pill's `paths`, so a phone opening the `/work` shortcut it
-  has had on its home screen for months would get the advocate console with **nothing on
-  the row current**. That reads as the page having lost its way in, on the exact devices
-  the aliases exist for.
+  navigation knows where you have landed — and the row marks the current view by asking
+  `viewOfPath` what view `location.pathname` names, so a phone opening the `/work`
+  shortcut it has had on its home screen for months would get the advocate console with
+  **nothing on the row current**. That reads as the page having lost its way in, on the
+  exact devices the aliases exist for.
+
+  The table those paths live in moved to public/hashroute.js with bc-khoe.30.2 — which
+  view an address names is the same question as which view a hash names, and the point of
+  that file is that it is asked in one place. So this reads `VIEWS` rather than `PILLS`,
+  and the word "pill" below is a view's pill: the ids are deliberately the same.
 
   So: for every page a pill points at, every alias of that page is claimed by exactly one
   pill. Exactly one, because two pills claiming a path is two current pills on one screen —
@@ -289,12 +299,12 @@ for (const { path: p, why } of NEVER_MADE) {
   pill at all, and the rule is about pages that have one.
 */
 {
-  const src = fs.readFileSync(path.join(HERE, '..', 'public', 'viewbar.js'), 'utf8');
+  const src = fs.readFileSync(path.join(HERE, '..', 'public', 'hashroute.js'), 'utf8');
   const pills = [...src.matchAll(/id: '([a-z]+)',[\s\S]{0,400}?paths: \[([^\]]*)\]/g)].map((m) => ({
     id: m[1],
     paths: [...m[2].matchAll(/'([^']+)'/g)].map((q) => q[1]),
   }));
-  if (!pills.length) bad('the pill row keeps its paths in one table', 'could not read PILLS out of public/viewbar.js');
+  if (!pills.length) bad('the pill row keeps its paths in one table', 'could not read VIEWS out of public/hashroute.js');
   else {
     const owner = new Map();
     let clash = null;

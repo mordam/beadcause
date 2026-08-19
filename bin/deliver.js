@@ -71,6 +71,7 @@ import { ownAddresseeLabels } from '../lib/addressee.js';
 import { isClaimGuard, LIVE_STATUSES } from '../lib/bd.js';
 import { bylineFor } from '../lib/byline.js';
 import { isMergeReason, parseJson } from '../lib/bd.js';
+import { approvalHold, approvalStop } from '../lib/approval.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
@@ -80,7 +81,6 @@ import { EDIT_HOLD, fromEditMode } from '../lib/editwork.js';
 import { landedReason } from '../lib/landed.js';
 import { MERGE_ASSIGNEE, MERGE_LABEL, mergeBeadBody, mergeBeadTitle, openMergeBeadFor } from '../lib/mergebead.js';
 import { requestSweep } from '../lib/mergesweep.js';
-import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
 import { park, questionType } from '../lib/park.js';
 import * as pr from '../lib/pr.js';
@@ -464,6 +464,32 @@ const policy = prPolicyFor(cfg, ws.name);
  */
 const editHold = fromEditMode(bead);
 if (editHold) console.error(`beadcause-deliver: ${beadId} is an in-app edit, so this delivery asks rather than merges.`);
+/**
+ * The one law, said out loud at the start rather than only at the close.
+ *
+ * A gate bead and a `needs-approval` bead are both delivered exactly as anything else is —
+ * this does *not* hold the merge, and that is deliberate rather than an omission. dv-8o5
+ * decided the code half as "beadcause learns not to close a bead carrying the bare gate
+ * label", and forcing the hold would additionally decide which pull requests may reach
+ * `main` unattended, which nobody was asked. What it does do is tell the session, before it
+ * spends twenty minutes wondering, that the ending it is about to get is *merged and still
+ * open* — and that `--review` is the way to put the merge in front of Adam too.
+ *
+ * It says "whatever merges this" rather than naming one, because three different things
+ * can: the merge queue, a tap on the delivery card, or this process itself on the paths
+ * that still land their own work. The rule is the same for all three and the sentence
+ * should not have to be right about which one this is.
+ *
+ * The refusal itself is not carried by this line. It is in lib/approval.js, and it holds
+ * whether or not anybody reads this. See the `staysOpen` branch in `landHere`.
+ */
+const approvalLabel = approvalHold(bead);
+if (approvalLabel && !review) {
+  console.error(
+    `beadcause-deliver: ${beadId} is labelled \`${approvalLabel}\` — whatever merges this will NOT close it, deliberately. ` +
+      `${owner} closes it; deliver with --review to put the merge in front of them too.`
+  );
+}
 const autoMerge = policy.autoMerge && !review && !editHold;
 // Green checks are not enough in a space that asks for a review first. Only consulted
 // inside the `autoMerge` branch below — with auto-merge off every delivery is already a
@@ -855,17 +881,30 @@ async function landHere(landed, { external = false } = {}) {
   // open *and claimed* stays out of the advocate's queue, where an open unclaimed one
   // would be handed straight to another session to deliver and be refused again. Closing
   // it was the old way out of that loop, and it is the thing this rule exists to stop.
+  //
+  // **And a gate is the second bead this close is wrong about**, for a reason that is not
+  // about types at all: the one law says no agent closes a gate and no agent closes a bead
+  // waiting to be approved, and this process is an agent. Same shape as the epic rule, same
+  // two writes — the merge stays as the comment above and the bead stays open — and the
+  // same reason the claim is left on it. Asked of lib/approval.js so this process and the
+  // daemon cannot come to different answers about the same bead; `isMergeReason` is what
+  // both of them key on. See lib/approval.js for why the rule is about the *sentence*.
   const epicStaysOpen = bead.issue_type === 'epic' && isMergeReason(closeReason);
-  if (epicStaysOpen) {
+  const approvalStays = approvalStop(bead, isMergeReason(closeReason));
+  if (epicStaysOpen || approvalStays) {
     console.error(
-      `beadcause-deliver: merged ${where}, and left ${beadId} open — an epic does not close on a merge. ` +
-        `Close it when its theme is done.`
+      approvalStays
+        ? `beadcause-deliver: merged ${where}, and left ${beadId} open — ${approvalStays}.`
+        : `beadcause-deliver: merged ${where}, and left ${beadId} open — an epic does not close on a merge. ` +
+            `Close it when its theme is done.`
     );
     try {
       bd([
         'comment',
         beadId,
-        `This epic stays **open** over ${where}: an epic closes when its theme is done, not when a branch sharing its name merges.`,
+        approvalStays
+          ? `This bead stays **open** over ${where}: ${approvalStays}.`
+          : `This epic stays **open** over ${where}: an epic closes when its theme is done, not when a branch sharing its name merges.`,
       ]);
     } catch {
       /* The comment above this block already says what landed; this one is why it is still open. */
@@ -948,18 +987,31 @@ async function landHere(landed, { external = false } = {}) {
 
   // A notification with nothing to answer, and a failure to send one is not a failure
   // to land: the work is in main whether or not a phone in another room hears about it.
+  //
+  // Through the daemon rather than to ntfy (bc-ka5y.15.1). A landing is an event on the
+  // bus now, and the bus is in the daemon's memory — this is a separate process, so the
+  // only way in is the door `/api/landed` opens for exactly this caller. Loopback and
+  // the config's own token, the same shape `bin/endorse.js` uses; a daemon that is not
+  // running is a line on stderr and nothing else, because the phone could not have been
+  // told by a daemon that is down either way.
+  const daemon = String(process.env.BEADCAUSE_URL || `http://127.0.0.1:${cfg.port || 4318}`).replace(/\/+$/, '');
   try {
-    await pushLanded(cfg, {
-      workspace: ws.name,
-      bead: beadId,
-      repo: repoSlug,
-      number: request.number,
-      url: request.url,
-      title: request.title,
-      base,
-      sha: landed.mergeCommit || '',
-      owed,
+    const res = await fetch(`${daemon}/api/landed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-beadcause-token': cfg.token },
+      body: JSON.stringify({
+        workspace: ws.name,
+        bead: beadId,
+        repo: repoSlug,
+        number: request.number,
+        url: request.url,
+        title: request.title,
+        base,
+        sha: landed.mergeCommit || '',
+        owed,
+      }),
     });
+    if (!res.ok) console.error(`beadcause-deliver: merged ${where}, but ${daemon} refused the notification — HTTP ${res.status}`);
   } catch (err) {
     console.error(`beadcause-deliver: merged ${where}, but the notification did not send — ${first(err)}`);
   }

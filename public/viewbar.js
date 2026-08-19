@@ -128,19 +128,22 @@
     a kind is and this file knows where its pill goes, so there is no href written down
     twice for the check to have to catch.
 
-    `paths` is every URL that *is* this view. The server maps several onto one page —
-    /monitor answers to nine of them now, three inherited from the sessions view it
-    absorbed and three from the pull request board — and the phone's home screen still
-    holds the old ones, so a pill has to recognise all of them or the row shows nothing
-    as current on a page you are plainly looking at. See `serveStatic` in lib/server.js,
-    and test/pagepaths.mjs. The four pills with no `paths` are the four that are only
-    ever Home, where the filter decides which is lit rather than the path.
+    What is **not** here any more, since bc-khoe.30.2, is `paths` — every URL that *is* a
+    given view. The server maps several onto one page (/monitor answers to nine of them
+    now) and the phone's home screen still holds the old ones, so a pill has to recognise
+    all of them or the row shows nothing as current on a page you are plainly looking at.
+    That is the same question as "what does this hash mean", asked of the other half of
+    the URL, and public/hashroute.js is where it is answered now — `viewOfPath` below.
+    Three of these pills are views and it holds their addresses; the four with none are
+    the four that are only ever Home, where the filter decides which is lit rather than
+    the path. See `serveStatic` in lib/server.js, and test/pagepaths.mjs, which reads that
+    table from hashroute.js.
   */
   const PILLS = [
     // Home with nothing narrowed: the P0 board and the work under it (bc-rfnr.9). First
     // because it is where you land, and because every pill to its right is a narrowing
     // of it rather than a different place.
-    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Epics', paths: ['/', '/index.html'] },
+    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Epics' },
     // Questions, PRs, Chats: what is arriving, in the order it tends to need answering.
     { id: 'question', kind: 'question', icon: '❓', label: 'Questions' },
     { id: 'pr', kind: 'pr', icon: '🚢', label: 'PRs' },
@@ -148,7 +151,7 @@
     // The record (bc-nib3.2): where you go to ask "what happened to that". A page rather
     // than a narrowing of Home — it has its own poll, its own filter bar and its own
     // vocabulary — and it kept the position it has had since it was a tab.
-    { id: 'history', kind: 'history', href: '/history', paths: ['/history', '/history.html'], icon: '📜', label: 'History' },
+    { id: 'history', kind: 'history', href: '/history', icon: '📜', label: 'History' },
     // The work nobody is asking you about, which is why it is past the three that are —
     // and past the record of the ones that are finished.
     { id: 'bead', kind: 'bead', icon: '🧿', label: 'All Beads' },
@@ -159,27 +162,33 @@
     // points at that page — and the `PRs` label now belongs to the kind above, which is
     // the pull requests *in Home*. bc-khoe.4 is where the console comes apart and this
     // is re-decided; until then two taps still reach the board and nothing is stranded.
-    {
-      id: 'advocates',
-      href: '/monitor',
-      icon: '📣',
-      label: 'Advocates',
-      paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html', '/prs', '/pulls', '/prs.html'],
-    },
+    { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates' },
     // Where everything in flight actually is (bc-khoe.7). Last, and immediately after the
     // pill that carries the board, because the two are read one after the other: the board
     // is where you decide something may land, and this is where you watch it do so. It is a
     // view rather than a fifth pane of /monitor for the reason the deploy strip left the
     // board at all — a deploy in flight is not a fact about a pull request, it is the rung
-    // after it, and a screen about pull requests was the wrong place to be told.
-    { id: 'releases', href: '/releases', icon: '🚀', label: 'Releases', paths: ['/releases', '/deploys', '/releases.html'] },
+    // after it, and a screen about pull requests was the wrong place to be told. Its three
+    // addresses — /releases, /deploys, /releases.html — are in public/hashroute.js with
+    // every other view's, since bc-khoe.30.2; this row asks rather than knows.
+    { id: 'releases', href: '/releases', icon: '🚀', label: 'Releases' },
   ];
 
-  const here = location.pathname.replace(/\/+$/, '') || '/';
+  const route = window.beadcause.route;
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
+  /**
+   * Which view this document is, or null for one of the five pages that is on no pill.
+   *
+   * Asked of public/hashroute.js rather than matched against a table here, because the
+   * table it would be matched against is the same one that says what `#advocates` means
+   * — nine addresses and one hash, all naming the advocate console — and two copies of
+   * that is how a phone's `/work.html` shortcut ends up on a row with nothing current.
+   */
+  const view = route.viewOfPath(location.pathname);
+
   /** Is this row of the shell drawn over Home? Five of the eight pills act, not link. */
-  const onHome = ['/', '/index.html'].includes(here);
+  const onHome = view === route.HOME;
 
   /** A kind pill's URL from anywhere else. `?kind=` is read once, at load, by
    *  inboxfilter.js — the service worker matches with `ignoreSearch`, so a query on the
@@ -193,13 +202,20 @@
   /**
    * Which pill is lit. Two answers, and which one applies is a fact about the page.
    *
-   * Off Home it is the path, exactly as it was when every pill was a link to a page.
-   * On Home five pills share one path, so the path cannot tell them apart and the
-   * *filter* is the answer instead: `mark()` is called by inboxfilter.js's `paint`,
-   * which runs at load and on every change. Until it does, `epics` is lit, which is
-   * what an unnarrowed Home is.
+   * Off Home it is the view this address names, exactly as it was when every pill was a
+   * link to a page — `hashroute.js` is what turns the address into the view. On Home five
+   * pills share one path, so the path cannot tell them apart and the *filter* is the
+   * answer instead: `mark()` is called by inboxfilter.js's `paint`, which runs at load
+   * and on every change. Until it does, `epics` is lit, which is what an unnarrowed Home
+   * is.
+   *
+   * The hash is deliberately *not* consulted yet. It names a view under the grammar, but
+   * no document holds more than one view until bc-khoe.30.3 builds the panes — so a hash
+   * naming a view this page cannot show falls to the address, which is the grammar's own
+   * answer for a hash that cannot be honoured. This is the line that changes when the
+   * panes land, and only this line.
    */
-  let lit = onHome ? 'epics' : PILLS.find((p) => p.paths?.includes(here))?.id || '';
+  let lit = onHome ? route.HOME : view || '';
 
   /**
    * Draw the row.

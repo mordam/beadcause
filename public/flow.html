@@ -34,6 +34,10 @@
   <!-- Every error this page hits, sent back to the daemon as a P0 bead. Ahead of every
        other script, because it can only catch what loads after it. -->
   <script src="/report.js"></script>
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
   <!-- Whether what you are looking at is current, and the banner that says when it is
        not. Loaded on every page with a top bar, because the state it reports is a page
        that has stopped repainting — which no page can report from inside its own render.
@@ -47,6 +51,11 @@
        checkout with no `npm install` — flow.js leaves the mermaid source in a <pre>,
        which is the diagram in text and perfectly readable. -->
   <script src="/vendor/mermaid.js"></script>
+  <!-- What the URL hash means: a view, a card to open on Home, or nothing (bc-khoe.30.2).
+       Before viewbar.js and app.js because both read the answer out of it rather than
+       parsing the hash themselves, and a page that loaded them without it would have a
+       row that cannot say which view it is on and a notification tap that throws. -->
+  <script src="/hashroute.js"></script>
   <script src="/viewbar.js"></script>
   <script src="/flow.js"></script>
 </body>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · skills</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <a href="/" class="icon-btn" id="back" aria-label="Back to the inbox">‹</a>
+      <span class="dot" id="pulse"></span>
+      <h1>Skills</h1>
+    </div>
+    <div class="sheet-actions">
+      <button id="skills-refresh" class="icon-btn" aria-label="Refresh">⟳</button>
+    </div>
+  </header>
+
+  <main class="work pagescroll">
+    <!--
+      What is *not* measured leads, and that is the design of this page rather than a
+      layout choice — the same argument requirements.html makes one screen along.
+
+      Four of the six numbers this view was asked for are downstream of an instrumented
+      skill call, and nothing records one yet (bc-dgx7.6). A page that drew the candidate
+      list, the audit runs and the library and simply omitted adoption would be read as a
+      complete picture, and the reader would conclude from a healthy-looking screen that
+      the library is being used. So the untracked four are drawn, named, and given the
+      bead that would make them real.
+
+      Nothing here is a button. This page reads the programme and cannot move it:
+      endorsing a candidate is the endorsement queue's act, and forcing an audit run costs
+      minutes and real money and is not a control that belongs under a thumb.
+    -->
+    <div id="skills">
+      <div class="empty">Reading the library…</div>
+    </div>
+  </main>
+
+  <script src="/report.js"></script>
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       See public/freshness.js. -->
+  <script src="/freshness.js"></script>
+  <!-- What the URL hash means: a view, a card to open on Home, or nothing (bc-khoe.30.2).
+       Before viewbar.js and app.js because both read the answer out of it rather than
+       parsing the hash themselves, and a page that loaded them without it would have a
+       row that cannot say which view it is on and a notification tap that throws. -->
+  <script src="/hashroute.js"></script>
+  <script src="/viewbar.js"></script>
+  <script src="/skills.js"></script>
+</body>
+</html>

@@ -59,6 +59,7 @@ const {
   SUPERSEDE_PREFIX,
   supersedeLabel,
   supersededBy,
+  parseSupersedeTarget,
   isSuperseded,
   assertNotSuperseded,
   supersedeAsk,
@@ -285,6 +286,34 @@ await check('the marker is a prefix and an id, and an id that does not parse is 
   assert.equal(supersededBy({ labels: ['superseded'] }), '', 'and the bare word is not a prefix match');
   assert.equal(isSuperseded({ labels: [] }), false);
   assert.equal(isSuperseded(null), false);
+});
+
+/* --------------------------------- the other shape a target may take (bc-xl7n.71) */
+
+await check('a bare id means "here" — every marker written before this kept its meaning', () => {
+  assert.deepEqual(parseSupersedeTarget('bc-0nea'), { workspace: '', id: 'bc-0nea' });
+  assert.deepEqual(parseSupersedeTarget(' bc-3zo9.2 '), { workspace: '', id: 'bc-3zo9.2' }, 'a subtask, and it is trimmed');
+});
+
+await check('workspace/id is accepted only when the workspace is on the whitelist', () => {
+  const known = ['beadcause', 'deluvia'];
+  assert.deepEqual(parseSupersedeTarget('beadcause/bc-jznr', known), { workspace: 'beadcause', id: 'bc-jznr' });
+  const unknown = parseSupersedeTarget('sophab/sp-40x', known);
+  assert.equal(unknown.workspace, '');
+  assert.match(unknown.reason, /sophab is not a workspace/);
+  // Not a pattern check that happens to pass without a list — omitting the list refuses
+  // a qualified target outright, exactly as an unknown name would.
+  const noList = parseSupersedeTarget('beadcause/bc-jznr');
+  assert.match(noList.reason, /beadcause is not a workspace/);
+});
+
+await check('neither shape at all is the same refusal a bare non-id always got', () => {
+  const junk = parseSupersedeTarget('the one about the router', ['beadcause']);
+  assert.match(junk.reason, /is not a bead id/);
+});
+
+await check('supersededBy hands the qualified string straight back — parseSupersedeTarget splits it, not this', () => {
+  assert.equal(supersededBy({ labels: ['superseded-by:beadcause/bc-jznr'] }), 'beadcause/bc-jznr');
 });
 
 /* ----------------------------------------- layer 1: across the close, out of the queue */
@@ -602,6 +631,35 @@ await check('an epic original: the edge bd refuses is never attempted, and the s
   assert.match(out.notes.join(' '), /out of every queue by the marker/);
 });
 
+await check('a workspace-qualified original: no edge attempted at all — no graph spans two trackers', () => {
+  // bc-xl7n.71. Unlike the epic case above, `bd` is never even asked — there is no `dep`
+  // call to refuse, because the two beads are not in the same tracker.
+  const bdx = syncBd();
+  const out = mark(bdx, 'zz-a', 'beadcause/bc-jznr', {
+    dupRow: taskRow('zz-a'),
+    originalRow: taskRow('bc-jznr'),
+    knownWorkspaces: ['beadcause'],
+  });
+  assert.equal(out.marked, true);
+  assert.equal(out.edge, '', 'no edge type at all — not even an attempt');
+  assert.equal(out.held, false);
+  assert.deepEqual(bdx.calls, ['label add zz-a superseded-by:beadcause/bc-jznr'], 'no dep call of any kind');
+  assert.match(out.notes.join(' '), /different tracker/);
+  assert.match(out.notes.join(' '), /out of every queue by the marker rather than by the graph/);
+});
+
+await check('an unknown workspace in --original refuses before writing anything', () => {
+  const bdx = syncBd();
+  const out = mark(bdx, 'zz-a', 'sophab/sp-40x', {
+    dupRow: taskRow('zz-a'),
+    originalRow: taskRow('sp-40x'),
+    knownWorkspaces: ['beadcause', 'deluvia'],
+  });
+  assert.equal(out.marked, false);
+  assert.match(out.refused, /sophab is not a workspace/);
+  assert.deepEqual(bdx.calls, [], 'nothing was written');
+});
+
 await check('a claimed bead is put back to open, because bd ready is open rows only', () => {
   // The write nobody remembers. A worker reaches this having claimed its own bead, and a
   // marked bead left in_progress is invisible to readySuperseded forever: held, with
@@ -724,6 +782,72 @@ await check('and a bead marked with no holding edge is still asked about at the 
     ['zz-adopted'],
     'and asked the moment it closes, exactly as a blocked one would be'
   );
+  reset();
+});
+
+/* ------------------------------------------------ cross-workspace sweep (bc-xl7n.71) */
+
+await check('sweepSuperseded reads a qualified original from its own workspace, not the one being swept', async () => {
+  // zz-cross lives in `ws` ("demo"); its original is named `other/zz-remote` — a
+  // workspace `ws`'s own tracker has never heard of. `workspaces` is what lets the
+  // sweep resolve `other` to a `{ name, dir }` and read its status from there.
+  fs.writeFileSync(
+    WORLD,
+    JSON.stringify({
+      comments: {},
+      issues: {
+        'zz-remote': issue('zz-remote', { title: 'the original, in another tracker' }),
+        'zz-cross': issue('zz-cross', { labels: [supersedeLabel('other/zz-remote')] }),
+      },
+    })
+  );
+  const otherDir = path.join(tmp, 'other-ws', '.beads');
+  fs.mkdirSync(otherDir, { recursive: true });
+  const other = { name: 'other', dir: otherDir };
+
+  assert.ok(
+    (await bd.readySuperseded(ws)).some((r) => r.id === 'zz-cross'),
+    'it is in the sweep list — the row check parses a qualified label same as a bare one'
+  );
+  assert.deepEqual(
+    (await sweepSuperseded(bd, ws, { workspaces: [ws, other] })).asked,
+    [],
+    'and asked nothing while the original is open'
+  );
+
+  await bd.close(other, 'zz-remote', 'Landed elsewhere');
+  const result = await sweepSuperseded(bd, ws, { workspaces: [ws, other] });
+  assert.deepEqual(result.asked.map((a) => a.id), ['zz-cross'], 'asked the moment the ORIGINAL tracker shows it closed');
+  reset();
+});
+
+await check('a workspace named on the label but not in `workspaces` is skipped and logged, not thrown', async () => {
+  fs.writeFileSync(
+    WORLD,
+    JSON.stringify({
+      comments: {},
+      issues: { 'zz-nowhere': issue('zz-nowhere', { labels: [supersedeLabel('nosuchws/zz-1')] }) },
+    })
+  );
+  const result = await sweepSuperseded(bd, ws, { workspaces: [ws] });
+  assert.deepEqual(result.asked, []);
+  const skip = result.skipped.find((s) => s.id === 'zz-nowhere');
+  assert.ok(skip, `skipped: ${JSON.stringify(result.skipped)}`);
+  assert.match(skip.why, /nosuchws is not a workspace/);
+  reset();
+});
+
+await check('omitting `workspaces` altogether leaves a qualified marker unreadable, not crashed', async () => {
+  fs.writeFileSync(
+    WORLD,
+    JSON.stringify({
+      comments: {},
+      issues: { 'zz-nowhere': issue('zz-nowhere', { labels: [supersedeLabel('other/zz-remote')] }) },
+    })
+  );
+  const result = await sweepSuperseded(bd, ws);
+  assert.deepEqual(result.asked, []);
+  assert.ok(result.skipped.find((s) => s.id === 'zz-nowhere'));
   reset();
 });
 
