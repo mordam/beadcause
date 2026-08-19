@@ -18293,6 +18293,127 @@ and from the categories the policy set is already written against when it does n
 which case the document says `presumed` on its face, because a presumption said out loud is
 a different artefact from a default nobody noticed.
 
+## The gap assessment, computed — `beadcause-gaps`
+
+Before an auditor is engaged, every elected criterion needs an honest state: **met** — a
+control exists and produces evidence; **partial** — one of the two; **absent** — neither. A
+readiness assessment sold by a firm is that exercise with an invoice attached, and doing it
+first makes the engagement cheap or unnecessary.
+
+`lib/gapassessment.js` is it, for Climative's Energy Navigator / Insights platform — the
+subject `bc-228x` settled — across the thirty-eight criteria `bc-yfgo` elected. It is the
+first module in this programme that is a **join** rather than a register: it imports [the
+boundary](#the-system-boundary-as-data--beadcause-boundary), [the control
+corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) and [the policy
+set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+exactly as [the description](#the-system-description-generated--beadcause-description)
+does, and for the same reason — the three leaves deliberately do not import each other, so
+anything that needs two of them is a file of its own.
+
+    beadcause-gaps show              every elected criterion, by category
+    beadcause-gaps owners            what each owning function is carrying
+    beadcause-gaps criterion <id>    one criterion in full, with what claims it
+    beadcause-gaps declined          the categories considered and left out
+    beadcause-gaps beads             the one-bead-per-criterion payload, for beadcause-file
+
+### A state nobody typed is a state that cannot go stale
+
+No record carries a state. It carries two halves — a `control` sentence and an `evidence`
+sentence, either of which may be `null` — and the word is derived from them.
+
+That is not tidiness. A hand-written state is the field that goes green first and stays
+green: somebody writes `met` in a planning meeting, the control is descoped a month later,
+and the row still says met because nothing about deleting a control touches a string
+somewhere else. Deriving it means **`met` cannot be written without naming both halves**,
+and removing either one moves the state on its own — which `test/gapassessment.mjs` proves
+by taking the control off a met fixture and watching it fall to partial with no other edit.
+It is the argument [the policy set](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+makes about a review date, applied to the other field auditors read first.
+
+The two halves are also the only place a judgement lives. Everything else on a row is
+asked of a neighbour at the moment of asking: **which control ids claim to satisfy a
+criterion** comes from the corpus's `satisfiedBy()`, because `bc-4r10.1` settled that a
+crosswalk edge has exactly one home, and **which policy is the documented answer** comes
+from `policiesFor()`. A second copy of either, written here for reference, is how a
+criterion comes to cite a control that stopped covering it a year ago — so the suite fails
+the repository for any ISO control id appearing anywhere in the module.
+
+### Absent has two meanings, and only one of them is a finding
+
+"We looked and there is no control" and "nobody has enumerated the population this would be
+tested against" are both absences. Only the first is a finding; the second is an
+instruction to go and survey something. A gap assessment that renders them the same hands a
+remediation plan to the wrong people, and thirty-seven identical `absent` rows tell nobody
+where to start.
+
+So every row names the [census kinds](#a-census-is-a-field-because-the-alternative-is-a-blank-that-reads-as-an-answer)
+its criterion is tested against, and the confidence is read out of the boundary rather than
+written down: any kind the boundary records as `partial` makes the row **provisional**, and
+a row tested against documents and management rather than an enumerated estate is
+**assessed**. Six of the seven censuses are partial today, so twenty of the thirty-eight
+rows are provisional — and because it is derived, **surveying the estate upgrades them with
+no edit here**, and letting a census lapse downgrades them the same way. The suite checks
+both directions.
+
+The same rule bites in the other direction: a row claiming `met` against a population
+nobody has enumerated is refused outright. You cannot have tested a control over a list
+that does not exist.
+
+### No criterion silently absent, and no category silently unconsidered
+
+The failure the bead is named for. A criterion with no control is a row that says so and
+somebody reads it; a criterion missing from the list is invisible, and the report is
+written without it. A hand-kept list cannot refuse that — it agrees with itself by
+construction and is silent about exactly the thing that went missing.
+
+So the list is not hand-kept. The corpus enumerates, and the register is required to hold
+exactly one record per elected criterion, none for an unelected one, and no duplicates.
+The check runs **at import**, so a criterion added to `lib/controls.js` and not assessed
+here is a failing import in every suite rather than a blank in a report.
+
+Election has the same hole one level up: a category nobody mentions and a category somebody
+declined look identical in a register that lists only what is in scope. `NOT_ELECTED`
+records the two that were left out — Processing Integrity deferred to renewal, Privacy
+declined — with `bc-yfgo` beside each, and a category that is neither elected nor recorded
+as declined is refused. `beadcause-gaps declined` is the verb nobody thinks to run and the
+one that answers "why is there nothing about privacy in here".
+
+### Zero met is the finding, not a gap in the assessment
+
+    Climative · Energy Navigator / Insights · 38 elected criteria · 0 met, 1 partial, 37 absent · 20 provisional
+
+Eighteen rows are assessed-absent: organisational controls where nothing has been written
+down, and the policy set already enumerates the fifteen documents that would write them.
+Nineteen are provisional-absent, waiting on a survey of the estate rather than on a
+control. One is partial — **CC8.1, change management, and it is evidence without a
+control** rather than the other way round. Beadcause holds a per-change record for the
+repositories it drives, which the boundary names as precisely why the daemon is [carved out
+of the description and still inside the audit](#out-of-the-boundary-is-not-out-of-the-audit);
+nothing describes or approves how a change reaches production in Energy Navigator, so there
+is no control to test.
+
+That number is worth stating plainly because the bead predicted otherwise: that CC8 and
+parts of CC6 would already be strong because beadcause enforces them. That prediction was
+written before `bc-228x` chose the subject and only held under the other answer. Beadcause's
+endorsement gate and merge queue govern how source changes are authored, which is one input
+to CC8.1 and none of CC6 — and writing a comfortable number here anyway would produce a
+register that passes every check and is false in the only way that matters.
+
+### One bead per criterion, emitted rather than typed
+
+`beadcause-gaps beads` renders the whole assessment as the filing payload `beadcause-file`
+takes — a bead per criterion, carrying its state, its owner, the control ids that claim it,
+what would be sampled and where the answer is held:
+
+    beadcause-gaps beads | beadcause-file -w beadcause --from bc-4r10.4
+
+It emits rather than files, and that is the point. Thirty-eight beads typed once and never
+regenerated drift from the register within a quarter, and a criterion quietly dropped from
+the tracker is the exact failure the register exists to refuse — the register cannot lose
+one, because the corpus enumerates it. So the decomposition is one command away and derived
+from the assessment rather than beside it, and regenerating it after a state moves is the
+same command again.
+
 ## What you elected to be held to — `lib/election.js`
 
 Beadcause **records** unconditionally. Sessions are archived against their bead, merges
