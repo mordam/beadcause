@@ -10674,7 +10674,18 @@
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  $('#refresh').addEventListener('click', load);
+  /*
+    ⟳ is the app's now, not this view's — one button in the mark's menu, shared with every
+    pane of the shell (bc-khoe.30.5). So it means "read the view I am looking at again",
+    and each pane asks whether the press was its own before spending a sweep on it;
+    public/history.js asks the mirror of this line. On the eleven pages that have no panes
+    `showing()` is not there to ask, and the answer is the one it has always been.
+  */
+  $('#refresh').addEventListener('click', () => {
+    const showing = window.beadcause?.panes?.showing?.();
+    if (showing && showing !== 'epics') return;
+    load();
+  });
 
   /* ------------------------------------------------------------------- ＋ */
 

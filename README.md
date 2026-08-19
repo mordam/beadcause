@@ -6855,6 +6855,14 @@ things:
   blank pane, and none is a reason to write anything.
 * **One slot, so the last write wins.** There is no combined form, because a card already
   names its view: there is nothing to hold alongside it.
+* **A view may carry a query, and only a view may.** `#history?status=closed&priority=P0`
+  is [the ledger](#the-ledger-as-a-pane-and-its-filters-in-the-hash) narrowed, and the
+  part after the `?` is handed back as an opaque string for that view to read — this file
+  has no opinion about what a filter means, only about where one is written down. The split
+  is on the **raw** hash, at the **first** `?`, before any decoding, and only a head that is
+  one of the closed list of view names may have one: a card key is percent-encoded, so a `?`
+  inside one arrives as `%3F` and can never start a query, and a hash whose head is not a
+  view name is parsed exactly as it was before this decision existed.
 
 **The bug it exists to prevent is not hypothetical.** `focusHash` in `public/app.js` used to
 decode the whole hash and hand it to `byKey`, and when `byKey` came back empty on the
@@ -6916,13 +6924,18 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**Two panes are empty on purpose.** `data-pending` names the bead that fills each —
-bc-khoe.30.5 for History, bc-khoe.4 for Advocates — and it is load-bearing rather than a
-note: a pending pane is registered nowhere, can never be shown, and the pill row asks the
-same question, so those two pills stay the `<a href>` they have always been and still load
-their own documents. That is what let the shell land on its own. The alternative was two of
-seven pills leading to a blank screen until two further beads merged, on an app that
+**A pane can be present and unshowable, and one still is.** `data-pending` names the bead
+that fills it — **bc-khoe.4** for Advocates — and it is load-bearing rather than a note: a
+pending pane is registered nowhere, can never be shown, and the pill row asks the same
+question, so its pill stays the `<a href>` it has always been and still loads its own
+document. That is what let the shell land on its own. The alternative was two of seven pills
+leading to a blank screen until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
+History's attribute came off when
+[bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash);
+Advocates still carries one, and it names **bc-khoe.4** rather than bc-khoe.30.6 — the
+attribute names the bead whose merge deletes it, and the fold is bc-khoe.4's, behind
+bc-khoe.10 (bc-khoe.30.6, which ruled how it folds rather than folding it).
 
 **The row asks; it does not require.** `public/viewbar.js` is drawn on twelve pages and one
 of them is the shell, so it reaches for `window.beadcause.panes` with `?.` and takes *no* as
@@ -7209,6 +7222,73 @@ id box waits 250ms for you to stop typing, since `bc-nib3` is otherwise seven sw
 clearing the last chip is a bare address, a request with none of the four parameters on it,
 and the whole list back with no reload — which is the acceptance criterion this was built
 against.
+
+### The ledger as a pane, and its filters in the hash
+
+Everything above describes `/history`, a document. It is a **pane of the shell** as well
+now: `[data-pane="history"]` in `public/index.html`, shown by a `display: none` swap on a
+pill tap with nothing fetched and nothing rebuilt. `/history` still answers — home screens
+hold it, [`/closed`](#closed-and-done--what-got-finished-as-a-place) redirects to it, and
+landing those on the pane is bc-khoe.30.7 rather than this — so `public/history.js` is one
+file that has to run in either document, and it decides which by asking whether the one it
+is in has panes at all. Three things differ, and they are the whole of the difference.
+
+**Where the filters are written.** On the page, the query string, exactly as above. In the
+shell, the hash's own query — `/#history?status=closed`, which is
+[decision 5](#one-hash-two-claimants--the-grammar-in-publichashroutejs) of the grammar. The
+slot had to move, because in one document `location.search` outlives the view that wrote
+it: narrow History to P0, tap Home, and the address the phone's home screen holds is
+`/?status=P0`, carrying a filter for a view you are not on. `route.go('')` keeps `search` on
+purpose — that is where `?t=` and everything else lives — so nothing else was going to drop
+it. In the hash it is part of the name of the view, and leaving the view is what drops it.
+Everything above about the URL being the state still holds; only the slot moved. A pill tap
+writes the bare `#history`, so the pane puts its filters back on the address as it is shown
+— otherwise the URL you could copy off the screen would be a wider list than the one on it.
+
+**When it is built.** [The stager](#the-stager--built-at-boot-and-one-poll-behind-all-of-them)
+builds the landed-on pane first and the rest after the first paint, so the ledger's boot is
+offered to it and called by hand only when there is no stager to take it — a document, or a
+service worker cache from before that file existed. A load that lands on Home costs one
+script parse and no request at all; a load that lands on `/#history?status=closed` makes its
+very first request the narrowed one, because the address is read before anything is drawn.
+
+**What ⟳ means, and what keeps a pane honest.** The page had a ⟳ of its own; the shell has
+one for the whole app, so it means *read the view I am looking at again* — each pane asks
+whether the press was its own before spending a sweep on it, and `public/app.js` asks the
+mirror of that question before reloading the inbox. And because a pane is built once rather
+than fetched by the act of arriving at it, a ledger you came back to an hour later would be
+an hour old with nothing saying so. So the pane does now listen to the shell's one poll —
+**not** to fetch on an event, which would be a `bd` sweep per wake against a record of what
+already happened, but to remember that *something moved* and re-read once, quietly, the next
+time you look at it. Quietly means the rows you left stay under your thumb until the first
+page of the new read lands and replaces them: a pane that blanked itself to *Reading the
+ledger…* on every return would be the document load this whole epic exists to remove,
+wearing a different mechanism. It declares no `want`, so the poll it rides is the free park,
+and it is the first pane to put that standby mount up at all.
+
+One id changed with the markup and it is not cosmetic: the list container is `hist-list`
+rather than `history`, in both documents. The hash naming this view is `#history`, and an
+element of that id in the same document is a **fragment target** — a browser asked to go to
+`#history` scrolls it into view, which on the pane you are returning to is the scroll
+position `panes.js` had just restored, thrown away by the URL.
+
+`node test/historyfilter.mjs` runs the real `public/history.js` and `public/filtermenu.js`
+in a `node:vm` in both documents: on the page every check above, and in the shell that
+nothing is fetched before the stager builds it, that the hash it landed on narrows the first
+request, that a chip writes the hash and leaves the query string alone, that leaving and
+coming back keeps the filters and puts them back on the address, that a wake which moved
+something is re-read on the next look with the rows left up meanwhile, that a `presence`
+event costs nothing, and that ⟳ is spent by the pane that is up and by no other.
+
+`node scripts/historypane-check.mjs` is the other half, and a different kind of claim: the
+real `panes.js`, `panestage.js`, `viewbar.js` and stylesheet, in a real Chrome at 393px,
+against its own fixture ledger and no daemon. Four things are only true in a browser — that
+the pane lays out as one scroller inside the shell's column, that the scroll position comes
+back (which is the single thing this epic is buying), that the pill stopped being an `<a>`,
+and that landing on `/#history?status=closed` builds the ledger *first* and makes one
+narrowed request rather than a wide one corrected afterwards. It ends by loading `/history`
+as a document and asserting the same list with its filters in the query string, which is the
+compatibility half this bead is standing on until bc-khoe.30.7.
 
 ### `/closed` and `/done` — what got finished, as a place
 
