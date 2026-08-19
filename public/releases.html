@@ -39,6 +39,10 @@
   <!-- Every error this page hits, sent back to the daemon as a P0 bead. Ahead of every
        other script, because it can only catch what loads after it. -->
   <script src="/report.js"></script>
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
   <!-- Whether what you are looking at is current, and the banner that says when it is
        not. Before stream.js, which stamps it on every answer. -->
   <script src="/freshness.js"></script>
@@ -54,6 +58,11 @@
        a deploy in flight is watched on four seconds because its steps are a file being
        written on the Mac, and everything else waits to be woken. See public/releases.js. -->
   <script src="/stream.js"></script>
+  <!-- What the URL hash means: a view, a card to open on Home, or nothing (bc-khoe.30.2).
+       Before viewbar.js, which reads the answer out of it rather than parsing the hash
+       itself — and it is where this page's own three addresses are declared, so without
+       it the row could not say that Releases is the view it is on. -->
+  <script src="/hashroute.js"></script>
   <script src="/viewbar.js"></script>
   <!-- Which repos this page is about. The queues come back keyed by repo and the picker
        is what narrows them — a Climative account naming three of forty draws three. -->

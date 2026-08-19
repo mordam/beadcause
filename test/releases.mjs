@@ -604,7 +604,13 @@ await check('the pill row has a Releases pill pointing at the page', () => {
   const bar = read('public/viewbar.js');
   assert.match(bar, /id: 'releases'/);
   assert.match(bar, /href: '\/releases'/);
-  assert.match(bar, /paths: \['\/releases', '\/deploys', '\/releases\.html'\]/);
+  // The three addresses are declared once, in the grammar, since bc-khoe.30.2 — the row
+  // asks `viewOfPath` rather than carrying its own copy, which is why the pill lights on
+  // all three. Asserted here because a pill whose paths nothing declares never lights at
+  // all, and the row itself would look perfectly correct while it happened.
+  const grammar = read('public/hashroute.js');
+  assert.match(grammar, /id: 'releases'/);
+  assert.match(grammar, /paths: \['\/releases', '\/deploys', '\/releases\.html'\]/);
 });
 
 await check('the service worker precaches the page and moved its version', () => {
