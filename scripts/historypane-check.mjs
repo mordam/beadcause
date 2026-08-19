@@ -219,7 +219,7 @@ try {
   check('and the page fits the screen', !cold.wide);
   check('the pane was built first, ahead of the inbox', cold.builtFirst === 'history', cold.builtFirst);
   check('and it asks the shell’s poll for nothing but presence', cold.want === 'presence', String(cold.want));
-  check('the History pill is not a link any more', cold.historyPill === 'not-a-link' && cold.current.includes('History'), cold.current);
+  check('the Ledger pill is not a link any more', cold.historyPill === 'not-a-link' && cold.current.includes('Ledger'), cold.current);
   check('and the panes still waiting on their beads still are', cold.advocatesPill === 'a-link' && cold.pending === 'advocates,releases', cold.pending);
 
   /* --------------------------------------------------- away, and back again */
