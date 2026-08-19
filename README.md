@@ -724,7 +724,7 @@ others nothing to fix.** `/monitor` is *the details of the selected space*, so a
 reading `Space` sat immediately left of a control reading `Personal` — the noun and its
 instance, twice, on the row where a 360px phone has the least to spare. It is gone
 (bc-mtdb): that bar is the mark, the picker, and the page's own tally. The other standing
-views keep theirs — History, Endorse, Requirements name the *page*, which is not what the
+views keep theirs — Ledger, Endorse, Requirements name the *page*, which is not what the
 picker says, so nothing on them is doubled.
 
 Pick `beadcause` and it is beadcause's questions in the inbox, beadcause's advocate on
@@ -4227,12 +4227,12 @@ navigation nobody uses. Four rows went into two:
 | **Questions** | Everything waiting on a word from you | `proposal`, `jira`, `endorsement` |
 | **PRs** | Pull requests, and the finished branches waiting on a merge | `delivery` (Merges) |
 | **Chats** | The conversations you have open | — |
-| **History** | The ledger — a page of its own | — |
+| **Ledger** | Every bead the space has ever had — a page of its own | — |
 | **All Beads** | Every live bead nobody is asking you about | `claimed`, `blocked`, `unclaimed`, as a sub-filter |
 
 **Two of the six are places rather than slices.** A kind with a `test` is a predicate over
 the rows the list holds, and the four of those partition it — every row answers exactly
-one. `My Epics` and `History` have no predicate: the first is Home with nothing selected,
+one. `My Epics` and `Ledger` have no predicate: the first is Home with nothing selected,
 the second is a different page. They are in the table anyway, because the row is six pills
 and a reader asking "what are the six" must not have to find two of them somewhere else,
 and `set()` refuses to select one — a place has no predicate, so selecting it would match
@@ -4496,7 +4496,7 @@ the filter pills that view pill can use, and nothing else in the file decides it
 | **PRs** | the bead search, PR status | The one pill with both: a pull request follows its beads, so the search narrows it too. |
 | **Chats** | *nothing* | A chat is in no tracker. It is under no bead, and it has no rung. |
 | **All Beads** | the bead search, bead status | — |
-| **History** | *nothing* | A page of its own, with a filter bar of its own. |
+| **Ledger** | *nothing* | A page of its own, with a filter bar of its own. |
 
 **`Chats` is the case that was actually broken, not merely noisy.** `inBead` in
 `public/app.js` hides every row that is not a bead — deliberately, because a filter you
@@ -4628,7 +4628,7 @@ across all of them was a control whose meaning depended on a pill it did not loo
 | **PRs** | **no** | The same, arriving off `gh` |
 | **Chats** | yes | Start a conversation — what ＋ has always done |
 | **All Beads** | yes | File a bead, from a form (bc-khoe.27.3) |
-| **History** | — | A page of its own, and it never had one |
+| **Ledger** | — | A page of its own, and it never had one |
 
 **Questions and PRs are the interesting half.** Neither is a place you make something;
 both are lists of things somebody else has put in front of you, and the only honest
@@ -6588,7 +6588,7 @@ So there is one row now, under the top bar on every page the bottom bar was on:
 
 Seven pills today, on eight pages: the [six kinds](#one-list-six-kinds--and-the-two-sub-filters)
 bc-khoe.2 promoted out of the inbox's filter panel — My Epics, Questions, PRs, Chats,
-History, All Beads — plus Advocates. The other five pages that used to load the bottom bar
+Ledger, All Beads — plus Advocates. The other five pages that used to load the bottom bar
 (`/admin`, `/console`, `/endorse`, `/flow`, `/requirements`) draw the row with **nothing on
 it current**, which is their way off a page that would otherwise be reachable only by the
 browser's back gesture.
@@ -6605,7 +6605,7 @@ since bc-khoe.30.3 the app is one document with a container per view, so the pil
 the hash and the pane swaps, and nothing is fetched. The second is a kind, which is Home
 under a different narrowing (bc-khoe.2) — five of the seven pills are that, and as links
 they would each be a full document load to change which rows of a list already in hand get
-drawn. On the shell that holds from *every* pane: `PRs` tapped while History is up carries
+drawn. On the shell that holds from *every* pane: `PRs` tapped while the Ledger is up carries
 both the pane to show and the kind to select, so one tap does both. On a page that is not
 the shell it is an ordinary link, `/?kind=pr`, read once at load — so the pill behaves the
 same way from anywhere and only the mechanism differs.
@@ -6626,7 +6626,7 @@ view on load — done by arithmetic on the two rectangles rather than with `scro
 which is allowed to scroll every ancestor and would quietly move the list under it.
 
 **Four counts, and only on Home.** My Epics, Questions, PRs and Chats each carry a number:
-how many rows tapping that pill would leave you with. All Beads, History and Advocates
+how many rows tapping that pill would leave you with. All Beads, Ledger and Advocates
 carry none — the first is unbounded and says nothing you would act on, and the other two
 are pages of their own with their own polls.
 
@@ -7065,6 +7065,17 @@ exception to the exception, and it is free: its snapshot rides the stager's shar
 it is current the moment you come back without having asked for anything.
 
 ### The ledger — the History tab
+
+**The pill reads `Ledger`, and has since bc-khoe.53.** This section keeps the old word in
+its heading because the anchor is linked from two places above and because the paragraphs
+below are the record of a decision made when it *was* a tab. The rename is one word and no
+mechanism: the id, the kind, `/history`, `/history.html` and the `#history` hash all stay
+exactly what they were. What moved is the promise. `History` said *what already happened*
+and the note under it said *the ledger of answered questions, merges and deploys*, and the
+list has never been either — `parseQuery` in `lib/history.js` opens at `status: null` and
+applies no default, so an open bead filed a minute ago is in it beside a bead closed last
+month. `Ledger` is the word the page has always used for itself in its own first line, and
+it does not collide with `All Beads`, which is live beads only.
 
 There was no way to look back. The inbox is what is arriving, the advocate console is what
 is running this minute, and a bead that closed last week had left both lists by definition:
