@@ -52,7 +52,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-p0adv-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { advocateSession, OPENING_TTL_MS } = await import(LIB('epicadvocate.js'));
+const { ADVOCATE_LABEL, advocacyOn, advocateSession, OPENING_TTL_MS, PAUSED_LABEL, WAITING_OPEN, WAITING_CLOSE } =
+  await import(LIB('epicadvocate.js'));
 
 let failures = 0;
 let ran = 0;
@@ -120,11 +121,97 @@ check('opening lapses, so a launch that died gives the button back', () => {
   assert.ok(advocateSession([], 'bc-d6yk', { openedAt: now - OPENING_TTL_MS + 1000, now }), 'just inside still holds');
 });
 
+/* ------------------------------------------------- what the card is told, bc-r2b5.1 */
+
+/**
+ * `advocate` alone was a boolean wearing a session's clothes, and the steady state of a
+ * correctly-advocated epic was `null` — an Epic Advocate takes a turn and exits, so between
+ * turns there is nothing running to find and the card drew the offer to assign it. These
+ * cases are the six fields that make "assigned and idle" a state the card can say.
+ */
+const epic = (over = {}) => ({ id: 'bc-r2b5', title: 'an epic', status: 'open', labels: [], notes: '', ...over });
+const waitingNote = (line) => `${WAITING_OPEN}\n${line}\n${WAITING_CLOSE}`;
+
+check('assigned is true between turns, when no window is running at all', () => {
+  const out = advocacyOn(epic({ labels: [ADVOCATE_LABEL] }), { record: { at: '2026-08-17T09:40:00Z', hold: null } });
+  assert.equal(out.assigned, true, 'this is the bead: idle is not unassigned');
+  assert.equal(out.session, null);
+  assert.equal(out.by, 'label');
+  assert.equal(out.lastAt, '2026-08-17T09:40:00Z', 'and "idle since 09:40" is a different card from "idle since a fortnight"');
+  assert.equal(out.hold, null, 'nothing is being held — there was simply nothing to come back for');
+});
+
+check('the carrier is named, because the two have different un-assign gestures', () => {
+  assert.equal(advocacyOn(epic({ notes: waitingNote('the merge queue') })).by, 'waiting');
+  assert.equal(advocacyOn(epic({ labels: [ADVOCATE_LABEL] })).by, 'label');
+  // The label wins when both are there: it is the one a control would remove.
+  assert.equal(advocacyOn(epic({ labels: [ADVOCATE_LABEL], notes: waitingNote('review') })).by, 'label');
+  const none = advocacyOn(epic());
+  assert.equal(none.by, null);
+  assert.equal(none.assigned, false, 'and an epic nobody has ever assigned still gets the offer');
+});
+
+check('paused is its own state, not an absence of one', () => {
+  const out = advocacyOn(epic({ labels: [ADVOCATE_LABEL, PAUSED_LABEL] }));
+  assert.equal(out.assigned, true);
+  assert.equal(out.paused, true, 'assigned and stopped is a fourth state, and drawing it as either of the other two is wrong');
+});
+
+check('the hold is the sweep’s own sentence, with when it was decided', () => {
+  const out = advocacyOn(epic({ labels: [ADVOCATE_LABEL] }), {
+    record: { at: '2026-08-17T09:40:00Z', hold: { why: 'it is paused', at: '2026-08-17T11:00:00Z' } },
+  });
+  assert.equal(out.hold, 'it is paused');
+  assert.equal(out.heldAt, '2026-08-17T11:00:00Z');
+  // Three of the five reasons — the tick's one-window budget, a worker this advocate is
+  // holding, a lease on another Mac — cannot be seen from a request path at all, which is
+  // why this is reported rather than re-derived beside the card.
+  assert.equal(advocacyOn(epic(), { record: null }).hold, null, 'no advocate in this workspace holds nothing');
+});
+
+check('the session is passed through rather than recomputed', () => {
+  // So `advocate` and `advocacy.session` on the same card cannot disagree about whether a
+  // window is up — one `advocateSession` call, two fields.
+  const live = { pid: 42, name: 'Beadcause - bc-r2b5', status: 'idle', at: null, opening: false };
+  assert.deepEqual(advocacyOn(epic({ labels: [ADVOCATE_LABEL] }), { session: live }).session, live);
+});
+
+check('finished is passed in, so this file stays a pure function of its arguments', () => {
+  assert.equal(advocacyOn(epic()).finished, false, 'and it defaults to the claim nobody has made');
+  assert.equal(advocacyOn(epic(), { finished: true }).finished, true);
+});
+
+check('every field is present on every answer, null rather than absent', () => {
+  // The client half draws four states off these; a field that is sometimes missing and
+  // sometimes null is a field every reader has to guard twice.
+  assert.deepEqual(Object.keys(advocacyOn(epic())).sort(), [
+    'assigned',
+    'by',
+    'finished',
+    'heldAt',
+    'hold',
+    'lastAt',
+    'paused',
+    'session',
+  ]);
+});
+
 /* ---------------------------------------------------------------- the wiring */
 
 check('the card is actually given it', () => {
   const src = read('lib', 'server.js');
-  assert.match(src, /advocate: advocateSession\(sessions, bead\.id/, 'rootCard must carry the advocate field');
+  // Hoisted to a `const` since bc-r2b5.1, because `advocacy` beside it needs the same
+  // answer and two calls could disagree — so this pins the one call and both readers of
+  // it rather than the inline expression it used to be.
+  assert.match(
+    src,
+    /const session = advocateSession\(sessions, bead\.id, \{ openedAt: openedRecently\(/,
+    'rootCard must still match its sessions its own way'
+  );
+  assert.match(src, /\n      advocate: session,/, 'rootCard must carry the advocate field');
+  assert.match(src, /advocacy: advocacyOn\(bead, \{/, 'and the state the card is drawn from since bc-r2b5.1');
+  assert.match(src, /record: advocates\.advocacy\(workspace, bead\.id\)/, 'including what the sweep last decided');
+  assert.match(src, /finished: alreadyAsked\(bead\)/, 'and whether the finished-epic sweep has already asked');
   // Matched on the last argument rather than the whole call: bc-rfnr.9.1 re-keyed this
   // off a children index while this bead was in flight, and a test that pins every
   // argument of somebody else's function fails on their change rather than on ours.
@@ -138,6 +225,14 @@ check('the launch door and the card read the same rule', () => {
   assert.ok(!/name \|\| ''\)\.includes\(id\)/.test(route), 'the prefix-matching refusal is what this replaced');
   assert.match(route.slice(0, 2000), /advocateSession\(liveSessions\(cfg\), id/);
   assert.match(route.slice(0, 3000), /rememberAdvocateOpened\(/, 'a launch that worked has to be remembered');
+  // bc-r2b5.1: and the tap is the assignment. `rememberAdvocateOpened` is module state
+  // that dies with the process and covers the minute before the window names itself; this
+  // is the durable half, on the bead, and it is what lib/reenter.js enrols on. Asserted to
+  // be *after* the launch — an epic enrolled by a launch that was refused is one the sweep
+  // would re-argue every three hours for ever.
+  const stamp = route.indexOf(`bd.addLabel(ws, id, ADVOCATE_LABEL)`);
+  assert.ok(stamp > 0, 'the button no longer records the assignment — this is bc-r2b5.1 regressing');
+  assert.ok(route.indexOf('await openEpicAdvocateSession(') < stamp, 'the assignment is recorded after the window is up');
 });
 
 check('and so does the other door, through the same record', () => {

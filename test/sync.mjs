@@ -69,20 +69,14 @@ const {
   isStuck,
   syncEnabled,
   syncEveryMs,
-<<<<<<< HEAD
-  SYNC_FLOOR_SECONDS,
-  STUCK_AFTER,
-  FLAP_AFTER,
-  FLAP_WINDOW_MS,
-} = await import(LIB('sync.js'));
-=======
   syncCeilingMs,
   SYNC_FLOOR_SECONDS,
   SYNC_CEILING_SHARE,
   STUCK_AFTER,
+  FLAP_AFTER,
+  FLAP_WINDOW_MS,
 } = await import(LIB('sync.js'));
 const { BD_TIMEOUT } = await import(LIB('bd.js'));
->>>>>>> origin/main
 
 const WS = (name) => ({ name, dir: `/nowhere/${name}/.beads` });
 const DIR = (name) => `/nowhere/${name}`;
@@ -541,7 +535,6 @@ await check('a stuck row reaches trouble(), flagged apart from a conflict', asyn
   assert.equal(row.error.includes('stomped by merge'), true);
 });
 
-<<<<<<< HEAD
 /* --------------------------------------------------- a tracker that will not settle */
 
 /**
@@ -713,7 +706,8 @@ await check('two workspaces flap independently', async () => {
   assert.equal(s.get('other'), null, 'nothing has been recorded about the other one');
   const out = await sweep(['other']);
   assert.equal(out.changed[0]?.damped ?? false, false, 'and its first word is heard');
-=======
+});
+
 /* -------------------------------------------------- a restart must not re-announce */
 
 await check('with no initial/save, behaviour is unchanged — the first tick is always a fresh broke', async () => {
@@ -803,7 +797,6 @@ await check('a recovery seeded from a persisted outage is still announced, not s
   const out = await cold.sweep([WS('team')]);
   assert.equal(out.changed[0].transition, 'recovered');
   assert.deepEqual(cold.trouble(), []);
->>>>>>> origin/main
 });
 
 /* ----------------------------------------------------------------- the cadence */

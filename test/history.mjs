@@ -175,7 +175,9 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     window,
     document: {
       getElementById: (id) =>
-        id === 'history' ? out : id === 'pulse' ? pulse : id === 'hist-refresh' ? refresh : null,
+        // `hist-list` since bc-khoe.30.5 — see the note on the same lookup in
+        // test/historyfilter.mjs.
+        id === 'hist-list' ? out : id === 'pulse' ? pulse : id === 'hist-refresh' ? refresh : null,
     },
     localStorage: { getItem: (k) => store.get(k) ?? null },
     fetch: fetchStub,
@@ -717,7 +719,9 @@ await check('the pill row has a History pill pointing at the page', () => {
   const bar = read('public/viewbar.js');
   assert.match(bar, /id: 'history'/);
   assert.match(bar, /href: '\/history'/);
-  assert.match(bar, /paths: \['\/history', '\/history\.html'\]/);
+  // The addresses moved to public/hashroute.js with bc-khoe.30.2 — the row asks it which
+  // view a path is rather than holding a second copy of the answer.
+  assert.match(read('public/hashroute.js'), /paths: \['\/history', '\/history\.html'\]/);
 });
 
 await check('the service worker precaches the page and moved its version', () => {

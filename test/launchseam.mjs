@@ -265,7 +265,13 @@ await check('batch, group and filesBusy still reach the brief — they are not o
 await check('the runner sets it for every child it spawns', () => {
   const src = read('scripts/test.mjs');
   assert.match(src, /from '\.\.\/lib\/launchguard\.js'/, 'the runner spells the variable a second time');
-  assert.match(src, /env: \{ \.\.\.process\.env, \[NO_LAUNCH\]: '1' \}/, 'suites are spawned without the guard set');
+  // Open at the end on purpose: what this check is for is that the guard is set on every
+  // child, and the runner has since had a second reason to build a child environment —
+  // bc-5isv gives each suite a `TMPDIR` of its own in the same object. Pinning the
+  // closing brace made a correct addition to that object read as a removed guard, which
+  // is a check that fails for the one change it should not care about. The comma or the
+  // brace is what says `NO_LAUNCH` is a complete entry and not the prefix of a longer name.
+  assert.match(src, /env: \{ \.\.\.process\.env, \[NO_LAUNCH\]: '1'\s*[,}]/, 'suites are spawned without the guard set');
 });
 
 await check('exactly one suite opts out, and it has a stub AppleScript to justify it', () => {

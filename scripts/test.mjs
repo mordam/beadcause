@@ -44,10 +44,12 @@
  * merge property this file was written for with a real `git merge-tree`.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { NO_LAUNCH } from '../lib/launchguard.js';
+import { onExit } from '../lib/teardown.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -90,12 +92,49 @@ if (!suites.length) {
 }
 
 /**
+ * A `$TMPDIR` per suite, taken away by *this* process when the suite exits — bc-5isv.
+ *
+ * 242 files under `test/` and `scripts/` call `mkdtempSync`; 186 of them name a cleanup
+ * helper. The gap is not carelessness — it is that a `finally` cannot run on a signal,
+ * and a suite that leaks is invisible: the directory goes into a `$TMPDIR` shared with
+ * twenty other sessions, where nobody can attribute it and nothing removes it. It reached
+ * **13,458 directories and 15 GB on this Mac**, which is the size of the disk it is on.
+ *
+ * Fixing every call site is a chance per site to get one wrong. Setting `TMPDIR` for the child
+ * is one line and cannot be got wrong by a suite at all: `os.tmpdir()` reads the variable
+ * on every call, so every `mkdtemp` a suite makes — and every `mkdtemp` made by anything
+ * the suite spawns, since the environment is inherited — lands inside a directory this
+ * process owns and removes when the child is over. A suite that never cleaned up is now
+ * indistinguishable from one that did.
+ *
+ * Under `$TMPDIR` with a `beadcause-` name rather than somewhere clever, for two reasons.
+ * It is where a suite's scratch has always been, so nothing that reads a path is
+ * surprised; and if *this* process is the one that gets killed, what it leaves behind is
+ * one directory in exactly the shape lib/strays.js sweeps.
+ *
+ * `--list` never reaches here, so `node scripts/test.mjs --list` still creates nothing.
+ */
+const spool = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'beadcause-suites-'));
+// The run's own directory goes the same way the suites' do, on every ending including a
+// signal. See lib/teardown.js; the plain `rmSync` at the bottom is the ordinary path.
+const disarmSpool = onExit(() => {
+  try {
+    fs.rmSync(spool, { recursive: true, force: true, maxRetries: 1 });
+  } catch {
+    /* a teardown must never be why a run ends badly */
+  }
+});
+
+/**
  * One child per suite, output inherited, and a stop at the first non-zero — the same
  * semantics `&&` gave, kept deliberately: a suite that fails usually invalidates the
  * ones after it, and thirty screens of consequential failures bury the one that matters.
  */
 for (const [i, suite] of suites.entries()) {
   console.log(`\x1b[2m── [${i + 1}/${suites.length}] ${suite}\x1b[0m`);
+  // Named for the suite so a directory still standing after a crash says which one made
+  // it, and unique so a suite run twice cannot collide with itself.
+  const sandbox = fs.mkdtempSync(path.join(spool, `${path.basename(suite).replace(/\W+/g, '-')}-`));
   const run = spawnSync(process.execPath, [path.join(ROOT, suite)], {
     cwd: ROOT,
     stdio: 'inherit',
@@ -103,8 +142,38 @@ for (const [i, suite] of suites.entries()) {
     // of the suites below start a real daemon, and a daemon is running `bin/router.js` —
     // nothing about that process looks like a test. Inherited by every child of every
     // child, which is exactly the reach that is wanted. lib/launchguard.js says why.
-    env: { ...process.env, [NO_LAUNCH]: '1' },
+    env: { ...process.env, [NO_LAUNCH]: '1', TMPDIR: sandbox },
   });
+  const broke = run.error || run.signal || run.status !== 0;
+  if (!broke) {
+    /**
+     * Whatever the suite left, gone — and it is this process doing it, which is the point.
+     *
+     * `force` and `maxRetries` because a suite that spawned a daemon may still have one
+     * letting go of a file (the ENOTEMPTY family test/helpers/tmp.mjs exists for), and
+     * because a failure here must never change what the run reports: the exit code of a
+     * gate says what its assertions said, and a scratch directory that would not go is a
+     * few megabytes lib/strays.js will collect tomorrow.
+     */
+    try {
+      fs.rmSync(sandbox, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      /* left for the stray sweep */
+    }
+  } else {
+    /**
+     * A failing suite keeps its scratch, and the run says where it is.
+     *
+     * This is the one directory anybody ever wants back — the config the suite was
+     * working in, the log the daemon it started wrote — and until now it was left in a
+     * `$TMPDIR` shared with twenty other sessions under a name nothing recorded, which is
+     * why "diff the directory listing before and after" was the only way to find it. The
+     * run stops at the first failure, so at most one of these survives a run, and
+     * lib/strays.js collects it a day later.
+     */
+    disarmSpool();
+    console.log(`\x1b[2m   scratch kept in ${sandbox}\x1b[0m`);
+  }
   if (run.error) {
     console.log(`\n\x1b[31m${suite} could not be started — ${run.error.message}\x1b[0m\n`);
     process.exit(1);
@@ -119,4 +188,6 @@ for (const [i, suite] of suites.entries()) {
   }
 }
 
+disarmSpool();
+fs.rmSync(spool, { recursive: true, force: true, maxRetries: 3 });
 console.log(`\n\x1b[32mall ${suites.length} suites passed\x1b[0m\n`);
