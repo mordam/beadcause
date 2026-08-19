@@ -272,6 +272,23 @@ try {
       up: window.beadcause.monTabs.up('advocates'),
       cards: pane.querySelectorAll('.mon-card').length,
       rowHeight: Math.round(pane.querySelector('#mon-tabs').getBoundingClientRect().height),
+      // Three chips, the observer mark and the tally, on 393px. The row is a horizontal
+      // scroller by design, so this is not a layout failure — it is the question of whether
+      // what came down out of the top bar in this bead fits beside what was already here.
+      //
+      // The tally is written in rather than waited for: this fixture has no workers and no
+      // proposals, so `monitor.js` leaves it empty, and a row measured empty would pass
+      // this vacuously. The busiest sentence that renderer can produce is
+      // "N working · M to answer" and this is it at two digits each.
+      rowScrolls: (() => {
+        const r = pane.querySelector('#mon-tabs');
+        const tally = document.getElementById('tally');
+        const was = tally.textContent;
+        tally.textContent = '12 working · 34 to answer';
+        const over = r.scrollWidth > r.clientWidth + 1;
+        tally.textContent = was;
+        return over;
+      })(),
       // One thing scrolls, and it is the section under the chip row — not the document,
       // and not the pane. Only what is painted: a hidden pane has no layout box at all.
       visibleScrollers: [...document.querySelectorAll('.pagescroll')].filter((el) => el.offsetParent !== null).length,
@@ -292,6 +309,7 @@ try {
 
   check('the pane is up and the roster drew its cards', open.showing === 'advocates' && open.cards >= 12, `${open.cards} cards`);
   check('the chip row is inside it, under the pill row', open.belowViewbar && open.rowHeight > 20, String(open.rowHeight));
+  check('and the mark and the busiest tally fit beside the chips on a 393px screen', !open.rowScrolls);
   check('one visible scroller, and it is the section rather than the document', open.visibleScrollers === 1 && !open.docScrolls);
   check('the roster is longer than the screen and says so by scrolling', open.scrolls);
   check('and it still fits sideways', !open.wide);
