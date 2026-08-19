@@ -120,7 +120,17 @@ function loadWorker(opts = {}) {
         url: `http://127.0.0.1:4317${request.path || '/app.js'}`,
         clone: () => ({ body: 'copy' }),
       }));
-  const ctx = vm.createContext({ self: self_, caches, fetch: fetchStub, URL, console });
+  /* A worker has `Response`, and `fallback` reaches for its one static to answer a path
+     that names a view (bc-khoe.30.7). Recorded rather than constructed, because what is
+     worth asserting is the address it was handed — and `Response.redirect` demands an
+     absolute one, which is the mistake this stub has to be able to catch. */
+  const Response_ = {
+    redirect: (url, status) => {
+      if (!/^https?:\/\//.test(String(url))) throw new TypeError(`Failed to parse URL from ${url}`);
+      return { redirected: true, status: status || 302, headers: { location: String(url) } };
+    },
+  };
+  const ctx = vm.createContext({ self: self_, caches, fetch: fetchStub, URL, URLSearchParams, console, Response: Response_ });
   vm.runInContext(SW_SOURCE, ctx, { filename: 'sw.js' });
 
   const fire = (type, event) => {
@@ -343,6 +353,72 @@ await check('a query string on a path nothing has cached still falls through to 
     ['/nowhere?status=closed', '/nowhere?status=closed (ignoreSearch)', '/'],
     'the three looks, in order'
   );
+});
+
+/* ------------------------------------------ the offline answer to a path that is a view */
+
+/*
+  bc-khoe.30.7. Every view is a pane of one document now, so `/history` is a **302** to
+  `/#history` on the daemon rather than a page — and a 302 is the one response
+  `Cache.put` refuses, so those paths had to leave `SHELL`. With no daemon to ask, that
+  leaves the request missing the cache twice and falling to the index page below: the
+  shell, served under the old path, with an empty hash. Home, whatever was tapped, on
+  exactly the phone the aliases exist for.
+
+  `VIEW_HOPS` is the worker's own copy of that table and `fallback` answers from it. The
+  order matters as much as the answer, which is what the last two checks are about: it
+  sits *below* both cache lookups, so a view whose pane has not landed yet — still a
+  document, still precached under its own name — is answered with what was cached under
+  it, and never reaches the table at all.
+*/
+
+await check('a view path offline hops to its pane rather than landing on the inbox', async () => {
+  // The v96 cache: the shell, and no entry under /history at all, because it stopped
+  // being a path this worker precaches when it stopped being a document.
+  const cache = cacheOf(['/']);
+  const sw = loadWorker({ fetch: () => Promise.reject(new Error('Failed to fetch')), match: cache.match });
+  const out = await outcome(sw.request('/history'));
+  await settle();
+  assert.equal(out.value?.headers?.location, 'http://127.0.0.1:4317/#history', 'the shortcut opened Home');
+  assert.equal(out.value?.status, 302);
+  assert.equal(sw.posted.length, 0, 'answering a shortcut offline is not a failure worth a bead');
+});
+
+await check('and it carries the query across the way the daemon does — filters behind the hash, the token in front', async () => {
+  const cache = cacheOf(['/']);
+  const sw = loadWorker({ fetch: () => Promise.reject(new Error('Failed to fetch')), match: cache.match });
+
+  // What the door decides for itself, on top of what arrived.
+  const narrowed = await outcome(sw.request('/closed?priority=P0'));
+  assert.equal(narrowed.value?.headers?.location, 'http://127.0.0.1:4317/#history?priority=P0&status=closed');
+
+  // And the pairing token, which is the daemon's rather than the view's: swept behind a
+  // `#` it would be a token no server can ever read, and the next navigation is a login
+  // screen. Offline that costs nothing this second and everything on the way back.
+  const paired = await outcome(sw.request('/closed?t=pair-me'));
+  assert.equal(paired.value?.headers?.location, 'http://127.0.0.1:4317/?t=pair-me#history?status=closed');
+  await settle();
+  assert.equal(sw.posted.length, 0);
+});
+
+await check('a path still precached under its own name is answered from the cache, not hopped', async () => {
+  // The self-gating half, and the reason the step is below the two lookups rather than
+  // above them. A pre-v96 phone still holds `/history` as the document it was; a view
+  // whose pane has not landed yet still holds its own page the same way. Either is a
+  // better answer than a redirect to a pane that document cannot draw.
+  const cache = cacheOf(['/', '/history']);
+  const sw = loadWorker({ fetch: () => Promise.reject(new Error('Failed to fetch')), match: cache.match });
+  const out = await outcome(sw.request('/history'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'cached /history' }, 'a cached document was thrown away for a hop');
+});
+
+await check('and a path that names no view is untouched — it still falls to the index', async () => {
+  const cache = cacheOf(['/']);
+  const sw = loadWorker({ fetch: () => Promise.reject(new Error('Failed to fetch')), match: cache.match });
+  const out = await outcome(sw.request('/monitor'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'cached /' }, 'the hop table has grown a path whose pane has not landed');
 });
 
 await check('the login page is still never served from cache — a next= param widens onto nothing', async () => {

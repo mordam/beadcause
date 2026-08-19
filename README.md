@@ -7034,6 +7034,67 @@ union and widening it moves the one request rather than opening a second, and th
 standby yields the socket the instant a view wants it and takes it back when the view lets
 go.
 
+### An address that names a view is a hop, not a document
+
+`/history` is not a page any more. It is `/` with `#history` on it — and a phone's home
+screen, the Android shell's history and every notification this daemon has ever sent still
+hold the old address. A bookmark that 404s is a worse outcome than several names for one
+view, so every one of them keeps working; what changed is what they answer with.
+
+**A 302, and it cannot be a rewrite.** Every other short name in `serveStatic` rewrites the
+path and the browser never finds out — `/queue` becomes `endorse.html` and the address bar
+still says `/queue`. That works exactly because the thing being chosen is a *file*. A pane
+is chosen by the hash, and a hash is
+[never sent to a server](#one-hash-two-claimants--the-grammar-in-publichashroutejs), so
+serving `index.html` at `/history` would load the shell with an empty hash: Home, built
+first and shown, whatever was tapped. The hop is the only shape that can put a fragment on
+the address bar, and it is better than a rewrite would have been even if a rewrite could
+have worked — after it the URL says which view is up, and what you send somebody is the
+screen you are looking at.
+
+**The query string splits in two, and that is the only fiddly part of it.** A filter that
+used to live in `location.search` lives in the hash's own query now, because in one document
+a search string outlives the view that wrote it. But `?t=` is not the view's, it is the
+daemon's: it is the pairing token an ntfy action and a home-screen shortcut both arrive
+with, and a fragment is never sent to a server, so a hop that swept it behind the `#` would
+turn the very next navigation into a login screen. So everything this daemon reads stays in
+front of the `#` and everything else goes behind it, which is why `/closed?t=…` comes back
+as `/?t=…#history?status=closed` rather than as either half alone. `viewHop` in
+`lib/server.js` is the one place that split is made.
+
+**A hopped path cannot be precached, and that is not a detail.** `Cache.put` refuses a
+redirected response outright and the shell is installed as one all-or-nothing `addAll`, so a
+single hopped path left in `SHELL` would leave *nothing* cached on every installed phone for
+as long as that worker lived — an app that had merely got slower, with nothing said. So a
+path leaves that list in the same commit that makes it a hop.
+
+**Which leaves the offline half, and the worker answers it itself.** With those paths out of
+the shell there is nothing cached under them, so an offline phone opening the `/history`
+shortcut would miss twice and fall to the index page — the shell, served under the old path,
+with an empty hash. Home, whatever was tapped, on exactly the phone the aliases exist for.
+So `public/sw.js` holds `VIEW_HOPS`, the same table, and answers the same hop with a
+`Response.redirect` when there is no daemon to ask. It sits *below* both cache lookups in
+`fallback`, which is what makes it self-gating as the rest of the epic lands: a view still
+served as its own document is still precached under its own name, so the exact match answers
+it and the table is never reached. `/closed` and `/done` gain something they never had this
+way — they still cannot be in the shell, but the far end of their hop is now a fragment of a
+document the worker already holds rather than a page only the daemon can name.
+
+**Two lists in two files, held together by a suite rather than by anybody remembering.**
+`lib/pagealias.js` reads the daemon's hops back out of `serveStatic`'s own run of `if`s —
+the path, the view and whatever the door narrows for itself — and `test/pagealias.mjs`
+asserts the worker's table is that table, view for view, that no hopped path is in `SHELL`,
+and that every path naming a view is a hop rather than a rewrite. `test/pagepaths.mjs` drives
+the hops against a real server, including both halves of what one does with a query string,
+and checks that each lands on the view whose own pill claims that address — a `/history`
+that hopped to `#advocates` would show one pane and light another pill.
+
+**Only the ledger's addresses are hops today.** `/monitor` and its eight siblings, and
+`/releases` and its two, are still documents and still aliases, because their panes are
+still [`data-pending`](#the-shell--one-document-one-pane-per-view). Each of those beads flips
+its own paths in the same commit that fills its container, and the suites above are what
+refuse the half of that pair that gets forgotten.
+
 ### The advocate console is one pane, and its chip row stays
 
 The Advocates pane is the biggest of the three by a distance and the only one with an
@@ -7258,13 +7319,16 @@ against.
 
 ### The ledger as a pane, and its filters in the hash
 
-Everything above describes `/history`, a document. It is a **pane of the shell** as well
-now: `[data-pane="history"]` in `public/index.html`, shown by a `display: none` swap on a
-pill tap with nothing fetched and nothing rebuilt. `/history` still answers — home screens
-hold it, [`/closed`](#closed-and-done--what-got-finished-as-a-place) redirects to it, and
-landing those on the pane is bc-khoe.30.7 rather than this — so `public/history.js` is one
-file that has to run in either document, and it decides which by asking whether the one it
-is in has panes at all. Three things differ, and they are the whole of the difference.
+Everything above describes `/history`, a document. It is a **pane of the shell** now:
+`[data-pane="history"]` in `public/index.html`, shown by a `display: none` swap on a pill tap
+with nothing fetched and nothing rebuilt. The old addresses still work and no longer serve
+anything — `/history`, `/history.html` and
+[`/closed`](#closed-and-done--what-got-finished-as-a-place) are all
+[a hop to the pane](#an-address-that-names-a-view-is-a-hop-not-a-document) since
+bc-khoe.30.7. `public/history.js` still holds the half that drew the document, because it
+had to run in both while both existed; nothing can reach it now, and taking it out is
+bc-khoe.30.15. Three things differ between the two, and they are the whole of the
+difference.
 
 **Where the filters are written.** On the page, the query string, exactly as above. In the
 shell, the hash's own query — `/#history?status=closed`, which is
@@ -7345,16 +7409,23 @@ and leave the query string as the browser sent it, so `/closed` rewritten to
 `history.html` arrives with no `status=` on it and the page has no way at all to tell it
 came in by that door: the whole unfiltered ledger, under a name that promised otherwise.
 That is the failure nobody reports, because a plausible list of the wrong beads looks like
-data. A **302 to `/history?status=closed`** is the mechanism instead, and it is better than
+data. A **302 to `/#history?status=closed`** is the mechanism instead, and it is better than
 a rewrite would have been even if a rewrite had worked: after the hop the address bar says
 what is on screen, the chips are drawn from it already pressed, clearing them is a tap, and
-what you send somebody is the screen you are looking at.
+what you send somebody is the screen you are looking at. The far end moved with the ledger —
+it was `/history?status=closed` until that became
+[a hop of its own](#an-address-that-names-a-view-is-a-hop-not-a-document) — and the filter
+crossed the `#` with it, because a `status=` left in the search string is a filter for a
+view the next tap takes you off.
 
 Everything else on the incoming URL is carried across and only `status` is overruled.
 `?t=` in particular — an ntfy action button and a home-screen shortcut both arrive with the
 pairing token on them, and a door that dropped it would turn the very next navigation into
-a login screen. `/closed?priority=P0` is *what P0s landed*, which is the second-most useful
-address in the app. `/closed?status=open` is a contradiction, and the name of the door is
+a login screen. It is also the one parameter that stays *in front of* the `#`: the filters
+are the view's and cross it, the token is the daemon's and a fragment never reaches a
+daemon, so `/closed?t=…` lands on `/?t=…#history?status=closed`.
+`/closed?priority=P0` is *what P0s landed*, which is the second-most useful address in the
+app. `/closed?status=open` is a contradiction, and the name of the door is
 the half of it that is not a typo.
 
 The one thing that looks like an oversight and is not: **neither path is in the service
@@ -7362,10 +7433,15 @@ worker's shell**, though every other multi-name page precaches all of its names.
 cannot be. `Cache.put` rejects a redirected response outright, and the shell is installed as
 a single all-or-nothing `addAll` — so adding them would leave *nothing* cached on every
 phone, for as long as that worker lives, and the symptom would be an app that had merely
-got slower. Nothing is lost by it either: `/closed` with no signal falls through to the
-index page, which is already what `/history?status=closed` does, because the offline
-fallback matches on the whole URL and no query string has ever matched anything in that
-list. That is one gap, in one function, rather than two paths missing from a list.
+got slower. Nothing is lost by it any more either, and that took two goes. `/closed` with no
+signal used to fall through to the index page, which was already what `/history?status=closed`
+did, because the offline fallback matched on the whole URL and no query string had ever
+matched anything in that list; that half closed with `ignoreSearch`. What was left was the
+bare `/closed`, and the reason for leaving it was that resolving it meant knowing a redirect
+only the daemon holds. That stopped being true when the ledger became a pane: the far end is
+a fragment of a document the worker already has, so
+[`VIEW_HOPS`](#an-address-that-names-a-view-is-a-hop-not-a-document) holds the answer and
+`fallback` gives it.
 `test/pagepaths.mjs` asserts the hop and where it lands — including both halves of what the
 door does with a query string — beside every other path a phone still has on its home
 screen.

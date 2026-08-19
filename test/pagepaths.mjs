@@ -158,10 +158,6 @@ const PAGES = [
     marker: '/endorse.js',
     paths: ['/endorse', '/queue', '/endorsements', '/endorse.html'],
   },
-  // The ledger. Two paths and not three, unlike the queue above it: it has been a tab
-  // on the bottom bar since the day it existed, so the bar is the only thing that has
-  // ever linked to it and there is no older name in anybody's home screen to keep alive.
-  { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
   // Releases (bc-khoe.7) — the two queues as cards, and the deploy strip that left the PR
   // board. Two names for it, because the page is about the journey and the strip was what
   // most people came for: `/releases` is what it is, `/deploys` is the word somebody types.
@@ -198,26 +194,55 @@ const PAGES = [
 /**
  * The paths that are a **hop** rather than a document, and where each one has to land.
  *
- * `/closed` and `/done` are the ledger narrowed to what finished (bc-nib3.7), and the
- * only reason they are not two more rows in `PAGES` above is the mechanism: the filter
- * they set lives in the query string, an alias rewrites the path and leaves the query
- * exactly as the browser sent it, so serving `history.html` at `/closed` would be the
- * whole unfiltered ledger under a name that promised otherwise. That failure is
- * invisible from the outside — a plausible list of the wrong beads — which is why the
- * `location` is asserted in full here rather than the page it eventually reaches.
+ * Two kinds now, and they arrived by opposite routes.
  *
- * The last two rows are the two halves of what the door does with a query string it was
- * handed: everything is carried across, because `?t=` is a pairing token an ntfy action
- * or a home-screen shortcut can arrive with and dropping it turns the second navigation
- * into a login screen; and `status` alone is overruled, because `/closed?status=open` is
- * a contradiction and the name of the door is the half that is not a typo.
+ * **An address that names a view** — `/history`, `/history.html` — was a row in `PAGES`
+ * until bc-khoe.30.7 and is a hop because the thing it names stopped being a document.
+ * The ledger is a pane of the shell, a pane is chosen by the hash, and a hash is never
+ * sent to a server: serving `index.html` at `/history` would open the app on Home
+ * whatever was tapped, at 200, with the address bar still saying `/history`. The
+ * `location` is the only place that failure is visible, which is what makes these rows
+ * worth more than the pages they replaced.
+ *
+ * **A door onto a view** — `/closed` and `/done`, the ledger narrowed to what finished
+ * (bc-nib3.7) — was never a page at all, for a different reason that reads the same: an
+ * alias rewrites the path and leaves the query exactly as the browser sent it, so
+ * `/closed` serving the ledger would be the whole unfiltered ledger under a name that
+ * promised otherwise. That failure is invisible from the outside — a plausible list of
+ * the wrong beads — which is why the `location` is asserted in full here rather than the
+ * page it eventually reaches.
+ *
+ * And the rows that carry a query string are the two halves of what a hop does with one.
+ * Everything the *view* reads crosses the `#`, because the ledger's filters live in the
+ * hash's own query now and a filter left in `location.search` outlives the view that
+ * wrote it. `?t=` does not cross it: it is a pairing token an ntfy action or a
+ * home-screen shortcut can arrive with, a fragment never reaches a server, and dropping
+ * it turns the second navigation into a login screen. `status` alone is overruled,
+ * because `/closed?status=open` is a contradiction and the name of the door is the half
+ * that is not a typo.
  */
 const REDIRECTS = [
-  { path: '/closed', to: '/history?status=closed', what: 'the ledger, narrowed to what finished' },
-  { path: '/done', to: '/history?status=closed', what: 'the same, under the other word for it' },
-  { path: '/closed?priority=P0', to: '/history?priority=P0&status=closed', what: 'a second filter, kept' },
-  { path: '/closed?t=pair-me', to: '/history?t=pair-me&status=closed', what: 'the pairing token, kept' },
-  { path: '/closed?status=open', to: '/history?status=closed', what: 'a contradicted status, overruled' },
+  // The ledger's own two addresses. They were rows in `PAGES` until bc-khoe.30.7 — a
+  // phone's home screen holds them and the service worker precached them by name — and
+  // they are a hop now because the ledger is a *pane* of the shell rather than a
+  // document. A hash cannot be read server-side, so serving `index.html` here would open
+  // the app with an empty hash: Home, whatever was tapped.
+  { path: '/history', to: '/#history', what: 'the ledger, which is a pane of the shell now' },
+  { path: '/history.html', to: '/#history', what: 'the same, under the name the worker used' },
+  // And with a filter on the way in, which is the case that says where the query string
+  // went. The ledger's four filters live in the hash's own query now (decision 5 in
+  // public/hashroute.js), because in one document a `location.search` outlives the view
+  // that wrote it — so a filter arriving in the search string has to cross the `#`.
+  { path: '/history?status=closed', to: '/#history?status=closed', what: 'a filter, moved behind the hash' },
+  // `?t=` is the half that must *not* cross it: a fragment is never sent to a server, so
+  // a pairing token swept into the hash is a token this daemon can never read, and the
+  // navigation after the hop is a login screen.
+  { path: '/history?t=pair-me', to: '/?t=pair-me#history', what: 'the pairing token, left where a server can read it' },
+  { path: '/closed', to: '/#history?status=closed', what: 'the ledger, narrowed to what finished' },
+  { path: '/done', to: '/#history?status=closed', what: 'the same, under the other word for it' },
+  { path: '/closed?priority=P0', to: '/#history?priority=P0&status=closed', what: 'a second filter, kept' },
+  { path: '/closed?t=pair-me', to: '/?t=pair-me#history?status=closed', what: 'the token in front, the filters behind' },
+  { path: '/closed?status=open', to: '/#history?status=closed', what: 'a contradicted status, overruled' },
 ];
 
 /* The sessions view's own files. Deleted with it, and named here so a stray copy
@@ -265,13 +290,17 @@ for (const { path: p, to, what } of REDIRECTS) {
   else ok(`${p} → ${to} — ${what}`);
 }
 
-/* And that the far end of that hop is a real page and not a 404 under a good-looking
-   `location` — the one thing asserting the header alone cannot tell you. */
+/* And that the far end of every one of those hops is a real page and not a 404 under a
+   good-looking `location` — the one thing asserting the header alone cannot tell you.
+   It is the shell for all of them now, so the marker is `/history.js`: `/` answering 200
+   proves the document is there, and the ledger's own script being on it proves the
+   document that answered can draw the pane the hash names. A shell that had dropped the
+   tag would pass every row above and open on an empty pane. */
 {
-  const res = await get('/history?status=closed');
-  if (res.status !== 200) bad('and /history?status=closed is a page', `HTTP ${res.status}`);
-  else if (!res.body.includes('/history.js')) bad('and /history?status=closed is a page', 'no /history.js in the body');
-  else ok('and /history?status=closed is a page');
+  const res = await get('/');
+  if (res.status !== 200) bad('and the far end of every hop is the shell', `HTTP ${res.status}`);
+  else if (!res.body.includes('/history.js')) bad('and the far end of every hop is the shell', 'no /history.js on it');
+  else ok('and the far end of every hop is the shell, with the ledger on it');
 }
 
 for (const p of GONE) {
@@ -327,6 +356,34 @@ for (const { path: p, why } of NEVER_MADE) {
     }
     if (clash) bad('no path is claimed by two pills', clash);
     else ok(`the row's ${owner.size} paths are claimed by ${pills.length} pills, one each`);
+
+    /* And the same claim for a path that is a *hop to a view* rather than a page
+       (bc-khoe.30.7). The rule below walks `PAGES`, so an address stops being covered by
+       it the moment it stops serving a document — which is exactly when it starts being
+       able to land on the wrong pane. Two cases, and the difference is whether the
+       address is one of the view's own.
+
+       An address the row claims must land on the view that claims it: `/history` hopping
+       to `#advocates` would show one pane and light another pill, and each half of that
+       is readable only from one of these two sources — the `location` off a running
+       server, and `VIEWS` off the file the row is drawn from.
+
+       A *door* — `/closed`, `/done` — is claimed by no pill on purpose: it is a question
+       asked of a view rather than one of that view's addresses, and the pill it lights is
+       the view's own. What it still owes is landing on a view that exists at all, because
+       `#nowhere` is Home with the filter silently dropped. */
+    const hops = new Map();
+    for (const { path: one, to } of REDIRECTS) {
+      const named = /^\/(?:\?[^#]*)?#([a-z]+)/.exec(to);
+      if (named) hops.set(one.split('?')[0], named[1]);
+    }
+    for (const [one, view] of hops) {
+      const claimed = owner.get(one);
+      if (claimed && claimed !== view) bad(`${one} hops to the view its own pill claims`, `it lands on #${view}, which is ${claimed}'s`);
+      else if (claimed) ok(`${one} hops to #${view}, the view whose pill claims it`);
+      else if (pills.some((pill) => pill.id === view)) ok(`${one} is a door onto #${view}, which is a view`);
+      else bad(`${one} is a door onto a view that exists`, `it lands on #${view}, which is on no pill and in no VIEWS row`);
+    }
 
     for (const page of PAGES) {
       // The page a pill lives on is the one whose alias list holds that pill's own paths.
