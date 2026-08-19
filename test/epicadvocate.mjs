@@ -39,8 +39,18 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-epicadv-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { EPIC_ADVOCATE, WAITING_OPEN, WAITING_CLOSE, waitingBlock, waitingOn, wantsAdvocate, isCrash, epicAdvocatePrompt } =
-  await import(LIB('epicadvocate.js'));
+const {
+  EPIC_ADVOCATE,
+  WAITING_OPEN,
+  WAITING_CLOSE,
+  WAITING_MAX,
+  waitingBlock,
+  waitingLine,
+  waitingOn,
+  wantsAdvocate,
+  isCrash,
+  epicAdvocatePrompt,
+} = await import(LIB('epicadvocate.js'));
 const { AGENTS, baseline, mark } = await import(LIB('foundation.js'));
 const { ERROR_LABEL } = await import(LIB('errors.js'));
 
@@ -215,6 +225,41 @@ check('an unclosed block still reads, because half a sentence beats none', () =>
   assert.equal(waitingOn({ notes: `${WAITING_OPEN}\nwaiting on review` }), 'waiting on review');
 });
 
+/* ------- bc-zjab.5: the cap is enforced on the path the advocate actually takes.
+   It writes the block by hand through `bd update --notes`, so no write path of ours is
+   ever reached; the read is. Measured on bc-y3qk: 942 characters, drawn in full. */
+
+check('THE CAP IS ENFORCED ON READ, SO A BLOCK NOBODY OF OURS WROTE STILL FITS THE CARD', () => {
+  // The block as an advocate writes it: typed into a whole notes field, never through
+  // `waitingBlock`. This is the exact shape that rendered a paragraph on bc-y3qk.
+  const sentence = 'waiting on the merge queue, '.repeat(40).trim();
+  assert.ok(sentence.length > 900, 'the fixture is no longer the size that caused this');
+  const notes = `provenance\n\n${WAITING_OPEN}\n${sentence}\n${WAITING_CLOSE}\n\nmore`;
+  const line = waitingOn({ notes });
+  assert.ok(line.length <= WAITING_MAX, `a ${line.length}-character sentence still reaches the card`);
+  assert.ok(line.endsWith('\u2026'), 'it stops mid-word, which reads as a broken card rather than a long sentence');
+  assert.ok(sentence.startsWith(line.slice(0, 40)), 'and it is not the same sentence any more');
+});
+
+check('a sentence that already fits is untouched, ellipsis and all', () => {
+  // The truncation must not be visible on the 30 epics whose line was always fine — an
+  // ellipsis on a sentence that fits would be a card claiming words were dropped.
+  const exact = 'x'.repeat(WAITING_MAX);
+  assert.equal(waitingLine(exact), exact);
+  assert.equal(waitingLine(`${exact}y`).length, WAITING_MAX);
+  assert.equal(waitingOn({ notes: `${WAITING_OPEN}\n${exact}\n${WAITING_CLOSE}` }), exact);
+  // And it cannot turn a line into nothing, which is what `isEnrolled` and `advocacyOn`'s
+  // `by` read it for — an epic that fell out of enrolment because its sentence was long
+  // would be an off switch nobody pressed.
+  assert.ok(waitingOn({ notes: `${WAITING_OPEN}\n${'y'.repeat(2000)}\n${WAITING_CLOSE}` }));
+});
+
+check('and the two paths share one cap, so they cannot drift', () => {
+  // The whole defect in one line: the limit used to live in `waitingBlock` alone.
+  const long = 'z'.repeat(500);
+  assert.equal(waitingOn({ notes: waitingBlock(long) }), waitingLine(long));
+});
+
 /* ------------------------------------------------------------------ the brief */
 
 check('the brief names the P0, its owner, and what it may not do', () => {
@@ -297,6 +342,18 @@ check('and it always says where to write down what it concluded', () => {
   const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
   assert.ok(text.includes(WAITING_OPEN) && text.includes(WAITING_CLOSE));
   assert.match(text, /re-entrant/);
+});
+
+check('AND IT SAYS HOW LONG THE SENTENCE MAY BE, WHICH THE MARKERS CANNOT (bc-zjab.5)', () => {
+  // The brief quotes `WAITING_OPEN` and `WAITING_CLOSE`, and a marker says nothing about
+  // length — so the number was in the code and nowhere an advocate could reach it. Four
+  // consecutive visits to bc-y3qk each wrote ~900 characters. The digits are asserted,
+  // not just the word "limit": a brief that says "keep it short" is what we already had.
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
+  assert.ok(text.includes(String(WAITING_MAX)), 'the advocate is asked for the sentence and not told the cap');
+  const at = text.indexOf(String(WAITING_MAX));
+  assert.ok(at > text.indexOf(WAITING_CLOSE), 'the cap is stated before the block it is about');
+  assert.ok(at < text.indexOf('beadcause-memory debrief'), 'and after the closing steps, where it is not about this');
 });
 
 /* ------------------------------------- the index of what it already knows (bc-goo.14) */
