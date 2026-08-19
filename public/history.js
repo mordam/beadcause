@@ -238,8 +238,8 @@
    */
   const filters = { status: [], priority: [], provenance: '', id: '' };
 
-  /** Is the list showing less than the whole selection? What the summary line's
-   *  `narrowed` mark means, and what the count line has to say out loud. */
+  /** Is the list showing less than the whole selection? What the count line has to say
+   *  out loud — the pills say their own half, each on its own face (bc-khoe.26). */
   const narrowed = () =>
     filters.status.length > 0 || filters.priority.length > 0 || Boolean(filters.provenance) || Boolean(filters.id);
 
@@ -787,12 +787,15 @@
      is a screenful of open beads that then rearranges itself. */
   readUrl();
 
-  /* And the panel it is shown in — the inbox's, from public/filtermenu.js. A page that
-     fails to load that file still lists the whole ledger, with whatever the URL asked
-     for still applied: the filters live in `filters` and the chrome only moves them, so
-     the missing half is the controls rather than the narrowing. */
+  /* And the pills it is shown in — the inbox's, from public/filtermenu.js. Four of them
+     since bc-khoe.26, one per filter, each opening its own chips: this page's groups
+     were the reason that file exists and they came apart with the inbox's, which is the
+     whole of what sharing one component is for. A page that fails to load it still lists
+     the whole ledger, with whatever the URL asked for still applied: the filters live in
+     `filters` and the chrome only moves them, so the missing half is the controls rather
+     than the narrowing. */
   if (filterHost && window.beadcause && window.beadcause.filterMenu) {
-    window.beadcause.filterMenu.mount(filterHost, { groups: filterGroups, narrowed });
+    window.beadcause.filterMenu.mount(filterHost, { groups: filterGroups });
   }
 
   paint();

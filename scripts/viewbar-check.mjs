@@ -54,7 +54,8 @@
 //
 // `PILLS` in `public/viewbar.js` is the one place a view is added, and it keeps moving:
 // bc-khoe.2 replaced four pills with seven while this file was being written, and
-// bc-khoe.4 (Advocates, Mirror) and bc-khoe.7 (Releases) each change the set again. A
+// bc-khoe.10 (Config) and bc-khoe.7 (Releases) each change the set again — bc-khoe.4 no
+// longer does, see the Mirror note in public/viewbar.js. A
 // list copied into this file would make every one of those a check edit as well, and a
 // check that has to be edited to keep passing is a check that gets edited rather than
 // believed — the same run that took the row from four pills to seven was green here
@@ -74,11 +75,13 @@
 // Three shapes, and the difference between them is what a tap should do. The current one
 // is a `<span aria-current="page">` with no href, because tapping where you already are
 // should do nothing. Every other one is either an `<a href>` — a pill that goes
-// somewhere — or a `<button type="button">` carrying the id the row's own click listener
-// acts on, which is what a pill that moves a filter over rows already in hand looks like
-// (bc-khoe.2). What is asserted is that a non-current pill is one of those two and never
-// a dead `<span>`, because *that* is the failure worth catching and it is the one a
-// rewrite of the row can introduce without touching a stylesheet.
+// somewhere — or a `<button type="button">` carrying an id the row's own click listener
+// acts on. There are two of those ids and a button may carry either or both:
+// `data-kind` moves a filter over rows already in hand (bc-khoe.2), and `data-pane` shows
+// a view this document already holds rather than fetching it (bc-khoe.30.3). What is
+// asserted is that a non-current pill is one of those two shapes and never a dead
+// `<span>`, because *that* is the failure worth catching and it is the one a rewrite of
+// the row can introduce without touching a stylesheet.
 //
 // Not part of `npm test`: it wants Chrome. `test/shell.mjs` is the static half that is —
 // it holds the 44px floor as a declaration in `public/style.css`. This is the half that
@@ -253,6 +256,8 @@ const ROUTES = {
   '/requirements': '/requirements.html',
   '/skills': '/skills.html',
   '/admin': '/admin.html',
+  '/sounds': '/sounds.html',
+  '/audition': '/sounds.html',
 };
 
 /* Every URL the fixture was asked for, in order. One assertion needs it: "tapping All
@@ -356,6 +361,7 @@ const PAGES = [
   { url: '/requirements', file: 'requirements.html' },
   { url: '/skills', file: 'skills.html' },
   { url: '/admin', file: 'admin.html' },
+  { url: '/sounds', file: 'sounds.html' },
 ];
 
 /**
@@ -403,7 +409,7 @@ const SIZES = [
  * So the row is put into the state it is promising something about, by giving it less
  * width than it needs, and this pass **fails if the row turns out to fit** — the
  * precondition is asserted rather than hoped for. It is not a phone; it stands in for the
- * phone the row is heading towards as bc-khoe.4 and bc-khoe.7 add to it, and the
+ * phone the row is heading towards as bc-khoe.10 and bc-khoe.7 add to it, and the
  * arithmetic `reveal()` does is the same either way.
  */
 const PINCH = { width: 240, height: 640 };
@@ -492,6 +498,7 @@ const PROBE = `(() => {
       href: el.getAttribute('href'),
       current: el.getAttribute('aria-current'),
       kind: el.dataset.kind || null,
+      pane: el.dataset.pane || null,
       /* The badge, as the text it is showing — \`null\` where there is no badge node at
          all, which is a different answer from an empty one and is what "off Home none of
          them carries a number" has to be asserted on. */
@@ -694,12 +701,12 @@ try {
          and the row is `.after()`'d onto whatever markup the page has above it. */
       const dead = m.pills
         .filter((p) => p.current !== 'page')
-        .filter((p) => !(p.tag === 'A' && p.href) && !(p.tag === 'BUTTON' && p.kind && p.type === 'button'));
+        .filter((p) => !(p.tag === 'A' && p.href) && !(p.tag === 'BUTTON' && (p.kind || p.pane) && p.type === 'button'));
       if (!dead.length)
         ok(
           `${at}: every other pill is a link or a button (${m.pills
             .filter((p) => p.current !== 'page')
-            .map((p) => `${p.id} ${p.tag === 'A' ? p.href : `→${p.kind}`}`)
+            .map((p) => `${p.id} ${p.tag === 'A' ? p.href : `→${[p.pane && `#${p.pane}`, p.kind].filter(Boolean).join('+')}`}`)
             .join(', ')})`
         );
       else
@@ -708,8 +715,8 @@ try {
           dead
             .map((p) =>
               p.tag === 'BUTTON'
-                ? `"${p.id}" is a <button type="${p.type || '(none)'}"${p.kind ? '' : ' with no data-kind'}> — the row's listener will not act on it`
-                : `"${p.id}" is a <${p.tag.toLowerCase()}> with no href and no data-kind — it is drawn but does nothing`
+                ? `"${p.id}" is a <button type="${p.type || '(none)'}"${p.kind || p.pane ? '' : ' with neither data-kind nor data-pane'}> — the row's listener will not act on it`
+                : `"${p.id}" is a <${p.tag.toLowerCase()}> with no href, no data-kind and no data-pane — it is drawn but does nothing`
             )
             .join('; ')
         );

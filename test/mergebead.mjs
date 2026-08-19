@@ -56,12 +56,14 @@ const {
   REVIEW_OPEN,
   REVIEW_CLOSE,
   MAX_REVIEW_COMMENTS,
+  MAX_REVIEW_ROUNDS,
   reviewState,
   withReviewBlock,
   reviewApproved,
   reviewPending,
   commentsForWorker,
   commentsForReviewer,
+  reviewEscalation,
 } = await import(LIB('mergebead.js'));
 const { MERGE_ADVOCATE } = await import(LIB('mergeadvocate.js'));
 const { AGENTS } = await import(LIB('foundation.js'));
@@ -366,6 +368,41 @@ check('the approval is carried only when there is one', () => {
   assert.equal(reviewPending(reviewState({ notes: '' })), true);
 });
 
+check('the reviewed commit is carried for every verdict, not only for an approval', () => {
+  // bc-36xx.10, and the "not only" is the whole of it. A `changes` verdict needs the sha
+  // just as much as an approval: it is what a later round compares the head against to
+  // tell whether the worker actually pushed anything in answer, or answered in prose.
+  const sha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+  for (const verdict of ['changes', 'approved', 'refused']) {
+    const s = reviewState({
+      notes: withReviewBlock('', { round: 1, verdict, refused: verdict === 'refused' ? 'no.' : '', reviewedSha: sha }),
+    });
+    assert.equal(s.reviewedSha, sha, `the sha was dropped on a '${verdict}' verdict`);
+  }
+  // Round trip and fixed point, like the rest of the block.
+  const state = reviewState({ notes: withReviewBlock('', { ...reviewed, reviewedSha: sha }) });
+  assert.equal(state.reviewedSha, sha);
+  assert.deepEqual(reviewState({ notes: withReviewBlock('', state) }), state);
+});
+
+check('a bead written before the field existed reads as not knowing what was reviewed', () => {
+  // The whole point of the default. An approval with no sha is one we cannot say what was
+  // approved *of*, and bc-36xx.4 must be able to tell that from an approval of this head
+  // — with no branch protection on this repo, GitHub leaves the approval standing when
+  // new commits land, so "no sha" and "the current sha" are opposite answers.
+  assert.equal(reviewState({ notes: withReviewBlock('', { round: 1, verdict: 'approved' }) }).reviewedSha, '');
+  assert.equal(reviewState({ notes: '' }).reviewedSha, '');
+  // A branch name, a URL, a truncated paste — anything that is not a sha reads as absent,
+  // which holds the merge rather than releasing it.
+  for (const junk of ['not-a-sha', 'HEAD', '1c0ffee', 'z'.repeat(40), '0123456789abcdef'.repeat(4)]) {
+    const s = reviewState({ notes: withReviewBlock('', { round: 1, verdict: 'approved', reviewedSha: junk }) });
+    if (junk === '1c0ffee') assert.equal(s.reviewedSha, '1c0ffee', 'the short sha gh hands back was rejected');
+    else assert.equal(s.reviewedSha, '', `'${junk.slice(0, 12)}' was taken for a commit`);
+  }
+  // And it is not written onto the beads that have none, for `approvedBy`'s reason.
+  assert.ok(!/reviewedSha/.test(withReviewBlock('', { round: 0 })), 'an unreviewed bead carries a reviewed sha');
+});
+
 check('a refusal is its own verdict, and it is a sentence', () => {
   const s = reviewState({ notes: withReviewBlock('', { round: 1, verdict: 'refused', refused: 'r'.repeat(2000) }) });
   assert.equal(s.verdict, 'refused');
@@ -450,6 +487,68 @@ check('a different repo with the same number is a different pull request', () =>
 
 check('MAX_ATTEMPTS is small enough that a stuck merge reaches a person', () => {
   assert.ok(MAX_ATTEMPTS >= 2 && MAX_ATTEMPTS <= 5, `${MAX_ATTEMPTS} attempts is not a retry, it is a loop`);
+});
+
+check('MAX_REVIEW_ROUNDS is Adam\'s two — review, answer, re-review, escalate', () => {
+  assert.equal(MAX_REVIEW_ROUNDS, 2, 'bc-nq0m answered two; changing it is a decision, not a tuning');
+});
+
+check('A WORKER AND A REVIEWER THAT NEVER AGREE REACH A PERSON, and do not loop', () => {
+  // bc-36xx.7, and the only property that actually matters here. Drive the loop the way
+  // it really runs — the reviewer comments, the worker declines, the reviewer comments
+  // again — and assert it stops. A cap that let this run is a session per round per side,
+  // for ever, and from outside it is indistinguishable from the pull request being stuck.
+  let state = reviewState({ notes: '' });
+  let rounds = 0;
+  const stopped = [];
+  while (rounds < 10) {
+    // The reviewer's round: it reads the diff and is still not satisfied.
+    rounds += 1;
+    state = reviewState({
+      notes: withReviewBlock('', {
+        ...state,
+        round: rounds,
+        verdict: 'changes',
+        reviewer: 'NeanderthalMan',
+        comments: [{ id: 'rc1', body: 'This swallows the error.' }],
+      }),
+    });
+    if (reviewEscalation(state)) {
+      stopped.push(rounds);
+      break;
+    }
+    // The worker's answer: it declines, which is one of the three answers it is allowed.
+    state = reviewState({
+      notes: withReviewBlock('', {
+        ...state,
+        comments: state.comments.map((c) => ({ ...c, answer: 'declined', note: 'It is deliberate.' })),
+      }),
+    });
+  }
+  assert.deepEqual(stopped, [MAX_REVIEW_ROUNDS], `the disagreement ran ${rounds} rounds without reaching anybody`);
+  assert.match(reviewEscalation(state), /did not agree/);
+  assert.match(reviewEscalation(state), /still unresolved/, 'the card does not say what is outstanding');
+});
+
+check('a flat refusal escalates on round one, without waiting out the cap', () => {
+  // Waiting for a second round would be asking a worker to answer comments that nobody is
+  // going to accept whatever it writes.
+  const s = reviewState({ notes: withReviewBlock('', { round: 1, verdict: 'refused', refused: 'This belongs in lib/pr.js.' }) });
+  assert.match(reviewEscalation(s), /will not approve/);
+  assert.match(reviewEscalation(s), /belongs in lib\/pr\.js/, 'the reviewer\'s own sentence is the point of the card');
+  // A refusal with no sentence is a bug worth seeing, not a card with a blank in it.
+  assert.match(reviewEscalation({ verdict: 'refused' }), /no reason was recorded/);
+});
+
+check('and a review that ended well escalates nothing, at any round', () => {
+  for (const round of [1, MAX_REVIEW_ROUNDS, MAX_REVIEW_ROUNDS + 3]) {
+    const s = reviewState({ notes: withReviewBlock('', { round, verdict: 'approved', approvedBy: 'NeanderthalMan' }) });
+    assert.equal(reviewEscalation(s), '', `an approval at round ${round} was escalated`);
+  }
+  // Nor does a review in flight: nothing has judged this, so the gate holds it — which is
+  // bc-36xx.4's job and not a person's.
+  assert.equal(reviewEscalation(reviewState({ notes: '' })), '');
+  assert.equal(reviewEscalation(reviewState({ notes: withReviewBlock('', { round: 1, verdict: 'changes' }) })), '');
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);

@@ -35,13 +35,35 @@ object Notifications {
      * **A channel's sound and vibration are immutable once created.** Android takes
      * the settings from the first `createNotificationChannel` and ignores every one
      * after it, forever — the user owns them from that moment. So changing either
-     * means publishing a *new id* and deleting the old one, which is what the `_v2`
-     * suffix is; the alternative is asking every existing install to fix it by hand
-     * in system settings.
+     * means publishing a *new id* and deleting the old one, which is what the version
+     * suffix on each of these is; the alternative is asking every existing install to fix
+     * it by hand in system settings.
      */
-    const val CHANNEL_QUESTIONS = "questions_v2"
+    const val CHANNEL_ANSWERS = "answers_v1"
     const val CHANNEL_REPLIES = "replies_v2"
     const val CHANNEL_SERVICE = "service"
+
+    /**
+     * The four cut by bc-ka5y.15.4, and the reason the id above stopped being
+     * `questions_v2`: its buzz went from 40ms to 20ms, and a channel that changes its
+     * vibration has to change its id or the change is not made.
+     *
+     * One channel per class is not decoration — it is where the *options* live. Android's
+     * own notification settings screen already has a volume, a vibration toggle, an
+     * importance and a "silent until 8am" per channel, so five channels means Adam can
+     * mute merges for a week without touching whether a question can reach him, and no
+     * screen of beadcause's own has to be built or maintained to offer it.
+     *
+     * [CHANNEL_REPLIES] is deliberately **not** re-cut. bc-ka5y.15.4 names it as one of
+     * the two that change, but nothing about it does: an agent's reply keeps the same pip
+     * and the same silence it has always had, and republishing it as `_v3` would throw
+     * away whatever has been set on it by hand in exchange for nothing. What changes is
+     * only what it no longer carries — news borrowed it until this bead, and now does not.
+     */
+    const val CHANNEL_STUCK = "stuck_v1"
+    const val CHANNEL_MERGED = "merged_v1"
+    const val CHANNEL_RELEASED = "released_v1"
+    const val CHANNEL_EPICDONE = "epicdone_v1"
 
     /**
      * An agent asking to change what it is.
@@ -55,10 +77,38 @@ object Notifications {
      */
     const val CHANNEL_FOUNDATION = "foundation_v1"
 
-    private val RETIRED_CHANNELS = listOf("questions", "replies")
+    /**
+     * Deleted on every start, so an existing install does not keep an old sound.
+     *
+     * `questions_v2` is here because [CHANNEL_ANSWERS] replaces it. Deleting is the only
+     * way to retire a channel — leave it behind and it stays in the settings screen as a
+     * dead row the user can still turn on, and on some versions of Android re-creating an
+     * id that was merely abandoned resurrects the *old* settings rather than the new ones.
+     */
+    private val RETIRED_CHANNELS = listOf("questions", "replies", "questions_v2")
 
-    /** One short shake. `longArrayOf(0, 40)` is wait 0ms, buzz 40ms, stop. */
-    private val ONE_SHAKE = longArrayOf(0, 40)
+    /**
+     * The smallest buzz a channel can ask for. `longArrayOf(0, 20)` is wait 0ms, buzz
+     * 20ms, stop.
+     *
+     * A channel's `vibrationPattern` is durations only — there is no amplitude in it — so
+     * "smaller" can only mean "shorter", and below about 20ms most phones never get the
+     * motor moving enough to be felt at all. That is the floor this bottoms out at, and it
+     * is a floor of the mechanism rather than a number picked for taste: the way past it
+     * is [android.os.VibrationEffect.Composition.PRIMITIVE_TICK], which the app has to
+     * fire itself with channel vibration off, and which is bc-ka5y.15.6 rather than this.
+     */
+    private val SMALLEST_BUZZ = longArrayOf(0, 20)
+
+    /**
+     * Two of them, and the only insistent thing this app does.
+     *
+     * Wait 0, buzz 60, pause 140, buzz 60 — long enough each to be a shove rather than a
+     * tap, and far enough apart to be felt as two. Everything else here is trying to be
+     * the smallest signal that still arrives; a blockage is the one class where being
+     * missed is the failure, because nothing else is going to say it.
+     */
+    private val DOUBLE_KNOCK = longArrayOf(0, 60, 140, 60)
 
     const val SERVICE_NOTIFICATION_ID = 1
 
@@ -86,17 +136,32 @@ object Notifications {
      * it clears. See [Tray.Entry.expires].
      */
     private const val STUCK_NOTIFICATION_ID = 7
+
+    /**
+     * Which Android channel each card is currently posted on, so that a change of channel
+     * can be a new card rather than an update.
+     *
+     * In memory, like [Tray] itself and for the same reason: if the process died the cards
+     * went with it, and the first render after a restart is a fresh post anyway.
+     */
+    private val posted = mutableMapOf<Int, String>()
     const val REPLY_RESULT_KEY = "beadcause.reply.text"
 
     /** Notification actions are one tap, unlike the app's two-tap confirm. */
     private const val MAX_OPTION_ACTIONS = 2
 
+    /** `android.resource://…/<id>` for one of the files in res/raw. */
+    private fun rawSound(ctx: Context, res: Int): Uri =
+        Uri.parse("${ContentResolver.SCHEME_ANDROID_RESOURCE}://${ctx.packageName}/$res")
+
     fun ensureChannels(ctx: Context) {
         val mgr = ctx.getSystemService(NotificationManager::class.java) ?: return
 
         // A 75ms pip (res/raw/blip.wav) rather than the system default, which on this
-        // phone is a second and a half of chime for a one-line question.
-        val blip = Uri.parse("${ContentResolver.SCHEME_ANDROID_RESOURCE}://${ctx.packageName}/${R.raw.blip}")
+        // phone is a second and a half of chime for a one-line question. The other four
+        // are generated — scripts/sounds.mjs is where their pitches and their loudness
+        // are argued, and /sounds on the phone is where they are heard side by side.
+        val blip = rawSound(ctx, R.raw.blip)
         val audio = AudioAttributes.Builder()
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .setUsage(AudioAttributes.USAGE_NOTIFICATION)
@@ -106,13 +171,53 @@ object Notifications {
 
         mgr.createNotificationChannel(
             // Still IMPORTANCE_HIGH: a question waiting on you has earned the peek.
-            // What it has not earned is the noise, so the peek keeps a pip and a
-            // single shake instead of the default chime and three-pulse pattern.
-            NotificationChannel(CHANNEL_QUESTIONS, "Decisions", NotificationManager.IMPORTANCE_HIGH).apply {
+            // What it has not earned is the noise, so the peek keeps a pip and the
+            // smallest buzz a pattern can express instead of the default chime and
+            // three-pulse pattern.
+            NotificationChannel(CHANNEL_ANSWERS, "Decisions", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "A question is waiting on you"
                 setSound(blip, audio)
                 enableVibration(true)
-                vibrationPattern = ONE_SHAKE
+                vibrationPattern = SMALLEST_BUZZ
+            }
+        )
+        mgr.createNotificationChannel(
+            // The only insistent one, and the only one that is a *state* rather than an
+            // arrival: a deploy that failed or a tracker that stopped syncing is still
+            // true an hour later, and nothing else is going to mention it. IMPORTANCE_HIGH
+            // for the peek, the double knock, and the double buzz to go with it.
+            NotificationChannel(CHANNEL_STUCK, "Work is stuck", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "A deploy failed, a tracker stopped syncing, something is not moving"
+                setSound(rawSound(ctx, R.raw.knock), audio)
+                enableVibration(true)
+                vibrationPattern = DOUBLE_KNOCK
+            }
+        )
+        mgr.createNotificationChannel(
+            // The three sizes of good news, and all three are IMPORTANCE_DEFAULT with the
+            // vibration off: none of them is waiting on you and none of them can be acted
+            // on, so a peek over what is on screen would be an interruption bought with
+            // nothing. They are separate channels rather than one because the pipeline is
+            // audible if they differ — four blips, then a drop, then eventually a chime —
+            // and because muting merges for a week must not also mute the milestone.
+            NotificationChannel(CHANNEL_MERGED, "Merges landed", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "A pull request merged"
+                setSound(rawSound(ctx, R.raw.land), audio)
+                enableVibration(false)
+            }
+        )
+        mgr.createNotificationChannel(
+            NotificationChannel(CHANNEL_RELEASED, "Releases", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "A release went out"
+                setSound(rawSound(ctx, R.raw.drop), audio)
+                enableVibration(false)
+            }
+        )
+        mgr.createNotificationChannel(
+            NotificationChannel(CHANNEL_EPICDONE, "Epics completed", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Every bead under an epic is closed"
+                setSound(rawSound(ctx, R.raw.chime), audio)
+                enableVibration(false)
             }
         )
         mgr.createNotificationChannel(
@@ -392,9 +497,25 @@ object Notifications {
                 question = null,
                 isReply = true,
                 chan = Tray.Chan.NEWS,
+                voice = voiceFor(event.type),
                 expires = NEWS_TIMEOUT_MS,
             ),
         )
+    }
+
+    /**
+     * Which of the three good-news channels an arrival sounds on.
+     *
+     * A `when` with a fallback rather than an enum because the type is a string off the
+     * wire: a type this build has never heard of must still land in the shade, silently
+     * wrong about its sound rather than absent. [CHANNEL_MERGED] is the fallback because a
+     * merge landing is the smallest of the three, and being too quiet about news is the
+     * survivable direction.
+     */
+    private fun voiceFor(type: String?): String = when (type) {
+        "released" -> CHANNEL_RELEASED
+        "epic-done" -> CHANNEL_EPICDONE
+        else -> CHANNEL_MERGED
     }
 
     /** "beadcause · landed", so the card says which of the three it is without expanding. */
@@ -458,6 +579,7 @@ object Notifications {
             else -> TRAY_NOTIFICATION_ID
         }
         if (entries.isEmpty()) {
+            posted.remove(trayId)
             mgr.cancel(trayId)
             return
         }
@@ -471,24 +593,28 @@ object Notifications {
          * about a request is still part of that conversation, and moving it to the
          * replies channel would put it back under the settings for work.
          *
-         * **News and blockages borrow two channels rather than cutting their own, and
-         * that is deliberate rather than unfinished.** A channel's sound and vibration
-         * are taken from the first `createNotificationChannel` and are immutable
-         * forever after, so publishing `merged`/`released`/`epicdone`/`stuck` here with
-         * today's 75ms pip in them would burn those four ids: bc-ka5y.15.4, which cuts
-         * the five channels with the sounds bc-ka5y.15.3 is auditioning, would have to
-         * publish `_v2` of each on day one. So until the sounds exist, news lands on the
-         * replies channel (default importance, no buzz, which is exactly right for it)
-         * and a blockage lands on the questions channel (high importance, the pip and
-         * the single shake, which is the closest thing to insistent this app has).
+         * **The news card is the one that moves.** It is a single card holding three
+         * classes that now have three channels, so the channel comes from the entry that
+         * *caused this render* — the arrival is what makes the sound, and the sound the
+         * arrival should make is its own. A card of four landings that a release joins
+         * therefore sounds the drop, which is the pipeline being audible and is the whole
+         * of why the three are separate ([Tray.Entry.voice]).
+         *
+         * That is also why the card is re-posted rather than updated when the channel
+         * changes: a notification's channel is fixed at the moment it is posted, and an
+         * update to a live id has no defined way to move it. `cancel` first and the next
+         * `notify` is a new card on the new channel — the entries survive because they
+         * live in [Tray], not in the notification.
          */
         val androidChannel = when {
             chan == Tray.Chan.FOUNDATION -> CHANNEL_FOUNDATION
-            chan == Tray.Chan.NEWS -> CHANNEL_REPLIES
-            chan == Tray.Chan.STUCK -> CHANNEL_QUESTIONS
+            chan == Tray.Chan.NEWS -> newest.voice ?: CHANNEL_MERGED
+            chan == Tray.Chan.STUCK -> CHANNEL_STUCK
             questions == 0 -> CHANNEL_REPLIES
-            else -> CHANNEL_QUESTIONS
+            else -> CHANNEL_ANSWERS
         }
+        val wasOn = posted.put(trayId, androidChannel)
+        if (wasOn != null && wasOn != androidChannel) mgr.cancel(trayId)
         val builder = NotificationCompat.Builder(ctx, androidChannel)
             .setSmallIcon(R.drawable.ic_notification)
             .setCategory(if (chan == Tray.Chan.STUCK) NotificationCompat.CATEGORY_ERROR else NotificationCompat.CATEGORY_MESSAGE)
@@ -602,7 +728,7 @@ object Notifications {
      * losing a written answer is the single worst thing this app could do.
      */
     fun sendFailed(ctx: Context, q: Question, text: String, reason: String) {
-        val builder = NotificationCompat.Builder(ctx, CHANNEL_QUESTIONS)
+        val builder = NotificationCompat.Builder(ctx, CHANNEL_ANSWERS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Couldn't send your answer")
             .setContentText(reason)
@@ -641,7 +767,7 @@ object Notifications {
         Tray.remove(ctx, key)
         if (Tray.snapshot(Tray.Chan.WORK, Tray.Chan.FOUNDATION).isNotEmpty()) return
 
-        val notification = NotificationCompat.Builder(ctx, CHANNEL_QUESTIONS)
+        val notification = NotificationCompat.Builder(ctx, CHANNEL_ANSWERS)
             .setSmallIcon(R.drawable.ic_check)
             .setContentTitle(if (closed) "Answered" else "Comment added")
             .setContentText(text.lineSequence().firstOrNull().orEmpty())
@@ -667,7 +793,7 @@ object Notifications {
     fun repairNeeded(ctx: Context) {
         val intent = Intent(ctx, PairActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val notification = NotificationCompat.Builder(ctx, CHANNEL_QUESTIONS)
+        val notification = NotificationCompat.Builder(ctx, CHANNEL_ANSWERS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Beadcause needs re-pairing")
             .setContentText("The server rejected the saved token. Tap to scan the QR again.")
