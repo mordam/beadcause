@@ -18536,8 +18536,8 @@ and reaches for nothing else.
 Twenty-nine is the number the premise rests on, and `beadcause-crosswalk shared` is it as a
 list. A row's **span** is how many certifiable standards it touches at once — its own, plus
 every standard its edges reach — so a row of span three is one implementation with three
-names: write the control once, evidence it once, and three auditors are answered. A
-hundred and sixty-five records reach two, sixty-seven reach one, and the histogram is the
+names: write the control once, evidence it once, and three auditors are answered. A hundred
+and thirty-six records reach exactly two and sixty-seven reach one, and that histogram is the
 duplicated-work map the programme plans against.
 
 Span counts certifiable standards only. ISO/IEC 23894, 42005 and 5338 are guidance — nobody
