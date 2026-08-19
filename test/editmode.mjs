@@ -544,8 +544,12 @@ check('app.js hands over what the payload is drawing, or nothing can be called t
 });
 
 check('the inbox loads the file, and loads it before app.js', () => {
-  const mine = INDEX.indexOf('/editmode.js');
-  const app = INDEX.indexOf('/app.js');
+  // The tags, not the first mention of each path. A comment in index.html naming
+  // `public/app.js` contains `/app.js`, so a bare `indexOf` reads the *prose* order and
+  // fails a file whose script tags are in the right order — which is what happened on
+  // bc-khoe.27.1. test/filterpills.mjs already asked the question this way.
+  const mine = INDEX.indexOf('<script src="/editmode.js">');
+  const app = INDEX.indexOf('<script src="/app.js">');
   assert.ok(mine !== -1, 'index.html does not load editmode.js');
   assert.ok(mine < app, 'index.html loads app.js first — the registrations would find nothing');
 });

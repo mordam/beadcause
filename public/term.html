@@ -29,7 +29,7 @@
   </header>
 
   <!-- No terminal id in the URL: pick a workspace, or rejoin one that is still running. -->
-  <main id="launcher" class="launcher" hidden>
+  <main id="launcher" class="launcher pagescroll" hidden>
     <p class="lede">A real Claude Code session, on this Mac, that you drive from here.
       It keeps running when the screen locks — come back and it is where you left it.</p>
     <h2 class="section-label">Open one in</h2>
@@ -85,10 +85,20 @@
        other script, because it can only catch what loads after it — and it is purely
        additive, so a page that fails to load it behaves exactly as it did before. -->
   <script src="/report.js"></script>
-  <!-- The account switcher in the top bar — which of your lives every screen is about,
-       and the menu the page's own top-right buttons live in. Before the page's own
-       script, because it *moves* those buttons rather than copying them: a page that
-       wires one by id afterwards is still wiring the element the thumb lands on. See
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       Before stream.js, which stamps it on every answer. See public/freshness.js. -->
+  <script src="/freshness.js"></script>
+  <!-- The app menu — the mark in a gear at the left of the top bar, and everything the
+       bar used to hold loose behind it: this page's own top-right buttons, Admin, and
+       which of your lives every screen is about. Before the page's own script, because
+       it *moves* those buttons rather than copying them: a page that wires one by id
+       afterwards is still wiring the element the thumb lands on. See
        public/accountbar.js. -->
   <script src="/accountbar.js"></script>
   <script src="/vendor/xterm.js"></script>

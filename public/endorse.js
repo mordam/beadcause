@@ -134,6 +134,10 @@
      * its row would be swept away by the refetch that proved the endorsement worked.
      */
     said: null,
+    /** How old the last queue was, off `x-beadcause-kept` (lib/cache.js) — `null`
+     *  until an answer has landed, which is what keeps the mark off a first paint.
+     *  See `parseKept`. */
+    kept: null,
   };
 
   const esc = (s) =>
@@ -150,6 +154,25 @@
     const hrs = Math.round(mins / 60);
     if (hrs < 24) return `${hrs}h`;
     return `${Math.round(hrs / 24)}d`;
+  }
+
+  /**
+   * How old the answer was, off the header the daemon puts on a kept response.
+   *
+   *     x-beadcause-kept: stale; age=41; refreshing
+   *
+   * Copied from public/history.js rather than shared — three lines twice is cheaper
+   * than a module only two other pages would import (bc-1kwl.8).
+   */
+  function parseKept(value) {
+    if (!value) return null;
+    const parts = String(value).split(';').map((s) => s.trim());
+    const field = parts.find((s) => s.startsWith('age='));
+    return {
+      stale: parts[0] === 'stale',
+      ageSec: field ? Number(field.slice(4)) || 0 : 0,
+      refreshing: parts.includes('refreshing'),
+    };
   }
 
   const graphUrl = (ws, id) => `/graph?ws=${encodeURIComponent(ws)}&id=${encodeURIComponent(id)}`;
@@ -588,6 +611,17 @@
     const stale = state.error
       ? `<p class="board-foot bad">Showing the queue as of ${esc(age(d.at))} ago — the last refresh did not answer.</p>`
       : '';
+    // The kept-answer mark (bc-1kwl.8), in the same words and the same place as the
+    // history tab's own — a suffix on the count line, in `.hist-kept`'s muted style
+    // rather than a warning. Suppressed under `stale` above: that is a request that
+    // failed outright, and showing both would say two different things about the same
+    // list in two different tones.
+    const kept =
+      !stale && state.kept?.stale
+        ? ` <span class="hist-kept">· as of ${
+            state.kept.ageSec < 60 ? `${Math.max(0, Math.round(state.kept.ageSec))}s` : `${Math.round(state.kept.ageSec / 60)}m`
+          } ago${state.kept.refreshing ? ', refreshing' : ''}</span>`
+        : '';
     const cut = d.truncated
       ? `<p class="board-foot bad">${plural(d.truncated, 'more bead')} not shown — this list caps at ${esc(
           d.counts.shown
@@ -598,7 +632,7 @@
       .join('');
     return `<div class="eq-head">
       <div class="eq-head-row">
-        <p class="eq-count">${plural(shown, 'bead')} waiting on you${where}</p>
+        <p class="eq-count">${plural(shown, 'bead')} waiting on you${where}${kept}</p>
         ${allHtml()}
       </div>
       <p class="subtitle">An agent filed these while it was working. Nothing will open a
@@ -641,9 +675,11 @@
     // them mid-flight. See `catchUp`.
     if (stale) setTimeout(catchUp, 0);
     if (!state.data && !state.error) return;
-    const scrollY = window.scrollY;
+    // The queue is the scroller, not the window (bc-7utr) — it is the middle row of a
+    // viewport-height shell, so the offset that has to survive a repaint is its own.
+    const was = out.scrollTop;
     out.innerHTML = listHtml();
-    window.scrollTo(0, scrollY);
+    out.scrollTop = was;
   }
 
   /* --------------------------------------------------------------------- acting */
@@ -1136,6 +1172,10 @@
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
       }
+      // Every answer carries it — the daemon serves a kept sweep immediately and
+      // refreshes it behind (lib/cache.js), and this is what lets `headHtml` say so
+      // instead of drawing a kept queue as though it were this second's.
+      state.kept = parseKept(res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-beadcause-kept') : null);
       state.data = await res.json();
       // A pick on a bead that has left the queue — endorsed here, or on the laptop —
       // is a pick on nothing, and leaving it would put a phantom in the group count.

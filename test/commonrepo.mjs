@@ -181,6 +181,58 @@ await check('the same secret pasted into any committed file is caught by its val
   fs.rmSync(chat);
 });
 
+console.log('\nthe lock nobody is holding');
+
+const HEAD_LOCK = path.join(DIR, '.git', 'HEAD.lock');
+const AGES_AGO = new Date(Date.now() - 60 * 60 * 1000);
+/** Something for the snapshot to actually commit, so `null` can never pass for success. */
+const somethingToCommit = (n) => fs.writeFileSync(path.join(DIR, 'advocates.json'), `${JSON.stringify({ n })}\n`);
+
+await check('a lock a live process holds is left alone, and the snapshot is dropped', async () => {
+  fs.writeFileSync(HEAD_LOCK, '');
+  fs.utimesSync(HEAD_LOCK, AGES_AGO, AGES_AGO);
+  // Old enough by any measure — the only thing standing between it and removal is that
+  // this test process has it open, which is exactly the state a real `git commit` is in.
+  const fd = fs.openSync(HEAD_LOCK, 'r');
+  try {
+    somethingToCommit(1);
+    await assert.rejects(() => commit('advocates'), /lock/i, 'a held lock has to still fail the commit');
+    assert.ok(fs.existsSync(HEAD_LOCK), 'and must not be removed out from under whoever is holding it');
+  } finally {
+    fs.closeSync(fd);
+  }
+});
+
+await check('a lock made moments ago is left alone too — that one is the ordinary race', async () => {
+  const now = new Date();
+  fs.utimesSync(HEAD_LOCK, now, now);
+  await assert.rejects(() => commit('advocates'), /lock/i, 'a fresh lock is another writer, and losing to it is the design');
+  assert.ok(fs.existsSync(HEAD_LOCK), 'so it stays, and the next write picks up both changes');
+});
+
+await check('but an abandoned one is removed and the commit lands', async () => {
+  // bc-xl7n.79: a zero-byte HEAD.lock from a git that died six days earlier, no holder,
+  // and every snapshot since dropping the history it was asked to keep.
+  fs.utimesSync(HEAD_LOCK, AGES_AGO, AGES_AGO);
+  const sha = await commit('advocates');
+  assert.ok(sha, 'the retry after clearing has to actually commit');
+  assert.equal(fs.existsSync(HEAD_LOCK), false, 'and the dead lock has to be gone');
+  assert.match(raw('show', '--name-only', '--format=%s', 'HEAD'), /advocates\.json/, 'with the pending write in it');
+});
+
+await check('a refusal is never retried, lock or no lock', async () => {
+  // The retry is for locks only: a secret rejected twice is a secret named twice in the
+  // log, and `commitOnce` has already unstaged it by the time the first one is thrown.
+  fs.writeFileSync(CONFIG, `${JSON.stringify({ slack: { botToken: 'xoxb-not-a-real-token' } }, null, 2)}\n`);
+  fs.writeFileSync(HEAD_LOCK, '');
+  fs.utimesSync(HEAD_LOCK, AGES_AGO, AGES_AGO);
+  await assert.rejects(() => commit('config'), /a Slack bot token/, 'the secret is the answer, not the lock');
+  assert.ok(fs.existsSync(HEAD_LOCK), 'and a failure that was never about the lock must not clear one');
+  fs.rmSync(HEAD_LOCK);
+  fs.writeFileSync(CONFIG, `${JSON.stringify({ auth: { google: { clientId: 'cid' } } }, null, 2)}\n`);
+  await commit('config');
+});
+
 await check('the history scan says nothing when nothing got in', async () => {
   const { commits, findings } = await scanHistory();
   assert.ok(commits > 0, 'there has to be a history to have scanned');

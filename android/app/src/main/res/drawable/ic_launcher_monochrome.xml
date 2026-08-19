@@ -1,13 +1,13 @@
 <!--
   The themed-icon layer: what a launcher with "Themed icons" on draws instead of the
-  colour foreground. Same lockup, same coordinates, same 0.80 fit as
+  colour foreground. Same lockup, same coordinates, same 0.96 fit as
   ic_launcher_foreground — only the colour differs, because Android keeps just the
   alpha here and paints it in the wallpaper's palette.
 
   This used to be @drawable/ic_notification, which was fine while both were the same
-  strand. It cannot be shared any more: the status bar renders at 24dp, where five
+  strand. It cannot be shared any more: the status bar renders at 24dp, where four
   letters on two lines are a smear, so ic_notification keeps a glyph drawn for that
-  size and this file carries the mark. Nothing is filled — every counter in b, d and o
+  size and this file carries the mark. Nothing is filled — every counter in b, d and c
   stays transparent, so the theming does not flood them solid.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -18,8 +18,8 @@
     <group
         android:pivotX="256"
         android:pivotY="256"
-        android:scaleX="0.80"
-        android:scaleY="0.80">
+        android:scaleX="0.96"
+        android:scaleY="0.96">
 
         <path
             android:pathData="M164,149 L164,253"
@@ -41,16 +41,12 @@
             android:strokeLineCap="round" />
 
         <path
-            android:pathData="M166.5,301.15 a34,34 0 1,0 0,55.7"
+            android:pathData="M224.5,301.15 a34,34 0 1,0 0,55.7"
             android:strokeColor="#FFFFFF"
             android:strokeWidth="30"
             android:strokeLineCap="round" />
         <path
-            android:pathData="M229,329 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0"
-            android:strokeColor="#FFFFFF"
-            android:strokeWidth="30" />
-        <path
-            android:pathData="M345,295 L399,295 L345,363 L399,363"
+            android:pathData="M287,295 L341,295 L287,363 L341,363"
             android:strokeColor="#FFFFFF"
             android:strokeWidth="30"
             android:strokeLineCap="round"

@@ -142,6 +142,10 @@
     detail: null,
     /** True while /api/deploys itself is unreachable. Read together with a live restart. */
     gone: false,
+    /** How old the last board was, off `x-beadcause-kept` (lib/cache.js) — `null`
+     *  until an answer has landed, which is what keeps the mark off a first paint.
+     *  See `parseKept`. */
+    kept: null,
   };
 
   /* The row, the lamps, the ladder and the two time formats come from public/prcard.js —
@@ -151,6 +155,29 @@
      all, which is why both are in one `sw.js` cache version. */
   const card = window.beadcause.prCard;
   const { esc, plural, age, ago, graphUrl, lampsHtml, factsHtml, bodyHtml } = card;
+
+  /**
+   * How old the answer was, off the header the daemon puts on a kept response.
+   *
+   *     x-beadcause-kept: stale; age=41; refreshing
+   *
+   * Copied from public/history.js rather than shared — three lines twice is cheaper
+   * than a module only two pages would import. It matters more here than anywhere
+   * else it is drawn: this sweep is `gh` per repo, ~74s against a 25s window, so a
+   * board on a kept answer while the fresh one runs behind it is this page's
+   * *ordinary* state now, and this is what stops it quietly passing a minute-old
+   * board off as this second's (bc-1kwl.8).
+   */
+  function parseKept(value) {
+    if (!value) return null;
+    const parts = String(value).split(';').map((s) => s.trim());
+    const field = parts.find((s) => s.startsWith('age='));
+    return {
+      stale: parts[0] === 'stale',
+      ageSec: field ? Number(field.slice(4)) || 0 : 0,
+      refreshing: parts.includes('refreshing'),
+    };
+  }
 
   /* -------------------------------------------------------------------- one row */
 
@@ -501,6 +528,60 @@
   }
 
   /**
+   * A deploy refused because the LaunchAgent it would have restarted is not this tree.
+   *
+   * `rec.error` says all of this already, in one paragraph, and a paragraph is what
+   * this used to be: `deploy-why`, wrapped, in the gap above the steps, with the
+   * program and the fix somewhere in the middle of it. That reads as narrative when
+   * what you actually want is four lookups — *which label, which program, which file,
+   * what do I type*. So each is a row with a heading, and the paths and the command are
+   * `<code>`, because a path in prose is a path you have to select carefully.
+   *
+   * The paragraph is not repeated below: the fields are the same sentences with the
+   * connective tissue removed, and printing both would only make you check whether
+   * they agreed. What is kept is `lines` — the reasoning, which is the one part the
+   * fields genuinely drop — under the fix rather than above it.
+   *
+   * `null` for every ordinary deploy, which is nearly all of them; see lib/deploy.js.
+   */
+  function launchAgentHtml(rec) {
+    const la = rec.launchAgent;
+    if (!la) return '';
+
+    // Each row only if it has an answer. An `unreadable` plist has no program, and a
+    // "Program: —" would be a field pretending to be a fact.
+    const row = (name, value, note = '') =>
+      value ? `<div class="la-row"><dt>${esc(name)}</dt><dd>${value}${note ? ` <span class="la-note">${esc(note)}</span>` : ''}</dd></div>` : '';
+
+    const code = (v) => `<code>${esc(v)}</code>`;
+    // A command when there is one, with the phrase beside it saying what running it
+    // does; the phrase alone when there is not, because a label this repo did not
+    // install has an action and no command — see lib/launchagent.js.
+    const fix = la.fixCommand
+      ? `${code(la.fixCommand)}${la.fix ? ` <span class="la-note">${esc(la.fix)}</span>` : ''}`
+      : la.fix
+        ? esc(la.fix)
+        : '';
+
+    // The reasoning, minus whichever of its lines was carrying the command — that one
+    // is now the Fix row above it, and a paragraph ending "fix it: npm run
+    // install-service" three lines under a heading that says exactly that reads as two
+    // sources you have to check against each other.
+    const why = (la.lines || []).filter((l) => !la.fixCommand || !l.includes(la.fixCommand));
+
+    return `<section class="deploy-la">
+      <p class="la-head">Refused — the LaunchAgent is not in step with this checkout.</p>
+      <dl class="la-fields">
+        ${row('Label', code(la.label))}
+        ${row('Program', code(la.program), 'is what launchd would have restarted')}
+        ${row('Plist', code(la.plist))}
+        ${row('Fix', fix)}
+      </dl>
+      ${why.length ? `<p class="la-why">${esc(why.join(' '))}</p>` : ''}
+    </section>`;
+  }
+
+  /**
    * The unfolded deploy: what it moved, every step it ran, and the runner's own log.
    *
    * The log is a second request (`?id=`) because the list deliberately does not carry
@@ -526,7 +607,7 @@
     const dir = where && where !== rec.workspace && where !== rec.repo ? `<code>${esc(where)}</code>` : '';
 
     return `<div class="deploy-body">
-      ${rec.error ? `<p class="deploy-why">${esc(rec.error)}</p>` : ''}
+      ${rec.launchAgent ? launchAgentHtml(rec) : rec.error ? `<p class="deploy-why">${esc(rec.error)}</p>` : ''}
       <div class="deploy-where">
         ${moved}${moved && dir ? ' · ' : ''}${dir}
         ${rec.bead ? ` · <a class="pill id" href="${esc(graphUrl(rec.workspace, rec.bead))}">${esc(rec.bead)}</a>` : ''}
@@ -610,6 +691,20 @@
       ? `<p class="board-foot bad board-quiet">Showing the board as of ${esc(ago(d.at))} — the last refresh did not answer.</p>`
       : '';
 
+    // The kept-answer mark (bc-1kwl.8) — a different situation from `stale` above: the
+    // daemon answered, with a cached sweep it is refreshing behind rather than a request
+    // that failed outright. Only drawn when the last fetch actually succeeded, or a
+    // failed refetch would be saying two different things about the same board in two
+    // different tones. As in public/history.js's `keptSuffix`, quiet on purpose: the
+    // whole point of serving a kept answer instantly is to not put a spinner over rows
+    // that are already there.
+    const kept =
+      !stale && state.kept?.stale
+        ? `<p class="board-foot board-quiet">Showing the board as of ${esc(
+            state.kept.ageSec < 60 ? `${Math.max(0, Math.round(state.kept.ageSec))}s` : `${Math.round(state.kept.ageSec / 60)}m`
+          )} ago${state.kept.refreshing ? ', refreshing' : ''}.</p>`
+        : '';
+
     const build = d.build
       ? `<p class="board-build">Running <code>${esc(d.build.short)}</code> from <code>${esc(
           d.build.dir.replace(/^.*\//, '')
@@ -636,14 +731,18 @@
     // The build line rides under the cards rather than in the header: it is the
     // footnote that defines the third lamp, and it only means something once you have
     // seen one.
-    if (cards || rest) return stale + cards + rest + build;
+    if (cards || rest) return stale + kept + cards + rest + build;
     const only = (d.repos || []).length ? ` in ${esc(window.beadcause?.space?.label?.() || 'this space')}` : '';
-    return `${stale}<div class="empty">${only ? `No repos${only}.` : 'No workspaces configured.'}</div>`;
+    return `${stale}${kept}<div class="empty">${only ? `No repos${only}.` : 'No workspaces configured.'}</div>`;
   }
 
   function render() {
     if (!state.data && !state.deploys && !state.error) return;
-    const scrollY = window.scrollY;
+    // `out` is the scroller, not the window (bc-7utr): the board is the last row of a
+    // viewport-height shell, so the offset that survives a repaint is its own. Read and
+    // written on the same element, which is also why this keeps working if the page ever
+    // goes back to scrolling as a document.
+    const was = out.scrollTop;
 
     out.innerHTML = deploysHtml() + boardHtml();
 
@@ -653,7 +752,7 @@
     // pull requests are actually in. A badge painted onto a bar with no tab to hang it
     // from would be a number nobody can see.
 
-    window.scrollTo(0, scrollY);
+    out.scrollTop = was;
   }
 
   /* -------------------------------------------------------------------- acting */
@@ -897,6 +996,10 @@
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
       }
+      // Every answer carries it — the daemon serves a kept sweep immediately and
+      // refreshes it behind (lib/cache.js), and this is what lets `boardHtml` say so
+      // instead of drawing a kept board as though it were this second's.
+      state.kept = parseKept(res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-beadcause-kept') : null);
       state.data = await res.json();
       // Kept for the next document that wants it — this page, on the next tab tap.
       // The board is a `gh` call per repo behind a 25-second cache on the daemon, so

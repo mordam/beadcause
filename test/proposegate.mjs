@@ -144,8 +144,8 @@ async function tick({ ready = [], inProgress = [], state = null, overrides = {} 
     show: async (_ws, id) => ({ id, status: 'in_progress' }),
     children: async () => [],
     listStatus: async () => inProgress,
-    // No P0 roots means every bead is workable — `hasP0Above` is fail-open on an empty
-    // graph, so this filter is never what empties a queue here. See lib/underp0.js.
+    // No P0 roots means every bead is workable — `hasRootAbove` is fail-open on an empty
+    // graph, so this filter is never what empties a queue here. See lib/underroot.js.
     graph: async () => ({ beads: [], parents: new Map() }),
   };
 

@@ -4,16 +4,18 @@
 //
 //   node scripts/beadsearch-check.mjs [--baseline] [--shots]
 //
-// bc-0xil put a typeahead in the filter panel: type part of a bead id, click a match,
+// bc-0xil put a typeahead in the filter row: type part of a bead id, click a match,
 // and the inbox narrows to that bead and everything under it, with a pill and an × to
 // undo it. `node test/beadsearch.mjs` drives the same control through a hand-made
 // document and covers the logic exhaustively. What it cannot see is the half that only
 // exists once there is a layout, and every item below is one of those:
 //
 //   • **the dropdown must not push the panel around.** It is absolutely positioned so it
-//     draws *over* the kind chips; if it ever laid out in flow, the chips would slide
-//     down under the thumb reaching for them, and on a phone the panel would grow past
-//     the bottom of the screen.
+//     draws *over* whatever is below it in the panel; if it ever laid out in flow, the
+//     controls under it would slide down under the thumb reaching for them, and on a
+//     phone the panel would grow past the bottom of the screen. Measured as the panel's
+//     height not changing — it used to be measured against the kind chips, and bc-khoe.2
+//     moved those out onto the pill row.
 //   • **the × has to be a target.** The glyph is 15px. The button around it is 22 square,
 //     and a control that removes a filter is the worst one to miss — you are left with a
 //     narrowed list and a control that looks broken.
@@ -69,7 +71,7 @@ const WS = 'demo';
  * them off the screen, and taking the pill back off has to bring them back.
  */
 const GRAPH = [
-  { id: 'bc-rfnr', title: 'The inbox is a P0 board', status: 'open', workspace: WS },
+  { id: 'bc-rfnr', title: 'The inbox is a epic board', status: 'open', workspace: WS },
   { id: 'bc-rfnr.1', title: 'An owner is a label, not an assignee', status: 'open', workspace: WS },
   { id: 'bc-rfnr.2', title: 'The inbox leads with the P0s you own', status: 'open', workspace: WS },
   { id: 'bc-qid9', title: 'What a picked bead filters to', status: 'open', workspace: WS },
@@ -140,10 +142,10 @@ function serve() {
         workspaces: [WS],
         spaces: [],
         scope: 'human',
-        // `owned: false` — the P0 board's own narrowing is off, so what the list does is
+        // `owned: false` — the epic board's own narrowing is off, so what the list does is
         // the bead filter and nothing else. The two are asserted against each other in
         // test/beadsearch.mjs; here the question is whether the tap works.
-        p0board: { p0s: [], under: {}, unhomed: {}, owned: false },
+        rootboard: { roots: [], under: {}, unhomed: {}, owned: false },
         summary: { questions: QUESTIONS.length, sessions: 0, proposals: 0 },
         seq: 1,
       });
@@ -241,19 +243,24 @@ const GEOMETRY = `(() => {
   const input = wrap.querySelector('.filter-text');
   const list = wrap.querySelector('.suggest');
   const panel = document.querySelector('.filter-panel');
-  const chips = document.querySelector('.filter-panel .chip-row.kinds');
   const r = (el) => (el ? el.getBoundingClientRect() : null);
-  const ib = r(input), lb = r(list), pb = r(panel), cb = r(chips);
+  const ib = r(input), lb = r(list), pb = r(panel);
   return {
     fontPx: Math.round(parseFloat(getComputedStyle(input).fontSize)),
     listShown: !!(list && !list.hidden),
     listPosition: list ? getComputedStyle(list).position : null,
-    // Over the chips, not above them: the list's box overlaps the kind chips' box.
-    overlapsChips: !!(lb && cb && lb.bottom > cb.top && lb.top < cb.bottom),
     inputRight: ib ? Math.round(ib.right) : null,
     listRight: lb ? Math.round(lb.right) : null,
     panelRight: pb ? Math.round(pb.right) : null,
     panelBottom: pb ? Math.round(pb.bottom) : null,
+    // "Over, not above" is measured as the panel not growing. It used to be measured as
+    // the list's box overlapping the kind chips' row — and bc-khoe.2 promoted the kinds
+    // out of this panel and onto the pill row, so that box no longer exists and the
+    // assertion read false for the one reason it was never about. The panel's own height
+    // is the property that was always meant: an absolutely-positioned dropdown draws
+    // over whatever is under it and reflows nothing, whichever group happens to be
+    // under it that week.
+    panelH: pb ? Math.round(pb.height) : null,
     fits: !!(ib && pb && ib.right <= pb.right + 1 && ib.left >= pb.left - 1),
   };
 })()`;
@@ -312,8 +319,10 @@ try {
   await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
   if (!(await waitFor(s, `!!document.querySelector('#list .card[data-key]')`)))
     throw new Error('the inbox never rendered');
-  // Nothing is stored, so the box is empty on every load — the filter panel simply has
-  // to be open for any of this to be reachable.
+  // Nothing is stored, so the box is empty on every load — the bead pill simply has to be
+  // open for any of this to be reachable. It is the first `.filter-summary` on the row
+  // because the page's own group leads `groupsOf()`, and under `My Epics` it is the only
+  // one offered anyway (bc-khoe.3).
   await tap(s, '.filter-summary');
   await sleep(150);
 
@@ -323,7 +332,7 @@ try {
 
   const cold = await evalJs(s, GEOMETRY);
   await shot(s, 'panel-open');
-  check('the box is drawn inside the filter panel', Boolean(cold), cold ? '' : 'no .filter-typeahead');
+  check('the box is drawn inside the pill’s panel', Boolean(cold), cold ? '' : 'no .filter-typeahead');
   check(
     'at 16px, so focusing it does not zoom iOS in on the panel',
     cold?.fontPx === 16,
@@ -351,9 +360,9 @@ try {
     offered.join(', ')
   );
   check(
-    'the list draws *over* the chips rather than pushing them down',
-    open?.listPosition === 'absolute' && open?.overlapsChips === true,
-    `position ${open?.listPosition}, overlaps=${open?.overlapsChips}`
+    'the list draws *over* the panel rather than pushing it open',
+    open?.listPosition === 'absolute' && open?.panelH === cold?.panelH,
+    `position ${open?.listPosition}, panel ${cold?.panelH}px -> ${open?.panelH}px`
   );
   check(
     'and it stays inside the panel, squared up with the box above it',
@@ -409,9 +418,12 @@ try {
   check('the list narrows to that bead and the two under it', narrowed.length === 3 && narrowed.every((k) => k.startsWith(`${WS}/bc-rfnr`)), narrowed.join(', '));
   check('the tree was fetched once', state.trees.length === 1 && state.trees[0] === 'bc-rfnr', state.trees.join(','));
   check(
-    'and the collapsed line says so, in bold, without being opened',
-    await evalJs(s, `document.querySelector('.filter-menu').classList.contains('narrowed') && /bc-rfnr/.test(document.querySelector('.filter-summary .sel').textContent)`),
-    await evalJs(s, `document.querySelector('.filter-summary .sel').textContent`)
+    'and the pill says so on its own face, without being opened',
+    await evalJs(
+      s,
+      `document.querySelector('.filter-summary').classList.contains('on') && /bc-rfnr/.test(document.querySelector('.filter-summary .sel').textContent)`
+    ),
+    await evalJs(s, `document.querySelector('.filter-summary').textContent`)
   );
 
   /* ============================================================ 4. and back */
@@ -424,9 +436,13 @@ try {
   await shot(s, 'cleared');
   check('the × brings the whole list back', back.length === QUESTIONS.length, back.join(', '));
   check(
-    'and the line stops claiming a narrowing',
-    !(await evalJs(s, `document.querySelector('.filter-menu').classList.contains('narrowed')`)),
-    ''
+    'and the pill stops claiming a narrowing, and goes back to its bare legend',
+    await evalJs(
+      s,
+      `!document.querySelector('.filter-summary').classList.contains('on')
+        && document.querySelector('.filter-summary .sel').textContent === ''`
+    ),
+    await evalJs(s, `document.querySelector('.filter-summary').textContent`)
   );
 
   /* ================================================== 5. the sentences it says */

@@ -68,9 +68,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ownAddresseeLabels } from '../lib/addressee.js';
-import { isClaimGuard } from '../lib/bd.js';
+import { isClaimGuard, LIVE_STATUSES } from '../lib/bd.js';
 import { bylineFor } from '../lib/byline.js';
 import { isMergeReason, parseJson } from '../lib/bd.js';
+import { approvalHold, approvalStop } from '../lib/approval.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
@@ -80,13 +81,13 @@ import { EDIT_HOLD, fromEditMode } from '../lib/editwork.js';
 import { landedReason } from '../lib/landed.js';
 import { MERGE_ASSIGNEE, MERGE_LABEL, mergeBeadBody, mergeBeadTitle, openMergeBeadFor } from '../lib/mergebead.js';
 import { requestSweep } from '../lib/mergesweep.js';
-import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
 import { park, questionType } from '../lib/park.js';
 import * as pr from '../lib/pr.js';
 import { baseFor } from '../lib/prbase.js';
 import { landParent } from '../lib/prboard.js';
-import { repoUnits } from '../lib/repos.js';
+import { bareRefs, diffstat, prBody as renderBody, prTitle } from '../lib/prtext.js';
+import { multiRepo, repoUnits } from '../lib/repos.js';
 import { prPolicyFor } from '../lib/spaces.js';
 
 function arg(...names) {
@@ -296,7 +297,17 @@ if (!bead) die(`no bead ${beadId} in the ${ws.name} workspace`);
 const summary = summaryFile ? fs.readFileSync(summaryFile, 'utf8') : fs.readFileSync(0, 'utf8').trim();
 if (!summary) die(`a summary is required — it is the whole of what ${owner} reads before merging`, 2);
 
-const title = titleArg || `${beadId}: ${bead.title || branch}`;
+/**
+ * The title, through `prTitle` whichever end it came from.
+ *
+ * `--title` is not trusted more than the bead is. The length discipline in lib/prtext.js
+ * is about the four narrow places a pull request title gets read — GitHub's list, an
+ * ntfy notification, the delivery card's heading, `Merge #<n>? …` at 160 characters —
+ * and none of them cares who wrote the string. A session that hand-writes a good short
+ * title is unchanged by this; one that pastes the bead's own 118-character sentence in
+ * gets the same clause taken off the front that the default would have got.
+ */
+const title = prTitle(beadId, titleArg || bead.title || branch);
 
 /* --------------------------------------------------------------------- github */
 
@@ -322,6 +333,30 @@ if (!slug) {
       `The work is committed on ${branch}; say so on ${beadId} and leave it there.`,
     4
   );
+}
+
+/**
+ * A `#123` written in a workspace of forty repos is a link to the wrong repo.
+ *
+ * GitHub resolves a bare `#N` against the repo the body is in, whatever the words around
+ * it say and whatever full URLs share the line — so in a workspace that is one checkout
+ * it means what it says, and in one that is forty it silently links a sentence about
+ * another service to an unrelated pull request in this one. That is the failure worth
+ * catching: it renders, so nobody looks at it.
+ *
+ * Said, and not refused. It is a mistake in prose; the branch is finished and correct,
+ * and dying over a hyperlink would strand real work. Said *here*, after the slug is
+ * resolved and before anything is pushed, so the line can name the repo the link would
+ * actually go to — which is the half that makes it obvious rather than pedantic.
+ */
+if (multiRepo(cfg, ws.name)) {
+  const bare = bareRefs(`${summary}\n${tests}\n${risk}\n${left}`);
+  if (bare.length) {
+    console.error(
+      `beadcause-deliver: ${bare.join(', ')} in the summary will link to ${slug}, not to the repo you meant — ` +
+        'a pull request in another repo needs its full https://github.com/<owner>/<repo>/pull/<n> url.'
+    );
+  }
 }
 
 /**
@@ -429,30 +464,72 @@ const policy = prPolicyFor(cfg, ws.name);
  */
 const editHold = fromEditMode(bead);
 if (editHold) console.error(`beadcause-deliver: ${beadId} is an in-app edit, so this delivery asks rather than merges.`);
+/**
+ * The one law, said out loud at the start rather than only at the close.
+ *
+ * A gate bead and a `needs-approval` bead are both delivered exactly as anything else is —
+ * this does *not* hold the merge, and that is deliberate rather than an omission. dv-8o5
+ * decided the code half as "beadcause learns not to close a bead carrying the bare gate
+ * label", and forcing the hold would additionally decide which pull requests may reach
+ * `main` unattended, which nobody was asked. What it does do is tell the session, before it
+ * spends twenty minutes wondering, that the ending it is about to get is *merged and still
+ * open* — and that `--review` is the way to put the merge in front of Adam too.
+ *
+ * It says "whatever merges this" rather than naming one, because three different things
+ * can: the merge queue, a tap on the delivery card, or this process itself on the paths
+ * that still land their own work. The rule is the same for all three and the sentence
+ * should not have to be right about which one this is.
+ *
+ * The refusal itself is not carried by this line. It is in lib/approval.js, and it holds
+ * whether or not anybody reads this. See the `staysOpen` branch in `landHere`.
+ */
+const approvalLabel = approvalHold(bead);
+if (approvalLabel && !review) {
+  console.error(
+    `beadcause-deliver: ${beadId} is labelled \`${approvalLabel}\` — whatever merges this will NOT close it, deliberately. ` +
+      `${owner} closes it; deliver with --review to put the merge in front of them too.`
+  );
+}
 const autoMerge = policy.autoMerge && !review && !editHold;
 // Green checks are not enough in a space that asks for a review first. Only consulted
 // inside the `autoMerge` branch below — with auto-merge off every delivery is already a
 // question, and answering it *is* the approval.
 const requireApproval = policy.requireApproval;
 
-const prBody = [
-  `Closes ${beadId} once merged.`,
-  '',
+/**
+ * What the branch actually changed, asked of the branch rather than of the summary.
+ *
+ * The three-dot form is deliberate and is the whole point: `<upstream>...HEAD` diffs
+ * against the merge base, so a branch that merged main in last night reports what *it*
+ * did and not what main did while it was open. Two dots would put a fortnight of other
+ * people's work in this pull request's description.
+ *
+ * Best-effort. A diffstat is worth having and is worth nothing at all compared to the
+ * delivery: a git invocation that fails here — an object it cannot read, a base ref that
+ * has gone — must not be the reason a finished piece of work does not reach `origin`.
+ */
+let stat = null;
+try {
+  stat = diffstat(git(['diff', '--numstat', `${upstream}...HEAD`]));
+} catch (err) {
+  console.error(`beadcause-deliver: no diffstat for the body — ${first(err)}`);
+}
+
+const prBody = renderBody({
+  beadId,
+  beadTitle: bead.title || '',
+  title,
   summary,
-  tests ? `\n**Tests:** ${tests}` : '',
-  risk ? `\n**Worth knowing:** ${risk}` : '',
-  left ? `\n**Left undone:** ${left}` : '',
-  '',
-  '---',
-  autoMerge
-    ? `_Opened by a beadcause worker session on ${beadId}, which merges it itself once the checks report` +
-      `${requireApproval ? ' and it has an approving review' : ''}. If it is ` +
-      `still open, something stopped that — the reason is on ${beadId} and in ${owner}'s inbox._`
-    : `_Opened by a beadcause worker session on ${beadId}. It is not merged until ${owner} answers the question in their inbox.` +
-      `${editHold ? ` This one was typed into the running app with edit mode on, and an in-app edit is merged by the person who asked for it.` : ''}_`,
-]
-  .filter((l) => l !== '')
-  .join('\n');
+  tests,
+  risk,
+  left,
+  stat,
+  base,
+  owner,
+  autoMerge,
+  requireApproval,
+  editHold,
+});
 
 // The second delivery on a branch is the ordinary case, not the exception: changes
 // were requested, the session pushed more commits, and the PR is still open. Reusing
@@ -460,7 +537,40 @@ const prBody = [
 request = await pr.viewForBranch(dir, branch);
 if (request && request.state !== 'OPEN') request = null;
 if (request) {
-  await pr.comment(dir, request.number, `**Updated** — ${ahead} commit${ahead === 1 ? '' : 's'} on \`${branch}\`.\n\n${summary}`);
+  /**
+   * A redelivery says what changed *this time*, in a comment, and leaves the description
+   * where it is.
+   *
+   * That split is on purpose. The body is what the first reviewer read and what a review
+   * comment is anchored against; rewriting it under them turns "I asked about the second
+   * paragraph" into a sentence about a paragraph that is no longer there. A comment is
+   * additive and dated, and the thread is where a second round belongs.
+   *
+   * The **title** is the exception, and the one the skill in agent-context is explicit
+   * about: it must reflect the final diff, and a bead retitled mid-flight — which happens
+   * here, because a session that learns what the work really was says so on the bead —
+   * leaves the pull request advertising the wrong thing on a board Adam reads without
+   * opening anything. Nothing is lost by correcting it, so it is corrected, and it is not
+   * a reason to fail a delivery that has already pushed.
+   */
+  if (request.title && request.title !== title) {
+    try {
+      await pr.retitle(dir, request.number, title);
+      console.error(`beadcause-deliver: retitled #${request.number} — ${title}`);
+      request = { ...request, title };
+    } catch (err) {
+      console.error(`beadcause-deliver: could not retitle #${request.number} — ${first(err)}`);
+    }
+  }
+  const changed = stat?.files?.length
+    ? ` — ${stat.files.length} file${stat.files.length === 1 ? '' : 's'}, +${stat.added} −${stat.removed} against \`${base}\``
+    : '';
+  await pr.comment(
+    dir,
+    request.number,
+    `**Updated** — ${ahead} commit${ahead === 1 ? '' : 's'} on \`${branch}\`${changed}.\n\n${summary}` +
+      `${tests ? `\n\n**Tests:** ${tests}` : ''}${risk ? `\n\n**Worth knowing:** ${risk}` : ''}${left ? `\n\n**Left undone:** ${left}` : ''}`
+  );
 } else {
   try {
     request = await pr.create(dir, { base, head: branch, title, body: prBody });
@@ -771,17 +881,30 @@ async function landHere(landed, { external = false } = {}) {
   // open *and claimed* stays out of the advocate's queue, where an open unclaimed one
   // would be handed straight to another session to deliver and be refused again. Closing
   // it was the old way out of that loop, and it is the thing this rule exists to stop.
+  //
+  // **And a gate is the second bead this close is wrong about**, for a reason that is not
+  // about types at all: the one law says no agent closes a gate and no agent closes a bead
+  // waiting to be approved, and this process is an agent. Same shape as the epic rule, same
+  // two writes — the merge stays as the comment above and the bead stays open — and the
+  // same reason the claim is left on it. Asked of lib/approval.js so this process and the
+  // daemon cannot come to different answers about the same bead; `isMergeReason` is what
+  // both of them key on. See lib/approval.js for why the rule is about the *sentence*.
   const epicStaysOpen = bead.issue_type === 'epic' && isMergeReason(closeReason);
-  if (epicStaysOpen) {
+  const approvalStays = approvalStop(bead, isMergeReason(closeReason));
+  if (epicStaysOpen || approvalStays) {
     console.error(
-      `beadcause-deliver: merged ${where}, and left ${beadId} open — an epic does not close on a merge. ` +
-        `Close it when its theme is done.`
+      approvalStays
+        ? `beadcause-deliver: merged ${where}, and left ${beadId} open — ${approvalStays}.`
+        : `beadcause-deliver: merged ${where}, and left ${beadId} open — an epic does not close on a merge. ` +
+            `Close it when its theme is done.`
     );
     try {
       bd([
         'comment',
         beadId,
-        `This epic stays **open** over ${where}: an epic closes when its theme is done, not when a branch sharing its name merges.`,
+        approvalStays
+          ? `This bead stays **open** over ${where}: ${approvalStays}.`
+          : `This epic stays **open** over ${where}: an epic closes when its theme is done, not when a branch sharing its name merges.`,
       ]);
     } catch {
       /* The comment above this block already says what landed; this one is why it is still open. */
@@ -797,14 +920,50 @@ async function landHere(landed, { external = false } = {}) {
      * guard is what refused; anything else still travels out to `oweClose` below exactly
      * as it did. `isClaimGuard` is imported from lib/bd.js rather than re-written here so
      * the two processes cannot disagree about what that refusal looks like.
+     *
+     * And the other half, which is not about a refusal at all: **a zero exit is not a
+     * close.** bc-q6qc — a merged bead took the comment written immediately before its
+     * close and stayed `in_progress` for a day, with nothing in the log, nothing in
+     * `owed-closes.json` and every layer above reporting the close as done. `bd` came back
+     * 0 and the row did not move, and there is no exit code, stream or exception in which
+     * that is distinguishable from success. So the close is *asked about* rather than
+     * assumed, one `bd show` on a path that has already spent a dozen subprocesses.
+     *
+     * `Bd.assertClosed` in lib/bd.js is the same check on the daemon's side of the same
+     * failure; this is a separate process shelling out to `bd` synchronously, which is why
+     * it is a second implementation rather than an import, and why it stays this small.
+     * Both fail towards believing the close — an unreadable tracker or a status neither
+     * has heard of is not evidence, because inventing a failure here would park a landed
+     * bead in `owed-closes.json` to be retried for ever.
      */
+    const stillOpen = () => {
+      try {
+        const rows = JSON.parse(bd(['show', beadId, '--json']));
+        const row = (Array.isArray(rows) ? rows : rows?.issues || [])[0] || null;
+        if (!row) return '';
+        const status = String(row.status || '').trim().toLowerCase();
+        return LIVE_STATUSES.has(status) ? status : '';
+      } catch {
+        return '';
+      }
+    };
+    const mustHaveClosed = () => {
+      const status = stillOpen();
+      if (status) throw new Error(`bd exited 0 closing ${beadId} and the bead is still ${status} — the close did not happen`);
+    };
+
     const closeWorkBead = () => {
       try {
         bd(['close', beadId, '--reason', closeReason]);
+        mustHaveClosed();
       } catch (err) {
+        // Not widened to the silent case, for lib/bd.js's reason: `--force` lifts the
+        // blocker, children and epic gates too, and a close bd said nothing about is a
+        // close nobody can explain. That one goes out to `oweClose` below instead.
         if (!isClaimGuard(err)) throw err;
         console.error(`beadcause-deliver: closing ${beadId} over the claim guard — ${where} is merged`);
         bd(['close', beadId, '--reason', closeReason, '--force']);
+        mustHaveClosed();
       }
     };
     try {
@@ -828,18 +987,31 @@ async function landHere(landed, { external = false } = {}) {
 
   // A notification with nothing to answer, and a failure to send one is not a failure
   // to land: the work is in main whether or not a phone in another room hears about it.
+  //
+  // Through the daemon rather than to ntfy (bc-ka5y.15.1). A landing is an event on the
+  // bus now, and the bus is in the daemon's memory — this is a separate process, so the
+  // only way in is the door `/api/landed` opens for exactly this caller. Loopback and
+  // the config's own token, the same shape `bin/endorse.js` uses; a daemon that is not
+  // running is a line on stderr and nothing else, because the phone could not have been
+  // told by a daemon that is down either way.
+  const daemon = String(process.env.BEADCAUSE_URL || `http://127.0.0.1:${cfg.port || 4318}`).replace(/\/+$/, '');
   try {
-    await pushLanded(cfg, {
-      workspace: ws.name,
-      bead: beadId,
-      repo: repoSlug,
-      number: request.number,
-      url: request.url,
-      title: request.title,
-      base,
-      sha: landed.mergeCommit || '',
-      owed,
+    const res = await fetch(`${daemon}/api/landed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-beadcause-token': cfg.token },
+      body: JSON.stringify({
+        workspace: ws.name,
+        bead: beadId,
+        repo: repoSlug,
+        number: request.number,
+        url: request.url,
+        title: request.title,
+        base,
+        sha: landed.mergeCommit || '',
+        owed,
+      }),
     });
+    if (!res.ok) console.error(`beadcause-deliver: merged ${where}, but ${daemon} refused the notification — HTTP ${res.status}`);
   } catch (err) {
     console.error(`beadcause-deliver: merged ${where}, but the notification did not send — ${first(err)}`);
   }

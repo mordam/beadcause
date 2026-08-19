@@ -23,9 +23,18 @@
  * 3. **It asks exactly once.** The label an answer takes back off cannot be the guard, so
  *    the guard is a mark in the notes; the case that matters runs the sweep twice over
  *    the rows the first run wrote, which is the loop as it would actually happen.
- * 4. **The card it writes parses, with two real options.** The block is hand-built YAML
- *    inside markdown, so it is read back through `toQuestion` — the same path the phone
- *    uses — rather than eyeballed.
+ * 4. **The card it writes parses, and offers what it is entitled to offer.** The block is
+ *    hand-built YAML inside markdown, so it is read back through `toQuestion` — the same
+ *    path the phone uses — rather than eyeballed. On a leaf that is two real options; on
+ *    an epic, over a live descendant at any depth, or where the shape of the tracker could
+ *    not be read, `close-it` is gone and only the commission is left (bc-xl7n.52). An
+ *    advocate's triage note names its children's branches, and every one of those used to
+ *    type an offer to close the P0 that commissioned the survey.
+ * 5. **That card can still be answered.** bd refuses a close over an open child and the
+ *    phone withdraws the answer button when it knows the refusal is coming — so a card
+ *    whose only option is a commission has to be the one shape the gate leaves alone, or
+ *    the fix above trades a close nobody could press for a card nobody could answer.
+ *    `allCommissions` is lifted out of public/app.js and run in a `vm` for that.
  *
  * The git repo is real and thrown away; `bd` is an object that records what it was asked
  * to write. Nothing here reaches a tracker, GitHub, iTerm or a repo of yours.
@@ -33,6 +42,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { removeTreeSync } from './helpers/tmp.mjs';
@@ -147,10 +157,14 @@ const {
   sweepInMain,
   describeInMain,
   branchNamesIn,
+  ownedBranchNamesIn,
   isCandidate,
   landingMerge,
   askMark,
   alreadyAsked,
+  familyOf,
+  liveUnder,
+  closeOffer,
 } = await import(LIB('inmain.js'));
 
 /* --------------------------------------------------------- the fake tracker */
@@ -164,13 +178,31 @@ const {
  * and `addLabel` so a second sweep over the same object sees what the first one wrote,
  * which is how the idempotence case is run.
  */
-function fakeBd(beads) {
+function fakeBd(beads, { graph = true } = {}) {
   const rows = beads.map((b) => ({ status: 'open', title: '', labels: [], ...b }));
   const byId = new Map(rows.map((r) => [r.id, r]));
   const writes = [];
   return {
     writes,
     rows,
+    /**
+     * The `bd export` shape, built from the same rows — a fixture's `parent` is the whole
+     * of it. Closed rows are in here and out of `listAgent`, which is the real difference
+     * between the two reads and the one that decides whether a close may be offered.
+     *
+     * `{ graph: false }` drops the method entirely rather than answering empty, because
+     * that is what a caller with its own stub looks like and the sweep has to survive it.
+     */
+    ...(graph
+      ? {
+          async graph() {
+            return {
+              parents: new Map(rows.filter((r) => r.parent).map((r) => [r.id, r.parent])),
+              beads: new Map(rows.map((r) => [r.id, r])),
+            };
+          },
+        }
+      : {}),
     async listAgent() {
       return rows.filter((r) => r.status !== 'closed' && !(r.labels || []).includes('human'));
     },
@@ -244,6 +276,32 @@ check(
 );
 check('a bead with no text names nothing', branchNamesIn({}).length === 0);
 
+console.log('\nwhose branch it plausibly is (bc-xl7n.67)');
+
+check(
+  'a branch ending in another bead\'s tag is not this bead\'s, wherever it was found',
+  ownedBranchNamesIn({ id: 'bc-xl7n', notes: 'Left `worktree-inmain-noclose-xl7n52` alone — it is alive.' }).length === 0,
+  JSON.stringify(ownedBranchNamesIn({ id: 'bc-xl7n', notes: 'Left `worktree-inmain-noclose-xl7n52` alone — it is alive.' }))
+);
+check(
+  'a branch ending in this bead\'s own tag is kept',
+  JSON.stringify(ownedBranchNamesIn({ id: 'bc-xl7n.52', notes: 'Delivered as `worktree-inmain-noclose-xl7n52`.' })) ===
+    JSON.stringify(['worktree-inmain-noclose-xl7n52'])
+);
+check(
+  'field-blind, same as branchNamesIn underneath it — title, description or notes',
+  ownedBranchNamesIn({ id: 'bc-xl7n.52', title: 'worktree-inmain-noclose-xl7n52' }).length === 1 &&
+    ownedBranchNamesIn({ id: 'bc-xl7n.52', description: 'worktree-inmain-noclose-xl7n52' }).length === 1
+);
+check(
+  'a triage note naming a dozen children\'s branches keeps none of them for the parent',
+  ownedBranchNamesIn({
+    id: 'bc-xl7n',
+    notes: 'worktree-a-xl7n1, worktree-b-xl7n2 and worktree-c-xl7n3 are all still open.',
+  }).length === 0
+);
+check('a bead with no id owns nothing', ownedBranchNamesIn({ description: 'worktree-a-1' }).length === 0);
+
 check('an open bead is a candidate', isCandidate({ status: 'open' }));
 check(
   'a bead a session is sitting in is not — the flag would arrive mid-turn',
@@ -254,6 +312,92 @@ check('one already in the inbox is not', !isCandidate({ status: 'open', labels: 
 check(
   'and one held for endorsement is not — no session can be opened on it anyway',
   !isCandidate({ status: 'open', labels: ['unendorsed'] })
+);
+
+/**
+ * bc-7qo.8 — and the one exclusion that is not about this bead at all.
+ *
+ * Flagging applies `human`, and `human` is what `bd.listAgent` excludes: the merge
+ * queue's only read of the tracker. So a card offered here on a merge-bead does not
+ * merely ask a meaningless question, it takes that pull request out of the queue's sight
+ * silently and for ever. The branch such a bead names is its own, and landing it is the
+ * thing the bead exists to do.
+ */
+check(
+  'a merge-bead is not a candidate — flagging one takes its pull request out of the queue',
+  !isCandidate({ status: 'open', labels: ['merge-queue'] })
+);
+check(
+  'even when it names a branch, which every merge-bead does',
+  !isCandidate({
+    status: 'open',
+    labels: ['merge-queue', 'for:someone@example.com'],
+    description: 'brings main into worktree-a-branch-9fx and merges it',
+  })
+);
+check(
+  'while an ordinary bead naming the same branch still is',
+  isCandidate({ status: 'open', labels: [], description: 'brings main into worktree-a-branch-9fx and merges it' })
+);
+
+/* ------------------------------------------------------- may it offer a close */
+//
+// bc-xl7n.52. `close-it` is offered only where closing could not strand anything, and
+// "anything" is the whole subtree rather than bd's own open-child gate: that one asks for
+// children, so a bead whose children are all closed over a live grandchild passes it.
+
+console.log('\nwhether the card may offer a close');
+
+/** A tracker shape: `id: parent` for the edges, `id: status` for the rows. */
+const shapeOf = (edges, states) =>
+  familyOf({
+    parents: new Map(Object.entries(edges)),
+    beads: new Map(Object.entries(states).map(([id, row]) => [id, typeof row === 'string' ? { status: row } : row])),
+  });
+
+{
+  const family = shapeOf(
+    { 'wg-a.1': 'wg-a', 'wg-a.1.1': 'wg-a.1', 'wg-a.2': 'wg-a' },
+    { 'wg-a': 'open', 'wg-a.1': 'closed', 'wg-a.1.1': 'open', 'wg-a.2': 'closed' }
+  );
+
+  check('a leaf with nothing under it may be closed from a card', closeOffer({ id: 'wg-a.2' }, family).close === true, JSON.stringify(closeOffer({ id: 'wg-a.2' }, family)));
+  check(
+    'a bead whose only live descendant is a GRANDchild may not — bd’s own gate would let that through',
+    closeOffer({ id: 'wg-a' }, family).close === false && liveUnder(family, 'wg-a').join() === 'wg-a.1.1',
+    JSON.stringify(closeOffer({ id: 'wg-a' }, family))
+  );
+  check(
+    'and the reason names the beads, because a count is a dead end on a phone',
+    /wg-a\.1\.1/.test(closeOffer({ id: 'wg-a' }, family).why),
+    closeOffer({ id: 'wg-a' }, family).why
+  );
+  check(
+    'a closed descendant is not a live one',
+    liveUnder(shapeOf({ 'wg-b.1': 'wg-b' }, { 'wg-b': 'open', 'wg-b.1': 'closed' }), 'wg-b').length === 0
+  );
+  check(
+    'an epic never gets the offer, even with nothing under it at all — a standing root is about to have children',
+    closeOffer({ id: 'wg-a.2', issue_type: 'epic' }, family).close === false,
+    JSON.stringify(closeOffer({ id: 'wg-a.2', issue_type: 'epic' }, family))
+  );
+  check(
+    'and the epicness is taken off the index when the row does not carry it',
+    closeOffer({ id: 'wg-e' }, shapeOf({}, { 'wg-e': { status: 'open', issue_type: 'epic' } })).close === false
+  );
+}
+
+check(
+  'a tracker whose shape could not be read withholds the offer — "I cannot tell" is not "nothing is under it"',
+  closeOffer({ id: 'wg-a' }, familyOf(null)).close === false && closeOffer({ id: 'wg-a' }, familyOf(null)).why.includes('could not be read')
+);
+check(
+  'and so does one that came back carrying an error, however many rows it has',
+  closeOffer({ id: 'wg-a' }, familyOf({ parents: new Map(), beads: new Map([['wg-a', { status: 'open' }]]), error: 'bd export timed out' })).close === false
+);
+check(
+  'a cycle bd cannot express does not hang the walk',
+  liveUnder(shapeOf({ 'wg-c': 'wg-d', 'wg-d': 'wg-c' }, { 'wg-c': 'open', 'wg-d': 'open' }), 'wg-c').join() === 'wg-d'
 );
 
 /* --------------------------------------------------------- the git question */
@@ -339,35 +483,36 @@ console.log('\nthe sweep');
 {
   // Claim 1, through the whole sweep rather than just the git call: a session that filed
   // a bead naming the worktree it is working in must not be told the work has landed.
-  const bd = fakeBd([{ id: 'wg-new', description: 'Working in `worktree-empty-ccc` on the stepper.' }]);
+  // The id's tag is `ccc`, matching the branch, so ownership is not what this is testing.
+  const bd = fakeBd([{ id: 'wg-ccc', description: 'Working in `worktree-empty-ccc` on the stepper.' }]);
   const result = await sweepInMain(bd, ws('two'), REPO);
   check('a bead naming an unstarted worktree branch is left completely alone', bd.writes.length === 0, kinds(bd));
-  check('and the reason says nothing ever merged it in', /nothing merged it in/.test(why(result, 'wg-new')), JSON.stringify(result.skipped));
+  check('and the reason says nothing ever merged it in', /nothing merged it in/.test(why(result, 'wg-ccc')), JSON.stringify(result.skipped));
 }
 
 {
-  const bd = fakeBd([{ id: 'wg-live', description: 'Ship `worktree-live-bbb`.' }]);
+  const bd = fakeBd([{ id: 'wg-bbb', description: 'Ship `worktree-live-bbb`.' }]);
   const result = await sweepInMain(bd, ws('three'), REPO);
   check('a bead whose branch has not landed is left alone', bd.writes.length === 0 && result.flagged.length === 0, kinds(bd));
   check('and quietly — an unmerged branch is not news', result.skipped.every((s) => s.quiet), JSON.stringify(result.skipped));
 }
 
 {
-  const bd = fakeBd([{ id: 'wg-squash', description: 'Ship `worktree-squash-ddd`.' }]);
+  const bd = fakeBd([{ id: 'wg-ddd', description: 'Ship `worktree-squash-ddd`.' }]);
   await sweepInMain(bd, ws('four'), REPO);
   check('a squash-merged branch produces no comment, so it cannot produce a loop of them', bd.writes.length === 0, kinds(bd));
 }
 
 {
-  const bd = fakeBd([{ id: 'wg-remote', description: 'Land `worktree-remote-eee`, whose local ref is long gone.' }]);
+  const bd = fakeBd([{ id: 'wg-eee', description: 'Land `worktree-remote-eee`, whose local ref is long gone.' }]);
   const result = await sweepInMain(bd, ws('five'), REPO);
   check("a branch that survives only as origin's is still read", result.flagged.length === 1, JSON.stringify(result));
 }
 
 {
-  const bd = fakeBd([{ id: 'wg-ghost', description: 'Land `worktree-ghost-zzz`.' }]);
+  const bd = fakeBd([{ id: 'wg-zzz', description: 'Land `worktree-ghost-zzz`.' }]);
   const result = await sweepInMain(bd, ws('six'), REPO);
-  check('a branch with no ref anywhere is reported, not guessed at', bd.writes.length === 0 && /no local or origin ref/.test(why(result, 'wg-ghost')), JSON.stringify(result.skipped));
+  check('a branch with no ref anywhere is reported, not guessed at', bd.writes.length === 0 && /no local or origin ref/.test(why(result, 'wg-zzz')), JSON.stringify(result.skipped));
 }
 
 {
@@ -444,6 +589,219 @@ const { toQuestion } = await import(LIB('decision.js'));
     q.sections.map((s) => s.markdown).join('\n').slice(0, 200)
   );
   check('and the mark is what alreadyAsked looks for', row.notes.includes(askMark('worktree-landed-aaa')));
+}
+
+/* ------------------------------------------ and the card it must not write */
+//
+// bc-xl7n.52, end to end and in the terms it was filed in: an advocate's triage note
+// names the branches of the children it surveyed, and the P0 that commissioned the
+// survey used to acquire one offer to close *itself* per branch named. bc-xl7n.67 goes
+// further: that survey note must not write a card at all, because the branch it names
+// was never this bead's to be asked about.
+
+console.log('\nthe card on a bead that holds a subtree');
+
+/** The bead as the advocate left it: a P0 whose notes name a child's branch. */
+const surveyNote = 'Left `worktree-landed-aaa` alone — a session is sitting in it and it is alive.';
+
+{
+  // bc-xl7n.67: `worktree-landed-aaa` is `wg-aaa`'s branch, not `wg-root`'s — the advocate
+  // only mentioned it while surveying a child. The whole point of the fix is that this
+  // bead now acquires no card at all, not a card with the close offer trimmed off it.
+  const bd = fakeBd([
+    { id: 'wg-root', issue_type: 'epic', title: 'the unsorted backlog', notes: surveyNote },
+    { id: 'wg-root.1', parent: 'wg-root', status: 'open', title: 'a child nobody has finished' },
+  ]);
+  const result = await sweepInMain(bd, ws('thirteen'), REPO);
+  check(
+    'a triage note naming a branch that is not this bead\'s writes nothing at all',
+    bd.writes.length === 0 && result.flagged.length === 0 && result.checked === 0,
+    kinds(bd)
+  );
+}
+
+{
+  // The other half of the same fix: a bead naming its *own* landed branch — tag matching
+  // — still gets the card, epic or not, and the epic exclusion from bc-xl7n.52 is still
+  // live on it. `wg-aaa`'s tag is `aaa`, which is what `worktree-landed-aaa` ends in.
+  const bd = fakeBd([{ id: 'wg-aaa', issue_type: 'epic', title: 'the unsorted backlog', notes: surveyNote }]);
+  const result = await sweepInMain(bd, ws('thirteen-b'), REPO);
+  const row = bd.rows[0];
+  const q = toQuestion('widgets', { id: row.id, title: row.title, notes: row.notes, status: 'open' });
+
+  check('an epic naming its own landed branch is still asked about it', result.flagged.length === 1 && bd.writes.some((w) => w.kind === 'comment'), kinds(bd));
+  check('the block still parses', q.errors.length === 0, JSON.stringify(q.errors));
+  check(
+    'but there is no close-it on it — the epic exclusion is untouched',
+    !(q.decision?.options || []).some((o) => o.id === 'close-it'),
+    JSON.stringify(q.decision?.options)
+  );
+  check(
+    'one option is left and it hands the bead back rather than finishing it',
+    q.decision?.options?.length === 1 && q.decision.options[0].id === 'keep-open' && q.decision.options[0].closes === false,
+    JSON.stringify(q.decision?.options)
+  );
+  check('and still nothing was closed', !bd.writes.some((w) => w.kind === 'close'), kinds(bd));
+  check(
+    'the sweep reports which kind of card it wrote, for the log',
+    result.flagged[0]?.close === false && /epic/.test(result.flagged[0]?.why || ''),
+    JSON.stringify(result.flagged)
+  );
+}
+
+{
+  // The half of the acceptance criterion that is not about epics at all: a bead naming
+  // its own branch in its *notes* — a delivering session recording where it landed —
+  // must still be flagged. Ownership is field-blind, same as `branchNamesIn` underneath.
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'land the accordion log', notes: 'Delivered as `worktree-landed-aaa`.' }]);
+  const result = await sweepInMain(bd, ws('thirteen-c'), REPO);
+  check(
+    'a bead naming its own branch in its notes is still asked, not just in its description',
+    result.flagged.length === 1 && result.flagged[0].id === 'wg-aaa',
+    JSON.stringify(result)
+  );
+}
+
+{
+  // Not an epic, and no children — but a live grandchild under a closed child, which is
+  // exactly the shape bd's own open-child gate lets through. `wg-aaa`'s tag matches
+  // `worktree-landed-aaa`, which is what makes this the bead's own branch.
+  const bd = fakeBd([
+    { id: 'wg-aaa', title: 'a task with a subtree', description: 'Land `worktree-landed-aaa`.' },
+    { id: 'wg-aaa.1', parent: 'wg-aaa', status: 'closed' },
+    { id: 'wg-aaa.1.1', parent: 'wg-aaa.1', status: 'open' },
+  ]);
+  const result = await sweepInMain(bd, ws('fourteen'), REPO);
+  const q = toQuestion('widgets', { id: 'wg-aaa', title: '', notes: bd.rows[0].notes, status: 'open' });
+  check(
+    'a live grandchild under a closed child takes the close offer away too',
+    result.flagged[0]?.close === false && !(q.decision?.options || []).some((o) => o.id === 'close-it'),
+    JSON.stringify(q.decision?.options)
+  );
+  check('and the card names the bead that is still open', /wg-aaa\.1\.1/.test(q.sections.map((x) => x.markdown).join('\n')), result.flagged[0]?.why);
+}
+
+{
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'a leaf', description: 'Land `worktree-landed-aaa`.' }]);
+  const result = await sweepInMain(bd, ws('fifteen'), REPO);
+  const q = toQuestion('widgets', { id: 'wg-aaa', title: '', notes: bd.rows[0].notes, status: 'open' });
+  check(
+    'a leaf keeps both options — the feature still works for the case it was built for',
+    result.flagged[0]?.close === true && (q.decision?.options || []).some((o) => o.id === 'close-it'),
+    JSON.stringify(q.decision?.options)
+  );
+}
+
+{
+  // A `bd` with no `graph` at all: a caller's own stub, or a tracker that would not
+  // answer. The sweep must not throw, and must not guess in the permissive direction.
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'a leaf', description: 'Land `worktree-landed-aaa`.' }], { graph: false });
+  const result = await sweepInMain(bd, ws('sixteen'), REPO);
+  const q = toQuestion('widgets', { id: 'wg-aaa', title: '', notes: bd.rows[0].notes, status: 'open' });
+  check(
+    'a tracker that cannot say what is under a bead still gets a card, without the close',
+    result.flagged.length === 1 && result.flagged[0].close === false && !(q.decision?.options || []).some((o) => o.id === 'close-it'),
+    JSON.stringify(result.flagged)
+  );
+}
+
+/* ------------------------------------------ and the card stays answerable */
+//
+// Claim 5. bd refuses a close over an open child (`Bd.gateFor`), and the phone withdraws
+// the answer button when it knows that refusal is coming — so the beads this withholds
+// the offer from are precisely the beads whose cards are gated. A card whose every option
+// is a commission has to be the shape that gate leaves alone, or the fix above swaps a
+// close nobody could press for a card nobody could answer.
+//
+// public/app.js is one IIFE with nothing exported, so the declarations are sliced out and
+// run in a `vm`, unknown globals stubbed through a Proxy — test/optionanswer.mjs's method.
+
+console.log('\nthe card stays answerable on a gated bead');
+
+{
+  const APP = fs.readFileSync(path.join(HERE, '..', 'public', 'app.js'), 'utf8');
+
+  /** Lift one declaration out of public/app.js — copied from test/optionanswer.mjs. */
+  const lift = (src, opener) => {
+    const at = src.indexOf(opener);
+    if (at === -1) throw new Error(`public/app.js no longer declares \`${opener}\``);
+    if (opener.startsWith('function')) {
+      let depth = 0;
+      for (let i = src.indexOf('{', at); i < src.length; i += 1) {
+        if (src[i] === '{') depth += 1;
+        else if (src[i] === '}') {
+          depth -= 1;
+          if (!depth) return src.slice(at, i + 1);
+        }
+      }
+      throw new Error(`unbalanced braces after ${opener}`);
+    }
+    let depth = 0;
+    for (let i = at; i < src.length; i += 1) {
+      const c = src[i];
+      if (c === '{' || c === '(' || c === '[') depth += 1;
+      else if (c === '}' || c === ')' || c === ']') depth -= 1;
+      else if (c === ';' && depth === 0) return src.slice(at, i + 1);
+    }
+    throw new Error(`no statement end after ${opener}`);
+  };
+
+  const STUB = () => '';
+  const real = {
+    String,
+    JSON,
+    Object,
+    Boolean,
+    Array,
+    Set,
+    Map,
+    CSS: { escape: (x) => x },
+    state: { prDecline: new Set(), picked: new Map() },
+  };
+  const ctx = vm.createContext(new Proxy(real, { has: () => true, get: (t, k) => (k in t ? t[k] : STUB) }));
+  vm.runInContext(
+    [
+      lift(APP, 'const esc = ('),
+      lift(APP, 'const allCommissions = ('),
+      lift(APP, 'function answerLabel(chosen, q)'),
+      lift(APP, 'function pickedOption(q)'),
+      lift(APP, 'function freeformHtml(q)'),
+    ].join('\n'),
+    ctx
+  );
+  const draw = (q) => vm.runInContext('freeformHtml', ctx)(q);
+  const opt = (id, closes) => ({ id, label: id, response: id, closes });
+  // What `/api/bead` puts on a card it knows bd will refuse to close.
+  const gate = { kind: 'epic', blockers: [{ id: 'wg-root.1', title: '' }], reason: 'an epic with 1 open child issue' };
+
+  const both = { key: 'k1', id: 'wg-leaf', gate, decision: { options: [opt('close-it', true), opt('keep-open', false)] } };
+  check(
+    'a card that still offers a close draws no answer button on a gated bead — unchanged',
+    !draw(both).includes('data-act="answer"'),
+    draw(both).slice(0, 200)
+  );
+
+  const commission = { key: 'k2', id: 'wg-root', gate, decision: { options: [opt('keep-open', false)] } };
+  check(
+    'a card whose every option commissions keeps its button, because no refusal is coming',
+    draw(commission).includes('data-act="answer"'),
+    draw(commission).slice(0, 300)
+  );
+  check(
+    'and the button says what the press will do, with nothing picked',
+    draw(commission).includes('Answer &amp; commission'),
+    draw(commission).slice(0, 400)
+  );
+
+  const bare = { key: 'k3', id: 'wg-bare', gate, decision: { options: [] } };
+  check(
+    'a card with no options at all is still gated — a typed answer there closes',
+    !draw(bare).includes('data-act="answer"'),
+    draw(bare).slice(0, 200)
+  );
+
+  const ungated = { key: 'k4', id: 'wg-open', decision: { options: [opt('close-it', true), opt('keep-open', false)] } };
+  check('and an ungated card is untouched by any of it', draw(ungated).includes('data-act="answer"'), draw(ungated).slice(0, 200));
 }
 
 /* ---------------------------------------------------- and through the tick */

@@ -426,7 +426,74 @@ try {
   );
   await press('[data-repo-set="autoShip"][data-repo="alpha"][data-value="null"]');
 
+  /* --------------------------------------------- narrowed to one of those repos */
+
+  /* The picker has two levels and this card only ever read the coarse one: pinning to
+     `alpha` still drew beta beside it, under a heading that says "each repo" — the
+     console answering a question about a repo you did not pick (bc-me2b). Pressed
+     through the picker's own `set` rather than by editing state, because the fine level
+     is exactly what the old card ignored and a fixture that set it directly would be
+     testing this file rather than the page.
+
+     The settings above stay the space's, and that is asserted here too: `quietDays` is
+     not a property of a repo, and a card that had narrowed *those* would be promising a
+     narrowing the config cannot express. */
+  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'alpha' })`);
+  await sleep(700);
+  await open('What alpha resolves to');
+  await sleep(300);
+  const pinned = await evalJs(
+    s,
+    `[...document.querySelectorAll('.space-repo')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim())`
+  );
+  check(
+    'pinning the picker to one repo draws that repo alone, not its space`s five',
+    pinned.length === 1 && pinned[0].startsWith('alpha'),
+    pinned.join(' | ')
+  );
+  check(
+    'and the panel heading names it rather than promising each of them',
+    await evalJs(
+      s,
+      `[...document.querySelectorAll('.space-card .mon-sum')].some((x) => /What alpha resolves to/.test(x.textContent))`
+    )
+  );
+  check(
+    'while the settings above are still the whole space`s — a repo has no quiet days',
+    await evalJs(
+      s,
+      `[...document.querySelectorAll('.space-card .space-what')].map((x) => x.textContent).includes('Quiet days')`
+    )
+  );
+  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
+  await sleep(700);
+  const widened = await evalJs(
+    s,
+    `[...document.querySelectorAll('.space-repo')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim())`
+  );
+  check(
+    'and widening back to the space brings the repo beside it back',
+    widened.length === 2,
+    widened.map((r) => r.split(' ')[0]).join(', ')
+  );
+
   /* ------------------------------------------------------------ the rest of it */
+
+  /* Where the card is drawn, which is the other half of bc-me2b. `#config` is a pane of
+     monitor.html like `#prs` and the Mirror, and everything above this line was pressed
+     through it — so this is the claim that the twenty-nine checks before it were not
+     quietly passing against a card still sitting at the top of the roster. */
+  check(
+    'the card is in the Config pane rather than at the top of the advocates roster',
+    await evalJs(
+      s,
+      `Boolean(document.querySelector('#config .space-card')) && !document.querySelector('#mon .space-card')`
+    )
+  );
+  check(
+    'and the chip that shows it is on the row',
+    await evalJs(s, `Boolean(document.querySelector('#mon-tabs [data-tab="config"][data-pane="config"]'))`)
+  );
 
   check(
     'the gear points at admin',
@@ -436,14 +503,18 @@ try {
     'and nothing the page already did has gone',
     await evalJs(
       s,
-      `Boolean(document.querySelector('#mon-tabs') && document.querySelector('.tabbar') && document.getElementById('tally'))`
+      `Boolean(document.querySelector('#mon-tabs') && document.querySelector('.viewbar') && document.getElementById('tally'))`
     )
   );
 
   if (SHOT) {
-    // Back to the space, with both panels open — the picture is of the card, and a
-    // shut card is a picture of a heading.
+    // Back to the space, on the Config chip, with both panels open — the picture is of
+    // the card, and a shut card is a picture of a heading. The chip is tapped rather
+    // than the pane unhidden: `hidden` is what montabs.js swaps, and a section forced
+    // visible under a row that still says Advocates would be a picture of a state the
+    // page cannot be in.
     await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
+    await press('#mon-tabs [data-tab="config"]');
     await sleep(900);
     await open('Settings');
     await open('What each repo resolves to');

@@ -162,9 +162,19 @@ const PAGES = [
   // on the bottom bar since the day it existed, so the bar is the only thing that has
   // ever linked to it and there is no older name in anybody's home screen to keep alive.
   { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
+  // The skill library and whether anything uses it (bc-dgx7.5). Two paths, because the
+  // page is reached both by what it holds and by what the programme calls the things
+  // waiting to become one. No pill claims either, which is the recorded decision in
+  // public/viewbar.js for a page you read when you are arguing about the system.
+  { what: 'the skills view', marker: '/skills.js', paths: ['/skills', '/candidates', '/skills.html'] },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
+  // The notification-sound audition (bc-ka5y.15.3). `/audition` as well as `/sounds`
+  // because that is the word the bead and the README use for what happens on it, and a
+  // channel's sound is immutable once cut — a 404 on the way to the last screen where a
+  // sound can still be argued with is an expensive 404.
+  { what: 'the sound audition', marker: '/sounds.js', paths: ['/sounds', '/audition', '/sounds.html'] },
   { what: 'the graph', marker: '/graph.js', paths: ['/graph', '/graph.html'] },
   { what: 'the reader', marker: '/doc.js', paths: ['/doc', '/doc.html'] },
   // The sign-in screen. Its alias lives in the same run of one-line `if`s as all of
@@ -264,6 +274,63 @@ for (const { path: p, why } of NEVER_MADE) {
   const res = await get(p);
   if (res.status === 404) ok(`${p} 404s — ${why}`);
   else bad(`${p} 404s — ${why}`, `HTTP ${res.status}: something is serving a page this decision says does not exist`);
+}
+
+/*
+  And the other half of the same worry: a path that serves the right page but that the
+  pill row does not recognise (bc-khoe.1).
+
+  Every table above proves a shortcut still *opens* something. None of them proves the
+  navigation knows where you have landed — and the row marks the current view by asking
+  `viewOfPath` what view `location.pathname` names, so a phone opening the `/work`
+  shortcut it has had on its home screen for months would get the advocate console with
+  **nothing on the row current**. That reads as the page having lost its way in, on the
+  exact devices the aliases exist for.
+
+  The table those paths live in moved to public/hashroute.js with bc-khoe.30.2 — which
+  view an address names is the same question as which view a hash names, and the point of
+  that file is that it is asked in one place. So this reads `VIEWS` rather than `PILLS`,
+  and the word "pill" below is a view's pill: the ids are deliberately the same.
+
+  So: for every page a pill points at, every alias of that page is claimed by exactly one
+  pill. Exactly one, because two pills claiming a path is two current pills on one screen —
+  and the pair this is really about is Advocates and PRs, which share a document and split
+  its nine paths between them. `.html` twins are excluded: `/prs.html` is genuinely on
+  people's home screens and is claimed, but `/endorse.html` belongs to a page that has no
+  pill at all, and the rule is about pages that have one.
+*/
+{
+  const src = fs.readFileSync(path.join(HERE, '..', 'public', 'hashroute.js'), 'utf8');
+  const pills = [...src.matchAll(/id: '([a-z]+)',[\s\S]{0,400}?paths: \[([^\]]*)\]/g)].map((m) => ({
+    id: m[1],
+    paths: [...m[2].matchAll(/'([^']+)'/g)].map((q) => q[1]),
+  }));
+  if (!pills.length) bad('the pill row keeps its paths in one table', 'could not read VIEWS out of public/hashroute.js');
+  else {
+    const owner = new Map();
+    let clash = null;
+    for (const pill of pills) {
+      for (const one of pill.paths) {
+        if (owner.has(one)) clash = `${one} is claimed by both ${owner.get(one)} and ${pill.id}`;
+        owner.set(one, pill.id);
+      }
+    }
+    if (clash) bad('no path is claimed by two pills', clash);
+    else ok(`the row's ${owner.size} paths are claimed by ${pills.length} pills, one each`);
+
+    for (const page of PAGES) {
+      // The page a pill lives on is the one whose alias list holds that pill's own paths.
+      if (!page.paths.some((one) => owner.has(one))) continue;
+      const orphans = page.paths.filter((one) => !owner.has(one));
+      if (!orphans.length) ok(`every path of ${page.what} is on the row`);
+      else
+        bad(
+          `every path of ${page.what} is on the row`,
+          `${orphans.join(', ')} serve${orphans.length === 1 ? 's' : ''} it but no pill recognises ` +
+            `${orphans.length === 1 ? 'it' : 'them'} — arriving that way marks nothing as current`
+        );
+    }
+  }
 }
 
 for (const s of servers || []) s.close?.();

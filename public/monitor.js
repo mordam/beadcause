@@ -68,6 +68,12 @@
   })();
 
   const out = document.getElementById('mon');
+  /* The Config pane (bc-me2b). Its card is drawn by this file like everything in `out`
+     and pressed through the same delegated handlers — it is one section of this page's
+     output that happens to be shown under a different chip, not a second page. A build
+     served an older monitor.html finds nothing here, and every write below is guarded,
+     so such a page draws the roster and simply has no settings card. */
+  const cfg = document.getElementById('config');
   const pulse = document.getElementById('pulse');
   const tally = document.getElementById('tally');
   const observing = document.getElementById('observing');
@@ -167,6 +173,12 @@
        repaint mid-write must not hand back an enabled control. */
     pendingLimits: new Map(), // step key → the number you have dialled up, not yet sent
     applyingLimits: new Set(), // step key → a write is in flight
+    /* What the last pause on an epic actually reached — `workspace/bead` → one sentence.
+       Here rather than in the markup for the same reason as the steppers above it, and
+       one more: `epicControl` calls `load()`, which repaints the whole section, so the
+       element the button was on has gone by the time the answer would be appended to it.
+       Cleared by the next press on the same epic. */
+    epicNotes: new Map(),
     limitErrors: new Map(), // step key → why the last apply was refused
     /* The pull request board, for the one thing this page wants off it: how many merges
        each repo is holding that are not live yet. `/api/prs`'s own payload, unaltered, so
@@ -268,8 +280,20 @@
    * The order matters and mirrors `tickOne`: an error beats everything because a
    * tracker it cannot read makes every other field stale; paused beats quiet because
    * you set it; quiet beats the queue because it explains a queue that isn't moving.
+   *
+   * `draining` goes above the error for the one reason nothing else does: this card is
+   * about to stop existing, and a repo switched off is not a repo with a problem. It
+   * would also be the last thing the tick wrote before it stopped surveying, so a
+   * tracker error from three minutes ago would sit on a switched-off card forever.
    */
   function stateOf(a) {
+    if (a.draining)
+      return {
+        text: a.workers.length
+          ? `switched off · ${plural(a.workers.length, 'session')} still finishing`
+          : 'switched off',
+        tone: 'held',
+      };
     if (a.error) return { text: `cannot read the tracker — ${a.error}`, tone: 'bad' };
     if (a.paused) return { text: `paused · ${plural(a.queue, 'bead')} ready`, tone: 'held' };
     if (a.quiet) return { text: `quiet hours · watching, not launching`, tone: 'held' };
@@ -378,6 +402,36 @@
   }
 
   /**
+   * Whether this repo has an advocate at all — the one setting on this page that used
+   * to mean editing `~/.config/beadcause/config.json` and restarting the daemon.
+   *
+   * A single button rather than an On/Off pair, because there are two states and the
+   * press is always "make it the other one" — and because the label has to carry what
+   * it costs either way. Switching one on is not a preference: an advocate opens Claude
+   * sessions on this Mac without being asked, which is exactly why `advocates.workspaces`
+   * ships empty, so the button says so before you press rather than after.
+   *
+   * `r` is this repo's roster row, and its `can` is the whole reason the roster travels.
+   * Three settings make a switch here a lie — the master `advocates.enabled`, a
+   * `workspaces: "*"` that has already let every repo in, and a space's `advocate: false`
+   * — and none of them is visible from this page. Where one of them is in force the
+   * button is not drawn at all and the reason is, because a control that writes a
+   * setting and changes nothing is worse than no control: you would come back an hour
+   * later to a repo that is switched on and has never ticked.
+   */
+  function advocateSwitch(r, on) {
+    if (!r) return ''; // An older daemon behind a newer page: no roster, so no claim either way.
+    if (!r.can) return `<span class="adv-why" title="${esc(r.why)}">${esc(r.why)}</span>`;
+    return `<button class="adv-btn${on ? '' : ' primary'}" data-adv="${on ? 'disable' : 'enable'}" data-ws="${esc(
+      r.workspace
+    )}" title="${esc(
+      on
+        ? 'Take this advocate away. Nothing new is launched; the sessions it has already opened are left to finish, and it goes when the last one has.'
+        : 'Give this repo an advocate: it watches the ready queue and opens a Claude session on this Mac for each bead it picks up, without asking.'
+    )}">${on ? 'Turn off' : 'Turn on'}</button>`;
+  }
+
+  /**
    * The repo the advocate is arguing for, and how much of it is its business.
    *
    * This is the "relates to its domain" half. The tracker's own numbers come first,
@@ -431,11 +485,27 @@
    * withhold work (bc-hrno), and shown anyway, because whether that gate should ever be
    * turned on is a question only the pattern on this row can answer.
    *
-   * `heldByNoP0` is the ninth (bc-rfnr.7), and the only one that is not about contention
+   * `heldBySurface` is the newest (bc-42ow.4), and the only one whose second party is a
+   * bead with nothing behind it yet: two beads about to be opened in the same tick that
+   * both declared the same file. Every other pill on this row names something that already
+   * exists — a window, a branch, a claim, a machine — and this one names a collision that
+   * has not happened, which is the whole reason nothing else could report it. It is the
+   * most short-lived pill here: on the next tick the winner is holding a real claim and
+   * `heldByClaim` beside it is what says so.
+   *
+   * `heldByNoRoot` is the ninth (bc-rfnr.7), and the only one that is not about contention
    * at all: every other pill on this row names two things wanting one bead, and this one
    * names a bead nothing has asked for. It is `p1` for `heldByRepo`'s reason — those two
    * are the holds that never clear on their own — and its tooltip names the beads,
    * because the fix is one tap into each sheet and there is nowhere else to start.
+   *
+   * `heldByPause` is the tenth (bc-lco2), and the only one somebody *chose*. Every other
+   * pill on this row is a state the machine arrived at — two things wanting one bead, or
+   * a bead nobody put on the board — and this one is a button that was pressed. `muted`
+   * rather than `p1` for exactly that reason: `heldByRepo` and `heldByNoRoot` are loud
+   * because nothing will ever clear them and nobody knows it, and this one is already
+   * known to whoever pressed it. The tooltip names the epic rather than only the bead,
+   * because the epic is where the button back is.
    *
    * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
    * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
@@ -454,9 +524,11 @@
     const sitting = (a && a.heldByLive) || [];
     const claimed = (a && a.heldByLease) || [];
     const onFiles = (a && a.heldByClaim) || [];
+    const colliding = (a && a.heldBySurface) || [];
     const busyFiles = (a && a.filesBusy) || [];
     const stood = (a && a.stoodDown) || [];
-    const orphans = (a && a.heldByNoP0) || [];
+    const orphans = (a && a.heldByNoRoot) || [];
+    const paused = (a && a.heldByPause) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -496,9 +568,14 @@
       // `p1` rather than `muted`, with `heldByRepo`: those are the two holds on this row
       // that no amount of waiting resolves. This one is waiting on somebody deciding
       // where the work belongs, and the tooltip names each bead so the decision can be
-      // made from the sheet the id takes you to. See lib/underp0.js.
+      // made from the sheet the id takes you to. See lib/underroot.js.
       orphans.length
-        ? `<span class="pill p1" title="${esc(orphans.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${orphans.length} with no P0 above ${orphans.length === 1 ? 'it' : 'them'}</span>`
+        ? `<span class="pill p1" title="${esc(orphans.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${orphans.length} with nothing decided above ${orphans.length === 1 ? 'it' : 'them'}</span>`
+        : '',
+      paused.length
+        ? `<span class="pill muted" title="${esc(
+            paused.map((h) => `${h.id} — ${h.why}`).join('\n')
+          )}">${paused.length} under a paused epic</span>`
         : '',
       twins.length
         ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
@@ -531,6 +608,17 @@
       // worktree, and both are on this Mac.
       onFiles.length
         ? `<span class="pill muted" title="${esc(onFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${onFiles.length} whose files are being edited</span>`
+        : '',
+      // The ninth, and the only pill here whose second party has not happened yet: a bead
+      // deferred because another bead *this same tick opened* declared the same files
+      // (bc-42ow.4). `muted`, and the most short-lived of them — by the next tick the
+      // winner holds a real claim and the pill beside this one is what reports it, or the
+      // winner has finished and this bead simply went. The tooltip names the other bead,
+      // which is the only thing there is to look at: there is no window and no branch yet.
+      colliding.length
+        ? `<span class="pill muted" title="${esc(colliding.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${
+            colliding.length
+          } deferred a tick behind the same files</span>`
         : '',
       // And the near miss, which is not a hold and must not read as one: the same collision
       // over a surface guessed from the bead's text, dispatched anyway because a guess may
@@ -595,13 +683,118 @@
   const epicsOf = (a) => (Array.isArray(a.epicAdvocates) ? a.epicAdvocates : []);
 
   /**
+   * The beads held for endorsement in this repo, split between the advocates that
+   * produced them and the repo they all belong to.
+   *
+   * **The split is Adam's answer to bc-w156.2, and it is a hybrid rather than one of the
+   * three options that were offered.** Verbatim: *"shown under EpicAdvocate if they were
+   * produced by its work or by the agents it spawns. per workspace otherwise."* The
+   * per-workspace half is what dissolves the objection that killed per-advocate on its
+   * own — an endorsement no advocate owns does not vanish from the console, it lands in
+   * the repo's own section, and nothing is ever unreachable.
+   *
+   * **"Produced by its work or by the agents it spawns" is read off the graph, and the
+   * graph is honest about it.** An EpicAdvocate's agents are the sessions opened on beads
+   * under its epic; a discovery one of them files is filed *under* the bead it was
+   * working (lib/filing.js homes it, and `withDiscoveredFrom` keeps the parent when bd
+   * refuses to hold both edges), so the epic is an ancestor of the held bead. That is
+   * what `under` on the row is — the parent chain, nearest first, computed server-side in
+   * lib/work.js. It is a proxy and not a stamp: nothing records *which agent* filed a
+   * bead, so a bead somebody parented under the epic by hand reads the same as one an
+   * advocate's worker found. The exact reading needs a filer stamp at file time, which is
+   * its own bead; this is the reading available today and it is right for every bead the
+   * advocates actually produce.
+   *
+   * Nearest ancestor wins, which is why `under` is ordered: an advocate on the bead's own
+   * epic owns it over one on the P0 three levels above.
+   */
+  function heldByAdvocate(w, a) {
+    const rows = Array.isArray(w?.heldRows) ? w.heldRows : [];
+    const assigned = new Set(epicsOf(a || {}).map((e) => e.id));
+    const byEpic = new Map();
+    const rest = [];
+    for (const row of rows) {
+      const owner = (row.under || []).find((id) => assigned.has(id));
+      if (owner) byEpic.set(owner, [...(byEpic.get(owner) || []), row]);
+      else rest.push(row);
+    }
+    // What the cap in lib/work.js took off, so the section can say it rather than draw a
+    // shorter list that looks complete. `counts.held` is the same number the pill quotes.
+    //
+    // Only where the daemon sent rows at all. A page cached from a newer deploy against a
+    // daemon that predates them has the count and not the list, and subtracting one from
+    // the other there would draw a section reading `Requested endorsements 4` over four
+    // beads it cannot name — which is worse than the section this feature replaced.
+    const sent = Array.isArray(w?.heldRows);
+    const total = sent ? (w?.counts?.held ?? rows.length) : rows.length;
+    return { byEpic, rest, dropped: Math.max(0, total - rows.length) };
+  }
+
+  /**
+   * One bead waiting on a word from you.
+   *
+   * A title, an id and a link, where /endorse gives the same bead its whole description,
+   * acceptance and the agent's argument. That asymmetry is deliberate and it is
+   * lib/endorsequeue.js's own reasoning turned around: the fat row exists because a
+   * decision made off a title is a rubber stamp, and this is not the screen the decision
+   * is made on — it is the screen that tells you there is one to make, on the card of the
+   * advocate that is waiting for it.
+   *
+   * The link carries the bead, so the queue opens on it rather than at the top of a list
+   * of sixty. Same spelling as the inbox's own `held for endorsement` pill (public/app.js).
+   */
+  function heldBeadRow(ws, b) {
+    return `<a class="work-row" href="/endorse?bead=${encodeURIComponent(`${ws}/${b.id}`)}">
+      <span class="work-phase">◇</span>
+      <span class="work-main">
+        <span class="work-title">${esc(b.title)}</span>
+        <span class="work-sub">
+          <span class="pill id">${esc(b.id)}</span>
+          ${b.type ? `<span class="tag">${esc(b.type)}</span>` : ''}
+          ${b.priority != null ? `<span class="tag dim">P${esc(b.priority)}</span>` : ''}
+        </span>
+      </span>
+      <time>${esc(age(b.createdAt))}</time>
+    </a>`;
+  }
+
+  /**
+   * The "Requested endorsements" subcard — the same section on two different cards.
+   *
+   * `warn` throughout, and it is the tone the rest of this card reserves for the one
+   * thing on it that is blocked on you: everything else here happens on its own, and
+   * nothing under this heading moves until you tap. `subtitle` says which of the two
+   * populations it is, because the counts have to be readable against the
+   * `N held for endorsement` pill at the top of the card without adding up wrongly.
+   */
+  function heldSection(key, ws, beads, subtitle, { more = 0 } = {}) {
+    if (!beads.length && !more) return '';
+    // `more` is what lib/work.js's cap took off this repo's list, and it is drawn inside
+    // the section rather than beside it so a shorter list can never read as a complete
+    // one. Only ever non-zero on a repo with more than `HELD_ROWS_MAX` beads waiting,
+    // which is a backlog rather than a list, and the link is the screen that pages it.
+    const rest = more
+      ? `<p class="subtitle">${esc(
+          `${more} more are held in this repo than this card carries.`
+        )} <a href="/endorse">Open the queue →</a></p>`
+      : '';
+    return section(
+      key,
+      'Requested endorsements',
+      String(beads.length + more),
+      `<p class="subtitle">${esc(subtitle)}</p>${beads.map((b) => heldBeadRow(ws, b)).join('')}${rest}`,
+      { tone: 'warn' }
+    );
+  }
+
+  /**
    * Who is arguing for this repo, and for which epics.
    *
    * There is more than one advocate per card and there has been since epic planning
    * landed, but the page only ever drew one of them. The **repo advocate** is the card
    * itself — its name is the heading, its state is the chip beside it — and an
-   * **EpicAdvocate** is a window opened on one P0 to write that epic's plan
-   * (`wantsAdvocate` in lib/epicadvocate.js: a P0 that is open, owned, and not a crash).
+   * **EpicAdvocate** is a window opened on one epic to write that epic's plan
+   * (`wantsAdvocate` in lib/epicadvocate.js: an epic or P0 that is open, owned, and not a crash).
    * Both decide what gets worked on; only one of them was visible, and the other was
    * indistinguishable from an ordinary session in "Working now".
    *
@@ -646,7 +839,7 @@
       `<p class="subtitle">${esc(
         epicsOf(a).length
           ? `${plural(epicsOf(a).length, 'epic')} below have an advocate assigned — one section each, for as long as the epic is open.`
-          : 'No epic has an advocate assigned. One is assigned per P0 that is open, owned and not a crash.'
+          : 'No epic has an advocate assigned. One is assigned per epic that is open, owned and not a crash.'
       )}</p>`
     );
   }
@@ -655,7 +848,7 @@
    * One section per epic with an advocate assigned.
    *
    * The lifetime is the whole design, and it is the graph's rather than a window's: a
-   * section appears when a P0 is open and owned, and it is gone when that epic **closes**
+   * section appears when an epic is open and owned, and it is gone when that epic **closes**
    * — not when a window exits. Before this, an EpicAdvocate *was* its window, so it
    * existed for the few minutes one was up: on 2026-08-13 twenty epics had an advocate
    * assigned in this repo, one had a window, and the console drew one row.
@@ -669,17 +862,23 @@
    * is the one thing on this page that is legible collapsed: the summary carries the epic
    * and its state, so a card with fourteen of them is fourteen lines until you open one.
    */
-  function epicSections(a, key) {
+  function epicSections(a, key, held) {
     return epicsOf(a)
       .map((e) => {
         const w = e.window;
         const live = w && livePid(w.pid);
-        const tone = w ? (w.ended ? 'warn' : 'live') : '';
-        const badge = w
-          ? w.ended
-            ? '<span class="tag warn">the window has exited</span>'
-            : `<span class="tag live"><span class="spark"></span>planning</span>`
-          : `<span class="tag dim">${esc(e.why || 'no window')}</span>`;
+        const tone = e.paused ? 'warn' : w ? (w.ended ? 'warn' : 'live') : '';
+        // Paused wins the badge over everything, including a window that is still up:
+        // that combination is the normal first minute of a pause — the epic has stopped
+        // and the session in it is finishing — and a summary that said "planning" over it
+        // would describe the one thing about this epic that is no longer true.
+        const badge = e.paused
+          ? '<span class="tag warn">paused</span>'
+          : w
+            ? w.ended
+              ? '<span class="tag warn">the window has exited</span>'
+              : `<span class="tag live"><span class="spark"></span>planning</span>`
+            : `<span class="tag dim">${esc(e.why || 'no window')}</span>`;
         const body = `
           ${
             w
@@ -707,9 +906,43 @@
                 // section shows the badge and an open one is where you came to read why.
                 `<p class="subtitle">No window right now — ${esc(e.why || 'no reason recorded')}. The advocate stays assigned to this epic either way; it goes when the epic closes.</p>`
           }
+          ${
+            e.paused
+              ? `<p class="subtitle">Paused. Nothing new will be dispatched anywhere under ${esc(
+                  e.id
+                )} — no advocate window, and no session on any bead below it — until it is resumed. Windows that were already open were told, keep their slots, and were asked to write a debrief before they exit, so whatever opens after the resume starts from what they knew.</p>`
+              : ''
+          }
+          ${
+            state.epicNotes.get(`${a.workspace}/${e.id}`)
+              ? `<div class="adv-note">${esc(state.epicNotes.get(`${a.workspace}/${e.id}`))}</div>`
+              : ''
+          }
+          ${
+            // Beads found under this epic that nobody has endorsed yet — see
+            // `heldByAdvocate`. Inside the epic's own section rather than beside it,
+            // because it is a fact about this advocate and not about the repo, and drawn
+            // only when there are some: a dozen epics each carrying an empty
+            // `Requested endorsements 0` is a card you stop reading.
+            heldSection(
+              `${key}:epic:${e.id}:held`,
+              a.workspace,
+              (held?.byEpic?.get(e.id) || []),
+              'Filed under this epic and waiting on you. Nothing will open a session on them until they are endorsed.'
+            )
+          }
           <div class="work-foot">
             <div class="meta">${esc(e.type)} · ${esc(e.id)}</div>
-            <a class="work-graph" href="${esc(graphUrl(a.workspace, e.id))}">Open the epic →</a>
+            <div class="adv-controls">
+              <button class="adv-btn" data-epic="${e.paused ? 'epicResume' : 'epicPause'}" data-ws="${esc(
+                a.workspace
+              )}" data-id="${esc(e.id)}" title="${esc(
+                e.paused
+                  ? 'Start dispatching under this epic again'
+                  : 'Stop dispatching anything new under this epic. Windows already open keep their slots, finish their own work, and are asked to write a debrief first.'
+              )}">${e.paused ? 'Resume' : 'Pause'}</button>
+              <a class="work-graph" href="${esc(graphUrl(a.workspace, e.id))}">Open the epic →</a>
+            </div>
           </div>`;
         return section(`${key}:epic:${e.id}`, e.title, e.id, body, { tone, badge });
       })
@@ -808,6 +1041,38 @@
   }
 
   /**
+   * One parked conversation — a window that closed, kept whole.
+   *
+   * **The row has to say three things, and the third is the one that makes it a row you
+   * can look at rather than a loss you have to mourn.** What it was (the bead or the pull
+   * request), what it is waiting for (the sentence `finish` wrote, or "it went quiet"),
+   * and that it *can be brought back* — which is what the ↩ and the trip count are for. A
+   * parked session drawn like a dead one would read as the daemon having killed thirteen
+   * windows, and every objection to closing them would be correct.
+   *
+   * Deliberately not a button. Nothing here offers "resume this now", because the resume
+   * is not something to do to a conversation — it is what happens when the thing it is
+   * waiting on arrives, and it happens at the dispatch seam with every gate still in front
+   * of it (lib/resume.js says why). A button here would be a second door into a launch,
+   * which is exactly the shape bc-2uj4 exists to prevent.
+   */
+  function parkedRow(p) {
+    const back = Number(p.resumes) || 0;
+    return `<a class="work-row adv-worker" href="${esc(graphUrl(p.workspace, p.bead || ''))}">
+      <span class="work-phase">↩</span>
+      <span class="work-main">
+        <span class="work-title">${esc(p.title || p.bead || p.sessionId.slice(0, 8))}</span>
+        <span class="work-sub">${p.bead ? `<span class="pill id">${esc(p.bead)}</span>` : ''}
+          <span class="tag dim">${esc(p.kind)}</span>
+          ${back ? `<span class="tag">resumed ${back}×</span>` : ''}
+          ${esc(p.waitingOn || 'waiting')}
+        </span>
+      </span>
+      <time>${esc(age(p.at))}</time>
+    </a>`;
+  }
+
+  /**
    * What it would pick up next, in the order it would take it.
    *
    * Always drawn, including while sessions are open — public/work.js hides this the
@@ -888,6 +1153,11 @@
           ${b.acceptance ? `<p class="mon-bead-meta"><strong>Done when:</strong> ${esc(b.acceptance)}</p>` : ''}
           ${b.rationale ? `<p class="mon-bead-meta why">Why: ${esc(b.rationale)}</p>` : ''}
           ${b.deps?.length ? `<p class="mon-bead-meta"><strong>Depends on:</strong> ${esc(b.deps.join(', '))}</p>` : ''}
+          ${
+            b.files?.length
+              ? `<p class="mon-bead-meta"><strong>Expects to touch:</strong> ${esc(b.files.join(', '))}</p>`
+              : ''
+          }
           <div class="mon-bead-acts">
             <button class="adv-btn${pick === 'yes' ? ' on' : ''}" data-pick="yes" data-key="${esc(q.key)}" data-n="${n}">Create</button>
             <button class="adv-btn${pick === 'no' ? ' on danger' : ''}" data-pick="no" data-key="${esc(q.key)}" data-n="${n}">Decline</button>
@@ -1069,7 +1339,7 @@
 
   /* -------------------------------------------------------------------- cards */
 
-  function advocateCard(w, a, proposals) {
+  function advocateCard(w, a, proposals, r) {
     const st = stateOf(a);
     const key = a.workspace;
     const sessions = w?.sessions || [];
@@ -1079,25 +1349,51 @@
     const mine = new Set(a.workers.map((x) => x.id));
     const others = (w?.working || []).filter((x) => !mine.has(x.id));
 
-    const controls = [
-      limitStepper(a),
-      `<button class="adv-btn" data-adv="${a.paused ? 'resume' : 'pause'}" data-ws="${esc(key)}">${
-        a.paused ? 'Resume' : 'Pause'
-      }</button>`,
-      // Not "free slots" any more, because it no longer just frees them: it asks each
-      // open session whether it is still working and takes back only the slots whose
-      // window has gone. The label is the promise — a button called "free slots" that
-      // sometimes keeps them all would be worse than either behaviour.
-      a.workers.length
-        ? `<button class="adv-btn" data-adv="reclaim" data-ws="${esc(key)}" title="Ask each open session whether it is still working. Windows that have gone give their slots back; the rest keep them and are asked to check in or finish.">Reclaim sessions</button>`
-        : '',
-      // Clears the attempt counters, so beads it gave up on are eligible again. Only
-      // offered when it has actually given up on something — otherwise it is a button
-      // that does nothing and reads as though it might.
-      `<button class="adv-btn" data-adv="forget" data-ws="${esc(key)}" title="Clear attempt counters so beads it gave up on are eligible again">Forget attempts</button>`,
-    ]
+    // A draining advocate gets one control and it is the way back. Every other one here
+    // says something about work it is about to pick up, and it is not going to pick any
+    // up — Pause over a switched-off advocate being the clearest of those: two words for
+    // the same thing, one of which is already true and neither of which reads as the
+    // other. Reclaim is the near miss, and it goes for a different reason: what it takes
+    // back is slots, and slots are what a repo with no advocate does not have.
+    const controls = (
+      a.draining
+        ? [advocateSwitch(r, false)]
+        : [
+            limitStepper(a),
+            `<button class="adv-btn" data-adv="${a.paused ? 'resume' : 'pause'}" data-ws="${esc(key)}">${
+              a.paused ? 'Resume' : 'Pause'
+            }</button>`,
+            // Not "free slots" any more, because it no longer just frees them: it asks
+            // each open session whether it is still working and takes back only the slots
+            // whose window has gone. The label is the promise — a button called "free
+            // slots" that sometimes keeps them all would be worse than either behaviour.
+            // **Offered whenever there are windows, not whenever there are slots.** The
+            // gate used to be `a.workers.length`, and that hid the button in precisely
+            // the state it is most wanted: on 2026-08-16 this advocate was paused with
+            // zero workers while fifteen Claude sessions were live on the Mac and
+            // thirteen of them were idle — nothing on the slot list, a screen full of
+            // rectangles, and the one control that asks a window whether it is still
+            // working was not on the card. What makes Reclaim useful is a window being
+            // open; whether this advocate happens to hold a slot for it is a fact about
+            // the advocate. See bc-2uj4.5.3.
+            a.workers.length || sessions.length
+              ? `<button class="adv-btn" data-adv="reclaim" data-ws="${esc(key)}" title="Ask each open session whether it is still working. Windows that have gone give their slots back; the rest keep them and are asked to check in or finish. Any window this advocate opened that is quiet right now is parked — closed, with its conversation kept, so an answer brings the same session back.">Reclaim sessions</button>`
+              : '',
+            // Clears the attempt counters, so beads it gave up on are eligible again.
+            `<button class="adv-btn" data-adv="forget" data-ws="${esc(key)}" title="Clear attempt counters so beads it gave up on are eligible again">Forget attempts</button>`,
+            // Last, and after the rest rather than before them: taking an advocate away
+            // is the one press on this card that ends the card, and a button that does
+            // that where Pause was a moment ago is one you hit by muscle memory.
+            advocateSwitch(r, true),
+          ]
+    )
       .filter(Boolean)
       .join('');
+
+    // Split once, read twice: the epic sections take their own beads out of it and this
+    // card's own section takes what is left. See `heldByAdvocate` for why the two halves
+    // exist and which of them a bead lands in.
+    const held = heldByAdvocate(w, a);
 
     const secs = [
       // First, because it answers "who is deciding what happens in this repo" — and every
@@ -1110,7 +1406,7 @@
       // Then one per epic. They sit above the work rather than below it because they are
       // what decides the work: an epic being planned now is the reason some of what is in
       // "Up next" will be dispatched as a group rather than one bead at a time.
-      epicSections(a, key),
+      epicSections(a, key, held),
       section(
         `${key}:work`,
         'Working now',
@@ -1139,6 +1435,37 @@
             { tone: 'warn' }
           )
         : '',
+      // The conversations that are waiting on you — closed windows, kept whole.
+      //
+      // Above "Up next" on purpose. Everything below this line is work the daemon will
+      // pick up on its own; this is the only section on the card that is *blocked on
+      // Adam*, and a list of things somebody has to do belongs above a list of things
+      // that happen anyway. It is also the section that replaces reading a screen of
+      // windows: each row says what it is waiting for, and none of them is a process or
+      // a slot any more.
+      (a.parked || []).length
+        ? section(
+            `${key}:parked`,
+            'Parked — waiting on you',
+            String(a.parked.length),
+            a.parked.map(parkedRow).join(''),
+            { tone: 'warn' }
+          )
+        : '',
+      // Everything held in this repo that no advocate on this card produced — a bead a
+      // worker filed with nowhere to hang it, one filed under an epic nobody is planning,
+      // one you filed yourself from the console. Under Parked because both are things
+      // waiting on you, and above "Up next" for the same reason Parked is: everything
+      // below this line happens on its own.
+      heldSection(
+        `${key}:held`,
+        key,
+        held.rest,
+        held.byEpic.size
+          ? 'Waiting on you, and not produced by any advocate above — the rest are in their own sections.'
+          : 'Waiting on you. Nothing will open a session on them until they are endorsed.',
+        { more: held.dropped }
+      ),
       section(`${key}:next`, 'Up next', a.queue ? String(a.queue) : '', nextHtml(a), { tone: a.queue ? 'warn' : '' }),
       section(`${key}:log`, 'Thinking', '', thinkingHtml(a), {
         badge: a.surveying ? '<span class="tag live"><span class="spark"></span>live</span>' : '',
@@ -1243,16 +1570,23 @@
    * A workspace with no advocate at all.
    *
    * Drawn, and drawn plainly, because "this repo has nobody arguing for it" is a
-   * fact about the domain and not an absence of one. `advocatedWorkspaces` filters on
-   * config and on the space's own `advocate: false`, and neither is visible from here
-   * — so the card says what is true and stops short of guessing which it was.
+   * fact about the domain and not an absence of one.
+   *
+   * It used to stop there, because `advocatedWorkspaces` filters on three settings and
+   * none of them was visible from here — so the card said what was true and guessed at
+   * nothing. The roster is those three settings answered by the daemon that reads them:
+   * where switching one on would work, this is where the switch is, and where it would
+   * not, this is where the reason is. Which is the whole of this bead — the console
+   * gave no hint the setting existed, and giving climative an advocate meant a node
+   * script and a swap.
    */
-  function plainCard(w) {
+  function plainCard(w, r) {
     const sessions = w.sessions || [];
     return `<article class="card work-card mon-card plain">
       <div class="work-head">
         <h2>${esc(w.name)}</h2>
         <span class="mon-state dim">no advocate</span>
+        <span class="adv-actions">${advocateSwitch(r, false)}</span>
       </div>
       ${domainHtml(w, null)}
       ${w.error ? `<div class="adv-note bad">⚠ ${esc(w.error)}</div>` : ''}
@@ -1407,13 +1741,23 @@
   function globalHtml(g, observing) {
     if (!g) return ''; // An older daemon behind a newer page: say nothing, invent nothing.
     const ceiling = g.ceiling || 36;
-    const held = g.live >= g.maxWorkers;
+    // Both populations, because since bc-29b3 the cap counts both. A resolver is a
+    // session the pull-request sweep opened rather than an advocate, and this row
+    // reading `18 of 20` while every advocate card says "held by globalMaxWorkers" is
+    // exactly the arithmetic-that-does-not-add-up the change exists to stop. `|| 0` is
+    // for an older daemon behind a newer page, which is the rule the line above keeps.
+    const resolvers = g.resolvers || 0;
+    const open = g.live + resolvers;
+    const held = open >= g.maxWorkers;
+    const resolverNote = resolvers
+      ? ` · ${resolvers} resolving ${resolvers === 1 ? 'a pull request' : 'pull requests'}`
+      : '';
     return `<div class="svc ok svc-set">
       <span class="svc-dot">⚙</span>
-      <span><b class="svc-num${held ? ' warn' : ''}">${g.live}</b> of ${plural(
+      <span><b class="svc-num${held ? ' warn' : ''}">${open}</b> of ${plural(
         g.maxWorkers,
         'session'
-      )} open across every advocate${held ? ' — every slot is in use' : ''}</span>
+      )} open across every advocate${resolverNote}${held ? ' — every slot is in use' : ''}</span>
       ${limitControl({
         key: GLOBAL_STEP,
         live: g.maxWorkers,
@@ -1473,6 +1817,28 @@
     return f && f.space && f.space !== 'all' ? f.space : null;
   };
 
+  /**
+   * The one repo the picker is pinned to, or null when the whole space is selected.
+   *
+   * The picker has two levels and the settings card only ever read the coarse one: pick
+   * `beadcause` and it stores `{space: 'Personal', workspace: 'beadcause'}`, the card
+   * asked `spaceName()` for the space, and what it drew was Personal — every setting of
+   * it, and a row each for beadcause, deluvia, ehatt and sophab. The settings are
+   * genuinely the space's and stay whole. The rows are not: you narrowed to one repo,
+   * and a panel headed "what each repo resolves to" listing three you did not pick is
+   * the console answering a question about somebody else's config (bc-me2b).
+   *
+   * Deliberately not `inSpace`, which is the *row* filter every other list on this page
+   * uses. That one resolves a name through `spaceOf`, and a name in `d.missing` is by
+   * definition not a configured workspace — so `spaceOf` calls it 'Other' and `inSpace`
+   * would drop the drift warning off a card that is narrowed to nothing but a space. The
+   * question here is only ever "is the picker pinned to a repo", so it is asked directly.
+   */
+  const onlyRepo = () => {
+    const f = window.beadcause?.space?.filter;
+    return f && f.workspace && f.workspace !== 'all' ? f.workspace : null;
+  };
+
   const DAYS = [
     ['mon', 'M'],
     ['tue', 'T'],
@@ -1515,9 +1881,10 @@
   }
 
   /**
-   * The four settings a repo row may answer for itself, in the order they happen to
-   * work: a filing arrives, a pull request merges, a review gates that merge, the merge
-   * deploys. Reading down a row is reading the life of one piece of work.
+   * The five settings a repo row may answer for itself, in the order they happen to
+   * work: a filing arrives, a pull request merges, your approval gates that merge, an
+   * agent's review gates it too, the merge deploys. Reading down a row is reading the
+   * life of one piece of work.
    *
    * `on`/`off` are the sentences the *buttons* promise, so each one says what pressing
    * it does to this repo rather than naming the field again — a title reading
@@ -1551,6 +1918,16 @@
       off: 'green checks are enough',
     },
     {
+      key: 'reviewRequired',
+      what: 'An agent reviews it first',
+      // Moot for the same reason the row above it is: with auto-merge off the pull
+      // request is already a question in your hand, and a review loop in front of a
+      // decision you are going to make yourself is a round trip nobody asked for.
+      moot: (r) => !r.autoMerge,
+      on: 'nothing merges until the ReviewAdvocate has read the diff and approved it',
+      off: 'the merge queue merges without anything reading the diff',
+    },
+    {
       key: 'autoShip',
       what: 'Merges ship themselves',
       on: 'a merge runs this repo’s deploy without waiting for Ship',
@@ -1575,7 +1952,7 @@
    * carries that per field; `r.own` is `null` for every field this repo leaves alone,
    * which is what puts Inherit on.
    *
-   * A row whose payload predates `own`/`inherits` draws nothing rather than four rows of
+   * A row whose payload predates `own`/`inherits` draws nothing rather than five rows of
    * buttons that would all read Inherit (off) and write the wrong answer on a press — the
    * same reasoning the server side gives for treating an unreadable override as absent.
    */
@@ -1780,6 +2157,13 @@
         g.requireApproval
       ),
       tri(
+        'reviewRequired',
+        'An agent reviews it first',
+        'On means nothing merges here until the ReviewAdvocate has read the diff and approved it — a second gate in front of the queue, not a substitute for your own. Leave it off in a repo where nothing is reviewing: on, with no reviewer, is a queue that stops rather than one that waits.',
+        s.reviewRequired,
+        g.reviewRequired
+      ),
+      tri(
         'autoShip',
         'Merges ship themselves',
         'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
@@ -1812,10 +2196,18 @@
     // knew what was wrong. The tag stays beside the buttons and is not made redundant by
     // them: it is the *resolved* answer, and the buttons say which of the three levels
     // gave it.
-    const many = d.repos.filter((r) => typeof r.checkouts === 'number');
-    const total = d.repos.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
-    const repos = d.repos.length
-      ? `<div class="space-repos">${d.repos
+    //
+    // And only the repo you picked, when you picked one — see `onlyRepo`. The settings
+    // above stay the whole space's, because they are: pinning the picker to one repo
+    // does not make `quietHours` a property of that repo, and a card that redrew them as
+    // if it had would be promising a narrowing the config cannot express. What narrows
+    // is this panel, which is per-repo already.
+    const only = onlyRepo();
+    const shown = only ? d.repos.filter((r) => r.name === only) : d.repos;
+    const many = shown.filter((r) => typeof r.checkouts === 'number');
+    const total = shown.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
+    const repos = shown.length
+      ? `<div class="space-repos">${shown
           .map(
             (r) => `<div class="space-repo">
               <div class="space-repo-tags">
@@ -1832,6 +2224,7 @@
               <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
               <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
+              ${r.autoMerge && r.reviewRequired ? '<span class="tag warn">reviewed first</span>' : ''}
               <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
               ${
                 // Only where Slack is on at all: a "no slack" tag on every repo of every
@@ -1858,7 +2251,14 @@
               )} holds many checkouts sharing one tracker, so the settings above are one answer for all of them — which repo a bead is about does not change them.</p>`
             : ''
         }`
-      : '<p class="subtitle">No configured repo is in this space.</p>';
+      : only
+        ? // The picker sets the space from the repo (`spaceOf` in public/spacebar.js), so
+          // a pinned repo its own space does not contain is config that moved under a
+          // selection rather than anything you can do from here. Said plainly all the
+          // same — "no configured repo is in this space" would be a lie about a space
+          // with five.
+          `<p class="subtitle">${esc(only)} is not one of this space's repos — pick the space itself above to see the ones that are.</p>`
+        : '<p class="subtitle">No configured repo is in this space.</p>';
 
     const missing = d.missing.length
       ? `<div class="adv-note warn">${esc(d.missing.join(', '))} ${
@@ -1879,11 +2279,46 @@
       ${missing}
       ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
       ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
-      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(total), repos)}
+      ${section(
+        `space:${d.space}:repos`,
+        // Narrowed to one repo, "each repo" is a heading over a panel with one row in
+        // it, and the reading it invites is that this space has one repo. The fold key
+        // is unchanged either way, so a panel you left open stays open across a change
+        // of picker.
+        only ? `What ${only} resolves to` : 'What each repo resolves to',
+        String(total),
+        repos
+      )}
     </article>`;
   }
 
   /* ------------------------------------------------------------------- render */
+
+  /**
+   * The Config pane: the selected space's card, and nothing else.
+   *
+   * Its own function, and called ahead of the `state.work` guard below, because the two
+   * panes are drawn from different payloads. The roster needs `/api/work`; this card
+   * needs `/api/space` and no more — so a Config chip tapped on a page that has never
+   * swept `bd` paints, and a press on it repaints, where a card folded into `render`'s
+   * body would have sat behind a guard about a roster nobody is looking at.
+   *
+   * Also where the observer's read-only treatment is applied to these controls, for the
+   * same reason it is applied to the roster's: this instance's `cfg` is the acting
+   * daemon's config file, so a press here would change what the *other* process does at
+   * its next restart and nothing about what it is doing now.
+   */
+  function renderConfig() {
+    if (!cfg) return;
+    cfg.innerHTML = spaceHtml();
+    if (!state.work?.observing) return;
+    for (const el of cfg.querySelectorAll(
+      '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel'
+    )) {
+      el.disabled = true;
+      el.title = 'This instance only watches — the settings belong to the daemon that acts.';
+    }
+  }
 
   /**
    * `polled` marks the twenty-second repaint, as opposed to one your press asked for.
@@ -1895,9 +2330,18 @@
    * cost of it is one paint deferred by twenty seconds.
    */
   function render({ polled = false } = {}) {
+    // The two editable fields on this page are both in the Config pane now, so the guard
+    // asks that pane. `out` is still asked as well: a build served an older
+    // monitor.html has no Config section and draws the card at the top of the roster,
+    // and a poll taking the clock out from under that page's thumb is the same bug.
+    const typing =
+      document.activeElement?.type === 'time' &&
+      (cfg?.contains(document.activeElement) || out.contains(document.activeElement));
+    if (polled && typing) return;
+    renderConfig();
+
     const data = state.work;
     if (!data) return;
-    if (polled && out.contains(document.activeElement) && document.activeElement?.type === 'time') return;
 
     // A pending number the daemon has since arrived at anyway — this repo stepped from
     // another device, or the value applied and came back — is settled, not pending. Done
@@ -1937,10 +2381,17 @@
     // showing — it is held in the daemon's memory, not in bd.
     const orphans = [...advocates.keys()].filter((n) => !spaces.some((w) => w.name === n));
 
+    // Whether each repo's advocate may be switched on or off, and why not where it may
+    // not — see `advocateSwitch`. Not filtered by space: it is keyed, and a card only
+    // ever asks it for its own name.
+    const roster = new Map((data.roster || []).map((r) => [r.workspace, r]));
+
     const cards =
-      withAdv.map((w) => advocateCard(w, advocates.get(w.name), state.proposals.get(w.name) || [])).join('') +
-      orphans.map((n) => advocateCard(null, advocates.get(n), state.proposals.get(n) || [])).join('') +
-      without.map(plainCard).join('') +
+      withAdv
+        .map((w) => advocateCard(w, advocates.get(w.name), state.proposals.get(w.name) || [], roster.get(w.name)))
+        .join('') +
+      orphans.map((n) => advocateCard(null, advocates.get(n), state.proposals.get(n) || [], roster.get(n))).join('') +
+      without.map((w) => plainCard(w, roster.get(w.name))).join('') +
       elsewhereHtml(data.elsewhere || []);
 
     // Above every card, including the "nothing configured" case: a daemon serving the
@@ -1952,14 +2403,21 @@
     const nothing = (data.workspaces || []).length
       ? `<div class="empty">Nothing in ${esc(window.beadcause?.space?.label?.() || 'this space')}.</div>`
       : '<div class="empty">No workspaces configured.</div>';
-    // The space's own settings sit under the two health lines and above the repos: it
-    // is what this page is the details *of*, and a setting you scroll six advocate
-    // cards to reach is a setting you go back to editing the config file for.
+    // The space's own settings used to sit here, under the two health lines and above
+    // the repos, on the argument that this page is the details *of* a space. They are
+    // under the Config chip now (bc-me2b): eleven controls and a row per repo is a
+    // screenful, and this pane is the one you open to see what is running — every
+    // advocate started below the fold, on a phone, to keep settings you touch monthly at
+    // the top. `spaceHtml` is unchanged and unmoved; only where its output is written is.
+    //
+    // The ternary is for a service worker serving a monitor.html from before the chip
+    // existed: with no Config section to draw into, the card goes back where it was
+    // rather than being written nowhere and lost.
     out.innerHTML =
       serviceHtml(data.service) +
       routerHtml(data.router) +
       globalHtml(data.globals, data.observing) +
-      spaceHtml() +
+      (cfg ? '' : spaceHtml()) +
       (cards || nothing);
 
     // An observer may read this space's settings and may not write them: its `cfg` is
@@ -1973,9 +2431,12 @@
     // observer's config file *is* the live daemon's, so stepping it here would change
     // how many windows the other process opens after its next restart, which is the
     // one kind of press an instance that "never acts" must not make.
+    // And the advocate switch is the strongest case of all three: it writes
+    // `advocates.workspaces`, so a press here would hand the *other* daemon a repo to
+    // open sessions on — an instance that never acts, arranging for one that does to.
     if (data.observing) {
       for (const el of out.querySelectorAll(
-        '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"]'
+        '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"],[data-adv="enable"],[data-adv="disable"]'
       )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
@@ -2201,13 +2662,16 @@
   /* ------------------------------------------------------------------ actions */
 
   /**
-   * Pause, resume, free the slots, or forget the attempt counters.
+   * Pause, resume, free the slots, forget the attempt counters, or give this repo an
+   * advocate at all.
    *
    * `ws` is undefined for exactly one action: `globalLimit` is a total across every
    * advocate, so it belongs to no repo and `JSON.stringify` drops the key rather than
    * naming one. The server reads the action before it looks for a workspace. Nothing
    * reaches here with that action any more — the global cap is applied by `applyLimit`
-   * — but the shape is the endpoint's, not this button row's, so it stays.
+   * — but the shape is the endpoint's, not this button row's, so it stays, and it is
+   * what `enable` needs too: that one names a repo which has no advocate to find, so it
+   * has to be read before the lookup for the same reason the cap was.
    */
   async function control(ws, action, btn, value) {
     const was = btn.textContent;
@@ -2229,6 +2693,57 @@
       // that has no card — a refusal appended nowhere is a press that looks like it
       // worked, which is the whole failure this line exists to prevent.
       (btn.closest('.mon-card') || btn.closest('.svc'))?.insertAdjacentHTML(
+        'beforeend',
+        `<div class="adv-note bad">${esc(err.message)}</div>`
+      );
+    }
+  }
+
+  /**
+   * Pause or resume one epic's advocate.
+   *
+   * Its own function rather than a fifth action through `control` for one concrete
+   * reason: `control` sends `Number(value)`, deliberately, because every value it has
+   * ever carried has been a session count. A bead id through that becomes `NaN` and the
+   * daemon is handed a pause with nothing to pause. So the id travels as a string, and
+   * the two paths stay honest about what they each send.
+   *
+   * The refusal is appended to **this section** rather than to the card. A card carrying
+   * fourteen epics would otherwise answer a press on the twelfth with a line at the
+   * bottom of the screen, which reads as a failure of something else entirely.
+   */
+  async function epicControl(ws, id, action, btn) {
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const out = await api('/api/advocate', {
+        method: 'POST',
+        body: JSON.stringify({ workspace: ws, action, value: id }),
+      });
+      // What the repaint cannot show: an unreachable window looks exactly like one that
+      // was told. Kept only when there is something to say — a pause with nothing open
+      // under it is the ordinary case and deserves no line at all — and remembered by
+      // epic id rather than held on this element, because `load()` repaints the section
+      // and the element this button is on is gone by the next frame.
+      const said = out?.outcome;
+      if (said && (said.told || said.unreachable)) {
+        state.epicNotes.set(`${ws}/${id}`, [
+          said.told ? `${said.told} ${said.told === 1 ? 'window was' : 'windows were'} asked to write a debrief before exiting` : '',
+          said.unreachable
+            ? `${said.unreachable} could not be reached — ${said.unreachable === 1 ? 'it keeps its slot and its claim' : 'they keep their slots and their claims'}`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' · '));
+      } else {
+        state.epicNotes.delete(`${ws}/${id}`);
+      }
+      await load();
+    } catch (err) {
+      btn.textContent = was;
+      btn.disabled = false;
+      (btn.closest('.mon-sec') || btn.closest('.mon-card'))?.insertAdjacentHTML(
         'beforeend',
         `<div class="adv-note bad">${esc(err.message)}</div>`
       );
@@ -2480,7 +2995,20 @@
 
   /* ------------------------------------------------------------------- events */
 
-  out.addEventListener('click', (e) => {
+  /* The three inputs this page has, wherever they are. They live in the settings card,
+     which is the Config pane on a current monitor.html and the top of the roster on one
+     served from an old cache — and the ids are unique either way, so asking the document
+     is the one lookup that is right in both places. It was `out.querySelector`, which on
+     a current page silently answers null: Set would then have sent `{from: undefined}`. */
+  const field = (id) => document.getElementById(id);
+
+  /* One handler, two panes — see the loop that registers it below. The settings card
+     moved to the Config section (bc-me2b) and its presses did not change at all: they are
+     the same delegated branches, matched on the same data attributes. So this file
+     listens on the other pane as well rather than growing a second copy of them. A branch
+     that never fires there costs nothing; a branch that lives in one of two copies is how
+     the next pane gets it wrong. */
+  const onClick = (e) => {
     // Ship, first of all: it is the one control on this page that changes what is
     // running, and it carries its repo on itself rather than a workspace — so nothing
     // below, all of which reads `data-ws`, may be allowed to claim the press.
@@ -2536,8 +3064,8 @@
         saveSpace({ quietHours: null }, hours);
         return;
       }
-      const from = out.querySelector('#qh-from')?.value;
-      const to = out.querySelector('#qh-to')?.value;
+      const from = field('qh-from')?.value;
+      const to = field('qh-to')?.value;
       saveSpace({ quietHours: { from, to } }, hours);
       return;
     }
@@ -2545,7 +3073,7 @@
     const chan = e.target.closest('[data-space-channel]');
     if (chan) {
       e.preventDefault();
-      const typed = (out.querySelector('#slack-channel')?.value || '').trim();
+      const typed = (field('slack-channel')?.value || '').trim();
       // A blank field and a press on Set is the one gesture with no honest reading:
       // `""` is what Never writes and it is a *different* answer from Inherit, so
       // picking one of them here would be the card quietly deciding which. Both
@@ -2580,6 +3108,16 @@
     if (app) {
       e.preventDefault();
       applyLimit(app.dataset.apply);
+      return;
+    }
+
+    const epic = e.target.closest('[data-epic]');
+    if (epic) {
+      e.preventDefault();
+      // Before `[data-adv]` and carrying no `data-adv` of its own: this one is about one
+      // epic and that one is about the whole repo, and a button that hit both would pause
+      // the workspace as a side effect of pausing an epic in it.
+      epicControl(epic.dataset.ws, epic.dataset.id, epic.dataset.epic, epic);
       return;
     }
 
@@ -2636,7 +3174,7 @@
       e.preventDefault();
       readArchived(read.dataset.read, read.dataset.commit);
     }
-  });
+  };
 
   /* The one field on this page you type into, and this page repaints off a stream
      event rather than off your thumb — so what has been typed is held in `state` and
@@ -2644,16 +3182,30 @@
      reason. Without it a poll landing between the first character and the press takes
      the channel id away and the field silently goes back to what the space already
      said. */
-  out.addEventListener('input', (e) => {
+  const onInput = (e) => {
     if (!e.target.closest('#slack-channel')) return;
     state.slackDraft = { space: spaceName(), text: e.target.value };
-  });
+  };
 
-  /* The ⟳ is the page's, and this page has three panes now — so it only means *this*
-     one while this one is up. Without the guard, pressing it on the board would sweep
-     `bd` for every tracker on the Mac to refresh a roster nobody is looking at, which is
-     the same bill `ready` below exists to stop the stream running up. */
+  /* Both panes, and no dispatch between them: a click has one target and it is inside
+     exactly one section, so whichever listener fires is the one whose pane holds it. */
+  for (const pane of [cfg, out]) {
+    if (!pane) continue;
+    pane.addEventListener('click', onClick);
+    pane.addEventListener('input', onInput);
+  }
+
+  /* The ⟳ is the page's, and this page has four panes now — so it only means whichever
+     one is up. Without the guard, pressing it on the board would sweep `bd` for every
+     tracker on the Mac to refresh a roster nobody is looking at, which is the same bill
+     `ready` below exists to stop the stream running up. Config re-reads its own card and
+     stops there: it is one `/api/space` read of the daemon's config object, with no `bd`
+     and no `gh` behind it. */
   document.getElementById('refresh').addEventListener('click', () => {
+    if (cfg && !cfg.hidden) {
+      loadSpace().then(renderConfig);
+      return;
+    }
     if (out.hidden) return;
     load();
     // The ⟳ means "ask everything again", and the Ship count is one of the things on this
@@ -2661,10 +3213,15 @@
     loadBoard({ force: true });
   });
   /* The space picker moved. Which repos are drawn is decided at paint time off the
-     /api/work payload already in hand — but *whose settings* the card at the top shows
-     has changed, and that is a different space's config, so it is fetched. Painted
-     first all the same: the repos below are correct immediately, and the card says it
-     is reading rather than sitting on the previous space's answers. */
+     /api/work payload already in hand — but *whose settings* the Config card shows has
+     changed, and that is a different space's config, so it is fetched. Painted first all
+     the same: the repos are correct immediately, and the card says it is reading rather
+     than sitting on the previous space's answers.
+
+     Both panes repaint from it, and the second one is not incidental: the picker's fine
+     level is what the settings card now narrows its repo panel by (`onlyRepo`), so
+     moving from a space to one of its repos changes what is drawn under the Config chip
+     with no fetch involved at all. */
   window.beadcause?.space?.onChange(() => {
     state.spaceSaid = null;
     render();
@@ -2756,10 +3313,11 @@
 
   /* Where this device is, for a mirror on some other screen, is published by
      public/montabs.js rather than here — because on this page it is a fact about which
-     of the three chips is up, and there is no moment at which this file knows that and
+     of the four chips is up, and there is no moment at which this file knows that and
      that one does not. The ids are on the chips themselves in monitor.html: `sessions`
      for this pane, because that is what lib/presence.js whitelists and what the mirror
-     already has a name for; `prs` for the board; and nothing at all for the Mirror.
+     already has a name for; `prs` for the board; `config` for the settings; and nothing
+     at all for the Mirror.
 
      That last one is not tidiness. This page can also *be* a mirror, and presence.js's
      own header was right that a device which followed itself would be absurd — so the
@@ -2783,7 +3341,17 @@
        the chip row was a file would load this one beside no montabs.js, and a page that
        then never asked for anything would be a blank roster with no way to fill it. */
     const tabs = window.beadcause?.monTabs;
-    if (tabs) tabs.onChange((which) => which === 'advocates' && load());
+    if (tabs)
+      tabs.onChange((which) => {
+        if (which === 'advocates') return void load();
+        /* The Config chip asks for its own payload and no more. `/api/space` is a read
+           of the config object the daemon is already holding — no `bd`, no disk — so
+           opening the settings costs one request, where routing it through `load` would
+           have swept every tracker on the Mac for a roster in a pane that is hidden.
+           Every visit, not only the first: the file can have been edited on the Mac, or
+           by the phone in your other hand, since you last looked. */
+        if (which === 'config') return void loadSpace().then(renderConfig);
+      });
     else load();
   }
 })();

@@ -214,17 +214,39 @@ await check('one row renderer, and both screens call it', () => {
 
 /* -------------------------------------------------------------------- wiring */
 
-console.log('\nthe tab that is gone, and the page that is not');
+console.log('\nthe tab that went, and the pill that came back');
 
-await check('the bottom bar has no PRs tab', () => {
-  const bar = read('public/tabbar.js');
-  const ids = [...bar.matchAll(/\{ id: '(\w+)'|\n      id: '(\w+)',/g)].map((m) => m[1] || m[2]);
-  assert.ok(!ids.includes('prs'), `the bar still has a PRs tab: ${ids.join(', ')}`);
-  assert.ok(ids.includes('inbox'), `the bar lost the inbox: ${ids.join(', ')}`);
-  // And the check that drives a real phone-sized browser knows it too.
-  const tabbarCheck = read('scripts/tabbar-check.mjs');
-  assert.ok(!/const TABS = \[[^\]]*'prs'/.test(tabbarCheck), 'tabbar-check still expects a PRs tab');
-  assert.ok(/tab: null/.test(tabbarCheck), 'nothing checks the bar on a page with no tab of its own');
+/* bc-l8jp.6 took the board off the bottom bar, on the rule that a tab was a claim a page
+   is somewhere you *live* — and a fifth of a five-tab bar is a lot to claim for a screen
+   you glance at twice a day. bc-d4d5 then found that taking it off had left nothing at
+   all pointing at it, and made it a chip on /monitor.
+
+   bc-khoe.1 is where that argument ends, because the thing it was about is gone: the row
+   scrolls sideways and holds roughly nine pills, so a view costs one of them rather than
+   a fifth of the screen's width. What is asserted here is the shape either way — one
+   entry, in one table, pointing at all three of the board's paths. */
+await check('the row still has a PRs pill, and the board’s three paths are still on it', () => {
+  // Both halves of this moved in bc-khoe.2 and the check is about the half that did not.
+  // `PRs` is a *kind* pill now — the pull requests and the finished branches in Home,
+  // not the board page — and the board's three paths went to the Advocates pill, which
+  // is the pill that points at the page they actually serve. What must not happen is
+  // either of them going missing: a `PRs` label with nothing behind it, or three paths
+  // that light no pill at all on a page you are plainly looking at.
+  const bar = read('public/viewbar.js');
+  const ids = [...bar.matchAll(/^\s*\{?\s*id: '(\w+)'/gm)].map((m) => m[1]);
+  assert.ok(ids.includes('pr'), `the row has no PRs pill: ${ids.join(', ')}`);
+  assert.ok(ids.includes('epics'), `the row lost Home: ${ids.join(', ')}`);
+  // The paths moved to public/hashroute.js with bc-khoe.30.2 — which view an address
+  // names is the same question as which view a hash names, and that file is where it is
+  // answered. Still the same claim: the board's three are on the Advocates view.
+  assert.match(
+    read('public/hashroute.js'),
+    /'\/prs', '\/pulls', '\/prs\.html'/,
+    'the board’s three paths light no pill'
+  );
+  // And nothing is left of the bar that used to hold it.
+  assert.ok(!fs.existsSync(path.join(ROOT, 'public/tabbar.js')), 'public/tabbar.js is back');
+  assert.ok(!fs.existsSync(path.join(ROOT, 'scripts/tabbar-check.mjs')), 'scripts/tabbar-check.mjs is back');
 });
 
 await check('the board is still served, and still has the bar on it', () => {
@@ -240,7 +262,7 @@ await check('the board is still served, and still has the bar on it', () => {
     'the board’s three paths no longer land together'
   );
   const html = read('public/monitor.html');
-  assert.ok(html.includes('/tabbar.js'), 'the board lost the bar, which is the only way off it');
+  assert.ok(html.includes('/viewbar.js'), 'the board lost the pill row, which is the only way off it');
   assert.ok(html.includes('/prcard.js'), 'the board does not load the shared renderer');
   assert.ok(html.indexOf('/prcard.js') < html.indexOf('/prs.js'), 'prs.js runs before the renderer it uses');
   assert.ok(/data-tab="prs"/.test(html), 'there is no PRs chip, so nothing points at the board again');
@@ -285,8 +307,9 @@ await check('the service worker ships it, on a version a cached phone will notic
   const sw = read('public/sw.js');
   assert.ok(sw.includes("'/prcard.js'"), 'not in SHELL');
   const version = Number(sw.match(/const CACHE = 'beadcause-v(\d+)'/)?.[1]);
-  // Five files changed together — tabbar.js, app.js, inboxfilter.js, prs.js and this new
-  // one. Any older cache beside any of them is an app that looks complete and is not.
+  // Five files changed together — the navigation (public/viewbar.js, public/tabbar.js as
+  // was), app.js, inboxfilter.js, prs.js and this new one. Any older cache beside any of
+  // them is an app that looks complete and is not.
   assert.ok(version >= 25, `CACHE is still v${version} — the five cannot arrive together`);
 });
 

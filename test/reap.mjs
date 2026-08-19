@@ -56,7 +56,7 @@ const SESSIONS = path.join(tmp, 'claude-sessions');
 fs.mkdirSync(SESSIONS, { recursive: true });
 
 const { createAdvocates } = await import(LIB('advocate.js'));
-const { decide, closingFor, namesBead, beadInName, saidDone, sweepCandidate, REAP_DEFAULTS } = await import(
+const { decide, closingFor, namesBead, beadInName, saidDone, saidFinished, sweepCandidate, REAP_DEFAULTS } = await import(
   LIB('reap.js')
 );
 
@@ -153,12 +153,12 @@ async function goneWithin(pid, ms) {
  * `ready` is always empty — nothing here launches, and a queue would only add windows
  * to a test about closing them.
  */
-function harness({ show, overrides = {}, labelled = () => [] } = {}) {
+function harness({ show, overrides = {}, labelled = () => [], empty = null } = {}) {
   const cfg = baseConfig();
   cfg.advocates = { ...cfg.advocates, ...overrides };
   fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2));
   const events = [];
-  const calls = { listLabel: 0 };
+  const calls = { listLabel: 0, sweptEmpty: 0 };
   const bd = {
     ready: async () => [],
     show: async (_ws, id) => show(id),
@@ -170,7 +170,23 @@ function harness({ show, overrides = {}, labelled = () => [] } = {}) {
       return labelled(label);
     },
   };
-  return { cfg, events, calls, advocates: createAdvocates(cfg, { bd, bus: { emit: (e) => events.push(e) } }) };
+  /**
+   * The empty-window sweep, stubbed for every check in this file and not only the three
+   * that assert on it. The real one drives iTerm, and while lib/launchguard.js already
+   * refuses it inside a suite, a check that passes *because* of a refusal is a check
+   * that would pass with the call deleted. Counted here so at least one of them proves
+   * the tick makes it.
+   */
+  const sweepEmpty = async () => {
+    calls.sweptEmpty += 1;
+    return empty ? empty() : { closed: 0, ids: [], error: null };
+  };
+  return {
+    cfg,
+    events,
+    calls,
+    advocates: createAdvocates(cfg, { bd, bus: { emit: (e) => events.push(e) }, sweepEmpty }),
+  };
 }
 
 /** Seed the persisted state the way a restart would find it, then build the advocate. */
@@ -527,6 +543,22 @@ await check('only a window that called itself finished is a candidate', () => {
   assert.equal(sweepCandidate(idle({ name: 'Alpha - al-1 a bead' })), null);
 });
 
+await check('AND `QUEUED-` COUNTS AS FINISHED, WHICH IS WHAT THE WORKER ACTUALLY WRITES', () => {
+  // Since bc-r941 a worker cannot honestly say `DONE-`: it hands its branch to the merge
+  // queue and the merge happens in another process, minutes or hours later. So it writes
+  // `QUEUED-` and lib/retitle.js upgrades the window when the branch lands. A sweep still
+  // keyed on `DONE-` alone would have quietly stopped reaping anything — the windows
+  // would sit open with their beads closed, which is the pile this module was written for.
+  assert.ok(saidFinished('QUEUED-Alpha - al-1 a bead'));
+  assert.ok(saidFinished('DONE-Alpha - al-1 a bead'), 'and the merged spelling still counts');
+  assert.ok(!saidFinished('Alpha - al-1 a bead'));
+  // `saidDone` stays narrow on purpose: it is the question lib/retitle.js asks so that it
+  // never writes the prefix twice.
+  assert.ok(!saidDone('QUEUED-Alpha - al-1 a bead'), 'queued is not merged');
+  const cand = sweepCandidate(idle({ name: 'QUEUED-Alpha - al-1 a bead' }));
+  assert.equal(cand?.id, 'al-1', 'a delivered window whose bead closed is still reapable');
+});
+
 await check('the bead id comes out of the name, or nothing does', () => {
   assert.equal(beadInName('DONE-Alpha - al-1 a bead'), 'al-1');
   assert.equal(beadInName('DONE-Beadcause - bc-t6je no deploys entry'), 'bc-t6je');
@@ -641,6 +673,71 @@ await check('the sweep does not queue a window the closing list already has', as
   assert.equal(card(advocates).workers.length, 0, 'the worker was retired');
   assert.equal(card(advocates).closing.length, 1, 'one window, one closing record');
   assert.ok(alive(victim.pid), 'and the grace period is still the grace period');
+  victim.kill('SIGKILL');
+});
+
+/* ------------------------------------------- the windows with nothing left in them */
+
+await check('a tick closes the windows that have lost their last tab', async () => {
+  clearSessionRecords();
+  const closed = [];
+  const { advocates, calls } = withNoWorkers({
+    show: async () => ({ id: 'al-1', status: 'open' }),
+    empty: () => {
+      closed.push('once');
+      return { closed: 2, ids: ['42590', '42729'], error: null };
+    },
+  });
+
+  await advocates.tick();
+  assert.equal(calls.sweptEmpty, 1, 'asked once per tick');
+  assert.equal(closed.length, 1);
+  // Once per tick and not once per advocate: the frame belongs to no workspace, because
+  // the session that could have said which one is exactly what is missing from it.
+  await advocates.tick();
+  assert.equal(calls.sweptEmpty, 2);
+});
+
+await check('and does not, when the switch is off', async () => {
+  clearSessionRecords();
+  const { advocates, calls } = withNoWorkers({
+    show: async () => ({ id: 'al-1', status: 'open' }),
+    overrides: { closeEmptyWindows: false },
+  });
+
+  await advocates.tick();
+  assert.equal(calls.sweptEmpty, 0);
+});
+
+await check('and a sweep that throws is not reported as the whole tick failing', async () => {
+  clearSessionRecords();
+  const { advocates, calls } = withNoWorkers({
+    show: async () => ({ id: 'al-1', status: 'open' }),
+    empty: () => {
+      throw new Error('osascript is not allowed assistive access');
+    },
+  });
+
+  // The tick's own catch lives in lib/server.js and files a crash bead over what it
+  // catches. Housekeeping that closed no windows must not spend one.
+  await advocates.tick();
+  assert.equal(calls.sweptEmpty, 1);
+});
+
+await check('and a sweep that could not talk to iTerm does not take the tick with it', async () => {
+  clearSessionRecords();
+  const victim = spawnVictim();
+  writeSessionRecord(victim.pid, { name: 'DONE-Alpha - al-1 a bead', idleSecs: 3600 });
+  const { advocates, calls } = withNoWorkers({
+    show: async () => ({ id: 'al-1', status: 'closed' }),
+    empty: () => ({ closed: 0, ids: [], error: 'iTerm got an error: -1743' }),
+  });
+
+  await advocates.tick();
+  assert.equal(calls.sweptEmpty, 1);
+  // The sweep runs last, so a failure in it must not lose the work of everything above
+  // it — the window that *was* found this tick is still on the closing list.
+  assert.equal(card(advocates).closing.length, 1, 'the rest of the tick still happened');
   victim.kill('SIGKILL');
 });
 

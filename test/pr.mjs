@@ -147,6 +147,25 @@ if (a === 'repo' && b === 'view') {
   out(JSON.stringify(state.repo));
 }
 
+if (a === 'api') {
+  // The reviews endpoint, which is how an approval is submitted: it hands back the review
+  // it created, and that response is where the permanent anchor to the approval comes from.
+  var route = args.filter(function (x) { return x.indexOf('repos/') === 0; })[0] || '';
+  if (/\\/pulls\\/\\d+\\/reviews$/.test(route)) {
+    if (state.reviewRefusal) fail(state.reviewRefusal);
+    var n = route.match(/pulls\\/(\\d+)/)[1];
+    out(JSON.stringify({
+      id: 909,
+      node_id: 'PRR_909',
+      html_url: 'https://github.com/them/shared/pull/' + n + '#pullrequestreview-909',
+      state: 'APPROVED',
+      submitted_at: '2026-08-17T15:02:03Z',
+      user: { login: state.reviewAs || 'somebody' },
+    }));
+  }
+  fail('unknown api route: ' + route);
+}
+
 if (a === 'pr') {
   const prs = state.prs || {};
   const find = (ref) => {
@@ -176,6 +195,10 @@ if (a === 'pr') {
     found.mergedAt = '2026-08-09T15:04:05Z';
     found.mergeCommit = { oid: '0ff1ce0ff1ce' };
     save();
+    // The merge landed and *then* something went wrong — real gh's own shape when it
+    // cannot delete the local branch. The write above happens either way, which is the
+    // whole point: the exit code says no and github.com says yes.
+    if (state.mergeCleanupFailure) fail(state.mergeCleanupFailure);
     out('Merged pull request #' + found.number + '\\n');
   }
   if (b === 'close') {
@@ -185,7 +208,10 @@ if (a === 'pr') {
     save();
     out('Closed pull request #' + found.number + '\\n');
   }
-  if (b === 'comment') out('https://github.com/acme/widgets/pull/1#issuecomment-1\\n');
+  if (b === 'comment') {
+    if (state.commentRefusal) fail(state.commentRefusal);
+    out('https://github.com/acme/widgets/pull/1#issuecomment-1\\n');
+  }
 }
 
 fail('unknown gh invocation: ' + args.join(' '));
@@ -225,8 +251,23 @@ const rawPR = (over = {}) => ({
   changedFiles: 6,
   statusCheckRollup: [],
   reviewDecision: null,
+  latestReviews: [],
   mergedAt: null,
   mergeCommit: null,
+  ...over,
+});
+
+/** One row of `latestReviews`, in the shape gh actually hands it over. */
+const rawReview = (over = {}) => ({
+  id: '',
+  author: { login: 'somebody' },
+  authorAssociation: 'COLLABORATOR',
+  body: '',
+  submittedAt: '2026-08-17T14:40:19Z',
+  includesCreatedEdit: false,
+  reactionGroups: [],
+  state: 'APPROVED',
+  commit: { oid: '' },
   ...over,
 });
 
@@ -426,6 +467,462 @@ check(
   JSON.stringify(calls().map((c) => c.args.join(' ')))
 );
 
+/* --------------------------------------------- and as one that can merge */
+
+/**
+ * The second half of the same question, and the half that was not asked.
+ *
+ * beadcause's own repo is `mordam/beadcause`. Both logins can see it — the active one
+ * is a collaborator with READ, the owner has ADMIN — so the ambient probe answered,
+ * the sweep stopped there, and every `gh` call in that checkout ran as the READ
+ * account. Nothing looked wrong: listing PRs, reading checks, posting comments all
+ * work with READ. The merge did not, and it failed at the end of a ship with
+ *
+ *     GraphQL: NeanderthalMan does not have the correct permissions to execute
+ *     `MergePullRequest`
+ *
+ * after the work was already done. So visibility is no longer enough to win the probe.
+ */
+console.log('\nand which account can merge in it');
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+  prs: { 42: rawPR() },
+});
+
+check('a repo the active account can only read still resolves', (await pr.slugFor(REPO)) === 'them/shared');
+
+resetLog();
+await pr.merge(REPO, 42, { method: 'squash' }).catch(() => null);
+const ownerMerges = calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
+check(
+  'but `gh pr merge` runs as the account that may actually merge, not the one that answered first',
+  ownerMerges.length === 1 && ownerMerges[0].token === 'tok-owner',
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+check(
+  'and so does everything else in that checkout',
+  calls().length > 0 && calls().every((c) => c.token === 'tok-owner'),
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'otheracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', otheracct: 'tok-other' },
+  repoByToken: { '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' } },
+});
+
+check(
+  'a repo nobody here can write to is still resolved read-only rather than lost',
+  (await pr.slugFor(REPO)) === 'them/shared'
+);
+check(
+  'and that answer is the ambient account, carrying no token',
+  calls().filter((c) => c.args[0] === 'repo').every((c) => c.token === null || c.token === 'tok-other') &&
+    calls().filter((c) => c.args[0] === 'repo')[0].token === null,
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: { ok: true, accounts: [{ user: 'soloacct', active: true }] },
+  tokens: { soloacct: 'tok-solo' },
+  repo: { nameWithOwner: 'acme/widgets' },
+});
+check('a Mac with one login is unchanged — no permission, no sweep', (await pr.slugFor(REPO)) === 'acme/widgets');
+check(
+  'and it costs the one `gh repo view` it always did',
+  calls().filter((c) => c.args[0] === 'repo').length === 1,
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+/* --------------------------------------------------------- and which reviews */
+
+/**
+ * `reviewerFor` — the *second* identity for the same checkout, and the one question
+ * `resolve` above is structurally unable to answer.
+ *
+ * `resolve` picks by capability and takes the account that can write, because it is
+ * picking the account that will merge. GitHub refuses an approving review from a pull
+ * request's own author, so the winner of that sweep is precisely the account that can
+ * never approve what it opened. A reviewer therefore has to be chosen by *role* — can
+ * see the repo, and is not the account `resolve` returned — and getting that backwards
+ * is not a visible failure: `gh pr review --approve` under the author comes back as a
+ * 422 at the end of a review loop, on a live pull request, in another room.
+ *
+ * The one-login case matters as much as the two-login one and is the commoner of the
+ * two everywhere except this Mac. It must be a null the caller falls back from, not a
+ * throw, or every delivery on a single-account install dies on a reviewer nobody
+ * promised.
+ */
+console.log('\nand which account can review in it');
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+});
+
+const acting = await pr.slugFor(REPO);
+const reviewer = await pr.reviewerFor(REPO);
+check('a checkout with two logins has a reviewer at all', !!reviewer && acting === 'them/shared', JSON.stringify(reviewer));
+check(
+  'and it is the account resolve did NOT return — the one that may only read',
+  reviewer && reviewer.login === 'readonlyacct' && reviewer.permission === 'READ',
+  JSON.stringify(reviewer)
+);
+check(
+  'READ is enough, because a read collaborator may approve a PR it did not open',
+  reviewer && reviewer.permission === 'READ',
+  JSON.stringify(reviewer)
+);
+check(
+  'the token key is the ambient one, which is how that account is actually reached',
+  reviewer && reviewer.user === '',
+  JSON.stringify(reviewer)
+);
+check('and it carries the repo it is a reviewer of', reviewer && reviewer.slug === 'them/shared', JSON.stringify(reviewer));
+
+resetLog();
+await pr.reviewerFor(REPO);
+check(
+  'the answer is cached — asking twice costs no second sweep',
+  calls().filter((c) => c.args[0] === 'repo').length === 0,
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+// The mirror image: the ambient account is the one that can write, so the reviewer has
+// to be a *named* account reached with its own token. Getting this the wrong way round
+// would look identical in the case above and fail only here.
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'owneracct', active: true },
+      { user: 'helperacct', active: false },
+    ],
+  },
+  tokens: { owneracct: 'tok-owner', helperacct: 'tok-helper' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+    'tok-helper': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+  },
+});
+
+const reviewer2 = await pr.reviewerFor(REPO);
+check(
+  'when the ambient account is the one that writes, the reviewer is the other one',
+  reviewer2 && reviewer2.login === 'helperacct' && reviewer2.user === 'helperacct',
+  JSON.stringify(reviewer2)
+);
+check(
+  'and it is reached with its own token rather than ambiently',
+  calls().some((c) => c.args[0] === 'repo' && c.token === 'tok-helper'),
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: { ok: true, accounts: [{ user: 'soloacct', active: true }] },
+  tokens: { soloacct: 'tok-solo' },
+  repo: { nameWithOwner: 'acme/widgets' },
+});
+const solo = await pr.reviewerFor(REPO);
+check(
+  'a Mac with one login has no reviewer, and says so as a null rather than a throw',
+  solo === null,
+  JSON.stringify(solo)
+);
+check(
+  'and it does not offer the acting account back as its own reviewer',
+  solo === null || solo.login !== 'soloacct',
+  JSON.stringify(solo)
+);
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: { ok: true, accounts: [{ user: 'soloacct', active: true }] },
+  tokens: { soloacct: 'tok-solo' },
+  repoByToken: {},
+});
+check(
+  'a checkout nothing here can see has no reviewer either — there is no first identity to differ from',
+  (await pr.reviewerFor(REPO)) === null
+);
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+});
+await pr.reviewerFor(REPO);
+pr.forgetAvailability();
+resetLog();
+await pr.reviewerFor(REPO);
+check(
+  'forgetAvailability() clears the reviewer too — a gh auth login must be able to change this answer',
+  calls().filter((c) => c.args[0] === 'repo').length > 0,
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+// The older `gh auth status` output names no accounts, so nothing can say which login
+// the ambient one *is*. There may well be a second account here, and it may well be able
+// to see the repo — but it might equally be the acting account under its own name, and a
+// reviewer that turns out to be the author fails at the 422 on a live pull request after
+// looking correct the whole way. No reviewer is the honest answer.
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: { ok: true },
+  repoByToken: { '': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' } },
+});
+check(
+  'and a gh that will not name its accounts yields no reviewer rather than a guess at one',
+  (await pr.reviewerFor(REPO)) === null
+);
+
+/* ------------------------------------------------------------- the approval */
+
+/**
+ * `approve` — the only write in lib/pr.js deliberately made as somebody *other* than the
+ * account everything else here runs as, and the first thing in beadcause that puts state on
+ * GitHub under a second identity.
+ *
+ * Four failures are what these scenarios are for, and none of them is visible by reading
+ * the happy path:
+ *
+ * 1. **Approving as the wrong account.** It comes back as a 422 from GitHub, at the end of a
+ *    review loop, on somebody's live pull request. The fake logs `GH_TOKEN` per call, so
+ *    "which identity spoke" is an assertion here rather than something you find out later —
+ *    and the mirror world is the one used, where the *ambient* account is the owner and the
+ *    reviewer is a named account with its own token, because getting the two the wrong way
+ *    round passes trivially when the reviewer happens to be the ambient one.
+ * 2. **A bare tick.** A review submitted with no body is indistinguishable on the page from
+ *    the owner glancing at a diff and pressing approve, which is precisely what Adam asked
+ *    this whole path not to look like. So an empty body must refuse *before* shelling out,
+ *    and the assertion is the absence of a call.
+ * 3. **The comment landing before the review.** It has to be the last thing on the thread —
+ *    that is the requirement, in Adam's words — so the order of the two calls is asserted,
+ *    not assumed from the order of the source.
+ * 4. **The pair treated as atomic.** A comment that fails after the review succeeded must
+ *    still report `submitted: true`, because the approval *is* on GitHub at that point and a
+ *    caller that read the failure as "nothing was approved" would record a merge-bead saying
+ *    a pull request with an approval on it has none.
+ */
+console.log('\nsubmitting an approving review');
+
+/**
+ * The mirror of this Mac's arrangement: the account that can write is the ambient one, and
+ * the reviewer is a named account reached with its own token. `reviewAs` is only the login
+ * the fake echoes back in the created review.
+ */
+const twoAccounts = () =>
+  world({
+    auth: {
+      ok: true,
+      accounts: [
+        { user: 'owneracct', active: true },
+        { user: 'helperacct', active: false },
+      ],
+    },
+    tokens: { owneracct: 'tok-owner', helperacct: 'tok-helper' },
+    repoByToken: {
+      '': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+      'tok-helper': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    },
+    reviewAs: 'helperacct',
+  });
+
+const APPROVAL_BODY = '**Approved on #42 by the ReviewAdvocate — an agent, not Adam.** No comments.';
+const APPROVAL_NOTE = "**That approval is an agent's, not Adam's.**";
+
+pr.forgetAvailability();
+twoAccounts();
+resetLog();
+const approved = await pr.approve(REPO, 42, { body: APPROVAL_BODY, note: APPROVAL_NOTE });
+const reviewCall = calls().find((c) => c.args[0] === 'api');
+const noteCall = calls().find((c) => c.args[0] === 'pr' && c.args[1] === 'comment');
+
+check(
+  'an approving review is submitted, and it is submitted as the account that did not open the PR',
+  approved.submitted === true && approved.reviewer === 'helperacct',
+  JSON.stringify(approved)
+);
+check(
+  'the review call carries the reviewer’s token and not the acting account’s',
+  !!reviewCall && reviewCall.token === 'tok-helper',
+  JSON.stringify(reviewCall)
+);
+check(
+  'it goes to the reviews endpoint with event=APPROVE and the body as a string field',
+  !!reviewCall &&
+    reviewCall.args.includes('--method') &&
+    reviewCall.args.includes('POST') &&
+    reviewCall.args.some((a) => /\/pulls\/42\/reviews$/.test(a)) &&
+    reviewCall.args.includes('event=APPROVE') &&
+    reviewCall.args.includes(`body=${APPROVAL_BODY}`),
+  JSON.stringify(reviewCall && reviewCall.args)
+);
+check(
+  'and the answer carries an anchor to the approval itself, not to the pull request',
+  approved.url === 'https://github.com/them/shared/pull/42#pullrequestreview-909' && approved.at === '2026-08-17T15:02:03Z',
+  JSON.stringify({ url: approved.url, at: approved.at })
+);
+check(
+  'the comment naming the agent is posted, as the same identity that reviewed',
+  approved.noted === true && !!noteCall && noteCall.token === 'tok-helper' && noteCall.args.includes(APPROVAL_NOTE),
+  JSON.stringify({ noted: approved.noted, call: noteCall })
+);
+check(
+  'and it is posted after the review, so it is the last thing on the thread',
+  calls().findIndex((c) => c.args[0] === 'api') < calls().findIndex((c) => c.args[0] === 'pr' && c.args[1] === 'comment'),
+  JSON.stringify(calls().map((c) => c.args.slice(0, 2).join(' ')))
+);
+check('nothing went wrong, so there is no sentence about it', approved.reason === '', approved.reason);
+
+// A review with no body is a green tick with nothing beside it. Refused before `gh` is
+// reached, which is the only way that assertion can be made at all.
+pr.forgetAvailability();
+twoAccounts();
+resetLog();
+const bare = await pr.approve(REPO, 42, { body: '   ', note: APPROVAL_NOTE });
+check(
+  'an approval with an empty body is refused rather than submitted',
+  bare.submitted === false && /empty body/.test(bare.reason),
+  JSON.stringify(bare)
+);
+check('and refusing it costs no gh call at all', calls().length === 0, JSON.stringify(calls().map((c) => c.args.join(' '))));
+
+// The common case everywhere except this Mac: one login, so no account can approve what
+// that account opened. A null reviewer, an unsubmitted approval, and nothing on the PR.
+pr.forgetAvailability();
+world({
+  auth: { ok: true, accounts: [{ user: 'soloacct', active: true }] },
+  tokens: { soloacct: 'tok-solo' },
+  repo: { nameWithOwner: 'acme/widgets' },
+});
+resetLog();
+const solitary = await pr.approve(REPO, 42, { body: APPROVAL_BODY, note: APPROVAL_NOTE });
+check(
+  'a Mac with one login submits nothing and says why, rather than throwing',
+  solitary.submitted === false && /second GitHub account/.test(solitary.reason),
+  JSON.stringify(solitary)
+);
+check(
+  'and it posts no comment either — there is no tick anybody could mistake for a person’s',
+  !calls().some((c) => c.args[0] === 'api' || (c.args[0] === 'pr' && c.args[1] === 'comment')),
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+// GitHub refusing the review — the 422 that means `reviewerFor` and `resolve` returned the
+// same account. The sentence has to survive, because it is the only thing that says which.
+pr.forgetAvailability();
+twoAccounts();
+world({
+  ...JSON.parse(fs.readFileSync(STATE, 'utf8')),
+  reviewRefusal: 'HTTP 422: Can not approve your own pull request (https://api.github.com/repos/them/shared/pulls/42/reviews)',
+});
+resetLog();
+const rejected = await pr.approve(REPO, 42, { body: APPROVAL_BODY, note: APPROVAL_NOTE });
+check(
+  'a review GitHub refuses comes back unsubmitted, with GitHub’s own sentence',
+  rejected.submitted === false && /Can not approve your own pull request/.test(rejected.reason),
+  JSON.stringify(rejected)
+);
+check(
+  'and it still says which account it tried, because that is what names the bug',
+  rejected.reviewer === 'helperacct',
+  JSON.stringify(rejected)
+);
+check(
+  'no comment is posted about an approval that did not happen',
+  !calls().some((c) => c.args[0] === 'pr' && c.args[1] === 'comment'),
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+// And the half-failure: the approval landed, the disclosure did not. `submitted` stays true
+// because it is true, and the sentence is about the comment.
+pr.forgetAvailability();
+twoAccounts();
+world({ ...JSON.parse(fs.readFileSync(STATE, 'utf8')), commentRefusal: 'HTTP 403: Resource not accessible by integration' });
+resetLog();
+const half = await pr.approve(REPO, 42, { body: APPROVAL_BODY, note: APPROVAL_NOTE });
+check(
+  'a comment that fails after the review does not un-approve the pull request',
+  half.submitted === true && half.noted === false,
+  JSON.stringify(half)
+);
+check(
+  'and the sentence says which half is missing',
+  /approval is on the pull request/.test(half.reason) && /403/.test(half.reason),
+  half.reason
+);
+
+// A caller with nothing to add at the bottom of the thread still gets its review. The body
+// is the required disclosure; the comment is the belt beside the braces.
+pr.forgetAvailability();
+twoAccounts();
+resetLog();
+const quiet = await pr.approve(REPO, 42, { body: APPROVAL_BODY });
+check(
+  'with no note there is still a review, and nothing pretends a comment was posted',
+  quiet.submitted === true && quiet.noted === false && quiet.reason === '',
+  JSON.stringify(quiet)
+);
+check(
+  'and no empty comment is left on the pull request',
+  !calls().some((c) => c.args[0] === 'pr' && c.args[1] === 'comment'),
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
 pr.forgetAvailability();
 world();
 
@@ -465,6 +962,113 @@ check(
 );
 check('reviewDecision passes through', viewed.reviewDecision === 'APPROVED');
 check('gh ran in the directory it was handed', calls().at(-1).cwd === REPO_REAL, `${calls().at(-1).cwd} vs ${REPO_REAL}`);
+
+/* ------------------------------------------------------------- the reviews */
+
+/**
+ * `reviewDecision` cannot see an approval on this repo, and `latestReviews` is the
+ * only thing that can.
+ *
+ * GitHub's `reviewDecision` answers "does this pull request satisfy its review
+ * *requirement*". mordam/beadcause configures none — no branch protection, no rulesets,
+ * verified against the live API on 2026-08-17 — so it is the empty string with an
+ * approving review sitting on the pull request, exactly as it is with none. A gate that
+ * read it would wait forever and would look, from the outside, like a reviewer that
+ * never reviewed.
+ *
+ * So the first case below is not a hypothetical: it is the real repo's shape. The last
+ * two are the distinctions that make `approvedBy` worth deriving in one place — a
+ * dismissed review is not an approval, and neither is a comment, and both come back in
+ * the same array as one.
+ */
+console.log('\nand the reviews on it');
+
+world({
+  prs: {
+    42: rawPR({
+      reviewDecision: '',
+      latestReviews: [rawReview({ author: { login: 'NeanderthalMan' }, submittedAt: '2026-08-17T14:40:19Z' })],
+    }),
+  },
+});
+const reviewed = await pr.view(REPO, 42);
+check(
+  'an approving review is visible even though reviewDecision is empty — the shape this repo is actually in',
+  reviewed.reviewDecision === null && reviewed.approvedBy.join(',') === 'NeanderthalMan',
+  JSON.stringify({ reviewDecision: reviewed.reviewDecision, approvedBy: reviewed.approvedBy })
+);
+check(
+  'and the review is folded to what a caller can act on',
+  reviewed.reviews.length === 1 &&
+    reviewed.reviews[0].author === 'NeanderthalMan' &&
+    reviewed.reviews[0].state === 'APPROVED' &&
+    reviewed.reviews[0].association === 'COLLABORATOR' &&
+    reviewed.reviews[0].submittedAt === '2026-08-17T14:40:19Z',
+  JSON.stringify(reviewed.reviews)
+);
+check(
+  'the review body is deliberately not carried — it would ride into every board row',
+  reviewed.reviews[0].body === undefined,
+  JSON.stringify(reviewed.reviews[0])
+);
+
+world({
+  prs: {
+    42: rawPR({
+      latestReviews: [
+        rawReview({ author: { login: 'dismissed-one' }, state: 'DISMISSED' }),
+        rawReview({ author: { login: 'chatty' }, state: 'COMMENTED' }),
+        rawReview({ author: { login: 'unhappy' }, state: 'CHANGES_REQUESTED' }),
+      ],
+    }),
+  },
+});
+const mixedReviews = await pr.view(REPO, 42);
+check(
+  'a dismissed, a commented and a changes-requested review are none of them approvals',
+  mixedReviews.reviews.length === 3 && mixedReviews.approvedBy.length === 0,
+  JSON.stringify({ reviews: mixedReviews.reviews, approvedBy: mixedReviews.approvedBy })
+);
+check(
+  'but they are all still readable, because "who has looked at this" is a different question',
+  mixedReviews.reviews.map((r) => r.state).join(',') === 'DISMISSED,COMMENTED,CHANGES_REQUESTED',
+  JSON.stringify(mixedReviews.reviews.map((r) => r.state))
+);
+
+world({ prs: { 42: rawPR() } });
+const unreviewed = await pr.view(REPO, 42);
+check(
+  'a pull request nobody has reviewed reads as empty arrays, never undefined',
+  Array.isArray(unreviewed.reviews) &&
+    unreviewed.reviews.length === 0 &&
+    Array.isArray(unreviewed.approvedBy) &&
+    unreviewed.approvedBy.length === 0,
+  JSON.stringify({ reviews: unreviewed.reviews, approvedBy: unreviewed.approvedBy })
+);
+
+world({ prs: { 9: { number: 9, url: 'https://github.com/acme/widgets/pull/9' } } });
+const noField = await pr.view(REPO, 9);
+check(
+  'and so does one gh answered without the field at all',
+  noField.reviews.length === 0 && noField.approvedBy.length === 0,
+  JSON.stringify({ reviews: noField.reviews, approvedBy: noField.approvedBy })
+);
+
+check(
+  'latestReviews is in the field list, or none of the above is ever asked for',
+  pr.PR_FIELDS.split(',').includes('latestReviews'),
+  pr.PR_FIELDS
+);
+check(
+  'and rides into the list query too, since the board reads the same set',
+  pr.LIST_FIELDS.split(',').includes('latestReviews'),
+  pr.LIST_FIELDS
+);
+check(
+  'but not into the merged-PR set, where no review question can still be asked',
+  !pr.MERGED_FIELDS.split(',').includes('latestReviews'),
+  pr.MERGED_FIELDS
+);
 
 world({ prs: { 9: { number: 9, url: 'https://github.com/acme/widgets/pull/9' } } });
 const sparse = await pr.view(REPO, 9);
@@ -936,6 +1540,47 @@ check(
   'a real conflict is refused without waiting for a second opinion',
   stillConflict && stillConflict.status === 409 && slept === 0 && mergeCalls().length === 0,
   `slept ${slept}, ${mergeCalls().length} merges`
+);
+
+// And the failure that is not a refusal at all. `gh pr merge --delete-branch` merges,
+// deletes the remote branch, then deletes the local one — and that last act fails
+// whenever the branch is checked out in a worktree, which in this repo is every branch
+// a worker ever pushed. Read as a refusal, it told Adam *bc-g0tx was not answered,
+// nothing was written and nothing was lost* over #371, already merged, with its work
+// bead left in_progress and the card still sitting there. The exit code is not the
+// verdict; the pull request is.
+world({
+  prs: { 42: rawPR() },
+  mergeCleanupFailure:
+    "failed to delete local branch worktree-epicadvocate-foundation-x8k: failed to run git: error: Cannot delete " +
+    "branch 'worktree-epicadvocate-foundation-x8k' checked out at '/repo/.claude/worktrees/epicadvocate-foundation-x8k'",
+});
+resetLog();
+let landedAnyway = null;
+const tidied = await threw(async () => {
+  landedAnyway = await pr.merge(REPO, 42);
+});
+check('a merge that landed is not thrown away because gh failed to tidy up after it', !tidied, tidied && tidied.message);
+check(
+  'it comes back as the merged pull request',
+  landedAnyway && landedAnyway.state === 'MERGED' && landedAnyway.mergeCommit === '0ff1ce0ff1ce',
+  JSON.stringify(landedAnyway && { state: landedAnyway.state, sha: landedAnyway.mergeCommit })
+);
+check(
+  'carrying what gh complained about, so the card can say the local branch survived',
+  landedAnyway && /Cannot delete branch/.test(landedAnyway.cleanup || ''),
+  JSON.stringify(landedAnyway && landedAnyway.cleanup)
+);
+
+// The distinction that makes the above safe: a `gh` that failed *before* merging leaves
+// the PR open, and that is still a refusal with GitHub's words on it.
+world({ prs: { 42: rawPR() }, mergeRefusal: 'Pull request is not mergeable: a required check is failing.' });
+resetLog();
+const stillRefused = await threw(() => pr.merge(REPO, 42));
+check(
+  'a failure with the pull request still open is a refusal, as before',
+  stillRefused && stillRefused.status === 409 && /required check is failing/.test(stillRefused.message),
+  stillRefused && stillRefused.message
 );
 
 /* -------------------------------------------------------- close and comment */

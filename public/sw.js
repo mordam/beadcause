@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v60';
+const CACHE = 'beadcause-v91';
 const SHELL = [
   '/',
   '/index.html',
@@ -49,14 +49,34 @@ const SHELL = [
   // because it is loaded on the tap that answers a question — the one moment the
   // link is least likely to be there and most likely to be slow.
   '/absorb.js',
+  // And the queue those writes go on. The strongest shell argument of any file here:
+  // the one moment it is wanted is the moment the link is bad, because a link good
+  // enough to fetch it is a link the write would have gone straight out over. A page
+  // cached without it answers questions one blocking round trip at a time.
+  '/submitqueue.js',
   // The mic on the answer box. In the shell rather than network-first because the one
   // moment it is wanted is the moment a notification was opened on a phone that has
   // just woken up — the same argument as absorb.js above.
   '/dictate.js',
-  // The bottom tab bar, on every standing view. Every one of them is useless
-  // without it now — it is the only way off a page — so it belongs in the shell
-  // rather than being fetched once per page over a phone link.
-  '/tabbar.js',
+  // What the URL hash means — a view, a card to open on Home, or nothing. In the shell
+  // because the two files below and above it call into it flat on boot: the row asks it
+  // which view this address is, and the inbox asks it whether the hash names a card. A
+  // page cached without it is a page that throws before it draws.
+  '/hashroute.js',
+  // The shell's panes — one container per view in index.html, and which of them the hash
+  // is showing. In the shell for the same reason the grammar above it is: it is loaded on
+  // the one page that is the app, it runs on boot, and a page cached without it is a page
+  // whose views are three divs with no rule about which of them is up.
+  '/panes.js',
+  // And what fills them: the staged boot that builds the landed-on pane first and the
+  // rest after the first paint, and the one poll it fans out to all of them. In the shell
+  // beside panes.js and for the same reason — it runs on boot on the one page that is the
+  // app, and a page cached without it is a page whose panes never get built at all.
+  '/panestage.js',
+  // The pill row across the top of every page. Every one of them is useless without it
+  // — it is the only way off a page — so it belongs in the shell rather than being
+  // fetched once per page over a phone link.
+  '/viewbar.js',
   // How the app finds out that what it is made of has moved — the reload after a deploy
   // that changed public/, and the download-ask-install-restart the shell does when one
   // rebuilt the APK. In the shell rather than network-first because the moment it is
@@ -72,14 +92,27 @@ const SHELL = [
   // about — and, because the menu is where the page's own top-right buttons now live, no
   // refresh, no endorsement queue and no way out to a browser either.
   '/accountbar.js',
+  // Whether the screen is current, and the banner that says when it is not. In the shell
+  // for the reason the other two are, taken one step further: the moment this file exists
+  // for is a phone that cannot reach the daemon, which is exactly the moment a file that
+  // is not cached cannot be fetched. A shell without it is an app that goes quiet about
+  // being out of date precisely when it is.
+  '/freshness.js',
   // The panel every filter bar in the app is drawn in — the collapsed line, the chips,
   // the hover-and-tap state machine. In the shell because two pages mount it and
-  // neither has any control on it at all without it: the inbox loses the scope switch
-  // and the kinds, the History tab loses all four of its filters.
+  // neither has its whole control without it: the inbox loses the bead search and both
+  // status sub-filters, the History tab loses all four of its filters.
   '/filtermenu.js',
-  // The inbox's own filter — the scope switch and the kind chips, in one collapsed
-  // line. In the shell for the same reason the picker is: without it the inbox has no
-  // control on it at all to say which slice of the tracker you are looking at.
+  // The filters that are not behind a line — the scope switch on the inbox's chrome
+  // (bc-khoe.24). In the shell for the same reason as the panel beside it: a cached page
+  // without it draws the collapsed panel and no way at all to say whether you are looking
+  // at the questions or at the live beads, which is the one control this app has that
+  // decides what a screen is *able* to hold.
+  '/filterpills.js',
+  // The inbox's own filter — the kinds table behind the pill row, and the bead search
+  // and two sub-filters left in one collapsed line. In the shell for the same reason
+  // the picker is: without it the inbox draws every row it fetched, with nothing on
+  // screen able to narrow it.
   '/inboxfilter.js',
   // Edit mode: the freeze and the anchor. In the shell because the inbox now asks it on
   // every repaint whether it may paint at all — a cached page without it answers false
@@ -160,9 +193,13 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
-  // The chip row on it, and which of its three panes is up. In the shell because that
-  // page is: without this file the chips are dead and two of the three panes — the board
-  // and the mirror — are unreachable from a cached advocates page.
+  // The chip row on it, and which of its four panes is up. In the shell because that
+  // page is: without this file the chips are dead and three of the four panes — the
+  // board, the settings and the mirror — are unreachable from a cached advocates page.
+  // (This line is not going anywhere: bc-khoe.30.6 ruled that the row stays a mode
+  // switch rather than becoming pills, so bc-khoe.4 folds it into the shell's Advocates
+  // pane intact. bc-khoe.1 only took its `--topbar-h` observer, which the app shell made
+  // unnecessary.)
   '/montabs.js',
   // The ledger. In the shell because it is a tab: every tab has to open instantly from
   // the bar whatever the link is doing, and this is the one page in the app you might
@@ -207,6 +244,17 @@ const SHELL = [
   '/terminal',
   '/term.html',
   '/term.js',
+  // **/sounds is deliberately not here**, and like `/closed` and `/done` above that is a
+  // decision rather than an oversight.
+  //
+  // It is the notification-sound audition (bc-ka5y.15.3): three .wav files played blind
+  // so they can be named before bc-ka5y.15.4 cuts the channels they go on. Precaching the
+  // page without its sounds would give a phone with no signal a screen of buttons that do
+  // nothing, which is worse than the page not being there; precaching the sounds too is
+  // 78 kB of audio on every install, forever, for a screen that is opened a handful of
+  // times in the life of the app. And an audition is not a thing anybody does offline —
+  // every other page in this list is here because you open it *at* the bad moment, and
+  // this is the opposite of that.
   '/icon.svg',
   '/vendor/marked.js',
   '/vendor/purify.js',

@@ -90,43 +90,59 @@ const row = (id, extra = {}) => ({
 const parentEdge = (child, parent) => ({ issue_id: child, depends_on_id: parent, type: 'parent-child' });
 
 /**
- * A P0 of yours with four descendants and a grandchild, one of somebody else's, and a
- * bead under nothing.
+ * A P0 of yours with four descendants and a grandchild, one of somebody else's, one of
+ * yours you have not started, and a bead under nothing.
  *
  * `zz-p0.1.1` is the fixture this suite exists for: two levels down, nobody is being
  * asked about it, so it is in no inbox row and `under` has never heard of it. `zz-p0.10`
  * is the one with a question pending, and is also where a plain string sort would file
  * the tenth child between the first and the second.
+ *
+ * `zz-later` is bc-6s96's: yours, P0, open, and never started. It is the whole difference
+ * between a board and a backlog, and the only reason it is staged here rather than in a
+ * suite of its own is that the three claims it makes are each one line against a payload
+ * this file already has warm — no card, no `under` for its question, and *not* `unhomed`,
+ * which is the one a narrower `roots` gets wrong for free.
  */
 const EXPORT = [
-  row('zz-p0', { priority: 0, issue_type: 'epic', title: 'The P0 itself', labels: [`owner:${ME}`] }),
+  row('zz-p0', { status: 'in_progress', priority: 0, issue_type: 'epic', title: 'The P0 itself', labels: [`owner:${ME}`] }),
   row('zz-p0.1', { status: 'in_progress', assignee: ME, dependencies: [parentEdge('zz-p0.1', 'zz-p0')] }),
-  row('zz-p0.1.1', { dependencies: [parentEdge('zz-p0.1.1', 'zz-p0.1')] }),
+  // Relayed (bc-bmry.4): the journal `bin/relaystep.js` appends lives in `notes`, and
+  // `notes` is on the export row — which is the whole reason the trail is stored there
+  // rather than in comments. This row is what proves the mark survives the trip from a
+  // `bd export` line to a tree row on the board.
+  row('zz-p0.1.1', {
+    notes: [
+      '<!-- beadcause:relay {"at":"2026-08-18T12:00:00.000Z","role":"aria","step":"draft","note":"the outline","next":"clio"} /beadcause:relay -->',
+      '<!-- beadcause:relay {"at":"2026-08-18T12:40:00.000Z","role":"clio","step":"check","note":"fact pass","flag":"two dates unsourced"} /beadcause:relay -->',
+    ].join('\n'),
+    dependencies: [parentEdge('zz-p0.1.1', 'zz-p0.1')],
+  }),
   // Closed, and still carrying the label — a question that was answered by closing the
   // bead rather than by answering it. Nothing is waiting on you here.
   row('zz-p0.2', { status: 'closed', labels: ['human'], dependencies: [parentEdge('zz-p0.2', 'zz-p0')] }),
   row('zz-p0.10', { labels: ['human'], dependencies: [parentEdge('zz-p0.10', 'zz-p0')] }),
   row('zz-theirs', { priority: 0, labels: ['owner:bob@example.com'] }),
   row('zz-theirs.1', { dependencies: [parentEdge('zz-theirs.1', 'zz-theirs')] }),
+  row('zz-later', { priority: 0, issue_type: 'epic', title: 'A P0 of yours you have not started', labels: [`owner:${ME}`] }),
+  row('zz-later.1', { labels: ['human'], dependencies: [parentEdge('zz-later.1', 'zz-later')] }),
   row('zz-orphan'),
 ]
   .map((r) => JSON.stringify(r))
   .join('\n');
 
-/** The one bead in that tracker that is asking you something. */
-const HUMAN = [
-  {
-    id: 'zz-p0.10',
-    title: 'bead zz-p0.10',
-    description: 'Which way?',
-    status: 'open',
-    priority: 2,
-    issue_type: 'task',
-    labels: ['human'],
-    created_at: '2026-08-13T08:00:00Z',
-    updated_at: '2026-08-13T08:00:00Z',
-  },
-];
+/** The beads in that tracker asking you something — one under each of your two P0s. */
+const HUMAN = ['zz-p0.10', 'zz-later.1'].map((id) => ({
+  id,
+  title: `bead ${id}`,
+  description: 'Which way?',
+  status: 'open',
+  priority: 2,
+  issue_type: 'task',
+  labels: ['human'],
+  created_at: '2026-08-13T08:00:00Z',
+  updated_at: '2026-08-13T08:00:00Z',
+}));
 
 /* ------------------------------------------------------------------ the fake bd */
 
@@ -203,10 +219,10 @@ const getJson = async (p) => {
 async function boardWhenWarm() {
   for (let i = 0; i < 60; i += 1) {
     const payload = await getJson('/api/questions');
-    if ((payload.p0board?.p0s || []).length) return payload;
+    if ((payload.rootboard?.roots || []).length) return payload;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error('the P0 board never warmed up — no p0s after six seconds of asking');
+  throw new Error('the epic board never warmed up — no roots after six seconds of asking');
 }
 
 console.log('\na P0 card carries its own tree\n');
@@ -214,7 +230,7 @@ console.log('\na P0 card carries its own tree\n');
 try {
   const cold = await getJson('/api/questions');
   const payload = await boardWhenWarm();
-  const [card, ...rest] = payload.p0board.p0s;
+  const [card, ...rest] = payload.rootboard.roots;
   const tree = card.tree || [];
   const byId = new Map(tree.map((r) => [r.id, r]));
 
@@ -222,14 +238,42 @@ try {
     // The `wait: false` contract, and the state the client already reads as "do not
     // narrow anything". If this ever starts arriving warm, the export moved onto the
     // request path and bc-1kwl's page budget went with it.
-    assert.equal(cold.p0board.owned, true, 'the board is off entirely — cfg.me did not take');
-    assert.deepEqual(cold.p0board.p0s, [], 'the first payload waited for the tracker');
+    assert.equal(cold.rootboard.owned, true, 'the board is off entirely — cfg.me did not take');
+    assert.deepEqual(cold.rootboard.roots, [], 'the first payload waited for the tracker');
   });
 
   await check('the board is the P0s you own, and each one carries a tree', () => {
     assert.deepEqual(rest, [], 'somebody else’s P0 is on your board');
     assert.equal(card.id, 'zz-p0');
     assert.ok(Array.isArray(card.tree), '/api/questions carries no tree at all');
+  });
+
+  await check('A P0 OF YOURS YOU HAVE NOT STARTED DRAWS NO CARD — the board is not the backlog', () => {
+    // bc-6s96. zz-later is yours, P0 and open; the only thing it is not is `in_progress`.
+    // Before this rule it drew a card indistinguishable from the one above it, and 42 of
+    // them drew a screen you scroll rather than a week you read.
+    assert.deepEqual(
+      payload.rootboard.roots.map((c) => c.id),
+      ['zz-p0'],
+      'an unstarted P0 is still on the board'
+    );
+  });
+
+  await check('AND ITS QUESTION LEAVES THE LIST WITHOUT BEING CALLED UNHOMED', () => {
+    // The decided consequence, and the one thing it must not become. `under` is keyed on
+    // the board's roots, so the row drops out of the narrowed list — that is intended, and
+    // it comes back the moment the epic is started. `unhomed` means "no open P0 above this
+    // at all", which is false here: zz-later is open. Marking it would put the row back on
+    // the screen through the map that exists for beads nobody has homed, which is both a
+    // lie about the tracker and this feature quietly not working.
+    assert.equal(payload.rootboard.under['alpha/zz-later.1'], undefined, '`under` still names a P0 that is off the board');
+    assert.equal(
+      payload.rootboard.unhomed['alpha/zz-later.1'],
+      undefined,
+      'a row under an unstarted P0 of yours was reclassified as having no P0 above it'
+    );
+    // And the sweep did fetch it, so the two assertions above are about a row that exists.
+    assert.equal(payload.questions.some((q) => q.key === 'alpha/zz-later.1'), true, 'the fixture question never arrived');
   });
 
   await check('A DESCENDANT NOBODY IS ASKING ABOUT IS IN THE TREE — the whole bead', () => {
@@ -240,8 +284,8 @@ try {
       tree.map((r) => r.id),
       ['zz-p0.1', 'zz-p0.1.1', 'zz-p0.10', 'zz-p0.2']
     );
-    assert.equal(payload.p0board.under['alpha/zz-p0.1.1'], undefined, 'the row map has grown a row it should not have');
-    assert.equal(payload.p0board.under['alpha/zz-p0.10'], 'zz-p0', '`under` stopped answering for the rows that do exist');
+    assert.equal(payload.rootboard.under['alpha/zz-p0.1.1'], undefined, 'the row map has grown a row it should not have');
+    assert.equal(payload.rootboard.under['alpha/zz-p0.10'], 'zz-p0', '`under` stopped answering for the rows that do exist');
   });
 
   await check('it nests in one pass: pre-order, a parent on every row, a depth on every row', () => {
@@ -267,7 +311,35 @@ try {
       depth: 1,
       key: 'alpha/zz-p0.1',
       pending: false,
+      // Who is in this bead's window right now, for the expansion's "what happened to
+      // it" (bc-rfnr.9.5). `null` here because this suite runs no sessions — and the
+      // field is asserted rather than skipped precisely because it is the cheap half:
+      // the live pid rides the poll on the row, so a row that stopped carrying it would
+      // take the live link off every open bead without a word.
+      session: null,
+      // And where a department relay on it has got to (bc-bmry.4). `null` here for the
+      // ordinary reason it is null on almost every row in every tracker: nothing has
+      // relayed this bead, so its notes carry no journal. Asserted rather than skipped
+      // for `session`'s reason — the mark rides the poll on the row, and a row that
+      // stopped carrying it would take the relay off the whole board without a word.
+      relay: null,
     });
+  });
+
+  await check('a relayed bead carries where its relay got to, off the export row', () => {
+    // The end-to-end the pure suite cannot reach: a journal written into `notes` reaches a
+    // tree row on the board as the last step alone. bc-bmry.4.
+    assert.deepEqual(byId.get('zz-p0.1.1').relay, {
+      role: 'clio',
+      step: 'check',
+      at: '2026-08-18T12:40:00.000Z',
+      steps: 2,
+      flagged: 1,
+      flag: 'two dates unsourced',
+    });
+    // And the whole trail is not on it: sixty rows carrying every entry is a relay's
+    // history on the poll payload once per descendant per repaint, to draw one line.
+    assert.ok(!('entries' in byId.get('zz-p0.1.1').relay));
   });
 
   await check('`pending` is the bead’s own question, and a closed one is not pending', () => {
@@ -291,7 +363,7 @@ try {
     // the app's one unforgivable failure — a question on a screen that will not show it.
     return getJson('/api/questions?scope=agent').then((agentScope) => {
       assert.deepEqual(agentScope.questions, [], 'this scope is supposed to sweep no questions');
-      const same = agentScope.p0board.p0s[0].tree.find((r) => r.id === 'zz-p0.10');
+      const same = agentScope.rootboard.roots[0].tree.find((r) => r.id === 'zz-p0.10');
       assert.equal(same.pending, true, 'the bead waiting on you went quiet when the scope changed');
     });
   });
@@ -315,8 +387,8 @@ try {
     // beta's cards and nothing else — a board that threw here would take the inbox with
     // it, on the one payload the phone parks on.
     assert.ok(exportsIn('beta') > 0, 'beta was never asked, so this proves nothing');
-    assert.deepEqual(payload.p0board.p0s.map((c) => c.workspace), ['alpha']);
-    assert.equal(payload.p0board.owned, true);
+    assert.deepEqual(payload.rootboard.roots.map((c) => c.workspace), ['alpha']);
+    assert.equal(payload.rootboard.owned, true);
     assert.ok(Array.isArray(payload.trouble), 'a repo that could not be read says so somewhere');
   });
 
@@ -326,7 +398,7 @@ try {
     const before = exportsIn('alpha');
     return getJson('/api/questions').then((again) => {
       assert.equal(exportsIn('alpha'), before, 'the tree was rebuilt from the tracker on the request path');
-      assert.equal(again.p0board.p0s[0].tree.length, tree.length, 'the second repaint drew a different tree');
+      assert.equal(again.rootboard.roots[0].tree.length, tree.length, 'the second repaint drew a different tree');
     });
   });
 } finally {

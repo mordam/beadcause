@@ -86,6 +86,10 @@
     // richer than this" line, which is the honest answer. Named anyway, so the header
     // reads "has the pull requests open" rather than the raw view id.
     prs: 'the pull requests',
+    // The advocate page's fourth pane (bc-me2b): the space's own settings, not a repo's
+    // and not a bead's. Named for the same reason `prs` is — the header should read as a
+    // sentence rather than as an id — and, like it, there is nothing richer to point at.
+    config: 'the space settings',
     terminal: 'a terminal',
     doc: 'a document',
     other: 'somewhere else',
@@ -659,7 +663,13 @@
           method: 'POST',
           body: JSON.stringify({ workspace: t.workspace, id: t.id, response: text, ...(option ? { option } : {}) }),
         });
-        note(res?.handedBack ? 'Answered — left open and handed back as work.' : 'Answered — the card is closed.');
+        note(
+          res?.handedBack
+            ? 'Answered — left open and handed back as work.'
+            : res?.needsChoice
+              ? 'Saved — one of these options starts work, so pick one to commit it.'
+              : 'Answered — the card is closed.'
+        );
       } else {
         await api('/api/comment', { method: 'POST', body: JSON.stringify({ workspace: t.workspace, id: t.id, text }) });
         note('Commented — an agent has been sent to answer it.');

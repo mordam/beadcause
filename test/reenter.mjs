@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Re-entering the P0 advocate: which P0s are enrolled, what counts as movement, and the
+ * Re-entering the Epic Advocate: which epics are enrolled, what counts as movement, and the
  * three things that stop a window opening anyway.
  *
  *     npm test
@@ -23,6 +23,12 @@
  * 3. **A stall is measured in windows, not timestamps.** `updated_at` is bumped by a
  *    comment and not by a session dying, so the state under test is "the tracker says
  *    in_progress and nothing on this Mac is in a window on it", which needs two sweeps.
+ * 4. **The two endings the brief asks for look exactly like that stall.** A delivered bead
+ *    and a handed-back bead are both left `in_progress`, assigned, with a lease that
+ *    expires — so the sweep reported every worker that did what it was told, and the two
+ *    halves have to be held apart from each other *and* from a window that really did die
+ *    (bc-xl7n.98). Getting this wrong is not visible either: it is an unattended window
+ *    opened on a bead nothing was wrong with.
  *
  * The tick half injects `openAdvocate`, so a case that would have opened an iTerm window
  * pushes a record onto an array instead. No iTerm, no `bd`, no agent, and nothing written
@@ -49,8 +55,9 @@ const REPO = path.join(tmp, 'projects', 'alpha');
 fs.mkdirSync(SESSIONS, { recursive: true });
 fs.mkdirSync(REPO, { recursive: true });
 
-const { advocatedP0s, reentryFor, REENTER_DEFAULTS } = await import(LIB('reenter.js'));
-const { WAITING_OPEN, WAITING_CLOSE, forgetAdvocateOpened } = await import(LIB('epicadvocate.js'));
+const { advocatedRoots, handedBack, reentryFor, waitingOnMerge, REENTER_DEFAULTS } = await import(LIB('reenter.js'));
+const { pairKey } = await import(LIB('ancestry.js'));
+const { ADVOCATE_LABEL, WAITING_OPEN, WAITING_CLOSE, forgetAdvocateOpened } = await import(LIB('epicadvocate.js'));
 const { leaseLabel } = await import(LIB('lease.js'));
 const { createAdvocates } = await import(LIB('advocate.js'));
 
@@ -69,28 +76,64 @@ const bead = (id, over = {}) => ({
   notes: '',
   ...over,
 });
-/** An owned, open, non-crash P0 whose advocate has written its sentence: enrolled. */
+/** An owned, open, non-crash root whose advocate has written its sentence: enrolled. */
 const p0 = (id, over = {}) =>
   bead(id, { priority: 0, issue_type: 'epic', labels: [OWNER], notes: waiting('a worker slot'), ...over });
 
-/** `{ parents, beads }` the way `Bd.graph` answers it, off a flat list of rows. */
-function index(rows, edges = {}) {
+/**
+ * The other carrier, and the one bc-r2b5.1 is about: an epic somebody assigned, whose
+ * window died before it ever wrote a sentence. Same root, no notes at all, `ADVOCATE_LABEL`
+ * on it — which is exactly what the launch door leaves behind.
+ */
+const assigned = (id, over = {}) =>
+  p0(id, { notes: '', labels: [OWNER, ADVOCATE_LABEL], ...over });
+
+/**
+ * `{ parents, beads, edges }` the way `Bd.graph` answers it, off a flat list of rows.
+ *
+ * `deps` is `[from, to, type]` triples, keyed the way lib/ancestry.js keys them — on the
+ * *unordered* pair, because bd holds one edge per pair whatever its direction or type. The
+ * delivery half of the stall test reads exactly that map, and a fixture that keyed it by
+ * `from~to` would have made a reversed edge look like a different one rather than the same
+ * one pointing the other way, which is the case worth pinning.
+ */
+function index(rows, parentOf = {}, deps = []) {
   const beads = new Map(rows.map((r) => [r.id, r]));
-  const parents = new Map(Object.entries(edges));
-  return { parents, beads };
+  const parents = new Map(Object.entries(parentOf));
+  const edges = new Map(deps.map(([from, to, type = 'blocks']) => [pairKey(from, to), { type, from, to }]));
+  return { parents, beads, edges };
 }
 
-/** The shape every case below is about: one enrolled P0 with three children. */
-const subtree = (over = {}) =>
+/**
+ * The shape every case below is about: one enrolled P0 with three children.
+ *
+ * `extra` rows sit *outside* the subtree — a delivery card is not a child of the epic the
+ * work hangs off, and putting one under the P0 would have the stall cases quietly testing a
+ * four-child tree.
+ */
+const subtree = (over = {}, deps = [], extra = []) =>
   index(
     [
       p0('x-1', over.p0 || {}),
       bead('x-1.1', over['x-1.1'] || {}),
       bead('x-1.2', over['x-1.2'] || {}),
       bead('x-1.3', over['x-1.3'] || {}),
+      ...extra,
     ],
-    { 'x-1.1': 'x-1', 'x-1.2': 'x-1', 'x-1.3': 'x-1' }
+    { 'x-1.1': 'x-1', 'x-1.2': 'x-1', 'x-1.3': 'x-1' },
+    deps
   );
+
+/**
+ * A bead of the kind bin/deliver.js files and parks the work behind — open and waiting.
+ *
+ * Labels are passed in rather than assumed, because the two are not labelled alike and the
+ * difference is load-bearing: a `pr-delivery` card is `human` (it is a question), a
+ * `merge-queue` bead is not (it is the queue's). The *work* bead is neither — `park` is
+ * called with `label: false` precisely so nothing strands it in the inbox — which is what
+ * makes the delivery half a real second answer rather than the `human` test twice.
+ */
+const card = (id, labels, over = {}) => bead(id, { labels, priority: 1, ...over });
 
 let failures = 0;
 let ran = 0;
@@ -108,22 +151,59 @@ async function check(name, fn) {
 
 /* ------------------------------------------------------------- who is enrolled */
 
-await check('enrolment is the waiting-on block, and nothing else', () => {
-  assert.deepEqual(advocatedP0s(subtree()).map((r) => r.p0.id), ['x-1']);
-  // No sentence, no enrolment — a P0 nobody has ever advocated is left alone, which is
-  // what keeps this from opening windows on P0s the owner never asked to supervise.
-  assert.deepEqual(advocatedP0s(subtree({ p0: { notes: 'prose but no block' } })), []);
-  assert.deepEqual(advocatedP0s(subtree({ p0: { notes: '' } })), []);
+await check('enrolment is the assignment label or the waiting-on block, and nothing else', () => {
+  assert.deepEqual(advocatedRoots(subtree()).map((r) => r.epic.id), ['x-1'], 'the sentence still enrols');
+  // Neither carrier, no enrolment — an epic nobody has ever advocated is left alone, which
+  // is what keeps this from opening windows on epics the owner never asked to supervise.
+  assert.deepEqual(advocatedRoots(subtree({ p0: { notes: 'prose but no block' } })), []);
+  assert.deepEqual(advocatedRoots(subtree({ p0: { notes: '' } })), []);
+});
+
+await check('the label enrols an epic whose advocate never wrote a sentence — bc-r2b5.1', () => {
+  // **The whole of the bead, as one assertion.** Before it, the only record of an
+  // assignment was the sentence the window is asked to write *before it exits*, so a
+  // window that died in its first minute left nothing at all: the tap had happened, the
+  // epic was not enrolled, and nothing would ever come back to it. Ten of forty open
+  // epics carried the block on the day this was written.
+  const dead = subtree({ p0: { notes: '', labels: [OWNER, ADVOCATE_LABEL] } });
+  assert.deepEqual(advocatedRoots(dead).map((r) => r.epic.id), ['x-1'], 'assigned is enrolled, sentence or no sentence');
+  // And the old carrier goes on working on its own, which is what makes this landable:
+  // every epic enrolled today has the block and no label, and a rule that read only the
+  // label would silently un-enrol all of them on the deploy that shipped it.
+  const older = subtree({ p0: { labels: [OWNER] } });
+  assert.deepEqual(advocatedRoots(older).map((r) => r.epic.id), ['x-1'], 'nothing already enrolled falls out');
+});
+
+await check('un-assigning takes both carriers off, and either one left keeps it enrolled', () => {
+  // The off switch, and the reason `epicAdvocatePrompt` now spells out both gestures: an
+  // advocate that erased its sentence and left the label on would go on being re-opened,
+  // which reads from the outside as an un-assign that did not work.
+  const both = subtree({ p0: { labels: [OWNER, ADVOCATE_LABEL] } });
+  assert.deepEqual(advocatedRoots(both).map((r) => r.epic.id), ['x-1']);
+  assert.deepEqual(advocatedRoots(subtree({ p0: { labels: [OWNER, ADVOCATE_LABEL], notes: '' } })).length, 1, 'label alone');
+  assert.deepEqual(advocatedRoots(subtree({ p0: { labels: [OWNER] } })).length, 1, 'sentence alone');
+  assert.deepEqual(advocatedRoots(subtree({ p0: { labels: [OWNER], notes: '' } })), [], 'and neither is the un-assign');
 });
 
 await check('the four `wantsAdvocate` refusals hold on this door too', () => {
-  // The same gate the launch refuses on, so this can never queue a P0 the launch would
+  // The same gate the launch refuses on, so this can never queue a bead the launch would
   // then throw about — see `advocateRefusal` in lib/session.js.
-  assert.deepEqual(advocatedP0s(subtree({ p0: { priority: 1 } })), [], 'not a P0');
-  assert.deepEqual(advocatedP0s(subtree({ p0: { status: 'closed' } })), [], 'closed');
-  assert.deepEqual(advocatedP0s(subtree({ p0: { labels: [] } })), [], 'nobody owns it');
   assert.deepEqual(
-    advocatedP0s(subtree({ p0: { labels: [OWNER, 'app-error'] } })),
+    advocatedRoots(subtree({ p0: { priority: 1, issue_type: 'task' } })),
+    [],
+    'neither an epic nor a P0'
+  );
+  // And the half bc-htoy changed, pinned in the same breath: dropping only the priority
+  // leaves an enrolled P1 epic, which is now a first-class root rather than a refusal.
+  assert.deepEqual(
+    advocatedRoots(subtree({ p0: { priority: 1 } })).map((r) => r.epic.id),
+    ['x-1'],
+    'a P1 epic is enrolled — bc-htoy'
+  );
+  assert.deepEqual(advocatedRoots(subtree({ p0: { status: 'closed' } })), [], 'closed');
+  assert.deepEqual(advocatedRoots(subtree({ p0: { labels: [] } })), [], 'nobody owns it');
+  assert.deepEqual(
+    advocatedRoots(subtree({ p0: { labels: [OWNER, 'app-error'] } })),
     [],
     'a crash is not an epic'
   );
@@ -134,23 +214,23 @@ await check('the brief gets direct children, the events get the whole subtree', 
     [p0('x-1'), bead('x-1.1', { issue_type: 'epic' }), bead('x-1.1.1'), bead('x-1.2')],
     { 'x-1.1': 'x-1', 'x-1.1.1': 'x-1.1', 'x-1.2': 'x-1' }
   );
-  const [row] = advocatedP0s(deep);
+  const [row] = advocatedRoots(deep);
   assert.deepEqual(row.kids.map((k) => k.id), ['x-1.1', 'x-1.2'], 'the brief says "children" and means children');
   assert.deepEqual(
     row.tree.map((k) => k.id).sort(),
     ['x-1.1', 'x-1.1.1', 'x-1.2'],
-    'a P0 whose children are epics has its movement a level down'
+    'an epic whose children are epics has its movement a level down'
   );
 });
 
-await check('two enrolled P0s come back in a decided order', () => {
+await check('two enrolled epics come back in a decided order', () => {
   const two = index([p0('x-10'), p0('x-2')], {});
-  assert.deepEqual(advocatedP0s(two).map((r) => r.p0.id), ['x-2', 'x-10'], 'numerically, not by export order');
+  assert.deepEqual(advocatedRoots(two).map((r) => r.epic.id), ['x-2', 'x-10'], 'numerically, not by export order');
 });
 
 /* --------------------------------------------------------------- what is news */
 
-const treeOf = (idx) => advocatedP0s(idx)[0].tree;
+const treeOf = (idx) => advocatedRoots(idx)[0].tree;
 
 await check('a first sight learns and says nothing', () => {
   const out = reentryFor(null, treeOf(subtree()));
@@ -243,6 +323,131 @@ await check('a stall that resolved can stall again', () => {
   assert.match(reentryFor(again.record, stalled(), { now: t0 + 200 * 60000 }).reason, /in progress for over 1h/);
 });
 
+/* ------------------------------------- the two endings that are not stalls (bc-xl7n.98) */
+
+const IN_PROGRESS = { kids: { 'x-1.1': 'open', 'x-1.2': 'in_progress', 'x-1.3': 'open' } };
+const T0 = Date.parse('2026-08-18T00:00:00Z');
+/** Two sweeps an hour apart, which is what a stall needs before it is reported at all. */
+const twoSweeps = (make, opts = {}) => {
+  const first = reentryFor(IN_PROGRESS, treeOf(make()), { ...opts, now: T0 });
+  return reentryFor(first.record, treeOf(make()), { ...opts, now: T0 + 61 * 60000 });
+};
+
+await check("a handed-back child is not a stall — the question is Adam's to answer", () => {
+  // bc-xl7n.25: the daemon's own log said it had handed the bead back, and the next sweep
+  // reported it to this epic's advocate as in progress with nobody in a window on it. Both
+  // sentences were true, and only one of them was worth a window.
+  const asked = () => subtree({ 'x-1.2': { status: 'in_progress', labels: ['human'] } });
+  assert.equal(twoSweeps(asked).reason, null, 'a question on the bead is not a dead window');
+  assert.deepEqual(twoSweeps(asked).record.stalls, {}, 'and it is not on the clock either');
+
+  // The free half is exactly one label, asked of the row the sweep already has in its hand.
+  assert.equal(handedBack({ labels: ['human'] }), true);
+  assert.equal(handedBack({ labels: ['owner:adam@example.com'] }), false);
+  assert.equal(handedBack({}), false);
+
+  // And the moment the answer lands the label comes off, so the clock starts again: a
+  // window that died *after* its question was answered is a stall like any other.
+  const answered = () => subtree({ 'x-1.2': { status: 'in_progress' } });
+  assert.match(twoSweeps(answered).reason, /`x-1\.2` has been in progress for over 1h/);
+});
+
+await check('a delivered child is not a stall — its pull request is waiting on a tap', () => {
+  // bc-8t3b: #426 open, the worktree live, a `pr-delivery` card open beside it — and the
+  // work bead carrying no `human` label at all, because `park` is called with
+  // `label: false`. The half above cannot see this one, which is why there are two.
+  const delivery = () =>
+    subtree(
+      { 'x-1.2': { status: 'in_progress' } },
+      [['x-1.2', 'q-1']],
+      [card('q-1', ['human', 'pr-delivery'])]
+    );
+  assert.equal(
+    handedBack(treeOf(delivery()).find((r) => r.id === 'x-1.2')),
+    false,
+    'the card is the `human` one; the work bead is deliberately not'
+  );
+  assert.equal(
+    twoSweeps(delivery, { delivered: waitingOnMerge(delivery()) }).reason,
+    null,
+    'a pull request waiting on a tap is not a dead window'
+  );
+
+  // The queue's own bead is the other half of the same structure, and it is not `human`.
+  const queued = () =>
+    subtree({ 'x-1.2': { status: 'in_progress' } }, [['x-1.2', 'm-1']], [card('m-1', ['merge-queue'])]);
+  assert.equal(twoSweeps(queued, { delivered: waitingOnMerge(queued()) }).reason, null);
+
+  // And when the merge lands that bead closes, so the clock restarts — a window that died
+  // after its delivery was answered is a stall like any other.
+  const merged = () =>
+    subtree(
+      { 'x-1.2': { status: 'in_progress' } },
+      [['x-1.2', 'm-1']],
+      [card('m-1', ['merge-queue'], { status: 'closed' })]
+    );
+  assert.match(
+    twoSweeps(merged, { delivered: waitingOnMerge(merged()) }).reason,
+    /`x-1\.2` has been in progress for over 1h/,
+    'an answered delivery holds nothing'
+  );
+});
+
+await check('a dead window with no pull request and no question is still reported', () => {
+  // The failure the sweep exists for, and the one thing neither half above may swallow.
+  const dead = () => subtree({ 'x-1.2': { status: 'in_progress' } });
+  assert.match(twoSweeps(dead, { delivered: waitingOnMerge(dead()) }).reason, /in progress for over 1h/);
+
+  // A blocker that is not a delivery is not one: a bead waiting on an ordinary question,
+  // or on another piece of work, is still a claim nobody is in a window on.
+  const other = () =>
+    subtree({ 'x-1.2': { status: 'in_progress' } }, [['x-1.2', 'q-9']], [card('q-9', ['human'])]);
+  assert.match(
+    twoSweeps(other, { delivered: waitingOnMerge(other()) }).reason,
+    /in progress for over 1h/,
+    'the label on the blocker is what says "delivery" — not the bare fact of being blocked'
+  );
+});
+
+await check('what `waitingOnMerge` will and will not call a delivery', () => {
+  const row = (id) => ({ id });
+  const built = (deps, extra) =>
+    waitingOnMerge(subtree({ 'x-1.2': { status: 'in_progress' } }, deps, extra));
+
+  assert.equal(built([['x-1.2', 'q-1']], [card('q-1', ['human', 'pr-delivery'])])(row('x-1.2')), true);
+  assert.equal(built([['x-1.2', 'm-1']], [card('m-1', ['merge-queue'])])(row('x-1.2')), true);
+
+  // Closed: the card was answered or the merge landed, and this bead is on its own again.
+  assert.equal(
+    built([['x-1.2', 'q-1']], [card('q-1', ['human', 'pr-delivery'], { status: 'closed' })])(row('x-1.2')),
+    false
+  );
+  // A `relates-to` to a delivery card is a mention, not a park. Only the edge `bd dep add`
+  // writes takes a bead out of the queue, so only that edge answers here.
+  assert.equal(
+    built([['x-1.2', 'q-1', 'relates-to']], [card('q-1', ['human', 'pr-delivery'])])(row('x-1.2')),
+    false
+  );
+  // Direction: the *work* is parked behind the card, never the other way about. The pair
+  // key is unordered, so this is the case a `from~to` key would quietly have got right for
+  // the wrong reason.
+  assert.equal(
+    built([['q-1', 'x-1.2']], [card('q-1', ['human', 'pr-delivery'])])(row('x-1.2')),
+    false,
+    'a card blocked by the work is not the work blocked by a card'
+  );
+  // A blocker the index has never heard of cannot be read as open: the card is filed into
+  // the same workspace as the work by construction, so a miss here is a broken export.
+  assert.equal(built([['x-1.2', 'gone']], [])(row('x-1.2')), false);
+
+  // An index with no edges at all — `Bd.graph` after a failed export, and every fixture in
+  // this file that only ever cared about parents — answers "nothing is delivered", which
+  // is the direction where a real stall is still reported.
+  assert.equal(waitingOnMerge({ beads: new Map(), edges: new Map() })(row('x-1.2')), false);
+  assert.equal(waitingOnMerge(null)(row('x-1.2')), false);
+  assert.equal(waitingOnMerge({ beads: new Map([['x-1.2', bead('x-1.2')]]) })(row('x-1.2')), false);
+});
+
 await check('the rate limit is stated in the module that argues for it', () => {
   assert.equal(REENTER_DEFAULTS.reenterAdvocates, true, 'on by default, or bc-rfnr.3 is still undelivered');
   assert.ok(REENTER_DEFAULTS.reenterCooldownMinutes >= 60, 'a floor under an hour is not a rate limit');
@@ -270,6 +475,7 @@ async function tick({
   refuse = null,
   ready = [],
   ticks = 1,
+  labelFails = false,
 } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   await quiesce();
@@ -315,8 +521,17 @@ async function tick({
   const advocates_ = [];
   const workers_ = [];
   const planners_ = [];
-  const calls = { graph: 0, cached: 0, comments: [] };
+  const calls = { graph: 0, cached: 0, comments: [], labels: [] };
   const bd = {
+    /**
+     * The assignment write, recorded rather than performed — bc-r2b5.1. Failing soft is
+     * asserted separately (`labelFails`), because a label write that throws must not undo
+     * a window that is already open.
+     */
+    addLabel: async (_ws, id, label) => {
+      if (labelFails) throw new Error('bd: the tracker is mid-write');
+      calls.labels.push([id, label]);
+    },
     ready: async () => ready,
     listLabel: async () => [],
     listStatus: async () => [],
@@ -405,6 +620,76 @@ await check('a child closing re-opens the advocate, with the reason on the brief
   assert.deepEqual(r.opened[0].kids, ['x-1.2', 'x-1.3', 'x-1.1'], 'open children first, closed tail last');
   assert.deepEqual(r.calls.comments, ['x-1'], 'the plan is read for the P0 getting a window and no other');
   assert.ok(r.state.advocated['x-1'].at, 'and the cooldown clock is stamped');
+});
+
+await check('the tap survives a window that died before writing anything — bc-r2b5.1', async () => {
+  // **The acceptance, driven end to end and with no waiting-on block anywhere in it.**
+  // The state under test is the one the button leaves behind and nothing else touched: the
+  // label is on the epic, `notes` is empty because the window that was opened never got as
+  // far as its own last instruction, and a child has since closed. Before this bead that
+  // epic was invisible to the sweep and the only way back was a second tap.
+  const dead = index(
+    [assigned('x-1'), bead('x-1.1', { status: 'closed' }), bead('x-1.2'), bead('x-1.3')],
+    { 'x-1.1': 'x-1', 'x-1.2': 'x-1', 'x-1.3': 'x-1' }
+  );
+  const r = await tick({ graph: dead, advocated: { 'x-1': SEEN } });
+  assert.equal(r.opened.length, 1, 'the epic is still assigned, so the next qualifying event re-opens it');
+  assert.equal(r.opened[0].id, 'x-1');
+  assert.match(r.opened[0].reason, /`x-1\.1` has closed under it/);
+  // And nothing re-writes a label the epic already carries — this is a `bd` spawn, and the
+  // sweep runs on every enrolled epic every ten minutes.
+  assert.deepEqual(r.calls.labels, [], 'an epic already assigned costs no write');
+});
+
+await check("the sweep's own launch records the assignment too", async () => {
+  // The second door. An epic enrolled by its sentence alone is upgraded to the carrier
+  // that survives a window dying — which is the point of the label, and it is the door
+  // Adam is not standing at, so nothing else would ever write it there.
+  const r = await tick({
+    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': SEEN },
+  });
+  assert.equal(r.opened.length, 1);
+  assert.deepEqual(r.calls.labels, [['x-1', ADVOCATE_LABEL]], 'the launch is what records the assignment');
+});
+
+await check('a label write that fails does not undo the window that is already open', async () => {
+  // The direction that matters: the window is up, and throwing over the top of it would
+  // consume the event, back the epic off for three hours and say nothing happened.
+  const r = await tick({
+    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': SEEN },
+    labelFails: true,
+  });
+  assert.equal(r.opened.length, 1, 'the launch stands');
+  assert.ok(r.state.advocated['x-1'].at, 'and the cooldown is stamped, so it is not re-argued in ten minutes');
+});
+
+await check('the reason a window is being held rides the record the card reads', async () => {
+  // bc-r2b5.1's other half. Three of the five hold reasons are things only a tick can see
+  // — its own one-window budget, a worker this advocate is holding, a lease on another
+  // Mac — so the board card reports what the sweep decided rather than re-deriving it.
+  const held = await tick({
+    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': { ...SEEN, at: new Date().toISOString() } },
+  });
+  assert.deepEqual(held.opened, [], 'inside the cooldown');
+  assert.match(held.state.advocated['x-1'].hold.why, /its last one was \d+m ago and the floor is 180m/);
+  assert.ok(held.state.advocated['x-1'].hold.at, 'and when that was decided, because it is persisted and can go stale');
+  assert.deepEqual(held.state.advocated['x-1'].kids, SEEN.kids, 'the event still survives being held');
+
+  // A pause is the first of the five, and it must win over the cooldown beside it.
+  const paused = await tick({
+    graph: subtree({ p0: { labels: [OWNER, 'advocate-paused'] }, 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
+  });
+  assert.equal(paused.state.advocated['x-1'].hold.why, 'it is paused');
+
+  // And a window that opens clears it, rather than leaving yesterday's reason on a card
+  // that is drawing a live session.
+  const ran_ = await tick({ graph: subtree({ 'x-1.1': { status: 'closed' } }), advocated: { 'x-1': { ...SEEN, at: LONG_AGO } } });
+  assert.equal(ran_.opened.length, 1);
+  assert.equal(ran_.state.advocated['x-1'].hold, undefined, 'nothing is being held — a window just opened');
 });
 
 await check('the sweep looks on an interval, not on every tick', async () => {
@@ -511,6 +796,56 @@ await check('a stalled child is not stalled while this advocate holds a worker o
   assert.match(loose.opened[0].reason, /in progress for over 1h/);
 });
 
+await check('a live lease on a *child* holds the stall too — that window is on another Mac', async () => {
+  // The arm of `busy` the sweep's own sentence has always claimed and could not check: the
+  // tree rows it is asked about are `treeUnder`'s, which carry no labels, so `leasesOf`
+  // answered `[]` for every child however fresh the lease was. `labelled` in lib/reenter.js
+  // is what puts them back. The epic itself never had the gap — `busy(epic)` is handed a
+  // bead off the index — which is why nothing here caught it before.
+  const seen = { kids: { 'x-1.1': 'open', 'x-1.2': 'in_progress', 'x-1.3': 'open' }, stalls: { 'x-1.2': 1 }, at: LONG_AGO };
+  const leased = await tick({
+    graph: subtree({ 'x-1.2': { status: 'in_progress', labels: [leaseLabel('other-mac', new Date())] } }),
+    advocated: { 'x-1': seen },
+  });
+  assert.deepEqual(leased.opened, [], 'another Mac is in a window on it');
+  // And a lease from a fortnight ago is not a window, so the stall stands.
+  const stale = await tick({
+    graph: subtree({
+      'x-1.2': { status: 'in_progress', labels: [leaseLabel('other-mac', new Date(Date.parse('2020-01-01T00:00:00Z')))] },
+    }),
+    advocated: { 'x-1': seen },
+  });
+  assert.equal(stale.opened.length, 1);
+  assert.match(stale.opened[0].reason, /in progress for over 1h/);
+});
+
+await check('the two endings hold the stall through the whole tick, and nothing else does', async () => {
+  // The seam this bead is actually about: `waitingOnMerge` is built inside `reenter` off
+  // the index it already has, so a case that only drove `reentryFor` would pass with the
+  // daemon still opening the window.
+  const seen = { kids: { 'x-1.1': 'open', 'x-1.2': 'in_progress', 'x-1.3': 'open' }, stalls: { 'x-1.2': 1 }, at: LONG_AGO };
+
+  const asked = await tick({
+    graph: subtree({ 'x-1.2': { status: 'in_progress', labels: ['human'] } }),
+    advocated: { 'x-1': seen },
+  });
+  assert.deepEqual(asked.opened, [], 'a question on the bead is Adam\'s to answer, not a supervisor\'s');
+
+  const delivered = await tick({
+    graph: subtree(
+      { 'x-1.2': { status: 'in_progress' } },
+      [['x-1.2', 'q-1']],
+      [card('q-1', ['human', 'pr-delivery'])]
+    ),
+    advocated: { 'x-1': seen },
+  });
+  assert.deepEqual(delivered.opened, [], 'a pull request waiting on a tap is not a dead window');
+
+  const bare = await tick({ graph: subtree({ 'x-1.2': { status: 'in_progress' } }), advocated: { 'x-1': seen } });
+  assert.equal(bare.opened.length, 1, 'and the failure the sweep exists for still opens one');
+  assert.match(bare.opened[0].reason, /in progress for over 1h/);
+});
+
 await check('a paused advocate opens no windows of any kind', async () => {
   const r = await tick({
     graph: subtree({ 'x-1.1': { status: 'closed' } }),
@@ -538,7 +873,7 @@ await check('a refused launch backs off for the cooldown and keeps the event', a
   const r = await tick({
     graph: subtree({ 'x-1.1': { status: 'closed' } }),
     advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
-    refuse: 'x-1 may not have a P0 advocate — nobody owns it',
+    refuse: 'x-1 may not have an Epic Advocate — nobody owns it',
   });
   assert.deepEqual(r.opened, []);
   assert.deepEqual(r.state.advocated['x-1'].kids, SEEN.kids, 'the event survives a launch that threw');
@@ -557,7 +892,7 @@ await check('a graph that would not answer changes nothing', async () => {
   assert.deepEqual(r.state.advocated['x-1'].kids, SEEN.kids, 'the snapshot is left exactly as it was');
 });
 
-await check('a P0 that is no longer enrolled is forgotten', async () => {
+await check('an epic that is no longer enrolled is forgotten', async () => {
   const r = await tick({
     graph: subtree({ p0: { notes: 'the advocate took its sentence off' }, 'x-1.1': { status: 'closed' } }),
     advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
@@ -595,6 +930,46 @@ await check('the window it just opened holds the same bead out of the queue', as
   );
 });
 
+await check('a repo at its worker limit still gets an Epic Advocate', async () => {
+  // The property the static read below used to own, asserted by driving it instead. An
+  // Epic Advocate takes no worker slot and competes for none, so `reenter` runs above
+  // `if (free <= 0) return` — and a repo at its limit is the state where supervision is
+  // worth the most, because every window it has is already busy. Every other tick case in
+  // this file runs an advocate with a slot to spare, so that state was reached only by a
+  // string match on the arithmetic — a line that gets renamed, and did. See bc-t5k0.
+  //
+  // A child of the enrolled epic rather than a bead of its own: the queue row has to be
+  // under a root or `withoutOrphans` takes it out before any of this is reached, and it
+  // has to be a task or it is a *planner*, which `maxWorkers` does not ration.
+  const queued = [
+    { id: 'x-1.2', title: 'x-1.2', priority: 2, issue_type: 'task', status: 'open', created_at: LONG_AGO, labels: [] },
+  ];
+  const args = {
+    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
+    ready: queued,
+  };
+  // The control first, or the second half asserts nothing: with the one slot free, that
+  // queue row is a bead the advocate opens a worker window on.
+  const spare = await tick(args);
+  assert.deepEqual(spare.workers, ['x-1.2'], 'the row does reach a launch when the repo has a slot');
+  assert.deepEqual(spare.opened.map((o) => o.id), ['x-1'], 'and the advocate gets its window beside it');
+
+  // And now with that slot taken. `maxWorkers` defaults to 1, so one worker is the limit;
+  // `at` is now rather than LONG_AGO, or `reconcile` reaps it before the tick reaches the
+  // sweep — see the advocate-tick-fixtures note.
+  const full = await tick({
+    ...args,
+    workers: [{ id: 'y-9', title: 'y-9', at: new Date().toISOString(), batch: [], attempt: 1 }],
+  });
+  assert.deepEqual(full.workers, [], 'the queue is held — the repo is at its limit');
+  assert.deepEqual(
+    full.opened.map((o) => o.id),
+    ['x-1'],
+    'and the advocate was re-opened anyway — it is not queue work'
+  );
+});
+
 /* ------------------------------------------------------------ what source says */
 
 await check('the sweep is below the three lines that stop the tick', async () => {
@@ -606,28 +981,29 @@ await check('the sweep is below the three lines that stop the tick', async () =>
   assert.ok(from > 0, 'tickOne has been renamed — re-point this check');
   const body = src.slice(from, src.indexOf('\n  }\n', from));
   const at = body.indexOf('await reenter(a)');
-  assert.ok(at > 0, 'nothing re-opens the P0 advocate — this is bc-goo.15 regressing');
+  assert.ok(at > 0, 'nothing re-opens the Epic Advocate — this is bc-goo.15 regressing');
   assert.ok(body.indexOf('if (OBSERVING) return note(a,') < at, 'an observer instance must open no windows');
   assert.ok(body.indexOf('if (a.paused) return note(a,') < at, 'paused means open no more sessions');
   assert.ok(body.indexOf('if (a.quiet) {') < at, 'quiet hours mean it too');
-  // And above the queue: a P0 advocate takes no worker slot, so a repo at its limit — the
-  // state where supervision is worth the most — must still be able to get one.
+  // The fourth thing this used to assert — that `reenter` is above the queue, because an
+  // Epic Advocate takes no worker slot — is the tick case above, and deliberately not here.
+  // It was a string match on `const free = a.limit - a.workers.length`; `a.workers.length`
+  // became `codersOf(a).length` on main, `indexOf` returned -1, `at < -1` was false, and
+  // the suite went red saying "it has become queue work" while `reenter` sat exactly where
+  // it belongs. bc-xl7n.39 shortened the match and added a `queueAt > 0` guard, which turns
+  // the next rename into "re-point this check" rather than into a false regression report
+  // — honest, but still a red for a correct edit, and still no evidence about the property.
+  // Driving a repo at its limit costs one more tick, survives every rename, and is the only
+  // form of this that fails when `reenter` is *gated* on a slot rather than moved. bc-t5k0.
   //
-  // Matched on `const free = a.limit -` rather than on the whole line, because the whole
-  // line is not what this check is about and pinning it made the suite red for a rename
-  // that was entirely correct: `a.workers.length` became `codersOf(a).length` on main,
-  // `indexOf` returned -1, and `at < -1` failed while `reenter` was still sitting exactly
-  // where it belongs. A static read should name the thing it means and no more of the
-  // line than that.
-  const queueAt = body.indexOf('const free = a.limit -');
-  assert.ok(queueAt > 0, 'the worker-slot arithmetic has moved or been renamed — re-point this check');
-  assert.ok(at < queueAt, 'it has become queue work');
+  // What is left here is the part a behaviour test genuinely cannot reach in-process:
+  // `OBSERVING` is read from the environment once at module load.
 });
 
 await check('the default for the injectable is the real door', async () => {
   const src = fs.readFileSync(LIB('advocate.js'), 'utf8');
   assert.match(src, /openAdvocate = openEpicAdvocateSession/, 'the sweep is wired to a stub in production');
-  assert.match(src, /rememberAdvocateOpened\(`\$\{a\.name\}\/\$\{p0\.id\}`\)/, 'the card will offer a second window');
+  assert.match(src, /rememberAdvocateOpened\(`\$\{a\.name\}\/\$\{epic\.id\}`\)/, 'the card will offer a second window');
 });
 
 /* ---------------------------------------------------------------------- done */

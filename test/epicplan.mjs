@@ -47,7 +47,7 @@ fs.mkdirSync(SESSIONS, { recursive: true });
 fs.mkdirSync(REPO, { recursive: true });
 
 const { createAdvocates } = await import(LIB('advocate.js'));
-const { dispatchable, formatPlan, parsePlan, planFrom, PLANNED_LABEL, PROMOTED_LABEL, unplanned, validatePlan, MAX_GROUPS } =
+const { dispatchable, formatPlan, isUnder, parsePlan, planFrom, PLANNED_LABEL, PROMOTED_LABEL, unplanned, validatePlan, MAX_GROUPS } =
   await import(LIB('plan.js'));
 const { PROMOTE_LABEL, PROMOTE_TYPE } = await import(LIB('promote.js'));
 
@@ -75,7 +75,7 @@ const group = (name, beads, over = {}) => ({
  * An epic with no `planned` label never reaches it at all, which is the whole point of the
  * label, and `calls.comments` is what asserts that rather than a comment claiming it.
  */
-async function tick({ ready = [], children = {}, comments = {}, workers = [], attempts = {}, overrides = {} } = {}) {
+async function tick({ ready = [], children = {}, comments = {}, workers = [], attempts = {}, overrides = {}, rows = [], parents = [] } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   await quiesce();
   for (const f of fs.readdirSync(dir)) await removeTree(path.join(dir, f));
@@ -105,6 +105,11 @@ async function tick({ ready = [], children = {}, comments = {}, workers = [], at
       reconcileLanded: false,
       askSuperseded: false,
       flagInMain: false,
+      // Same reason: this fake `bd.ready` hands back every epic the case seeds, unfiltered
+      // by label, and this sweep (lib/finishedepic.js) would otherwise call `bd.children`
+      // on every one of them before batchesFor gets its turn — polluting the exact
+      // children-call assertions the plan-vs-mechanical-grouping cases make.
+      flagFinishedEpics: false,
       ...overrides,
     },
   };
@@ -135,6 +140,18 @@ async function tick({ ready = [], children = {}, comments = {}, workers = [], at
       return `new-${created.length}`;
     },
     addLabel: async (_ws, id, label) => labelled.push(`${id}:${label}`),
+    // The shared per-tick export (lib/advocate.js `tickBeads`), and the only thing that can
+    // say a bead **closed** — `ready` is the survey's queue, which an `unendorsed` or
+    // dependency-blocked bead is missing from exactly as a closed one is. `rows` is what a
+    // case wants the tracker to say about the beads its plan named; see bc-4bet.2.
+    graph: async () => ({
+      // `parents` is what says a bead is under an epic when its *id* does not — the shape
+      // `bd update --parent` leaves behind. Empty for every case that does not care.
+      parents: new Map(parents),
+      beads: new Map(rows.map((b) => [b.id, b])),
+      adopts: new Map(),
+      edges: new Map(),
+    }),
   };
 
   const advocates = createAdvocates(cfg, {
@@ -284,16 +301,67 @@ await check('a group does not cross checkouts at dispatch either', () => {
   assert.equal(r.plannedInto.get('x-1.2'), 'x-1.1', 'and waits rather than racing its own group');
 });
 
-await check('done means nothing ready and nothing running', () => {
+/**
+ * bc-4bet.2. This used to read "done means nothing ready and nothing running", and that is
+ * the bug: the queue it was reading is the survey's, which excludes `unendorsed`, and a bead
+ * blocked behind a dependency is not in `bd ready` either. Both are open work that has never
+ * started, and both were indistinguishable from a group that had finished — so a promotion
+ * bead was filed saying an epic's work was in main over beads nobody had touched.
+ */
+await check('done means every named bead closed, not merely absent from the queue', () => {
   const plan = validatePlan(planSpec([group('one', ['x-1.1'])]), { epic: 'x-1', children: null });
-  assert.equal(dispatchable(plan, { queue: [], workers: [] }).done, true);
-  assert.equal(dispatchable(plan, { queue: [], workers: [{ id: 'x-1.1' }] }).done, false);
-  assert.equal(dispatchable(plan, { queue: [bead('x-1.1')], workers: [] }).done, false);
+  const rows = (status) => new Map([['x-1.1', { id: 'x-1.1', status }]]);
+
+  assert.equal(dispatchable(plan, { queue: [], workers: [], beads: rows('closed') }).done, true);
+  assert.equal(dispatchable(plan, { queue: [], workers: [{ id: 'x-1.1' }], beads: rows('closed') }).done, false, 'a window is still open on it');
+  assert.equal(dispatchable(plan, { queue: [bead('x-1.1')], workers: [], beads: rows('open') }).done, false, 'it is ready, so it has not been done');
+
+  // The bug itself: out of the queue and still open. `unclosed` is what says which bead, so
+  // the survey can put it on the card rather than leaving the epic looking stalled.
+  const notReady = dispatchable(plan, { queue: [], workers: [], beads: rows('open') });
+  assert.equal(notReady.done, false, 'unendorsed or dep-blocked is not finished');
+  assert.deepEqual(notReady.unclosed, ['x-1.1']);
+  assert.equal(dispatchable(plan, { queue: [], workers: [], beads: rows('in_progress') }).done, false);
+
+  // And we-cannot-say settles nothing: no index at all, and an index with no row for the
+  // bead — a cold or failed `bd export` — are both not-done rather than done.
+  assert.equal(dispatchable(plan, { queue: [], workers: [] }).done, false, 'no index is not evidence of a close');
+  assert.equal(dispatchable(plan, { queue: [], workers: [], beads: new Map() }).done, false, 'nor is a bead the tracker has no row for');
+  assert.equal(dispatchable({ epic: 'x-1', groups: [] }, { queue: [], workers: [], beads: rows('closed') }).done, false, 'a plan naming nothing has finished nothing');
 });
 
 await check('ungrouped ready work under a planned epic is what a re-entry is for', () => {
   const plan = validatePlan(planSpec([group('one', ['x-1.1'])]), { epic: 'x-1', children: null });
   assert.deepEqual(unplanned(plan, [bead('x-1.1'), bead('x-1.4'), bead('y-2.1')]).map((b) => b.id), ['x-1.4']);
+});
+
+/**
+ * The adopted child. `bd update <bead> --parent=<epic>` moves the edge and renumbers
+ * nothing, so a real child of `x-1` can be called `z-9` — and every id-shaped answer to
+ * "is this under x-1" says no about a bead the tracker, the card and `bd children` all
+ * agree is under it. That cost bc-rfnr.9 two children it could neither group nor count.
+ */
+await check('a child is under its epic by the graph, not only by its id', () => {
+  const parents = new Map([
+    ['z-9', 'x-1'],
+    ['z-9.1', 'z-9'],
+    ['q-2', 'y-7'],
+  ]);
+  assert.equal(isUnder('x-1.1', 'x-1'), true, 'a created child still passes on the id alone');
+  assert.equal(isUnder('z-9', 'x-1'), false, 'and an adopted one cannot, which is the bug');
+  assert.equal(isUnder('z-9', 'x-1', parents), true, 'the parent edges are what say so');
+  assert.equal(isUnder('z-9.1', 'x-1', parents), true, 'at any depth, walking up');
+  assert.equal(isUnder('q-2', 'x-1', parents), false, "and somebody else's child is still not ours");
+  assert.equal(isUnder('x-1', 'x-1', parents), false, 'an epic is not under itself here — a group naming it is refused');
+});
+
+await check('a plan may name an adopted child, and unplanned can see one', () => {
+  const parents = new Map([['z-9', 'x-1']]);
+  const plan = validatePlan(planSpec([group('one', ['z-9'])]), { epic: 'x-1', children: [bead('z-9')] });
+  assert.deepEqual(plan.groups[0].beads, ['z-9'], 'the tracker said it is a child, which outranks the id');
+  const bare = validatePlan(planSpec([group('one', ['x-1.1'])]), { epic: 'x-1', children: null });
+  assert.deepEqual(unplanned(bare, [bead('z-9')]).map((b) => b.id), [], 'no graph, no adopted child — the old answer');
+  assert.deepEqual(unplanned(bare, [bead('z-9')], parents).map((b) => b.id), ['z-9'], 'with one, it is ungrouped work');
 });
 
 /* --------------------------------------------------------------- the advocate */
@@ -427,6 +495,24 @@ await check('a bead nobody grouped re-opens the planner', async () => {
   assert.match(heldWhy(r.card, 'x-1.4'), /waiting on x-1's plan, which is being revised/);
 });
 
+/**
+ * The same re-entry, over a child whose id says nothing. Both halves have to move together:
+ * `unplanned` finding it is what re-opens the planner, and the hold using the same test is
+ * what stops it taking an ordinary window against a plan being rewritten around it.
+ */
+await check('an adopted bead nobody grouped re-opens the planner too', async () => {
+  const plan = validatePlan(planSpec([group('router', ['x-1.1'])]), { epic: 'x-1', children: null });
+  const r = await tick({
+    ready: [epic('x-1', { priority: 1, labels: [PLANNED_LABEL] }), bead('z-9')],
+    comments: { 'x-1': [{ text: formatPlan(plan) }] },
+    parents: [['z-9', 'x-1']],
+  });
+  assert.deepEqual(r.planned.map((p) => p.id), ['x-1'], 'the planner is re-entered over it');
+  assert.deepEqual(r.planned[0].kids, ['z-9']);
+  assert.deepEqual(r.opened, [], 'and it is held rather than worked out from under the plan');
+  assert.match(heldWhy(r.card, 'z-9'), /waiting on x-1's plan, which is being revised/);
+});
+
 await check('and it is released rather than held for ever once planning has run out', async () => {
   const plan = validatePlan(planSpec([group('router', ['x-1.1'])]), { epic: 'x-1', children: null });
   const r = await tick({
@@ -450,6 +536,7 @@ await check('a plan with nothing left files a promotion bead, once', async () =>
   const r = await tick({
     ready: [epic('x-1', { priority: 1, labels: [PLANNED_LABEL] })],
     comments: { 'x-1': [{ text: formatPlan(plan) }] },
+    rows: [bead('x-1.1', { status: 'closed' }), bead('x-1.2', { status: 'closed' })],
   });
   assert.equal(r.created.length, 1, 'one bead');
   const filed = r.created[0];
@@ -470,6 +557,8 @@ await check('an epic already marked promoted files nothing', async () => {
   const r = await tick({
     ready: [epic('x-1', { priority: 1, labels: [PLANNED_LABEL, PROMOTED_LABEL] })],
     comments: { 'x-1': [{ text: formatPlan(plan) }] },
+    // Closed, so the label is the *only* thing standing between this tick and a second bead.
+    rows: [bead('x-1.1', { status: 'closed' })],
   });
   assert.deepEqual(r.created, [], 'the label is the guarantee, and it survives a daemon restart');
 });
@@ -483,8 +572,70 @@ await check('a planned epic whose groups are still running is not promoted', asy
     // reconcile at the top of the tick, and a fixture whose window is swept before the
     // survey runs is testing the reaper rather than the thing it meant to.
     workers: [{ id: 'x-1.1', title: 'x-1.1', at: new Date().toISOString(), attempt: 1, batch: [] }],
+    // Already closed — the merge queue closes the work bead, and the window can outlive it
+    // by a tick. So the live worker is the only reason nothing is filed, which is the thing
+    // this case is for.
+    rows: [bead('x-1.1', { status: 'closed' })],
   });
   assert.deepEqual(r.created, [], 'a window is still open on its work');
+});
+
+/**
+ * bc-4bet.2, at the advocate rather than at `dispatchable`: the two shapes that are open
+ * work and are *not in the queue*, which is what made "the queue is empty" read as "the work
+ * is in main". Neither may file a promotion bead, and the card has to say which bead it is
+ * waiting on — an epic sitting still with no reason on it is the thing nobody can act on.
+ */
+await check('an unendorsed bead in the plan is not a bead that has closed', async () => {
+  const plan = validatePlan(planSpec([group('router', ['x-1.1']), group('switch', ['x-1.2'])]), {
+    epic: 'x-1',
+    children: null,
+  });
+  const r = await tick({
+    // `x-1.2` is `unendorsed`, so lib/endorse.js keeps it out of the survey's queue exactly
+    // as a closed bead is kept out. The whole ready queue is the epic.
+    ready: [epic('x-1', { priority: 1, labels: [PLANNED_LABEL] })],
+    comments: { 'x-1': [{ text: formatPlan(plan) }] },
+    rows: [
+      bead('x-1.1', { status: 'closed' }),
+      bead('x-1.2', { status: 'open', labels: ['unendorsed'] }),
+    ],
+  });
+  assert.deepEqual(r.created, [], 'nothing is filed over work nobody has started');
+  assert.deepEqual(r.labelled, [], 'and the epic is not marked promoted, so a real close still files one');
+  assert.match(heldWhy(r.card, 'x-1'), /x-1\.2/, `the card names the bead it is waiting on; got: ${heldWhy(r.card, 'x-1')}`);
+  assert.match(heldWhy(r.card, 'x-1'), /not closed/);
+});
+
+await check('a bead blocked behind a dependency is not a bead that has closed either', async () => {
+  const plan = validatePlan(planSpec([group('router', ['x-1.1']), group('switch', ['x-1.2'])]), {
+    epic: 'x-1',
+    children: null,
+  });
+  const r = await tick({
+    // `x-1.2` is endorsed and open, and still out of `bd ready` because it depends on work
+    // that has not landed. The queue cannot tell this from finished; the status can.
+    ready: [epic('x-1', { priority: 1, labels: [PLANNED_LABEL] })],
+    comments: { 'x-1': [{ text: formatPlan(plan) }] },
+    rows: [bead('x-1.1', { status: 'closed' }), bead('x-1.2', { status: 'open' })],
+  });
+  assert.deepEqual(r.created, [], 'a blocked group is not a finished group');
+  assert.match(heldWhy(r.card, 'x-1'), /x-1\.2/);
+});
+
+/**
+ * And the direction that has to fail safe: a tracker that will not answer says nothing about
+ * whether anything closed, so nothing is filed. That is lib/release.js's rule, which
+ * lib/promote.js's own prose already claimed and its implementation did not ask.
+ */
+await check('a tracker that will not say files nothing', async () => {
+  const plan = validatePlan(planSpec([group('router', ['x-1.1'])]), { epic: 'x-1', children: null });
+  const r = await tick({
+    ready: [epic('x-1', { priority: 1, labels: [PLANNED_LABEL] })],
+    comments: { 'x-1': [{ text: formatPlan(plan) }] },
+    rows: [],
+  });
+  assert.deepEqual(r.created, [], 'a cold or failed export is we-cannot-say, and we-cannot-say settles nothing');
 });
 
 /**

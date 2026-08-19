@@ -132,7 +132,7 @@
    *
    * A graph is a reading surface and this is deliberately the only `POST` on it: not a
    * second endorsement queue, not an editor — one fact, `owner:<handle>`, which is the
-   * fact the P0 board is built out of and the one you most want to fix at the moment you
+   * fact the board is built out of and the one you most want to fix at the moment you
    * are looking at the bead rather than three screens later.
    */
   async function post(path, body) {
@@ -156,7 +156,7 @@
    *
    * Two suggestions rather than one guess, and never a default. A phone signed in as one
    * person, held at a laptop configured as another, is an ordinary Tuesday here — and a
-   * P0 stamped with the wrong owner is worse than an unowned one, because the second is
+   * root stamped with the wrong owner is worse than an unowned one, because the second is
    * a state bc-rfnr.5's triage can see and the first reads as already decided.
    */
   let whoPromise = null;
@@ -870,7 +870,7 @@
    * who owns the bead, and this adds the way to change it. A failed or slow
    * `/auth/whoami` therefore degrades to a sheet that reads correctly and cannot be
    * edited, which is the right way round — the opposite (a button drawn before we know
-   * whose name is behind it) is how a P0 ends up owned by the wrong person.
+   * whose name is behind it) is how a root ends up owned by the wrong person.
    *
    * A handle that is already the owner gets no button. "Take it" on a bead you already
    * own is a control that cannot do anything, and the whole point of the row is to make
@@ -1397,6 +1397,40 @@
   }
 
   /**
+   * Where the ruling on this bead is — the row the inbox chip compresses.
+   *
+   * bc-bmry.5. The chip in public/app.js has room for four words; this has room for the
+   * sentence, which is what the sheet is for. Three facts kept apart rather than joined:
+   * the **state** (the ruling), the **gate** it counts towards, and the **problem** if
+   * its labels say something the pipeline calls a bug.
+   *
+   * **This is the only surface in the app that can draw that last one.** The worst shape
+   * in APPROVAL_PIPELINE.md is `needs-approval` without `human`: the packet never reaches
+   * the phone, because the inbox *is* `bd human list`, and the advocate — whose whole
+   * definition of work is ready-minus-`human` — may open an unattended session on it. A
+   * card in the inbox could never complain about it, by construction. A sheet can.
+   *
+   * Reads `b.approval`, derived once on the daemon in lib/approvalcard.js. Absent for
+   * every bead outside the pipeline, so an ordinary sheet is exactly what it was.
+   */
+  function approvalRowHtml(b) {
+    const a = b?.approval;
+    if (!a) return '';
+    const bits = [`<span class="approval-kind">Approval</span>`];
+    if (a.state) bits.push(`<span class="approval-state is-${esc(a.state)}">${esc(a.label)}</span>`);
+    else if (a.isGate) bits.push(`<span class="approval-state is-gate">a gate — only a tap closes it</span>`);
+    // Not "unknown": nothing failed, ward has not put it in a state, and a deliverable
+    // that is only labelled for its gate is a real and ordinary row in this pipeline.
+    else bits.push(`<span class="approval-state is-none">no state yet</span>`);
+    if (a.note && a.state) bits.push(`<span class="approval-why">${esc(a.note)}</span>`);
+    if (a.revision != null) bits.push(`<span class="approval-rev">revision ${esc(a.revision)}</span>`);
+    if (a.gates?.length)
+      bits.push(`<span class="approval-gate">counts towards ${esc(a.gates.join(', '))}</span>`);
+    if (a.problem) bits.push(`<span class="approval-problem">⚠ ${esc(a.problem)}</span>`);
+    return `<div class="approval-row" id="sheet-approval">${bits.join('')}</div>`;
+  }
+
+  /**
    * Owner handles on a bead, off its labels — the client's copy of `ownersOf`.
    *
    * Duplicated rather than shared because there is no module boundary between a browser
@@ -1416,11 +1450,16 @@
   /**
    * Whose bead this is, and the one control on this page that changes it.
    *
-   * **Drawn on a P0, and on anything that already has an owner.** Not on every bead: a
-   * P3 sheet looks exactly as it did before this existed, which is most sheets. P0 is
-   * where an *absent* owner is itself worth saying out loud — an unowned P0 is the state
-   * bc-rfnr.5's triage exists to clear, and a row that says "unowned" on the screen you
-   * are already looking at is how it gets cleared one bead at a time instead.
+   * **Drawn on a root, and on anything that already has an owner.** Not on every bead: a
+   * P3 *task* sheet looks exactly as it did before this existed, which is most sheets. A
+   * root is where an *absent* owner is itself worth saying out loud — an unowned root is
+   * the state bc-rfnr.5's triage exists to clear, and a row that says "unowned" on the
+   * screen you are already looking at is how it gets cleared one bead at a time instead.
+   *
+   * **The type is in the test since bc-htoy**, not only the priority. An epic at P2 is now
+   * a bead somebody has to be answerable for — it roots work, it can take an advocate —
+   * and a sheet that stayed silent about its owner would leave the one thing you came to
+   * set as the one thing not on the page.
    *
    * Two owners is drawn as two, for `ownersOf`'s reason: it means two machines wrote
    * before either synced, and picking one to display would hide the collision rather
@@ -1428,7 +1467,8 @@
    */
   function ownerRowHtml(b) {
     const owners = ownersOn(b);
-    if (!owners.length && Number(b?.priority) !== 0) return '';
+    const root = Number(b?.priority) === 0 || String(b?.issue_type ?? b?.type ?? '').trim().toLowerCase() === 'epic';
+    if (!owners.length && !root) return '';
     const who = owners.length
       ? owners
           .map((h) => `<span class="owner-who" title="${esc(h)}">${esc(h.split('@')[0])}</span>`)
@@ -1447,25 +1487,25 @@
   /**
    * The one refusal that never clears itself, and the fix for it. bc-rfnr.7.
    *
-   * A bead that is not a P0 and has no P0 above it is not workable: no advocate queues
-   * it, and the launcher refuses it at the door (lib/underp0.js). Every other hold in
+   * A bead that is not a root and has no root above it is not workable: no advocate queues
+   * it, and the launcher refuses it at the door (lib/underroot.js). Every other hold in
    * this app resolves on its own — a window closes, a pull request merges — so every
    * other one is reported and left alone. This one waits on somebody deciding where the
    * work belongs, which is a decision and therefore a control.
    *
-   * Drawn from `noP0`, which `/api/bead` answers off the cached graph. A server that has
+   * Drawn from `noRoot`, which `/api/bead` answers off the cached graph. A server that has
    * never heard of the field leaves it undefined and this draws nothing, which is the
    * same sheet as last week rather than a row claiming a bead is orphaned because an old
    * daemon did not say otherwise.
    *
    * The picker itself arrives late, like `loadOwnerActions` — the sentence is the half
-   * that is true regardless, and a `/api/p0s` that never answers costs the control and
+   * that is true regardless, and a `/api/roots` that never answers costs the control and
    * never the explanation.
    */
   function adoptRowHtml(b) {
-    if (!b?.noP0) return '';
+    if (!b?.noRoot) return '';
     return `<div class="adopt-row" id="sheet-adopt" data-id="${esc(b.id)}">
-      <span class="adopt-kind">No P0 above this</span>
+      <span class="adopt-kind">Nothing decided above this</span>
       <span class="adopt-why">Nothing has decided it, so nothing will open a session on it.</span>
       <span class="adopt-acts" id="sheet-adopt-acts"></span>
     </div>`;
@@ -1477,13 +1517,16 @@
    * `loadOwnerActions`' contract to the letter: not awaited, sequence-checked, and a
    * failure that changes the row rather than the sheet. A `<select>` rather than a button
    * each, unlike the owner row — that one offers at most two handles and this one offers
-   * every open P0 in the workspace, which is a dozen on this tracker and will be more.
+   * every open root in the workspace, which since bc-htoy is every epic rather than only
+   * the handful somebody called urgent, so it is dozens on this tracker and will be more.
+   * Each option carries its priority for that reason: a list this long that draws a P0 and
+   * a P3 epic identically is asking you to adopt under whichever you happen to scroll to.
    *
    * On success the row is *removed* rather than rewritten, because the thing it exists to
-   * report is no longer true: the bead is workable, and a row still saying "no P0 above
-   * this" beside a confirmation that there now is one is the sheet contradicting itself.
-   * The server's own answer decides that, not the fact that the write returned — adopting
-   * under a P0 makes the bead workable, and the check is what proves it did.
+   * report is no longer true: the bead is workable, and a row still saying "nothing decided
+   * above this" beside a confirmation that something now does is the sheet contradicting
+   * itself. The server's own answer decides that, not the fact that the write returned —
+   * adopting under a root makes the bead workable, and the check is what proves it did.
    */
   async function loadAdoptActions(b, seq) {
     const row = $('sheet-adopt');
@@ -1491,7 +1534,7 @@
     if (!row || !slot) return;
     let out;
     try {
-      out = await api(`/api/p0s?workspace=${encodeURIComponent(workspace)}`);
+      out = await api(`/api/roots?workspace=${encodeURIComponent(workspace)}`);
     } catch {
       // Silent, and the only silent failure on this sheet: the sentence above is already
       // on screen and is the part that matters. A picker that could not be built is one
@@ -1499,16 +1542,21 @@
       return;
     }
     if (seq !== sheetSeq) return;
-    const p0s = (out?.p0s || []).filter((c) => c.id !== b.id);
-    if (!p0s.length) {
-      // Said out loud rather than left empty: a workspace with no open P0 at all is why
+    const roots = (out?.roots || []).filter((c) => c.id !== b.id);
+    if (!roots.length) {
+      // Said out loud rather than left empty: a workspace with no open root at all is why
       // this bead is held, and "adopt it under one" with nothing in the list would read
       // as a broken control instead of as the thing to go and do.
-      slot.innerHTML = '<span class="adopt-none">no open P0 in this space yet</span>';
+      slot.innerHTML = '<span class="adopt-none">nothing open to adopt under in this space yet</span>';
       return;
     }
-    const options = p0s
-      .map((c) => `<option value="${esc(c.id)}">${esc(c.id)} — ${esc(String(c.title || '').slice(0, 60))}</option>`)
+    const options = roots
+      .map(
+        (c) =>
+          `<option value="${esc(c.id)}">${esc(c.id)}${c.priority != null ? ` P${esc(c.priority)}` : ''} — ${esc(
+            String(c.title || '').slice(0, 60)
+          )}</option>`
+      )
       .join('');
     slot.innerHTML =
       `<select class="adopt-pick" id="sheet-adopt-pick" aria-label="Adopt under">${options}</select>` +
@@ -1562,7 +1610,7 @@
     if (closed) parts.push(closed);
     // Whose this is, under the outcome and above the session. The order is the order the
     // three answer each other on a closed bead — it closed, here is why, here is who was
-    // answerable for it — and on an open P0 it puts the question the board is built
+    // answerable for it — and on an open root it puts the question the board is built
     // around directly under the pills, where it cannot be scrolled past.
     const owner = ownerRowHtml(b);
     if (owner) parts.push(owner);
@@ -1570,9 +1618,16 @@
     // nothing will work it. Here rather than lower down because it is the reason the bead
     // is not moving, and a sheet that explained that below the description would be
     // answering the question after you had given up asking it. Absent on every bead with
-    // a P0 above it, which is almost all of them once the tracker is in shape.
+    // a root above it, which is almost all of them once the tracker is in shape.
     const adopt = adoptRowHtml(b);
     if (adopt) parts.push(adopt);
+    // And under that, on the beads anybody rules on: where the ruling is. Above the
+    // session row rather than below it because it is the same kind of fact as the two
+    // above — why this bead is or is not moving — where the session row and the model row
+    // under it are about the run. Absent entirely outside the approval pipeline, so every
+    // other sheet in the app looks exactly as it did.
+    const approval = approvalRowHtml(b);
+    if (approval) parts.push(approval);
     // And under that, the way through to what actually ran. Above the relations rather
     // than below them because those are more of the tracker and this is the one row on
     // the sheet that leaves it — and because on a closed bead the three read in order:

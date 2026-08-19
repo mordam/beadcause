@@ -26,9 +26,12 @@
  *    picker shows that repo's. With one exception, which is the interesting half: the
  *    chat *in front* keeps its handle whatever the filter says, or the strip loses the
  *    tab that is selected on it.
- * 4. **Only `{id, ws}` reaches the disk.** `public/warm.js` is `sessionStorage` on
- *    purpose so bead text does not sit on the phone overnight, and a chat title is bead
- *    text. A handle restored tomorrow draws its repo until the list comes back.
+ * 4. **Only `{id, ws}` reaches the disk.** That began as a privacy rule — `public/warm.js`
+ *    was `sessionStorage` so bead text did not sit on the phone overnight, and a chat
+ *    title is bead text — and it survives that layer going durable (bc-1kwl.14) on its
+ *    second reason: a stored title is a title that can be *wrong*, and a strip drawing
+ *    last week's name for a renamed chat is worse than one drawing the repo. A handle
+ *    restored tomorrow draws its repo until the list comes back.
  * 5. **A handle says what its chat is doing** — the spark for a running turn, the bead
  *    count for a proposal nobody has read — because the whole point of holding four
  *    open is not having to visit them to find out.
@@ -468,7 +471,7 @@ await check('the handles are written to localStorage, as ids and repos and nothi
     { id: 'b1', ws: 'beta' },
   ]);
   const raw = h.local.get('beadcause.console.tabs');
-  assert.ok(!raw.includes('installer'), 'a chat title reached the disk — see warm.js on why that is the line');
+  assert.ok(!raw.includes('installer'), 'a chat title reached the disk — a stored title is one that can go stale');
 });
 
 await check('and a second visit opens with them back, in the order they were opened', async () => {

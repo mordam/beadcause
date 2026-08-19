@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · notification sounds</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="pulse"></span>
+      <h1>Sounds</h1>
+    </div>
+  </header>
+
+  <main class="work pagescroll">
+    <!--
+      Why this screen exists at all, said before anything can be pressed.
+
+      A notification channel's sound is immutable after `createNotificationChannel` —
+      Android takes the first call and ignores every one after it, forever — so the
+      last moment a sound can be argued with for free is *before* the channel is cut.
+      bc-ka5y.15.4 cut all five, so this screen is no longer that moment; it is where
+      the five are heard side by side, on the phone, because the phone in a pocket is
+      the only place any of this is judged.
+    -->
+    <p class="admin-lede">
+      Five voices, and each one has to be nameable from a pocket without looking. A
+      channel's sound <strong>cannot be changed once the channel exists</strong>, and as of
+      bc-ka5y.15.4 all five exist — so disagreeing with one of these is still worth doing,
+      and now costs that channel a new id.
+    </p>
+
+    <!--
+      The acceptance test, mechanised. Four sounds in a random order with their names
+      hidden, because an audition where you can see which file you tapped is not an
+      audition — you hear the label. Blind and shuffled is the whole method.
+    -->
+    <section class="card admin-card">
+      <div class="admin-head">
+        <h2>Blind audition</h2>
+      </div>
+      <p class="admin-detail">
+        Four sounds, shuffled, unnamed. Play each, say which it is, then reveal. Do it
+        once with the phone on the desk and once with it in a pocket — the second is the
+        one that counts.
+      </p>
+      <div id="audition"></div>
+    </section>
+
+    <!-- The reference, and the reason it is below the audition rather than above it:
+         reading the names first is exactly the thing the blind test is protecting. -->
+    <section class="card admin-card">
+      <div class="admin-head">
+        <h2>Each one, named</h2>
+      </div>
+      <p class="admin-detail">
+        The same files the APK ships, played straight. <code>blip</code> is the one that
+        already exists, and everything else is placed against it.
+      </p>
+      <div id="named"></div>
+    </section>
+
+    <!-- The caveat that would otherwise be found the hard way, on the one screen where
+         somebody is deciding how loud a sound is. -->
+    <p class="admin-said" id="caveat">
+      This page plays at <strong>media</strong> volume; a real notification plays at
+      notification volume, on a channel with its own level. So judge the sounds against each
+      other here, and judge absolute loudness in Android's own notification settings, where
+      each of the five now has its own row.
+    </p>
+  </main>
+
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
+       exception, a rejected promise, a failed fetch, any red toast. Ahead of every
+       other script, because it can only catch what loads after it — and it is purely
+       additive, so a page that fails to load it behaves exactly as it did before. -->
+  <script src="/report.js"></script>
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       Before stream.js, which stamps it on every answer. See public/freshness.js. -->
+  <script src="/freshness.js"></script>
+  <!-- What the URL hash means: a view, a card to open on Home, or nothing (bc-khoe.30.2).
+       Before viewbar.js and app.js because both read the answer out of it rather than
+       parsing the hash themselves, and a page that loaded them without it would have a
+       row that cannot say which view it is on and a notification tap that throws. -->
+  <script src="/hashroute.js"></script>
+  <!-- The pill row, so this screen is not a dead end. No pill of its own: it is a
+       thing you are sent to when a sound is in question, rather than a view you keep
+       coming back to — and the row is already the width of the phone. -->
+  <script src="/viewbar.js"></script>
+  <script src="/sounds.js"></script>
+</body>
+</html>

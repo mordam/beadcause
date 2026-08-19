@@ -118,7 +118,7 @@ const okResult = (tickets, workspace = 'climative') => [{ workspace, state: 'ok'
  * `listAll` hands back copies, like the real one, so a filer that mutated what it read
  * would be caught rather than quietly agreeing with itself.
  */
-function fakeBd({ rows = [], p0s = [], createFails = null, listFails = null } = {}) {
+function fakeBd({ rows = [], roots = [], createFails = null, listFails = null } = {}) {
   const calls = [];
   let next = 0;
   return {
@@ -166,7 +166,7 @@ function fakeBd({ rows = [], p0s = [], createFails = null, listFails = null } = 
     },
     async graph() {
       calls.push('graph');
-      return { parents: new Map(), beads: new Map(p0s.map((b) => [b.id, b])) };
+      return { parents: new Map(), beads: new Map(roots.map((b) => [b.id, b])) };
     },
   };
 }
@@ -648,7 +648,7 @@ await checksAsync('and one ticket failing does not cost the others theirs', asyn
 
 console.log('\nwhere it lands');
 await checksAsync('the unsorted backlog P0 adopts it, so it is workable the moment it is endorsed', async () => {
-  const bd = fakeBd({ p0s: [UNSORTED_P0] });
+  const bd = fakeBd({ roots: [UNSORTED_P0] });
   const out = await createEpicFiler({ bd }).sweep(CFG, [WS], okResult([ticket('TECH-1')]));
   assert.equal(bd.of(out.filed[0].id).parent, 'bc-back');
   assert.match(bd.of(out.filed[0].id).notes, /Filed under bc-back/);
@@ -662,7 +662,7 @@ await checksAsync('a tracker with no P0 at all files it parentless rather than r
 });
 
 await checksAsync('and a parent bd refuses costs the parent, never the epic', async () => {
-  const bd = fakeBd({ p0s: [UNSORTED_P0], createFails: (issue) => (issue.parent ? 'that parent will take no children' : null) });
+  const bd = fakeBd({ roots: [UNSORTED_P0], createFails: (issue) => (issue.parent ? 'that parent will take no children' : null) });
   const out = await createEpicFiler({ bd }).sweep(CFG, [WS], okResult([ticket('TECH-1')]));
   assert.equal(out.filed.length, 1, 'the ticket lost its epic over where it was going to live');
   assert.equal(bd.of(out.filed[0].id).parent, '');

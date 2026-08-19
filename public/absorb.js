@@ -80,6 +80,28 @@
      point and all end at the same mark, so without a fan they arrive stacked and four
      beads look like one. */
   const SPREAD = 0.34;
+  /* And the same problem one level up. `slot` fans beads by their index *within* one
+     flight, so two flights in the air at once — which is the ordinary case now that
+     submits queue rather than blocking the next tap — put their leads on the identical
+     standoff point, and three answers waiting to be swallowed read as one. So each
+     live flight takes a lane: a further half-fan around the mark and a further ring
+     out from it, held for as long as the flight is. Four is what a phone can hold
+     before the outermost ring is off the top of the screen; a fifth simultaneous
+     flight shares the last lane rather than flying somewhere silly. */
+  const LANES = 4;
+  const LANE_SPREAD = SPREAD * 1.6;
+  const LANE_GAP = 21;
+  const lanes = new Set();
+  const takeLane = () => {
+    for (let i = 0; i < LANES; i++) {
+      if (lanes.has(i)) continue;
+      lanes.add(i);
+      return { lane: i, free: () => lanes.delete(i) };
+    }
+    // Overflow: share the outermost lane and never free it, because the flight that
+    // really owns it is still in the air on it.
+    return { lane: LANES - 1, free: () => {} };
+  };
 
   const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -173,11 +195,15 @@
    * Fanned around the direction it came in on, one slot per bead, so N beads hold as
    * an arc facing the mark rather than as a pile — and so each gets a thread of its
    * own to be caught by, which is what makes the capture legible at all.
+   *
+   * `lane` fans a whole *flight* the same way against the other flights in the air —
+   * see LANES. Zero for the only flight there is, which is what it was before.
    */
-  function slot(from, mark, gap, index, count) {
+  function slot(from, mark, gap, index, count, lane = 0) {
     const home = Math.atan2(from.y - mark.y, from.x - mark.x);
-    const a = home + (index - (count - 1) / 2) * SPREAD;
-    return { x: mark.x + Math.cos(a) * gap, y: mark.y + Math.sin(a) * gap };
+    const a = home + (index - (count - 1) / 2) * SPREAD + lane * LANE_SPREAD;
+    const out = gap + lane * LANE_GAP;
+    return { x: mark.x + Math.cos(a) * out, y: mark.y + Math.sin(a) * out };
   }
 
   /* -------------------------------------------------------------- animating */
@@ -221,7 +247,7 @@
    * the bead has arrived and is being pulled, so the write's latency is spent in the
    * hold and nowhere else.
    */
-  async function flyOne({ index, count, lead, from, target, tone, gate, thump, ink }) {
+  async function flyOne({ index, count, lead, from, target, tone, gate, thump, ink, lane = 0 }) {
     const stage = flightLayer();
     const start = centre(from);
     const size = lead ? BEAD : MADE;
@@ -303,7 +329,7 @@
       return;
     }
     const mark = centre(to);
-    const hold = slot(start, mark, STANDOFF, index, count);
+    const hold = slot(start, mark, STANDOFF, index, count, lane);
     // Each bead leans on its own arc. Derived from the index rather than from
     // Math.random so a screenshot test sees the same picture twice.
     const lift = 70 + ((index * 37) % 90);
@@ -314,7 +340,7 @@
 
     // Attract. The coast ends and the pull starts — a short tug in, then a hold that
     // trembles toward the mark for as long as the write takes.
-    const near = slot(start, mark, NEAR, index, count);
+    const near = slot(start, mark, NEAR, index, count, lane);
     await step(
       el,
       [
@@ -460,6 +486,11 @@
     };
 
     const ink = skip ? null : palette();
+    // Taken before anything is put in the air and given back when the last bead has
+    // finished, so a flight only ever shares a standoff point with a flight that has
+    // already been swallowed. Not taken at all when nothing is going to move: a lane
+    // held by a reduced-motion flight would push the next real one out for nothing.
+    const held = skip ? { lane: 0, free: () => {} } : takeLane();
     const done = skip
       ? gate.then(() => {})
       : Promise.all(
@@ -474,9 +505,12 @@
               gate,
               thump,
               ink,
+              lane: held.lane,
             }).catch(() => {})
           )
-        ).then(() => {});
+        ).then(() => {
+          held.free();
+        });
 
     return {
       /** True when nothing will move, so a caller can skip its own flourishes too. */

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The chip row on the advocates page — which of its three panes is up.
+ * The chip row on the advocates page — which of its four panes is up.
  *
  *     npm test
  *     node test/montabs.mjs
@@ -10,14 +10,14 @@
  * everything it decides is invisible from any one pane. Four things, and each of them
  * fails silently rather than loudly:
  *
- * 1. **Exactly one pane is showing.** A three-way swap written as "hide the other one"
+ * 1. **Exactly one pane is showing.** A many-way swap written as "hide the other one"
  *    is a two-way swap that has grown a third chip: the pane that is going away has to
  *    be hidden by name, not by not being the arriving one. Get it wrong and the board
  *    draws *under* the roster on a page that still scrolls and still works.
  *
- * 2. **A hidden pane is told, so it can stand down.** Each of the three holds a parked
+ * 2. **A hidden pane is told, so it can stand down.** Three of the four hold a parked
  *    `/api/poll`, and the board's wakes are a `gh` call per repo. The subscription is
- *    the whole mechanism that stops three of them running at once, so "everyone is told
+ *    the whole mechanism that stops all of them running at once, so "everyone is told
  *    on every change, and once at boot" is the contract rather than an implementation
  *    detail — the panes have no other way to know.
  *
@@ -60,18 +60,22 @@ function check(name, fn) {
   }
 }
 
-/* The three chips as monitor.html declares them, `data-view` and all. Written out here
+/* The four chips as monitor.html declares them, `data-view` and all. Written out here
    rather than parsed out of the HTML on purpose: this suite is about what the file does
    with a row, and test/mirrorpane.mjs is what holds the row itself to the empty
-   `data-view` on the Mirror. */
+   `data-view` on the Mirror. Config is the fourth (bc-me2b) and it is here for one
+   reason beyond completeness: it sits *between* the board and the Mirror, so a swap
+   written as "hide the other one" now has two others to be wrong about rather than one,
+   and the Mirror is no longer the last chip a fallback would land on. */
 const CHIPS = [
   { tab: 'advocates', pane: 'mon', view: 'sessions' },
   { tab: 'prs', pane: 'prs', view: 'prs' },
+  { tab: 'config', pane: 'config', view: 'config' },
   { tab: 'mirror', pane: 'mirror', view: '' },
 ];
 
 /**
- * The real file, in a room with the row, the three panes and a `localStorage`.
+ * The real file, in a room with the row, the four panes and a `localStorage`.
  *
  * Returns the handles every check below reads: what each pane's `hidden` is now, what
  * each chip's `aria-pressed` is, every presence report in order, and a `tap` that fires
@@ -308,39 +312,35 @@ check('a page served without presence.js still swaps its panes', () => {
   assert.deepEqual(t.shown(), ['prs']);
 });
 
-/* ------------------------------------------------- where the strip sticks (bc-ugd4)
+/* ------------------------------- where the strip sticks, and why it no longer does
  *
- * `.mon-tabs` is sticky at `var(--topbar-h)`, and this file is what makes that number
- * true. It was `top: 0` — inherited from a strip whose scroll container starts below
- * the bar — and on this page `0` is the top of the window, which is behind a sticky
- * `.topbar`: the whole strip pinned itself out of sight on the first scroll.
+ * `.mon-tabs` was sticky at `var(--topbar-h)` and this file published that number off a
+ * `ResizeObserver` on `.topbar` (bc-ugd4). The height could not be written into the
+ * stylesheet because it is not one number: the bar is 104px with the space picker's row
+ * and 61px without it, and the picker takes itself away below two workspaces — on the
+ * same build, the same page, mid-visit, from one payload to the next.
  *
- * The height cannot be written into the stylesheet because it is not one number. The
- * bar is 104px with the space picker's row and 61px without it, and the picker takes
- * itself away below two workspaces — on the same build, the same page, mid-visit, from
- * one payload to the next. So the interesting check is not the first publish, it is the
- * second: a fix that only ran at boot would be correct until the moment the thing it is
- * measuring changed, which is the moment it matters.
+ * bc-khoe.1 removed both halves, because there is nothing left to offset. Every page is
+ * a viewport-height shell: `.topbar` and `.viewbar` are rows of a flex column, this
+ * strip is the row under them, and the viewport does not scroll at all. The assertion is
+ * the inverse of what it was — nothing here writes a variable — because a strip in flow
+ * that offsets itself by the bar's height sits a whole bar too low, and a variable
+ * nobody reads is dead code that reads as a fix. public/style.css's half of the same
+ * claim is in test/css.mjs.
  */
 
-check('the bar’s height is published for the strip to stick at', () => {
+check('nothing is published for the strip to stick at, because it is in flow', () => {
   const t = load({ bar: 104 });
-  assert.equal(t.vars.get('--topbar-h'), '104px');
-  assert.ok(t.watching(), 'the ResizeObserver is not watching .topbar');
+  assert.equal(t.vars.size, 0, `montabs.js set ${[...t.vars.keys()].join(', ')}`);
+  assert.ok(!t.watching(), 'the ResizeObserver is back — the strip is a row of the shell now');
 });
 
-check('and republished when the space picker takes its row away', () => {
+check('and no observer was ever created to resize', () => {
   const t = load({ bar: 104 });
-  t.resize(61);
-  assert.equal(t.vars.get('--topbar-h'), '61px');
-  t.resize(104);
-  assert.equal(t.vars.get('--topbar-h'), '104px');
-});
-
-check('a zero is not published — the stylesheet’s fallback beats sticking at the top of the screen', () => {
-  const t = load({ bar: 104 });
-  t.resize(0);
-  assert.equal(t.vars.get('--topbar-h'), '104px');
+  // `resize` drives the fake observer this harness hands the script; with nothing
+  // observing there is nothing to fire, which is the state being asserted.
+  assert.throws(() => t.resize(61), /fire/);
+  assert.equal(t.vars.size, 0);
 });
 
 check('a page with no top bar, and a browser with no ResizeObserver, still get their chips', () => {

@@ -17,23 +17,40 @@
     </div>
     <button id="doc-close" class="icon-btn" aria-label="Close tab">✕</button>
   </header>
-  <main id="doc" class="doc md">
-    <div class="empty">Loading…</div>
-  </main>
-  <!-- Publishing this document to Confluence. Hidden and empty until the daemon says
-       there is a Confluence to publish to — an install without one draws no button at
-       all rather than a button that explains itself away. -->
-  <footer id="doc-publish" class="publish" hidden></footer>
+  <!-- The reader is the one page whose scroller holds two elements rather than one, and
+       that is why `.pagescroll` is a wrapper here instead of a class on the <main>. The
+       publish footer has to scroll *with* the document — it is the last thing on the page
+       on purpose, read after the document and never pressed instead of scrolling — and a
+       bar pinned to the bottom of the shell is exactly what it must not be. -->
+  <div class="pagescroll">
+    <main id="doc" class="doc md">
+      <div class="empty">Loading…</div>
+    </main>
+    <!-- Publishing this document to Confluence. Hidden and empty until the daemon says
+         there is a Confluence to publish to — an install without one draws no button at
+         all rather than a button that explains itself away. -->
+    <footer id="doc-publish" class="publish" hidden></footer>
+  </div>
 
   <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
        exception, a rejected promise, a failed fetch, any red toast. Ahead of every
        other script, because it can only catch what loads after it — and it is purely
        additive, so a page that fails to load it behaves exactly as it did before. -->
   <script src="/report.js"></script>
-  <!-- The account switcher in the top bar — which of your lives every screen is about,
-       and the menu the page's own top-right buttons live in. Before the page's own
-       script, because it *moves* those buttons rather than copying them: a page that
-       wires one by id afterwards is still wiring the element the thumb lands on. See
+  <!-- The beads that go round the brand dot while this page is fetching. Loaded on
+       every page that has a dot to put them on, and driven from report.js's own count of
+       what is in flight rather than from anything this view says. See public/orbit.js. -->
+  <script src="/orbit.js"></script>
+  <!-- Whether what you are looking at is current, and the banner that says when it is
+       not. Loaded on every page with a top bar, because the state it reports is a page
+       that has stopped repainting — which no page can report from inside its own render.
+       Before stream.js, which stamps it on every answer. See public/freshness.js. -->
+  <script src="/freshness.js"></script>
+  <!-- The app menu — the mark in a gear at the left of the top bar, and everything the
+       bar used to hold loose behind it: this page's own top-right buttons, Admin, and
+       which of your lives every screen is about. Before the page's own script, because
+       it *moves* those buttons rather than copying them: a page that wires one by id
+       afterwards is still wiring the element the thumb lands on. See
        public/accountbar.js. -->
   <script src="/accountbar.js"></script>
   <script src="/vendor/marked.js"></script>

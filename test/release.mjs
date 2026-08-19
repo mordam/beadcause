@@ -482,7 +482,7 @@ forget();
 forget();
 {
   // `Bd.create` drops the cached shape whenever it is given a parent — a bead born under
-  // a P0 is one the cache has never heard of, and lib/underp0.js would draw a pill on it
+  // a P0 is one the cache has never heard of, and lib/underroot.js would draw a pill on it
   // for the rest of the minute. So each filing invalidates what the next one wants, and
   // without the sweep's own memo a tick filing four beads pays for four `bd export`s.
   const bd = homing();

@@ -22,6 +22,19 @@
   Picking `beadcause` means beadcause's questions, beadcause's advocate, beadcause's
   pull requests and beadcause's chats, and nothing else anywhere.
 
+  ## It is on the first row now, and narrow
+
+  It had a row of its own until bc-khoe.5 — `flex: 1 0 100%`, the full width of the bar,
+  under a first row that was full at four icon buttons. Those buttons are rows in the
+  mark's menu (public/accountbar.js), so the first row is a mark and a picker and the bar
+  is one row on every page again: 43px of sticky chrome back on the one screen a phone has.
+
+  The cost is paid by the label rather than by the bar. What is drawn is at most twelve
+  characters — see `shorten` below — so a long repo name is cut instead of pushing the bar
+  wider or wrapping it. The dropdown is untouched: every row in it is the whole name, which
+  is where the whole name is actually needed. `scripts/topbar-check.mjs` measures both
+  halves and fails the repo for a second row.
+
   ## What it selects, and why the two levels stay
 
   A space is a *group* of workspaces that share a notification policy (lib/spaces.js) —
@@ -51,6 +64,34 @@
   snap the picker back to a value its own tap has already replaced, so `writing()` is
   how a page asks whether a write of ours is still in flight before adopting a filter
   off a payload that was assembled before it landed.
+
+  ## The poll that was already out when you tapped
+
+  `writing()` covers a payload that lands *during* our POST, and there is a second
+  ordering it cannot see. A poll issued before the tap and answered after the write has
+  resolved arrives with `writing()` already false, carrying the filter the tap replaced —
+  and adopting it repaints the bar and tells every page to re-filter to the old repo. That
+  is the pick that applies and then reverts on its own (bc-5k22), and it is intermittent
+  because it needs the poll to land inside that gap.
+
+  So a pick leaves a `pending` note behind it: the value we sent, the value it replaced,
+  and a deadline. While that note stands, an adopted filter equal to the *replaced* value
+  is not believed — it can only be a payload older than the tap. Anything else clears the
+  note: our own value echoed back (the server has caught up), a third value (somebody has
+  moved it since, and that is newer than our tap either way), or the deadline passing.
+  A failed write clears it too, because a write that did not land has nothing to echo and
+  the stored value is then the true one.
+
+  The cost is stated rather than avoided: a deliberate switch *back* to the value you just
+  replaced, made on the laptop inside the window, is ignored on the phone until the note
+  expires. `PENDING_MS` is what bounds it, and the note is normally gone within one poll
+  — long before that bound is reached.
+
+  Dropping a filter is not silent. The page that handed it to us has very likely mirrored
+  it into its own state already — public/app.js keeps `state.space` for a dozen readers —
+  so the drop notifies with what is actually selected, and the mirror is corrected in the
+  same tick. Which is why this belongs here and not in five pages: one file knows a tap
+  happened, and the pages only have to keep listening.
 
   ## What a page has to do
 
@@ -138,6 +179,32 @@
   let writes = 0;
   const listeners = [];
 
+  /* The last pick the server has not yet been seen to agree with: `{ours, stale, until,
+     id}`. `stale` is the value the tap replaced, and while this note stands an adopted
+     filter equal to it is a payload assembled before the tap — see the header. Null
+     whenever there is nothing outstanding, which is almost always.
+
+     One note and not a queue: picking twice makes the second tap's `stale` the first
+     tap's `ours`, so the live note already refuses the value the screen was most recently
+     showing, and holding the older one too would only widen the window in which the
+     laptop is ignored. The residual is a tap straight back to where you started — A, B,
+     A — where a payload carrying A cannot be told apart from the echo of our own second
+     write, so it clears the note and a later payload still carrying B can land. Two taps
+     and two polls inside about a second. The alternative is a note that never clears on
+     an echo, which would cost every cross-device change the whole of `PENDING_MS`
+     instead of one poll, on every pick rather than on that one. */
+  let pending = null;
+
+  /* Which pick a note belongs to, so a write that fails cannot clear a note a later tap
+     has already replaced. */
+  let picks = 0;
+
+  /* How long a pick refuses the value it replaced, if the server never echoes anything.
+     Long enough to cover a poll that was already out — the inbox's is 25s apart and its
+     sweep is not instant — and it is a backstop rather than the normal path: the first
+     payload assembled after our POST carries our own value and clears the note. */
+  const PENDING_MS = 30000;
+
   /* Which fields a page has published for itself, and so owns. Our own `/api/spaces`
      fetch adopts weakly and skips these: it was sent before the page's script ran, and
      a reply that overwrote what a page had already published would put the bar one
@@ -185,16 +252,62 @@
 
   /* ------------------------------------------------------------------ the control */
 
+  /*
+    The control is a `<select>` with a span drawn where its text would be, and the select
+    itself laid over the whole thing at `opacity: 0` — see `.spacepick` in
+    public/style.css. That is not decoration, and it is not the usual reason for a custom
+    select either: the picker shares the top row with the mark now (bc-khoe.5), so its
+    *width* is part of the bar's budget, and a native select shows whatever its selected
+    option says. `climative-platform` on that row is a bar with no room left on it.
+
+    So what is shown is `shorten(label())` — at most `SHOWN_MAX` characters, and past that
+    the first `SHOWN_KEEP` with an ellipsis — while every row in the dropdown keeps its
+    full name. Truncating the option text instead would have been one line and would have
+    truncated the list you are choosing *from*, which is the one place the whole name is
+    the point.
+
+    The select keeps the tap, the keyboard and the accessible name; it is invisible rather
+    than absent, so a phone still gets its native wheel and a laptop still gets a real
+    menu, and none of the outside-click handling a hand-built dropdown would owe exists
+    here at all.
+  */
   const el = document.createElement('div');
   el.className = 'spacebar';
   el.hidden = true;
   el.innerHTML = `<div class="spacepick">
-      <select id="space-pick" aria-label="Which space to show — everything outside it is hidden"></select>
+      <span class="spacepick-shown" id="space-shown" aria-hidden="true"></span>
       <span class="spacepick-caret" aria-hidden="true">▾</span>
+      <select id="space-pick" aria-label="Which space to show — everything outside it is hidden"></select>
     </div>`;
-  bar.append(el);
+  /* Directly after the brand, not at the end of the bar. It used to be a row of its own so
+     the order of the bar's children did not matter; on a shared row it does — /monitor
+     keeps a live tally in `.sheet-actions`, and appending would put the picker beyond it,
+     at the far right, on that page alone. Beside the mark on every page or it is four
+     controls again. */
+  const brand = bar.querySelector('.brand');
+  if (brand && brand.parentNode === bar) brand.after(el);
+  else bar.append(el);
 
   const sel = el.querySelector('#space-pick');
+  const shownEl = el.querySelector('#space-shown');
+
+  /* Twelve through, nine and an ellipsis past that. Twelve is what fits beside the mark
+     at 360px with the bar's padding and the caret paid for — measured, not guessed, and
+     `scripts/topbar-check.mjs` fails the repo if the bar ever needs a second row again.
+
+     Nine rather than eleven is the part worth a sentence: it makes the *cut* form
+     narrower than the widest uncut one, so a long repo name costs the bar less than a
+     borderline one rather than more, and the ellipsis is a visible third of the label
+     rather than a hairline at the end of a box that already looks full. What a cut label
+     has to say is "there is more of this name", and at eleven-and-a-dot it does not. */
+  const SHOWN_MAX = 12;
+  const SHOWN_KEEP = 9;
+
+  /** What the bar shows for a selection. The dropdown never sees this. */
+  const shorten = (text) => {
+    const s = String(text ?? '');
+    return s.length > SHOWN_MAX ? `${s.slice(0, SHOWN_KEEP)}…` : s;
+  };
 
   /** The rows as they were last written, so an unchanged paint touches no DOM. */
   let drawn = null;
@@ -295,6 +408,16 @@
       sel.innerHTML = html;
     }
 
+    // What the bar itself says, which is not what the dropdown says — see `shorten`.
+    // Written on every paint rather than only on a change: it is one string assignment
+    // against a `<select>` rebuild the paint above already guards, and the selection can
+    // move without the rows moving at all.
+    const shown = shorten(label());
+    if (shownEl.textContent !== shown) shownEl.textContent = shown;
+    // The whole name, for the thumb that hovers and for anybody who cannot see the
+    // dropdown open. The control is the select's accessible name either way.
+    if (sel.title !== label()) sel.title = label();
+
     // One repo and one space is not a choice. Drawn from the configured list rather
     // than from what has questions in it, so the bar does not appear and disappear as
     // the day goes.
@@ -303,6 +426,36 @@
   }
 
   const same = (a, b) => a.space === b.space && a.workspace === b.workspace;
+
+  /**
+   * Is this adopted filter the value our own tap just replaced?
+   *
+   * Answering true is the whole of the fix: it says the payload was assembled before the
+   * tap, whatever `writing()` says by the time it lands. Every other answer clears the
+   * note as it goes, so the guard closes itself rather than waiting for its deadline —
+   * which is what keeps a genuine change from the laptop arriving on the next poll and
+   * not one bound later.
+   */
+  function replacedByUs(incoming) {
+    if (!pending) return false;
+    // Expired. The stored value wins again — a note that outlives its own deadline is a
+    // phone that has quietly stopped taking changes from anywhere else.
+    if (Date.now() > pending.until) {
+      pending = null;
+      return false;
+    }
+    // The server has caught up with us. Adopting it is a no-op and there is nothing left
+    // to refuse.
+    if (same(incoming, pending.ours)) {
+      pending = null;
+      return false;
+    }
+    if (same(incoming, pending.stale)) return true;
+    // Neither ours nor what we replaced: somebody moved it after our tap, and that is the
+    // newer decision.
+    pending = null;
+    return false;
+  }
 
   function notify(detail) {
     for (const fn of listeners) {
@@ -332,6 +485,13 @@
     if (same(before, state.filter)) return Promise.resolve(null);
     notify({ filter: state.filter, source: 'pick' });
     writes += 1;
+    picks += 1;
+    /* Recorded before the request rather than after it, because the payload this has to
+       refuse may already be on its way back: the poll it belongs to went out before the
+       tap did. `ours` and `stale` are copies — `state.filter` is replaced wholesale by the
+       next pick, and a note holding the live object would compare against itself. */
+    const id = picks;
+    pending = { ours: { ...state.filter }, stale: { ...before }, until: Date.now() + PENDING_MS, id };
     return fetch('/api/filter', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
@@ -339,6 +499,14 @@
     })
       .then((res) => (res.ok ? res.json() : null))
       .catch(() => null)
+      .then((body) => {
+        // A write that did not land has nothing to echo, and the stored value is still
+        // the one the tap tried to replace — so stop refusing it and let the next poll
+        // put it back, which is what a failed write has always cost here. Only our own
+        // note: a later tap's note is not this write's to clear.
+        if (!body && pending && pending.id === id) pending = null;
+        return body;
+      })
       .finally(() => {
         writes -= 1;
       });
@@ -356,7 +524,9 @@
    * Everything is optional: a page that knows only the filter says only that.
    *
    * The filter is skipped while a write of ours is in flight, because that payload was
-   * assembled before the tap that changed it.
+   * assembled before the tap that changed it — and for a short while afterwards it is
+   * skipped again if it carries the exact value that tap replaced, which is the poll that
+   * was already out when you tapped. See "the poll that was already out" in the header.
    *
    * A page calling this owns every field it sends, from then on: `weak` is ours alone,
    * for the `/api/spaces` reply, and it yields field by field to whatever a page has
@@ -374,7 +544,16 @@
     const first = !state.known;
     state.known = true;
     if (take('filter') && data.filter && !writes) {
-      set(data.filter, { post: false });
+      const incoming = { space: data.filter.space || ALL, workspace: data.filter.workspace || ALL };
+      if (replacedByUs(incoming)) {
+        // Not adopted, but not ignored either: the page that sent us this has very likely
+        // already written it into its own mirror of the selection, so it is told what is
+        // actually selected before it renders off the value we just refused.
+        paint();
+        if (!same(incoming, state.filter)) notify({ filter: state.filter, source: 'hold' });
+      } else {
+        set(incoming, { post: false });
+      }
     } else {
       paint();
     }
@@ -410,6 +589,8 @@
     },
     matches,
     label,
+    /** The same label the bar draws — cut to fit beside the mark. Prose wants `label()`. */
+    shortLabel: () => shorten(label()),
     spaceOf,
     /** Configured workspaces inside the selection — what a page offers when it has to
      *  pick one repo itself (the agents screen, the chat launcher's ＋). */

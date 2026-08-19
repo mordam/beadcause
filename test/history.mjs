@@ -705,7 +705,7 @@ await check('every id the script reaches for is in the document', () => {
 await check('the page loads the picker before its own script, and the drawer at all', () => {
   const order = [...HTML.matchAll(/<script src="\/([a-z]+)\.js"><\/script>/g)].map((m) => m[1]);
   assert.ok(order.includes('spacebar'), 'no space picker: the page would have nothing to be the ledger of');
-  assert.ok(order.includes('tabbar'), 'no tab bar: a page you cannot leave');
+  assert.ok(order.includes('viewbar'), 'no pill row: a page you cannot leave');
   assert.ok(order.includes('drawer'), 'no drawer: a tap would cost your place in the list');
   assert.ok(
     order.indexOf('spacebar') < order.indexOf('history'),
@@ -713,11 +713,13 @@ await check('the page loads the picker before its own script, and the drawer at 
   );
 });
 
-await check('the tab bar has a History tab pointing at the page', () => {
-  const bar = read('public/tabbar.js');
+await check('the pill row has a History pill pointing at the page', () => {
+  const bar = read('public/viewbar.js');
   assert.match(bar, /id: 'history'/);
   assert.match(bar, /href: '\/history'/);
-  assert.match(bar, /paths: \['\/history', '\/history\.html'\]/);
+  // The addresses moved to public/hashroute.js with bc-khoe.30.2 — the row asks it which
+  // view a path is rather than holding a second copy of the answer.
+  assert.match(read('public/hashroute.js'), /paths: \['\/history', '\/history\.html'\]/);
 });
 
 await check('the service worker precaches the page and moved its version', () => {

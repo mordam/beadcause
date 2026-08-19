@@ -114,6 +114,7 @@ check('a space that says nothing says null everywhere, not false', () => {
     autoEndorse: null,
     autoMerge: null,
     requireApproval: null,
+    reviewRequired: null,
     autoShip: null,
   });
 });
@@ -359,7 +360,13 @@ check('the five policy answers still take a workspace and nothing finer — the 
 check('and the card draws the count rather than leaving it in the payload', () => {
   const js = read('public/monitor.js');
   assert.match(js, /checkout\$\{r\.checkouts === 1 \? '' : 's'\}, one answer/, 'the row never says what it stands for');
-  assert.match(js, /'What each repo resolves to', String\(total\)/, 'the panel still counts one per row');
+  // The heading names the repo when the picker is pinned to one (bc-me2b), so the
+  // fallback and the count are asserted apart. The count is the claim that matters: it
+  // is `total`, which sums checkouts, and a panel that went back to `repos.length` would
+  // understate an org workspace by the size of the org.
+  assert.match(js, /'What each repo resolves to'/, 'the panel lost the heading it falls back to');
+  assert.match(js, /only \? `What \$\{only\} resolves to`/, 'a pinned repo is not named in the heading');
+  assert.match(js, /String\(total\),\n\s*repos\n/, 'the panel still counts one per row');
 });
 
 /* ================================================================ the wiring */

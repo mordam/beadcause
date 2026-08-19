@@ -6,7 +6,7 @@
  *     node test/ownquestion.mjs
  *
  * bc-i7tw. bc-rfnr.2 narrowed the inbox to what descends from a P0 you own, and the
- * narrowing is a single map: `p0board.under`, one entry per row, the id of the P0 it
+ * narrowing is a single map: `rootboard.under`, one entry per row, the id of the P0 it
  * hangs off. A row that is not in it is not drawn. That is right for a bead under
  * somebody else's epic — it is on their screen — and it is the app's one unforgivable
  * failure for a bead under *nothing*, because there is no other screen. `/api/ask` is
@@ -20,23 +20,23 @@
  * what a person filed is a decision about the tracker's shape rather than about a
  * screen — and because a fix at the filing seam is only ever as good as the graph cache
  * was at that moment. This is the other half and it needs neither: the server says which
- * rows hang off no P0 *at all* (`p0board.unhomed`), and the client draws those whatever
+ * rows hang off no P0 *at all* (`rootboard.unhomed`), and the client draws those whatever
  * the board says.
  *
  * Five properties, and the middle three are the ones a refactor takes away quietly:
  *
  * 1. **The parentless question is drawn**, with the board active and P0s owned. This is
- *    the acceptance criterion, and it is asserted through the *real* `underOwnedP0s`
+ *    the acceptance criterion, and it is asserted through the *real* `underOwnedRoots`
  *    lifted out of public/app.js over the *real* `/api/questions` payload — the two
  *    halves of the fix, joined, because either one alone still leaves the card missing.
  * 2. **A question under somebody else's open P0 is still hidden.** bc-rfnr.2 is not
  *    being undone. The two cases are one absence in `under` and the whole bug was
  *    treating them as one fact; a fix that showed both would be the flat list back.
  * 3. **A question under a P0 that has *closed* is drawn.** A closed P0 is not a root
- *    (lib/underp0.js) and its descendants stop being pulled onto the board with it, so
+ *    (lib/underroot.js) and its descendants stop being pulled onto the board with it, so
  *    an open question under a finished epic is under nothing — the exact shape
  *    lib/homing.js warns about, held forever and, until this, seen by nobody.
- * 4. **A workspace whose graph could not be read hides none of its rows.** `p0Board`'s
+ * 4. **A workspace whose graph could not be read hides none of its rows.** `rootBoard`'s
  *    own comment has claimed this since bc-rfnr.2 and it was not true: an unreadable
  *    workspace contributed no `under` entries, which is precisely how a row is hidden.
  *    `Bd.graph` swallowing a failure into an empty shape is what reaches this path.
@@ -48,7 +48,7 @@
  * `human list` with a JSON array, and fails `export` alone for one workspace — which is
  * how "this tracker could not be read" is staged beside a healthy one in the same run.
  * No browser: the client half is sliced out of public/app.js and run in a `node:vm`, the
- * way test/jirarow.mjs does it, because `underOwnedP0s` touches no DOM.
+ * way test/jirarow.mjs does it, because `underOwnedRoots` touches no DOM.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -105,13 +105,29 @@ const question = (id, extra = {}) => row(id, { labels: ['human'], ...extra });
  * `zz-asked` is what this suite exists for: no parent at all, which is every bead
  * `/api/ask` has ever filed. `zz-theirs.1` is the control — under an open P0 that is not
  * yours, so it stays hidden and proves the narrowing is still on. `zz-done.1` is the case
- * nobody would have thought to stage: its P0 closed underneath it.
+ * nobody would have thought to stage: its P0 closed underneath it. `zz-later.1` is
+ * bc-6s96's: under a P0 that is yours and open and *not started*, so it is hidden like
+ * bob's rather than rescued like the orphan — the one case where the two maps have to
+ * disagree, and the row is in neither.
  */
 const EXPORT = [
-  row('zz-p0', { priority: 0, issue_type: 'epic', title: 'A P0 of yours', labels: [`owner:${ME}`] }),
+  row('zz-p0', {
+    status: 'in_progress',
+    priority: 0,
+    issue_type: 'epic',
+    title: 'A P0 of yours, started',
+    labels: [`owner:${ME}`],
+  }),
   question('zz-p0.9', { dependencies: [parentEdge('zz-p0.9', 'zz-p0')] }),
   row('zz-theirs', { priority: 0, issue_type: 'epic', labels: ['owner:bob@example.com'] }),
   question('zz-theirs.1', { dependencies: [parentEdge('zz-theirs.1', 'zz-theirs')] }),
+  row('zz-later', {
+    priority: 0,
+    issue_type: 'epic',
+    title: 'A P0 of yours you have not started yet',
+    labels: [`owner:${ME}`],
+  }),
+  question('zz-later.1', { dependencies: [parentEdge('zz-later.1', 'zz-later')] }),
   row('zz-done', {
     priority: 0,
     issue_type: 'epic',
@@ -141,6 +157,7 @@ const humanRow = (id, title) => ({
 const HUMAN_ALPHA = [
   humanRow('zz-p0.9', 'bead zz-p0.9'),
   humanRow('zz-theirs.1', 'bead zz-theirs.1'),
+  humanRow('zz-later.1', 'bead zz-later.1'),
   humanRow('zz-done.1', 'bead zz-done.1'),
   humanRow('zz-asked', 'Should the porch light go on a timer?'),
 ];
@@ -217,10 +234,10 @@ const getJson = async (p) => {
 async function boardWhenWarm() {
   for (let i = 0; i < 60; i += 1) {
     const payload = await getJson('/api/questions');
-    if ((payload.p0board?.p0s || []).length) return payload;
+    if ((payload.rootboard?.roots || []).length) return payload;
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error('the P0 board never warmed up — no p0s after six seconds of asking');
+  throw new Error('the epic board never warmed up — no roots after six seconds of asking');
 }
 
 /* ------------------------------------------------------------------ the client half */
@@ -250,16 +267,20 @@ function lift(src, opener) {
   throw new Error(`unbalanced braces after ${opener}`);
 }
 
-/** The real filter, over a real payload. `board` is what `state.p0board` would hold. */
-function drawn(rows, board) {
-  const context = vm.createContext({ Boolean, String, Object });
+/**
+ * The real filter, over a real payload. `board` is what `state.rootboard` would hold, and
+ * `open` what `state.open` would — the keys of any card that is up, which since
+ * bc-rfnr.9.7 is the one thing that keeps a bead the board is drawing in the list as well.
+ */
+function drawn(rows, board, open = []) {
+  const context = vm.createContext({ Boolean, String, Object, Set });
   vm.runInContext(
     [
       lift(APP, 'function isBoarded()'),
-      lift(APP, 'function underOwnedP0s(rows)'),
-      'globalThis.out = underOwnedP0s(ROWS);',
+      lift(APP, 'function underOwnedRoots(rows)'),
+      'globalThis.out = underOwnedRoots(ROWS);',
     ].join('\n'),
-    Object.assign(context, { ROWS: rows, state: { p0board: board } })
+    Object.assign(context, { ROWS: rows, state: { rootboard: board, open: new Set(open) } })
   );
   return context.out.map((q) => q.key);
 }
@@ -273,17 +294,24 @@ try {
   // row of beta's on the very first warm payload would be unhomed for the uninteresting
   // reason that nothing had been asked yet.
   const payload = await getJson('/api/questions');
-  const board = payload.p0board;
+  const board = payload.rootboard;
   const keys = payload.questions.map((q) => q.key);
 
-  await check('the fixture is the fixture: four questions in alpha and one in beta', () => {
+  await check('the fixture is the fixture: five questions in alpha and one in beta', () => {
     assert.deepEqual(
       keys.slice().sort(),
-      ['alpha/zz-asked', 'alpha/zz-done.1', 'alpha/zz-p0.9', 'alpha/zz-theirs.1', 'beta/zz-beta-asked'].sort(),
+      [
+        'alpha/zz-asked',
+        'alpha/zz-done.1',
+        'alpha/zz-later.1',
+        'alpha/zz-p0.9',
+        'alpha/zz-theirs.1',
+        'beta/zz-beta-asked',
+      ].sort(),
       'the sweep did not return what this suite is about to make claims over'
     );
     assert.equal(board.owned, true, 'the board is off entirely — cfg.me did not take');
-    assert.deepEqual(board.p0s.map((c) => c.id), ['zz-p0'], 'the board is not the one P0 you own and have open');
+    assert.deepEqual(board.roots.map((c) => c.id), ['zz-p0'], 'the board is not the one root you own and have started');
   });
 
   await check('THE QUESTION YOU FILED WITH NO PARENT IS MARKED, AND `under` DOES NOT KNOW IT', () => {
@@ -304,8 +332,23 @@ try {
     );
   });
 
+  await check('a question under a P0 of yours you have NOT STARTED is neither, and leaves the list', () => {
+    // bc-6s96, end to end and in one place: the row is in no map, so the client's own
+    // filter drops it. That is the decided cost of narrowing the board to what you have
+    // started — the question is not moved anywhere and it returns the moment the epic is
+    // claimed. The assertion that matters is the middle one: `unhomed` would have put it
+    // straight back on the screen while claiming no P0 sits above it, which is false.
+    assert.equal(board.under['alpha/zz-later.1'], undefined, 'it is under a P0 that is off the board');
+    assert.equal(board.unhomed['alpha/zz-later.1'], undefined, 'an unstarted P0 of yours is still a P0 above this row');
+    assert.equal(
+      drawn(payload.questions, board).includes('alpha/zz-later.1'),
+      false,
+      'the list did not follow the narrowed board'
+    );
+  });
+
   await check('a question under a P0 that has CLOSED is unhomed', () => {
-    // A closed P0 is not a root (lib/underp0.js) and the board stops pulling its
+    // A closed P0 is not a root (lib/underroot.js) and the board stops pulling its
     // descendants in with it, so this bead is genuinely under nothing — the shape
     // lib/homing.js names as held forever, and it was invisible as well.
     assert.equal(board.unhomed['alpha/zz-done.1'], true, 'an open question under a finished epic is drawn nowhere');
@@ -314,9 +357,9 @@ try {
   await check('A WORKSPACE WHOSE GRAPH COULD NOT BE READ HIDES NONE OF ITS ROWS', () => {
     // `Bd.graph` answers an empty shape rather than throwing, so beta reaches the row
     // loop with no beads and no P0s — and every row of a workspace nothing is known
-    // about must be shown, not dropped. `p0Board`'s comment has said so since bc-rfnr.2.
+    // about must be shown, not dropped. `rootBoard`'s comment has said so since bc-rfnr.2.
     assert.equal(board.unhomed['beta/zz-beta-asked'], true, 'a question in an unreadable workspace is hidden');
-    assert.deepEqual(board.p0s.map((c) => c.workspace), ['alpha'], 'beta contributed a card it cannot have');
+    assert.deepEqual(board.roots.map((c) => c.workspace), ['alpha'], 'beta contributed a card it cannot have');
   });
 
   await check('AND THE INBOX ACTUALLY DRAWS IT — the real filter, over the real payload', () => {
@@ -324,34 +367,79 @@ try {
     // question descends from no P0 of yours.
     assert.deepEqual(
       drawn(payload.questions, board).sort(),
-      ['alpha/zz-asked', 'alpha/zz-done.1', 'alpha/zz-p0.9', 'beta/zz-beta-asked'].sort()
+      ['alpha/zz-asked', 'alpha/zz-done.1', 'beta/zz-beta-asked'].sort()
     );
   });
 
   await check('AND WITHOUT `unhomed` IT DOES NOT — which is the bug, stated as a test', () => {
-    // The same rows through the same function with the new map taken away. If this ever
-    // stops differing from the check above, the client stopped reading it.
-    assert.deepEqual(drawn(payload.questions, { ...board, unhomed: {} }), ['alpha/zz-p0.9']);
+    // The same rows through the same function with the new map taken away. Every row here
+    // is unhomed since bc-rfnr.9.7 took the `under` half of the list away, so this empties
+    // rather than falling back to one — if it ever stops differing from the check above,
+    // the client stopped reading the map.
+    assert.deepEqual(drawn(payload.questions, { ...board, unhomed: {} }), []);
   });
 
-  await check('a pull request still follows its beads, and `unhomed` cannot speak for it', () => {
+  await check('AND A BEAD THE BOARD IS DRAWING IS NOT DRAWN TWICE — bc-rfnr.9.7', () => {
+    // The change itself. `zz-p0.9` hangs off the P0 you own, so it is a row in that
+    // card's tree, and a flat copy of it underneath the board was the second list this
+    // bead deleted. It is still in `under` — the server did not stop saying so — which is
+    // what makes this an assertion about the client and not about the payload.
+    assert.equal(board.under['alpha/zz-p0.9'], 'zz-p0', 'the payload stopped homing it');
+    assert.ok(!drawn(payload.questions, board).includes('alpha/zz-p0.9'));
+  });
+
+  await check('unless its card is open, which is how a question in a tree gets answered', () => {
+    // `.card.open` is built out of an inbox row, so the row has to survive the filter for
+    // as long as the sheet is up — `p0AnswerHtml` offers the tap and `expand` opens it.
+    // Exactly the one key, and only while it is in `state.open`.
+    assert.deepEqual(drawn(payload.questions, board, ['alpha/zz-p0.9']).sort(), [
+      'alpha/zz-asked',
+      'alpha/zz-done.1',
+      'alpha/zz-p0.9',
+      'beta/zz-beta-asked',
+    ].sort());
+    // And it is the open key that does it, not the tap that opened it: another card being
+    // up leaves this one exactly where the board put it.
+    assert.ok(!drawn(payload.questions, board, ['alpha/zz-asked']).includes('alpha/zz-p0.9'));
+    // The rule is "a card that is open has a row", whoever's P0 the bead hangs off —
+    // `.card.open` is a full-screen sheet built out of one, and a sheet the reader opened
+    // over a row this function had filtered away would come up empty. That is reachable
+    // today by a notification, which deep-links straight into `expand`.
+    assert.ok(drawn(payload.questions, board, ['alpha/zz-theirs.1']).includes('alpha/zz-theirs.1'));
+  });
+
+  await check('a pull request stays only when it names no bead at all', () => {
     // Its key is `pr:<repo>#<n>`, which is no bead's id, so the server never marks one —
-    // and the client asks the PR rule first regardless, which is what this pins. A PR
-    // naming a bead under bob's P0 stays hidden; one naming nothing stays visible.
+    // and the client asks the PR rule ahead of both ancestry tests regardless, which is
+    // what this pins. Since bc-rfnr.9.7 a pull request naming *any* bead is a row about a
+    // bead: yours, drawn in its epic's tree, or somebody else's, which bc-rfnr.2 hid.
     for (const key of Object.keys(board.unhomed)) {
       assert.ok(!key.includes('pr:'), `${key} is not a bead row and has no ancestry to claim`);
     }
     const pr = (n, beads) => ({ key: `pr:acme/thing#${n}`, workspace: 'alpha', pr: { beads } });
-    const rows = [pr(1, ['zz-theirs.1']), pr(2, [])];
+    const rows = [pr(1, ['zz-theirs.1']), pr(2, []), pr(3, ['zz-p0.9'])];
     const poisoned = { ...board, unhomed: { ...board.unhomed, 'pr:acme/thing#1': true } };
     assert.deepEqual(drawn(rows, poisoned), ['pr:acme/thing#2']);
   });
 
+  await check('UNLESS ITS CARD IS OPEN — bc-rfnr.9.5', () => {
+    // The open-card rule is above the pull request rule and not below it, and until
+    // bc-rfnr.9.5 it was below. A pull request naming a bead was filtered out
+    // unconditionally, so opening one — from the board page's `Full view`, from a
+    // notification, or from the new control on the bead itself — put a full-screen sheet
+    // up over a row `render` had already dropped, and nothing came up at all. The
+    // comment on that line always claimed it went first; the order is what this pins.
+    const pr = (n, beads) => ({ key: `pr:acme/thing#${n}`, workspace: 'alpha', pr: { beads } });
+    const rows = [pr(1, ['zz-p0.9']), pr(2, ['zz-p0.9'])];
+    assert.deepEqual(drawn(rows, board), [], 'the board still narrows them when nothing is open');
+    assert.deepEqual(drawn(rows, board, ['pr:acme/thing#1']), ['pr:acme/thing#1']);
+  });
+
   await check('and none of it applies to an install that owns no P0 — the flat list, untouched', () => {
-    // The three no-op cases `underOwnedP0s` opens with. `unhomed` must not become a way
+    // The three no-op cases `underOwnedRoots` opens with. `unhomed` must not become a way
     // to narrow a screen that was never being narrowed.
     assert.deepEqual(drawn(payload.questions, { ...board, owned: false }).sort(), keys.slice().sort());
-    assert.deepEqual(drawn(payload.questions, { ...board, p0s: [] }).sort(), keys.slice().sort());
+    assert.deepEqual(drawn(payload.questions, { ...board, roots: [] }).sort(), keys.slice().sort());
   });
 } finally {
   for (const s of servers || []) s.close?.();

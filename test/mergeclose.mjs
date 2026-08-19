@@ -250,6 +250,28 @@ process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
 const wsDir = path.join(tmp, 'ws');
 fs.mkdirSync(path.join(wsDir, '.beads'), { recursive: true });
 
+const SESSIONS = path.join(tmp, 'claude', 'sessions');
+const PROJECTS = path.join(tmp, 'claude', 'projects', '-demo-widgets');
+fs.mkdirSync(SESSIONS, { recursive: true });
+fs.mkdirSync(PROJECTS, { recursive: true });
+
+/** The window a worker left behind: idle, named `QUEUED-`, waiting to hear it landed. */
+const queuedWindow = () => {
+  fs.writeFileSync(
+    path.join(SESSIONS, `${process.pid}.json`),
+    JSON.stringify({
+      pid: process.pid,
+      sessionId: 'sess-mergeclose',
+      name: 'QUEUED-Demo - zz-work the work',
+      cwd: '/demo/widgets',
+      status: 'idle',
+      statusUpdatedAt: Date.now(),
+    })
+  );
+  fs.writeFileSync(path.join(PROJECTS, 'sess-mergeclose.jsonl'), '{"type":"user"}\n');
+};
+const windowName = () => JSON.parse(fs.readFileSync(path.join(SESSIONS, `${process.pid}.json`), 'utf8')).name;
+
 const cfgBase = {
   host: '127.0.0.1',
   baseUrl: 'http://127.0.0.1',
@@ -260,7 +282,10 @@ const cfgBase = {
   sessionDirs: { demo: wsDir },
   openSessions: false,
   autoDispatch: false,
-  claudeSessions: false,
+  // A scratch `~/.claude` rather than `claudeSessions: false`, because one of the things
+  // the tap owes is a rename of the window that delivered this — lib/retitle.js. Pointed
+  // at the tmp tree so it can never reach a real window on this Mac.
+  claudeSessionsDir: SESSIONS,
   pollSeconds: 3600,
   terminal: false,
   ntfy: { enabled: false },
@@ -364,6 +389,7 @@ console.log('\nmerging from the phone\n');
 
 {
   reset();
+  queuedWindow();
   const res = await post('/api/respond', { workspace: 'demo', id: 'zz-pr', response: MERGE });
   check('the answer is taken', res.status === 200, JSON.stringify(res.json));
   check(
@@ -391,6 +417,10 @@ console.log('\nmerging from the phone\n');
   const asked = readSweepRequests();
   check('and the conflict sweep is asked for', Object.keys(asked).length === 1, JSON.stringify(asked));
   check('naming the repo and the merge', asked.demo?.key === 'demo' && asked.demo?.number === 7, JSON.stringify(asked.demo));
+  // A `--review` delivery files no merge-bead, so lib/mergequeue.js never sees this pull
+  // request and would never rename its window. This tap is the only door that can, and a
+  // window left saying `QUEUED-` claims to be waiting on a queue that will not touch it.
+  check('THE WINDOW THAT DELIVERED IT IS RENAMED DONE-', windowName() === 'DONE-Demo - zz-work the work', windowName());
 }
 
 /* ------------------------------------------ the sibling card, which is the bug */

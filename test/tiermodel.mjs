@@ -54,6 +54,12 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 // the machine's own sessions come up on.
 process.env.BEADCAUSE_ITERM_PROFILE_DIR = path.join(tmp, 'iterm');
 fs.mkdirSync(process.env.BEADCAUSE_ITERM_PROFILE_DIR, { recursive: true });
+// The one suite that opts out of the launch guard, and the only one that has earned it:
+// `MIRROR` below puts a **stub AppleScript** where `launch` looks for the real one, which
+// is a narrower seam than the guard and a better one — it proves what the shell in that
+// window would have run rather than merely that no window opened. Every other suite is
+// refused at `launch`, on `argv[1]` alone if nobody set anything. See lib/launchguard.js.
+process.env.BEADCAUSE_ALLOW_LAUNCH = '1';
 
 const { MODEL_BY_TIER, FALLBACK_MODEL, TIERS, modelForTier, modelForBead } =
   await import(LIB('complexity.js'));
@@ -291,11 +297,19 @@ await check('an approved amendment wins over the tier, because Adam approved it 
 });
 
 await check('and it wins through a real amendment, all the way to the command line', async () => {
-  await amend(CHECKOUT, 'worker', { model: 'haiku' }, {
-    bead: 'zz-amend',
-    justification: 'the test approved it',
-    by: 'test',
-  });
+  // `limitations` rides along because it has to: bc-eqn1.4 refuses an amendment that
+  // moves `model` without saying what that changes about the card, and this suite is
+  // the one place in the tests that amends a model for real. See `cardGap`.
+  await amend(
+    CHECKOUT,
+    'worker',
+    { model: 'haiku', limitations: 'On haiku it sees one branch and less of it.' },
+    {
+      bead: 'zz-amend',
+      justification: 'the test approved it',
+      by: 'test',
+    }
+  );
   const { opened, command } = await launchOn('zz-easy2', ['complexity:low']);
   assert.match(command, /--model 'haiku'/, 'the tier said sonnet and the amendment said otherwise');
   assert.ok(!/--model 'sonnet'/.test(command));
@@ -318,6 +332,43 @@ await check('a planner is not routed by the tier of the epic it is planning', as
   const command = commandOf();
   assert.ok(!/--model 'sonnet'/.test(command), 'the epic said low and the planner ignored it');
   assert.equal(opened.tier, undefined, 'a planner reports no tier at all, rather than an empty one');
+});
+
+/* --------------------------------------- a workspace nothing configures (bc-xl7n.62) */
+
+await check('a workspace absent from cfg.workspaces is refused before a temp file or a repo is touched', async () => {
+  // bc-xl7n.62: a worker developing lib/container.js's test fixture drove the real
+  // `openWorkSession` with workspace `zz` and bead `zz-root.1` — neither of them real —
+  // and it opened an unattended window in its own `mkdtemp` directory, on a bead that
+  // could not be claimed, worked, or even commented. `cfg.workspaces` is what every real
+  // install populates; this fixture names `demo` in `ws` but not in `cfg.workspaces`,
+  // which is exactly that shape: a workspace object naming no configured entry.
+  const cfgWithOthers = { ...cfg, workspaces: [{ name: 'somewhere-else', dir: CHECKOUT }] };
+  const row = { id: 'zz-work', title: 'ordinary work', status: 'open', labels: [] };
+  await assert.rejects(
+    () => openWorkSession(cfgWithOthers, ws, row, { bd: trackerSaying(row) }),
+    (err) => err.status === 409 && err.unknownWorkspace === true && /demo/.test(err.message),
+    'a launcher that reaches the AppleScript for a workspace nothing provisioned'
+  );
+  assert.deepEqual(fs.readdirSync(SPOOL), [], 'refused before the three temp files were written');
+});
+
+await check('and a workspace that is in cfg.workspaces still opens, unchanged', async () => {
+  const cfgWithSelf = { ...cfg, workspaces: [{ name: 'demo', dir: CHECKOUT }] };
+  const row = { id: 'zz-work', title: 'ordinary work', status: 'open', labels: [] };
+  const opened = await openWorkSession(cfgWithSelf, ws, row, { bd: trackerSaying(row) });
+  assert.ok(opened, 'a known workspace must still be able to open a session');
+  commandOf(); // drains the spool so a later check does not trip over this one's temp files
+});
+
+await check('and a caller that never populated cfg.workspaces at all is unaffected — most of this suite', async () => {
+  // The bar this guard has to clear: every other check in this file calls `openWorkSession`
+  // with the module-level `cfg`, which has no `.workspaces` at all, and none of them may
+  // start failing because this file added one. Proven directly rather than trusted.
+  const row = { id: 'zz-work', title: 'ordinary work', status: 'open', labels: [] };
+  const opened = await openWorkSession(cfg, ws, row, { bd: trackerSaying(row) });
+  assert.ok(opened);
+  commandOf();
 });
 
 /* -------------------------------------------------- and where the card reads it */

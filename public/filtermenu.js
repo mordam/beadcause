@@ -1,5 +1,33 @@
 /*
-  The collapsing filter control, and only the control.
+  The filter controls: one pill per filter, each opening its own chips.
+
+  ## One pill per filter, and nothing nested under a summary line
+
+  This was one collapsed line that opened into every group at once, and bc-khoe.26 takes
+  it apart. The line was the last thing on this page you had to open before you could
+  read it: what it said was a comma-joined digest of four different questions, and the
+  only way to change any of them was to open a panel that then covered the list you were
+  changing. Two filters set is one line saying `unmerged · Claimed`, which is a sentence
+  you have to parse before you know which control to reach for.
+
+  So a group is a **pill** now — its own button, its own panel under it, its own state.
+  The row of them replaces the line. Nothing is nested: what you can narrow by is the
+  row, and what it is narrowed *to* is written on the pill without opening anything.
+
+  **A pill says the narrowing exactly when there is one.** At rest it is its legend and
+  nothing else — `Bead status ▾` — because a pill that also said `any status` would be
+  three words of chrome per control for a filter that is not filtering. The moment it
+  narrows, the value goes on it: `PR status: unmerged`, `Bead: bc-0xil`. `narrowing()`
+  below is the question, and a group whose *default* narrows — the inbox's PR status,
+  which shows the unmerged ones until you ask for more — answers yes with nothing
+  chosen, which is what keeps that standing default on screen.
+
+  **A narrowing whose pill is gone is still said, as a note.** `hidden()` takes a pill
+  off the row when the view cannot use it, and a selection that goes on biting after the
+  pill has gone is the one thing a filter control must never do quietly. That case draws
+  a `.filter-note` instead — the same words, no caret, not a button — because a control
+  offered over a view it does nothing for is exactly what taking the panel apart was
+  for, and a *statement* is not a control. `said()` is what asks for one.
 
   ## Why this is its own file
 
@@ -17,8 +45,8 @@
   once after using the thing on a phone, and none of them is visible by reading the
   second copy.
 
-  So this file is the chrome — the summary line, the panel, the chips, and the state
-  machine that opens and closes it — and it knows nothing at all about what any of it
+  So this file is the chrome — the pills, the panels, the chips, and the state machine
+  that opens and closes them — and it knows nothing at all about what any of it
   means. What a chip *is* stays with the page: public/inboxfilter.js owns the kinds of
   thing the inbox carries, public/history.js owns the four filters over the ledger, and
   both hand this file the same shape.
@@ -27,28 +55,36 @@
 
   A **group** is one row of chips with a legend over it:
 
-      { id, legend, all?, multi?, options(), pick(id), hidden?(), said?() }
+      { id, legend, all?, multi?, options(), pick(id), hidden?(), said?(), narrowing?() }
 
   `options()` is called on every paint and returns `{ id, label, note?, count?, on }`.
   That is the whole contract: the group is asked what it looks like right now, so a page
   changes the chips by changing its own state and calling `paint()` — there is no setter
   here and no state about the page's filters in this file.
 
-  - **`all`** is what the summary line says when nothing in the group is selected. Not
-    always "All": the inbox's PR status group says `unmerged`, because with nothing
-    chosen it is showing you one rung rather than everything, and a control claiming to
-    show you everything while showing you one rung is the failure this whole thing exists
-    to avoid.
+  - **`all`** is what the pill says when the group is narrowing and nothing in it is
+    selected. Not always "All", and in the one shape that reaches it, never: the inbox's
+    PR status group says `unmerged`, because with nothing chosen it is showing you one
+    rung rather than everything, and a control claiming to show you everything while
+    showing you one rung is the failure this whole thing exists to avoid. A group that
+    is *not* narrowing says nothing at all — its pill is its legend, and `all` is never
+    read.
   - **`multi`** is whether picking closes the panel on a touchscreen. A single-choice
     group has answered its question with one tap, and the next thing you want is to look
     at the list it has just changed — which is underneath the panel.
   - **`hidden()`** is whether the group's chips are on screen at all. The inbox's PR
     status group is offered only while `PRs` is selected. Hidden rather than removed, so
     the panel does not rebuild under the pointer and the chips are still there for the
-    summary line to read.
-  - **`said()`** is whether the summary line mentions it, and it is deliberately *wider*
-    than `hidden()`. A narrowing that is still applied while its chips are off screen is
-    the one thing a filter control must never do quietly.
+    summary line to read. **When every group is hidden and none is `said()`, the whole
+    control hides** — the inbox's `Chats` pill can use none of them, and a summary line
+    that opens an empty box is worse chrome than no line.
+  - **`said()`** is whether the row admits to it at all, and it is deliberately *wider*
+    than `hidden()`. A narrowing that is still applied while its pill is off the row is
+    the one thing a filter control must never do quietly; said-but-hidden is the note.
+  - **`narrowing()`** is whether this group is currently showing you less than
+    everything, and it exists because only the page knows whether its own "nothing
+    chosen" is a narrowing. Optional: without one, a selection is the test, which is the
+    right answer for every group whose empty state really is everything.
 
   A **text group** is the same shape with `text: true` and `value()` / `set(v)` instead
   of `options()` / `pick()`. It draws one input rather than a row of chips — the ledger's
@@ -75,10 +111,12 @@
     bead matches that" and "the tracker has not been read yet", and drawing the first over
     the second is a search box calling a bead you filed a minute ago non-existent.
 
-  **A typeahead's summary line says its picks, never its query.** The two are not the same
-  claim: a half-typed word narrows nothing until you click something, and a summary line
-  that showed it would be the control announcing a filter that is not applied — the same
-  failure as `said()` hiding one that is, in the other direction.
+  **A typeahead's pill says its picks, never its query.** The two are not the same claim:
+  a half-typed word narrows nothing until you click something, and a pill that showed it
+  would be the control announcing a filter that is not applied — the same failure as
+  `said()` hiding one that is, in the other direction. A plain text group is the other
+  way round, and correctly: the ledger's id substring *is* the filter the moment it has
+  a character in it.
 
   ## What it deliberately does not do
 
@@ -110,21 +148,23 @@
    *
    * `groups` is a function rather than an array because the set of groups moves: a
    * sub-filter whose kind the current scope cannot hold stops being offered. It is
-   * called on every paint, and the boxes are built from whatever it says at mount.
+   * called on every paint, and the pills are built from whatever it says at mount.
    *
-   * `narrowed` is the page's own answer to "is this list showing less than everything",
-   * and it stays the page's because only the page knows. A group with a selection in it
-   * is not the test: the inbox's scope switch always has exactly one chip pressed and
-   * `Both` is not a narrowing.
+   * There is no `narrowed` option any more, and there is nothing left for one to do
+   * (bc-khoe.26). It was the page's answer to "is this list showing less than
+   * everything", and it existed to put one bold line over four filters at once. Each of
+   * them writes its own answer on its own pill now, which is strictly more than the line
+   * could say: `unmerged` names *which* control is doing it.
    */
   function mount(host, opts = {}) {
     if (!host) return null;
 
     const groupsOf = typeof opts.groups === 'function' ? opts.groups : () => opts.groups || [];
     const closeOnPick = opts.closeOnPick !== false;
-    const narrowed = typeof opts.narrowed === 'function' ? opts.narrowed : () => false;
 
-    let open = false;
+    /** Which pill's panel is open, by group id. `''` is none — only ever one at a time:
+     *  two panels over one list is the collapsed panel's own problem in miniature. */
+    let open = '';
     let pinned = false;
     let leaveTimer = null;
 
@@ -139,43 +179,54 @@
      * `rows` is group id → { el, box, ids, chips, input }, where `ids` is the chip set
      * last drawn — the one thing that, when it changes, does mean a rebuild.
      */
-    const ui = { root: null, summary: null, sel: null, panel: null, rows: new Map() };
+    const ui = { root: null, rows: new Map() };
 
-    /** Is this group's own row of chips (or its input) on screen? */
+    /** Is this group offered — a pill on the row, with its chips behind it? */
     const shown = (g) => (typeof g.hidden === 'function' ? !g.hidden() : true);
 
-    /** Does the summary line mention it? Wider than `shown` — see the header. */
+    /** Does the row admit to it at all? Wider than `shown` — see the header. */
     const said = (g) => (typeof g.said === 'function' ? g.said() : shown(g));
 
     /**
-     * What the one line says.
+     * Is this group showing you less than everything right now?
      *
-     * Every group contributes: the selected label where there is one, the group's own
-     * word for "everything" where there is not. Two selections are named, three or more
-     * are counted — `Merges, Proposals` is worth reading and `Questions, Merges,
-     * Proposals, Blocked` is a line that no longer fits on a phone.
+     * The group's own answer where it has one, because "nothing chosen" does not mean
+     * the same thing in two of them: the inbox's PR status is showing you the unmerged
+     * ones with nothing chosen and its bead status is showing you every rung. Without
+     * one, a selection is the test — and for a plain text group the text is the
+     * selection, while a typeahead's query is not (see the header).
      */
-    function summaryText() {
-      return groupsOf()
-        .filter(said)
-        .map((g) => {
-          if (g.text) {
-            // A typeahead says what has been picked. Its query is not a narrowing — see
-            // the header — so a group with `picks` never falls through to `value()`.
-            if (typeof g.picks === 'function') {
-              const picks = g.picks();
-              if (!picks.length) return g.all || 'Any';
-              if (picks.length <= 2) return picks.map((p) => p.label).join(', ');
-              return `${picks.length} ${g.legend.toLowerCase()}`;
-            }
-            return String(g.value() || '') || g.all || 'Any';
-          }
-          const on = g.options().filter((o) => o.on);
-          if (!on.length) return g.all || 'All';
-          if (on.length <= 2) return on.map((o) => o.label).join(', ');
-          return `${on.length} ${g.legend.toLowerCase()}`;
-        })
-        .join(' · ');
+    function narrowing(g) {
+      if (typeof g.narrowing === 'function') return Boolean(g.narrowing());
+      if (g.text) {
+        if (typeof g.picks === 'function') return (g.picks() || []).length > 0;
+        return String(g.value() || '').trim().length > 0;
+      }
+      return g.options().some((o) => o.on);
+    }
+
+    /**
+     * What the pill says after its legend, and `''` when there is nothing to say.
+     *
+     * Two selections are named and three or more are counted — `Merges, Proposals` is
+     * worth reading and `Questions, Merges, Proposals, Blocked` is a pill that no longer
+     * fits on a phone. A group that is not narrowing says nothing, which is what leaves
+     * the row a row of legends until something is set.
+     */
+    function valueText(g) {
+      if (!narrowing(g)) return '';
+      if (g.text) {
+        if (typeof g.picks === 'function') {
+          const picks = g.picks();
+          if (picks.length <= 2) return picks.map((p) => p.label).join(', ');
+          return `${picks.length} ${g.legend.toLowerCase()}`;
+        }
+        return String(g.value() || '');
+      }
+      const on = g.options().filter((o) => o.on);
+      if (!on.length) return g.all || 'All';
+      if (on.length <= 2) return on.map((o) => o.label).join(', ');
+      return `${on.length} ${g.legend.toLowerCase()}`;
     }
 
     /** One chip, wired to its group. Rebuilt only when the *set* of chips changes. */
@@ -430,13 +481,50 @@
       paint();
     }
 
-    /** A group's chips: their pressed state and their counts, in place where it can be. */
+    /**
+     * One pill: what it says, whether it is on the row at all, and its chips behind it.
+     *
+     * Three states, and the middle one is the whole of bc-khoe.26's second acceptance.
+     * A group the view can use is a pill. A group it cannot use whose narrowing is
+     * still biting is a **note** — the same words, not a button. A group that is neither
+     * is off the row entirely, structure and all, so nothing offers a control over a
+     * list it does nothing for.
+     */
     function paintGroup(g) {
       const row = ui.rows.get(g.id);
       if (!row) return;
-      // Hidden rather than removed, so the panel does not rebuild — and so the chips are
-      // still there, still painted, for the summary line to read.
-      if (row.box) row.box.hidden = !shown(g);
+      const on = shown(g);
+      const value = valueText(g);
+      // Said-but-hidden with nothing to confess is not a note: a note that read
+      // `PR status` and nothing else would be chrome announcing that a filter exists
+      // somewhere else, which is the panel again with fewer words.
+      const note = !on && said(g) && Boolean(value);
+      // Hidden rather than removed, so nothing rebuilds under the pointer — and so the
+      // chips are still there, still painted, for the pill to read when it comes back.
+      row.one.hidden = !on && !note;
+      row.summary.hidden = !on;
+      row.note.hidden = !note;
+      row.sel.textContent = value;
+      row.sel.hidden = !value;
+      row.noteSel.textContent = value;
+      // The colon is written into the legend rather than drawn by the stylesheet, so that
+      // what the control says is one string a test can read and a person can select —
+      // `PR status: unmerged` — rather than two spans and a `::before` between them.
+      const legend = value ? `${g.legend}:` : g.legend;
+      row.legend.textContent = legend;
+      row.noteLegend.textContent = legend;
+      row.summary.classList.toggle('on', Boolean(value));
+      // No `aria-label` on either: the visible text is already `PR status: unmerged`, and
+      // a label repeating it would be a second name for one control that the two could
+      // then drift apart on. The uppercase is `text-transform`, which changes what is
+      // drawn and not what is read.
+      if (!on) {
+        // A pill that has gone takes its panel with it — a panel left open under a
+        // control that is no longer offered is a filter you can still change and can no
+        // longer see.
+        if (open === g.id) setOpen('');
+        return;
+      }
       if (g.text) {
         if (!row.input) row.el.replaceChildren(makeText(g, row));
         const want = String(g.value() || '');
@@ -478,18 +566,31 @@
       }
     }
 
-    /** Chips and summary, never structure. Safe to call from a render loop. */
+    /** Pills and chips, never structure. Safe to call from a render loop. */
     function paint() {
       if (!ui.root) return;
       const live = groupsOf();
       const ids = new Set(live.map((g) => g.id));
-      // A group the panel no longer has — a sub-filter whose kind this scope cannot hold —
-      // is hidden rather than left on screen with the chips it was mounted with. Its box was
-      // built at mount, when every group was still offered.
-      for (const [id, row] of ui.rows) if (row.box && !ids.has(id)) row.box.hidden = true;
+      // A group the row no longer has — a sub-filter whose kind this scope cannot hold —
+      // is hidden rather than left on screen with the chips it was mounted with. Its pill
+      // was built at mount, when every group was still offered.
+      for (const [id, row] of ui.rows) {
+        if (ids.has(id)) continue;
+        row.one.hidden = true;
+        if (open === id) setOpen('');
+      }
       for (const g of live) paintGroup(g);
-      ui.sel.textContent = summaryText();
-      ui.root.classList.toggle('narrowed', Boolean(narrowed()));
+      // **A row with nothing on it goes away entirely** (bc-khoe.3). The inbox's groups
+      // are a function of the pill that is lit, and `Chats` can use none of them — a chat
+      // is under no bead and has no status — so what would be left is a strip of chrome
+      // with nothing in it. A note counts as something: a group whose pill is gone while
+      // its narrowing is still biting is exactly what a note is for.
+      //
+      // The History tab's groups declare no `hidden` and no `said`, so `shown` is true
+      // for all four and this never fires there.
+      const gone = !live.some((g) => !ui.rows.get(g.id)?.one.hidden);
+      if (gone) setOpen('');
+      ui.root.hidden = gone;
     }
 
     function pick(g, id) {
@@ -498,16 +599,34 @@
       // A single-choice group on a touchscreen: the panel is over the list it has just
       // changed, and the next thing you want is to look at it. On a pointer device
       // moving away does that already, and closing here would fight the mouse.
-      if (!g.multi && closeOnPick && !hoverable()) setOpen(false);
+      if (!g.multi && closeOnPick && !hoverable()) setOpen('');
     }
 
-    function setOpen(next) {
+    /**
+     * Open one pill's panel, by group id, or `''` for none. Opening one shuts the last.
+     *
+     * An id the row has no pill for is a close rather than a state nothing can draw: this
+     * is reachable from outside — `chrome.setOpen(…)` is on the handle — and an `open`
+     * naming nothing would leave the root marked open with every panel shut.
+     */
+    function setOpen(id) {
+      const next = ui.rows.has(id) ? id : '';
       if (!ui.root || open === next) return;
+      const was = ui.rows.get(open);
+      if (was) {
+        was.one.classList.remove('open');
+        was.panel.hidden = true;
+        was.summary.setAttribute('aria-expanded', 'false');
+      }
       open = next;
-      if (!open) pinned = false;
-      ui.root.classList.toggle('open', open);
-      ui.panel.hidden = !open;
-      ui.summary.setAttribute('aria-expanded', String(open));
+      pinned = false;
+      const now = ui.rows.get(open);
+      if (now) {
+        now.one.classList.add('open');
+        now.panel.hidden = false;
+        now.summary.setAttribute('aria-expanded', 'true');
+      }
+      ui.root.classList.toggle('open', Boolean(open));
     }
 
     const cancelLeave = () => {
@@ -515,52 +634,93 @@
       leaveTimer = null;
     };
 
+    /*
+      The row, and one pill per group in it.
+
+      Every group gets its nodes at mount, whether or not it is offered right now: which
+      of them the view can use moves with the lit pill and with the scope, and a row that
+      built and destroyed nodes as that changed would rebuild under the pointer on its
+      way to a chip. `paint()` hides and unhides; it never makes anything.
+
+      A pill and its note are siblings inside the same wrapper rather than one node that
+      changes tag, because they are genuinely different things — one is a button you can
+      open and the other is a sentence you cannot — and a control that turned into a
+      statement in place would be reachable by Tab on one render and not the next with
+      nothing in the DOM to say why.
+    */
     const root = document.createElement('div');
     root.className = 'filter-menu';
 
-    const summary = document.createElement('button');
-    summary.type = 'button';
-    summary.className = 'filter-summary';
-    summary.setAttribute('aria-expanded', 'false');
-    summary.setAttribute('aria-controls', 'filter-panel');
-    summary.setAttribute('aria-haspopup', 'true');
-    const sel = document.createElement('span');
-    sel.className = 'sel';
-    const caret = document.createElement('span');
-    caret.className = 'caret';
-    caret.setAttribute('aria-hidden', 'true');
-    caret.textContent = '▾';
-    summary.append(sel, caret);
-
-    const panel = document.createElement('div');
-    panel.className = 'filter-panel';
-    panel.id = 'filter-panel';
-    panel.hidden = true;
-
     for (const g of groupsOf()) {
+      const one = document.createElement('div');
+      one.className = 'filter-one';
+      one.dataset.group = g.id;
+
+      const summary = document.createElement('button');
+      summary.type = 'button';
+      summary.className = 'filter-summary';
+      summary.setAttribute('aria-expanded', 'false');
+      summary.setAttribute('aria-controls', `filter-panel-${g.id}`);
+      summary.setAttribute('aria-haspopup', 'true');
+      const legend = document.createElement('span');
+      legend.className = 'filter-legend';
+      const sel = document.createElement('span');
+      sel.className = 'sel';
+      const caret = document.createElement('span');
+      caret.className = 'caret';
+      caret.setAttribute('aria-hidden', 'true');
+      caret.textContent = '▾';
+      summary.append(legend, sel, caret);
+
+      // The confession, for a narrowing whose pill the view cannot offer. No caret and
+      // no `role`: there is nothing to open, and a caret on a thing that does not open
+      // is the worst affordance in the file.
+      const note = document.createElement('span');
+      note.className = 'filter-note';
+      note.hidden = true;
+      const noteLegend = document.createElement('span');
+      noteLegend.className = 'filter-legend';
+      const noteSel = document.createElement('span');
+      noteSel.className = 'sel';
+      note.append(noteLegend, noteSel);
+
+      const panel = document.createElement('div');
+      panel.className = 'filter-panel';
+      panel.id = `filter-panel-${g.id}`;
+      panel.hidden = true;
+      // The `.filter-group` box is still here with one group in it rather than four. It
+      // is what carries the chips' own layout — and it keeps the shape a page or a check
+      // reaches for by `data-group` the same whichever container is drawing it.
       const box = document.createElement('div');
       box.className = 'filter-group';
       box.dataset.group = g.id;
-      const legend = document.createElement('span');
-      legend.className = 'filter-legend';
-      legend.textContent = g.legend;
-      const row = document.createElement('div');
+      const chipRow = document.createElement('div');
       // `scopes`, `kinds` — the plural is what the stylesheet has always keyed the
       // segmented look of the scope switch off.
-      row.className = `chip-row ${g.id}s`;
-      row.setAttribute('role', 'group');
-      row.setAttribute('aria-label', g.legend);
-      box.append(legend, row);
+      chipRow.className = `chip-row ${g.id}s`;
+      chipRow.setAttribute('role', 'group');
+      chipRow.setAttribute('aria-label', g.legend);
+      box.append(chipRow);
       panel.append(box);
-      // The box as well as the chip row: a group is hidden legend and all, and paint()
-      // needs the node to hide.
+
+      one.append(summary, note, panel);
+      root.append(one);
+
       // `pills`, `list`, `items` and `active` belong to a typeahead and stay null for
       // every other group — `active` is the highlighted suggestion, and it is the one
       // piece of state this file does keep, because which row of a dropdown the arrow
       // keys are on is a fact about the widget rather than about anybody's filter.
       ui.rows.set(g.id, {
-        el: row,
+        one,
+        summary,
+        legend,
+        sel,
+        note,
+        noteLegend,
+        noteSel,
+        panel,
         box,
+        el: chipRow,
         ids: '',
         chips: new Map(),
         input: null,
@@ -571,63 +731,73 @@
         suggestIds: '',
         active: -1,
       });
+
+      summary.addEventListener('click', () => {
+        if (open !== g.id) {
+          setOpen(g.id);
+          pinned = true;
+        } else if (pinned || !hoverable()) {
+          setOpen('');
+        } else {
+          pinned = true;
+        }
+      });
+
+      // Hover moves between pills without a click, the way a menu bar does: crossing
+      // from `PR status` to `Bead status` on a laptop opens the one you arrived at
+      // rather than leaving the one you left open behind you.
+      one.addEventListener('pointerenter', (ev) => {
+        if (ev?.pointerType === 'touch' || !hoverable()) return;
+        cancelLeave();
+        setOpen(g.id);
+      });
     }
 
-    root.append(summary, panel);
     host.replaceChildren(root);
     host.hidden = false;
-    Object.assign(ui, { root, summary, sel, panel });
+    Object.assign(ui, { root });
     paint();
 
-    summary.addEventListener('click', () => {
-      if (!open) {
-        setOpen(true);
-        pinned = true;
-      } else if (pinned || !hoverable()) {
-        setOpen(false);
-      } else {
-        pinned = true;
-      }
-    });
-
-    root.addEventListener('pointerenter', (ev) => {
-      if (ev?.pointerType === 'touch' || !hoverable()) return;
-      cancelLeave();
-      setOpen(true);
-    });
+    // The whole row rather than the one pill: moving from a pill to the panel under it
+    // crosses the gap between them, and on a wrapped row it crosses the pill beside it
+    // as well. Leaving the row is the only exit this control has left.
     root.addEventListener('pointerleave', (ev) => {
       if (ev?.pointerType === 'touch' || !hoverable() || pinned) return;
       cancelLeave();
       // The grace. Cutting the corner of the panel on the way to a chip is a
       // pointerleave, and a control that shut on it would be unusable with a mouse.
       // The 8px bridge above the panel (see .filter-panel::before) is what keeps the
-      // gap between the line and the panel from being one of those exits at all.
-      leaveTimer = setTimeout(() => setOpen(false), 160);
+      // gap between the pill and the panel from being one of those exits at all.
+      leaveTimer = setTimeout(() => setOpen(''), 160);
     });
 
     // Tapping anywhere else — the touch half of "leaving closes it". `pointerdown`
     // rather than `click`, so the panel is gone before the tap lands on the card
     // underneath rather than after it.
     document.addEventListener('pointerdown', (ev) => {
-      if (open && !root.contains(ev?.target)) setOpen(false);
+      if (open && !root.contains(ev?.target)) setOpen('');
     });
     document.addEventListener('keydown', (ev) => {
-      if (ev?.key === 'Escape' && open) {
-        setOpen(false);
-        summary.focus();
-      }
+      if (ev?.key !== 'Escape' || !open) return;
+      // The focus goes back to the pill that was open rather than to the row: Escape out
+      // of a panel puts you on the control you opened it with, which is the one you are
+      // about to open again or tab past.
+      const back = ui.rows.get(open)?.summary;
+      setOpen('');
+      back?.focus?.();
     });
     // Keyboard: the panel is reachable by Tab, so it has to close when Tab leaves it.
     // On the next tick, because at focusout the activeElement is still the old node.
     root.addEventListener('focusout', () => {
       setTimeout(() => {
-        if (open && !pinned && !root.contains(document.activeElement)) setOpen(false);
+        if (open && !pinned && !root.contains(document.activeElement)) setOpen('');
       }, 0);
     });
 
     return {
       root,
       paint,
+      /** Which pill is open, by group id — `''` for none. A string since bc-khoe.26. */
       isOpen: () => open,
       setOpen,
     };

@@ -73,7 +73,7 @@ console.log('\nAn EpicAdvocate belongs to its epic, not to its window\n');
 
 /* ------------------------------------------------------------------ the roster */
 
-check('every open, owned P0 has an advocate assigned', () => {
+check('every open, owned root has an advocate assigned', () => {
   const roster = assignedAdvocates([bead('bc-a'), bead('bc-b'), bead('bc-c')]);
   assert.deepEqual(
     roster.map((r) => r.id),
@@ -90,9 +90,9 @@ check('a closed epic has none — this is the rule the whole change exists for',
   );
 });
 
-check('and the three other noes are unchanged — not a P0, unowned, a crash', () => {
+check('and the three other noes are unchanged — not a root, unowned, a crash', () => {
   const roster = assignedAdvocates([
-    bead('bc-p2', { priority: 2 }),
+    bead('bc-task', { priority: 2, issue_type: 'task' }),
     bead('bc-nobody', { labels: [] }),
     bead('bc-crash', { labels: ['owner:adam@example.com', 'app-error'] }),
     bead('bc-real'),
@@ -104,8 +104,22 @@ check('and the three other noes are unchanged — not a P0, unowned, a crash', (
   );
   // Same predicate, asked one bead at a time: the roster must be that function over the
   // graph and nothing else, or the door and the board can disagree about who is assigned.
-  for (const b of [bead('bc-p2', { priority: 2 }), bead('bc-nobody', { labels: [] })])
+  for (const b of [bead('bc-task', { priority: 2, issue_type: 'task' }), bead('bc-nobody', { labels: [] })])
     assert.equal(wantsAdvocate(b), false);
+});
+
+check('AND A P2 EPIC IS ON THE ROSTER — bc-htoy', () => {
+  // The first no used to be "not a P0", and this row is what it cost: an epic somebody
+  // owns, open, not a crash, and refused an advocate for no reason but its priority. The
+  // roster is `wantsAdvocate` over the graph, so it is also where that would silently
+  // come back — a gate widened in lib/epicadvocate.js but not reflected here would mean
+  // the door opened windows on epics the agents screen said had no advocate.
+  const roster = assignedAdvocates([bead('bc-p2', { priority: 2 }), bead('bc-p4', { priority: 4 })]);
+  assert.deepEqual(
+    roster.map((r) => r.id),
+    ['bc-p2', 'bc-p4'],
+    'an owned open epic is advocatable at whatever priority it carries'
+  );
 });
 
 check('a Map is accepted, because that is what bd.graph() hands over', () => {
@@ -185,14 +199,31 @@ check('the roster is rebuilt from the graph every tick, and never persisted', ()
   );
 });
 
+check('the sweep’s per-epic record is readable from a request path — bc-r2b5.1', () => {
+  // The roster above is the *console's* view and is rebuilt every tick from the graph.
+  // The board card is a different surface with a different lifetime: it is drawn on a
+  // request, so it may not tick and may not spawn `bd`. `advocacy` is the seam — a `Map`
+  // get and two property reads off state the daemon has already persisted, so a board of
+  // twelve cards asking it twelve times costs nothing.
+  assert.match(daemon, /advocacy: \(workspace, id\) => \{/, 'the daemon exposes nothing the board card can read');
+  assert.match(daemon, /a\?\.advocated\?\.\[String\(id \|\| ''\)\]/, 'it must come off the persisted record, not be recomputed');
+  assert.match(daemon, /return rec \? \{ at: rec\.at \|\| null, hold: rec\.hold \|\| null \} : null;/);
+  // And the hold reason is written where that read finds it, rather than only logged: the
+  // sweep is the only thing that can see three of the five reasons.
+  assert.match(daemon, /keep\[epic\.id\] = \{ \.\.\.\(prev \|\| record\), hold: \{ why, at: iso\(\) \} \};/, 'the hold is not recorded');
+});
+
 /* ------------------------------------------------------------------- the page */
 
 check('the console draws a section per assigned epic, from the roster on the wire', () => {
   assert.match(daemon, /epicAdvocates: a\.epicAdvocates \|\| \[\]/, 'the roster is not in the snapshot');
-  assert.match(page, /function epicSections\(a, key\)/, 'nothing draws the sections');
+  // Matched open-ended rather than on the whole parameter list: bc-8t3b added a third
+  // argument (the split of beads held for endorsement), and none of the claims here are
+  // about how many arguments this function takes.
+  assert.match(page, /function epicSections\(a, key/, 'nothing draws the sections');
   assert.match(page, /epicsOf\(a\)\s*\n?\s*\.map\(\(e\)/, 'the sections are not built from the roster');
   assert.match(page, /section\(`\$\{key\}:epic:\$\{e\.id\}`/, 'the sections share a key, so opening one opens them all');
-  assert.match(page, /epicSections\(a, key\)/, 'they are built but never placed in the card');
+  assert.match(page, /epicSections\(a, key/, 'they are built but never placed in the card');
 });
 
 check('an epic with no window is drawn as fully as one with it, and says which reason', () => {
