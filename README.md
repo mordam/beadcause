@@ -6564,6 +6564,21 @@ the selection, which leaves every row that survives its own sub-filter. That is 
 the four slices, so summing them is the same arithmetic done once, and the badge and the
 list cannot come to disagree about it.
 
+**Unless there is no list there, which is the board (bc-khoe.49).** With an epic of yours
+started, My Epics is the board and bc-khoe.28 took the list out from under it — so the sum
+above went on describing rows that the one pill it is drawn on would not draw. The badge
+is **the number of cards on the board** in that state, and the sum of the slices in every
+other, which keeps it the same promise it makes everywhere else: what a tap leaves you
+looking at. Which of the two screens the tap opens is a question about the render rather
+than about the filter, so `public/app.js` answers it — `epicsIsBoard`, which is the rule
+that decides whether a list is drawn under the board (`listHere`) asked with the view
+forced to My Epics, because a picked bead and an open card put a list back there from
+wherever you happen to be standing. The other three badges never had the problem:
+`surveyKinds` runs ahead of that gate, so `Questions`, `PRs` and `Chats` still count
+exactly the rows tapping them draws. The two answers this is not: dropping the badge on a
+board would take the number away on the one install with something to count, and adding
+the cards to the rows would print a total nothing on the screen adds up to.
+
 **Pushed at the row, never pulled by it, and written as text.** `public/viewbar.js` is
 loaded on twelve pages and `public/inboxfilter.js` on one, so the row cannot read the
 numbers itself — they arrive through `window.beadcause.views.counts(map)`, beside the
