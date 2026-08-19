@@ -630,6 +630,15 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the poll',
       'the release sweep',
       'the reply push',
+      // lib/strays.js, and the one entry in the list that signals other processes. Its
+      // own guards — the age floor, the profile match, `mayReap` — decide what it may
+      // touch, and every one of them answering "nothing" is the settled state rather
+      // than a failure. So what reaches this catch is the sweep being unable to read the
+      // process table or `$TMPDIR` at all, which is a bug and not a quiet afternoon.
+      // Reported rather than swallowed because a sweep that silently stopped running is
+      // indistinguishable from one that keeps finding nothing, and the difference is
+      // 15 GB a fortnight. bc-5isv.
+      'the stray-process sweep',
       // lib/sync.js. `syncOnce` swallows every tracker failure into an outcome of its
       // own, so anything reaching this catch is a bug by construction — which is
       // precisely the bar `reportSweepFailure` sets.

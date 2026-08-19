@@ -4987,8 +4987,15 @@
    * there is still only one place that counts: a badge is a second *reading* of this
    * number, never a second count of the same rows, which is the only way the badge and
    * the list under it cannot disagree.
+   *
+   * `board` is the one thing this file has to tell the control that it cannot work out
+   * for itself (bc-khoe.49): how many cards My Epics would draw, when My Epics is the
+   * board and draws no list at all. It is `null` whenever there *is* a list there, which
+   * is the state the derivation over there was written for. See `epicsIsBoard` in
+   * `render`, which is where the question is decided, and `survey` in
+   * public/inboxfilter.js, which is where the number is chosen between the two.
    */
-  function surveyKinds(rows) {
+  function surveyKinds(rows, board = null) {
     const f = window.beadcause?.inboxFilter;
     if (!f) return;
     const counts = {};
@@ -5002,7 +5009,7 @@
       // get and not the thirty-five that exist. Every kind without one answers true.
       if (f.inSub?.(q) ?? true) counts[kind] = (counts[kind] || 0) + 1;
     }
-    f.survey({ kinds: kindsForScope(), counts, sub: { status } });
+    f.survey({ kinds: kindsForScope(), counts, sub: { status }, board });
   }
 
   /** Chips and the one line beside them, repainted in place. Never rebuilds either. */
@@ -5974,6 +5981,36 @@
   const p0Step = (row) => Math.min(Math.max(Number(row.depth) || 1, 1), P0_INDENT_CAP + 1) - 1;
 
   /**
+   * Where a department relay on this bead has got to, in one span. bc-bmry.4.
+   *
+   * **The age is the point of it.** A relay runs through four or five roles in one
+   * unattended window (lib/relay.js), and from outside, one stalled at step 2 and one
+   * quietly working step 4 are the same silence — which is the cost `dv-vzg` accepted when
+   * it chose the full relay, on condition the steps were readable from here. `⇄ clio ·
+   * check · 3 steps · 40m ago` is the whole sentence that separates them, and there is no
+   * threshold in it: nobody has decided what "stalled" is for a role that reads a
+   * hundred-page charter first, so the row states the age and the reader judges it.
+   *
+   * `steps` is how far it has got and not how far it has to go, because the chain is
+   * derived from the assignee and `--claim` overwrote that (lib/relay.js) — a denominator
+   * here would be one the board cannot honestly produce.
+   *
+   * The flag is a mark and not the text. One flagged check is the ordinary output of a
+   * check and the row has no width for the clause; what it is, is two lines down in the
+   * trail once you open the bead.
+   */
+  function p0RelayHtml(relay) {
+    if (!relay?.role || !relay?.step) return '';
+    const when = relTime(relay.at);
+    const bits = [relay.role, relay.step, relay.steps > 1 ? `${relay.steps} steps` : '', when].filter(Boolean);
+    return `<span class="p0-relay${relay.step === 'handback' ? ' back' : ''}${
+      relay.flagged ? ' flagged' : ''
+    }" title="${esc(relay.flag || `relay: ${bits.join(' · ')}`)}">⇄ ${esc(bits.join(' · '))}${
+      relay.flagged ? ` ⚑${relay.flagged > 1 ? relay.flagged : ''}` : ''
+    }</span>`;
+  }
+
+  /**
    * One descendant, as a row in its epic's tree.
    *
    * **A button since bc-rfnr.9.4, where it was a link to the graph.** The tap opens the
@@ -6023,6 +6060,7 @@
           : `<span class="pill st-${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>`
       }
       <span class="p0-row-title">${esc(row.title || '')}</span>
+      ${p0RelayHtml(row.relay)}
     </button>`;
   }
 
@@ -6320,6 +6358,45 @@
   }
 
   /**
+   * Every step a department relay took on this bead, oldest first. bc-bmry.4.
+   *
+   * The rows are the journal `bin/relaystep.js` wrote as the window ran — one per handoff,
+   * parsed on the daemon by lib/relayjournal.js and arriving as `relay` on `/api/bead`.
+   * Nothing here is markdown: an entry is one clamped line by construction, and running it
+   * through `renderMarkdown` would let a role's own prose draw headings inside a trail.
+   *
+   * **Oldest first, unlike every other list on this screen.** The pull requests are newest
+   * first because they are a queue you check; this is a story, and a story read backwards
+   * loses the one thing it is for — which choice was made early and carried.
+   *
+   * The `handback` row is marked rather than drawn as an ordinary step, because it is the
+   * only entry that says the relay is *not* going to move again on its own — and it is
+   * also the row that says which role a new window would resume as, which nothing else on
+   * the bead records once `--claim` has taken the assignee.
+   */
+  function p0RelayTrailHtml(relay) {
+    const rows = Array.isArray(relay?.entries) ? relay.entries : [];
+    if (!rows.length) return '';
+    const head = [
+      `${rows.length} ${rows.length === 1 ? 'step' : 'steps'}`,
+      relay.flagged ? `${relay.flagged} flagged` : '',
+      relay.handedBack ? 'handed back' : '',
+    ].filter(Boolean);
+    return `<div class="section-label">Relay <span class="p0-relay-sum">${esc(head.join(' · '))}</span></div>
+      <div class="p0-trail">${rows
+        .map(
+          (e) => `<div class="p0-trail-row${e.step === 'handback' ? ' back' : ''}">
+          <span class="p0-trail-who">${esc(e.role)}${e.next ? ` → ${esc(e.next)}` : ''}</span>
+          <span class="pill p0-trail-step">${esc(e.step)}</span>
+          <span class="p0-trail-when">${esc(relTime(e.at))}</span>
+          <span class="p0-trail-note">${esc(e.note)}</span>
+          ${e.flag ? `<span class="p0-trail-flag">⚑ ${esc(e.flag)}</span>` : ''}
+        </div>`
+        )
+        .join('')}</div>`;
+  }
+
+  /**
    * The bead itself, in the order the questions come: what kind of thing it is, how it
    * ended if it has, what it is under and behind, what it says, what has been said about
    * it, and what happened to it.
@@ -6389,6 +6466,13 @@
     // everything before this is the bead as `bd` holds it and this is the trail out of
     // the tracker: it is the answer to "and then what", which is a question you have
     // after reading a bead rather than before.
+    // The relay's own trail, above the pull requests and below the thread — it is the same
+    // question `p0HappenedHtml` answers, at the grain of the roles rather than the branch,
+    // and it is what `dv-vzg` asked for in as many words: every step and handoff readable
+    // from the epic card. Below the thread because the thread is what a *person* said about
+    // this bead and this is what the window did; above the pull requests because the
+    // delivery is the end of the chain and reads as its last line. bc-bmry.4.
+    parts.push(p0RelayTrailHtml(b.relay));
     parts.push(p0HappenedHtml(card, b));
     // The answer first and the graph after it, which is the order of how much they are
     // worth: one of them is the reason this bead is on the screen at all, and the other is
@@ -7395,9 +7479,27 @@
      * exists to lead you to would open nothing.
      */
     const view = window.beadcause?.inboxFilter?.current?.() ?? null;
+    const cards = p0Cards().length;
     const boardHere = view === null || view === 'epics';
-    const boardOnly = view === 'epics' && p0Cards().length > 0;
+    const boardOnly = view === 'epics' && cards > 0;
     const listHere = !boardOnly || beadPicked() || state.open.size > 0;
+
+    /**
+     * And the same question asked about a screen we may not be on: **what would My Epics
+     * draw if it were tapped right now?** bc-khoe.49.
+     *
+     * `listHere` above is about the view we are on; this is the identical rule with the
+     * view forced to `epics`, which is the only thing a badge on that pill can honestly
+     * be about. It is `!listHere` on My Epics itself and it is the same answer from
+     * anywhere else, because the two clauses that put a list back under the board —
+     * a picked bead and an open card — are states rather than places and travel with you.
+     *
+     * What it is *for* is the count: with the board on and no list beneath it, the sum of
+     * the four slices is a number of rows that pill will not draw (`survey` in
+     * public/inboxfilter.js does the arithmetic and the whole argument is there). The
+     * cards are what it draws instead, so the cards are what it says.
+     */
+    const epicsIsBoard = cards > 0 && !beadPicked() && state.open.size === 0;
 
     /**
      * Two narrowings, because since bc-khoe.29 the board and the pills ask different
@@ -7417,7 +7519,7 @@
      */
     const forPills = beadPicked() ? inBead(inRepo) : assignedToMe(inRepo);
     const inBoard = beadPicked() || !boardHere ? forPills : underOwnedRoots(inRepo);
-    surveyKinds(forPills);
+    surveyKinds(forPills, epicsIsBoard ? cards : null);
     const visible = inBoard.filter(inKind);
 
     // The other channel, always first and never filtered. It is rare enough that
@@ -10572,7 +10674,18 @@
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  $('#refresh').addEventListener('click', load);
+  /*
+    ⟳ is the app's now, not this view's — one button in the mark's menu, shared with every
+    pane of the shell (bc-khoe.30.5). So it means "read the view I am looking at again",
+    and each pane asks whether the press was its own before spending a sweep on it;
+    public/history.js asks the mirror of this line. On the eleven pages that have no panes
+    `showing()` is not there to ask, and the answer is the one it has always been.
+  */
+  $('#refresh').addEventListener('click', () => {
+    const showing = window.beadcause?.panes?.showing?.();
+    if (showing && showing !== 'epics') return;
+    load();
+  });
 
   /* ------------------------------------------------------------------- ＋ */
 
@@ -10747,8 +10860,8 @@
      * The branch is on `creates()` — the word on this kind's row in public/inboxfilter.js
      * — and deliberately not on a list of kind ids kept here. That table is the only place
      * that knows what the six kinds are, and a second one in this file is a second thing
-     * that can be wrong about them with nothing to say which is right. bc-khoe.27.3 adds
-     * its branch here the same way, on `bead`.
+     * that can be wrong about them with nothing to say which is right. bc-khoe.27.3's
+     * branch is here the same way, on `bead`, and reads the same word.
      *
      * An open panel closes first, whichever of the two it is, so a second tap on ＋ is
      * always "never mind" — the state it is toggling belongs to the button, not to a kind.
@@ -10759,8 +10872,20 @@
         hideComposePick();
         return;
       }
+      // *What* ＋ creates is the view's, and public/inboxfilter.js is the only file that
+      // knows what the views are — see `creates`. Anything this script does not
+      // recognise, an older page included, is the chat: losing the app's primary action
+      // to a table that moved is worse than one screen offering the wrong create.
       if ((window.beadcause?.inboxFilter?.creates?.() || 'chat') === 'epic') {
         showEpicPick();
+        return;
+      }
+      // `beadFormEl` as well as the answer, and for the same reason one level along: a
+      // phone can be running today's script against last week's document for one load,
+      // and the sheet is markup. Without the guard ＋ on All Beads would be a button
+      // that does nothing at all — silently, which is worse than the chat it replaced.
+      if (window.beadcause?.inboxFilter?.creates?.() === 'bead' && beadFormEl && beadFormFormEl) {
+        openBeadForm();
         return;
       }
       const repos = startableRepos();
@@ -10809,6 +10934,211 @@
     // And once now, for the kind restored from disk or named by `?kind=`. Both are
     // settled before this script runs; see the foot of public/inboxfilter.js.
     paintCompose();
+  }
+
+  /* ---------------------------------------------- the create form on All Beads */
+
+  /*
+    ＋ on All Beads opens a form, and filing it makes the bead — bc-khoe.27.3.
+
+    **Why a form and not a chat.** The chat console is the right tool when the question
+    is *what should be filed*: an agent argues a proposal into shape and you edit the
+    cards. It is the wrong tool when you already know — a bug you just hit, a thing you
+    noticed while reading this very list — and a conversation you have to have with an
+    agent before a bead exists is a create with a turnaround measured in replies.
+
+    **It reuses the console's fields rather than inventing a layout.** Title, type,
+    priority, description, acceptance, labels, in that order, with the same `.field`
+    markup and the same chip rows; public/console.js has been editing exactly this bead
+    shape on a phone since bc-l8jp, and two editors for one shape that drifted apart
+    would be two answers to "what is a bead" with nothing saying which is right.
+
+    **Parent is the field the form exists to have.** Per this tracker's own discipline a
+    bead with nothing decided above it is not workable (bc-rfnr.7) *and* is drawn on no
+    screen, so a create that quietly made orphans would be a button for filing beads
+    nobody will ever see. Blank does not mean parentless: the daemon asks lib/homing.js
+    for the repo's `unsorted` root, exactly as it does for every bead an agent files, and
+    says so in `warnings` when there is nowhere for it to go.
+
+    **Which repo is the same question ＋ already answers**, from the same `startableRepos`
+    the chat uses — so the two creates cannot come to disagree about what the space
+    picker allows. One candidate is stated and not asked about; more than one is a chip
+    row, first one preselected.
+
+    **Nothing here refreshes the list.** The daemon emits `created` on the bus the moment
+    the bead exists, which is what public/stream.js is parked on, so the row arrives the
+    way every other row does. `load()` is called anyway on the way out — the stream is a
+    long poll and a create you just made is the one row worth not waiting a beat for.
+  */
+  const beadFormEl = $('#beadform');
+  const beadFormFormEl = $('#beadform-form');
+  const beadFormSayEl = $('#beadform-say');
+  /** bd's own five, in bd's order. Mirrors `TYPES` in lib/draft.js, which normalises them. */
+  const BEAD_TYPES = ['task', 'bug', 'feature', 'epic', 'chore'];
+  const BEAD_PRIORITIES = [0, 1, 2, 3, 4];
+  const priorityWord = (n) => ['critical', 'high', 'medium', 'low', 'backlog'][n] ?? 'medium';
+
+  const beadForm = { workspace: '', type: 'task', priority: 2, filing: false, filed: '' };
+
+  /** What the form is saying about itself: a refusal, a warning, or nothing. */
+  function sayOnForm(text, tone = '') {
+    if (!beadFormSayEl) return;
+    beadFormSayEl.textContent = text || '';
+    beadFormSayEl.classList.toggle('bad', tone === 'bad');
+    beadFormSayEl.classList.toggle('warn', tone === 'warn');
+    beadFormSayEl.hidden = !text;
+    // The sheet is a scroller with eight fields in it, and this line sits at the foot
+    // under all of them. A refusal you have to scroll to find is a form that looks like
+    // it did nothing — which is the exact failure "a refused write says so" is about.
+    // The *button* is what is scrolled to rather than the line: it is the row below it,
+    // so both arrive, and the thing you have to press next is under your thumb.
+    if (text) $('#beadform-file')?.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  const beadChip = (group, value, label, on) =>
+    `<button type="button" class="chip" data-form="${esc(group)}" data-value="${esc(value)}"
+      aria-pressed="${on}">${esc(label)}</button>`;
+
+  /**
+   * Redraw the three chip rows off `beadForm`.
+   *
+   * The workspace row is the one that can be empty, and it says so rather than drawing
+   * nothing: a form with no repo to file into is refused on the button, and a blank
+   * space where the choice should be reads as a control that failed to load.
+   */
+  function paintBeadForm() {
+    const repos = startableRepos();
+    if (!repos.includes(beadForm.workspace)) beadForm.workspace = repos[0] || '';
+    const wsRow = $('#beadform-ws');
+    const wsField = $('#beadform-ws-field');
+    if (wsRow) {
+      wsRow.innerHTML = repos.length
+        ? repos.map((w) => beadChip('workspace', w, w, w === beadForm.workspace)).join('')
+        : `<span class="hint">${
+            state.workspaces.length ? 'No workspaces in this space.' : 'No workspaces configured.'
+          }</span>`;
+    }
+    // One candidate is not a choice, so it is stated rather than asked about — the same
+    // bargain ＋ makes for a chat, one control along. The row stays visible because
+    // *which repo this lands in* is worth reading before you file, even when there was
+    // never a second answer.
+    if (wsField) wsField.classList.toggle('one', repos.length === 1);
+    const typeRow = $('#beadform-type');
+    if (typeRow) {
+      typeRow.innerHTML = BEAD_TYPES.map((t) => beadChip('type', t, t, t === beadForm.type)).join('');
+    }
+    const prioRow = $('#beadform-priority');
+    if (prioRow) {
+      prioRow.innerHTML = BEAD_PRIORITIES.map((n) =>
+        beadChip('priority', String(n), `P${n} ${priorityWord(n)}`, n === beadForm.priority)
+      ).join('');
+    }
+    const fileBtn = $('#beadform-file');
+    if (fileBtn) fileBtn.disabled = beadForm.filing || !beadForm.workspace;
+  }
+
+  function openBeadForm() {
+    if (!beadFormEl) return;
+    beadForm.type = 'task';
+    beadForm.priority = 2;
+    beadForm.filing = false;
+    beadForm.filed = '';
+    for (const id of ['title', 'description', 'acceptance', 'parent', 'labels']) {
+      const el = $(`#beadform-${id}`);
+      if (el) el.value = '';
+    }
+    const fileBtn = $('#beadform-file');
+    if (fileBtn) fileBtn.textContent = 'File it';
+    sayOnForm('');
+    paintBeadForm();
+    beadFormEl.hidden = false;
+    beadFormEl.classList.add('open');
+    $('#beadform-title')?.focus();
+  }
+
+  function closeBeadForm() {
+    if (!beadFormEl) return;
+    beadFormEl.classList.remove('open');
+    beadFormEl.hidden = true;
+  }
+
+  if (beadFormEl && beadFormFormEl) {
+    beadFormFormEl.addEventListener('click', (ev) => {
+      const chip = ev.target.closest('[data-form]');
+      if (!chip) return;
+      const group = chip.dataset.form;
+      beadForm[group] = group === 'priority' ? Number(chip.dataset.value) : chip.dataset.value;
+      paintBeadForm();
+    });
+
+    $('#beadform-close')?.addEventListener('click', closeBeadForm);
+    $('#beadform-cancel')?.addEventListener('click', closeBeadForm);
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !beadFormEl.hidden) closeBeadForm();
+    });
+
+    beadFormFormEl.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      // The second press after a filing that landed with something to say is the way
+      // out, not a second bead — see the warnings branch below.
+      if (beadForm.filed) {
+        closeBeadForm();
+        return;
+      }
+      if (beadForm.filing) return;
+      const title = String($('#beadform-title')?.value || '').trim();
+      if (!title) {
+        sayOnForm('A title is the one field a bead cannot be filed without.', 'bad');
+        $('#beadform-title')?.focus();
+        return;
+      }
+      if (!beadForm.workspace) {
+        sayOnForm('There is no workspace in this space to file into.', 'bad');
+        return;
+      }
+      beadForm.filing = true;
+      paintBeadForm();
+      sayOnForm('Filing…');
+      try {
+        const made = await api('/api/bead/create', {
+          method: 'POST',
+          body: JSON.stringify({
+            workspace: beadForm.workspace,
+            title,
+            type: beadForm.type,
+            priority: beadForm.priority,
+            description: String($('#beadform-description')?.value || ''),
+            acceptance: String($('#beadform-acceptance')?.value || ''),
+            parent: String($('#beadform-parent')?.value || '').trim(),
+            labels: String($('#beadform-labels')?.value || ''),
+          }),
+        });
+        const warnings = made.warnings || [];
+        // A warning is not a failure and it is not a toast either: "filed with no parent,
+        // so nothing will work it" is a sentence you have to be able to read twice, and a
+        // toast is gone in 2.6 seconds. It stays on the sheet that produced it, the way
+        // the console keeps its own screen up over one, and the button becomes the way
+        // out. The bead exists either way, so the list is refreshed either way.
+        if (warnings.length) {
+          beadForm.filed = made.id;
+          beadForm.filing = false;
+          const fileBtn = $('#beadform-file');
+          if (fileBtn) fileBtn.textContent = 'Done';
+          sayOnForm(`Filed ${made.id}. ${warnings.join(' ')}`, 'warn');
+          paintBeadForm();
+        } else {
+          closeBeadForm();
+          toast(`Filed ${made.id}${made.parent ? ` under ${made.parent}` : ''}`);
+        }
+        load();
+      } catch (err) {
+        beadForm.filing = false;
+        paintBeadForm();
+        // The form stays up with everything you typed still in it. A create that failed
+        // and closed would be a bead you have to write out again to find out why.
+        if (err.message !== 'token rejected') sayOnForm(err.message, 'bad');
+      }
+    });
   }
 
   /*
