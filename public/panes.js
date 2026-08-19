@@ -53,7 +53,7 @@
   ## A pane whose builder has not landed yet
 
   `index.html` holds a container for **every** view, and two of them are empty:
-  `data-pending` names the bead that fills each (bc-khoe.30.5 for History, bc-khoe.30.6
+  `data-pending` names the bead that fills each (bc-khoe.30.5 for History, **bc-khoe.4**
   for Advocates). A pending pane is registered nowhere and can never be shown — `has()`
   says no, `show()` falls to Home — and `public/viewbar.js` reads the same answer, so
   those two pills stay the `<a href>` they have always been and still load `/history` and
@@ -64,6 +64,16 @@
   further beads merge — on an app that deploys itself the moment a branch lands, and that
   Adam reads on a phone. `data-pending` costs one attribute and one `continue` below, and
   each of those beads deletes its own by filling its own container.
+
+  The Advocates value is the one that has moved. It said bc-khoe.30.6, which is the bead
+  that *decided* how the advocate console becomes a pane rather than the one that builds
+  it; the fold itself is bc-khoe.4, which is behind bc-khoe.10 because bc-khoe.10 removes
+  one of the four sections that would otherwise be folded in. The attribute names the bead
+  whose merge deletes it, so it has to name the fold and not the ruling. What the ruling
+  was — the chip row stays a mode switch inside this one pane, and this is the one pane
+  that stands down while it is hidden — is in README.md under "The advocate console is one
+  pane, and its chip row stays", and it is the reason this container is one pane rather
+  than the three or four the chips look like.
 
   ## Why a file of its own, and not a few lines in viewbar.js
 

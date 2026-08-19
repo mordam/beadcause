@@ -54,7 +54,8 @@
 //
 // `PILLS` in `public/viewbar.js` is the one place a view is added, and it keeps moving:
 // bc-khoe.2 replaced four pills with seven while this file was being written, and
-// bc-khoe.4 (Advocates, Mirror) and bc-khoe.7 (Releases) each change the set again. A
+// bc-khoe.10 (Config) and bc-khoe.7 (Releases) each change the set again — bc-khoe.4 no
+// longer does, see the Mirror note in public/viewbar.js. A
 // list copied into this file would make every one of those a check edit as well, and a
 // check that has to be edited to keep passing is a check that gets edited rather than
 // believed — the same run that took the row from four pills to seven was green here
@@ -408,7 +409,7 @@ const SIZES = [
  * So the row is put into the state it is promising something about, by giving it less
  * width than it needs, and this pass **fails if the row turns out to fit** — the
  * precondition is asserted rather than hoped for. It is not a phone; it stands in for the
- * phone the row is heading towards as bc-khoe.4 and bc-khoe.7 add to it, and the
+ * phone the row is heading towards as bc-khoe.10 and bc-khoe.7 add to it, and the
  * arithmetic `reveal()` does is the same either way.
  */
 const PINCH = { width: 240, height: 640 };

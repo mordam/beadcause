@@ -6585,7 +6585,9 @@ made it a chip on the advocates page; bc-khoe.1 gave it a pill back. bc-khoe.2 n
 label — **PRs** is the kind pill now, the pull requests and the finished branches *in
 Home* — so the board's three paths (`/prs`, `/pulls`, `/prs.html`) moved to the Advocates
 pill, which is the pill that points at the page they actually serve. The board is two taps
-rather than one, and bc-khoe.4 is where the console comes apart and that is re-decided.
+rather than one, and it stays two: bc-khoe.30.6 re-decided it with the rest of the chip row
+and left it a mode of the console — see
+[The advocate console is one pane, and its chip row stays](#the-advocate-console-is-one-pane-and-its-chip-row-stays).
 
 ⟳ stays in the top bar of the views that have it: it acts on the view you
 are looking at rather than taking you off it. ⌨️ (the terminal) and ⚖️ (the
@@ -6678,7 +6680,7 @@ the badge element is the *same node* after the number moved and focus is still o
 it was on, and that the row is still one line at 360px with every count at three digits.
 
 Two things about it are derivations rather than lists. The **pills** are read out of
-`PILLS` in `public/viewbar.js` — bc-khoe.4 and bc-khoe.7 each change that set, and a list
+`PILLS` in `public/viewbar.js` — bc-khoe.10 and bc-khoe.7 each change that set, and a list
 copied into the check would make both of them a check edit as well; which pill should be
 lit on a given page comes from that same array's `paths`, so *nothing is current* on
 `/console` or `/admin` is asserted exactly as firmly as *`advocates` is* on `/monitor`. The
@@ -6802,7 +6804,7 @@ same turn as the unhide: the content was never unbuilt, only unpainted, so there
 height still to arrive and no frame to wait for.
 
 **Two panes are empty on purpose.** `data-pending` names the bead that fills each —
-bc-khoe.30.5 for History, bc-khoe.30.6 for Advocates — and it is load-bearing rather than a
+bc-khoe.30.5 for History, bc-khoe.4 for Advocates — and it is load-bearing rather than a
 note: a pending pane is registered nowhere, can never be shown, and the pill row asks the
 same question, so those two pills stay the `<a href>` they have always been and still load
 their own documents. That is what let the shell land on its own. The alternative was two of
@@ -6874,7 +6876,7 @@ silently did not build is a blank screen with no account of why.
 
 No standby is actually mounted yet: it goes up only when a built pane has a `wake`, and Home
 — the one pane with contents today — keeps its own poll. So the connection count is exactly
-what it was, and the machinery is waiting for bc-khoe.30.5 and .30.6.
+what it was, and the machinery is waiting for bc-khoe.30.5 and bc-khoe.4.
 
 `node test/panestage.mjs` runs the four real files in a `node:vm` with the document still
 parsing, which is what makes the staging visible at all: that the landed-on pane is built in
@@ -6883,6 +6885,58 @@ what it showed, that a throwing builder is contained and never retried, that the
 union and widening it moves the one request rather than opening a second, and that the
 standby yields the socket the instant a view wants it and takes it back when the view lets
 go.
+
+### The advocate console is one pane, and its chip row stays
+
+The Advocates pane is the biggest of the three by a distance and the only one with an
+argument in it. `public/monitor.js` is 3,357 lines and it does not arrive alone:
+`public/prs.js` (1,334), `public/mirror.js` (965) and `public/montabs.js` come with it,
+because `/monitor` is not one screen — it is a chip row over four sections. So the pane
+that costs the most to build is also the one that raises the question this epic exists to
+ask, and it raises it *inside itself*: **two rows of things you tap, one above the other,
+is the shape [the pill row](#getting-around--the-pill-row) was written to remove** — and
+the chip row is the last one left. bc-khoe.30.6 is where that was settled, and the answer
+is that it stays. Three reasons, in the order they decide it.
+
+**The Mirror cannot be a pill, so the row cannot be dissolved.** It follows *another*
+device and drops its own — the whole of
+[The Mirror is a pane, not a tab](#the-mirror-is-a-pane-not-a-tab) — so a pill for it on
+the phone the pill is tapped from leads to a screen that says "Looking for a device…" and
+means it. That has now been tested three times against three different empty slots (a sixth
+bottom tab, a bottom bar with room after PRs left, and this row) and come out the same way
+each time. Whatever else happens to the chips, one of them is staying a mode.
+
+**A row of one is worse than the row it replaced.** If the board and the settings became
+pills and the Mirror did not, what is left is a single chip floating above the roster, which
+is a control with no row to explain it — the reader has to work out that it is a switch
+rather than a heading. The pair only reads as a switch because there is more than one of it.
+
+**These are modes, not views.** A view is a different question about the tracker; the pill
+row moves between those. What is under these chips is *one space's work* asked three ways —
+what is running this minute, what is waiting to ship, and what another device is looking at
+— which is the argument bc-3xb made for the Mirror and bc-d4d5 made again for the board, on
+their own merits, before any of this. What was always wrong with the pair is that the two
+rows are **drawn alike**, and that is bc-stci: restyle the chips as the segmented control
+they already are. A restyle, not a deletion.
+
+The row is also shrinking on its own. bc-khoe.10 takes **Config** out to a view of its own,
+which leaves **Advocates · PRs · Mirror** — and it is why the fold waits: folding in a
+section that another branch is deleting is work with a conflict already written into it.
+`data-pending` on the Advocates container therefore names **bc-khoe.4**, not bc-khoe.30.6.
+The attribute names the bead whose merge deletes it, and the fold is bc-khoe.4's, behind
+bc-khoe.10; bc-khoe.30.6 is the bead that decided the shape and wrote it down here.
+
+**And this is the one pane that stands down while it is hidden.** The stager's rule is that
+a hidden pane stays live, so a pane you come back to is already right rather than catching
+up, and that rule is correct everywhere else. It is wrong for all three of these sections.
+The board is a `gh` sweep per repo — real money, spent on a screen behind two hidings. The
+Mirror is worse than expensive: while it is up this device reports `view: null`, because you
+are looking at somebody else's screen rather than at anything here, and a Mirror left
+running behind Home would tell every other device in the house that this one is nowhere when
+it is in fact on the inbox. So once the row is inside a pane, *hidden* means the chip is down
+**or** the pane is, and a chip that is up inside a hidden pane is down. The roster is the
+exception to the exception, and it is free: its snapshot rides the stager's shared wake, so
+it is current the moment you come back without having asked for anything.
 
 ### The ledger — the History tab
 
@@ -7272,8 +7326,10 @@ There was a third reason when this was decided — *the bar is full at five, and
 it* — and it has **twice since expired**: PRs left the bar in bc-l8jp.6, and then bc-khoe.1
 deleted the bar for a row that scrolls sideways and has no fullness to be at. The decision
 does not move, and that is exactly the point of writing the other two down: the next person
-to notice the room should not have to re-derive why the Mirror is not what goes in it.
-bc-khoe.4 is where it is properly re-decided, together with the chip row it lives on.
+to notice the room should not have to re-derive why the Mirror is not what goes in it. It
+*was* properly re-decided, by bc-khoe.30.6, together with the chip row it lives on, and it
+came out the same way a third time — see
+[The advocate console is one pane, and its chip row stays](#the-advocate-console-is-one-pane-and-its-chip-row-stays).
 
 ### The board is a pane too
 
@@ -7292,7 +7348,9 @@ rather than by folding a page into it — see
 paths to `monitor.html` with the second chip up. (Those three are also the PRs pill's own
 `paths` since bc-khoe.1, so
 the row across the top marks it current on all of them while the chip row puts the board
-up — the duplication is transitional, and bc-khoe.4 is where the chip row goes.)
+up — the duplication is not transitional after all, and
+[The advocate console is one pane, and its chip row stays](#the-advocate-console-is-one-pane-and-its-chip-row-stays)
+says why.)
 
 What that cost, and what it did not:
 
