@@ -922,6 +922,17 @@ try {
   );
   await back(s);
   await s.send('Page.navigate', { url: `${BASE}/work` });
+  // Back onto the roster's own chip, and by tapping it. The Mirror was the last chip up
+  // and the row remembers across a load — deliberately, in both documents — so a reload
+  // of `/work` comes back to the Mirror. It used to draw the roster underneath anyway,
+  // because `monitor.js` painted its warm copy at module scope whether or not its chip was
+  // up; since bc-khoe.4 it mounts on the first showing instead, which is what keeps a load
+  // of the shell that lands on Home from writing a screenful of cards behind two hidings.
+  // Nothing about the drawer changed: what the next few lines want is the console, and
+  // asking for it is a tap.
+  if (!(await waitFor(s, `!!document.querySelector('#mon-tabs [data-tab="advocates"]')`)))
+    throw new Error('the chip row never arrived');
+  await evalJs(s, clickSel('#mon-tabs [data-tab="advocates"]'));
   if (!(await waitFor(s, `!!document.querySelector('.mon-card')`))) throw new Error('the console never came back');
   await openSections(s);
   if (!(await waitFor(s, `!!document.querySelector('.work-row[href^="/graph?"]')`)))

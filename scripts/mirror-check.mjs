@@ -289,12 +289,20 @@ try {
 
   console.log(`\n${BASELINE ? 'BASELINE (HEAD)' : 'working copy'} · ${BASE}\n`);
 
-  // Pair the browser, then open the advocate console on its mirror tab. Which tab is
-  // showing lives in localStorage, so setting it before loading the page that reads
-  // it means the pane is live from the first paint rather than after a click.
+  // Pair the browser, then open the advocate console on its mirror tab. Which chip is
+  // showing lives in localStorage, so setting it before loading the page that reads it
+  // means the pane is live from the first paint rather than after a click.
+  //
+  // `beadcause.mon.tab`, which is the key the row actually keeps it under. It used to be
+  // enough to set `beadcause.mirror.tab` — the name from when mirror.js owned the swap,
+  // still read as a fallback — because nothing had written the current one yet. Since
+  // bc-khoe.4 the pairing load above *is* the shell, and the shell holds this same row as
+  // its Advocates pane: its boot puts a chip up and stores it, so by the time this line
+  // runs the fallback is no longer what `stored()` reads. Migration off the old name is
+  // test/montabs.mjs's, and it is still covered there.
   await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
   await waitFor(s, `localStorage.getItem('beadcause.token') === ${JSON.stringify(TOKEN)}`);
-  await evalJs(s, `localStorage.setItem('beadcause.mirror.tab', 'mirror')`);
+  await evalJs(s, `localStorage.setItem('beadcause.mon.tab', 'mirror')`);
   await s.send('Page.navigate', { url: `${BASE}/advocates` });
 
   /* ---- it draws the session the phone is holding ---- */
