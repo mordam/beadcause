@@ -220,7 +220,11 @@ try {
   check('the pane was built first, ahead of the inbox', cold.builtFirst === 'history', cold.builtFirst);
   check('and it asks the shell’s poll for nothing but presence', cold.want === 'presence', String(cold.want));
   check('the Ledger pill is not a link any more', cold.historyPill === 'not-a-link' && cold.current.includes('Ledger'), cold.current);
-  check('and the panes still waiting on their beads still are', cold.advocatesPill === 'a-link' && cold.pending === 'advocates,releases', cold.pending);
+  // bc-khoe.30.14 filled the release board's container and bc-khoe.4 the advocate console's,
+  // so nothing is pending any more and every pill on the row is a control. What this line
+  // is really asserting has not changed: the row and the markup agree about which views
+  // this document can show.
+  check('and no pane is waiting on a bead any longer', cold.advocatesPill === 'not-a-link' && cold.pending === '', cold.pending);
 
   /* --------------------------------------------------- away, and back again */
 

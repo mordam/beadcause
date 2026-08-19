@@ -65,9 +65,39 @@
   'use strict';
 
   const token = localStorage.getItem('beadcause.token') || '';
+
+  /** The view id the pane this section lives in is, in public/hashroute.js's vocabulary. */
+  const VIEW = 'advocates';
+  /** The chip this section is behind. */
+  const TAB = 'prs';
+
+  const panes = (window.beadcause && window.beadcause.panes) || null;
+
+  /**
+   * Is this the shell's Advocates pane, or the `/prs` document it also still is?
+   *
+   * Asked of the document rather than of a flag — see the same three lines at the top of
+   * public/montabs.js, which owns the row this section is a chip on.
+   */
+  const inShell = Boolean(panes && typeof panes.has === 'function' && panes.has(VIEW));
+
   const out = document.getElementById('prs');
-  const pulse = document.getElementById('pulse');
+  /* The brand dot. Left alone in the shell: it is the whole document's there, driven off
+     public/report.js's count of what is in flight, and a second writer toggling `busy` on
+     it would clear it under a fetch of the inbox's that is still out. */
+  const pulse = inShell ? null : document.getElementById('pulse');
   const observing = document.getElementById('observing');
+
+  /**
+   * Is this section the thing being looked at?
+   *
+   * `out.hidden` was the whole answer while this was a pane of a page. In the shell it is
+   * half of one — the pane holding all three sections can be hidden with this chip up, and
+   * a board that read its own attribute would go on spending a `gh` sweep per repo on
+   * every merge, all day, behind Home. That is the most expensive of the three to get
+   * wrong, which is why the row answers it rather than each section guessing.
+   */
+  const upNow = () => window.beadcause?.monTabs?.up?.(TAB) ?? !out.hidden;
 
   /* There was a minute-long `setInterval` here that re-asked for the whole board, a `gh`
      call per repo, for as long as the page was open. It is gone: the board follows the
@@ -722,7 +752,7 @@
   });
 
   async function load({ refresh = false } = {}) {
-    pulse.classList.add('busy');
+    pulse?.classList.add('busy');
     try {
       const res = await fetch(`/api/prs${refresh ? '?refresh=1' : ''}`, { headers: { 'x-beadcause-token': token } });
       if (!res.ok) {
@@ -757,7 +787,7 @@
       state.error = err.message;
       render();
     } finally {
-      pulse.classList.remove('busy');
+      pulse?.classList.remove('busy');
       // Whether or not that worked, and deliberately: a board opened during a deploy —
       // which is exactly when this page is opened — is looking at a daemon that is
       // restarting, and with the minute timer gone the stream is the only thing that
@@ -783,20 +813,25 @@
      side that refresh different halves of one screen is worse than one that refreshes
      what you are looking at. */
   document.getElementById('refresh').addEventListener('click', () => {
-    if (out.hidden) return;
+    if (!upNow()) return;
     load({ refresh: true });
   });
 
   /* ------------------------------------------------------------------- the stream */
 
   /**
-   * Follow the event log instead of re-asking on a clock.
+   * One answered poll, whichever mount asked for it.
    *
-   * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll
-   * that asked for the inbox questions, and this page draws none of them — it wants to
-   * be woken, and then it decides for itself whether the news was about a pull request.
-   * `cold: true` because `/api/prs` carries no sequence, and with `want: 'presence'` the
-   * `since`-less first request that learns one costs nothing.
+   * The shape is `follow`'s own `onWake` argument, which is also what public/montabs.js
+   * fans out from the stager — so this is the document's `onWake` and the pane's `wake`,
+   * one function under one name rather than the same logic written twice and free to
+   * drift.
+   *
+   * **Nothing in here is free, so the guard is the first line rather than a middle one.**
+   * Every wake this board acts on is a `gh` sweep per repo, which is the reason the pane
+   * this section is in stands down while it is hidden at all — see the header of
+   * public/montabs.js. The roster next door takes the free half of a wake regardless; this
+   * one has no free half to take.
    *
    * **Why it re-asks for the board rather than patching the row the event names.** The
    * three lamps are not fields on the event: `merged`, `pushed` and `deployed` are the
@@ -807,9 +842,51 @@
    * drop the board cache as they fire, so the first board through does one `gh` sweep
    * and every other open board shares it.
    */
+  function wake({ events, resync }) {
+    if (!upNow()) return;
+    // Not while you are mid-sentence or holding an armed merge: a repaint would
+    // throw the first away and disarm the second under your thumb. The ⟳ is still
+    // there, and so is the next event.
+    if (state.busy || state.armed || state.draft) return;
+    // We have lost our place in the log, so nothing on screen is provably current —
+    // this is one of the three cases that earns a forced sweep.
+    if (resync) {
+      load({ refresh: true });
+      return;
+    }
+    // `deploy` is still one of BOARD_EVENTS and still earns a sweep, because a deploy
+    // that settled has moved the Deployed and Live lamps on the rows below. What it no
+    // longer earns is a second request: the journal behind it is drawn on /releases
+    // now (bc-khoe.7), and this page has nothing to draw from it.
+    if (!window.beadcause.stream.touched(events, BOARD_EVENTS)) return;
+    load();
+  }
+
+  /* The pane's own handler, registered unconditionally and called only in the shell: on
+     monitor.html nothing invokes public/montabs.js's fan-out, because `follow` below owns
+     this section's socket there. Exactly one of the two fires per document. */
+  window.beadcause?.monTabs?.onWake?.(wake);
+
+  /**
+   * Follow the event log instead of re-asking on a clock — on the document only.
+   *
+   * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll
+   * that asked for the inbox questions, and this view draws none of them — it wants to
+   * be woken, and then it decides for itself whether the news was about a pull request.
+   * `cold: true` because `/api/prs` carries no sequence, and with `want: 'presence'` the
+   * `since`-less first request that learns one costs nothing.
+   *
+   * **In the shell this does nothing at all**, and the early return is the point rather
+   * than a tidy-up: that document holds exactly one poll and public/panestage.js hands its
+   * answers to every pane that asked for them. A second `follow` here would be one of the
+   * four parked requests one screen would otherwise hold — each a `bd` sweep per event on
+   * the daemon behind it. `presence` is declared to the stager instead, by
+   * public/montabs.js, and it is the same word for the same reason.
+   */
   let stream = null;
   function follow() {
-    if (!window.beadcause?.stream) return;
+    // See the same three lines in public/monitor.js and public/releases.js.
+    if (inShell || !window.beadcause?.stream) return;
     // Mounted once and started every time `load` runs — the boot and the ⟳ — so a stream
     // that gave up after a run of failures can be picked back up by hand. `start` on one
     // that is already parked is a no-op.
@@ -821,30 +898,10 @@
       api: warmApi,
       want: 'presence',
       cold: true,
-      /* Only while the board is the pane you are on. This costs more than the same guard
-         on the advocates pane does: every wake this board acts on is a `gh` sweep per
-         repo, and a hidden board following the log would spend one on every merge all
-         day for a screen nobody has open. Coming back calls `load`, which calls `follow`,
-         which restarts a stream that stood itself down. */
-      ready: () => !out.hidden,
-      onWake({ events, resync }) {
-        // Not while you are mid-sentence or holding an armed merge: a repaint would
-        // throw the first away and disarm the second under your thumb. The ⟳ is still
-        // there, and so is the next event.
-        if (state.busy || state.armed || state.draft) return;
-        // We have lost our place in the log, so nothing on screen is provably current —
-        // this is one of the three cases that earns a forced sweep.
-        if (resync) {
-          load({ refresh: true });
-          return;
-        }
-        // `deploy` is still one of BOARD_EVENTS and still earns a sweep, because a deploy
-        // that settled has moved the Deployed and Live lamps on the rows below. What it no
-        // longer earns is a second request: the journal behind it is drawn on /releases
-        // now (bc-khoe.7), and this page has nothing to draw from it.
-        if (!window.beadcause.stream.touched(events, BOARD_EVENTS)) return;
-        load();
-      },
+      /* Only while the board is the section you are on. Coming back calls `load`, which
+         calls `follow`, which restarts a stream that stood itself down. */
+      ready: upNow,
+      onWake: wake,
     });
     stream.start();
   }
@@ -921,9 +978,11 @@
     if (!tabs) mount();
     else
       tabs.onChange((which) => {
-        // Away: nothing to stand down any more beyond the stream, which does it itself
-        // through `out.hidden` — see `ready` in `follow`.
-        if (which !== 'prs') return;
+        // Away: nothing to stand down beyond the stream, which does it itself through
+        // `upNow` — see `ready` in `follow`, and `wake`'s first line in the shell. The
+        // empty string is one of the answers here now: it is the pane itself going away,
+        // which this section can no more tell from a chip swap than it needs to.
+        if (which !== TAB) return;
         if (!mounted) {
           mounted = true;
           return mount();

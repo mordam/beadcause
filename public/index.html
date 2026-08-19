@@ -376,27 +376,79 @@
   </div>
 
   <!--
-    The one view still a container with nothing in it. Releases came off this list when
-    bc-khoe.30.14 filled its container below; Advocates is the last of the four.
+    The advocate console — who is arguing for work in this space, what is shipping, and
+    what another device is looking at. The last of the four containers that held a place
+    in the grammar with nothing in it, and bc-khoe.4 is the bead that filled it; there are
+    no `data-pending` panes left in this document.
 
-    `data-pending` names the bead that fills it, and it is load-bearing rather than a note:
-    panes.js refuses to show a pane carrying one and the pill row asks it the same
-    question, so Advocates stays an ordinary `<a href>` link to the document it still is.
-    That is what let the shell land on its own — the alternative was pills leading to a
-    blank screen on an app that deploys itself the moment a branch merges. The bead
-    deletes the attribute by filling the container, which is what the pane above just did.
+    **It is the only pane with a row of its own inside it, and that was decided rather
+    than inherited** (bc-khoe.30.6). This bead used to say Advocates and Mirror became
+    pills in the row above. They do not: the Mirror follows *another* device and drops its
+    own, so a pill tapped from the phone would be a view with nothing to show, and a chip
+    row that dissolves to one chip is a worse shape than the row it replaced. These are
+    modes of one space's work rather than views of the tracker — the pill row moves
+    between views, this one moves within one. That the two are drawn alike is the standing
+    complaint and it is bc-stci, a restyle rather than a deletion. The argument at length
+    is in README.md under "The advocate console is one pane, and its chip row stays".
 
-    Advocates names **bc-khoe.4** rather than bc-khoe.30.6, and the swap is a sequencing
-    fact rather than a rename (bc-khoe.30.6). This container is the advocate console —
-    monitor.html's chip row and all four of its sections, which is monitor.js, prs.js,
-    mirror.js and montabs.js in one pane — and one of those four sections is *leaving*:
-    bc-khoe.10 takes the space's settings out to a view of their own. Filling this
-    container before that lands would mean folding in a Config pane already deleted on
-    another branch, so the fold is bc-khoe.4's, behind bc-khoe.10, and bc-khoe.30.6 is
-    the bead that decided that and wrote down the two rulings the fold needs. See
-    "The advocate console is one pane, and its chip row stays" in README.md.
+    The markup is monitor.html's, unchanged, minus the top bar that page drew for itself.
+    What fills it is public/montabs.js, public/monitor.js, public/prs.js and
+    public/mirror.js — the same four files that page loads, none of them rewritten. The
+    row goes on owning the swap and is the pane's one registration with public/panestage.js,
+    because `register` holds one spec per view id: `build` is "put the remembered chip up"
+    and `wake` is "hand the poll to whichever section asked".
+
+    **`⦿ observing` and the tally are inside the pane rather than up in the bar**, at the
+    right-hand end of the chip row where the page kept them at the right-hand end of its
+    own top bar. The shell's top bar belongs to every view; which Mac this is and how many
+    advocates are working are facts about this one, and left in the bar they would sit over
+    the inbox. `id="observing"` keeps its name — the Releases pane renamed its own to
+    `rel-observing` for exactly this collision (bc-khoe.30.14), so the bare name is free
+    and monitor.js and prs.js both go on finding it with one lookup in either document.
+
+    The ⚙ that page carries does **not** come with it: bc-khoe.5 landed and accountbar.js
+    draws a standing Admin row in the mark's menu on every page, so a second one hoisted
+    out of this pane would be the same row drawn twice. The ⟳ and the brand dot are the
+    shell's and are shared — each pane asks whether the press was its own.
+
+    `monitor.html` stays served and stays correct. Landing `/monitor`, `/advocates`,
+    `/sessions`, `/work`, `/prs` and the rest on this pane is bc-khoe.30.7; until that
+    merges the document is still the address, which is why every one of these four files
+    asks the document whether it has panes rather than assuming.
   -->
-  <div class="pane" data-pane="advocates" data-pending="bc-khoe.4" hidden></div>
+  <div class="pane" data-pane="advocates" hidden>
+    <!-- `data-pane` is the section a chip shows and `data-view` is what this device tells
+         public/presence.js it is looking at; public/montabs.js reads both and owns the
+         swap. Mirror's is empty on purpose — you are looking at *another* device there,
+         so this one is nowhere. -->
+    <nav class="chip-row mon-tabs" id="mon-tabs" aria-label="Views">
+      <button class="chip" data-tab="advocates" data-pane="mon" data-view="sessions" aria-pressed="true">Advocates</button>
+      <button class="chip" data-tab="prs" data-pane="prs" data-view="prs" aria-pressed="false">PRs</button>
+      <button class="chip" data-tab="mirror" data-pane="mirror" data-view="" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>
+      <!-- Pushed to the far end by one rule in style.css. Neither is a control and neither
+           is a chip: the observer mark is which daemon this is, and the tally is the
+           roster's own count, both written by the scripts below and both empty on most
+           installs. -->
+      <span class="mon-meta">
+        <span class="observing" id="observing" hidden>⦿ observing</span>
+        <span class="mon-tally" id="tally"></span>
+      </span>
+    </nav>
+
+    <!-- The roster. Everything in each of these three is replaced on every repaint, so
+         nothing that has to survive one may live in them. -->
+    <main id="mon" class="work pagescroll">
+      <div class="empty">Asking every workspace…</div>
+    </main>
+
+    <section id="prs" class="work pagescroll" hidden>
+      <div class="empty">Asking every repo…</div>
+    </section>
+
+    <section id="mirror" class="work pagescroll" hidden>
+      <div class="empty">Looking for a device…</div>
+    </section>
+  </div>
 
   <!--
     Releases — where everything in flight actually is, as cards off the two queues.
@@ -421,8 +473,9 @@
     The `⦿ observing` chip is inside the pane rather than up in the brand, where that page
     keeps it. The top bar belongs to every view now and this is a fact about the deploys
     *this* view is drawing; putting it beside the mark would leave it on screen over the
-    inbox. It is renamed with the list for a second reason as well — monitor.html carries
-    an `id="observing"` too and folds into this same document under bc-khoe.4.
+    inbox. It is renamed with the list for a second reason as well — monitor.html carries an
+    `id="observing"` too, and bc-khoe.4 folded it into this same document, which is where it
+    is now: the Advocates pane above keeps the bare name because this one gave it up.
   -->
   <div class="pane" data-pane="releases" hidden>
     <main class="work pagescroll">
@@ -544,6 +597,30 @@
        carry them; everything else here waits to be woken by the one poll the stager
        holds. See public/releases.js. -->
   <script src="/releases.js"></script>
+  <!-- The Advocates pane's chip row, and which of its three sections is up (bc-khoe.4).
+       Before the three below, because each of them registers on it as it loads — and it is
+       the pane's one registration with the stager above, so it is what decides when the
+       three are built and what hands them the one poll's answers.
+
+       It is also the only pane script that has to be told the pane went away: the panes of
+       this shell stay live while hidden (bc-khoe.30.4) and these three must not, because
+       the board is a `gh` sweep per repo and the Mirror publishes `view: null` for this
+       device. So "hidden" here means the chip is down **or** the pane is. See
+       public/montabs.js. -->
+  <script src="/montabs.js"></script>
+  <!-- The roster: every advocate in every workspace, and the sessions they have open.
+       After spacebar.js, which it registers its repaint on, and after the markdown pair
+       above, which the transcript folds draw with. See public/monitor.js. -->
+  <script src="/monitor.js"></script>
+  <!-- The pull request board — the PRs chip. After prcard.js, which it takes the row, the
+       lamps and the status ladder off at the top of its own IIFE and has no board to draw
+       without. See public/prs.js. -->
+  <script src="/prs.js"></script>
+  <!-- The Mirror — this space's work as another device is seeing it. Deliberately *not* in
+       public/sw.js's SHELL: it is the one screen in the app that cannot mean anything
+       without a network, so a cached copy would buy a working chip over a list that can
+       never fill. See public/mirror.js. -->
+  <script src="/mirror.js"></script>
   <!-- The other half of that pair: the filters that are *not* behind a collapsed line,
        drawn flat in the same row (bc-khoe.24). The scope switch is the one tenant today
        and bc-khoe.26 moves the rest out here beside it. Before app.js, which hands it

@@ -85,8 +85,8 @@
   const pulse = inShell ? null : document.getElementById('pulse');
   /* `⦿ observing` — which Mac's deploys these are. Renamed with the list above, and for a
      duller reason than the fragment target: monitor.html carries an `id="observing"` too
-     and its fold into this same document is bc-khoe.4, so a bare `observing` here is a
-     collision waiting on a sibling bead rather than one this diff could see. On the page
+     and bc-khoe.4 folded it into this same document, where it keeps the bare name because
+     this file gave it up. On the page
      it is a chip beside the mark; in the pane it is the first line of the pane's own
      column, because the shell's top bar belongs to every view and this fact belongs to
      one. */

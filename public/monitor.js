@@ -58,19 +58,55 @@
    * first time; stripping it afterwards keeps it out of the address bar and out of
    * the history entry.
    */
+  /** The view id the pane this section lives in is, in public/hashroute.js's vocabulary. */
+  const VIEW = 'advocates';
+
+  const panes = (window.beadcause && window.beadcause.panes) || null;
+
+  /**
+   * Is this the shell's Advocates pane, or the `/monitor` document it also still is?
+   *
+   * Asked of the document rather than of a flag — see the same three lines at the top of
+   * public/montabs.js, which owns the row above this section and answers the question for
+   * the pane as a whole.
+   */
+  const inShell = Boolean(panes && typeof panes.has === 'function' && panes.has(VIEW));
+
   const token = (() => {
     const fromUrl = new URLSearchParams(location.search).get('t');
     if (fromUrl) {
       localStorage.setItem('beadcause.token', fromUrl);
-      history.replaceState(null, '', location.pathname + location.hash);
+      // Stripped on the document, which this file owns the address bar of; read and left
+      // alone in the shell, where public/app.js does the same thing and two
+      // `history.replaceState` calls for one query parameter is one too many. That is the
+      // bargain public/spacebar.js already makes, in the same words.
+      if (!inShell) history.replaceState(null, '', location.pathname + location.hash);
     }
     return localStorage.getItem('beadcause.token') || '';
   })();
 
   const out = document.getElementById('mon');
-  const pulse = document.getElementById('pulse');
+  /* The brand dot. Left alone in the shell: it is the whole document's there, driven off
+     public/report.js's count of what is in flight, and a second writer toggling `busy` on
+     it would clear it under a fetch of the inbox's that is still out. */
+  const pulse = inShell ? null : document.getElementById('pulse');
   const tally = document.getElementById('tally');
   const observing = document.getElementById('observing');
+
+  /**
+   * Is this section the thing being looked at?
+   *
+   * `out.hidden` was the whole answer while this was a page: the chip row hides the
+   * sections it is not showing. In the shell it is half of one — the pane holding all
+   * three can be hidden with this chip up, and a roster that read its own attribute would
+   * go on sweeping `bd` behind Home. public/montabs.js answers both, and the fallback is
+   * a service worker cache holding a montabs.js from before this bead.
+   */
+  /** The chip this section is behind. The same word as the pane, and not the same thing:
+   *  one is a view of the app, the other is one of three modes inside it. */
+  const TAB = 'advocates';
+
+  const upNow = () => window.beadcause?.monTabs?.up?.(TAB) ?? !out.hidden;
 
   /* There were three `bd` calls per workspace behind /api/work and a whole inbox sweep
      beside them, every twenty seconds, for as long as this page was open. It follows the
@@ -2078,7 +2114,7 @@
   }
 
   async function load() {
-    pulse.classList.add('busy');
+    pulse?.classList.add('busy');
     try {
       // Two requests, in parallel and independent: the proposals are ordinary inbox
       // questions, and a `bd` sweep that fails must not take the advocate state —
@@ -2114,7 +2150,7 @@
       // will most likely undo.
       if (!state.work) out.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
     } finally {
-      pulse.classList.remove('busy');
+      pulse?.classList.remove('busy');
       // Whether or not that worked, and deliberately: a page opened while the daemon is
       // restarting used to be brought back by the twenty-second timer, and with the
       // timer gone the stream is the only thing that can. Its own backoff is what stops
@@ -2139,7 +2175,7 @@
    *   be a worse page than one whose Ship count is a minute old.
    */
   async function loadBoard({ force = false } = {}) {
-    if (out.hidden) return;
+    if (!upNow()) return;
     if (!force && Date.now() - state.boardAt < BOARD_MS) return;
     state.boardAt = Date.now();
     try {
@@ -2567,7 +2603,7 @@
      on the Mac to refresh a roster nobody is looking at, which is the same bill `ready`
      below exists to stop the stream running up. */
   document.getElementById('refresh').addEventListener('click', () => {
-    if (out.hidden) return;
+    if (!upNow()) return;
     load();
     // The ⟳ means "ask everything again", and the Ship count is one of the things on this
     // page a minute-old answer can be wrong about — a merge that landed while you read it.
@@ -2581,22 +2617,75 @@
   /* ------------------------------------------------------------------- the stream */
 
   /**
-   * Follow the event log instead of re-asking on a clock.
+   * One answered poll, whichever mount asked for it.
    *
-   * `want: 'presence'` is what makes the park free — this page draws none of the inbox
+   * The shape is `follow`'s own `onWake` argument, which is also what public/montabs.js
+   * fans out from the stager — so this is the page's `onWake` and the pane's `wake`, one
+   * function under one name rather than the same logic written twice and free to drift.
+   *
+   * **The free half runs whether or not this section is on screen, and that is the one
+   * exception to the standing-down the row above enforces.** The roster rides the poll
+   * that was parked anyway: no request and no `bd` sweep, and the reward is that coming
+   * back to a pane you left an hour ago costs nothing and shows nothing stale. Everything
+   * below the guard is a request, and a request behind two hidings is what this pane is
+   * stood down to avoid.
+   */
+  function wake({ data, events, resync }) {
+    // The half that costs nothing. The snapshot is on every wake whatever woke it,
+    // so an advocate pausing, checking in or freeing a slot repaints from the poll
+    // that was already parked — no request, no `bd`.
+    if (state.work && Array.isArray(data?.advocates)) {
+      state.work = { ...state.work, advocates: data.advocates, observing: data.observing ?? state.work.observing };
+      // `render` restarts the transcript tail, which matters here as much as on a
+      // fold: an advocate that has just started surveying is one this page begins
+      // tailing, and the snapshot above is how it finds out.
+      render();
+    }
+    if (!upNow()) return;
+    if (resync) {
+      // We have lost our place in the log, so nothing on screen is provably current.
+      load();
+      return;
+    }
+    // A merge, a deploy, a declined review: the events behind the Ship strip's number,
+    // and the only things that can move it. Forced, because the whole point of hearing
+    // about a merge is that the count this page is showing is now wrong — and a deploy
+    // settling is what takes the strip back down to nothing.
+    if (window.beadcause.stream.boardMoved(events)) loadBoard({ force: true });
+    // Presence is a thumb moving on somebody's phone, and an advocate saying it is
+    // still surveying is the roster above. Neither is a reason to sweep `bd`.
+    if (window.beadcause.stream.workMoved(events)) load();
+  }
+
+  /* The pane's own handler, registered unconditionally and called only in the shell: on
+     monitor.html nothing invokes public/montabs.js's fan-out, because `follow` below owns
+     this section's socket there. Exactly one of the two fires per document. */
+  window.beadcause?.monTabs?.onWake?.(wake);
+
+  /**
+   * Follow the event log instead of re-asking on a clock — on the document only.
+   *
+   * `want: 'presence'` is what makes the park free — this view draws none of the inbox
    * questions, so it asks the daemon not to sweep `bd` on its behalf and goes and gets
    * what it needs itself, for the events that need it. `cold: true` because `/api/work`
    * carries no sequence, and the `since`-less first request that learns one costs
    * nothing under `want: 'presence'`.
    *
-   * The pane is only followed while it is the one you are looking at: the mirror tab
-   * sits over this one, and a hidden page must not keep asking about every tracker on
-   * the Mac. That was true of the timer this replaces and it is truer here, because the
-   * park is a held socket rather than a tick.
+   * It is followed only while this section is the one you are looking at: the mirror chip
+   * sits over it, and now the whole pane can be hidden behind Home. That was true of the
+   * timer this replaces and it is truer here, because the park is a held socket rather
+   * than a tick.
+   *
+   * **In the shell this does nothing at all**, and the early return is the point rather
+   * than a tidy-up: that document holds exactly one poll and public/panestage.js hands its
+   * answers to every pane that asked. A second `follow` here would be one of the four
+   * parked requests one screen would otherwise hold — each a `bd` sweep per event on the
+   * daemon behind it. `presence` is declared to the stager instead, by public/montabs.js,
+   * and it is the same word for the same reason.
    */
   let stream = null;
   function follow() {
-    if (!window.beadcause?.stream) return;
+    if (inShell || !window.beadcause?.stream) return;
     // Mounted once and started every time. `load` is what calls this — the boot, the ⟳,
     // and the mirror tab handing the pane back (`window.beadcause.monitor.refresh`) —
     // and the middle one is why: `ready` goes false while the mirror is up, which ends
@@ -2607,32 +2696,8 @@
       api,
       want: 'presence',
       cold: true,
-      ready: () => !out.hidden,
-      onWake({ data, events, resync }) {
-        // The half that costs nothing. The snapshot is on every wake whatever woke it,
-        // so an advocate pausing, checking in or freeing a slot repaints from the poll
-        // that was already parked — no request, no `bd`.
-        if (state.work && Array.isArray(data.advocates)) {
-          state.work = { ...state.work, advocates: data.advocates, observing: data.observing ?? state.work.observing };
-          // `render` restarts the transcript tail, which matters here as much as on a
-          // fold: an advocate that has just started surveying is one this page begins
-          // tailing, and the snapshot above is how it finds out.
-          render();
-        }
-        if (resync) {
-          // We have lost our place in the log, so nothing on screen is provably current.
-          load();
-          return;
-        }
-        // A merge, a deploy, a declined review: the events behind the Ship strip's number,
-        // and the only things that can move it. Forced, because the whole point of hearing
-        // about a merge is that the count this page is showing is now wrong — and a deploy
-        // settling is what takes the strip back down to nothing.
-        if (window.beadcause.stream.boardMoved(events)) loadBoard({ force: true });
-        // Presence is a thumb moving on somebody's phone, and an advocate saying it is
-        // still surveying is the roster above. Neither is a reason to sweep `bd`.
-        if (window.beadcause.stream.workMoved(events)) load();
-      },
+      ready: upNow,
+      onWake: wake,
     });
     stream.start();
   }
@@ -2651,7 +2716,7 @@
   function scheduleLogs() {
     clearTimeout(logTimer);
     logTimer = null;
-    if (out.hidden) return;
+    if (!upNow()) return;
     const advocates = state.work?.advocates || [];
     if (!advocates.some((a) => isOpen(`${a.workspace}:log`) || a.surveying)) return;
     logTimer = setTimeout(() => pumpLogs().finally(scheduleLogs), LOG_MS);
@@ -2676,26 +2741,49 @@
      from the list it follows. Both halves are needed: the report is honest about which
      pane you are on, and the list cannot circle back on this one even mid-switch. */
 
+  /**
+   * Everything this section does on the way up.
+   *
+   * Paint what this tab had, then go and ask. The order is the whole point: `load` is not
+   * made faster by the warm paint, it is made invisible.
+   *
+   * It runs on the first showing rather than at load, which is a real change from when
+   * this was a page: in the shell the pane is built while Home is on screen, and a warm
+   * paint of a roster nobody has asked for is a screenful of DOM written behind two
+   * hidings. Arriving on the board — `/prs`, or the PRs chip remembered from yesterday —
+   * costs it nothing at all.
+   */
+  let mounted = false;
+  function mount() {
+    warmBoot();
+    load();
+  }
+
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
   } else {
-    // Paint what this tab had, then go and ask. The order is the whole point: `load`
-    // is not made faster by this, it is made invisible.
-    warmBoot();
-    /* And ask only while this is the pane you are on. The chip row calls back once at
-       boot with whichever chip is up — which is the boot `load()` that used to be
-       written here — and again every time you come back to this one, which is what
-       mirror.js used to do by calling `beadcause.monitor.refresh` by name. Arriving on
-       /prs, which is this same page with the board up, now costs no `bd` sweep at all.
+    /* And ask only while this is the section you are on. The chip row calls back once with
+       whichever chip is up — which is the boot `load()` that used to be written here — and
+       again every time you come back to this one, which is what mirror.js used to do by
+       calling `beadcause.monitor.refresh` by name. In the shell that first call is the
+       stager building the pane, and its argument is the empty string until the pane is
+       actually shown, so a load that lands on Home asks for nothing.
 
-       The fallback is not dead code: a service worker holding a monitor.html from before
-       the chip row was a file would load this one beside no montabs.js, and a page that
-       then never asked for anything would be a blank roster with no way to fill it. */
+       `mounted` rather than the callback's `prev`, which would be right only if the first
+       showing were always the boot one — it is not, in either document. The fallback is not
+       dead code: a service worker holding a monitor.html from before the chip row was a
+       file would load this one beside no montabs.js, and a page that then never asked for
+       anything would be a blank roster with no way to fill it. */
     const tabs = window.beadcause?.monTabs;
-    if (tabs)
+    if (!tabs) mount();
+    else
       tabs.onChange((which) => {
-        if (which === 'advocates') return void load();
+        if (which !== TAB) return;
+        if (!mounted) {
+          mounted = true;
+          return mount();
+        }
+        load();
       });
-    else load();
   }
 })();
