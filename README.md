@@ -943,13 +943,13 @@ of those is set wrong is the moment you are looking at what it did, on a phone, 
 weekend.
 
 So a space's settings are **`/config`**, a standing view with a pill of its own — the
-eighth on the row, and the rightmost, because it is the one you reach least often:
+ninth on the row, and the rightmost, because it is the one you reach least often:
 
 ```
 ┌──────────────────────────────────────────────┐
 │  ●  ▣⚙   [ Personal    ▾ ]  Config      ⟳    │
 ├──────────────────────────────────────────────┤
-│ …  💬 Chats  📜 Ledger  📣 Advocates  🎛 Config │
+│ …       📣 Advocates  🚀 Releases  🎛 Config │
 ├──────────────────────────────────────────────┤
 │  Personal                    may reach you   │
 │  ▾ SETTINGS                                  │
@@ -6597,11 +6597,14 @@ So there is one row now, under the top bar on every page the bottom bar was on:
   └──────────────────────────────────────────────────────┘
 ```
 
-Eight pills today, on nine pages: the [six kinds](#one-list-six-kinds--and-the-two-sub-filters)
+Nine pills today, on ten pages: the [six kinds](#one-list-six-kinds--and-the-two-sub-filters)
 bc-khoe.2 promoted out of the inbox's filter panel — My Epics, Questions, PRs, Chats,
 Ledger, All Beads — plus Advocates, plus
+[Releases](#releases--the-view-those-queues-are-drawn-on), plus
 [Config](#space-details--every-setting-a-space-has-on-a-page-of-its-own), the selected
-space's own settings, which bc-khoe.10 took off the advocate console. Config is rightmost
+space's own settings, which bc-khoe.10 took off the advocate console. Releases sits next to
+Advocates because the two are read one after the other — the board is where you decide
+something may land and Releases is where you watch it do so — and Config is rightmost
 because the row is ordered by how often a thumb reaches a pill and this is the one you
 reach about once a month. Its glyph is knobs and not a gear: the gear in this app is
 `/admin`, which is the *machine's* settings and is in the mark's menu, and two settings
@@ -6620,7 +6623,7 @@ one that can — because colour alone is not a mark.
 The first is a view whose [pane is in this document](#the-shell--one-document-one-pane-per-view):
 since bc-khoe.30.3 the app is one document with a container per view, so the pill writes
 the hash and the pane swaps, and nothing is fetched. The second is a kind, which is Home
-under a different narrowing (bc-khoe.2) — five of the eight pills are that, and as links
+under a different narrowing (bc-khoe.2) — five of the nine pills are that, and as links
 they would each be a full document load to change which rows of a list already in hand get
 drawn. On the shell that holds from *every* pane: `PRs` tapped while the Ledger is up carries
 both the pane to show and the kind to select, so one tap does both. On a page that is not
@@ -6635,17 +6638,19 @@ there, pushed at the row by `public/inboxfilter.js` rather than read by it. The 
 twelve pages and the filter on one; a row that read the selection itself would have to know
 the storage key, which is the second place that knows what a kind is.
 
-**The row scrolls sideways and never wraps.** There are eight pills today and there will
-be roughly ten once Advocates and Mirror fold in and Releases arrives. A row that wrapped
-to a second line on a 360px phone would spend a row of a screen that is mostly chrome
-already, which is the thing this change exists to stop. The selected pill is scrolled into
-view on load — done by arithmetic on the two rectangles rather than with `scrollIntoView`,
-which is allowed to scroll every ancestor and would quietly move the list under it.
+**The row scrolls sideways and never wraps.** There are nine pills today — Releases joined
+them when the deploy strip left the PR board, and Config when the space's settings left the
+advocate console — and there will be roughly ten once Advocates and Mirror fold in. A row
+that wrapped to a second line on a 360px phone would spend a row of a screen that is mostly
+chrome already, which is the thing this change exists to stop. The selected pill is scrolled
+into view on load — done by arithmetic on the two rectangles rather than with
+`scrollIntoView`, which is allowed to scroll every ancestor and would quietly move the list
+under it.
 
 **Four counts, and only on Home.** My Epics, Questions, PRs and Chats each carry a number:
-how many rows tapping that pill would leave you with. All Beads, Ledger and Advocates
-carry none — the first is unbounded and says nothing you would act on, and the other two
-are pages of their own with their own polls.
+how many rows tapping that pill would leave you with. All Beads, Ledger, Advocates, Releases
+and Config carry none — the first is unbounded and says nothing you would act on, and the
+other four are pages of their own with their own polls.
 
 This reverses a decision this section used to record, and the objection it was written
 against still stands as written. Advocates carried a badge once — how many proposals were
@@ -7858,11 +7863,13 @@ With the app open and nothing moving, the daemon now logs no periodic sweeps at 
 
 #### The last timer, and the event that deleted it
 
-One wall-clock timer survived that sweep, on the PR board, and it is worth saying why —
-because the reason was not "the deploy strip is special", it was a gap in the log.
+One wall-clock timer survived that sweep, on the deploy strip, and it is worth saying why
+— because the reason was not "the deploy strip is special", it was a gap in the log. (The
+strip was at the top of the PR board when this was written and is [a view of its
+own](#releases--the-view-those-queues-are-drawn-on) now; nothing about the clock moved
+with it.)
 
-The strip at the top of `/prs` answers *is something being made to run, right this
-second?* Its own subject genuinely cannot come off an event: the steps inside a deploy
+The strip answers *is something being made to run, right this second?* Its own subject genuinely cannot come off an event: the steps inside a deploy
 are a file being written on this Mac by a detached runner, and no event carries them, so
 while something is live the strip asks `/api/deploys` every four seconds and always
 will. That is not the timer that mattered. The one that mattered was the **idle** tick —
@@ -7900,8 +7907,8 @@ back, which is exactly what that callback is for.
 
 `node test/deploystart.mjs` holds both halves: the start event out of the real
 `/api/poll` at a real socket, that `lib/server.js` starts a deploy in exactly one place
-so a sixth call site cannot forget to announce, and — with the real `public/prs.js` and
-the real `public/stream.js` in a `vm` against a fake clock — that an idle board sets no
+so a sixth call site cannot forget to announce, and — with the real `public/releases.js`
+and the real `public/stream.js` in a `vm` against a fake clock — that an idle page sets no
 timeout, that a `deploy` event alone turns the fast tick on, and that a page with no
 stream behind it keeps the old one.
 
@@ -8055,8 +8062,8 @@ fifth of a second** where its cold load takes just over a second.
 
 What did need a line is the consequence nobody had gone back for. The **background warm**
 runs once per *document*, so it runs again on every reopen, and it was written when a
-reopen found an empty store: fetching all five paths was then the only way any tab was
-ever warm. With the store durable that fetch is a second copy of five payloads already on
+reopen found an empty store: fetching every path was then the only way any tab was
+ever warm. With the store durable that fetch is a second copy of payloads already on
 the disk — and two of them are the app's most expensive requests, `/api/prs` at a `gh`
 call per repo and `/api/unendorsed` at a `bd list` per workspace with a `bd show` per row.
 Measured on the live daemon (bc-1kwl.1) that is 74s and 48s: **two minutes of the Mac's
@@ -8064,7 +8071,16 @@ day, in the background of every single app open, for nothing on any screen.** So
 paths are marked `holdOnly` in `VIEWS`, and the background warm fills one only when
 nothing is held for it — never to replace one that is.
 
-That is the same answer [the maintenance table already
+`/api/queues` — [the Releases view](#releases--the-view-those-queues-are-drawn-on) — is
+the third, and it is there for the *first* of those two bills rather than a bill of its
+own. It sweeps for nothing itself; it rides the same 25-second board `/api/prs` shares. So
+on a reopen that has just skipped a held `/api/prs`, it is the request that would go and
+pay for the `gh`-per-repo call instead — the same two minutes, moved rather than avoided.
+It is the one `holdOnly` path with no counterpart in the maintenance table below, because
+the inbox holds no queue at all: it draws none, and nothing on the delta stream would let
+it maintain one.
+
+That is otherwise the same answer [the maintenance table already
 gives](#and-every-other-warmed-path-decided-one-at-a-time) for the same two paths, and the
 point is that it now has to be given twice: two warmers, one decision. What corrects a
 held board or a held queue is unchanged and is what always corrected it — the page that
@@ -11115,6 +11131,64 @@ rungs never drawn as done without a handover and never drawn from a handover bel
 another release, a repo with no declared deploy carrying merge entries and no release
 entries, and an entry that went live in the previous release still returned where one from
 two releases ago is not.
+
+### Releases — the view those queues are drawn on
+
+`/releases` is where both of them are on a screen (`/deploys` reaches the same page).
+Before it, `GET /api/queues` was an answer with nowhere to be read: the merge queue was a
+YAML block in a bead's notes, and the only thing on any screen that said a deploy was
+happening was a strip at the top of the PR board.
+
+**Two kinds of card, and one renderer over both.** A **Merge Card** per bead with an
+unmerged branch, from the moment its pull request joins the merge queue; a **Release Card**
+per merged pull request, in the batch it will ship with — which is what the grouping by
+repo *is*, since one release takes everything on that repo's `origin` with it. They are
+drawn by the same function, because every entry in either queue carries the same `rungs[]`
+shape on purpose; a card that had to ask which queue it was in would be two renderers
+wearing one name.
+
+**The stage is the collapsed summary, and the whole card is the tap target.** A card says
+where the work is without being opened — *Gate tests*, *Resolving conflicts*, *Merged*,
+*live in what is running now* — because "where is it" is the question the page exists for
+and an answer behind a fold is a worse answer than none. Unfolding gets you the ladder:
+every rung, the one it is on with the sentence explaining it, and the times somebody
+actually recorded. The tap is the card and not the chevron, which on a phone is the
+difference between a list you can use one-handed and one you have to aim at.
+
+**A rung nobody observed says so, in a word.** The three that come off the router's
+handover trail rather than the deploy journal are drawn `not tracked`, with a dash rather
+than a tick — on a release that has gone *live*, which is exactly when filling them in
+would be tempting and wrong. Where a handover *was* recorded they are ticked with the time
+on them, which is the same field arriving with a value instead of `null`.
+
+**A live entry says which release it went out in**, not merely that it is live: `live in
+what is running now`, or `live — one release back`, because the board keeps an entry one
+release past the one that made it live and those two sentences are the only thing telling
+them apart.
+
+**The deploy strip came here from the PR board** (bc-khoe.7) unchanged: what is being
+built and restarted this second, every step it has run, what the runner printed, and the
+banner that says a dropped connection *is* the deploy rather than the page breaking. It
+was on `/prs` because that was the nearest page, not because it was about a pull request —
+a deploy is the rung after one. What the board keeps is everything that is about a pull
+request, [the Ship button and the count over it](#the-release-queue--the-number-over-ship)
+included; what it no longer does is poll `/api/deploys` at all.
+
+**Two clocks, and only one of them ticks.** The queues are woken by the event log and ask
+for nothing in between. A deploy in flight keeps the four-second tick it has always had,
+because the steps inside one are a file being written on this Mac and no event can carry
+them — and a page with no stream behind it falls back to the thirty-second tick rather
+than quietly not refreshing. See [the last
+timer](#the-last-timer-and-the-event-that-deleted-it), which is this strip and is why it
+survived the move onto the stream.
+
+`node test/releases.mjs` runs the real `public/releases.js` in a `vm` on top of the real
+`public/prcard.js`: the stage readable in the collapsed card, one renderer opening both
+ladders, three rungs untracked on a release that is live and ticked once a handover exists,
+the picker narrowing what is drawn without asking again — and, from the other side, that
+`public/prs.js` no longer fetches the deploy journal while keeping Ship and its count.
+`node scripts/releases-check.mjs` is the same claims in a headless Chrome the size of a
+phone, including the case only a browser shows: the daemon going away mid-restart.
 
 ## The endorsement queue — a group tap, or a row at a time
 
@@ -16286,6 +16360,54 @@ this one — the two of those never reach the queue at all — or the bead was
 — the one kind of work a worker here may not merge, whatever the space says. It went from
 being every delivery to being the interesting ones.
 
+### The pull request says what is happening to it
+
+A branch that will not merge looks, from GitHub's side, exactly like a branch nobody is
+working on. That was true of every queued pull request here for as long as the queue has
+existed: the merge-bead carried the whole account — which gate refused it, which window
+was opened on it, what it merged over — and the pull request carried nothing but the
+diff. Two readers, and only one of them had to know a tracker existed to find out what
+was going on. Since bc-kan5f the pull request is told three times, by the three things
+that actually know.
+
+**Approved, when Adam approves it.** `/merge` is the decision, and it lands on the pull
+request as a real approving review rather than a note claiming one happened — `approve`
+in `lib/pr.js`, submitted by the *second* GitHub account on the Mac, because GitHub
+refuses an approving review from the account that opened the pull request. Where there is
+no second account the review is skipped and said to be skipped, which is the honest
+ending: with no review on it there is no green tick to be mistaken for a person's.
+
+**Taken, when a MergeAdvocate opens on it.** The first step of that window's brief is now
+to say so, *before* it touches the tree — what it is merging into what, and what it
+expects to come out. The order is the point. A prediction posted in advance is worth
+something to whoever reads it next; the same sentence written afterwards is a report, and
+the brief already asks for one of those at the end. "This is the routine sw-cache
+renumber and I expect it green" and "these two sides disagree and I may hand it back" are
+the two useful things to have said in advance, and the second is the more useful.
+
+**Merged, when the queue merges it** — with how it got through, which is the part nothing
+else records. How many windows were opened on it, how many times `main` moved underneath
+it while it waited, what the base was already failing when it went in, who approved it,
+and how long the whole passage took. A branch merged at the fourth attempt with three
+downmerges was not a bad branch, it was an unlucky one, and a month later that
+distinction is unrecoverable from anywhere else.
+
+**What the queue's report deliberately does not do is summarise the advocate's.** The two
+have different witnesses. The advocate knows the conflicts, which side it kept and why,
+and which suites it ran against which tree — and it writes that on the bead. The queue
+knows the shape of the passage and nothing about the diff. So `mergeReport` in
+`lib/mergequeue.js` reports what it is holding in its own hand and *points* at the rest,
+because a summary of somebody else's account, written by a process that did not watch the
+merge, is the exact shape of a confident falsehood — and the queue would be the last
+thing anybody thought to doubt. `test/mergequeue.mjs` pins it from the other side: the
+report may not contain a conflict count or a suite tally, because neither is a number it
+ever had.
+
+All three posts are best-effort and none may stand between a merge and its closes. A
+report that failed to post is a comment nobody got; a report that threw into the close
+path would strand a merged pull request with two open beads, which is the failure the
+whole close sequence is written to avoid.
+
 ### When `main` itself is red — the queue holds, and something is put on the fix
 
 The gate above asks one question about every pull request: *did this branch break
@@ -19482,13 +19604,10 @@ still holds all three sizes of good news, because the argument for one card is a
 shade and the argument for three channels is about the ear; the card takes its voice from
 whichever arrival caused the render.
 
-**`epic-done` has a shape and no emitter yet, and that is the shape of bc-ka5y.15.2.**
-Nothing closes an epic on its own here — `lib/bd.js` refuses an epic close on a merge,
-because a pull request is no evidence about a theme — so the event is the bead
-*transitioning* to closed, and the detection owes one suppression that has to be built with
-it: an epic you closed yourself, from the app in your hand, must not chime. What is settled
-here is what it will carry (the epic's title, and how many beads closed under it) and what
-the phone does with it when it arrives.
+**`epic-done` is the only one of the four whose *moment* is not a call site**, and it gets
+its own section below: nothing closes an epic on its own here, so the trigger is a diff of
+the tracker rather than a hook, and it owes one suppression — see
+[An epic finishing](#an-epic-finishing--a-diff-of-the-tracker-never-your-own-tap).
 
 **One landing comes from outside the daemon.** The merge queue runs in-process and calls
 the bus directly; `bin/deliver.js` is a worker's own process with no bus, and it still
@@ -19500,6 +19619,94 @@ whether or not a phone in another room hears about it.
 
 `test/news.mjs` covers all of it, including a real `POST /api/landed` into a real
 `createApp` and the `GET /api/poll` that answers with it.
+
+**Three of those emitters live in the poller, where `bus` is not a name.** `createApp` is
+one long closure holding `bus`, `bd`, `advocates` and `syncer` as locals; `startPoller` is
+a separate top-level function beside it that gets the same objects as `app.bus`, `app.bd`
+and so on. So a line copied down from one to the other parses, boots, and throws
+`bus is not defined` on the first deploy the daemon settles — which is bc-gdub, filed by
+the daemon against itself, and it cost every settled deploy its card on the phone while
+the board still drew the deploy as finished. Reading the source for `bus.emit(deployEvent`
+does not catch it, because `app.bus.emit(deployEvent` contains that text; the checks in
+`test/news.mjs` are pinned to the `app.` prefix for that reason, and `test/pollerbus.mjs`
+is the other half — it plants a settled deploy record on disk, runs a real poller over it,
+and reads the events off a real bus, then sweeps the whole of `startPoller` for any daemon
+singleton named bare.
+
+### An epic finishing — a diff of the tracker, never your own tap
+
+`epicDoneEvent` sat in `lib/news.js` for a day with nothing calling it, and the gap was
+deliberate: the *shape* of the card is a decision about layout, and the *moment* an epic
+finishes is a judgement. bc-ka5y.15.2 is the judgement, and it is `lib/epicdone.js`.
+
+**There is no call site to hook, so the trigger is a diff.** Nothing in this app closes an
+epic on its own. `lib/bd.js` refuses an epic close on a merge reason — *a pull request is
+no evidence about a theme* — after six epics closed that way on 2026-08-12/13 with sixty
+adoptees still open, and bd cannot be taught the rule either, because it has no pre-close
+hook (`bd hooks` installs git hooks and nothing else). So an epic closes because somebody
+decided it had, in one of four places: a tap on this app, `bd close` typed at a terminal
+here, a worker session an advocate opened, or the same on the other Mac arriving over `bd
+dolt pull`. Three of those four are other processes. What all four have in common is a row
+that changes, which is why the poller holds the set of epics that were **not** closed last
+time it looked and announces the ones that have since become so.
+
+**The read is free.** The sweep asks `bd.graph(workspace)` — one `bd export` per workspace,
+cached for sixty seconds and shared with the inbox's epic board — so on a daemon anybody
+has a phone open against this reads memory rather than the tracker. It runs on the cycle's
+ordinary slow clock with no interval of its own, late in the beat, because an epic that
+finished is exactly as finished a minute from now.
+
+**The first pass over a workspace seeds and says nothing.** A daemon that has just come up
+must not announce every epic that finished last month, which is `sweptReleasesAt`'s
+argument. What that costs is an epic closed while the daemon was down going unannounced,
+and that is the right thing to lose. The snapshot is in memory for the same reason there is
+no state file here to gitignore and nothing for `lib/evidence.js` to claim.
+
+**A tracker that would not read leaves the snapshot alone.** `bd.graph` answers an *empty
+index carrying `.error`* rather than throwing, so an export that timed out reads as "every
+epic has vanished" to anything that believes it — and in a diffing sweep it would also make
+the next good pass see the whole tracker as newly filed. That workspace is skipped whole
+and reported on stderr.
+
+#### The suppression, and why it is `actor` rather than a list of handlers
+
+**An epic you closed yourself, from the app in your hand, must not chime.** A notification
+for your own tap is the fastest way to teach somebody that a sound means nothing, and this
+is the one of the four sources above where the phone already knows — you were looking at it
+when it happened.
+
+What marks a close as yours is the `actor` on it. `actorFor(req)` in `lib/server.js` is
+`sessionOf(req)?.email || null`: a signed-in browser or app session and nothing else. Every
+token caller — an agent, `bin/deliver.js`, an ntfy action button, the poller itself — passes
+null and always has, so `actor` already means, exactly, *a person tapped this here*. The
+record is taken in **`Bd.run`**, the single funnel every `bd close` this daemon spawns goes
+through, rather than at the handlers that close things: a fifth path added next month gets
+the suppression without knowing `lib/epicdone.js` exists, and the failure mode of forgetting
+a registration would be a chime for an epic you closed while watching the screen.
+
+The ledger is **not** drained by the sweep that reads it, and that is the ordering trap.
+The graph is cached for a minute, so the beat right after a tap routinely reads a tracker in
+which the epic is still open; the transition is seen a minute later, and a ledger emptied on
+first read would have forgotten by then. Entries expire on a six-hour clock instead, under a
+cap, so a tap you have long forgotten cannot silence a real close of an epic that was
+reopened.
+
+**Two more closes are not milestones either.** A **superseded** epic is a duplicate being
+tidied away and an **unendorsed** one is a proposal being turned down; both are dropped
+here rather than in the emitter, because both are facts about the bead and `lib/news.js`
+only ever sees the four fields the card is drawn from. Neither is in bc-ka5y.15.2's
+acceptance — both are usually a tap and so already silent — but *usually* is not the bar
+when what is at stake is whether the sound means anything.
+
+The card itself is `epicDoneEvent`'s and unchanged: the epic's **title**, and **how many
+beads closed under it**. That count is children *and* adoptees, de-duplicated across the
+two, because a grouping epic keeps its work in an `Adopts:` line rather than as `bc-x.1`
+and counting only children would tell you an epic of eleven adopted beads finished with
+nothing under it. Closed only — an epic can be closed over a `deferred` child, and calling
+a deferred bead finished would be the count inventing a fact.
+
+`test/epicdone.mjs` covers it, including a real `Bd` against a stub `bd` binary, so the
+suppression is proved through the funnel rather than by reading a line of `lib/bd.js`.
 
 ### Noticing in five seconds — and not sweeping to find out
 

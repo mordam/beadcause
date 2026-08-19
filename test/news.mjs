@@ -191,9 +191,19 @@ for (const stays of ['pushCertificate', 'pushNoBackend', 'pushServingAgain']) {
 
 const SERVER = read('lib/server.js');
 check('the daemon emits a landing when the merge queue lands one', /bus\.emit\(landing\)/.test(SERVER));
-check('and a deploy settling', /bus\.emit\(deployEvent\(rec/.test(SERVER));
-check('and a tracker breaking, and recovering', /bus\.emit\(syncStuckEvent\(/.test(SERVER) && /bus\.emit\(syncClearEvent\(/.test(SERVER));
-check('a successful deploy also clears the last failure’s card', /bus\.emit\(deployClearEvent\(rec\)\)/.test(SERVER));
+// The next three are pinned to `app.bus`, not to `bus`, and the prefix is the whole
+// point of the change: these three emits live in `startPoller`, where the only bus in
+// scope is the one handed in — while `landing` above is inside `createApp`, where the
+// bare local is correct. Written loosely, every one of these was satisfied by a line
+// that threw `bus is not defined` on the first deploy the daemon settled (bc-gdub), and
+// stayed green for the whole life of the bug. test/pollerbus.mjs is the half of that
+// guard which runs the code rather than reading it.
+check('and a deploy settling', /app\.bus\.emit\(deployEvent\(rec/.test(SERVER));
+check(
+  'and a tracker breaking, and recovering',
+  /app\.bus\.emit\(syncStuckEvent\(/.test(SERVER) && /app\.bus\.emit\(syncClearEvent\(/.test(SERVER)
+);
+check('a successful deploy also clears the last failure’s card', /app\.bus\.emit\(deployClearEvent\(rec\)\)/.test(SERVER));
 // And the line the push left behind, which is why this one is a `!`. When the sync
 // notification was an awaited ntfy push, its catch logged `[sync] could not push: …` —
 // a *notification* failing, under a prefix whose every other line is `bd dolt push`, so

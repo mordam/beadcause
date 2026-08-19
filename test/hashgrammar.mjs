@@ -195,12 +195,13 @@ check('a hash that will not decode does not throw out of boot', () => {
 
 console.log('\na view hash');
 
-check('each of the three views is named by exactly one hash, and Home by none', () => {
+check('each of the four views is named by exactly one hash, and Home by none', () => {
   const ids = [...route.VIEWS].map((v) => v.id);
-  assert.deepEqual(ids, ['epics', 'history', 'advocates']);
+  assert.deepEqual(ids, ['epics', 'history', 'advocates', 'releases']);
   assert.equal(route.hashFor('epics'), '', 'Home is the empty hash — every existing link says it by saying nothing');
   assert.equal(route.hashFor('history'), '#history');
   assert.equal(route.hashFor('advocates'), '#advocates');
+  assert.equal(route.hashFor('releases'), '#releases');
   assert.equal(route.hashFor('flow'), null, 'a page that is not a view has no hash, and null is how that is said');
   const hashes = [...route.VIEWS].map((v) => v.hash);
   assert.equal(new Set(hashes).size, hashes.length, 'two views claim one hash');
@@ -243,6 +244,9 @@ check('and the other half of the same question: which view an address names', ()
   assert.equal(route.viewOfPath('/history.html'), 'history');
   for (const p of ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html', '/prs', '/pulls', '/prs.html']) {
     assert.equal(route.viewOfPath(p), 'advocates', `${p} is the advocate console`);
+  }
+  for (const p of ['/releases', '/deploys', '/releases.html']) {
+    assert.equal(route.viewOfPath(p), 'releases', `${p} is the releases view`);
   }
   for (const p of ['/flow', '/requirements', '/endorse', '/admin', '/console']) {
     assert.equal(route.viewOfPath(p), null, `${p} draws the row and is on no pill — that is deliberate`);

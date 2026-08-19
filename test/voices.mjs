@@ -198,8 +198,14 @@ check('unconfirmed is still only written for a restart', /restartEnding \? 'unco
 check('and lib/news.js takes the side from here rather than deciding again', /deployVoice\(rec\.status\)/.test(NEWS));
 // Not given away by the move: the card still refuses to call it deployed, and a previous
 // failure's card is still only cleared by an `ok`.
+//
+// Pinned to `app.bus`, not to `bus`, and the prefix is not incidental: this emit lives in
+// `startPoller`, where the only bus in scope is the one handed in, so the bare form this
+// was first written against threw `bus is not defined` on the first deploy the daemon
+// settled (bc-gdub). What the check is *about* is the `rec.status === 'ok'` half — that an
+// unconfirmed ending clears nothing — and that half is untouched.
 const SERVER = read('lib/server.js');
-check('an unconfirmed deploy does not clear a previous failure', /rec\.status === 'ok'\) bus\.emit\(deployClearEvent\(rec\)\)/.test(SERVER));
+check('an unconfirmed deploy does not clear a previous failure', /rec\.status === 'ok'\) app\.bus\.emit\(deployClearEvent\(rec\)\)/.test(SERVER));
 
 check('a question is class 1', voiceOf('pushQuestion') === ANSWER);
 

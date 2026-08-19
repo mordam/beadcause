@@ -162,6 +162,10 @@ const PAGES = [
   // on the bottom bar since the day it existed, so the bar is the only thing that has
   // ever linked to it and there is no older name in anybody's home screen to keep alive.
   { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
+  // Releases (bc-khoe.7) — the two queues as cards, and the deploy strip that left the PR
+  // board. Two names for it, because the page is about the journey and the strip was what
+  // most people came for: `/releases` is what it is, `/deploys` is the word somebody types.
+  { what: 'the releases view', marker: '/releases.js', paths: ['/releases', '/deploys', '/releases.html'] },
   // The selected space's settings (bc-khoe.10). Two paths for the same reason the queue
   // has three: the screen has two honest names — it is the *config* of a space, which is
   // the word the chip it used to be was labelled with, and it is where its *settings*

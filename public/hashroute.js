@@ -26,7 +26,7 @@
   ## The grammar, in four decisions
 
   **1. A view is a bare name; a card is everything with a shape.** The view names are a
-  closed list of three and they are held here (`VIEWS`). Everything else is read as a card
+  closed list of four and they are held here (`VIEWS`). Everything else is read as a card
   key, and a card key is recognised by *shape* rather than by lookup, because there are
   three of them and the app mints all three: `workspace/id` for a bead — the only form
   that has ever been in a notification — plus `pr:` and `jira:` prefixes for the two rows
@@ -133,6 +133,11 @@
       hash: '#advocates',
       paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html', '/prs', '/pulls', '/prs.html'],
     },
+    // Where everything in flight is (bc-khoe.7). Three addresses, because the page is
+    // about the journey and the deploy strip that moved onto it was what most people came
+    // for: `/releases` is what it is, `/deploys` is the word somebody types, and the
+    // `.html` is what the service worker precaches by name.
+    { id: 'releases', hash: '#releases', paths: ['/releases', '/deploys', '/releases.html'] },
   ];
 
   /** Where a hash falls when it names nothing — and where a card is always opened. */

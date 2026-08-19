@@ -220,7 +220,7 @@ const pill = (nav, id) => pills(nav).find((p) => p.id === id);
 console.log('\nthe shell, as written');
 
 await check('index.html holds a pane for every view the grammar knows', () => {
-  assert.deepEqual(VIEW_IDS, ['epics', 'history', 'advocates'], 'the view list moved');
+  assert.deepEqual(VIEW_IDS, ['epics', 'history', 'advocates', 'releases'], 'the view list moved');
   for (const id of VIEW_IDS) {
     assert.ok(
       new RegExp(`<div class="pane" data-pane="${id}"`).test(HTML),
@@ -245,7 +245,7 @@ await check('the one that is not built yet names the bead that builds it', () =>
   // Advocates names bc-khoe.4 rather than bc-khoe.30.6 on purpose (bc-khoe.30.6): the
   // attribute names the bead whose merge *deletes* it, and the fold is bc-khoe.4's,
   // behind bc-khoe.10. See the comment above the container in index.html.
-  for (const [view, bead] of [['advocates', 'bc-khoe.4']]) {
+  for (const [view, bead] of [['advocates', 'bc-khoe.4'], ['releases', 'bc-khoe.30.14']]) {
     const m = new RegExp(`data-pane="${view}" data-pending="([^"]+)"`).exec(HTML);
     assert.ok(m, `${view} is either live or unmarked — if it is live, drop it from this list`);
     assert.equal(m[1], bead, `${view} names ${m[1]} rather than the bead that fills it`);
@@ -345,28 +345,30 @@ await check('the service worker precaches it, and the version moved', () => {
 
 console.log('\nwhich pane is up');
 
-/** The shell as it ships: Home and the ledger built, the console waiting on its bead. */
+/** The shell as it ships: Home and the ledger built, the console and the release board
+    each waiting on the bead that fills its container. */
 const asShipped = () => [
   pane('epics'),
   pane('history'),
   pane('advocates', { pending: 'bc-khoe.4', scroller: false }),
+  pane('releases', { pending: 'bc-khoe.30.14', scroller: false }),
 ];
 
 /** The shell as it will be once those two land. */
-const whenBuilt = () => [pane('epics'), pane('history'), pane('advocates')];
+const whenBuilt = () => [pane('epics'), pane('history'), pane('advocates'), pane('releases')];
 
 await check('with no hash, Home is the pane and the others are hidden', () => {
   const b = boot(whenBuilt());
   b.run('panes.js');
   assert.equal(b.panes().showing(), 'epics');
-  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [false, true, true]);
+  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [false, true, true, true]);
 });
 
 await check('a view hash lands on that pane, with no document asked for', () => {
   const b = boot(whenBuilt(), { hash: '#history' });
   b.run('panes.js');
   assert.equal(b.panes().showing(), 'history');
-  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [true, false, true]);
+  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [true, false, true, true]);
 });
 
 await check('a card hash is Home, from any pane — a question lives there', () => {
