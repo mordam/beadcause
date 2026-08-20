@@ -267,6 +267,15 @@ check('an in-app edit says why it is being asked about', () => {
   assert.ok(body.includes('edit mode'), body.slice(-400));
 });
 
+check('bc-bmry.8: a gate/needs-approval bead says the same, and names its label', () => {
+  const gateBody = prBody({ ...base, autoMerge: false, gate: 'gate' });
+  assert.ok(gateBody.includes('labelled `gate`'), gateBody.slice(-400));
+  assert.ok(gateBody.includes('never on the merge queue'), gateBody.slice(-400));
+  const approvalBody = prBody({ ...base, autoMerge: false, gate: 'needs-approval' });
+  assert.ok(approvalBody.includes('labelled `needs-approval`'), approvalBody.slice(-400));
+  assert.notEqual(gateBody, approvalBody);
+});
+
 check('the footer names the bead in full, since the title could not', () => {
   const body = prBody({ ...base });
   assert.ok(body.includes(LONG), 'the sentence the title had to cut is still somewhere');

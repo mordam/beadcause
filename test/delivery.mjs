@@ -468,6 +468,37 @@ check(
   deliveryBody(D({ method: 'rebase' }), { asked: true }).split('\n')[0]
 );
 
+/* ---------------------------------------------------- bc-bmry.8: the gate opening */
+
+// A gate/needs-approval bead's own opening, since bc-bmry.8 held its merge too. It must
+// not read as the worker's own choice (`asked`) — there was none to credit — and it must
+// not read as a refusal, since nothing was attempted.
+const gateBody = deliveryBody(D(), { gate: 'gate' });
+const approvalPipelineBody = deliveryBody(D(), { gate: 'needs-approval' });
+
+check(
+  'a gate bead says it is labelled `gate` and why that stopped the merge',
+  /labelled `gate`/.test(gateBody) && /gate closes when it is met/.test(gateBody),
+  gateBody.split('\n')[0]
+);
+check(
+  'and a `needs-approval` bead gets its own sentence, not the gate one',
+  /labelled `needs-approval`/.test(approvalPipelineBody) && /waiting on an approval/.test(approvalPipelineBody),
+  approvalPipelineBody.split('\n')[0]
+);
+check('the two gate-shaped openings are different sentences', gateBody.split('\n')[0] !== approvalPipelineBody.split('\n')[0]);
+check(
+  'it does not read as the worker’s own hesitation — there was none to credit',
+  !/deliberately did not/.test(gateBody),
+  gateBody.split('\n')[0]
+);
+check(
+  'and it does not read as a refusal — nothing was attempted',
+  !/tried to merge it/.test(gateBody),
+  gateBody.split('\n')[0]
+);
+check('it still offers the same three answers as every other opening', /id: merge/.test(gateBody) && /id: changes/.test(gateBody) && /id: decline/.test(gateBody));
+
 /* ---------------------------------------- what the block deliberately omits */
 
 console.log('\nwhat the block deliberately does not carry');
