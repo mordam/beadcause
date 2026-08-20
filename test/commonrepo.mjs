@@ -220,6 +220,70 @@ await check('but an abandoned one is removed and the commit lands', async () => 
   assert.match(raw('show', '--name-only', '--format=%s', 'HEAD'), /advocates\.json/, 'with the pending write in it');
 });
 
+await check('and removed with a PATH that has no lsof on it — the daemon\'s PATH', async () => {
+  // bc-xl7n.109, and the reason the case above passed for 37 hours while the daemon
+  // cleared nothing. `lsof` was looked up by name, so it came from PATH; on macOS the
+  // binary is only ever at /usr/sbin/lsof, and the daemon's launchd PATH has no
+  // /usr/sbin in it. Every call threw ENOENT, which is not exit 1, so `heldBy` said "I
+  // could not tell" and every lock was left alone for ever.
+  //
+  // An interactive shell *does* have /usr/sbin, which is why the case above — and every
+  // hand-run of the fix — kept saying it worked. So this one takes it away.
+  const realPath = process.env.PATH;
+  // Every directory on PATH *except* the ones holding an lsof — so `git` still resolves
+  // and `lsof` cannot, on any machine, however this suite was started.
+  const stripped = realPath
+    .split(path.delimiter)
+    .filter((d) => d && !fs.existsSync(path.join(d, 'lsof')))
+    .join(path.delimiter);
+  assert.ok(
+    ['/usr/sbin/lsof', '/usr/bin/lsof'].some((p) => fs.existsSync(p)),
+    'this machine has no lsof where the code looks for one, so the case cannot be posed'
+  );
+  process.env.PATH = stripped;
+  try {
+    fs.writeFileSync(HEAD_LOCK, '');
+    fs.utimesSync(HEAD_LOCK, AGES_AGO, AGES_AGO);
+    somethingToCommit(2);
+    const sha = await commit('advocates');
+    assert.ok(sha, 'the lock has to be cleared and the snapshot retried, whatever PATH the daemon was started with');
+    assert.equal(fs.existsSync(HEAD_LOCK), false, 'and the dead lock has to be gone');
+  } finally {
+    process.env.PATH = realPath;
+  }
+});
+
+await check('and when lsof is nowhere at all, it says so once and still leaves the lock', async () => {
+  // The other half of the acceptance: fail *closed* is right and stays, but the two
+  // reasons for it — "lsof says nobody holds this" and "there is no lsof" — must not go
+  // on being one silence. BEADCAUSE_LSOF points the search at a path that does not
+  // exist, which is the only way to reach the branch on a Mac that has the real one.
+  const said = [];
+  const realError = console.error;
+  console.error = (...args) => said.push(args.join(' '));
+  process.env.BEADCAUSE_LSOF = path.join(tmp, 'no-lsof-here');
+  try {
+    fs.writeFileSync(HEAD_LOCK, '');
+    fs.utimesSync(HEAD_LOCK, AGES_AGO, AGES_AGO);
+    somethingToCommit(3);
+    await assert.rejects(() => commit('advocates'), /lock/i, 'unable to ask is unable to clear — deleting on a missing binary is the worse bug');
+    assert.ok(fs.existsSync(HEAD_LOCK), 'so the lock stays');
+    const complaints = said.filter((line) => /no lsof at/.test(line));
+    assert.equal(complaints.length, 1, `the missing tool has to be named out loud: ${JSON.stringify(said)}`);
+    assert.match(complaints[0], /left in place/, 'and say what it costs, since nothing else in the log will');
+
+    // Once per process, not once per lock: this runs on every failed snapshot, and the
+    // daemon logged that failure 22,933 times over the outage this bead is about.
+    somethingToCommit(4);
+    await assert.rejects(() => commit('advocates'), /lock/i);
+    assert.equal(said.filter((line) => /no lsof at/.test(line)).length, 1, 'and it must not repeat');
+  } finally {
+    console.error = realError;
+    delete process.env.BEADCAUSE_LSOF;
+    if (fs.existsSync(HEAD_LOCK)) fs.rmSync(HEAD_LOCK);
+  }
+});
+
 await check('a refusal is never retried, lock or no lock', async () => {
   // The retry is for locks only: a secret rejected twice is a secret named twice in the
   // log, and `commitOnce` has already unstaged it by the time the first one is thrown.

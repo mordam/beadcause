@@ -255,9 +255,14 @@ cat > "$PLIST" <<PLIST_EOF
   <dict>
     <!-- launchd starts with a bare PATH; bd, tailscale and node may all be
          outside it. This covers Homebrew on both architectures plus the node
-         found at install time. -->
+         found at install time. /usr/sbin is in a login shell's PATH and was
+         missing here, which is bc-xl7n.109: lsof lives there on macOS and
+         nowhere else, so the lock-clearing in lib/commonrepo.js could not run
+         at all in the daemon while working perfectly by hand. That code now
+         resolves lsof by absolute path and does not depend on this line —
+         but a tool in sbin should not be unreachable from here either. -->
     <key>PATH</key>
-    <string>$(dirname "$NODE"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>$(dirname "$NODE"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin</string>
   </dict>
 </dict>
 </plist>
@@ -434,7 +439,7 @@ if [ "$MONITOR_ENABLED" = "1" ]; then
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>$(dirname "$NODE"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>$(dirname "$NODE"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin</string>
     <!-- open-monitor.sh reads the port and token out of config.json with node,
          and a login-time PATH may not have the one this was installed with. Pin it. -->
     <key>BEADCAUSE_NODE</key>

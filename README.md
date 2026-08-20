@@ -3619,6 +3619,21 @@ for a lock's whole life and the file itself records no pid. Unknown means leave 
 the alternative is deleting one out from under a `git commit` somebody is typing a
 message into. A refusal about a secret is never retried.
 
+**And `lsof` is found by absolute path, because asking `PATH` for it never worked here.**
+That fix shipped and then cleared nothing for the next 37 hours (bc-xl7n.109). On macOS
+the binary exists only at `/usr/sbin/lsof`, and the daemon's launchd `PATH` — node,
+Homebrew, `/usr/local/bin`, `/usr/bin`, `/bin` — has no `/usr/sbin` in it, so every call
+threw `ENOENT`, which is not `lsof`'s exit 1, so the answer was always "I could not tell"
+and the fail-closed rule did the rest. An *interactive* shell does have `/usr/sbin`, which
+is why every hand-run of the fix said it worked and the one place it ran said nothing at
+all. So `heldBy` tries `/usr/sbin/lsof`, then `/usr/bin/lsof`, then `PATH`
+(`BEADCAUSE_LSOF` overrides all three), and a genuinely missing `lsof` is now **said once
+in the log** rather than being the same silence as "nobody holds it" — the whole cost of
+this bug was that the two were indistinguishable. `/usr/sbin` was added to the plist in
+`scripts/install.sh` too, but nothing depends on that. `test/commonrepo.mjs` poses both
+halves: the clear still happens with every `lsof`-bearing directory stripped off `PATH`,
+and with no `lsof` anywhere the lock survives and the complaint is printed exactly once.
+
 ### Two writers, and why it is a compare-and-swap
 
 Every write reads the ref tip, builds its value from it, and hands that tip back to
