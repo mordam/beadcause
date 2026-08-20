@@ -37,7 +37,8 @@
     "beadcause-capa": "bin/capa.js",
     "beadcause-gaps": "bin/gaps.js",
     "beadcause-engagement": "bin/engagement.js",
-    "beadcause-crosswalk": "bin/crosswalk.js"
+    "beadcause-crosswalk": "bin/crosswalk.js",
+    "b7e-apply": "bin/b7e-apply"
   },
   "scripts": {
     "start": "node bin/router.js",
