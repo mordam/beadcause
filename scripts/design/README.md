@@ -191,6 +191,39 @@ produces a card that looks wrong *and* an audit that reports nothing — and it 
 halves of that selector were covered separately. bc-ka5y.16 is the general form. The rule
 from the top of this file is the first defence: **markup is copied, never invented.**
 
+## The vocabulary count, and the two scales it produced
+
+```sh
+node scripts/design/vocabulary.mjs          # the smear, per axis
+node scripts/design/vocabulary.mjs --full   # including the long tail of one-offs
+```
+
+A design system's claim is that a screen is assembled from a small vocabulary, and that is
+checkable rather than assertable: the baseline fingerprint already holds every computed
+value on every element of all 77 cards, so this reads it back and counts. What it looks for
+is the **smear** — 13px and 13.5px and 12.5px doing one job, three radii within two pixels
+of each other, a weight scale with 650 and 640 and 620 in it.
+
+Run at bc-03pz it found the palette and the metrics in very different health. The colours
+were disciplined: 12 distinct text colours in the light scheme, all of them tokens, nothing
+drifted. The metrics were not: 23 radii, 16 weights, 22 type sizes. **The difference is that
+the palette was checkable and the metrics were not** — an off-palette colour is a literal
+hex among `var(--…)` and fails review on sight, where `9px` beside `10px` and `11px` looks
+like every line around it.
+
+So two of the three axes now have a scale and a suite, and `test/metricscale.mjs` is the
+thing the palette had all along:
+
+| axis | scale | why |
+|---|---|---|
+| corner radius | `6 / 10 / 14 / 18`, plus `999px` and `50%` | four apart on purpose — this script calls two radii within 2px a smear, so a scale with 2px steps would be one |
+| font weight | `400 / 550 / 600 / 650 / 700` | the four this count found carrying the app, plus the one real bold |
+| type size | **not enforced** | 22 sizes and the worst of the three, but a type scale moves layout on a 360px phone. That is a design decision, not a normalization, and it is still open |
+
+Radius and weight could land unattended precisely because neither can move a box: the whole
+snap moved seven text runs by 1–3px and not one box height, which is what `baseline.mjs`
+below was used to prove. Re-run this count after any change to the sheet.
+
 ## The regression baseline
 
 ```sh

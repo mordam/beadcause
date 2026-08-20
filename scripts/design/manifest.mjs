@@ -38,7 +38,7 @@ const swatches = (rows) => rows.map(([name, use]) => `
 const SWATCH_CSS = `
 .ds-sw { display: grid; grid-template-columns: 44px 148px 1fr; align-items: center; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
 .ds-sw:last-child { border-bottom: 0; }
-.ds-chip { width: 44px; height: 26px; border-radius: 7px; box-shadow: inset 0 0 0 1px var(--line); display: block; }
+.ds-chip { width: 44px; height: 26px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line); display: block; }
 .ds-sw code { font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
 .ds-use { color: var(--muted); font-size: 13px; }
 .ds-scale > div { border-bottom: 1px solid var(--line); padding: 10px 0; }
@@ -46,7 +46,7 @@ const SWATCH_CSS = `
 .ds-scale small { display: block; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 4px; }
 .ds-box { display: flex; align-items: flex-end; gap: 14px; }
 .ds-box figure { margin: 0; text-align: center; color: var(--muted); font-size: 11px; }
-.ds-box i { display: block; background: var(--accent); border-radius: 4px; margin-bottom: 6px; }
+.ds-box i { display: block; background: var(--accent); border-radius: 6px; margin-bottom: 6px; }
 `;
 
 const CORE = [
@@ -76,7 +76,7 @@ const CORE = [
         name: 'Type',
         subtitle: 'System stack, four working sizes',
         viewport: { width: 620, height: 520 },
-        note: `One family — the platform's own UI face — at 16px/1.5. There is no type scale as such; sizes are chosen per role, and these four carry almost the whole app.`,
+        note: `One family — the platform's own UI face — at 16px/1.5. There is no type scale as such; sizes are chosen per role, and these four carry almost the whole app. <b>That is the honest description and it is also the open problem</b>: <code>scripts/design/vocabulary.mjs</code> counts <b>22 distinct sizes</b> in a continuous smear from 9.5px to 19px, seven of which are used 40–52 times each and none of which is distinguishable from its neighbour. Radius and weight were snapped onto scales in bc-03pz because neither can move a layout; type can, so which scale to snap to is still a decision rather than a normalization.`,
         extraCss: SWATCH_CSS,
         markup: `<div class="ds-scale">
   <div><small>17px / 650 · page title</small><div style="font-size:17px;font-weight:650;letter-spacing:-.01em">Advocates</div></div>
@@ -89,17 +89,17 @@ const CORE = [
       {
         path: 'foundations/space.html',
         name: 'Space & shape',
-        subtitle: '--radius 14px, --tap 48px',
+        subtitle: 'Radius 6 / 10 / 14 / 18, --tap 48px',
         viewport: { width: 620, height: 380 },
-        note: `Two tokens and a habit. <b>--radius: 14px</b> is the card corner; controls inside a card step down to 11px so they read as sitting <i>in</i> it. <b>--tap: 48px</b> is the floor for anything a thumb lands on — this is a phone app first, and the desktop pages inherit it rather than shrinking.`,
+        note: `<b>Four corners, four apart</b>, and the pill. 6px is inline furniture — code, a close button, a chip; 10px is a control inside a card; <b>--radius: 14px</b> is the card itself; 18px is a sheet arriving from the bottom edge. 999px is anything whose ends are meant to be round, including the 2px-tall bars where the browser clamps it back down to 1px anyway. The scale is <b>enforced</b> — <code>test/metricscale.mjs</code> fails on a fifth value, because the reason the colour palette held for two hundred commits and the metrics did not is that one of them was checkable. <b>--tap: 48px</b> is the floor for anything a thumb lands on; this is a phone app first, and the desktop pages inherit it rather than shrinking.`,
         extraCss: SWATCH_CSS,
         markup: `<div class="ds-box">
   <figure><i style="width:48px;height:48px"></i>--tap<br>48px</figure>
-  <figure><i style="width:40px;height:40px;border-radius:11px"></i>icon-btn<br>40px / r11</figure>
+  <figure><i style="width:56px;height:40px;border-radius:6px"></i>inline<br>6px</figure>
+  <figure><i style="width:56px;height:40px;border-radius:10px"></i>control<br>10px</figure>
   <figure><i style="width:96px;height:56px;border-radius:14px"></i>--radius<br>14px</figure>
-  <figure><i style="width:16px;height:16px"></i>gap<br>16px</figure>
-  <figure><i style="width:12px;height:12px"></i>gap<br>12px</figure>
-  <figure><i style="width:9px;height:9px"></i>gap<br>9px</figure>
+  <figure><i style="width:96px;height:56px;border-radius:18px"></i>sheet<br>18px</figure>
+  <figure><i style="width:64px;height:26px;border-radius:999px"></i>pill<br>999px</figure>
 </div>`,
       },
     ],
@@ -167,7 +167,7 @@ const CORE = [
         name: 'Icon buttons',
         subtitle: 'Button and anchor, badged, hoisted',
         viewport: { width: 420, height: 200 },
-        note: `40×40, 11px corner, one glyph. Several of these are anchors rather than buttons — an inline anchor ignores height and refuses to centre its glyph, so the rule sets <b>inline-flex</b> for both. <b>.wide</b> is the variant that carries a word instead of a glyph.`,
+        note: `40×40, 10px corner, one glyph. Several of these are anchors rather than buttons — an inline anchor ignores height and refuses to centre its glyph, so the rule sets <b>inline-flex</b> for both. <b>.wide</b> is the variant that carries a word instead of a glyph.`,
         markup: `<div class="sheet-actions">
   <button class="icon-btn">⟳</button>
   <a href="#" class="icon-btn">⚖️<span class="badge">3</span></a>
