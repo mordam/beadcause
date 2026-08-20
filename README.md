@@ -14827,6 +14827,32 @@ the guard left the profile behind *every* time. There is nothing to `await` from
 handler — the event loop has already stopped — so `killAndRemoveSync` keeps removing and
 re-checking until the directory is gone and stays gone.
 
+**The re-raise had a third detail, and it took the daemon's shutdown with it (bc-fh0sz).**
+The first version removed the listener with `process.removeAllListeners(sig)`, which is a
+far larger claim than it looks: it throws away every *other* handler the process
+registered for that signal, and the re-raise then meets Node's default disposition, which
+is death on the spot. For a check that is exactly right, because there is nobody else. The
+daemon is not a check. `bin/beadcause.js`, `bin/router.js` and `bin/monitor.js` each
+register a `shutdown` at load, and the router's ends with `setTimeout(() =>
+process.exit(0), 300)` on purpose — 300 ms of grace so its `SIGTERM` lands on the backends
+before its own exit orphans them. These handlers wire *lazily*, on the first `onExit`,
+which in the daemon is the first browse; so they were registered second, ran second, and
+killed the process out from under a shutdown that had already started. Measured with a
+probe in that shape: shutdown started, profile removed, exit 143, the grace line never
+printed. The daemon is signalled on every restart, deploy and `launchctl kickstart`, so
+this was not a rare corner — and it is wider than "a browse in flight", because `wire()`
+latches: the listeners are attached on the first browse and stay for the life of the
+process, so every restart after the first browse of the day lost the grace, whether or not
+anything was browsing at the time. The fix is one line either side: the handler removes **only
+itself**, and re-raises **only if `process.listenerCount(sig) === 0`** — somebody else
+still listening is somebody else's exit to take. A check registers no handler of its own,
+so the count is zero, the re-raise happens, and nothing about the case this was written
+for changes. What is given up is the process whose other handler ignores the signal
+outright: that one now goes on running, which is a bug in that handler, and `SIGKILL` and
+`lib/strays.js` are behind it either way. `test/teardown.mjs` pins it in both registration
+orders, because which of the two was registered first decides which runs first and neither
+may lose.
+
 **The scratch directories are fixed one level up instead**, because 242 files under `test/`
 and `scripts/` call `mkdtempSync` and fixing each one is a chance per site to get one wrong. `scripts/test.mjs` and
 `scripts/checks.mjs` now give each child a `TMPDIR` of its own and remove it from the
