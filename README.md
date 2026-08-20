@@ -16155,6 +16155,109 @@ exactly the read-only surface every other reading agent has, and [a new
 kind](#what-an-agent-is--and-how-it-asks-to-be-different) owes five registrations that would each say something
 already true of `console`.
 
+### Where a symbol is defined — `b7e-def`
+
+The first command [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
+found by watching the same shape break four times rather than by reading a transcript
+once. `bc-khoe.27.5` is the finding: four separate sessions each hand-rolled
+`grep -n | cut -d: -f1 | sed -n '<n>,+50p'` against files too big to read whole
+(`lib/server.js` is 10,560 lines, `public/app.js` 10,380), and it broke a different way
+every time. `sed -n "$(grep … | cut -d: -f1),+50p"` fails outright when the grep comes
+back empty — `sed: 1: ",+50p": invalid command code ,` — and even when the grep does hit,
+it is often hitting the wrong thing: `bc-r2b5.1` spent four calls discovering that
+`loadBead` is *imported* into `lib/server.js` at line 12 and actually defined in
+`lib/verdict.js:297`. No two sessions spelled the recovery the same way, which is the
+tell that the failures were in the spelling and not in the question — "where does this
+name actually live, and what does it say" has one answer every time.
+
+```
+b7e-def <name>              every definition of <name>, with its doc comment
+b7e-def <name> --callers    the above, plus one line per call site
+```
+
+It searches `lib/`, `bin/`, `public/`, `scripts/` and `test/` and reports, per match,
+`file:startLine-endLine` with the definition and its doc comment printed in full — a
+class method, a top-level function, an exported `const`, all found by the same
+line-by-line scan rather than a real parser (see the doc comment at the top of
+`bin/b7e-def` for exactly where that scan is deliberately narrower than a tokenizer).
+**Two definitions is a report of two, not a guess** — searching a name reused across
+files (three unrelated `normalize` helpers, say) prints all three rather than silently
+narrowing to the first hit. When the name is only *imported* where it was found, the
+import line is printed first and the real definition — resolved through the specifier,
+including through an alias (`import { foo as bar }`) — follows it, which is the one
+question that used to cost a session three extra calls. A name with no definition
+anywhere in those five directories exits non-zero and says so, rather than printing
+nothing and leaving the caller to work out whether that was silence or an answer.
+
+It is read-only by construction — `fs.readdirSync`/`readFileSync` over five directories
+and nothing else — which is what put `Bash(b7e-def:*)` straight on `DEFAULT_TOOL_LIST`
+in `lib/toolbelt.js` rather than behind an elevation.
+
+### What a new route, page, module or config key still owes — `b7e-owes`
+
+`bc-khoe.27.7` is the second finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
+filed against the same shape breaking repeatedly rather than once: four sessions
+(`bc-dgx7.5`, `bc-khoe.27.3`, `bc-ka5y.15.2`, `bc-xl7n.56`) each independently
+rediscovered the handful of registries a new route, page, `lib/` module or config key
+incurs debt in — some by asking memory for the same note one session apart, some by
+watching a suite go red after the code was already written. `bc-ka5y.15.2`'s own gap,
+`advocates.flagFinishedEpics` shipped with no Config row, was then rediscovered from
+scratch by three *more* sessions sweeping main before anyone filed the row. Four
+sessions is a repeated shape; this is the command that would have named it in each of
+them before a line of code was written.
+
+```
+b7e-owes                    every unpaid registration in the working tree, right now
+b7e-owes --rev <range>      the same, with any finding whose file the range touched marked
+b7e-owes < some.diff        the same annotation, read from a unified diff on stdin
+```
+
+Four registries, each checked in the direction this bead is named for — something
+served or defined with no row claiming it — and, where the read is already in hand,
+the other direction too:
+
+1. **README's own API table** against the `(method, path)` chain `lib/server.js`
+   dispatches on — the same read `test/routes.mjs` makes, deliberately duplicated a
+   third time: `routeTable()` inside `lib/server.js` already duplicates it once, on
+   the argument that a regex that quietly stops matching needs a second one it can be
+   asserted to agree with, and this is cheap enough to be the third.
+2. **README's Config table** against every key `loadConfig()` and the advocate
+   `options()` actually default — the same read `test/configtable.mjs` makes,
+   shape-row coverage and its short list of real, undefaulted keys included.
+3. **`lib/evidence.js`'s `REGISTER`/`NOT_EVIDENCE`** against every `lib/` or `bin/`
+   module that touches `CONFIG_DIR` or a `refs/beadcause/*` ref. `coverageProblems()`
+   is imported and run rather than re-implemented — the register's own coverage check
+   already *is* the answer to "does this module have a claim", not a description of
+   one worth copying.
+4. **`test/pagepaths.mjs`'s `PAGES`/`REDIRECTS`** against every alias `serveStatic`
+   defines in `lib/server.js` — the run of one-line `if (urlPath === '/x') …` that
+   function's own doc comment already calls "read as a table as well as run". An alias
+   with no mention anywhere in `test/pagepaths.mjs` is one nothing has ever asked to
+   answer for, and this is not hypothetical: `/foundations`, `/flow`, `/map`,
+   `/requirements` and `/coverage` are five of them on main as this was written —
+   `bc-khoe.27.9`, filed rather than fixed here, because five pages is five separate
+   decisions about what each should assert and that is a different piece of work than
+   naming that it is owed.
+
+**What this does not check.** The four registries this bead's own evidence names, not
+a general documentation linter. `package.json`'s `bin` against `package-lock.json`'s is
+already unconditionally gated by `test/lockfile.mjs` on every `npm test`, and
+`public/sw.js`'s cache version is deliberately left out — it collides with whichever
+other branch is racing it on every merge, which a static read of one working tree
+cannot see coming, and "The shell's cache version" section above is already the
+answer for it.
+
+Exit code is a linter's, not `b7e-def`'s: `0` when nothing is owed, `1` when something
+is — so `b7e-owes || …` gates a script the way `eslint` or `tsc --noEmit` already do in
+this house, rather than `b7e-def`'s `1` for "no such symbol".
+
+Like `b7e-def` it is read-only by construction, with one caveat: the Config-table check
+imports `lib/config.js` and `lib/advocate.js` to see what they actually default, so it
+writes a scratch `config.json` — but only under a throwaway `BEADCAUSE_CONFIG_DIR` it
+creates and deletes around the call, never the real `~/.config/beadcause` and never
+anything in the repo. That is what put `Bash(b7e-owes:*)` on `DEFAULT_TOOL_LIST` in
+`lib/toolbelt.js` beside `b7e-def` rather than behind an elevation.
+
 ### Whether the library is being used — the Skills view
 
 `/skills` (or `/candidates`) is the one screen the whole programme is visible from: the
@@ -16211,7 +16314,7 @@ draws the row anyway, with nothing on it current.
 
 ### `b7e-apply` — an anchored edit, all-or-nothing and syntax-checked
 
-The library the section above says is empty today has its first tenant. A session audit
+The library the section above describes has a new tenant. A session audit
 found the same tiny program written into a scratchpad and run as a program, by hand, in
 five separate sessions: bc-khoe.26 wrote fourteen of them (`css1.py`, `t1.py`…`t7.py`,
 `r1.py`…`r3.py`…), bc-khoe.27.3 wrote seven, bc-khoe.27.2 wrote nine and only started
