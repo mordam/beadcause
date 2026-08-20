@@ -39,7 +39,8 @@
     "beadcause-engagement": "bin/engagement.js",
     "beadcause-crosswalk": "bin/crosswalk.js",
     "b7e-def": "bin/b7e-def",
-    "b7e-owes": "bin/b7e-owes.js"
+    "b7e-owes": "bin/b7e-owes.js",
+    "b7e-say": "bin/b7e-say.js"
   },
   "scripts": {
     "start": "node bin/router.js",
