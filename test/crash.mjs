@@ -631,6 +631,12 @@ await check('every swallowed failure in the poll cycle reports', () => {
       // windows fail for different reasons, and one crash card naming both would send
       // whoever reads it to the wrong half.
       'the merge queue',
+      // lib/orphancensus.js. `createOrphanWatch().sweep` lands a workspace it could not
+      // read in its outcome and leaves that workspace's held ids alone, so what reaches
+      // this catch is the watcher's own bookkeeping — and getting it wrong is quiet in
+      // the same shape as the epic-done sweep above: the symptom is a rising count that
+      // never gets a line, which is the exact failure bc-xl7n.83 exists to end.
+      'the orphan-census sweep',
       'the owed-close sweep',
       'the poll',
       'the release sweep',
