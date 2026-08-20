@@ -166,6 +166,7 @@ const WANT_OBJECT = [
   'markForGlean',
   'reconcileLanded',
   'sweepSuperseded',
+  'sweepFarBlocks',
   'sweepInMain',
   'sweepNotInMain',
   'followNotInMain',
