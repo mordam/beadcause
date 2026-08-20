@@ -2152,6 +2152,12 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 }
 .delivery .prop-more { margin-left: 0; }
 .pr-branch code { font-size: 11.5px; }
+/* The rung and the lamps, off the board's own row for this same pull request — the
+   half of a `pr:` card this one absorbed so the number stopped appearing twice under
+   the PRs pill. `.pr-stage` and `.board-lamps` carry their own styling already (see
+   the board rules further down); this is only the row that holds them together. */
+.pr-board { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pr-board .board-lamps { margin-top: 0; }
 .pr-stats { display: flex; flex-wrap: wrap; gap: 6px; }
 .pr-chip {
   padding: 3px 8px; border-radius: 999px;

@@ -9605,6 +9605,20 @@ scanning, and a fold would make it a question you answer by tapping twelve times
 board, tapping a row opens what you can do about it. In the inbox it opens
 [full screen](#tapping-one-opens-it-full-screen).
 
+**A delivery bead and its own pull request are one row here, not two.** bc-khoe.2 folded
+`delivery` into the `pr` kind so both sat under the one pill, and that only fixed the
+filter — the two were still drawn by two different renderers, from two different sweeps,
+so a finished worker's card showed twice: once as the delivery card (the human sweep's
+`beadpr` block, with **Merge** and **Decline**, which act on *the bead*) and once as this
+row (the `gh` sweep, with the rung and the lamps, which act on *the pull request*). bc-khoe.18
+folds them: `render()` in `public/app.js` matches a delivery to its board row by bead id —
+`p.beads` is what `beadsFor` (`lib/beadref.js`) already verified against the tracker from the
+same `bead:` line the delivery's own block carries — and leaves that row out of the list
+once matched, so its number is not counted or drawn a second time. What survives of it is
+`stageHtml` and `lampsHtml`, drawn on the delivery card itself (`deliveryBoardHtml`); the
+diffstat and the checks stay the delivery card's own live fetch (`/api/pr`, `prStatsHtml`),
+which is fresher than the 25-second sweep this row is drawn from.
+
 ### Tapping one opens it full screen
 
 A merge decision is the one thing in this app that changes something outside this Mac and

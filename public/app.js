@@ -1714,6 +1714,29 @@
   /* --------------------------------------------------------------- delivery */
 
   /**
+   * The rung and the lamps, off the board's own row for this delivery — public/prcard.js,
+   * the same functions the board and the pull-request pane draw with.
+   *
+   * A delivery bead and its pull request were two cards under the PRs pill until
+   * bc-khoe.18: this one, drawn from the human sweep with its own Merge and Decline
+   * (which act on *this bead*), and a second one from `prRows()` drawing the same
+   * number with the rung, the lamps and the accordion the board draws every pull
+   * request with. `render()` folds the two together — see `boardPr` there — so this is
+   * what is left of the second card once it stops being a second card: everything it
+   * said that this one did not already say, on the one card that is left.
+   *
+   * `q.boardPr` is null until the sweep has a row for it (a delivery can be minutes
+   * ahead of the next `gh` poll) and stays null on a page prcard.js never loaded on —
+   * both are the same "nothing to add yet" and draw nothing rather than a gap.
+   */
+  function deliveryBoardHtml(q) {
+    const card = window.beadcause?.prCard;
+    const p = q.boardPr;
+    if (!card || !p) return '';
+    return `<div class="pr-board">${card.stageHtml(p)}${card.lampsHtml(p)}</div>`;
+  }
+
+  /**
    * A worker handing back finished work as a pull request.
    *
    * The one card in the inbox whose answer changes something outside this Mac, so it
@@ -1740,6 +1763,7 @@
         <span class="pr-title">${esc(d.title || d.branch)}</span>
       </a>
       <div class="pr-branch"><code>${esc(d.branch)}</code> → <code>${esc(d.base)}</code></div>
+      ${deliveryBoardHtml(q)}
       ${prSummaryHtml(q, d)}
       <div class="pr-stats">${prStatsHtml(live)}</div>
       ${
@@ -2064,6 +2088,25 @@
           space: spaceForWorkspace(p.workspace),
         }))
     );
+
+  /**
+   * The board's own row for a delivery's pull request, if the sweep has one yet.
+   *
+   * A delivery bead and a board row are two facts about the same pull request from two
+   * different sweeps — `q.delivery` off the human sweep, `prRows()` off `gh` — and
+   * bc-khoe.18 is about not drawing both as separate cards. Matched on the bead id
+   * rather than the number: `p.beads` is what `beadsFor` (lib/beadref.js) verified
+   * against *this* tracker from the same `bead:` line a delivery's own block carries,
+   * so agreeing on the id is agreeing on the same fact two ways, and it holds across a
+   * workspace of more than one repo where a number alone would not be unique.
+   */
+  const boardPrFor = (d) =>
+    (d?.bead &&
+      d.workspace &&
+      prRows().find(
+        (row) => row.workspace === d.workspace && (row.pr.beads || []).some((b) => b.id === d.bead)
+      )) ||
+    null;
 
   /** The ladder's order, for sorting. The words themselves are public/prcard.js's. */
   const prRank = (row) => {
@@ -7416,7 +7459,26 @@
     // of it. That is also the whole of what makes a quiet space's tickets as quiet as
     // its questions: quiet is per space (lib/spaces.js), a workspace belongs to a space,
     // and a ticket carries the space of the workspace whose JIRA held it.
-    const rows = [...state.questions, ...prRows(), ...chatRows(), ...jiraRows()];
+    //
+    // A delivery bead and its own pull request used to be two of these rows — one off
+    // `state.questions`, one off `prRows()` — drawing two cards for the same number
+    // under the same PRs pill (bc-khoe.18). `boardPr` is stamped onto the question here,
+    // once per render, so `deliveryHtml` can draw the board's rung and lamps on the one
+    // card that is left; the matched board row itself is left out of `boardRows` below
+    // so its number never appears a second time — in the list, or in a pill's count.
+    const boardRows = prRows();
+    const foldedIntoDelivery = new Set();
+    for (const q of state.questions) {
+      const match = q.delivery ? boardPrFor(q.delivery) : null;
+      q.boardPr = match?.pr || null;
+      if (match) foldedIntoDelivery.add(match.key);
+    }
+    const rows = [
+      ...state.questions,
+      ...boardRows.filter((row) => !foldedIntoDelivery.has(row.key)),
+      ...chatRows(),
+      ...jiraRows(),
+    ];
     const inSpace = state.space === 'all' ? rows : rows.filter((q) => spaceOf(q) === state.space);
     const inRepo =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
