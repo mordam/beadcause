@@ -3466,7 +3466,7 @@ button.work-row {
 .queue-sec { max-width: 780px; margin: 0 auto 18px; padding: 0 16px; }
 .queue-head {
   display: flex; align-items: baseline; gap: 8px;
-  margin: 0 0 8px; font-size: 13px; font-weight: 620;
+  margin: 0 0 8px; font-size: 13px; font-weight: 600;
   color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
 }
 .queue-count {
@@ -6671,7 +6671,7 @@ a.pill { text-decoration: none; }
 .approval-state { font-weight: 650; }
 /* No state is a state, not a fault, and it gets the same quiet italic `.model-why.is-none`
    and `.owner-who.is-none` give the other two "nobody has said yet" rows. */
-.approval-state.is-none, .approval-state.is-gate { font-weight: 500; font-style: italic; color: var(--muted); }
+.approval-state.is-none, .approval-state.is-gate { font-weight: 550; font-style: italic; color: var(--muted); }
 .approval-why { min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .approval-rev, .approval-gate { flex: none; color: var(--muted); }
 /* Pushed to the end of the row, because it is the half you must act on and the row is
@@ -7342,7 +7342,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   min-height: 40px;
   padding: 6px 12px;
   border: 1px solid var(--bead-made);
-  border-radius: 8px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--bead-made) 16%, transparent);
   color: var(--bead-made);
   font: inherit; font-size: 13px; font-weight: 600;
@@ -7353,7 +7353,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
    so the close is genuinely not reachable from this screen. Says where it is instead of
    offering a tap that would do nothing, and drops the border so it does not read as a
    control somebody has disabled. */
-.p0-done.is-none { border-color: transparent; background: none; font-weight: 500; color: var(--muted); cursor: default; }
+.p0-done.is-none { border-color: transparent; background: none; font-weight: 550; color: var(--muted); cursor: default; }
 /* The sheet: `.p0-full`'s four rows verbatim — it carries that class too — and one number
    changed. `41` is over `.card.open` and `.p0-full` at 40, because this is the one layer in
    the app that legitimately opens over another one: the advocate is reached from the epic's
@@ -7379,7 +7379,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   padding: 6px 10px;
   border-left: 3px solid var(--accent);
   background: var(--surface);
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 10px 10px 0;
   font-size: 12.5px;
 }
 /* The plan: one block per group, which is one window's worth of work in one checkout. */
@@ -7388,7 +7388,7 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   display: flex; flex-direction: column; gap: 4px;
   padding: 7px 9px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
 }
 .p0-adv-group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .p0-adv-group-name { font-size: 13px; font-weight: 600; }
@@ -7838,7 +7838,7 @@ body.editing::after {
 .skill-row {
   display: flex; flex-direction: column; gap: 6px; width: 100%;
   padding: 12px 14px; text-align: left;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   color: inherit; text-decoration: none;
 }
 /* What is not measured is drawn *quieter* than what is, on the surface the page uses for
@@ -7898,20 +7898,20 @@ body.editing::after {
 /* The pad's number, drawn as a token rather than as text so the eye finds the three
    groups before it reads anything. */
 .sound-num {
-  flex: none; width: 30px; height: 30px; border-radius: 15px;
+  flex: none; width: 30px; height: 30px; border-radius: 50%;
   display: grid; place-items: center;
   background: var(--line); color: var(--text);
   font-size: 14px; font-weight: 650;
 }
 .sound-play {
   flex: none; min-height: 44px; padding: 0 18px;
-  border-radius: 12px; border: 1px solid var(--line);
+  border-radius: 10px; border: 1px solid var(--line);
   background: var(--surface); color: var(--text); font: inherit;
 }
 .sound-picks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .sound-pick {
   flex: 1 1 auto; min-height: 44px; padding: 8px 12px;
-  border-radius: 12px; border: 1px solid var(--line);
+  border-radius: 10px; border: 1px solid var(--line);
   background: transparent; color: var(--muted); font: inherit; font-size: 13px;
 }
 .sound-pick.is-picked { border-color: var(--accent); color: var(--text); }
@@ -7925,7 +7925,7 @@ body.editing::after {
 .sound-start, .sound-reveal { width: 100%; min-height: 44px; margin-top: 12px; }
 .sound-again {
   width: 100%; min-height: 44px; margin-top: 10px;
-  border-radius: 12px; border: 1px solid var(--line);
+  border-radius: 10px; border: 1px solid var(--line);
   background: transparent; color: var(--muted); font: inherit;
 }
 .sound-verdict { margin: 14px 0 0; font-size: 14px; }
