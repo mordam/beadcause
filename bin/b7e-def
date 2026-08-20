@@ -1,0 +1,455 @@
+#!/usr/bin/env node
+/**
+ * Where a symbol is defined, in one call instead of four failed greps.
+ *
+ *   b7e-def <name>              every definition of <name>, with its doc comment
+ *   b7e-def <name> --callers    the above, plus one line per call site
+ *
+ * bc-khoe.27.5 is the audit that filed this: four sessions each hand-rolled the
+ * same `grep -n | cut -d: -f1 | sed -n '<n>,+50p'` dance against lib/server.js
+ * (10,560 lines), public/app.js (10,380) and lib/bd.js — and it broke a different
+ * way each time. `sed -n "$(grep ... | cut -d: -f1),+50p"` fails outright when the
+ * grep comes back empty (`sed: 1: ",+50p": invalid command code ,`), and even when
+ * it doesn't, the name searched for is often only *imported* where you looked —
+ * bc-r2b5.1 spent four calls finding that `loadBead` is imported into
+ * lib/server.js at line 12 and actually defined in lib/verdict.js:297. This
+ * answers both questions in one call: where a name is bound, and — if that binding
+ * is an import — where the real definition lives.
+ *
+ * A name can have more than one definition (the same method name on two different
+ * classes, say). That is reported as two, not silently narrowed to the first
+ * match — see the acceptance criteria on bc-khoe.27.5.
+ *
+ * WHAT THIS DOES NOT PARSE. Definitions and call sites are found by matching each
+ * *line*, not by a real JS parser, so a match inside a multi-line string or a
+ * comment that happens to look like a definition is not filtered out. Template
+ * literals are treated as opaque strings when finding a definition's closing
+ * brace, so a `${...}` interpolation that itself contains braces can throw off
+ * the span by a line or two — narrower than a real tokenizer, on purpose, the
+ * same tradeoff test/lockfile.mjs makes against a real `npm ci --dry-run`. Good
+ * enough for the application code in this repo; not a substitute for reading the
+ * file when the shape is unusual.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
+const SEARCH_DIRS = ['lib', 'bin', 'public', 'scripts', 'test'];
+const EXCLUDE_DIR_NAMES = new Set(['node_modules', '.git', 'vendor', 'coverage']);
+const CODE_EXT = new Set(['.js', '.mjs', '.cjs']);
+
+/* ------------------------------------------------------------------- argv */
+
+const argv = process.argv.slice(2);
+const CALLERS = argv.includes('--callers');
+const positional = argv.filter((a) => !a.startsWith('-'));
+const NAME = positional[0];
+
+const HELP = argv.includes('--help') || argv.includes('-h');
+if (!NAME || HELP) {
+  const out = HELP ? console.log : console.error;
+  out(
+    [
+      'b7e-def <name>              every definition of <name>, with its doc comment',
+      'b7e-def <name> --callers    the above, plus one line per call site',
+      '',
+      `searches: ${SEARCH_DIRS.join(', ')} (recursively, .js/.mjs/.cjs and shebang'd extensionless files)`,
+    ].join('\n'),
+  );
+  process.exit(HELP ? 0 : 1);
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/* -------------------------------------------------------------- file walk */
+
+function listFiles() {
+  const files = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith('.')) continue;
+      if (EXCLUDE_DIR_NAMES.has(e.name)) continue;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!e.isFile()) continue;
+      const ext = path.extname(e.name);
+      if (CODE_EXT.has(ext)) {
+        files.push(full);
+        continue;
+      }
+      // Extensionless commands (bin/beadcause-memory and friends) — only worth
+      // opening if they are actually a node script, not a binary or a symlink
+      // to one.
+      if (!ext) {
+        try {
+          const fd = fs.openSync(full, 'r');
+          const buf = Buffer.alloc(32);
+          const n = fs.readSync(fd, buf, 0, 32, 0);
+          fs.closeSync(fd);
+          if (buf.subarray(0, n).toString('utf8').startsWith('#!/usr/bin/env node')) files.push(full);
+        } catch {
+          /* not readable, not ours to search */
+        }
+      }
+    }
+  };
+  for (const d of SEARCH_DIRS) walk(path.join(ROOT, d));
+  return files;
+}
+
+/* --------------------------------------------------- string/comment aware scan */
+
+/** Advance past a quoted string (', ", or `) starting at text[i], respecting `\`. */
+function skipString(text, i) {
+  const q = text[i];
+  i += 1;
+  while (i < text.length) {
+    if (text[i] === '\\') {
+      i += 2;
+      continue;
+    }
+    if (text[i] === q) return i + 1;
+    i += 1;
+  }
+  return i;
+}
+
+/**
+ * From `fromIndex` (just past a definition's name), find where its body starts:
+ * the first `{` seen at parenthesis/bracket depth 0 — which is what lets a
+ * destructured default parameter (`function f({ a, b } = {}) {`) not get mistaken
+ * for the body. Returns `{ type: 'brace', index }` for a block body, or
+ * `{ type: 'semi', index }` when a top-level `;` is hit first (a bare statement —
+ * a call, not a definition), or null at EOF.
+ */
+function findBody(text, fromIndex) {
+  let i = fromIndex;
+  let depth = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      if (nl === -1) return null;
+      i = nl;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end === -1) return null;
+      i = end + 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      i = skipString(text, i);
+      continue;
+    }
+    if (c === '(' || c === '[') {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (c === ')' || c === ']') {
+      depth -= 1;
+      i += 1;
+      continue;
+    }
+    if (c === '{' && depth === 0) return { type: 'brace', index: i };
+    if (c === ';' && depth === 0) return { type: 'semi', index: i };
+    i += 1;
+  }
+  return null;
+}
+
+/** text[openIndex] is '{'; returns the index of its matching '}'. */
+function matchBrace(text, openIndex) {
+  let depth = 1;
+  let i = openIndex + 1;
+  while (i < text.length && depth > 0) {
+    const c = text[i];
+    if (c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      if (nl === -1) return text.length - 1;
+      i = nl;
+      continue;
+    }
+    if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end === -1) return text.length - 1;
+      i = end + 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`') {
+      i = skipString(text, i);
+      continue;
+    }
+    if (c === '{') depth += 1;
+    else if (c === '}') depth -= 1;
+    i += 1;
+  }
+  return i - 1;
+}
+
+/** Builds a lookup from char index -> 1-based line number. */
+function lineIndexer(text) {
+  const starts = [0];
+  for (let i = 0; i < text.length; i += 1) if (text[i] === '\n') starts.push(i + 1);
+  return (charIndex) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= charIndex) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+}
+
+/** Walks upward from `startLine` (1-based) over a contiguous // or /** *​/ block. */
+function docCommentStart(lines, startLine) {
+  let li = startLine - 2; // 0-based index of the line above startLine
+  while (li >= 0) {
+    const t = lines[li].trim();
+    if (t.startsWith('//') || t.startsWith('/*') || t.startsWith('*') || t.endsWith('*/')) {
+      li -= 1;
+      continue;
+    }
+    break;
+  }
+  return li + 2; // back to 1-based, first comment line
+}
+
+/* -------------------------------------------------------- definition finder */
+
+/**
+ * Every definition of `name` found in `text` (one file's contents). Six head
+ * shapes: exported/plain function, exported/plain class, exported/plain
+ * const|let|var, and — checked last, and only kept when a `{` body actually
+ * follows — a bare `name(` head, which covers class methods, object-literal
+ * shorthand methods and getters/setters/generators without a separate pattern
+ * for each. That last check is what tells `name(args);` (a call site) apart from
+ * `name(args) {` (a definition).
+ */
+function definitionsFor(name, file, text) {
+  const wb = `\\b${escapeRe(name)}\\b`;
+  const heads = [
+    { re: new RegExp(`^export\\s+default\\s+(async\\s+)?function\\*?\\s+${wb}\\s*\\(`), label: 'export default function' },
+    { re: new RegExp(`^export\\s+(async\\s+)?function\\*?\\s+${wb}\\s*\\(`), label: 'export function' },
+    { re: new RegExp(`^export\\s+class\\s+${wb}\\b`), label: 'export class' },
+    { re: new RegExp(`^export\\s+(const|let|var)\\s+${wb}\\s*=`), label: 'export' },
+    { re: new RegExp(`^(async\\s+)?function\\*?\\s+${wb}\\s*\\(`), label: 'function' },
+    { re: new RegExp(`^class\\s+${wb}\\b`), label: 'class' },
+    { re: new RegExp(`^(const|let|var)\\s+${wb}\\s*=`), label: 'variable' },
+    { re: new RegExp(`^${wb}\\s*:\\s*(async\\s+)?function\\*?\\s*\\(`), label: 'property function', verifyBody: true },
+    { re: new RegExp(`^(static\\s+)?(async\\s+)?(get\\s+|set\\s+)?\\*?${wb}\\s*\\(`), label: 'method', verifyBody: true },
+  ];
+  const lines = text.split('\n');
+  const idx = lineIndexer(text);
+  const out = [];
+  let charOffset = 0;
+  for (let li = 0; li < lines.length; li += 1) {
+    const line = lines[li];
+    const trimmed = line.trimStart();
+    const leadingWs = line.length - trimmed.length;
+    for (const head of heads) {
+      const m = head.re.exec(trimmed);
+      if (!m) continue;
+      const afterHeadChar = charOffset + leadingWs + m[0].length - 1; // just past the head match
+      const body = findBody(text, afterHeadChar);
+      if (!body) continue;
+      if (head.verifyBody && body.type !== 'brace') continue; // it was a call, not a def
+      const endIndex = body.type === 'brace' ? matchBrace(text, body.index) : body.index;
+      const startLine = li + 1;
+      const endLine = idx(endIndex);
+      const docStart = docCommentStart(lines, startLine);
+      out.push({
+        file,
+        startLine,
+        endLine,
+        docStart,
+        label: head.label,
+        text: lines.slice(docStart - 1, endLine).join('\n'),
+      });
+      break; // first matching head wins for this line
+    }
+    charOffset += line.length + 1; // +1 for the '\n' split away
+  }
+  return out;
+}
+
+/* --------------------------------------------------------------- imports */
+
+/** Every `import ... name ... from '<specifier>'` binding of `name` in `text`. */
+function importsFor(name, file, text) {
+  const idx = lineIndexer(text);
+  const out = [];
+  const re = /import\s+([^;]*?)\s+from\s+(['"])((?:(?!\2).)*)\2/gs;
+  let m;
+  while ((m = re.exec(text))) {
+    const clause = m[1];
+    const specifier = m[3];
+    const clauseStart = m.index + m[0].indexOf(clause);
+    const bindings = [];
+    const ns = clause.match(/\*\s+as\s+([A-Za-z_$][\w$]*)/);
+    if (ns) bindings.push({ local: ns[1], real: '*' });
+    const named = clause.match(/\{([\s\S]*)\}/);
+    if (named) {
+      for (const part of named[1].split(',')) {
+        const p = part.trim();
+        if (!p) continue;
+        const as = p.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/);
+        if (as) bindings.push({ local: as[2], real: as[1] });
+        else bindings.push({ local: p, real: p });
+      }
+    }
+    const before = named ? clause.slice(0, named.index) : ns ? '' : clause;
+    const def = before.match(/^([A-Za-z_$][\w$]*)/);
+    if (def) bindings.push({ local: def[1], real: 'default' });
+
+    for (const b of bindings) {
+      if (b.local !== name) continue;
+      const localOffset = clause.search(new RegExp(`\\b${escapeRe(name)}\\b`));
+      const charIndex = localOffset >= 0 ? clauseStart + localOffset : m.index;
+      out.push({ file, line: idx(charIndex), specifier, real: b.real });
+    }
+  }
+  return out;
+}
+
+/* --------------------------------------------------------------- callers */
+
+function callersFor(name, file, text, skipLines) {
+  const wb = `\\b${escapeRe(name)}\\b`;
+  const re = new RegExp(`(^|[^.\\w$])${wb}\\s*\\(`);
+  const lines = text.split('\n');
+  const out = [];
+  for (let li = 0; li < lines.length; li += 1) {
+    const lineNo = li + 1;
+    if (skipLines.has(lineNo)) continue;
+    if (re.test(lines[li])) out.push({ file, line: lineNo, text: lines[li].trim() });
+  }
+  return out;
+}
+
+/* -------------------------------------------------------------------- run */
+
+const files = listFiles();
+const rel = (f) => path.relative(ROOT, f);
+const fileTexts = new Map();
+
+const directDefs = [];
+const allImports = [];
+for (const f of files) {
+  const text = fs.readFileSync(f, 'utf8');
+  fileTexts.set(f, text);
+  directDefs.push(...definitionsFor(NAME, rel(f), text));
+  allImports.push(...importsFor(NAME, rel(f), text));
+}
+
+/**
+ * Every import whose local name is NAME may point at a real definition —
+ * possibly under a different (aliased) name, possibly in a file that `listFiles`
+ * never visited (a specifier climbing out of SEARCH_DIRS, or `test/helpers/`
+ * under a dir this walk does cover but where the file itself was fine either
+ * way). Resolve each one and fold in whatever it finds.
+ */
+const resolvedDefs = [];
+for (const imp of allImports) {
+  if (imp.real === '*' || imp.real === 'default') continue; // nothing single to point at
+  if (!imp.specifier.startsWith('.')) continue; // not a repo-relative module
+  const fromDir = path.dirname(path.join(ROOT, imp.file));
+  const candidates = [imp.specifier, `${imp.specifier}.js`, `${imp.specifier}.mjs`, path.join(imp.specifier, 'index.js')];
+  let targetFile = null;
+  let targetText = null;
+  for (const c of candidates) {
+    const p = path.join(fromDir, c);
+    if (fileTexts.has(p)) {
+      targetFile = p;
+      targetText = fileTexts.get(p);
+      break;
+    }
+    try {
+      targetText = fs.readFileSync(p, 'utf8');
+      targetFile = p;
+      break;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  if (!targetFile) continue;
+  const label = imp.real === NAME ? undefined : `as ${imp.real}`;
+  for (const d of definitionsFor(imp.real, rel(targetFile), targetText)) {
+    resolvedDefs.push(label ? { ...d, label } : d);
+  }
+}
+
+const seen = new Set();
+const allDefs = [];
+for (const d of [...directDefs, ...resolvedDefs]) {
+  const key = `${d.file}:${d.startLine}`;
+  if (seen.has(key)) continue;
+  seen.add(key);
+  allDefs.push(d);
+}
+allDefs.sort((a, b) => a.file.localeCompare(b.file) || a.startLine - b.startLine);
+
+/* ------------------------------------------------------------------ print */
+
+let exitCode = 0;
+
+if (allImports.length) {
+  for (const i of allImports) {
+    const alias = i.real !== NAME && i.real !== 'default' ? `, as ${i.real}` : '';
+    console.log(`imported at ${i.file}:${i.line} (from '${i.specifier}'${alias})`);
+  }
+  if (allDefs.length) console.log('');
+}
+
+if (allDefs.length) {
+  for (const d of allDefs) {
+    console.log(`${d.file}:${d.startLine}-${d.endLine}${d.label ? `  (${d.label})` : ''}`);
+    console.log(d.text);
+    console.log('');
+  }
+} else {
+  console.log(`no definition of '${NAME}' found in ${SEARCH_DIRS.join(', ')}${allImports.length ? ' — only the import(s) above' : ''}`);
+  exitCode = 1;
+}
+
+if (CALLERS) {
+  const skipByFile = new Map();
+  for (const d of allDefs) {
+    const set = skipByFile.get(d.file) || new Set();
+    for (let l = d.docStart; l <= d.endLine; l += 1) set.add(l);
+    skipByFile.set(d.file, set);
+  }
+  for (const i of allImports) {
+    const set = skipByFile.get(i.file) || new Set();
+    set.add(i.line);
+    skipByFile.set(i.file, set);
+  }
+  const callers = [];
+  for (const f of files) {
+    const r = rel(f);
+    callers.push(...callersFor(NAME, r, fileTexts.get(f), skipByFile.get(r) || new Set()));
+  }
+  if (callers.length) {
+    console.log(`callers (${callers.length}):`);
+    for (const c of callers) console.log(`  ${c.file}:${c.line}: ${c.text}`);
+  } else {
+    console.log('callers: none found');
+  }
+}
+
+process.exit(exitCode);
