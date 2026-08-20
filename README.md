@@ -2507,6 +2507,19 @@ the comment it rides on:
 The elevated run is also told, in its prompt, that it is elevated deliberately for
 one reply and should say in its comment exactly what it did with the reach.
 
+**Tab stays inside the warning while it is up, and Escape means Cancel** (bc-ywiy).
+It carries `role="dialog" aria-modal="true"` — which told a screen reader the roster
+behind it was inert — but until now nothing kept a keyboard's Tab to the same claim,
+so tabbing past either button walked straight back out into the panel underneath.
+Focus opens on **Cancel** rather than on the button that grants the reach, so a
+keyboard reader whose first press is Enter rather than a read of the warning gets the
+safe outcome; closing either way — Cancel, Escape, the backdrop, or granting it — hands
+the keyboard straight back to the checkbox that asked. The same fix is in
+[the drawer](#detail-opens-over-the-tab-not-instead-of-it) and the epic's full-tab, for
+the same reason: all three are `aria-modal="true"` layers and none of them kept Tab
+inside until bc-ywiy. `node scripts/focustrap-check.mjs` drives all three in one run,
+because a Tab key is not something a string comparison can see.
+
 ### What a reply agent may do — and the four verbs it used to have by accident
 
 The allowlist was `Bash(bd *)`, which is one pattern and four verbs too many: it
@@ -5186,6 +5199,17 @@ neither was open, so one press never dismisses two things — and focus follows 
 both directions, to the way out when it opens and back to the card it came from when it
 shuts, because delegation cannot do that for you and the alternative is a Tab that starts
 again at the top of the document.
+
+**And Tab wraps at the layer's own edges rather than leaving it** (bc-ywiy). Moving
+focus in and back was only two of the three things `role="dialog" aria-modal="true"`
+implies — the third is that Tab from the last control lands on the first and Shift-Tab
+from the first lands on the last, which nothing here did until now. Caught by the
+shared `keydown` listener that already closes the layer on Escape: it looks the tab
+up fresh — `document.querySelector('.p0-full')` — on every keypress rather than
+holding a reference, because a poll replaces this node whole every 25 seconds and a
+held reference would be trapping focus in a layer already thrown away. Part of
+[the same check](#allow-tools--for-one-comment-and-only-that-one) as the drawer and
+the tools-arming warning.
 
 Two things about the tree itself are less obvious than they look.
 
@@ -8904,6 +8928,25 @@ subframe navigations too, so the WebView was intercepting the drawer's own ifram
 load and opening `DocActivity` on top of a drawer that stayed empty behind it. It now
 leaves anything that is not the main frame alone; a `/doc` link that *is* a main-frame
 navigation — a notification, a deep link — still opens the native reader.
+
+**Tab and Shift-Tab stay inside the panel while it is open, and land back on the
+anchor that opened it once it closes** (bc-ywiy). `aria-modal="true"` told a screen
+reader everything behind the panel was inert; nothing kept a keyboard's Tab to the
+same claim, so a reader who tabbed past the ✕ used to walk straight out into a list
+covered by the backdrop, with no focus ring anywhere on screen to say where the
+keyboard had gone. The iframe is the one part of this a `keydown` listener cannot see
+through: once Tab has carried focus into the framed page, the *next* Tab's keydown
+happens in that document, not this one, and never reaches drawer.js at all — so the
+forward wrap is caught by a `focusin` listener instead, which does not care how focus
+escaped, only that it landed back in this document past the panel's edge, and sends
+it to the ✕. Shift-Tab off the ✕ gets the better answer, because it starts on a
+control this document can see coming: it reaches into the framed page's own
+document — same-origin, so `contentDocument` is not a wall here — for its last
+focusable control, rather than treating the iframe as one opaque stop. The same fix
+landed on the epic's full-tab (`.p0-full` — see [The board is a grid, and tapping a
+card opens it full-tab](#the-board-is-a-grid-and-tapping-a-card-opens-it-full-tab))
+and on [the tools-arming warning](#allow-tools--for-one-comment-and-only-that-one),
+because all three claimed `aria-modal="true"` and none of them kept it true for Tab.
 
 ### Closing a subordinate view — one rule, in one place
 

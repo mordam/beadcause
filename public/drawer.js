@@ -143,6 +143,21 @@
     let open = false;
     let pushed = false;
     let sweep = 0;
+    // Whatever had the keyboard right before show() — the anchor tapped, ordinarily
+    // — so close() can hand it straight back rather than leaving Tab to start over
+    // from the top of the tab underneath. Set once, at the one place a tap actually
+    // opens the panel, and left alone by an in-drawer retarget (`load` on its own):
+    // the panel is still the same panel, just pointed at a different page. bc-ywiy.
+    let opener = null;
+
+    /** Every element inside `container` a Tab key actually stops at. An `iframe` is
+     * one of them: the panel's own content is a page loaded into one, and from out
+     * here it is a single stop on the way in — see the keydown handler below for
+     * what happens once Tab is actually inside it. */
+    const FOCUSABLE_SEL =
+      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), iframe, [tabindex]:not([tabindex="-1"])';
+    const focusables = (container) =>
+      [...container.querySelectorAll(FOCUSABLE_SEL)].filter((el) => el.getClientRects().length > 0);
 
     /** Built once, on the first tap — a tab that never opens one pays nothing. */
     function build() {
@@ -203,6 +218,44 @@
         },
         { passive: true }
       );
+
+      /**
+       * Tab and Shift-Tab, kept inside the panel while it is open — the half of
+       * `role="dialog" aria-modal="true"` the attribute claims but does not, by
+       * itself, make true. bc-ywiy.
+       *
+       * The iframe is the one hard part: once Tab has moved focus *into* its
+       * content, the keydown for the next Tab happens in that document, not this
+       * one, and never reaches a listener out here at all — so there is no keydown
+       * to catch when it walks past the framed page's last control and out the far
+       * side. The only sign of that happening is focus landing back in this
+       * document, past the panel's edge, which is what the `focusin` backstop below
+       * is for: it does not care how focus got there, only that it did.
+       *
+       * Shift-Tab off the close button — the one direction this document can still
+       * see coming, because it starts on a control that is not the iframe — gets the
+       * better answer instead of the same backstop: it goes looking for the framed
+       * page's own last focusable (same-origin, so `contentDocument` is not a
+       * cross-origin wall here) rather than settling for the iframe as a single
+       * opaque stop.
+       */
+      panel.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab' || !e.shiftKey) return;
+        if (document.activeElement !== wrap.querySelector('[data-role="close"]')) return;
+        e.preventDefault();
+        try {
+          const inner = frame && focusables(frame.contentDocument);
+          if (inner && inner.length) return inner[inner.length - 1].focus({ preventScroll: true });
+        } catch {
+          /* cross-origin, or nothing loaded yet — fall through to the frame itself */
+        }
+        (frame || panel).focus({ preventScroll: true });
+      });
+      document.addEventListener('focusin', (e) => {
+        if (!open || wrap.contains(e.target)) return;
+        const first = focusables(panel)[0];
+        (first || panel).focus({ preventScroll: true });
+      });
     }
 
     /** What the header says, sent up by the page inside once it knows. */
@@ -272,6 +325,10 @@
       }, SLIDE_MS);
       if (pushed && !fromHistory) history.back();
       pushed = false;
+      // Give the keyboard back to whatever opened this, rather than leaving it on a
+      // panel that is about to disappear — the same rule `p0-close` already follows
+      // for the epic's tab. bc-ywiy.
+      if (opener && opener.isConnected) opener.focus({ preventScroll: true });
     }
 
     document.addEventListener('click', (e) => {
@@ -281,6 +338,7 @@
       const url = detailUrl(a.getAttribute('href'));
       if (!url) return;
       e.preventDefault();
+      opener = a;
       show(url);
     });
 
