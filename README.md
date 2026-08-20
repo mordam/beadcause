@@ -17112,6 +17112,16 @@ an agent asked to review a diff will find something to say about every hunk of i
 review that raises eleven comments costs a worker eleven answers and the pull request a
 round it cannot get back.
 
+**The brief is not a thin wrapper around `/code-review`, and it does not skip it either.**
+Round one's instruction is to run the skill first, over the diff, and treat what it returns
+as findings to triage into the severity vocabulary above — not as the verdict itself, since
+the skill hunts bugs, reuse and simplification issues with no notion of what the pull
+request's bead was actually asked for. That second question is the reviewer's own, every
+round: read the bead's acceptance criteria off `bd show` and judge whether this diff
+delivers them, separately from whatever `/code-review` found. A diff can be clean and still
+not be the thing the bead asked for, and that is a `blocking` comment of its own — an
+approval an agent could reach by running the skill alone and never checking the bead at all.
+
 Three shapes are refused outright, and each is a verdict something would act on *wrongly*
 rather than reject:
 

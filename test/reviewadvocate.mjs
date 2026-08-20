@@ -381,6 +381,30 @@ check('A LATER ROUND IS ABOUT THE ANSWERS, NOT A SECOND FIRST REVIEW', () => {
   assert.ok(!/What a good review comment is here/.test(text), 'round two is handed the first round’s instructions');
 });
 
+check('ROUND ONE RUNS /code-review AS ITS FINDING STEP, NOT AS THE REVIEW ITSELF', () => {
+  // Adam's answer 7: "the review engine is the ReviewAdvocate's own protocol... the brief
+  // instructs the session to run /code-review as its FINDING step, then do the two things
+  // that skill does not — judge the delivery against the bead's own acceptance criteria."
+  const text = reviewAdvocatePrompt('beadcause', ISSUE, SPEC);
+  assert.match(text, /\/code-review/, 'nothing tells the session to run the skill');
+  assert.match(text, /not the review itself|not as the review/, 'the skill\'s findings are treated as the verdict itself');
+});
+
+check('AND SEPARATELY, IT MUST JUDGE THE DIFF AGAINST THE BEAD\'S OWN ACCEPTANCE CRITERIA', () => {
+  // The half /code-review never does: is this actually what zz-work was asked for.
+  const round1 = reviewAdvocatePrompt('beadcause', ISSUE, SPEC);
+  assert.match(round1, /acceptance criteria/i, 'round one never asks whether the diff delivers the bead');
+  assert.match(round1, /zz-work/, 'the judgement does not name the bead it is judged against');
+
+  const state = {
+    round: 2,
+    comments: [{ id: 'c1', file: 'lib/fetch.js', line: 88, severity: 'blocking', what: 'no ceiling on the retry', answer: 'the caller times out at 30s' }],
+  };
+  const round2 = reviewAdvocatePrompt('beadcause', ISSUE, SPEC, state, { maxRounds: 2, owner: 'Adam' });
+  assert.match(round2, /acceptance criteria/i, 'the acceptance judgement does not survive into round two');
+  assert.match(round2, /zz-work/);
+});
+
 check('and the cap arrives as a decision rather than as a defeat', () => {
   const text = reviewAdvocatePrompt('beadcause', ISSUE, SPEC, {}, { maxRounds: 2, owner: 'Adam' });
   assert.match(text, /There are 2 rounds, and then this becomes a card for Adam/);
