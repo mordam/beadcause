@@ -264,10 +264,15 @@ for (const dir of [path.join(ROOT, 'lib'), path.join(ROOT, 'scripts'), path.join
   }
 }
 
+// Naming the flag is not the same as launching one: lib/strays.js matches on
+// `--headless=new` in order to *find* the Chromes nobody tore down, and has no child of
+// its own to register. So the subject is a file that both names the flag and spawns
+// something — which is what copying either launcher gives you, and what the ROGUE control
+// below is.
 const unhooked = [];
 for (const full of sources) {
   const code = codeOf(fs.readFileSync(full, 'utf8'));
-  if (!/--headless/.test(code)) continue;
+  if (!/--headless/.test(code) || !/\bspawn\(/.test(code)) continue;
   if (!/onExit/.test(code)) unhooked.push(path.relative(ROOT, full));
 }
 if (!unhooked.length) ok('every file that spawns a browser registers an exit teardown');
@@ -276,7 +281,8 @@ else bad('every file that spawns a browser registers an exit teardown', unhooked
 // And the control for that scan, because an audit that cannot fire reports the same
 // clean tree as one with nothing to find.
 const ROGUE = "spawn(CHROME, ['--headless=new', '--user-data-dir=' + profile]);";
-if (/--headless/.test(codeOf(ROGUE)) && !/onExit/.test(codeOf(ROGUE))) ok('control: a launcher with no teardown is caught');
+if (/--headless/.test(codeOf(ROGUE)) && /\bspawn\(/.test(codeOf(ROGUE)) && !/onExit/.test(codeOf(ROGUE)))
+  ok('control: a launcher with no teardown is caught');
 else bad('control: a launcher with no teardown is caught', 'the scan cannot fire');
 
 /* -------------------------------------------------------------------- verdict */
