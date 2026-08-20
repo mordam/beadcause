@@ -445,7 +445,11 @@ let pair = null;
   is('the browser is paired for its next navigation', Boolean(pair), true);
   is('and that cookie is httpOnly', /HttpOnly/.test(attrs(r.headers['set-cookie'], 'beadcause_pair')), true);
 }
-is('a paired browser can navigate', (await call(onPort, '/prs', { headers: { cookie: `beadcause_pair=${pair}` } })).status, 200);
+// `/endorse` rather than `/prs`, which was a document until bc-khoe.30.7 and is a 302 onto
+// the Advocates pane now. The status is the whole assertion here, and an unauthorised
+// request is *also* a 302 — to `/login` — so a hop would make this pass whether the cookie
+// worked or not. The queue is a document, and one no bead is moving.
+is('a paired browser can navigate', (await call(onPort, '/endorse', { headers: { cookie: `beadcause_pair=${pair}` } })).status, 200);
 // The line that keeps the pairing cookie from being a second credential: it opens
 // documents, which contain nothing, and never data.
 is('but the pairing cookie does not authorise the API', (await call(onPort, '/api/agents', { headers: { cookie: `beadcause_pair=${pair}` } })).status, 401);

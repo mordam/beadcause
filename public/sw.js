@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v80';
+const CACHE = 'beadcause-v98';
 const SHELL = [
   '/',
   '/index.html',
@@ -58,6 +58,21 @@ const SHELL = [
   // moment it is wanted is the moment a notification was opened on a phone that has
   // just woken up — the same argument as absorb.js above.
   '/dictate.js',
+  // What the URL hash means — a view, a card to open on Home, or nothing. In the shell
+  // because the two files below and above it call into it flat on boot: the row asks it
+  // which view this address is, and the inbox asks it whether the hash names a card. A
+  // page cached without it is a page that throws before it draws.
+  '/hashroute.js',
+  // The shell's panes — one container per view in index.html, and which of them the hash
+  // is showing. In the shell for the same reason the grammar above it is: it is loaded on
+  // the one page that is the app, it runs on boot, and a page cached without it is a page
+  // whose views are three divs with no rule about which of them is up.
+  '/panes.js',
+  // And what fills them: the staged boot that builds the landed-on pane first and the
+  // rest after the first paint, and the one poll it fans out to all of them. In the shell
+  // beside panes.js and for the same reason — it runs on boot on the one page that is the
+  // app, and a page cached without it is a page whose panes never get built at all.
+  '/panestage.js',
   // The pill row across the top of every page. Every one of them is useless without it
   // — it is the only way off a page — so it belongs in the shell rather than being
   // fetched once per page over a phone link.
@@ -139,16 +154,23 @@ const SHELL = [
   '/archive',
   '/beadsession.html',
   '/beadsession.js',
-  // The pull request board — a pane on the advocates page now (bc-d4d5), so its three
-  // paths are three more ways of asking for monitor.html and are precached for the same
-  // reason that page's own five are: a redirect target left out of the shell is a
-  // home-screen shortcut that only works with a signal. /pulls is what you type when
-  // GitHub's own word for the tab is the one in your head; /prs.html is what a phone
-  // that bookmarked the page it used to be still asks for.
-  '/prs',
-  '/pulls',
-  '/prs.html',
+  // The pull request board — a pane of the shell's Advocates view now (bc-d4d5, folded in
+  // by bc-khoe.4), drawn by this script wherever that view is up.
+  //
+  // Its own three paths — /prs, /pulls, /prs.html — are **gone from this list**, under the
+  // same rule the ledger's two obey below: they are a 302 now, and `Cache.put` refuses a
+  // redirected response. They are the only hops in the app that carry a chip as well as a
+  // view, `#advocates?tab=prs`, and `VIEW_HOPS` answers them with it.
   '/prs.js',
+  // Releases (bc-khoe.7) — where everything in flight is, and where the deploy strip went
+  // when it left the board above. A pane of the shell since bc-khoe.30.14, so the script
+  // stays and its three addresses have left this list for `VIEW_HOPS`.
+  //
+  // The reason it had to be precached has not gone away, it has moved: this is the view you
+  // open on a phone precisely when the daemon behind it is being restarted by the deploy it
+  // is drawing. The shell is what is cached now, and it carries this script, so the pane
+  // still draws with no daemon to ask.
+  '/releases.js',
   // The endorsement queue. Three paths for one page, the same bargain the console
   // makes with its five: /endorse is where a held card in the inbox and the advocate
   // console's `N held for endorsement` pill both point, /queue is what you type, and
@@ -166,32 +188,49 @@ const SHELL = [
   // be a blank screen rather than a degraded one, which is why it is in the shell
   // and not left to network-first.
   '/sendqueue.js',
-  // The advocate console, and the sessions view it absorbed. Five paths for one page:
-  // launchd opens '/monitor', '/advocates' is what you guess when typing, and
+  // The advocate console, and the sessions view it absorbed — a pane of the shell since
+  // bc-khoe.4, drawn by this script.
+  //
+  // All six of its addresses are **gone from this list**, for the reason the ledger's two
+  // are below: launchd opens '/monitor', '/advocates' is what you guess when typing, and
   // '/sessions', '/work' and '/work.html' are on the phone's home screen and in the
-  // Android shell's history. All five are precached, because a redirect target left
-  // out of the shell is a home-screen shortcut that only works with a signal.
-  '/monitor',
-  '/advocates',
-  '/sessions',
-  '/work',
-  '/work.html',
-  '/monitor.html',
+  // Android shell's history — and every one of them is a 302 now, which is the one
+  // response `Cache.put` refuses. Leaving a single one here would leave *nothing* cached
+  // on every installed phone for as long as this worker lived. `VIEW_HOPS` is what
+  // answers them when there is no daemon to ask.
   '/monitor.js',
-  // The chip row on it, and which of its three panes is up. In the shell because that
-  // page is: without this file the chips are dead and two of the three panes — the board
-  // and the mirror — are unreachable from a cached advocates page. (bc-khoe.4 is where
-  // that row is dismantled and this line goes; bc-khoe.1 only took its `--topbar-h`
-  // observer, which the app shell made unnecessary.)
+  // The chip row on it, and which of its four panes is up. In the shell because that
+  // page is: without this file the chips are dead and three of the four panes — the
+  // board, the settings and the mirror — are unreachable from a cached advocates page.
+  // (This line is not going anywhere: bc-khoe.30.6 ruled that the row stays a mode
+  // switch rather than becoming pills, so bc-khoe.4 folds it into the shell's Advocates
+  // pane intact. bc-khoe.1 only took its `--topbar-h` observer, which the app shell made
+  // unnecessary.)
   '/montabs.js',
-  // The ledger. In the shell because it is a tab: every tab has to open instantly from
-  // the bar whatever the link is doing, and this is the one page in the app you might
-  // reasonably open *because* you are somewhere with no signal and are trying to
-  // remember what happened to something. Its rows come from /api/history, which is
-  // never cached — so offline it is an honest empty list rather than a stale one.
-  '/history',
-  '/history.html',
+  // The ledger, which is what the pane above draws itself with. In the shell because it
+  // is a pill: every pill has to open instantly from the row whatever the link is doing,
+  // and this is the one view in the app you might reasonably open *because* you are
+  // somewhere with no signal and are trying to remember what happened to something. Its
+  // rows come from /api/history, which is never cached — so offline it is an honest
+  // empty list rather than a stale one.
+  //
+  // `/history` and `/history.html` are **gone from this list** and that is not a
+  // trimming, it is the same rule `/closed` obeys below: they are a 302 to `/#history`
+  // on the daemon now (bc-khoe.30.7, `viewHop` in lib/server.js), the ledger having
+  // become a pane of the shell rather than a document, and `Cache.put` refuses a
+  // redirected response outright. One of them left here would leave *nothing* cached on
+  // every installed phone for as long as this worker lived. Nothing is lost by their
+  // going: the document they used to name is `/`, which is the first line in this list,
+  // and `VIEW_HOPS` below is what answers them when there is no daemon to ask.
   '/history.js',
+  // The selected space's own settings (bc-khoe.10). In the shell because it is a pill:
+  // every pill has to open instantly from the row whatever the link is doing. Its rows
+  // come from /api/space, which is never cached — so with no daemon it is an honest
+  // "can't reach the server" rather than a card of switches that would write nowhere.
+  '/config',
+  '/settings',
+  '/config.html',
+  '/config.js',
   // And `/closed` and `/done` are **deliberately not here**, which is the one place in
   // this list where leaving a path out is a decision rather than an oversight.
   //
@@ -204,15 +243,16 @@ const SHELL = [
   // *nothing* is cached, on every phone, for as long as this worker lives. It would look
   // like an app that had merely got slower.
   //
-  // What that costs is now smaller than it was when they were left out. `fallback` used
-  // to match on the full URL, so `/history?status=closed` — the URL those two redirect
+  // What that used to cost is now nothing, and it took two goes. `fallback` matched on
+  // the full URL to begin with, so `/history?status=closed` — the URL those two redirect
   // to, and the one a home-screen shortcut actually holds — missed the cache as cleanly
-  // as `/closed` does and landed on the index page too. That gap was the real one, it
-  // was one layer down from this list, and it is closed (bc-nib3.11): a filtered ledger
-  // URL is served the cached ledger offline, chips pressed. What is left is the bare
-  // `/closed` a person types, which offline still falls through to the index, because
-  // resolving it means knowing a redirect only the daemon holds — and the daemon is the
-  // thing that is not there.
+  // as `/closed` did and landed on the index page too; that half closed with bc-nib3.11
+  // and `ignoreSearch`. What was left was the bare `/closed` a person types, and the
+  // reason given here for leaving it was that resolving it meant knowing a redirect only
+  // the daemon holds. That stopped being true when the ledger became a pane: the far end
+  // of the hop is a *fragment of a document this worker already has*, so `VIEW_HOPS`
+  // below holds the answer and `fallback` gives it. The two paths are still not in this
+  // list, for the reason above, and now nothing depends on their being in it.
   //
   // Pause all / resume all. In the shell for the reason the terminal is: you open
   // it because something needs stopping now, and that is often the moment the link
@@ -227,6 +267,17 @@ const SHELL = [
   '/terminal',
   '/term.html',
   '/term.js',
+  // **/sounds is deliberately not here**, and like `/closed` and `/done` above that is a
+  // decision rather than an oversight.
+  //
+  // It is the notification-sound audition (bc-ka5y.15.3): three .wav files played blind
+  // so they can be named before bc-ka5y.15.4 cuts the channels they go on. Precaching the
+  // page without its sounds would give a phone with no signal a screen of buttons that do
+  // nothing, which is worse than the page not being there; precaching the sounds too is
+  // 78 kB of audio on every install, forever, for a screen that is opened a handful of
+  // times in the life of the app. And an audition is not a thing anybody does offline —
+  // every other page in this list is here because you open it *at* the bad moment, and
+  // this is the opposite of that.
   '/icon.svg',
   '/vendor/marked.js',
   '/vendor/purify.js',
@@ -408,6 +459,90 @@ self.addEventListener('fetch', (e) => {
 });
 
 /**
+ * The addresses that name a **view** rather than a file, and where each one has to land
+ * (bc-khoe.30.7).
+ *
+ * Every view is a pane of one document now (bc-khoe.30) and the hash is which pane. The
+ * old paths still have to work — they are on the phone's home screen, in the Android
+ * shell's history and in notifications this app sent months ago — so `lib/server.js`
+ * answers each of them with a 302 to `/#<view>`, which is the only shape that can put a
+ * fragment on the address bar.
+ *
+ * **A 302 is exactly what this worker cannot cache**, which is why none of these paths is
+ * in `SHELL` and why they need answering here instead. With no daemon to ask, a request
+ * for `/history` misses the cache twice over and falls through to `caches.match('/')`
+ * below — the shell, served at `/history`, with an empty hash. That is Home, whatever
+ * was tapped: the acceptance criterion of the whole change failing in the one place
+ * nobody looks, on the phone the aliases exist for.
+ *
+ * So the worker holds the same table and answers the same hop. It is a redirect rather
+ * than the document, deliberately, so that the address ends up saying which view is up —
+ * serving `/` here under the old path would draw the right pane once and leave a URL that
+ * disagrees with the screen, and the next tap would clear a hash that was never written.
+ *
+ * **It self-gates as the panes land.** A view whose pane is still `data-pending` keeps
+ * its own document, keeps its paths in `SHELL`, and so is answered by the exact match at
+ * the top of `fallback` long before this table is consulted — a path only reaches here
+ * once it has left the shell, which is the same commit that makes it a redirect.
+ * `test/pagealias.mjs` holds this table against `serveStatic`'s own run of `if`s, so the
+ * two lists cannot drift.
+ *
+ * The values are the hash alone. `?t=` and anything else on the way in is carried across
+ * by `viewAddress` below, on the same split `viewHop` makes in lib/server.js: what the
+ * daemon reads stays in front of the `#`, what the view reads goes behind it.
+ */
+const VIEW_HOPS = {
+  '/history': { view: 'history' },
+  '/history.html': { view: 'history' },
+  // The advocate console (bc-khoe.4). Six, because the sessions view was merged into it
+  // and brought its three with it; `/work.html` and `/monitor.html` are the two with no
+  // file left to want them.
+  '/monitor': { view: 'advocates' },
+  '/advocates': { view: 'advocates' },
+  '/monitor.html': { view: 'advocates' },
+  '/sessions': { view: 'advocates' },
+  '/work': { view: 'advocates' },
+  '/work.html': { view: 'advocates' },
+  // The board, which is a chip of that view rather than a view of its own — so these three
+  // narrow where the six above do not. The pathname is what public/montabs.js used to read
+  // to put the chip up, and after a hop there is no pathname left; `tab=prs` in the hash is
+  // where that fact lives now.
+  '/prs': { view: 'advocates', narrow: [['tab', 'prs']] },
+  '/pulls': { view: 'advocates', narrow: [['tab', 'prs']] },
+  '/prs.html': { view: 'advocates', narrow: [['tab', 'prs']] },
+  // Releases (bc-khoe.30.14).
+  '/releases': { view: 'releases' },
+  '/deploys': { view: 'releases' },
+  '/releases.html': { view: 'releases' },
+  // The ledger under the name of the one question it is most often asked (bc-nib3.7).
+  // Not in SHELL and never was; the difference is that the answer is now knowable here.
+  '/closed': { view: 'history', narrow: [['status', 'closed']] },
+  '/done': { view: 'history', narrow: [['status', 'closed']] },
+};
+
+/** What the daemon reads off a query string — kept in the search, never swept into the
+    hash, because a fragment is not sent to a server. `t` is the pairing token; the same
+    set is `DAEMON_QUERY` in lib/server.js. */
+const DAEMON_QUERY = new Set(['t']);
+
+/**
+ * One entry of `VIEW_HOPS` as an absolute address, carrying the request's own query.
+ *
+ * Absolute because `Response.redirect` requires it — a relative URL is a `TypeError`,
+ * which inside `fallback` would be a rejected promise on the offline path and so an
+ * error page rather than the view.
+ */
+function viewAddress(hop, url) {
+  const kept = new URLSearchParams();
+  const filters = new URLSearchParams();
+  for (const [k, v] of url.searchParams) (DAEMON_QUERY.has(k) ? kept : filters).append(k, v);
+  for (const [k, v] of hop.narrow || []) filters.set(k, v);
+  const search = kept.toString();
+  const query = filters.toString();
+  return new URL(`/${search ? `?${search}` : ''}#${hop.view}${query ? `?${query}` : ''}`, url.origin).href;
+}
+
+/**
  * What answers when the network did not — and what is worth reporting about it.
  *
  * **Being offline is not a failure**, and that is the line that keeps this from filing a
@@ -451,6 +586,10 @@ function fallback(request, url) {
     // reaches this function — the fetch handler returns above it — so no answered
     // question can be resurrected by dropping a query string.
     .then((hit) => hit || caches.match(request, { ignoreSearch: true }))
+    // Then: is this address a *view* rather than a file? See `VIEW_HOPS` above. Below
+    // the two cache lookups on purpose, so a path that is still precached under its own
+    // name is still answered with what was cached under it.
+    .then((hit) => hit || (VIEW_HOPS[url.pathname] ? Response.redirect(viewAddress(VIEW_HOPS[url.pathname], url), 302) : null))
     .then((hit) => hit || caches.match('/'))
     .then((hit) => {
       if (hit) return hit;

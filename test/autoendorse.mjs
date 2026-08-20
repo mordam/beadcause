@@ -325,8 +325,8 @@ await check('what Inherit on the repo row would resolve to is the same answer mi
 await check('the per-repo override is three-state, writable, and refuses what it cannot read', () => {
   assert.deepEqual(
     WORKSPACE_SETTINGS,
-    ['autoEndorse', 'autoMerge', 'requireApproval', 'autoShip'],
-    'these four answer per repo; everything else groups by space'
+    ['autoEndorse', 'autoMerge', 'requireApproval', 'reviewRequired', 'autoShip'],
+    'these five answer per repo; everything else groups by space'
   );
   const cfg = { autoEndorsePerWorkspace: {} };
   assert.equal(readWorkspaceSettings(cfg, 'a').autoEndorse, null, 'unset is inherit, not off');
@@ -530,7 +530,9 @@ await check('the repo row carries all three claims a three-state control is made
 });
 
 await check('and the page has the control, so the setting is reachable from a phone', () => {
-  const js = read('public/monitor.js');
+  // public/config.js since bc-khoe.10: the space details card is a page of its own, not a
+  // pane of the advocate console. Every claim below is what it always was.
+  const js = read('public/config.js');
   assert.match(js, /'autoEndorse',/, 'no control on the space details card');
   assert.match(js, /r\.autoEndorse \?/, 'and the per-repo row never says which way it resolved');
   // The per-repo control writes a different body from the space's, so it must not be

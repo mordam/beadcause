@@ -107,7 +107,17 @@ const parentEdge = (child, parent) => ({ issue_id: child, depends_on_id: parent,
 const EXPORT = [
   row('zz-p0', { status: 'in_progress', priority: 0, issue_type: 'epic', title: 'The P0 itself', labels: [`owner:${ME}`] }),
   row('zz-p0.1', { status: 'in_progress', assignee: ME, dependencies: [parentEdge('zz-p0.1', 'zz-p0')] }),
-  row('zz-p0.1.1', { dependencies: [parentEdge('zz-p0.1.1', 'zz-p0.1')] }),
+  // Relayed (bc-bmry.4): the journal `bin/relaystep.js` appends lives in `notes`, and
+  // `notes` is on the export row — which is the whole reason the trail is stored there
+  // rather than in comments. This row is what proves the mark survives the trip from a
+  // `bd export` line to a tree row on the board.
+  row('zz-p0.1.1', {
+    notes: [
+      '<!-- beadcause:relay {"at":"2026-08-18T12:00:00.000Z","role":"aria","step":"draft","note":"the outline","next":"clio"} /beadcause:relay -->',
+      '<!-- beadcause:relay {"at":"2026-08-18T12:40:00.000Z","role":"clio","step":"check","note":"fact pass","flag":"two dates unsourced"} /beadcause:relay -->',
+    ].join('\n'),
+    dependencies: [parentEdge('zz-p0.1.1', 'zz-p0.1')],
+  }),
   // Closed, and still carrying the label — a question that was answered by closing the
   // bead rather than by answering it. Nothing is waiting on you here.
   row('zz-p0.2', { status: 'closed', labels: ['human'], dependencies: [parentEdge('zz-p0.2', 'zz-p0')] }),
@@ -307,7 +317,29 @@ try {
       // the live pid rides the poll on the row, so a row that stopped carrying it would
       // take the live link off every open bead without a word.
       session: null,
+      // And where a department relay on it has got to (bc-bmry.4). `null` here for the
+      // ordinary reason it is null on almost every row in every tracker: nothing has
+      // relayed this bead, so its notes carry no journal. Asserted rather than skipped
+      // for `session`'s reason — the mark rides the poll on the row, and a row that
+      // stopped carrying it would take the relay off the whole board without a word.
+      relay: null,
     });
+  });
+
+  await check('a relayed bead carries where its relay got to, off the export row', () => {
+    // The end-to-end the pure suite cannot reach: a journal written into `notes` reaches a
+    // tree row on the board as the last step alone. bc-bmry.4.
+    assert.deepEqual(byId.get('zz-p0.1.1').relay, {
+      role: 'clio',
+      step: 'check',
+      at: '2026-08-18T12:40:00.000Z',
+      steps: 2,
+      flagged: 1,
+      flag: 'two dates unsourced',
+    });
+    // And the whole trail is not on it: sixty rows carrying every entry is a relay's
+    // history on the poll payload once per descendant per repaint, to draw one line.
+    assert.ok(!('entries' in byId.get('zz-p0.1.1').relay));
   });
 
   await check('`pending` is the bead’s own question, and a closed one is not pending', () => {

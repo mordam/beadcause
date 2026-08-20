@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * A deploy says on the event log that it *started*, and the PR board stops having a clock.
+ * A deploy says on the event log that it *started*, and the strip stops having a clock.
  *
  *     npm test
  *     node test/deploystart.mjs
@@ -8,8 +8,8 @@
  * bc-1esd. `settleDeploys` has always emitted `{type: 'deploy'}` when a deploy ends. For
  * a long time that was the only one, and the bill for it landed on the clients: bc-rk2o
  * put every standing view on the delta stream and deleted every wall-clock timer except
- * one — the deploy strip on /prs, which kept asking `/api/deploys` every thirty seconds
- * for as long as a board was open. It was not asking about the deploy it could see. It
+ * one — the deploy strip, which kept asking `/api/deploys` every thirty seconds for as
+ * long as it was open. It was not asking about the deploy it could see. It
  * was asking whether a deploy had begun *somewhere else* — the Ship button on another
  * device, an agent's own `POST /api/deploy`, the release queue shipping itself — because
  * nothing in the log would ever say so.
@@ -38,10 +38,12 @@
  *    the feature: a strip that has quietly stopped refreshing looks exactly like a strip
  *    with nothing to say, which is the failure this whole change must not introduce.
  *
- * That last half runs the real `public/prs.js` and the real `public/stream.js` in a vm
- * against a scripted `fetch` and a fake clock, the way test/stream.mjs runs the real
+ * That last half runs the real `public/releases.js` and the real `public/stream.js` in a
+ * vm against a scripted `fetch` and a fake clock, the way test/stream.mjs runs the real
  * stream: a reimplementation of the timer here could pass while the phone shipped
- * something else. Nothing spawns a deploy that touches this checkout — the declared
+ * something else. It was `public/prs.js` until bc-khoe.7 moved the strip off the board
+ * onto a view of its own; nothing about the clock changed with it, which is why this
+ * suite is the same suite with one filename in it. Nothing spawns a deploy that touches this checkout — the declared
  * command is `/usr/bin/true` against a temp directory that is not a git repo, so the
  * runner records its own refusal and exits, which is all this suite needs of it.
  */
@@ -201,7 +203,7 @@ for (const server of servers) server.close();
 console.log('\nwhat the strip does about it');
 
 /**
- * The real /prs script, in a vm, with a fake clock and a scripted `fetch`.
+ * The real /releases script, in a vm, with a fake clock and a scripted `fetch`.
  *
  * The technique is test/spacebar.mjs's: stub the handful of nodes the page reaches for
  * and let the real file run. Two things are specific to this suite — `setTimeout` and
@@ -232,19 +234,22 @@ function board({ stream = true, deploys = [] } = {}) {
     querySelector: () => null,
     classList: { add() {}, remove() {}, toggle() {} },
   });
+  /* `rel-list` and `rel-observing` rather than the `releases` and `observing` they were
+     until bc-khoe.30.14: that file runs in the shell as well now, where `#releases` is the
+     hash naming the view — an element of that id is a fragment target — and where
+     monitor.html's own `observing` is about to fold into the same document. This map is
+     the page, so the names simply follow the page. */
   const nodes = new Map([
-    ['prs', node('prs')],
+    ['rel-list', node('rel-list')],
     ['pulse', node('pulse')],
-    ['observing', node('observing')],
-    // The page's one ⟳, shared with the two panes beside the board since it became one
-    // (bc-d4d5) — it was `#prs-refresh` while the board was a page of its own.
+    ['rel-observing', node('rel-observing')],
     ['refresh', node('refresh')],
   ]);
 
   const fetchStub = async (url) => {
     asked.push(String(url));
     const ok = (body) => ({ ok: true, status: 200, json: async () => body });
-    if (String(url).startsWith('/api/prs')) return ok({ repos: [], observing: false, counts: {} });
+    if (String(url).startsWith('/api/queues')) return ok({ at: '2026-08-09T09:00:00Z', repos: [], orphans: [], counts: { merge: 0, release: 0 }, errors: [], observing: false });
     if (String(url).startsWith('/api/deploys')) return ok({ deploys: state.deploys, deployable: [] });
     if (String(url).startsWith('/api/poll')) {
       return new Promise((resolve) => polls.push((body) => resolve(ok(body))));
@@ -279,7 +284,7 @@ function board({ stream = true, deploys = [] } = {}) {
   });
   vm.runInContext(fs.readFileSync(PUBLIC('prcard.js'), 'utf8'), ctx, { filename: 'prcard.js' });
   if (stream) vm.runInContext(fs.readFileSync(PUBLIC('stream.js'), 'utf8'), ctx, { filename: 'stream.js' });
-  vm.runInContext(fs.readFileSync(PUBLIC('prs.js'), 'utf8'), ctx, { filename: 'prs.js' });
+  vm.runInContext(fs.readFileSync(PUBLIC('releases.js'), 'utf8'), ctx, { filename: 'releases.js' });
 
   return {
     timers,
@@ -330,11 +335,11 @@ const IDLE_MS = 30000;
 const running = [{ id: 'd-1', workspace: 'beadcause', status: 'deploying', restarts: true, requestedAt: new Date().toISOString(), steps: [] }];
 const done = [{ id: 'd-1', workspace: 'beadcause', status: 'ok', restarts: true, requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), steps: [] }];
 
-await check('the acceptance criterion: an idle board holds a socket and sets no timeout', async () => {
+await check('the acceptance criterion: an idle page holds a socket and sets no timeout', async () => {
   const b = board({ deploys: [] });
   await settle();
   assert.ok(b.asked.some((u) => u.startsWith('/api/deploys')), 'the strip never asked for the journal at all');
-  assert.equal(b.parked(), 1, 'the board is not parked on the log');
+  assert.equal(b.parked(), 1, 'the page is not parked on the log');
   assert.deepEqual(b.waits(), [], `the strip is still on a clock: ${JSON.stringify(b.waits())}`);
 });
 
@@ -369,7 +374,7 @@ await check('a page with no stream behind it keeps the idle tick — the failure
   // that answers /api/poll and keeps no log. Nothing will ever wake this page.
   const b = board({ stream: false, deploys: [] });
   await settle();
-  assert.deepEqual(b.waits(), [IDLE_MS], `a board with nothing to wake it stopped refreshing: ${JSON.stringify(b.waits())}`);
+  assert.deepEqual(b.waits(), [IDLE_MS], `a page with nothing to wake it stopped refreshing: ${JSON.stringify(b.waits())}`);
 });
 
 await check('a stream that stops following puts the idle tick back', async () => {
