@@ -2802,6 +2802,39 @@
   }
 
   /**
+   * Every element inside `container` a Tab key actually stops at — visible and
+   * enabled, in DOM order. `role="dialog" aria-modal="true"` is on three layers now
+   * (this dialog, `.p0-full` below, `.drawer` in drawer.js) and none of them kept Tab
+   * from walking straight through to whatever the layer is supposed to be covering.
+   * This is the one list both of the fixes in this file, and the third in
+   * drawer.js, are built on. bc-ywiy.
+   */
+  const FOCUSABLE_SEL =
+    'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  function focusables(container) {
+    return [...container.querySelectorAll(FOCUSABLE_SEL)].filter((el) => el.getClientRects().length > 0);
+  }
+
+  /**
+   * Tab and Shift-Tab, wrapped at the first and last focusable in `container` instead
+   * of leaving it. Call from a `keydown` handler with the event; it only acts on `Tab`,
+   * and only when the container has something to land focus on — an empty one just
+   * swallows the key rather than letting it fall through to whatever is behind it.
+   */
+  function trapTab(container, ev) {
+    if (ev.key !== 'Tab') return;
+    const list = focusables(container);
+    if (!list.length) return ev.preventDefault();
+    const first = list[0];
+    const last = list[list.length - 1];
+    const at = container.contains(document.activeElement) ? document.activeElement : null;
+    if (ev.shiftKey ? at === first || !at : at === last || !at) {
+      ev.preventDefault();
+      (ev.shiftKey ? last : first).focus({ preventScroll: true });
+    }
+  }
+
+  /**
    * The warning, the first time an agent is given its extra reach.
    *
    * The text comes from the server so every client warns in the same words about the
@@ -2810,6 +2843,10 @@
    */
   function confirmTools(disclaimer) {
     return new Promise((resolve) => {
+      // Whatever had the keyboard when this opened — the checkbox that armed it,
+      // ordinarily — so `done()` below can hand it straight back rather than leaving
+      // Tab to start over from the top of the document. bc-ywiy.
+      const opener = document.activeElement;
       const wrap = document.createElement('div');
       wrap.className = 'dialog-wrap';
       wrap.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-label="${esc(disclaimer.title)}">
@@ -2824,6 +2861,7 @@
       const done = (v) => {
         wrap.remove();
         resolve(v);
+        if (opener && opener.isConnected) opener.focus({ preventScroll: true });
       };
       wrap.addEventListener('click', (ev) => {
         if (ev.target.closest('[data-yes]')) return done(true);
@@ -2831,7 +2869,32 @@
         // inside the panel must not, or reading it would close it.
         if (ev.target.closest('[data-no]') || !ev.target.closest('.dialog')) return done(false);
       });
+      // Scoped to this one wrap rather than the page's shared keydown handler below:
+      // the wrap is appended once and removed whole, never repainted in place, so a
+      // listener on it costs nothing to keep current. Escape means Cancel — the same
+      // outcome the backdrop and `[data-no]` already give — which is what the shared
+      // handler's own Escape case already assumes is somebody else's job (see its
+      // "the modal's business" comment).
+      //
+      // `stopPropagation` on every key, not just the ones this handles: `done()`
+      // removes `wrap` from the document *before* this handler returns, so by the
+      // time the event would otherwise reach the shared handler its own "is the
+      // dialog still up" guard is already looking at an empty answer — and Escape
+      // falls through to closing the agent roster too, stealing the focus `done()`
+      // just gave back to the checkbox. Nothing behind this dialog gets to hear a
+      // keypress that happened while it was up.
+      wrap.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          return done(false);
+        }
+        trapTab(wrap.querySelector('.dialog'), ev);
+      });
       document.body.appendChild(wrap);
+      // Cancel, not "I understand" — the safe outcome if a keyboard reader's first
+      // press is Enter rather than a read of the warning it is sitting on.
+      wrap.querySelector('[data-no]').focus({ preventScroll: true });
     });
   }
 
@@ -8318,11 +8381,20 @@
   });
 
   document.addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Escape') return;
-    // With the tools warning up, Escape is the modal's business — closing the panel
-    // out from under it would leave the dialog answering for a chooser that is no
-    // longer on screen.
+    // The tools warning, if it is up, is always the topmost layer and has its own
+    // keydown listener on its own wrap (see confirmTools) — this one stands aside for
+    // both Tab and Escape rather than fighting it for the same keypress. bc-ywiy.
     if (document.querySelector('.dialog-wrap')) return;
+    // The epic's tab, or the advocate sheet stacked over it (z-index 41 over the
+    // tab's 40 — see the `p0-adv` act above) — whichever is topmost gets the
+    // keyboard. Looked up fresh on every keypress rather than held in a variable:
+    // render() replaces this node whole on every repaint (the board polls every 25s),
+    // so a captured reference would be trapping focus in a layer already thrown away.
+    if (ev.key === 'Tab') {
+      const p0 = document.querySelector('.p0-full.p0-adv') || document.querySelector('.p0-full');
+      if (p0) return trapTab(p0, ev);
+    }
+    if (ev.key !== 'Escape') return;
     const hadMenu = Boolean(state.agentMenu || state.menu);
     if (state.agentMenu) closeAgentMenu();
     if (state.menu) closeMenu();
@@ -9144,6 +9216,16 @@
       // was refused must not leave a tick behind suggesting it was granted.
       const wanted = btn.checked;
       btn.checked = !wanted;
+      // confirmTools() hands the keyboard back to this very checkbox the moment it
+      // closes — but `paintAgents()` below repaints `.agent-panel` from scratch, so
+      // the node it just focused is gone a tick later and the keyboard is left on
+      // nothing at all. Re-found by the one thing that survives the repaint — which
+      // agent this checkbox is for — rather than by a reference to a node that does
+      // not. bc-ywiy.
+      const refocus = () =>
+        listEl.querySelector(`.agent-panel input[data-act="allow-tools"][data-agent="${CSS.escape(id)}"]`)?.focus({
+          preventScroll: true,
+        });
       try {
         const send = (extra = {}) =>
           api('/api/agent-arm', { method: 'POST', body: JSON.stringify({ id, ...extra }) });
@@ -9155,7 +9237,11 @@
             data = await send();
           } catch (err) {
             if (!err.body?.needsAcknowledgement) throw err;
-            if (!(await confirmTools(err.body.disclaimer))) return paintAgents();
+            if (!(await confirmTools(err.body.disclaimer))) {
+              paintAgents();
+              refocus();
+              return;
+            }
             data = await send({ acknowledge: true });
           }
           state.agents = data.agents || state.agents;
@@ -9165,6 +9251,7 @@
         toast(err.message, true);
       }
       paintAgents();
+      refocus();
       return;
     }
 
