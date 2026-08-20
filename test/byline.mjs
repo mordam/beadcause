@@ -52,7 +52,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-byline-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { BYLINE_BASE, bylineFor, bylineBase, bylineHandle, writtenByDaemon } = await import(LIB('byline.js'));
+const { BYLINE_BASE, AGENT_BYLINE_BASE, agentByline, bylineFor, bylineBase, bylineHandle, writtenByDaemon } =
+  await import(LIB('byline.js'));
 
 /* --------------------------------------------------------------------- harness */
 
@@ -156,7 +157,16 @@ check("and so is another engineer's — a second daemon relaying a tap is not an
 
 check('an agent and a person are not', () => {
   const cfg = { actor: 'beadcause', me: 'carol@example.com' };
-  // How an agent's own `bd comment` is attributed: the shell's BEADS_ACTOR, an address.
+  // How an agent's own `bd comment` is attributed since bc-y3qk.1 — and this is the
+  // load-bearing one: `agent (carol@example.com)` shares this Mac's handle with the
+  // daemon's own byline, so a rule comparing *handles* would have called it the daemon
+  // and stopped an agent's answer ever reaching the phone.
+  assert.equal(writtenByDaemon('agent (carol@example.com)', cfg), false);
+  assert.equal(writtenByDaemon('agent', cfg), false);
+  // And another engineer's agent, which is not this daemon's bookkeeping either.
+  assert.equal(writtenByDaemon('agent (bob@example.com)', cfg), false);
+  // How it was attributed before, and every comment written before then still says it:
+  // the shell's BEADS_ACTOR, an address.
   assert.equal(writtenByDaemon('neadamthal@gmail.com', cfg), false);
   // How a dispatched chat agent is told to attribute itself (`--actor <agent-id>`).
   assert.equal(writtenByDaemon('critic', cfg), false);
@@ -172,6 +182,92 @@ check('a renamed actor is recognised alongside the default, not instead of it', 
   // The other five machines ship with the stock base whatever this one calls itself.
   assert.equal(writtenByDaemon('beadcause (bob@example.com)', cfg), true);
   assert.equal(writtenByDaemon('someone@example.com', cfg), false);
+});
+
+/* --------------------------------------------- and what an agent's own `bd` writes */
+//
+// bc-y3qk.1, the other half of bc-lx3k. A worker or an advocate is a Claude session in
+// a shell, and the `bd comment` it types is signed by whatever that shell exported as
+// `BEADS_ACTOR` — on this Mac the engineer's own address, which is character-for-
+// character what the engineer's own `bd comment` says. So the byline is stamped by the
+// spawner instead, and there are exactly two ways to get it wrong: sign it as something
+// `writtenByDaemon` says yes to (the phone stops hearing answers), or let the agent
+// choose it (an agent can then sign as the person).
+
+check('an agent this Mac spawned signs as an agent, and says whose Mac', () => {
+  assert.equal(agentByline({ me: 'carol@example.com' }), 'agent (carol@example.com)');
+  assert.equal(agentByline({ me: ['carol@example.com', 'carol@work.example'] }), 'agent (carol@example.com)');
+  // With `me` unset — every install that has never said who it is — the bare base. Still
+  // not anybody's address, which is the whole point even on one Mac.
+  assert.equal(agentByline({}), AGENT_BYLINE_BASE);
+  assert.equal(agentByline(null), AGENT_BYLINE_BASE);
+  assert.equal(agentByline(undefined), AGENT_BYLINE_BASE);
+  // Base-first, so the client copies of `bylineBase` take it apart with no new rule.
+  assert.equal(bylineBase(agentByline({ me: 'carol@example.com' })), AGENT_BYLINE_BASE);
+  assert.equal(bylineHandle(agentByline({ me: 'carol@example.com' })), 'carol@example.com');
+  // It does not follow a renamed `cfg.actor`: `agent` is the other side of the line
+  // `writtenByDaemon` draws, and a base that moved with the daemon's would cross it.
+  assert.equal(agentByline({ actor: 'ourbot', me: 'carol@example.com' }), 'agent (carol@example.com)');
+});
+
+const { agentEnv, agentExports } = await import(LIB('foundation.js'));
+
+check('it is stamped into the environment the daemon spawns an agent into', () => {
+  const f = { id: 'advocate', env: {} };
+  assert.equal(agentEnv(f, {}, { me: 'carol@example.com' }).BEADS_ACTOR, 'agent (carol@example.com)');
+  // Omitting `cfg` is safe rather than silent — a call site that forgets signs `agent`,
+  // which is still not the person's address.
+  assert.equal(agentEnv(f).BEADS_ACTOR, AGENT_BYLINE_BASE);
+  // And it beats what the daemon's own process was started with, which on this Mac is
+  // the engineer's address: `...process.env` is spread first.
+  const was = process.env.BEADS_ACTOR;
+  process.env.BEADS_ACTOR = 'neadamthal@gmail.com';
+  try {
+    assert.equal(agentEnv(f, {}, { me: 'carol@example.com' }).BEADS_ACTOR, 'agent (carol@example.com)');
+  } finally {
+    if (was === undefined) delete process.env.BEADS_ACTOR;
+    else process.env.BEADS_ACTOR = was;
+  }
+});
+
+check('and an amended foundation cannot sign itself as the person', () => {
+  // `env` is an amendable field: an agent may ask for a variable and Adam may approve
+  // it. This is the key that approval must not reach — an agent that could set its own
+  // byline could put a comment on a shared thread in the engineer's name.
+  const amended = { id: 'advocate', env: { BEADS_ACTOR: 'carol@example.com' } };
+  assert.equal(agentEnv(amended, {}, { me: 'carol@example.com' }).BEADS_ACTOR, 'agent (carol@example.com)');
+  assert.equal(
+    agentEnv(amended, { BEADS_ACTOR: 'carol@example.com' }, { me: 'carol@example.com' }).BEADS_ACTOR,
+    'agent (carol@example.com)'
+  );
+});
+
+check('a worker window exports it after the login shell has had its say', () => {
+  // The worker is not spawned with an env object: its command is typed into iTerm and
+  // what iTerm starts is a fresh login shell, whose `~/.zshenv` sets `BEADS_ACTOR` from
+  // `$PWD`. So the export has to be in the command string, and this is that string.
+  const line = agentExports({ id: 'worker', env: {} }, {}, { me: 'carol@example.com' });
+  assert.match(line, /export BEADS_ACTOR='agent \(carol@example\.com\)'/);
+  // Same amendment rule as above, and in a shell "last wins" is the same rule as a
+  // later key in an object literal.
+  const amended = agentExports({ id: 'worker', env: { BEADS_ACTOR: 'carol@example.com' } }, {}, { me: 'carol@example.com' });
+  assert.ok(
+    amended.lastIndexOf("export BEADS_ACTOR='agent (carol@example.com)'") >
+      amended.lastIndexOf("export BEADS_ACTOR='carol@example.com'"),
+    `the stamp is emitted last (${amended})`
+  );
+});
+
+await acheck('the work screen shortens a byline without cutting the bracket off', async () => {
+  // `bd update --claim` writes the assignee straight off `BEADS_ACTOR` — measured
+  // against the real bd 1.2.1 — so every agent claim now carries a byline into
+  // `shortActor`, which used to split on the first `@` and leave `agent (carol`.
+  const { shortActor } = await import(LIB('work.js'));
+  assert.equal(shortActor('agent (carol@example.com)'), 'agent (carol)');
+  assert.equal(shortActor('beadcause (carol@example.com)'), 'beadcause (carol)');
+  assert.equal(shortActor('adam.morgan@climative.ai'), 'adam.morgan');
+  assert.equal(shortActor(''), '');
+  assert.equal(shortActor(null), '');
 });
 
 /* -------------------------------------------- what actually reaches the bd command */
@@ -212,8 +308,8 @@ await acheck('`new Bd` derives the byline itself, so no call site can file anony
   const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause', me: 'carol@example.com' });
   await bd.comment(WS, 'zz-1', 'a note');
   assert.deepEqual(lastActor(), { flag: 'beadcause (carol@example.com)', env: 'beadcause (carol@example.com)' });
-  // Both, because a workspace `config.yaml` pinning an actor beats the environment
-  // variable and only the flag beats that — see the note in `Bd.run`.
+  // Both, because a workspace `config.yaml` pinning an actor can take precedence over
+  // the environment variable and only the flag beats that either way — see `Bd.run`.
 });
 
 await acheck('and with `me` unset it is the bare string every install has always written', async () => {
@@ -374,11 +470,17 @@ const q = (id) => ({
   awaitingAgent: true,
 });
 
-// Three watched threads, identical but for who says the second thing on each.
+// Four watched threads, identical but for who says the second thing on each.
 const AUTHORS = {
   'x-mine': 'beadcause (carol@example.com)',
   'x-theirs': 'beadcause (bob@example.com)',
+  // How an agent signed before bc-y3qk.1, and how every comment written before it still
+  // reads — a thread from last week must not go quiet because the byline changed.
   'x-agent': 'neadamthal@gmail.com',
+  // And how one signs now. This is the pair that matters: it shares `carol@example.com`
+  // with `x-mine`, so anything that told them apart by the handle rather than the base
+  // would either silence the agent or buzz about the daemon.
+  'x-agent-byline': 'agent (carol@example.com)',
 };
 const inbox = Object.keys(AUTHORS).map(q);
 let turn = 1;
@@ -431,6 +533,7 @@ turn = 2;
 const events = () => bus.since(0) || [];
 const found = (key) => events().find((e) => e.type === 'reply' && e.key === key);
 const sawAgent = await settled(() => found('demo/x-agent'));
+const sawAgentByline = await settled(() => found('demo/x-agent-byline'));
 // Slack after the event so "nothing was pushed" is a fact rather than a race: the three
 // threads are read in one sweep, so by the time the agent's reply has landed the other
 // two have had their chance.
@@ -443,6 +546,15 @@ check("an agent's reply still reaches the phone — the load-bearing half", () =
   assert.equal(found('demo/x-agent').author, 'neadamthal@gmail.com');
   assert.ok(
     sent.some((p) => JSON.stringify(p).includes('x-agent')),
+    `and it was pushed (sent: ${JSON.stringify(sent)})`
+  );
+});
+
+check("and so does one signed with the agent byline, which shares this Mac's handle", () => {
+  assert.ok(sawAgentByline, `the reply event arrived (saw ${events().map((e) => `${e.type}:${e.key}`).join(', ')})`);
+  assert.equal(found('demo/x-agent-byline').author, 'agent (carol@example.com)');
+  assert.ok(
+    sent.some((p) => JSON.stringify(p).includes('x-agent-byline')),
     `and it was pushed (sent: ${JSON.stringify(sent)})`
   );
 });
