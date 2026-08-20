@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+// FIRST, and it has to stay first — bc-zjab.4. Importing it puts a UTC timestamp on
+// every line this process writes to `~/Library/Logs/beadcause.log`, which is where a
+// backend's console goes: the router spawns it with `stdio: 'inherit'`. A side effect of
+// the import rather than a call below, because lib/resolvers.js prints *while it is
+// being evaluated* and a call below would arrive too late to stamp it. `--url` and
+// `--qr` are excluded inside it — the first is command-substituted in a shell script.
+import '../lib/logstamp.js';
 import { loadConfig, reconcileBaseUrl, workspaceRoots, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit, globalWorkerCap } from '../lib/advocate.js';

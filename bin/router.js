@@ -22,7 +22,7 @@
  * ENOTSUP on macOS under Node 22, so two processes cannot hold 4318 between them.
  * One has to own it, and it has to be the one that never needs replacing — which
  * means it must stay small and depend on almost nothing. Every `import` at the top of
- * this file is a leaf — config, build, service, startup, tls — and none of them reaches
+ * this file is a leaf — logstamp, config, build, service, startup, tls — and none of them reaches
  * `lib/server.js`, so a syntax error in the app costs you a swap and not the port.
  * What it needs from the app proper it loads *after* `listen()`, by dynamic import, so
  * the worst a broken module can do is cost a feature: `armCrashHandlers` and
@@ -44,6 +44,12 @@
  *   node bin/router.js --swap     force a swap now, even if nothing changed
  *   node bin/router.js --status   what is running, on what build, on what certificate
  */
+// FIRST, and it has to stay first — bc-zjab.4. Importing it puts a UTC timestamp on
+// every line this process writes, and it is a side effect of the import rather than a
+// call below because a call below would run after every other module here had been
+// evaluated, and a module can print while it is being evaluated. `--status` and `--swap`
+// are excluded inside it: they are a terminal somebody is reading, not the log.
+import '../lib/logstamp.js';
 import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
