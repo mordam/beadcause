@@ -135,8 +135,52 @@ check('a hash a phone sent unencoded is read the same way', () => {
     kind: 'card',
     view: 'epics',
     key: 'beadcause/bc-khoe',
+    query: '',
     raw: 'beadcause/bc-khoe',
   });
+});
+
+/* ------------------------------------------------------ a view with a query on it */
+
+check('a view hash may carry a query, and it comes back as written', () => {
+  assert.deepEqual({ ...route.parse('#history?status=closed&priority=P0') }, {
+    kind: 'view',
+    view: 'history',
+    key: null,
+    query: 'status=closed&priority=P0',
+    raw: 'history?status=closed&priority=P0',
+  });
+  // Empty rather than null on everything else, so a reader can hand it straight to
+  // URLSearchParams without testing it first.
+  assert.equal(route.parse('#history').query, '');
+  assert.equal(route.parse('').query, '');
+  assert.equal(route.parse('#wat').query, '');
+});
+
+check('and a card key is untouched by the split', () => {
+  // The split is on the raw hash, before the decode, and `hashForCard` percent-encodes —
+  // so a `?` inside a key arrives as `%3F` and cannot start a query. If it ever did, the
+  // card would be read as a view and the notification that carried it would open Home.
+  const key = 'beadcause/bc-x?y';
+  const parsed = route.parse(route.hashForCard(key));
+  assert.equal(parsed.kind, 'card');
+  assert.equal(parsed.key, key);
+  assert.equal(parsed.query, '');
+  // And a head that is not a view name is parsed exactly as it was before decision 5.
+  assert.equal(route.parse('#wat?status=closed').kind, 'none');
+  assert.equal(route.parse('#wat?status=closed').query, '');
+});
+
+check('hashFor writes one, and refuses to hang one off Home', () => {
+  assert.equal(route.hashFor('history', 'status=closed'), '#history?status=closed');
+  assert.equal(route.hashFor('history', '?status=closed'), '#history?status=closed', 'a leading ? is the caller being tidy');
+  assert.equal(route.hashFor('history', ''), '#history');
+  assert.equal(route.hashFor('history'), '#history', 'the bare call every other caller makes');
+  // Home is the empty hash, so there is no name for a query to belong to — and `/?…` is
+  // the address the home screen holds. The bare hash rather than null: `panes.go` writes
+  // whatever this answers, and a refusal here would be a dead pill.
+  assert.equal(route.hashFor('epics', 'status=closed'), '');
+  assert.equal(route.hashFor('nope', 'status=closed'), null);
 });
 
 check('a hash that will not decode does not throw out of boot', () => {
@@ -151,12 +195,13 @@ check('a hash that will not decode does not throw out of boot', () => {
 
 console.log('\na view hash');
 
-check('each of the three views is named by exactly one hash, and Home by none', () => {
+check('each of the four views is named by exactly one hash, and Home by none', () => {
   const ids = [...route.VIEWS].map((v) => v.id);
-  assert.deepEqual(ids, ['epics', 'history', 'advocates']);
+  assert.deepEqual(ids, ['epics', 'history', 'advocates', 'releases']);
   assert.equal(route.hashFor('epics'), '', 'Home is the empty hash — every existing link says it by saying nothing');
   assert.equal(route.hashFor('history'), '#history');
   assert.equal(route.hashFor('advocates'), '#advocates');
+  assert.equal(route.hashFor('releases'), '#releases');
   assert.equal(route.hashFor('flow'), null, 'a page that is not a view has no hash, and null is how that is said');
   const hashes = [...route.VIEWS].map((v) => v.hash);
   assert.equal(new Set(hashes).size, hashes.length, 'two views claim one hash');
@@ -199,6 +244,9 @@ check('and the other half of the same question: which view an address names', ()
   assert.equal(route.viewOfPath('/history.html'), 'history');
   for (const p of ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html', '/prs', '/pulls', '/prs.html']) {
     assert.equal(route.viewOfPath(p), 'advocates', `${p} is the advocate console`);
+  }
+  for (const p of ['/releases', '/deploys', '/releases.html']) {
+    assert.equal(route.viewOfPath(p), 'releases', `${p} is the releases view`);
   }
   for (const p of ['/flow', '/requirements', '/endorse', '/admin', '/console']) {
     assert.equal(route.viewOfPath(p), null, `${p} draws the row and is on no pill — that is deliberate`);
@@ -333,7 +381,7 @@ check('every page that loads viewbar.js or app.js loads hashroute.js before it',
       assert.ok(mine < at(f), `public/${page} loads hashroute.js after ${f}, so the call on boot throws`);
     }
   }
-  assert.equal(seen, 10, `expected the ten pages that draw the pill row, found ${seen}`);
+  assert.equal(seen, 12, `expected the twelve pages that draw the pill row, found ${seen}`);
 });
 
 check('and the service worker precaches it, because both callers call it flat', () => {

@@ -136,7 +136,7 @@
    *
    * A kind with no `test` is a **place**. `My Epics` is Home with nothing narrowed —
    * the P0 board and the work under it, which is a card (bc-rfnr.9) and not a category
-   * of row — and `History` is a different page altogether. Neither is a filter, so
+   * of row — and `Ledger` is a different page altogether. Neither is a filter, so
    * neither can be selected: `set()` drops them, exactly as it drops an id the table
    * has never heard of. They are in this table anyway, because the pill row is one row
    * of six and a reader asking "what are the six" must not have to find two of them
@@ -191,7 +191,7 @@
    * `status`/`beadstatus` are the two `sub` groups below. A page group named by no pill
    * would never be offered, which is why `mount()` warns about one.
    *
-   * ## `compose` — which of the six has a ＋
+   * ## `compose` — which of the six has a ＋, and what it makes
    *
    * ＋ used to be a fixed part of Home's chrome: one button, drawn on every kind,
    * starting a chat session. That was right while Home was one list (bc-l8jp.5) and is
@@ -205,9 +205,21 @@
    * So the flag lives here, one row per kind, rather than as a list of ids in
    * public/app.js — for the same reason the predicates do. A second file that knows
    * what the six kinds are is a second file that can be wrong about them, and nothing
-   * would say which. What the flag deliberately does *not* say is what ＋ *does*: that
-   * is bc-khoe.27.2 and bc-khoe.27.3, and until they land it starts a chat session
-   * wherever it is drawn, which is what it has always done.
+   * would say which.
+   *
+   * **It names the create rather than merely admitting to one** (bc-khoe.27.2). The
+   * value is the word for what ＋ makes here — `epic`, `chat`, `bead` — and `creates()`
+   * below hands it to the one click listener in public/app.js, which branches on it.
+   * A boolean would have sent that listener looking somewhere else for the answer, and
+   * the somewhere else is always a second list of kind ids: this table's whole reason
+   * for existing is that there is no such list. Absent is still the third answer and
+   * still the important one — `composes()` is `Boolean` over the same field, so a row
+   * with no `compose` draws no button at all.
+   *
+   * All three of them say what they mean now, and `bead` was the last to get there
+   * (bc-khoe.27.3): ＋ on All Beads said `chat` for as long as there was no form behind
+   * it, because a row promising a create nobody wrote is a button that does nothing
+   * when tapped. The word moved the day the sheet did, in this one file.
    */
   const KINDS = [
     {
@@ -230,7 +242,12 @@
       // A place with a create, which is not a contradiction: `compose` is about the
       // screen you are on, and `test` is about which rows are in the list. This is the
       // screen you land on, so it is also the one ＋ is drawn on by default.
-      compose: true,
+      //
+      // What it makes is an epic *you already filed*: the board is the roots you have
+      // started, so the create here is picking one of your own unstarted beads and
+      // putting it on the board (bc-khoe.27.2). The candidates are the server's
+      // `startable`, and the picker they fill is the panel above ＋.
+      compose: 'epic',
     },
     {
       id: 'question',
@@ -312,9 +329,8 @@
       // the pill next door empties this screen completely. Nothing narrows chats, so
       // the row has nothing to offer here and takes itself off screen; see `mount`.
       filters: [],
-      // The original ＋, and the only one that already does its own thing: this list is
-      // conversations, and the create is a conversation.
-      compose: true,
+      // The original ＋: this list is conversations, and the create is a conversation.
+      compose: 'chat',
     },
     {
       id: 'history',
@@ -323,8 +339,14 @@
       // the row it is on is the same row as the five above and below it.
       side: 'any',
       icon: '📜',
-      label: 'History',
-      note: 'What already happened — the ledger of answered questions, merges and deploys.',
+      label: 'Ledger',
+      // The note used to say "what already happened — the ledger of answered questions,
+      // merges and deploys", and the list has never been that. `parseQuery` in
+      // lib/history.js starts at `status: null` and applies no default, so an open bead
+      // filed a minute ago is in it beside a bead closed last month. bc-khoe.53 moved
+      // the label to the word the page already uses for itself and made the note say
+      // what is actually in the list.
+      note: 'Every bead this space has ever had, open and closed, most recently touched first.',
       // A place, and a different page at that: /history has a filter bar of its own
       // (public/history.js, the same public/filtermenu.js behind it) and this panel
       // never narrows it. `set()` refuses to select a place, so this is the honest
@@ -342,8 +364,8 @@
       label: 'All Beads',
       note: 'Every live bead nobody is asking you about — claimed, blocked or waiting to be picked up.',
       // A list of every live bead is the one screen where "file another one" is the
-      // obvious next thing to do (bc-khoe.27.3).
-      compose: true,
+      // obvious next thing to do, so ＋ here opens a form and files one — bc-khoe.27.3.
+      compose: 'bead',
       // `!q.held` is the endorsement half of Questions stated from the other side. It is
       // here rather than left to the order of the rows for the reason every exclusion in
       // this table is: exclusivity is the property the table is asserted on, and a
@@ -403,7 +425,8 @@
      * whether a sub-filter is narrowing anything worth naming on the summary line, and
      * `paint` pushes the whole map at the pill row, where four of the ids are drawn as a
      * badge (public/viewbar.js). `epics` is in here too and is the only key not counted
-     * by the caller — see `survey`.
+     * by the caller at all: it is derived, from the slices or — since bc-khoe.49, when My
+     * Epics is the board — from the cards. See `survey`.
      */
     counts: {},
     /** sub group id → option id → the same, one level down. */
@@ -523,7 +546,7 @@
    * an empty list whose cause is off screen, and the only thing worse than a filter you
    * cannot see is one you cannot see selecting something that does not exist here.
    *
-   * A **place** — `My Epics`, `History` — is dropped the same way and for a plainer
+   * A **place** — `My Epics`, `Ledger` — is dropped the same way and for a plainer
    * reason: it has no predicate, so selecting it would hide every row in the list. The
    * pill row treats `My Epics` as the empty selection this leaves behind, which is what
    * it means: Home, with nothing narrowed.
@@ -646,8 +669,13 @@
    * paragraph above is the badge's claim as well as the chip's: `Questions 4` is a
    * promise about the screen a tap opens, and the only way to keep it is to count what
    * this function counts, where it counts it.
+   *
+   * `board` is the caller's answer to the one question that promise turns on and this
+   * file cannot see: how many cards My Epics would draw when it draws no list (bc-khoe.49
+   * — `epicsIsBoard` in public/app.js). A number means the board; `null` means there is a
+   * list there and the derivation below is the right one.
    */
-  function survey({ kinds, counts, sub } = {}) {
+  function survey({ kinds, counts, sub, board = null } = {}) {
     if (sub && typeof sub === 'object') state.subCounts = sub;
     if (Array.isArray(kinds)) {
       state.usable = KINDS.filter((k) => kinds.includes(k.id)).map((k) => k.id);
@@ -675,7 +703,29 @@
         (n, [id, c]) => (BY_ID.get(id)?.test ? n + (Number(c) || 0) : n),
         0
       );
-      state.counts = { ...counts, epics: rows };
+      /*
+        **Except when there is no list to sum, which is bc-khoe.49.**
+
+        The paragraph above was true of every Home there was when it was written, and
+        bc-khoe.28 made it conditional: with an epic of yours started, My Epics is the
+        *board* and the list below it is gone. Everything the sum is built on still holds
+        — those rows do survive their own sub-filters, and picking the pill does clear the
+        selection — and not one of them gets drawn, so the number was a promise about a
+        screen that no longer exists. The other three badges are untouched by that,
+        because they are counted before the gate and each still opens exactly its own
+        slice.
+
+        So the caller says which of the two screens the pill opens, and this picks the
+        number that describes it: the cards when the board is what a tap leaves you with,
+        the rows when the list is. It is still one count read twice rather than two counts
+        of one thing — what changed is only *which* list the badge is a second reading of.
+
+        Deliberately not a third answer (no badge at all, or the board's card count added
+        to the rows). A pill that lost its number on the one install with an epic started
+        would be the count disappearing exactly when there is something to count, and a
+        sum of cards and rows would be a number nothing on the screen adds up to.
+      */
+      state.counts = { ...counts, epics: typeof board === 'number' ? board : rows };
     }
     paint();
   }
@@ -997,6 +1047,16 @@
      * from a second copy of the answer would still be there after them.
      */
     composes: () => Boolean(BY_ID.get(current())?.compose),
+    /**
+     * And *what* it creates — the word off the same field. `''` where there is no ＋.
+     *
+     * The pair is deliberately one field read two ways rather than two fields: "is there
+     * a button" and "what does it make" cannot disagree if there is only one place to
+     * write the answer, and a kind that grew a create by gaining a `compose` value gets
+     * both at once. Callers branch on the word and fall back to `chat` when this file
+     * never loaded, which is the same fallback `composes` makes for the same reason.
+     */
+    creates: () => BY_ID.get(current())?.compose || '',
     /** Selected kind ids — empty for "all of them". */
     selected: () => [...state.on],
     /** One kind's sub-filter selection — empty for that kind's own default. */

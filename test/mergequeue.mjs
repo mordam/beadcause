@@ -44,7 +44,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-mergequeue-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK } = await import(LIB('mergequeue.js'));
+const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK, mergeReport } = await import(LIB('mergequeue.js'));
 const { MERGE_LABEL, MERGE_ASSIGNEE, MAX_ATTEMPTS, MAX_REVIEW_ROUNDS, mergeBeadBody, queueState, withQueueBlock, withReviewBlock } =
   await import(LIB('mergebead.js'));
 const { MAX_DOWNMERGES } = await import(LIB('mergequeue.js'));
@@ -113,12 +113,22 @@ function fakeBd({ rows = [], issues = {}, refuse = null } = {}) {
 }
 
 /** A `gh` that answers with whatever state this scenario is about. */
-const fakePr = (view, { merge = null, base = { failed: [] }, update = { updated: true, reason: '' } } = {}) => {
-  const calls = { merges: [], updates: [] };
+const fakePr = (view, { merge = null, base = { failed: [] }, update = { updated: true, reason: '' }, comment = null } = {}) => {
+  const calls = { merges: [], updates: [], comments: [] };
   return {
     calls,
     view: async () => view,
     baseChecks: async () => base,
+    /**
+     * bc-kan5f's report, and the reason it is opt-in rather than always here: `finish`
+     * guards on `prApi?.comment`, so a scenario that is not about the report gets a
+     * `prApi` without one and exercises the path every caller had before this landed.
+     * Pass `comment: new Error(...)` to be the pull request that will not take it.
+     */
+    comment: async (dir, n, text) => {
+      calls.comments.push({ dir, n, text });
+      if (comment instanceof Error) throw comment;
+    },
     updateBranch: async (dir, n) => {
       calls.updates.push(n);
       return update;
@@ -280,6 +290,78 @@ await check('and a downmerge GitHub refuses is a wait, not an attempt', async ()
   const out = await run(bd, fakePr(behind, { update: { updated: false, reason: 'the base moved under it' } }));
   assert.deepEqual(out.waiting, ['zz-merge']);
   assert.equal(bd.calls.updates.length, 0);
+});
+
+/* --------------------------------------------------- taking a card back (bc-91srt) */
+
+/**
+ * The behavioural half of `cardedFor`. A carded bead is not in `queued` at all, so nothing
+ * below the reclaim can reach it — which is exactly how #475 sat for a day with a green
+ * check, and #433 and #438 sat conflicting with checks that passed.
+ *
+ * The bead is built by hand rather than through `raiseMergeCard` so the test states the
+ * shape it depends on: `merge-queue` off, `human` and the delivery label on, and a
+ * sentence in the queue block saying what the queue gave up over.
+ */
+const CARDED = ['human', 'pr-delivery'];
+
+await check('a card whose check has gone green is taken back, with its attempts reset', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  const out = await run(bd, fakePr(openPr()));
+
+  assert.deepEqual(out.restored, ['zz-merge'], 'it came back');
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  assert.ok(written, 'and the bead was written');
+  assert.deepEqual(written.addLabels, ['merge-queue'], 'the label the queue selects on is put back');
+  assert.deepEqual(written.removeLabels, ['human', 'pr-delivery'], 'and the card comes out of the inbox');
+  const state = queueState({ notes: written.notes });
+  assert.equal(state.attempts, 0, 'a fresh budget — the old one was spent on a reason that has gone');
+  assert.equal(state.refused, null, 'and the sentence with it');
+  assert.equal(state.reclaims, 1, 'counted, because a flapping check must not do this for ever');
+  // The line every other reclaim here draws: this says the queue may act, never that Adam
+  // approved anything.
+  assert.equal(state.approved, false, 'taking a card back must not fabricate an approval');
+});
+
+await check('a card that still conflicts is taken back too — that is the one thing the queue fixes', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: 'the branch conflicts with `main`.' }) })],
+  });
+  const out = await run(bd, fakePr(openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' })));
+  assert.deepEqual(out.restored, ['zz-merge'], 'a conflict is work for a resolver, not a decision for Adam');
+});
+
+await check('a card whose check is still red stays a card', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  const red = { failed: ['test'], failing: 1, pending: 0, total: 3, state: 'failing' };
+  const out = await run(bd, fakePr(openPr({ checks: red })));
+  assert.deepEqual(out.restored, [], 'the handover was right and it stands');
+  assert.equal(bd.calls.updates.length, 0, 'and nothing is written over it');
+});
+
+await check('and one already taken back too often is left alone, out loud', async () => {
+  const said = [];
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, reclaims: 3, refused: '1 check failing (test).' }) })],
+  });
+  const out = await run(bd, fakePr(openPr()), { log: (l) => said.push(l) });
+  assert.deepEqual(out.restored, [], 'the cap holds');
+  assert.ok(
+    said.some((l) => /taken back 3 times already/.test(l)),
+    `a cap nobody is told about reads as the feature not working — said: ${said.join(' | ')}`
+  );
+});
+
+await check('a merged pull request is never taken back, whatever its card says', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  const out = await run(bd, fakePr(openPr({ state: 'MERGED' })));
+  assert.deepEqual(out.restored, []);
 });
 
 /* ------------------------------------------------------------ the conflict */
@@ -1013,6 +1095,90 @@ await check('a review is one sentence per bead, not one every tick', async () =>
   assert.deepEqual(bd.calls.updates, [], 'it rewrote a sentence that had not changed');
 });
 
+
+/* --------------------------------------------------------------- the report */
+
+/*
+ * bc-kan5f. A merge used to leave nothing on the pull request but the merge itself, so
+ * the whole passage — how many windows it took, how many times `main` moved under it,
+ * what the base was already failing — existed only in a bead somebody had to know to
+ * look up. These pin the two halves that could go wrong quietly: what the report is
+ * allowed to *claim*, and that failing to post one can never cost a close.
+ */
+
+await check('the report reaches the pull request and the bead, and names the passage', async () => {
+  const state = { attempts: 2, downmerges: 3, approved: true, approvedBy: 'adam', approvedAt: '2026-08-19T00:00:00Z' };
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', state) })], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  const out = await run(bd, prApi);
+
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.equal(prApi.calls.comments.length, 1, 'nothing was posted to the pull request');
+  const onPr = prApi.calls.comments[0].text;
+  assert.match(onPr, /Merged into `main` as `abcdef12`/, 'the report does not say what merged where');
+  assert.match(onPr, /2 attempts/, 'the attempts are not reported');
+  assert.match(onPr, /base moved under it 3 times/, 'the downmerges are not reported — the most useful fact on a busy day');
+  assert.match(onPr, /Approved by adam/, 'who approved it is not carried');
+  assert.ok(
+    bd.calls.comments.some((c) => c.id === 'zz-merge' && /Merged into `main`/.test(c.text)),
+    'the bead never got the same report'
+  );
+});
+
+await check('and it points at the advocate rather than paraphrasing it', async () => {
+  // The one thing this report must not become: a summary of somebody else's account,
+  // written by a process that did not watch the merge. The queue knows the passage; the
+  // conflicts and the suites are the advocate's, and stay the advocate's.
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 0, downmerges: 0 }) })], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  await run(bd, prApi);
+  const onPr = prApi.calls.comments[0].text;
+  assert.match(onPr, /Straight through/, 'a clean passage is not described as one');
+  assert.match(onPr, /reports its own half only/, 'nothing says whose account this is and is not');
+  // Not "the word conflict never appears" — the disclaimer names conflicts precisely to
+  // say they are the advocate's. What must never appear is a *measurement* of one, or of
+  // anything else the queue did not take itself: a count of conflicts, or a suite tally.
+  assert.doesNotMatch(onPr, /\d+\s+conflicts?\b/i, 'the queue reported a conflict count it has no way to know');
+  assert.doesNotMatch(onPr, /\b\d+\s*\/\s*\d+\b/, 'the queue reported a suite tally, which is the advocate’s measurement');
+});
+
+await check('a merge that happened elsewhere does not get reported as the queue’s', async () => {
+  // Adam's thumb on the phone. The bookkeeping still runs, and the attempts and
+  // downmerges still happened — but "merged by the beadcause merge queue" would be the
+  // queue taking credit for a tap.
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 1, downmerges: 0 }) })], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr({ state: 'MERGED', mergedAt: '2026-08-19T01:00:00Z', mergeCommit: 'facefeed11' }));
+  await run(bd, prApi);
+  const onPr = prApi.calls.comments[0].text;
+  assert.match(onPr, /outside the queue/, 'the report does not say it landed elsewhere');
+  assert.doesNotMatch(onPr, /by the beadcause merge queue/, 'the queue took credit for a merge it did not make');
+  assert.match(onPr, /One attempt/, 'the passage it did have is thrown away');
+});
+
+await check('a pull request that will not take the report still gets both closes', async () => {
+  // The rule the whole close sequence is written to: the merge has happened, and nothing
+  // after it may un-happen it. A comment that cannot post is a small loss; a comment that
+  // throws into this path strands a merged pull request with two open beads.
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 0 }) })], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr(), { comment: new Error('gh: could not post a comment') });
+  const out = await run(bd, prApi);
+  assert.deepEqual(out.merged, ['zz-merge'], 'a failed comment was counted as a failed merge');
+  assert.deepEqual(
+    bd.calls.closes.map((c) => c.id),
+    ['zz-merge', 'zz-work'],
+    'both beads did not close, merge-bead first, over a comment that failed'
+  );
+});
+
+await check('mergeReport invents nothing when it knows nothing', () => {
+  // Called with an empty state — which is what a bead somebody hand-edited into invalid
+  // YAML reads as. Every number here comes from somewhere, so no number is the honest
+  // output rather than a zero presented as a measurement.
+  const text = mergeReport({ number: 7, base: 'main', bead: 'zz-work' }, {});
+  assert.match(text, /Straight through/);
+  assert.doesNotMatch(text, /\battempts\b/, 'it reported an attempt count it was never given');
+  assert.doesNotMatch(text, /from reaching the queue/, 'it timed a passage with no start');
+});
 
 /* ------------------------------------------------------------------------ done */
 

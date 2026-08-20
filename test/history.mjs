@@ -45,6 +45,9 @@
  * about to add one back, that is the history.
  */
 import assert from 'node:assert/strict';
+
+import { viewHops } from '../lib/pagealias.js';
+import { shellPaths } from '../lib/swbump.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -175,7 +178,9 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     window,
     document: {
       getElementById: (id) =>
-        id === 'history' ? out : id === 'pulse' ? pulse : id === 'hist-refresh' ? refresh : null,
+        // `hist-list` since bc-khoe.30.5 — see the note on the same lookup in
+        // test/historyfilter.mjs.
+        id === 'hist-list' ? out : id === 'pulse' ? pulse : id === 'hist-refresh' ? refresh : null,
     },
     localStorage: { getItem: (k) => store.get(k) ?? null },
     fetch: fetchStub,
@@ -722,18 +727,34 @@ await check('the pill row has a History pill pointing at the page', () => {
   assert.match(read('public/hashroute.js'), /paths: \['\/history', '\/history\.html'\]/);
 });
 
-await check('the service worker precaches the page and moved its version', () => {
+await check('the service worker precaches the script, and no longer the paths', () => {
   const sw = read('public/sw.js');
-  for (const p of ['/history', '/history.html', '/history.js']) {
-    assert.ok(sw.includes(`'${p}'`), `${p} is not in the shell`);
-  }
+  const shell = shellPaths(sw);
+  assert.ok(shell.includes('/history.js'), '/history.js is not in the shell, so the pane has nothing to draw itself with');
+  // And the two addresses are **out** of it since bc-khoe.30.7, which is not a trimming:
+  // they are a 302 to `/#history` now, and `Cache.put` refuses a redirected response, so
+  // one of them left in that list would leave the whole install rejecting and nothing at
+  // all cached on every installed phone. Asserted off `shellPaths` rather than off
+  // `sw.includes`, because both strings are still in that file — in `VIEW_HOPS`, which is
+  // what answers them when there is no daemon to ask.
+  const stale = ['/history', '/history.html'].filter((one) => shell.includes(one));
+  assert.deepEqual(stale, [], `a redirect is precached, so caches.addAll rejects whole: ${stale.join(', ')}`);
   const version = sw.match(/const CACHE = 'beadcause-v(\d+)'/);
   assert.ok(version, 'no cache version at all');
-  assert.ok(Number(version[1]) >= 34, `the bar and the page it points at must arrive together — v${version[1]} predates the tab`);
+  assert.ok(Number(version[1]) >= 96, `the removal only takes effect on a phone when activate sweeps — v${version[1]} predates it`);
 });
 
-await check('the daemon serves /history', () => {
-  assert.match(read('lib/server.js'), /urlPath === '\/history'\) urlPath = '\/history\.html'/);
+await check('the daemon lands /history on the pane rather than serving a document', () => {
+  // It was `urlPath = '/history.html'` until bc-khoe.30.7 — a rewrite, which is what
+  // every other short name in `serveStatic` still is. It cannot be one here: a rewrite
+  // leaves the browser on the old address, a pane is chosen by the hash, and a hash is
+  // never sent to a server. So serving the shell at `/history` would open Home whatever
+  // was tapped. test/pagepaths.mjs drives the hop against a real server; this is the
+  // shape of it, beside the rest of what makes this view a view.
+  const hops = viewHops(read('lib/server.js'));
+  assert.deepEqual(hops['/history'], { view: 'history', narrow: [] });
+  assert.deepEqual(hops['/history.html'], { view: 'history', narrow: [] });
+  assert.deepEqual(hops['/closed'], { view: 'history', narrow: [['status', 'closed']] }, 'the door onto what finished');
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n\x1b[32mall ${ran} checks passed\x1b[0m\n`);

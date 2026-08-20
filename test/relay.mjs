@@ -267,8 +267,13 @@ await check('the brief tells it to read the contract documents', () => {
   assert.ok(relayed.includes('docs/APPROVAL_PIPELINE.md'));
 });
 
-await check('the brief asks for a handoff line on the bead at every step', () => {
-  assert.ok(relayed.includes('bd comment dv-1 "<role> → <next role>'));
+await check('the brief asks for a journal entry on the bead at every step', () => {
+  // bc-bmry.4 replaced the free-text `bd comment` this used to assert on: prose in a
+  // thread is a trail nothing can render, and the epic card is where the steps have to
+  // show up. Assert on the tool and on the two flags that make an entry legible.
+  assert.ok(/bin\/relaystep\.js -w studio -b dv-1 --role/.test(relayed));
+  assert.ok(relayed.includes('--step <draft|check|revise|file>'));
+  assert.ok(relayed.includes('reads it on the epic card'));
 });
 
 await check('the packet is a bead of its own, and nothing here closes it', () => {

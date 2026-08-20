@@ -512,9 +512,9 @@ await check('the launch door refuses a paused P0', () => {
   assert.match(body, /status: 409/, 'and it does not refuse with a status the app can read');
 });
 
-await check('the console offers the button on every epic section', () => {
+await check('the console offers the button on every epic card', () => {
   const page = read('public/monitor.js');
-  assert.match(page, /data-epic="/, 'no pause control on an epic section');
+  assert.match(page, /data-epic="/, 'no pause control on an epic card');
   assert.match(page, /epicControl\(epic\.dataset\.ws, epic\.dataset\.id/, 'the button is drawn but not wired');
   // `control` sends `Number(value)`, deliberately, because every value it has carried has
   // been a session count. A bead id through that is `NaN`.
@@ -524,7 +524,19 @@ await check('the console offers the button on every epic section', () => {
   assert.ok(!/Number\(/.test(body), 'the bead id is being coerced to a number on the way out');
 });
 
-await check('and a paused epic keeps its section rather than losing it', () => {
+await check("the press's outcome is drawn where the press was, not inside a shut fold", () => {
+  // Pause moved into the epic card's head in bc-henk, and the note `epicControl` writes
+  // — how many windows were told, how many could not be reached — is the only answer that
+  // press ever gets. Inside a section that is folded by default it would be an answer to a
+  // press you cannot see, so it is drawn at card level, above the fold.
+  const page = read('public/monitor.js');
+  const fn = page.slice(page.indexOf('function epicCard(a, e'), page.indexOf('const epicCards ='));
+  const aboveFold = fn.slice(0, fn.indexOf('${secs}'));
+  assert.match(aboveFold, /note \? `<div class="adv-note">/, 'the outcome note is below the fold, or gone');
+  assert.match(fn, /const note = state\.epicNotes\.get\(`\$\{key\}\/\$\{e\.id\}`\)/, 'the card no longer reads the note at all');
+});
+
+await check('and a paused epic keeps its card rather than losing it', () => {
   const src = read('lib/epicadvocate.js');
   const from = src.indexOf('export function wantsAdvocate');
   const body = src.slice(from, src.indexOf('\n}\n', from));

@@ -220,7 +220,7 @@ const pill = (nav, id) => pills(nav).find((p) => p.id === id);
 console.log('\nthe shell, as written');
 
 await check('index.html holds a pane for every view the grammar knows', () => {
-  assert.deepEqual(VIEW_IDS, ['epics', 'history', 'advocates'], 'the view list moved');
+  assert.deepEqual(VIEW_IDS, ['epics', 'history', 'advocates', 'releases'], 'the view list moved');
   for (const id of VIEW_IDS) {
     assert.ok(
       new RegExp(`<div class="pane" data-pane="${id}"`).test(HTML),
@@ -236,12 +236,114 @@ await check('exactly one of them is shown, and it is Home', () => {
   assert.deepEqual(shown, ['epics'], 'more than one pane starts visible, or the wrong one does');
 });
 
-await check('the two that are not built yet name the bead that builds them', () => {
-  for (const [view, bead] of [['history', 'bc-khoe.30.5'], ['advocates', 'bc-khoe.30.6']]) {
-    const m = new RegExp(`data-pane="${view}" data-pending="([^"]+)"`).exec(HTML);
-    assert.ok(m, `${view} is either live or unmarked — if it is live, drop it from this list`);
-    assert.equal(m[1], bead, `${view} names ${m[1]} rather than the bead that fills it`);
+await check('every container is built — nothing is pending any more', () => {
+  // Each of the four came off the pending list as its bead filled its container: History
+  // with bc-khoe.30.5, Releases with bc-khoe.30.14 and Advocates with bc-khoe.4, which was
+  // the last of them. A view named here that has since gone live is a line to delete, not
+  // a failure to route around — and a view *missing* from here whose container is still
+  // empty is a pill leading to a blank screen, which is the whole thing `data-pending`
+  // exists to stop. The mechanism is still covered, against fixtures, further down: it is
+  // how the next view arrives, not something this list retires with the last of them.
+  for (const [view, bead] of [
+    ['history', 'bc-khoe.30.5'],
+    ['advocates', 'bc-khoe.4'],
+    ['releases', 'bc-khoe.30.14'],
+  ]) {
+    assert.ok(
+      !new RegExp(`data-pane="${view}"[^>]*data-pending`).test(HTML),
+      `${view} is pending again — it was filled by ${bead}`
+    );
   }
+  assert.equal(
+    (HTML.match(/data-pending=/g) || []).length,
+    0,
+    'a container is pending again — if that is deliberate, name it in the list above'
+  );
+});
+
+await check('and the live ones hold their own contents', () => {
+  const open = HTML.indexOf('<div class="pane" data-pane="history"');
+  const close = HTML.indexOf('<div class="pane" data-pane="advocates"');
+  assert.ok(open > 0 && close > open, 'the panes are not where this suite thinks they are');
+  const inside = HTML.slice(open, close);
+  // The ledger's own two elements, and the id that is deliberately *not* `history`: the
+  // hash naming this view is `#history`, and an element of that id in this document is a
+  // fragment target the browser scrolls into view — undoing the scroll position panes.js
+  // had just restored.
+  for (const mark of ['id="hist-filters"', 'id="hist-list"', 'class="work pagescroll"']) {
+    assert.ok(inside.includes(mark), `${mark} is not in the History pane`);
+  }
+  assert.ok(!inside.includes('id="history"'), 'the ledger container is a fragment target again');
+  assert.ok(/<script src="\/history\.js">/.test(HTML), 'nothing loads the file that fills it');
+});
+
+await check('and the advocate console holds its chip row and all three sections — bc-khoe.4', () => {
+  const open = HTML.indexOf('<div class="pane" data-pane="advocates"');
+  const close = HTML.indexOf('<div class="pane" data-pane="releases"');
+  assert.ok(open > 0 && close > open, 'the panes are not where this suite thinks they are');
+  const inside = HTML.slice(open, close);
+  // The row and the three sections it swaps, which is the whole of monitor.html below its
+  // top bar. The row stays a row (bc-khoe.30.6): the Mirror follows another device and
+  // drops its own, so it cannot be a pill, and a chip row that dissolves to one chip is a
+  // worse shape than the row it replaced.
+  for (const mark of ['id="mon-tabs"', 'id="mon"', 'id="prs"', 'id="mirror"', 'id="mirror-dot"']) {
+    assert.ok(inside.includes(mark), `${mark} is not in the Advocates pane`);
+  }
+  assert.equal((inside.match(/data-tab="/g) || []).length, 3, 'the chip row is not three chips');
+  // `⦿ observing` and the roster's tally came down out of the top bar with the sections
+  // they belong to — the shell's bar belongs to every view, and these are facts about one.
+  // The name is free because the Releases pane gave it up for exactly this (bc-khoe.30.14).
+  for (const mark of ['id="observing"', 'id="tally"', 'class="mon-meta"']) {
+    assert.ok(inside.includes(mark), `${mark} is not in the Advocates pane`);
+  }
+  // The gear that page carries is not one of them: accountbar.js draws a standing Admin
+  // row in the mark's menu on every page since bc-khoe.5, so a second one hoisted out of
+  // here would be the same row drawn twice.
+  assert.ok(!inside.includes('id="gear"'), 'the console brought its own Admin door into a shell that has one');
+  // `#advocates` is the hash that names this view, so an element of that id in this
+  // document would be a fragment target — the trap `hist-list` and `rel-list` are named
+  // for. Nothing in this pane is called that, and nothing had to be renamed: the row and
+  // the sections were `mon-tabs`, `mon`, `prs` and `mirror` already.
+  assert.ok(!inside.includes('id="advocates"'), 'the console container is a fragment target');
+  for (const file of ['montabs', 'monitor', 'prs', 'mirror']) {
+    assert.ok(HTML.includes(`<script src="/${file}.js">`), `nothing loads /${file}.js`);
+  }
+  // montabs.js is the pane's one registration with the stager, and the three sections each
+  // register on it as they load — so the order is a blank pane rather than a style point.
+  for (const file of ['monitor', 'prs', 'mirror']) {
+    assert.ok(
+      HTML.indexOf('<script src="/montabs.js">') < HTML.indexOf(`<script src="/${file}.js">`),
+      `${file}.js loads before montabs.js and would find no row to register on`
+    );
+  }
+  // prs.js takes the row, the lamps and the status ladder off prcard.js at module scope.
+  assert.ok(
+    HTML.indexOf('<script src="/prcard.js">') < HTML.indexOf('<script src="/prs.js">'),
+    'prs.js loads before prcard.js and would throw before it drew'
+  );
+});
+
+await check('and so does the release board — filled by bc-khoe.30.14', () => {
+  const open = HTML.indexOf('<div class="pane" data-pane="releases"');
+  assert.ok(open > 0, 'the Releases pane is not where this suite thinks it is');
+  const close = HTML.indexOf('<div id="toast"', open);
+  assert.ok(close > open, 'the Releases pane is not the last one any more — pick a new end marker');
+  const inside = HTML.slice(open, close);
+  // Same fragment-target rule as the ledger above, and a second id that had to move for a
+  // duller reason: monitor.html carries an `id="observing"` and folds into this document
+  // under bc-khoe.4, so the bare name would collide the moment it did.
+  for (const mark of ['id="rel-list"', 'id="rel-observing"', 'class="work pagescroll"']) {
+    assert.ok(inside.includes(mark), `${mark} is not in the Releases pane`);
+  }
+  assert.ok(!inside.includes('id="releases"'), 'the release board container is a fragment target again');
+  assert.ok(!inside.includes('id="observing"'), 'the observing chip took a name bc-khoe.4 also wants');
+  assert.ok(/<script src="\/releases\.js">/.test(HTML), 'nothing loads the file that fills it');
+  // It takes `esc`, `plural`, `ago` and `graphUrl` off prcard.js at module scope, so the
+  // order is a throw rather than a style point.
+  assert.ok(
+    HTML.indexOf('<script src="/prcard.js">') < HTML.indexOf('<script src="/releases.js">'),
+    'releases.js loads before prcard.js and would throw before it drew'
+  );
 });
 
 await check('Home’s pane holds everything that belongs to Home, and nothing that does not', () => {
@@ -317,28 +419,32 @@ await check('the service worker precaches it, and the version moved', () => {
 
 console.log('\nwhich pane is up');
 
-/** The shell as it ships: Home built, the other two waiting on their beads. */
-const asShipped = () => [
+/** A shell with a container still waiting on the bead that fills it. No view is in that
+    state today — bc-khoe.4 filled the last of them — so this is a fixture rather than a
+    photograph, and it is what keeps the mechanism covered for the view that arrives next.
+    Advocates plays the part because it was the last one to leave it. */
+const withPending = () => [
   pane('epics'),
-  pane('history', { pending: 'bc-khoe.30.5', scroller: false }),
-  pane('advocates', { pending: 'bc-khoe.30.6', scroller: false }),
+  pane('history'),
+  pane('advocates', { pending: 'bc-khoe.4', scroller: false }),
+  pane('releases'),
 ];
 
-/** The shell as it will be once those two land. */
-const whenBuilt = () => [pane('epics'), pane('history'), pane('advocates')];
+/** The shell as it actually ships: all four built. */
+const whenBuilt = () => [pane('epics'), pane('history'), pane('advocates'), pane('releases')];
 
 await check('with no hash, Home is the pane and the others are hidden', () => {
   const b = boot(whenBuilt());
   b.run('panes.js');
   assert.equal(b.panes().showing(), 'epics');
-  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [false, true, true]);
+  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [false, true, true, true]);
 });
 
 await check('a view hash lands on that pane, with no document asked for', () => {
   const b = boot(whenBuilt(), { hash: '#history' });
   b.run('panes.js');
   assert.equal(b.panes().showing(), 'history');
-  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [true, false, true]);
+  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [true, false, true, true]);
 });
 
 await check('a card hash is Home, from any pane — a question lives there', () => {
@@ -365,11 +471,18 @@ await check('the back button walks the panes', () => {
 });
 
 await check('a pending pane is never shown, and its hash falls to Home', () => {
-  const b = boot(asShipped(), { hash: '#history' });
+  // Both pending at once, which is what this rule is about and which the shell itself no
+  // longer shows: `withPending` has one, and it is a fixture rather than a photograph.
+  // Advocates carries bc-khoe.4 here for the same reason it does in the markup (bc-khoe.30.6):
+  // the attribute names the bead whose merge deletes it, and that is the fold, not the ruling.
+  const b = boot(
+    [pane('epics'), pane('history', { pending: 'bc-khoe.30.5', scroller: false }), pane('advocates', { pending: 'bc-khoe.4', scroller: false })],
+    { hash: '#history' }
+  );
   b.run('panes.js');
   assert.equal(b.panes().showing(), 'epics', 'an empty container was put on screen');
   assert.equal(b.panes().has('history'), false);
-  assert.deepEqual({ ...b.panes().pending() }, { history: 'bc-khoe.30.5', advocates: 'bc-khoe.30.6' });
+  assert.deepEqual({ ...b.panes().pending() }, { history: 'bc-khoe.30.5', advocates: 'bc-khoe.4' });
 });
 
 await check('go() writes the hash and switches — including Home, which fires no hashchange', () => {
@@ -438,12 +551,19 @@ function row(panes, opts) {
   return { ...b, nav: b.body.querySelector('.viewbar') };
 }
 
-await check('as shipped, History and Advocates are still links to the documents they are', () => {
-  const { nav } = row(asShipped());
-  assert.equal(pill(nav, 'history').tag, 'a');
-  assert.equal(pill(nav, 'history').href, '/history');
+await check('a pill whose container is still pending is a link to the document it is', () => {
+  const { nav } = row(withPending());
   assert.equal(pill(nav, 'advocates').tag, 'a');
   assert.equal(pill(nav, 'advocates').href, '/monitor');
+  // And the other two are not, because bc-khoe.30.5 and bc-khoe.30.14 filled theirs. This
+  // is the whole of what filling a container changes at the row: nothing in viewbar.js
+  // moved for either of them, and the `href` in `PILLS` stays — eleven pages that have no
+  // panes still draw this row and still need the link.
+  for (const id of ['history', 'releases']) {
+    assert.equal(pill(nav, id).tag, 'button', `${id} still loads a document this page has open`);
+    assert.equal(pill(nav, id).pane, id);
+    assert.equal(pill(nav, id).href, null);
+  }
 });
 
 await check('once a pane is built, its pill stops being a link', () => {

@@ -122,23 +122,23 @@ try {
     say(await evalJs(`!!document.querySelector('.sound-start')`), 'the audition offers a way to start');
     const tap = await evalJs(`getComputedStyle(document.querySelector('.sound-start')).minHeight`);
     say(tap === '44px', 'and the stylesheet applied — the start button is a 44px tap target', tap);
-    say((await evalJs(`document.querySelectorAll('.sound-row').length`)) === 4, 'four voices in the reference list');
+    say((await evalJs(`document.querySelectorAll('.sound-row').length`)) === 5, 'five voices in the reference list');
     const wide = await evalJs('document.documentElement.scrollWidth');
     say(wide <= size.width, 'nothing overflows sideways', `scrollWidth ${wide}`);
 
     /* ------------------------------------------------------- it is an audition */
 
     await evalJs(`document.querySelector('.sound-start').click()`);
-    say((await evalJs(`document.querySelectorAll('.sound-pad').length`)) === 3, 'three pads, one per sound to be named');
+    say((await evalJs(`document.querySelectorAll('.sound-pad').length`)) === 4, 'four pads, one per sound to be named');
     say(
-      await evalJs(`[...document.querySelectorAll('.sound-pad')].every(p => !/merge|release|epic/i.test(p.querySelector('.sound-padhead').textContent))`),
+      await evalJs(`[...document.querySelectorAll('.sound-pad')].every(p => !/merge|release|epic|stuck/i.test(p.querySelector('.sound-padhead').textContent))`),
       'and no pad says what it is — which is the whole method'
     );
-    say(await evalJs(`document.querySelector('.sound-reveal').disabled === true`), 'the answer is refused until all three are named');
+    say(await evalJs(`document.querySelector('.sound-reveal').disabled === true`), 'the answer is refused until all four are named');
     await evalJs(`[...document.querySelectorAll('.sound-pad')].forEach(p => p.querySelector('.sound-pick').click())`);
     say(await evalJs(`document.querySelector('.sound-reveal').disabled === false`), 'and offered once they are');
     await evalJs(`document.querySelector('.sound-reveal').click()`);
-    say((await evalJs(`document.querySelectorAll('.sound-pick.is-right').length`)) === 3, 'the reveal marks the true answer on every pad');
+    say((await evalJs(`document.querySelectorAll('.sound-pick.is-right').length`)) === 4, 'the reveal marks the true answer on every pad');
     say(
       await evalJs(`getComputedStyle(document.querySelector('.sound-pick.is-right'), '::after').content.includes('✓')`),
       'with a mark and not only a colour'
@@ -175,7 +175,7 @@ try {
       return rs;
     })()`);
     say(
-      answered.length === 4 && answered.every((a) => a.endsWith(':200:audio/wav')),
+      answered.length === 5 && answered.every((a) => a.endsWith(':200:audio/wav')),
       'every sound the page names is served, as audio',
       answered.join('  ')
     );

@@ -621,6 +621,11 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the conflict sweep',
       'the cycle',
       'the deploy sweep',
+      // lib/epicdone.js. `createEpicWatch().sweep` lands a tracker it could not read in
+      // its outcome and leaves that workspace's snapshot alone, so what reaches this
+      // catch is the watcher's own bookkeeping — and getting it wrong is quiet twice
+      // over, because the symptom is a milestone that never chimes.
+      'the epic-done sweep',
       // lib/mergequeue.js. Its own guard rather than the advocate tick's, though it runs
       // beside it: a queue that cannot reach GitHub and an advocate that cannot open
       // windows fail for different reasons, and one crash card naming both would send
@@ -630,6 +635,15 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the poll',
       'the release sweep',
       'the reply push',
+      // lib/strays.js, and the one entry in the list that signals other processes. Its
+      // own guards — the age floor, the profile match, `mayReap` — decide what it may
+      // touch, and every one of them answering "nothing" is the settled state rather
+      // than a failure. So what reaches this catch is the sweep being unable to read the
+      // process table or `$TMPDIR` at all, which is a bug and not a quiet afternoon.
+      // Reported rather than swallowed because a sweep that silently stopped running is
+      // indistinguishable from one that keeps finding nothing, and the difference is
+      // 15 GB a fortnight. bc-5isv.
+      'the stray-process sweep',
       // lib/sync.js. `syncOnce` swallows every tracker failure into an outcome of its
       // own, so anything reaching this catch is a bug by construction — which is
       // precisely the bar `reportSweepFailure` sets.

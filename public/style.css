@@ -3233,12 +3233,6 @@ button.work-row {
 
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
-/* The right-hand end of an epic section's foot: its Pause button beside the link out to
-   the graph. A flex row rather than the bare link the foot used to end in, because the
-   two belong together — one says what this epic is, the other says whether it is running
-   — and `justify-content: space-between` above would otherwise push them to opposite
-   ends of the card with the meta line stranded in the middle. Wraps on a phone. */
-.adv-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .work-graph {
   flex: none; min-height: 36px; display: inline-flex; align-items: center;
   padding: 6px 12px;
@@ -3453,11 +3447,135 @@ button.work-row {
    board during a restart is the deploy working, not a fault. */
 .board-foot.bad { color: var(--warn); }
 
+/* -------------------------------------------------------------- the two queues */
+
+/* The Releases view (bc-khoe.7): a Merge Card per bead with an unmerged branch, a Release
+   Card per merged pull request, and one set of rules over both — because the payload is
+   one shape and a card that had to know which queue it was in would be two renderers
+   wearing one name. See public/releases.js.
+
+   `.queue-` and not `.rel-`, which is taken: `.rel-row`, `.rel-group`, `.rel-kind`,
+   `.rel-dot` and `.rel-title` are the *related beads* list on the graph sheet, five
+   classes with nothing to do with a release. The same collision `.viewbar` avoided with
+   `.pill` (bc-khoe.1), found the same way — by grepping this file before inventing a
+   name. **The kind and the tone are prefixed too**, and that is not symmetry for its own
+   sake: `.release` further down is the Ship strip on the PR board, a padded tinted box,
+   and a card wearing a bare `release` inherited the lot — which on screen reads as a card
+   styled a bit differently rather than as two rules fighting. */
+
+.queue-sec { max-width: 780px; margin: 0 auto 18px; padding: 0 16px; }
+.queue-head {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 0 0 8px; font-size: 13px; font-weight: 620;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
+}
+.queue-count {
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-2); color: var(--prose);
+  font-size: 11px; letter-spacing: 0; font-variant-numeric: tabular-nums;
+}
+/* Only drawn where more than one repo has entries in a section — see `sectionHtml`. The
+   group *is* the batch: one release ships everything on that repo's `origin`. */
+.queue-group {
+  margin: 12px 0 6px; font-size: 12px; font-weight: 600;
+  color: var(--muted); overflow-wrap: anywhere;
+}
+.queue-empty { margin: 0; font-size: 13px; color: var(--muted); }
+
+.queue-card {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+  margin-bottom: 8px;
+}
+/* The tone carries where it has got to, so a list is readable before it is read — the
+   same three the deploy rows below use, and deliberately the same colours. */
+.queue-card.queue-live { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.queue-card.queue-good { border-color: color-mix(in srgb, var(--bead-made) 40%, var(--line)); }
+.queue-card.queue-warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+
+/* The whole collapsed card is the button. On a phone that is the difference between a
+   list you can use one-handed and one you have to aim at — the chevron is a hint about
+   what a tap does, never the thing you have to hit. */
+.queue-sum {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 11px 13px; border: 0; background: none; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.queue-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+/* Wraps, and that is a sizing decision rather than a typographic one. `.work` — which
+   every scroller on every page is — carries `margin: 0 auto`, and an auto cross-axis
+   margin on a flex item turns `align-self: stretch` off: the scroller is then sized
+   `fit-content`, which is `min(max-content, max(min-content, available))`. A `nowrap`
+   title makes min-content the whole string, so one long pull request title made the
+   *page* 56px wider than the phone and everything on it hung off the right edge, clipped
+   by `body { overflow: hidden }` with nothing to say it had happened. Wrapping puts
+   min-content back to the longest word. Do not add `white-space: nowrap` here. */
+.queue-title {
+  font-size: 14px; color: var(--text);
+  overflow-wrap: anywhere;
+}
+.queue-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.queue-stage {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  font-size: 12px; color: var(--prose);
+  overflow-wrap: anywhere;
+}
+.queue-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 80%, transparent);
+}
+.queue-card.queue-good .queue-dot { background: var(--bead-made); }
+.queue-card.queue-warn .queue-dot { background: var(--warn); }
+.queue-card.unfolded .chev { transform: rotate(90deg); }
+
+.queue-body { padding: 0 13px 12px; }
+
+/* The ladder. Every rung, always — a ladder that only drew the rungs it had reached
+   would be a progress bar, and the whole argument of this page is that *which* rung is
+   the answer and the ones ahead are the question. */
+.queue-rungs {
+  margin: 0 0 10px; padding: 0; list-style: none;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.queue-rung {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  padding: 3px 0; font-size: 12.5px; color: var(--muted);
+}
+.queue-mark { flex: none; width: 14px; text-align: center; }
+.queue-rung-name { min-width: 0; overflow-wrap: anywhere; }
+.queue-rung.done { color: var(--prose); }
+.queue-rung.done .queue-mark { color: var(--bead-made); }
+.queue-rung.now { color: var(--text); font-weight: 600; }
+.queue-rung.now .queue-mark { color: var(--accent); }
+.queue-rung.pending { opacity: 0.66; }
+/* Never the tick, and never merely greyed either: a rung nobody observed has to say so
+   in a word, because "no evidence" and "not yet" look identical as a colour. */
+.queue-rung.untracked .queue-mark { color: var(--warn); }
+.queue-untracked {
+  padding: 1px 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface-2));
+  color: var(--warn); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.queue-rung-at { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.queue-rung-note {
+  flex-basis: 100%; margin: 2px 0 0 22px;
+  font-size: 11.5px; font-weight: 400; color: var(--muted);
+}
+
+.queue-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.queue-facts { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.queue-fact { display: flex; gap: 8px; font-size: 11.5px; }
+.queue-fact dt { flex: none; width: 88px; color: var(--muted); }
+.queue-fact dd { margin: 0; min-width: 0; color: var(--prose); overflow-wrap: anywhere; }
+.queue-fact code { font-size: 11px; }
+
 /* ---------------------------------------------------------- a deploy, while it runs */
 
 /* Above the cards, not beside the lamp it belongs to. The Deployed lamp is something
    you scan for; a deploy in flight is something you are told — and on this repo it is
-   the daemon serving the page that is about to be SIGKILLed. See public/prs.js.
+   the daemon serving the page that is about to be SIGKILLed. It lived at the top of the
+   PR board until bc-khoe.7 and is at the top of the Releases view now, which is the page
+   its ladder is on. See public/releases.js.
 
    Nothing here renders when nothing has been deployed, which is most days: an empty
    box explaining that a repo has no deploys is a row of pixels that is never right. */
@@ -4814,6 +4932,68 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-card.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
 .mon-card.plain { opacity: 0.82; }
 
+/* An EpicAdvocate's card — the same card as the repo's, and its head is its fold.
+
+   bc-henk made every advocate a top-level card, because an EpicAdvocate has its own
+   budget, its own state, its own pause and its own queue and none of those belong to the
+   repo advocate it used to be folded inside. What that costs is the one thing the fold
+   was good at: a repo with a dozen open P0s used to be one card with twelve 40px lines in
+   it, and twelve free-standing cards is a wall.
+
+   So the height is bought back in the head, and the numbers are measured rather than
+   hoped for — headless Chrome at 393x852, one repo with twelve assigned epics and a
+   window on none of them, everything shut:
+
+     | shape                                        | the repo and its twelve epics |
+     |----------------------------------------------|-------------------------------|
+     | twelve folds inside one card (before bc-henk) |                        2304px |
+     | thirteen cards, each head its own fold (this) |          1656px = 372 + 12x107 |
+
+   Which is the answer to this bead's own acceptance: a repo with a dozen open P0s is
+   *shorter* after being taken apart into cards than it was as one card, because a fold
+   whose summary strip sat under a two-line head cost more than a head that is the fold.
+
+   Three things do it, and none of them is indentation — a left margin would make the card
+   narrower than the one above and re-say the containment the markup just stopped claiming:
+
+   - **The head is the summary.** No separate 40px section strip under it, and no card foot
+     either; the caret, the epic and its id are one row, and everything else is behind it.
+     The toggle is a `<button>` with the controls as its *siblings*, because a button
+     inside a button is not markup and Pause has to be pressable without opening anything.
+   - **One line of title.** These are sentences — "Something that needs deciding about the
+     shape of the queue" — and two of them wrapped is 45px per card, twelve times. Clipped
+     with the full text on `title=`, and the id beside it is exact either way.
+   - **Smaller controls.** `.adv-btn` is 32px and `.work-graph` 36px because both normally
+     sit alone; here they are a pair in a head that has to stay one line where it can.
+
+   And a rule down the left edge, in the accent, so a run of them still reads as belonging
+   to the repo above without being inside it. */
+.mon-card.epic-card {
+  padding: 6px 12px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+/* `align-items: baseline` rather than the `center` `.mon-card .work-head` uses: the
+   summary button is 40px tall and the state chip beside it is one line of 12.5px text, so
+   centring hangs the chip in the middle of the button's whitespace instead of sitting it
+   on the title's line. */
+.mon-card.epic-card .work-head { align-items: baseline; row-gap: 2px; }
+.epic-sum { flex: 1 1 200px; min-width: 0; min-height: 34px; padding-inline: 0; }
+/* Not a section header: this one is a card's name. Sentence case at reading size, where
+   `.mon-sum` is the 12px uppercase strip the folds inside a card use. */
+.epic-sum .mon-sum-title {
+  font-size: 14.5px; font-weight: 650; letter-spacing: 0; text-transform: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.epic-sum .pill.id { flex: none; }
+.mon-card.epic-card.open .mon-caret { transform: rotate(0deg); color: var(--accent); }
+/* The pair in the head, sized to each other. A 32px button next to a 36px link reads as
+   two kinds of control, and they are one. */
+.mon-card.epic-card .adv-btn,
+.mon-card.epic-card .work-graph {
+  min-height: 28px; padding: 2px 10px; font-size: 12px; font-weight: 550;
+}
+.mon-card.epic-card .mon-body { padding-top: 4px; padding-bottom: 0; }
+
 /* What launchd is actually running, above every card — see serviceHtml in
    public/monitor.js for why this is drawn on a good day as well as a bad one.
 
@@ -5001,11 +5181,12 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-tally { font-size: 12px; font-weight: 600; color: var(--muted); }
 .mon-tally.warn { color: var(--warn); }
 
-/* Observer mode. At the left-hand end of the bar with the mark — beside the page title
-   on /admin, and beside the space picker on /monitor, which since bc-mtdb has no title
-   at all — because it says what this daemon *is*, not what it is currently doing, and
-   two consoles side by side are otherwise identical. Warm rather than alarming: nothing
-   is wrong, it simply never acts.
+/* Observer mode. At the left-hand end of the bar with the mark, beside the page title —
+   because it says what this daemon *is*, not what it is currently doing, and two
+   consoles side by side are otherwise identical. It sat beside /monitor's space picker
+   instead for as long as that page had no title (bc-mtdb); bc-khoe.10 moved the settings
+   off it, and the heading it got back names the page rather than the space. Warm rather
+   than alarming: nothing is wrong, it simply never acts.
    `[hidden]` is restated because the flex display above would otherwise show it. */
 .observing {
   font-size: 11px;
@@ -5020,6 +5201,11 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   white-space: nowrap;
 }
 .observing[hidden] { display: none; }
+/* In the shell the chip is not up in the brand — the top bar belongs to every view and
+   this is a fact about the deploys one of them is drawing (bc-khoe.30.14). It is the first
+   row of the Releases pane's own column instead, which is a flex column, so without this
+   the pill would stretch to the full 780px and stop reading as a pill. */
+.work > .observing { align-self: flex-start; }
 .adv-note .dim { opacity: 0.7; }
 
 /* ── The in-app terminal ─────────────────────────────────────────────────────
@@ -5197,9 +5383,36 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   margin: 0;
   overflow-x: auto;
   scrollbar-width: none;
+  /* And it wraps rather than scrolling sideways, which it does *only* for the pair that
+     came down out of the top bar in bc-khoe.4. Measured on a 393px screen: three chips and
+     `⦿ observing` and the busiest sentence the tally can produce ("12 working · 34 to
+     answer") come to more than the width, and the `overflow-x` above would answer that by
+     putting the count off the right-hand edge where nothing says it is there. A second line
+     is the honest answer and it is only ever drawn when there is something to put on it —
+     both halves are empty on most installs, and the observer mark on all but one Mac.
+     `row-gap` overrides the 2px above for that second line only; between chips on one line
+     it is still 2px, because they are a group. */
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 .mon-tabs::-webkit-scrollbar { display: none; }
 .mon-tabs .chip { position: relative; }
+/* The far end of the chip row: the observer mark and the roster's tally (bc-khoe.4).
+   On monitor.html those two sit at the right of that page's own top bar. In the shell the
+   top bar belongs to every view and these are facts about one of them, so they came down
+   into the pane — and the right-hand end of the row under it is the same place on the
+   screen. `margin-left: auto` rather than `justify-content: space-between` on the row,
+   because the chips must stay a group when the pair is empty, which is what it is on every
+   install that is not observing and has nothing running. */
+.mon-tabs .mon-meta {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* A little air, so it does not read as a fourth chip. */
+  padding-left: 10px;
+}
 
 /* The `hidden` attribute is a `display: none` that any later `display` beats, and
    `.work` sets `display: flex` — so the pane behind the tab you are not on kept
@@ -5501,6 +5714,16 @@ button.viewpill { cursor: pointer; }
 }
 .compose-pick .section-label { margin: 0 0 6px; padding-top: 0; border-top: 0; }
 .compose-pick .chip-row { flex-wrap: wrap; }
+/* The epics one is a column of the board's own candidate rows rather than a wrap of chips,
+   so it needs a width: `.compose-pick` is `max-content`, which for two-line cards means
+   "as wide as the longest title", and a bead title is arbitrarily long. Capped at the same
+   `min(80vw, 420px)` the wrap above allows, and given it outright so short titles do not
+   draw a panel narrower than the button it hangs over. It is also the taller panel by far,
+   so it scrolls inside itself rather than growing past the top of the phone — the wrapper
+   is fixed to the bottom corner, so an unbounded panel grows *upward* off the screen and
+   the row you wanted would be the one that left. */
+.compose-pick.epics { width: min(80vw, 420px); }
+.compose-pick.epics .p0-picker { max-height: min(58vh, 420px); overflow-y: auto; }
 
 /* Room at the foot of the list for the button sitting over it. On the **scroller**
    rather than on the body, which is where it was while the body was the thing that
@@ -5516,6 +5739,50 @@ button.viewpill { cursor: pointer; }
 /* And the toast, which is bottom-centred and would otherwise land under it on a
    narrow phone. */
 .has-compose .toast { bottom: calc(env(safe-area-inset-bottom) + 78px); }
+
+/* The create form ＋ opens on All Beads (bc-khoe.27.3).
+
+   It is `.sheet` — the same drawer /graph opens a bead in — because it is the same
+   gesture: something arrives over the list you are looking at, and the list is still
+   there behind it. Everything inside it is `.field`, which is the chat console's
+   proposal sheet, so there is nothing here about how a bead's fields are laid out; what
+   is left is the handful of things a *form* has and a detail drawer does not.
+
+   z-index is the sheet's own 30, which puts it over ＋ (24) and under an open card (40).
+   That ordering is not decorative: ＋ is what opened this, so a button still sitting on
+   top of the form would be a control offering to open what is already open. */
+/* Taller than the 72dvh a detail drawer takes, because this one is a form: eight fields
+   and two buttons, and at 72dvh a phone shows four of them. Not the whole screen either —
+   the strip of list left above it is what says this is over Home rather than a page you
+   navigated to, and it is the way back if the ✕ is not where your thumb is. */
+.beadform { height: 88dvh; }
+.beadform .sheet-body { display: flex; flex-direction: column; gap: 14px; }
+.beadform-head { font-size: 15px; font-weight: 650; padding-left: 4px; }
+
+/* One repo is a statement, not a choice — the same bargain ＋ makes for a chat, where a
+   single candidate starts without asking. The chip is left in place rather than swapped
+   for a line of text so the row does not change shape between one workspace and two,
+   and it is inert because tapping the only answer can do nothing. */
+#beadform-ws-field.one .chip { pointer-events: none; }
+
+/* What the form says about itself, and it is deliberately in the sheet rather than in a
+   toast. A refusal is a sentence you have to be able to read next to the field that
+   caused it, and a warning — "filed with no parent, so nothing will work it" — is one
+   you have to be able to read twice; a toast is gone in 2.6 seconds and takes both with
+   it. */
+.beadform-say {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px; line-height: 1.45;
+  color: var(--muted);
+}
+.beadform-say[hidden] { display: none; }
+.beadform-say.bad { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); }
+.beadform-say.warn { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); color: var(--warn); }
+
+.beadform-actions { display: flex; gap: 8px; }
 
 /* A conversation, as one row in the inbox.
 
@@ -6644,6 +6911,25 @@ a.pill { text-decoration: none; }
    not: without it a long unbroken token pushes the row wider than the card, and a card
    wider than the screen shrink-fits the whole page (see the note on measuring layout). */
 .p0-row-title { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; }
+/* Where a relay on this bead has got to (bc-bmry.4). *After* the title and not with the
+   marks above, which is the one row element that breaks that rule on purpose: it is a
+   status line rather than a mark, it is the longest thing on the row, and a relay runs on
+   a handful of beads where every row has an id and a title. Ahead of the title it would
+   push sixty titles right to draw four lines. `flex-basis: 100%` puts it on its own line
+   the moment the title has taken the width, which is where a status line belongs. */
+.p0-relay {
+  flex: 1 1 100%;
+  font-size: 11px; color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* The two states worth a colour, and they get the same one on purpose. A hand-back says
+   nothing will move until something launches it; a flag says a check found something the
+   next role has to answer. They are different facts and they call for the same action —
+   read this one — so one colour and two words is honest, where two colours would be
+   asking a glance to remember which amber meant which. The words are in the text either
+   way (`⇄ … handback`, `⚑`), which is what a phone can actually act on. */
+.p0-relay.back,
+.p0-relay.flagged { color: var(--warn); }
 /* A bead that is itself asking you something. It is the reason to open a tree at all —
    and once bc-rfnr.9.7 takes the flat list away, the only place a question is drawn. */
 .p0-row.asks { border-left-color: var(--warn); }
@@ -6740,6 +7026,33 @@ button.p0-row {
    is one: an empty expansion is indistinguishable from a tap that did nothing. */
 .p0-bead-note { font-size: 12px; color: var(--muted); }
 .p0-bead-note.bad { color: var(--danger); }
+/* The relay's trail (bc-bmry.4). A column of rows rather than a table, because the note is
+   a sentence and the three fields before it are two words each: a table would give the
+   sentence a quarter of a phone and hyphenate it into a column. */
+.p0-trail { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+/* One step. The leading edge is what makes six of them read as a sequence rather than as
+   six paragraphs, and it is the same 2px rule `.p0-bead-closed` uses for the same job. */
+.p0-trail-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--line);
+  font-size: 12px;
+}
+/* The hand-back is the only row that says nothing will move on its own, so it is the only
+   one that gets a colour — see `.p0-relay.back`, which is the same fact one screen out. */
+.p0-trail-row.back { border-left-color: var(--warn); }
+.p0-trail-who { flex: none; font-weight: 600; color: var(--text); }
+.p0-trail-step { flex: none; }
+.p0-trail-when { flex: none; font-size: 11px; color: var(--muted); }
+/* The sentence, on its own line — `flex: 1 1 100%` for `.p0-rel-row`'s reason: beside the
+   three marks above it, it wraps into their column and reads as a caption on the last one. */
+.p0-trail-note { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+/* What a check found. Its own line under the note, because it is the one thing on this
+   screen somebody might act on and a clause appended to a sentence is not read. */
+.p0-trail-flag { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; color: var(--warn); }
+/* The count beside the heading — "4 steps · 1 flagged · handed back". Quiet, in the
+   heading's own case, because it is a summary of the rows directly under it. */
+.p0-relay-sum { margin-left: 6px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--muted); }
 /* What the bead is under and what it is behind. Above the description because "what is
    this part of, and what is it stuck on" is the question you have before you read a word
    of it — and a bead with no edges draws nothing here at all. */
@@ -6891,21 +7204,12 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
   cursor: pointer;
 }
 .p0-off:disabled { opacity: 0.6; cursor: default; }
-.p0-pick {
-  display: block;
-  width: 100%;
-  min-height: 40px;
-  margin-top: 8px;
-  padding: 8px 12px;
-  border: 1px dashed var(--line);
-  border-radius: 10px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit; font-size: 13px;
-  cursor: pointer;
-}
-.p0-pick[aria-expanded='true'] { color: var(--text); border-style: solid; background: var(--surface); }
-.p0-picker { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+/* `.p0-pick` was here — the dashed ＋ Start an epic button at the foot of the board, and
+   the panel of candidates it unfolded. bc-khoe.27.2 moved that create onto the floating ＋,
+   so the button is gone entirely and the rows below are drawn inside `#compose-epics`
+   instead. `.p0-picker` is the column they sit in either way, minus the top margin it had
+   under a button that is no longer above it. */
+.p0-picker { display: flex; flex-direction: column; gap: 6px; }
 /* One row per P0 you could start: the same two-line shape a card has — identity and count
    on the first line, the title on the second — so the list reads as a board of cards that
    are not there yet rather than as a menu of ids. */
@@ -6924,10 +7228,10 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
 .p0-cand:disabled { opacity: 0.6; cursor: default; }
 .p0-cand-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .p0-cand-title { min-width: 0; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.35; }
-/* Nothing started yet: the section is the offer and nothing else, so it carries none of
-   the board's own chrome — no heading, no fold, no count of nothing. */
-.p0-board.bare { margin-bottom: 10px; }
-.p0-board.bare .p0-pick { margin-top: 0; }
+/* `.p0-board.bare` was here: nothing started yet, and the section drawn as the offer and
+   nothing else. With the offer on ＋ there is no such section — an empty board draws
+   nothing at all now, and the way to end that state is a button that is always on screen
+   rather than one that appeared where the cards would have been. */
 
 /* The epic, filling the tab (bc-grut) — `p0FullHtml`.
 
