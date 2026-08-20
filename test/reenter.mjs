@@ -55,7 +55,9 @@ const REPO = path.join(tmp, 'projects', 'alpha');
 fs.mkdirSync(SESSIONS, { recursive: true });
 fs.mkdirSync(REPO, { recursive: true });
 
-const { advocatedRoots, handedBack, reentryFor, waitingOnMerge, REENTER_DEFAULTS } = await import(LIB('reenter.js'));
+const { advocatedRoots, handedBack, reentryFor, waitingOnMerge, waitingOnMergeCard, REENTER_DEFAULTS } = await import(
+  LIB('reenter.js')
+);
 const { pairKey } = await import(LIB('ancestry.js'));
 const { ADVOCATE_LABEL, WAITING_OPEN, WAITING_CLOSE, forgetAdvocateOpened } = await import(LIB('epicadvocate.js'));
 const { leaseLabel } = await import(LIB('lease.js'));
@@ -446,6 +448,33 @@ await check('what `waitingOnMerge` will and will not call a delivery', () => {
   assert.equal(waitingOnMerge({ beads: new Map(), edges: new Map() })(row('x-1.2')), false);
   assert.equal(waitingOnMerge(null)(row('x-1.2')), false);
   assert.equal(waitingOnMerge({ beads: new Map([['x-1.2', bead('x-1.2')]]) })(row('x-1.2')), false);
+});
+
+/* ---------------------------------------------------------- bc-xl7n.99: which card, by id
+
+   `waitingOnMerge` only ever answered the boolean `reentryFor` needs. The id was sitting
+   right there in the same walk, unread — `epicAdvocatePrompt`'s child list wants to say
+   what a delivered child is waiting on, not only that it is. Same fixtures, same edge
+   walk, so a divergence between the two would be a real bug rather than a new one. */
+
+await check('`waitingOnMergeCard` answers the same question as `waitingOnMerge`, by id', () => {
+  const row = (id) => ({ id });
+  const built = (deps, extra) =>
+    waitingOnMergeCard(subtree({ 'x-1.2': { status: 'in_progress' } }, deps, extra));
+
+  assert.equal(built([['x-1.2', 'q-1']], [card('q-1', ['human', 'pr-delivery'])])(row('x-1.2')), 'q-1');
+  assert.equal(built([['x-1.2', 'm-1']], [card('m-1', ['merge-queue'])])(row('x-1.2')), 'm-1');
+
+  // Everywhere `waitingOnMerge` answers false, this answers null rather than an empty
+  // string or `undefined` — a caller templating it straight into a sentence must not print
+  // the word "null" or "undefined" for a bead that is not parked at all.
+  assert.equal(
+    built([['x-1.2', 'q-1']], [card('q-1', ['human', 'pr-delivery'], { status: 'closed' })])(row('x-1.2')),
+    null
+  );
+  assert.equal(built([['x-1.2', 'gone']], [])(row('x-1.2')), null);
+  assert.equal(waitingOnMergeCard({ beads: new Map(), edges: new Map() })(row('x-1.2')), null);
+  assert.equal(waitingOnMergeCard(null)(row('x-1.2')), null);
 });
 
 await check('the rate limit is stated in the module that argues for it', () => {

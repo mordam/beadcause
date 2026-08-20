@@ -300,6 +300,66 @@ check('AND A STALL NAMES THE WRITE THAT PUTS THE BEAD BACK IN THE QUEUE', () => 
   assert.match(text, /branch or an open pull request/, 'it is told to release a claim without looking for the work first');
 });
 
+/* --------------------- the child list says which in_progress is which (bc-xl7n.99)
+
+   `in_progress` is the tracker's status and nothing more — a worker that reached one of
+   its two documented endings (delivered, or handed back with a question) is left in
+   exactly this state, and every prior pass at this epic paid a PR read, a worktree check
+   and a lock check to tell it apart from a real stall. Both facts are free at this call:
+   `human` is a label already on the row, and `deliveryCard` is the caller's own index,
+   already walked for `reentryFor`. */
+
+check('an in_progress child under `human` reads as handed back, not merely in_progress', () => {
+  const kids = [{ id: 'zz-p0.1', title: 'a question', status: 'in_progress', priority: 1, labels: ['human'] }];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam');
+  assert.match(text, /`zz-p0\.1` P1 in_progress — handed back, waiting on an answer — a question/);
+});
+
+check('an in_progress child parked behind a delivery card names it, by id', () => {
+  const kids = [{ id: 'zz-p0.2', title: 'a pull request', status: 'in_progress', priority: 1 }];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam', {
+    deliveryCard: (k) => (k.id === 'zz-p0.2' ? 'zz-rnk4' : null),
+  });
+  assert.match(text, /`zz-p0\.2` P1 in_progress — delivered, waiting on `zz-rnk4` — a pull request/);
+});
+
+check('`human` wins over a delivery card if somehow both fire', () => {
+  // Cannot happen through the real doors — bin/deliver.js's park() and a handback are
+  // different endings of the same worker window — but the read should still say
+  // something rather than pick between two clauses in the same slot at random.
+  const kids = [{ id: 'zz-p0.3', title: 'both', status: 'in_progress', priority: 1, labels: ['human'] }];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam', { deliveryCard: () => 'zz-rnk4' });
+  assert.match(text, /handed back, waiting on an answer/);
+  assert.ok(!text.includes('delivered, waiting on'), 'one annotation per row, not two');
+});
+
+check('a genuinely stalled in_progress child reads exactly as it always has', () => {
+  const kids = [{ id: 'zz-p0.4', title: 'stuck', status: 'in_progress', priority: 1 }];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam');
+  assert.match(text, /`zz-p0\.4` P1 in_progress — stuck/, 'no annotation, no dash inserted, nothing missing');
+});
+
+check('open and closed children carry no annotation, whatever `deliveryCard` says', () => {
+  const kids = [
+    { id: 'zz-p0.5', title: 'ready', status: 'open', priority: 2 },
+    { id: 'zz-p0.6', title: 'done', status: 'closed', priority: 2 },
+  ];
+  // A misbehaving injectable that answers yes to everything must still only speak for
+  // `in_progress` rows — the annotation is about telling a stall from its two endings,
+  // not about redecorating every line.
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam', { deliveryCard: () => 'zz-rnk4' });
+  assert.match(text, /`zz-p0\.5` P2 open — ready/);
+  assert.ok(!text.includes('zz-p0.6'), 'closed children are not in the list at all');
+});
+
+check('with no `deliveryCard` injected, delivery is simply never claimed', () => {
+  // The card-driven door (`POST /api/bead/advocate`) has no index to build one from
+  // without a fresh `bd.graph` call — the default must be silent, not a thrown error.
+  const kids = [{ id: 'zz-p0.7', title: 'maybe delivered', status: 'in_progress', priority: 1 }];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam');
+  assert.match(text, /`zz-p0\.7` P1 in_progress — maybe delivered/);
+});
+
 check('a fresh P0 with no children is not given the three shapes at all', () => {
   // There is nothing to have moved. A section that is noise on a first visit is a
   // section that stops being read on the visits where it matters.
