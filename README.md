@@ -20000,6 +20000,22 @@ is the other half — it plants a settled deploy record on disk, runs a real pol
 and reads the events off a real bus, then sweeps the whole of `startPoller` for any daemon
 singleton named bare.
 
+**bc-gdub.1 is the general version of that one function's guard: `lib/noundef.js`, run by
+`test/noundef.mjs`.** It parses every `.js`/`.mjs` file under `lib/`, `bin/` and `scripts/`
+with `acorn` and hands the AST to `eslint-scope` — the scope-resolution engine ESLint's own
+`no-undef` rule runs on, not a hand-rolled approximation — and reports every identifier
+reference that resolves to no binding anywhere in the file: not declared, not a parameter,
+not imported, not one of this Node process's own `globalThis` properties (read at runtime
+rather than hand-typed, so it can never go stale against a Node upgrade). `node --check`
+only parses, and a regex over the source cannot tell `bus` from `app.bus` — this is real
+scope analysis, the same as `bus.emit(...)` three thousand lines inside `createApp` and
+`bus.emit(...)` inside the sibling `startPoller` where the same object is only reachable
+as `app.bus`. It found a live one on its first run over this tree: `/api/pr/detail`
+destructured `const { unit } = requireUnit(...)` where `requireUnit` returns `{ ws, unit
+}`, and fifty lines later a `.catch` read `ws.name` — fixed alongside landing this suite.
+`test/pollerbus.mjs` stays: it is the only thing here that proves the sweep actually
+*runs*, which a static scope check does not attempt.
+
 ### An epic finishing — a diff of the tracker, never your own tap
 
 `epicDoneEvent` sat in `lib/news.js` for a day with nothing calling it, and the gap was
