@@ -1930,6 +1930,37 @@ check(
   commentArgs.includes('--body') && commentArgs.includes('Adam asked for changes: see the bead.')
 );
 
+// comment() used to shell out to bare `gh`, with no env at all, so it posted as whatever
+// account gh was ambiently on rather than the one `resolve` picked for this checkout —
+// exactly the split `merge` was proven against above. Same shape here: an active account
+// that can only read, and the write-capable one `resolve` should actually pick.
+console.log('\nand comment() runs as the account resolve picked, not the ambient one');
+
+pr.forgetAvailability();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+  prs: { 42: rawPR() },
+});
+resetLog();
+await pr.comment(REPO, 42, 'RESOLVER_SAYS: still conflicting.');
+const identityComment = calls().find((c) => c.args[0] === 'pr' && c.args[1] === 'comment');
+check(
+  'comment() goes out under the resolved token, exactly like every other write in this file',
+  !!identityComment && identityComment.token === 'tok-owner',
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+
 /* -------------------------------------------------------------- the one rule */
 
 console.log('\nthe rule the file is built around');
