@@ -13940,6 +13940,72 @@ a bead, and that is all it knows. So:
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
 
+#### A bead it has given up on says so
+
+`maxAttemptsPerBead` is a floor nothing decrements. The counter is cleared on the four
+endings that are not failures — closed, delivered, handed back, stood down — and on
+nothing else, so two windows that die without reaching one of them retire the bead from
+this machine's queue **permanently**: `2 < 2` is false, and stays false until somebody
+presses something.
+
+That is the right behaviour. A bead that kills two windows should stop taking them, and
+the cure has been one press on the console since the counter existed — **Forget attempts**,
+which clears them all. What was missing was every word of the diagnosis, and the cost of
+that was not theoretical.
+
+The bead reads as ordinary available work on every surface there is: open, unclaimed,
+carrying no queue-excluding label, sitting in `bd ready`, counted in the advocate's own
+`queue` number, drawn on the board beside beads that will be picked up in thirty seconds.
+The one line that ever mentioned the state was the tick's own note, and it said this:
+
+```
+[advocate] beadcause: 3 ready · 3 settling or already tried
+```
+
+`settling` was `queue − ready`, which welded a bead thirty seconds inside `settleSeconds`
+to a bead that will wait for ever, reported them as one figure, and named neither. And
+`note` says a thing once — `if (a.note === text) return` — so once the queue steadies the
+line prints a single time and the log is silent from then on. Correct logging behaviour,
+and it means the only clue to a permanently retired bead was one unrepeated sentence whose
+number could not distinguish thirty seconds from forever.
+
+**bc-xl7n.37 is what it cost.** Five consecutive Epic Advocate passes read that bead as
+healthy — "queued behind a busy Mac, not stalled; do not release it and do not file for
+it" — and every one of those readings was reasonable, because the Mac genuinely was at its
+worker limit each time. The two explanations only separated when the Mac went completely
+empty and the bead still was not dispatched. Its second window had committed working code
+when it died: `test/binentrypoints.mjs`, 247 lines, fourteen checks passing, never pushed,
+still sitting in its worktree. There is no third window, so nothing was ever coming back
+for it — and two earlier passes had concluded the opposite, on the strength of
+`lib/session.js`'s "this is attempt N, read the comments first" injection, which only ever
+fires on attempts 2..`maxAttemptsPerBead`.
+
+So `givenUp` in lib/advocate.js is the other half of `candidates`'s attempt filter, and it
+is said in three places:
+
+- **in the note, on every tick that has a non-empty queue** — `· 2 given up on after 2
+  attempt(s) (bc-xl7n.37, bc-sj8k.7)`, appended to whichever line the tick writes,
+  including the one that says it is opening windows. That last part is the case the old
+  line could never have reported: a tick that opens two sessions beside a bead retired for
+  ever looks exactly like a tick that opens two sessions, and the retired bead is the one
+  still there tomorrow. `heldBySurface` is on that line for the same reason;
+- **as a pill on the advocate card**, `p1` alongside `heldByRepo` and `heldByNoRoot` — the
+  holds that never clear on their own. This one is worse than either: both of those are
+  visibly held, and this one reads as ready work everywhere else. The tooltip names each
+  bead and how many windows it spent;
+- **on the button**, which now reads `Forget attempts (2)` and lists them in its tooltip.
+  The count is the subject the control never had. `forget` clears *every* counter at once,
+  so pressing it blind also re-arms a bead that really does break every window it gets —
+  knowing which beads are in it is the difference between a lever and an action.
+
+What is deliberately not done: raising the cap, and clearing the counter on a dead window.
+Both would undo the thing the cap is for. `settling` keeps only what genuinely does clear
+itself — a bead inside `settleSeconds`, or one this advocate already has a window open on
+— and a bead with a live window is never reported as given up on, because it is at the cap
+by construction for as long as that window is up.
+
+`test/givenup.mjs` is the check.
+
 #### The claim a window leaves behind
 
 A worker claims its bead as its first act, because that is what stops a second window

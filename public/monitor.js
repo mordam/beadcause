@@ -527,6 +527,16 @@
    * known to whoever pressed it. The tooltip names the epic rather than only the bead,
    * because the epic is where the button back is.
    *
+   * `givenUp` is the eleventh (bc-xl7n.111), and the only one that is not a subtraction
+   * from the queue at all: the bead is still *in* it, counted by the `for the advocate`
+   * pill on this same row, and no tick will ever pick it up again. `maxAttemptsPerBead`
+   * is a floor nothing decrements, so two windows that die without delivering retire the
+   * bead from this machine for good, and every other screen there is goes on drawing it as
+   * ordinary ready work. `p1` with `heldByRepo` and `heldByNoRoot`, the two that never
+   * clear on their own — and it is the loudest of the three, because those two are at
+   * least visibly held. The tooltip names each bead and the windows it spent, which is
+   * exactly what `Forget attempts` in the controls below has never been able to say.
+   *
    * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
    * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
    * other half — a window *this* Mac gave up because the other machine's claim won the
@@ -549,6 +559,7 @@
     const stood = (a && a.stoodDown) || [];
     const orphans = (a && a.heldByNoRoot) || [];
     const paused = (a && a.heldByPause) || [];
+    const gaveUp = (a && a.givenUp) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -596,6 +607,15 @@
         ? `<span class="pill muted" title="${esc(
             paused.map((h) => `${h.id} — ${h.why}`).join('\n')
           )}">${paused.length} under a paused epic</span>`
+        : '',
+      // The eleventh, and the only pill on this row naming a bead that is still *in* the
+      // queue the pill beside it counts (bc-xl7n.111). `p1` with `heldByRepo` and
+      // `heldByNoRoot`, and see the note above this function for why it is the loudest of
+      // the three.
+      gaveUp.length
+        ? `<span class="pill p1" title="${esc(gaveUp.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${
+            gaveUp.length
+          } given up on after ${a.attemptCap} attempt${a.attemptCap === 1 ? '' : 's'}</span>`
         : '',
       twins.length
         ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
@@ -1473,6 +1493,10 @@
     // is on which bead, and the advocate only knows about the windows it opened.
     const mine = new Set(a.workers.map((x) => x.id));
     const others = (w?.working || []).filter((x) => !mine.has(x.id));
+    // Beads still in this advocate's queue that it will never open a window on again —
+    // read here so the one control that changes them can say how many there are. See
+    // `givenUp` in lib/advocate.js and bc-xl7n.111.
+    const gaveUp = a.givenUp || [];
 
     // A draining advocate gets one control and it is the way back. Every other one here
     // says something about work it is about to pick up, and it is not going to pick any
@@ -1504,8 +1528,21 @@
             a.workers.length || sessions.length
               ? `<button class="adv-btn" data-adv="reclaim" data-ws="${esc(key)}" title="Ask each open session whether it is still working. Windows that have gone give their slots back; the rest keep them and are asked to check in or finish. Any window this advocate opened that is quiet right now is parked — closed, with its conversation kept, so an answer brings the same session back.">Reclaim sessions</button>`
               : '',
-            // Clears the attempt counters, so beads it gave up on are eligible again.
-            `<button class="adv-btn" data-adv="forget" data-ws="${esc(key)}" title="Clear attempt counters so beads it gave up on are eligible again">Forget attempts</button>`,
+            // Clears the attempt counters, so beads it gave up on are eligible again —
+            // and says how many that is, which is the whole of bc-xl7n.111. The button
+            // has been here since the counter was, and it went unpressed for days over a
+            // bead whose committed, passing work died with its second window: nothing on
+            // this card said the count was non-zero, so the control read as a lever with
+            // no subject. The count is the subject; the tooltip names the beads, because
+            // `forget` clears every counter at once and one of them may be legitimately
+            // holding back a bead that really does break every window it gets.
+            `<button class="adv-btn" data-adv="forget" data-ws="${esc(key)}" title="${esc(
+              gaveUp.length
+                ? `Clear attempt counters so beads it gave up on are eligible again. Right now that is:\n${gaveUp
+                    .map((h) => `${h.id} — ${h.title || 'untitled'} (${h.attempts})`)
+                    .join('\n')}`
+                : 'Clear attempt counters so beads it gave up on are eligible again. It has not given up on anything.'
+            )}">Forget attempts${gaveUp.length ? ` (${gaveUp.length})` : ''}</button>`,
             // Last, and after the rest rather than before them: taking an advocate away
             // is the one press on this card that ends the card, and a button that does
             // that where Pause was a moment ago is one you hit by muscle memory.
