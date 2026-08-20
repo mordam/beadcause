@@ -19,7 +19,15 @@
  * 2. **Exactly once**: a run that tears down normally and is then signalled does not tear
  *    down twice. The second `rmSync` of a path already gone is harmless; the second
  *    `kill` of a recycled pid is not.
- * 3. **The real thing**: `launchChrome` from scripts/helpers/chrome.mjs, in a child that
+ * 3. **Somebody else's exit** (bc-fh0sz): a process that already has a shutdown of its own
+ *    keeps it. The re-raise in 1 used to be `removeAllListeners(sig)` first, which threw
+ *    away every other handler the process had and then met node's default disposition —
+ *    death on the spot. The daemon's shutdown ends with a 300 ms grace timer so `SIGTERM`
+ *    lands on its backends before its own exit orphans them, and these handlers wire on
+ *    the first browse, so in the daemon that timer never ran. Both orders are checked,
+ *    because which handler is registered first decides which runs first and neither may
+ *    lose.
+ * 4. **The real thing**: `launchChrome` from scripts/helpers/chrome.mjs, in a child that
  *    is killed mid-check. Afterwards there is no Chrome on that profile and no profile.
  *    Skipped, loudly, on a machine with no Chrome — `npm run checks` is where Chrome is
  *    assumed, not `npm test`.
@@ -173,6 +181,65 @@ await check('exactly once — a normal teardown followed by a signal does not ru
   child.kill('SIGTERM');
   await ended(child);
   assert.equal(fs.readFileSync(counter, 'utf8'), 'x', 'the exit handler ran on top of the finally');
+});
+
+/* ------------------------------------------------------- somebody else's exit */
+
+/**
+ * The daemon shape, in one child.
+ *
+ * `own` is the shutdown a daemon registers at load: it says it started, and it takes 300
+ * ms of grace before exiting 0 — the router's real one, which is what gives `SIGTERM` time
+ * to land on the backends before the router's exit orphans them. `armFirst` decides
+ * whether `onExit` was called before that handler or after; in the daemon it is after,
+ * because the trap is armed by the first browse, but a check that only pinned that order
+ * would not notice the other one breaking.
+ *
+ * Returns everything the child said and how it died, which is the whole assertion.
+ */
+async function daemonShaped(name, { armFirst }) {
+  const arm = `onExit(() => console.log('teardown ran'));`;
+  const own = `process.on('SIGTERM', () => {
+     console.log('shutdown started');
+     setTimeout(() => { console.log('grace elapsed'); process.exit(0); }, 300).unref();
+   });`;
+  const child = spawn(
+    process.execPath,
+    [
+      script(
+        `${name}.mjs`,
+        `import { onExit } from '${path.join(ROOT, 'lib', 'teardown.js')}';
+         ${armFirst ? `${arm}\n${own}` : `${own}\n${arm}`}
+         console.log('armed');
+         setInterval(() => {}, 1000);`
+      ),
+    ],
+    { stdio: ['ignore', 'pipe', 'inherit'] }
+  );
+  let said = '';
+  child.stdout.on('data', (b) => {
+    said += b;
+  });
+  await new Promise((r) => child.stdout.once('data', r));
+  child.kill('SIGTERM');
+  const how = await ended(child);
+  return { said, how };
+}
+
+await check('a process with a shutdown of its own keeps its grace — the teardown is not the exit', async () => {
+  // The daemon's order: the shutdown at load, the trap armed later by a browse.
+  const { said, how } = await daemonShaped('grace-child', { armFirst: false });
+  assert.match(said, /teardown ran/, 'the teardown itself stopped running');
+  assert.match(said, /grace elapsed/, `the 300 ms grace never ran — ${JSON.stringify(said)}`);
+  assert.deepEqual(how, { code: 0, signal: null }, `it did not get to exit on its own terms: ${JSON.stringify(how)}`);
+});
+
+await check('and it keeps it whichever of the two was registered first', async () => {
+  // The other order: something browsed at import time, and the shutdown went on after.
+  const { said, how } = await daemonShaped('grace-first-child', { armFirst: true });
+  assert.match(said, /teardown ran/, 'the teardown itself stopped running');
+  assert.match(said, /grace elapsed/, `the 300 ms grace never ran — ${JSON.stringify(said)}`);
+  assert.deepEqual(how, { code: 0, signal: null }, `it did not get to exit on its own terms: ${JSON.stringify(how)}`);
 });
 
 /* ------------------------------------------------------------- the real thing */
