@@ -15157,6 +15157,54 @@ line — the brief's *other* ending says to hand a bead over exactly that way �
 the one that permanently prevents the card, because the sweep excludes the inbox by that
 label. The sweep adds it when the question is actually due, and nothing else may.
 
+### A blocker in another tracker, which no edge can ever draw
+
+bc-bmry.6 carried *"BLOCKED ON the charter amendment (dv side)"* in its description and
+named `dv-265` as the thing that had to land first. `dv-265` is in the deluvia tracker;
+bc-bmry.6 is in beadcause's. `bd dep add` reads both ids from *one* `BEADS_DIR`, so there
+was no edge that could ever be written — the block existed only as a sentence a human
+wrote in the description, and `bd ready` had no way to read it. The bead sat in every
+queue, the advocate opened an unattended window on it, and the session's whole job was to
+read the description, discover it was blocked, and stop.
+
+The shape is [the duplicate marker's](#the-duplicate-that-comes-ready-the-moment-its-original-lands) — bc-xl7n.71 had already solved the identical problem for
+*that* verb, by letting `--original` carry a workspace qualifier. This is the dependency
+case: a label, `blocked-by:<workspace>/<id>`, written with one command:
+
+```sh
+beadcause-block -w beadcause -b bc-bmry.6 --on deluvia/dv-265 <<'EOF'
+BLOCKED ON the charter amendment landing on the dv side — dv-265.
+EOF
+```
+
+That is `bin/block.js`. Same two layers as every other hold in this repo: `Bd.ready`
+filters a marked bead out of every queue — a row check rather than `--exclude-label`,
+because the far id is inside the label and there is no fixed string to give bd's own
+filter — and `openWorkSession` refuses one handed straight to it by any other route.
+
+**Deliberately workspace-qualified only — never a bare id.** A block inside one tracker
+already has a real mechanism, `bd dep add`, which draws an edge bd itself understands and
+every other tool already reads correctly. This marker exists only for the case that
+mechanism cannot reach; accepting a bare id here would be a second, weaker way to spell
+what `bd dep add` already does properly, and two ways to hold the same bead is one more
+than a reader can trust.
+
+The ending is where it diverges from the duplicate marker, and the divergence is the
+whole point. Whether two beads are the same job is a judgement, so that sweep *asks*.
+Whether the thing a bead was waiting on has closed is a fact, so this sweep just **clears
+the marker and says why in a comment** — no card, no `human` label, nothing for anyone to
+tap. `clearFarBlocked: false` switches it off; `farBlockedIntervalMinutes` is how often it
+looks, defaulting to 10, for the identical reason the duplicate sweep's interval does:
+there is no label to narrow the query with, and the event it watches for — a bead in
+another tracker closing — happens rarely.
+
+Nothing here writes an edge, ever, unlike the duplicate marker's epic case above: every
+target this accepts is cross-workspace by construction, and no tracker spans two Dolt
+databases. The bead is held by the marker alone from the moment it is written to the
+moment the far bead closes, and the sweep runs *before* the survey — clearing the marker
+is exactly what lets `Bd.ready`'s row filter admit the bead again, so a block that closed
+since the last sweep can go straight from cleared to queued in the same tick.
+
 ### The bead whose branch is already in main
 
 The third member of that family, and the one whose evidence is weakest — which is exactly
@@ -24929,6 +24977,8 @@ to be one.
 | `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
 | `advocates.askSuperseded` | [ask about a bead a worker marked `superseded-by:` another, once that other one closes](#the-duplicate-that-comes-ready-the-moment-its-original-lands) (default `true`). Without it a marked bead is held out of every queue with nothing left to let it out again |
 | `advocates.supersededIntervalMinutes` | how often that looks (default 10). Unlike the sweep above it is never forced before a launch, because a marked bead cannot reach one |
+| `advocates.clearFarBlocked` | [clear a bead marked `blocked-by:` a bead in another tracker, once that far bead closes](#a-blocker-in-another-tracker-which-no-edge-can-ever-draw) (default `true`). Unlike the sweep above this asks nobody — a far bead closing is a fact, not a judgement — so turning it off means a cross-tracker block never comes off on its own |
+| `advocates.farBlockedIntervalMinutes` | how often that looks (default 10). Runs before the survey: clearing the marker is what lets a cleared bead reach the queue in the same tick |
 | `advocates.flagInMain` | [ask about an open bead naming a `worktree-*` branch that is already in `origin/main`](#the-bead-whose-branch-is-already-in-main) (default `true`). It never closes anything — a merged branch is a fact, "so the bead is done" is your call |
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.flagNotInMain` | [file a finding about a **closed** bead whose own `worktree-*` branch never reached `main`](#the-bead-that-is-closed-over-a-branch-that-never-reached-main) (default `true`). The one sweep here whose failure costs the work rather than a window. It closes, reopens, merges and pushes nothing: the finding is a new bead in the inbox, because a card on a closed bead is never rendered |

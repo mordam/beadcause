@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * lib/session.js — the three endings a worker can be given, and what each may claim.
+ * lib/session.js — the endings a worker can be given, and what each may claim.
  *
  *     npm test
  *     node test/land.mjs
@@ -236,11 +236,12 @@ for (const [name, brief] of [
     /bc-fmt/.test(brief) &&
     /\*\* BEAD WORK DONE \*\*/.test(brief) &&
     /DONE-/.test(brief) &&
-    // Three since bc-y4bi: hand it back, say it is bigger than it looked, or mark it a
-    // duplicate of the bead that already covers it. The third is the one that used to be
-    // improvised in a comment nothing could read — see lib/superseded.js.
-    /three honest endings/.test(brief);
-  check(`"${name}" claims the bead, reads CLAUDE.md, names the bead, and has all three exits`, all);
+    // Four since bc-bmry.7: hand it back, say it is bigger than it looked, mark it a
+    // duplicate of the bead that already covers it, or mark it blocked on a bead in
+    // another tracker. The third and fourth are the ones that used to be improvised in a
+    // comment nothing could read — see lib/superseded.js and lib/farblock.js.
+    /four honest endings/.test(brief);
+  check(`"${name}" claims the bead, reads CLAUDE.md, names the bead, and has all four exits`, all);
   // Since bc-28ef the three writes are one command rather than two lines a worker types.
   // Both halves are asserted because either alone is the bug: the command without the
   // warning is a brief that reads as optional, and the warning without the command is
@@ -250,6 +251,14 @@ for (const [name, brief] of [
     /bin\/supersede\.js -w beadcause -b bc-fmt --original <the-original>/.test(brief) &&
       /superseded-by:<the-original>/.test(brief) &&
       /refused\*? when the original is an epic/.test(brief)
+  );
+  // Since bc-bmry.7, the identical discipline for a blocker `bd dep add` cannot reach:
+  // one command rather than a `bd label add` a worker types by hand.
+  check(
+    `"${name}" marks a cross-tracker block with the command rather than by hand`,
+    /bin\/block\.js -w beadcause -b bc-fmt --on <other-workspace>\/<the-blocker>/.test(brief) &&
+      /blocked-by:<other-workspace>\/<the-blocker>/.test(brief) &&
+      /a bare id is refused/.test(brief)
   );
 }
 
