@@ -48,13 +48,16 @@ process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 const {
+  CRITERIA,
   EXERCISES,
   EXERCISE_LABEL,
   INCIDENT_LABEL,
   REVIEW_LABEL,
   REVIEW_OF_PREFIX,
+  SCOPE,
   SEVERITIES,
   breaches,
+  crosswalkProblems,
   clockFor,
   commitmentFor,
   commitmentNote,
@@ -71,6 +74,8 @@ const {
   severityOf,
 } = await import(LIB('incident.js'));
 const { intake, labelsFor, describe, fingerprint } = await import(LIB('errors.js'));
+const { CRITERIA: VULN_CRITERIA } = await import(LIB('vulnscan.js'));
+const { isControl, satisfiedBy, frameworkOf } = await import(LIB('controls.js'));
 
 const MIN = 60_000;
 const T0 = Date.parse('2026-08-01T00:00:00Z');
@@ -468,6 +473,68 @@ await check('labelsFor with no severity is exactly what it always was', () => {
   assert.deepEqual(labelsFor(fp), ['app-error', fp.atLabel, fp.msgLabel]);
   assert.deepEqual(labelsFor(fp, severityOf({ kind: 'toast' })), ['app-error', fp.atLabel, fp.msgLabel, 'incident', 'sev4']);
   assert.ok(!describe({ message: 'x' }, fp).includes('Severity'), 'and an undescribed severity writes no commitment');
+});
+
+/* --------------------------------------------------------------- the crosswalk */
+
+// The corpus is imported *here* and not by lib/incident.js. That is the leaf discipline
+// lib/servicescope.js keeps and this is the other end of it: the module stays readable in
+// a release where lib/controls.js is not present, and the ids are still held to it.
+
+await check('every criterion the register claims resolves in the corpus', () => {
+  const claimed = [...CRITERIA, ...VULN_CRITERIA].map((c) => c.id);
+  assert.deepEqual(claimed.filter((id) => !isControl(id)), [], 'claimed against a corpus that does not have them');
+  assert.deepEqual(
+    claimed.filter((id) => frameworkOf(id) !== 'SOC2'),
+    [],
+    'only the SOC 2 ids belong here — the ISO edges are the corpus\'s, read backwards',
+  );
+});
+
+await check('CC7 is covered end to end, and no criterion is claimed twice', () => {
+  const claimed = [...CRITERIA, ...VULN_CRITERIA].map((c) => c.id).sort();
+  assert.deepEqual(claimed, ['SOC2.CC7.1', 'SOC2.CC7.2', 'SOC2.CC7.3', 'SOC2.CC7.4', 'SOC2.CC7.5']);
+  assert.equal(new Set(claimed).size, claimed.length, 'two rows for one criterion is two answers to one question');
+  // CC7.1 is vulnscan's and lib/incident.js must not also claim it — the split is stated
+  // in both headers and this is what makes it survive an edit to either.
+  assert.ok(!CRITERIA.some((c) => c.id === 'SOC2.CC7.1'), 'CC7.1 belongs to lib/vulnscan.js');
+  assert.deepEqual(VULN_CRITERIA.map((c) => c.id), ['SOC2.CC7.1']);
+});
+
+await check('the ISO counterparts come from the corpus rather than from a second list', () => {
+  // Not an assertion about the corpus's contents so much as about where they live: if the
+  // three-framework answer ever has to be maintained here, this is the check that failed.
+  const also = satisfiedBy('SOC2.CC7.4').filter((id) => frameworkOf(id) !== 'SOC2');
+  assert.ok(also.includes('ISO27001.A.5.26'), `expected the 27001 incident-response edge, got ${also.join(', ')}`);
+  const source = fs.readFileSync(LIB('incident.js'), 'utf8') + fs.readFileSync(LIB('vulnscan.js'), 'utf8');
+  assert.ok(!/id: 'ISO/.test(source), 'an ISO id minted in a leaf is the second corpus bc-4r10.1 exists to prevent');
+  assert.ok(!/from '\.\/controls\.js'/.test(source), 'the leaves do not import the corpus');
+});
+
+await check('a broken crosswalk row is refused rather than warned about', () => {
+  assert.deepEqual(crosswalkProblems(), [], 'the shipped crosswalk is sound');
+  assert.ok(crosswalkProblems([{ id: 'SOC2.CC7.4', by: 'x', how: '' }])[0].includes('"how" is empty'));
+  assert.ok(crosswalkProblems([{ id: 'CC7.4', by: 'x', how: 'y' }])[0].includes('shape of a corpus control id'));
+  assert.ok(
+    crosswalkProblems([{ id: 'SOC2.CC7.4', by: 'x', how: 'y' }, { id: 'SOC2.CC7.4', by: 'x', how: 'y' }])
+      .some((p) => p.includes('claimed twice')),
+  );
+  assert.ok(crosswalkProblems([{ id: 'SOC2.CC7.4', by: 'x', how: 'y', state: 'enforced' }])[0].includes('"state" is not part'));
+  assert.ok(crosswalkProblems('not a list')[0].includes('list of rows'));
+});
+
+await check('the scope says which system this is about, before anything says what it covers', () => {
+  assert.match(SCOPE.covers, /beadcause/);
+  assert.match(SCOPE.carvedOutOf, /Climative/);
+  assert.equal(SCOPE.settledBy, 'bc-228x');
+  // The one that matters: the described system's CC7 has to be recorded somewhere, and
+  // the gap assessment is where. A register that said nothing about it would read as a
+  // claim to cover it.
+  assert.match(SCOPE.held, /gapassessment/);
+  const gap = fs.readFileSync(LIB('gapassessment.js'), 'utf8');
+  for (const id of ['SOC2.CC7.1', 'SOC2.CC7.2', 'SOC2.CC7.3', 'SOC2.CC7.4', 'SOC2.CC7.5']) {
+    assert.ok(gap.includes(`'${id}'`), `${id} is claimed as held by the gap assessment and is not in it`);
+  }
 });
 
 console.log(`\n${failures ? `${failures} of ${ran} failed` : `all ${ran} checks passed`}`);

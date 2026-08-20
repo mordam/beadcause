@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
-  <title>Beadcause · history</title>
+  <title>Beadcause · ledger</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -13,7 +13,7 @@
   <header class="topbar">
     <div class="brand">
       <span class="dot" id="pulse"></span>
-      <h1>History</h1>
+      <h1>Ledger</h1>
       <!-- No `⦿ observing` chip here, unlike the other four standing views, and it is
            an absence with a reason rather than an oversight. `OBSERVING` rides on
            /api/work, /api/prs, /api/admin and the poll — the payloads of the pages that
@@ -37,8 +37,15 @@
 
   <main class="work pagescroll">
     <!-- The whole list, drawn by history.js. Everything below is replaced on every
-         repaint, so nothing that has to survive one may live in here. -->
-    <div id="history">
+         repaint, so nothing that has to survive one may live in here.
+
+         `hist-list` rather than the `history` it was until bc-khoe.30.5. The id is shared
+         with the pane this page became in public/index.html, where `#history` is the hash
+         that names the view — and an element of that id there is a fragment target the
+         browser would scroll into view on every arrival, undoing the scroll position
+         panes.js had just restored. One id across the two documents, and it is the one
+         that cannot collide. -->
+    <div id="hist-list">
       <div class="empty">Reading the ledger…</div>
     </div>
   </main>
@@ -69,6 +76,11 @@
        /api/history takes exactly one workspace, so "which workspaces am I looking at"
        is not a filter over the response here, it is the request. -->
   <script src="/spacebar.js"></script>
+  <!-- What the URL hash means: a view, a card to open on Home, or nothing (bc-khoe.30.2).
+       Before viewbar.js and app.js because both read the answer out of it rather than
+       parsing the hash themselves, and a page that loaded them without it would have a
+       row that cannot say which view it is on and a notification tap that throws. -->
+  <script src="/hashroute.js"></script>
   <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one

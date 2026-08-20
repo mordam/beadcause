@@ -10,12 +10,13 @@
        history and a desktop tab all read as, and there is room for the second word in
        all three — which the bottom tab bar's 72px per label does not have.
 
-       "space" leads it now, because that is what this page is: the details of the one
-       space the picker has selected — its settings, its advocates, its sessions and
-       what it is waiting on you for. The other two words stay, and stay in that order,
-       so a bookmark made when the page was called something else still reads as the
-       page it opens. -->
-  <title>Beadcause · space — advocates &amp; sessions</title>
+       "space" led it for a day, on the argument that the page was the details of the
+       one space the picker has selected — its settings among them. The settings are
+       /config now (bc-khoe.10), and what is left is what the page was always mostly
+       about: who is arguing for work here, what is running, and what is waiting to land.
+       So the noun goes back to the advocates, and the second word stays where it has
+       been, so a bookmark made under either name still reads as the page it opens. -->
+  <title>Beadcause · advocates &amp; sessions</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -23,15 +24,22 @@
   <header class="topbar">
     <div class="brand">
       <span class="dot" id="pulse"></span>
-      <!-- One word, and the space picker two elements along says which space. The page
-           was called "Advocates"; it is the details of a space now, and the advocates
-           are one of the four things it shows about it. Not "Space details" — the
-           picker sits in this same bar and already reads "Personal", so the long form
-           would spend a 360px phone's whole top row saying the noun twice. -->
-      <h1>Space</h1>
+      <!-- One word, and the space picker two elements along says which space. There was
+           no title here at all for a day (bc-mtdb): the word was "Space", the picker
+           beside it already read "Personal" or the repo name, and a heading naming the
+           noun that the control next to it is an instance of spends the width a 360px
+           phone has least of on something the reader already knows. That argument is
+           about the word, not about having one — the other standing views keep theirs
+           (History, Endorse, Requirements) because those name the *page*, which is not
+           what the picker says. With the settings on /config this page is the advocates
+           and their sessions again, so the word names the page too, and it is the same
+           word as the pill that reaches it. -->
+      <h1>Advocates</h1>
       <!-- Filled in only on an observer instance — see OBSERVING in lib/config.js.
-           It sits next to the title rather than in the actions, because it is a fact
-           about which daemon this is, not a control. -->
+           It sits in `.brand` with the mark rather than in the actions, because it is a
+           fact about which daemon this is, not a control. That puts it beside the page
+           title, which is where every other page that carries it puts it — it sat beside
+           the picker only for as long as this page had no title. -->
       <span class="observing" id="observing" hidden>⦿ observing</span>
     </div>
     <div class="sheet-actions">
@@ -73,15 +81,13 @@
        looking for the first mention of its path and prose ahead of the tag reads to them
        as the tag being in the wrong place.
 
-       Config is the fourth of them (bc-me2b) and it sits third on the row, between the
-       board and the Mirror. It is also the only one that arrived by *leaving* the
-       Advocates pane rather than by folding a page into it. The selected space's whole
-       settings card — eleven controls and a row per repo — was drawn above the advocate
-       cards, on the argument that it is what the page is the details of.
-       What that meant in practice is that the pane you open to see what is running this
-       minute opened on a screenful of switches you touch about once a month, and every
-       advocate was below the fold. It is a mode of the page by the same test as the other
-       two: the same space, seen as its configuration rather than as its work.
+       Config was the fourth of them for a day (bc-me2b) and it is not a chip any more:
+       the settings card left this page altogether in bc-khoe.10 and is /config, a pill on
+       the row above. The chip fixed the fold it was filed for — every advocate had been
+       below a screenful of switches you touch about once a month — and left the rest of
+       the complaint standing, that the way to a space's *configuration* was a second row
+       of controls on the one page that has one, drawn like the row above it and meaning
+       something else. What a space is and what it is doing are two screens now.
 
        `data-pane` is the section a chip shows and `data-view` is what this device tells
        public/presence.js it is looking at; public/montabs.js reads both and owns the
@@ -90,7 +96,6 @@
 
     <button class="chip" data-tab="advocates" data-pane="mon" data-view="sessions" aria-pressed="true">Advocates</button>
     <button class="chip" data-tab="prs" data-pane="prs" data-view="prs" aria-pressed="false">PRs</button>
-    <button class="chip" data-tab="config" data-pane="config" data-view="config" aria-pressed="false">Config</button>
     <button class="chip" data-tab="mirror" data-pane="mirror" data-view="" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>
   </nav>
 
@@ -104,16 +109,6 @@
        a second set. -->
   <section id="prs" class="work pagescroll" hidden>
     <div class="empty">Asking every repo…</div>
-  </section>
-
-  <!-- The selected space's settings, and what each of its repos resolves to. Drawn by
-       monitor.js, which owns the roster pane too: the same file, the same delegated
-       press handlers, one card of which now lives here instead of at the top of that
-       roster. Its own payload though — `/api/space`, and nothing of the `bd` sweep the
-       pane above it needs. In the row's own order, after the board and before the
-       Mirror. -->
-  <section id="config" class="work pagescroll" hidden>
-    <div class="empty">Reading this space…</div>
   </section>
 
   <section id="mirror" class="work pagescroll" hidden>
@@ -157,6 +152,11 @@
        had, the other keeps it true. -->
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
+  <!-- What the URL hash means: a view, a card to open on Home, or nothing (bc-khoe.30.2).
+       Before viewbar.js and app.js because both read the answer out of it rather than
+       parsing the hash themselves, and a page that loaded them without it would have a
+       row that cannot say which view it is on and a notification tap that throws. -->
+  <script src="/hashroute.js"></script>
   <script src="/viewbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when
        a deploy moved public/, and drives the Android shell's own update when one

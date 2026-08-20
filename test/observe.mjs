@@ -184,7 +184,13 @@ test('observing:says-so-on-the-wire', async () => {
     const read = await fetch(`http://127.0.0.1:${port}/api/space?space=Work`, {
       headers: { 'x-beadcause-token': cfg.token },
     });
-    assert.equal(read.status, 200, 'reading a space is fine — the console is still worth looking at');
+    assert.equal(read.status, 200, 'reading a space is fine — the screen is still worth looking at');
+    // And the read says which daemon answered it, which is the only thing /config has to
+    // go on: since bc-khoe.10 the settings are a page whose *whole* payload is this one
+    // request, so a flag missing here is a screen of live-looking controls on the machine
+    // that cannot press them. /api/work carried it while the card was a pane of that
+    // page; nothing on /config fetches /api/work at all.
+    assert.equal((await read.json()).observing, true, '/api/space must say it too — /config reads nothing else');
 
     const wrote = await fetch(`http://127.0.0.1:${port}/api/space`, {
       method: 'POST',

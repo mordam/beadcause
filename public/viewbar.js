@@ -24,44 +24,96 @@
   bar and this row are flex rows above the one element that scrolls, so nothing here is
   laid out against a viewport that moves, because no viewport moves.
 
-  It **scrolls horizontally and never wraps**. There are seven pills today — the six
-  kinds bc-khoe.2 promoted out of the inbox's filter panel, plus the advocate console —
-  and there will be roughly nine once bc-khoe.4 (Advocates, Mirror) and bc-khoe.7
-  (Releases) have landed. A row that wraps to two lines on a 360px phone is
+  It **scrolls horizontally and never wraps**. There are nine pills today — the six
+  kinds bc-khoe.2 promoted out of the inbox's filter panel, the advocate console, the
+  Releases view bc-khoe.7 moved the deploy strip onto, and the selected space's own
+  settings (bc-khoe.10). Both of the two this paragraph used to promise have landed, so
+  nine is the count rather than the forecast. bc-khoe.4 adds none, which is a change: it
+  used to promise two, and bc-khoe.30.6 ruled the other way for the reasons under *The
+  Mirror* below. A row that wraps to two lines on a 360px phone is
   the exact thing this epic exists to stop — it spends a second row of a screen that is
   mostly chrome already. So the row takes the width it needs and the current pill is
   scrolled into view on load, which is the one moment the offset can be wrong without
   anybody having touched it.
 
-  ## A pill is an <a href> — except the current one, and except a kind on Home
+  ## A pill is a link only when there is somewhere to go
 
-  Tapping where you already are should do nothing. An `<a>` pointed at the page you are
-  on throws the list, the conversation and your scroll position away to rebuild the same
-  screen — so the current pill is a `<span>` with `aria-current="page"` and no href at
-  all. `aria-current` is what says "this one" to a reader that cannot see the accent; the
-  filled pill is what says it to one that can, and neither is colour on its own.
+  There is one rule under all three shapes below and it is the whole of this section:
+  **an `<a>` is for a document this page has not got.** A link to something already on
+  screen throws the list, the conversation and your scroll position away to rebuild the
+  same screen, and every exception here is that sentence applied to a different way of
+  already having it.
 
-  bc-khoe.2 adds the second exception, for the same reason as the first. Five of the six
-  kind pills are Home under a different narrowing, so on Home they all point at the page
-  you are already on: as links they would each be a full document load — a refetch of
-  every workspace, a rebuild of forty cards, an open card thrown away — to change which
-  rows of a list already in hand get drawn. So on Home a kind pill is a `<button>` that
-  moves the filter, and off Home it is an `<a href="/?kind=…">` that goes there and
-  arrives narrowed. `?kind=` is read once, at load, by public/inboxfilter.js.
+  * **The current pill is a `<span>`** with `aria-current="page"` and no href. You are
+    there. `aria-current` says so to a reader that cannot see the accent and the filled
+    pill says it to one that can, and neither is colour on its own.
+  * **A view whose pane is in this document is a `<button>`** (bc-khoe.30.3). Since the
+    shell landed, `/` holds one `[data-pane]` container per view and moving between them
+    is a `display: none` swapped for a `display: flex` — see public/panes.js. So the pill
+    writes the hash and the panes answer it, and no second document is asked for. The row
+    finds out by asking `panes.has(...)`; on the eleven pages that have no panes the
+    answer is no and the pill is the link it always was.
+  * **A kind pill is a `<button>` wherever Home is reachable without a load**
+    (bc-khoe.2). Five of the six kinds *are* Home under a different narrowing, so a link
+    would be a full document load — a refetch of every workspace, a rebuild of forty
+    cards, an open card thrown away — to change which rows of a list already in hand get
+    drawn. On the shell that holds from every pane, not just from Home: tapping `PRs`
+    while the Ledger is up carries `data-view` as well as `data-kind`, so the tap switches
+    pane and narrows in one go. On a page that is not the shell it is an
+    `<a href="/?kind=…">` that goes there and arrives narrowed; `?kind=` is read once, at
+    load, by public/inboxfilter.js.
 
-  Which one is lit is therefore not always a fact about the path. Off Home it is, exactly
-  as it was; on Home five pills share one path and the *filter* is the answer, pushed in
-  through `mark()` by inboxfilter.js's `paint`. Pushed rather than pulled because this
-  file is on twelve pages and that one is on Home alone: a row that read the selection
-  itself would have to know the storage key, which is a second place that knows what a
-  kind is — the exact thing bc-khoe.2 exists to remove.
+  ## Which one is lit: the hash decides the view, the filter decides within Home
+
+  The hash names one of three views and public/panes.js shows it; that view's pill is the
+  lit one, and this file asks rather than deriving it — `panes.showing()` on the shell,
+  and `viewOfPath` on the eleven pages that are still documents, which is the same answer
+  read off the other half of the URL.
+
+  Home is where it stops being a fact about the URL, and that is not a wrinkle in the
+  grammar but a difference in kind. Five pills share Home's one address *and* its one
+  (empty) hash, because they are not places — they are narrowings of a list already in
+  hand, and a narrowing is not something the back button should walk. So within Home the
+  *filter* is the answer, pushed in through `mark()` by inboxfilter.js's `paint`. Pushed
+  rather than pulled because this file is on twelve pages and that one is on Home alone:
+  a row that read the selection itself would have to know the storage key, which is a
+  second place that knows what a kind is — the exact thing bc-khoe.2 exists to remove.
+
+  `mark()` records the narrowing wherever it is called from and only repaints when Home
+  is the pane on screen. That is what keeps the pill you last chose waiting for you when
+  you come back to Home from another pane — the inbox goes on repainting while hidden,
+  and a `mark` refused outright would leave the row lighting last week's answer.
+
+  ## The four counts, and the objection they had to answer
+
+  **Four of the nine carry a number, and only on Home.** My Epics, Questions, PRs and
+  Chats each say how many rows tapping them would leave you with; All Beads, Ledger and
+  Advocates say nothing. This is the deliberate reversal of what this header used to
+  say — *"no counts and no badges, on any of them"* — and the objection it was written
+  against is real and still stands as written: a badge is only ever live on the one page
+  whose poll happens to fetch it, and stale on the other eleven. The bar's own count (the
+  proposals waiting, hung off Advocates) was exactly that, and deleting it was right.
+
+  What answers the objection is *where* the number is drawn rather than what it counts.
+  It is drawn on **Home alone**, where the data is not fetched for the badge at all — the
+  list under the row has already been fetched, narrowed by the space picker and counted
+  per kind by `surveyKinds` in public/app.js, because the filter panel needed those
+  numbers before the row did. So the badge is a second reading of a number this page is
+  already holding, refreshed by the same 25-second poll that redraws the list beneath it,
+  and there is no page on which it can be stale because there is no other page on which
+  it is drawn. Off Home the pills are plain links with nothing on them, exactly as they
+  were.
+
+  The three without a number are three different reasons, and none is an omission. **All
+  Beads** is every live bead in the tracker: an unbounded number, and one that says
+  nothing you would act on. **Ledger** and **Advocates** are pages of their own with
+  their own polls — a count for either is the stale badge the paragraph above refuses,
+  and it would be stale on the one screen it appears on.
+
+  Zero is drawn as `0` rather than by hiding the badge. A badge that appears when the
+  first poll lands would change the pill's width under a thumb already on its way to it.
 
   ## What is not a pill
-
-  **No counts and no badges, on any of them.** The bar carried one — the proposals
-  waiting, hung off Advocates — and it is gone with it. A number on a pill is a number
-  that is only ever live on the one page whose poll happens to carry it, and stale
-  everywhere else; the count that matters is in the list you are looking at.
 
   **Admin.** It had the rightmost tab and it loses it here: it is the screen you least
   want to hit by accident. bc-khoe.5 landed while this branch was parked and put it where
@@ -87,14 +139,21 @@
   A page can be reachable, load-bearing, and not a view.
 
   **The Mirror.** A mode of /monitor rather than a view — it follows *another* device and
-  drops its own, so it is meaningless on the phone a pill is tapped from. bc-khoe.4 is
-  where that is re-decided, together with the chip row it lives on.
+  drops its own, so it is meaningless on the phone a pill is tapped from. That was
+  re-decided by bc-khoe.30.6, together with the chip row it lives on, and it came out the
+  same way twice: the Mirror is the one surface here that is *about* another device, so a
+  pill for it on this one would be a view of nothing. It stays a mode, and the chips stay
+  the row that switches modes — inside the Advocates pane once bc-khoe.4 folds the console
+  into it.
 
   **The pull request board.** `/prs` had a pill of its own until bc-khoe.2 needed the
   word for the kind, and the three paths that serve it are on the Advocates pill now —
   they resolve to monitor.html with its board chip up, so the pill that lights there is
-  the pill that points at that page. The board is two taps rather than one; bc-khoe.4 is
-  where the console comes apart and that is re-decided.
+  the pill that points at that page. The board is two taps rather than one, and it stays
+  two: bc-khoe.30.6 re-decided this with the rest of the chip row and left it a mode of
+  the console. A second pill labelled **PRs** beside the kind pill already called **PRs**
+  is the confusion this paragraph exists to record, and the row is going to nine without
+  it.
 
   It is built here rather than pasted into eight <head>-alike blocks of HTML because
   there is no templating in this app, and a row that says different things on different
@@ -116,9 +175,11 @@
 
     Five of the six are **Home under a different narrowing** — they are the kinds table
     in public/inboxfilter.js, promoted out of a collapsed filter panel and onto the one
-    row of chrome this app has. `History` is the sixth and is a page of its own, which is
-    why it is the only kind here carrying an `href` at all: the other five get theirs
-    from `hrefOf`, and only off Home.
+    row of chrome this app has. `Ledger` is the sixth and has an address of its own, which
+    is why it is the only kind here carrying an `href` at all: the other five get theirs
+    from `hrefOf`, and only off Home. It was a page and nothing but a page when that was
+    written; since bc-khoe.30.5 it is *also* a pane of the shell, and the `href` is what
+    the eleven documents that have no panes still follow.
 
     `kind` is the id of the row in that table, and the two lists are held to the same six
     ids, labels and icons by test/inboxkinds.mjs — this file is loaded on twelve pages
@@ -128,27 +189,47 @@
     a kind is and this file knows where its pill goes, so there is no href written down
     twice for the check to have to catch.
 
-    `paths` is every URL that *is* this view. The server maps several onto one page —
-    /monitor answers to nine of them now, three inherited from the sessions view it
-    absorbed and three from the pull request board — and the phone's home screen still
-    holds the old ones, so a pill has to recognise all of them or the row shows nothing
-    as current on a page you are plainly looking at. See `serveStatic` in lib/server.js,
-    and test/pagepaths.mjs. The four pills with no `paths` are the four that are only
-    ever Home, where the filter decides which is lit rather than the path.
+    `count` is the fourth field and the only one that is about a *number* rather than
+    about where a pill goes: it marks the four that carry one on Home. It is a flag here
+    and not a count, because this file never counts anything — `counts()` at the foot is
+    pushed the map by inboxfilter.js's `paint`, the same way `mark()` is pushed the lit
+    pill and for the same reason. A pill with no flag is not sent a number and has no
+    badge node at all, which is what makes "All Beads, Ledger and Advocates carry none"
+    a property of this list rather than of whatever happens to be in the map.
+
+    What is **not** here any more, since bc-khoe.30.2, is `paths` — every URL that *is* a
+    given view. The server maps several onto one page (/monitor answers to nine of them
+    now) and the phone's home screen still holds the old ones, so a pill has to recognise
+    all of them or the row shows nothing as current on a page you are plainly looking at.
+    That is the same question as "what does this hash mean", asked of the other half of
+    the URL, and public/hashroute.js is where it is answered now — `viewOfPath` below.
+    Four of these pills are views and it holds their addresses; the four that are only
+    ever Home have none, because there the filter decides which is lit rather than the
+    path. Config is the ninth and is neither: it is a page with a pill and no view, so
+    nothing is current while you are on it — see its own comment below. See `serveStatic`
+    in lib/server.js, and test/pagepaths.mjs, which reads that table from hashroute.js.
   */
   const PILLS = [
     // Home with nothing narrowed: the P0 board and the work under it (bc-rfnr.9). First
     // because it is where you land, and because every pill to its right is a narrowing
     // of it rather than a different place.
-    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Epics', paths: ['/', '/index.html'] },
+    { id: 'epics', kind: 'epics', icon: '🎯', label: 'My Epics', count: true },
     // Questions, PRs, Chats: what is arriving, in the order it tends to need answering.
-    { id: 'question', kind: 'question', icon: '❓', label: 'Questions' },
-    { id: 'pr', kind: 'pr', icon: '🚢', label: 'PRs' },
-    { id: 'session', kind: 'session', icon: '💬', label: 'Chats' },
+    { id: 'question', kind: 'question', icon: '❓', label: 'Questions', count: true },
+    { id: 'pr', kind: 'pr', icon: '🚢', label: 'PRs', count: true },
+    { id: 'session', kind: 'session', icon: '💬', label: 'Chats', count: true },
     // The record (bc-nib3.2): where you go to ask "what happened to that". A page rather
     // than a narrowing of Home — it has its own poll, its own filter bar and its own
     // vocabulary — and it kept the position it has had since it was a tab.
-    { id: 'history', kind: 'history', href: '/history', paths: ['/history', '/history.html'], icon: '📜', label: 'History' },
+    //
+    // `Ledger` rather than `History`, since bc-khoe.53. The list is every bead the space
+    // has ever had — `parseQuery` in lib/history.js starts at `status: null` and applies
+    // no default, so open, blocked and deferred beads are in it beside the closed ones —
+    // and `History` promised only the closed half. It is the page's own word for itself
+    // (the first line of public/history.js) and it does not collide with `All Beads`,
+    // which is live beads only. The `id`, the `kind` and the path stay `history`: the
+    // label moved and nothing addressable did.
+    { id: 'history', kind: 'history', href: '/history', icon: '📜', label: 'Ledger' },
     // The work nobody is asking you about, which is why it is past the three that are —
     // and past the record of the ones that are finished.
     { id: 'bead', kind: 'bead', icon: '🧿', label: 'All Beads' },
@@ -157,22 +238,80 @@
     // of their own: /prs, /pulls and /prs.html all serve monitor.html with its board
     // chip up (see `serveStatic`), so the pill that is current there is the pill that
     // points at that page — and the `PRs` label now belongs to the kind above, which is
-    // the pull requests *in Home*. bc-khoe.4 is where the console comes apart and this
-    // is re-decided; until then two taps still reach the board and nothing is stranded.
-    {
-      id: 'advocates',
-      href: '/monitor',
-      icon: '📣',
-      label: 'Advocates',
-      paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html', '/prs', '/pulls', '/prs.html'],
-    },
+    // the pull requests *in Home*. bc-khoe.30.6 re-decided it and the answer did not
+    // move: the board stays a chip inside the console, so two taps reach it and this pill
+    // keeps its three extra paths. bc-khoe.4 folds that console into the shell's
+    // Advocates pane, at which point this pill stops being an `<a>` and starts being a
+    // `data-pane` like the rest — the same pill, one fewer document load.
+    { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates' },
+    // Where everything in flight actually is (bc-khoe.7). Immediately after the pill that
+    // carries the board, because the two are read one after the other: the board
+    // is where you decide something may land, and this is where you watch it do so. It is a
+    // view rather than a fifth pane of /monitor for the reason the deploy strip left the
+    // board at all — a deploy in flight is not a fact about a pull request, it is the rung
+    // after it, and a screen about pull requests was the wrong place to be told. Its three
+    // addresses — /releases, /deploys, /releases.html — are in public/hashroute.js with
+    // every other view's, since bc-khoe.30.2; this row asks rather than knows.
+    { id: 'releases', href: '/releases', icon: '🚀', label: 'Releases' },
+    // Last, and last on purpose: it is the one pill here you reach about once a month.
+    // Past Releases, which asked only to sit beside the board it follows and is happy
+    // anywhere right of it; this one asked for the end of the row specifically.
+    // The selected space's own settings (bc-khoe.10) — muted, quiet hours, who may
+    // endorse, what merges itself — which were a card at the top of the console and then
+    // a chip on it. A row you scroll sideways spends its rightmost place on what you
+    // want least often, and this is it.
+    // Knobs rather than a gear: the gear in this app is Admin — the machine's own screen,
+    // in the mark's menu — and two settings screens behind one glyph is the confusion the
+    // menu was built to end.
+    // No `paths` of its own, unlike every pill above that has an address: since
+    // bc-khoe.30.2 that table is public/hashroute.js's `VIEWS`, and `/config` is not one
+    // of the three views it holds — so the row links here and marks nothing current on
+    // the page it links to. Making Config a view is a pane in index.html and a bead to
+    // fill it (test/panes.mjs holds every view to one), which is bc-khoe.30's decision
+    // rather than this bead's; see the merge note on bc-d477.
+    { id: 'config', href: '/config', icon: '🎛', label: 'Config' },
   ];
 
-  const here = location.pathname.replace(/\/+$/, '') || '/';
+  const route = window.beadcause.route;
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
-  /** Is this row of the shell drawn over Home? Five of the seven pills act, not link. */
-  const onHome = ['/', '/index.html'].includes(here);
+  /**
+   * Which view this document is, or null for one of the five pages that is on no pill.
+   *
+   * Asked of public/hashroute.js rather than matched against a table here, because the
+   * table it would be matched against is the same one that says what `#advocates` means
+   * — nine addresses and one hash, all naming the advocate console — and two copies of
+   * that is how a phone's `/work.html` shortcut ends up on a row with nothing current.
+   */
+  const view = route.viewOfPath(location.pathname);
+
+  /**
+   * The panes of this document, on the one page that has any (bc-khoe.30.3).
+   *
+   * `?.` here where `route` above is reached flat, and the difference is which absence is
+   * a bug. Every page needs the grammar, so a missing `route` is a page that cannot say
+   * where it is and should fail loudly. Panes are a fact about the shell alone — this row
+   * is drawn on twelve pages and eleven of them have nothing to show and hide — so a
+   * missing `panes` is the ordinary case, and every question below is asked with that
+   * answer as its default. See public/panes.js.
+   */
+  const panes = window.beadcause?.panes || null;
+
+  /**
+   * Which view this row is over *right now*.
+   *
+   * On the shell that changes without the document changing, which is the whole of
+   * bc-khoe.30: the pane is swapped, `onShow` fires, and the row redraws against the new
+   * answer. Everywhere else it is the address, decided once at load and never again.
+   */
+  const here = () => panes?.showing() || view;
+
+  /** Is the row over Home this second? Five of the nine pills act rather than link. */
+  const onHome = () => here() === route.HOME;
+
+  /** Can this row reach Home without asking for a document? True on every pane of the
+   *  shell, and on Home itself wherever it is the whole page. */
+  const homeIsHere = () => onHome() || !!panes?.has(route.HOME);
 
   /** A kind pill's URL from anywhere else. `?kind=` is read once, at load, by
    *  inboxfilter.js — the service worker matches with `ignoreSearch`, so a query on the
@@ -184,44 +323,87 @@
   nav.setAttribute('aria-label', 'Views');
 
   /**
-   * Which pill is lit. Two answers, and which one applies is a fact about the page.
+   * Which of Home's five pills the filter last chose.
    *
-   * Off Home it is the path, exactly as it was when every pill was a link to a page.
-   * On Home five pills share one path, so the path cannot tell them apart and the
-   * *filter* is the answer instead: `mark()` is called by inboxfilter.js's `paint`,
-   * which runs at load and on every change. Until it does, `epics` is lit, which is
-   * what an unnarrowed Home is.
+   * Recorded whether or not Home is on screen — see `mark()` — because on the shell the
+   * inbox goes on repainting behind a pane you have switched to, and the narrowing you
+   * left it on is the one that should be lit when you come back. `epics` until something
+   * says otherwise, which is what an unnarrowed Home is.
    */
-  let lit = onHome ? 'epics' : PILLS.find((p) => p.paths?.includes(here))?.id || '';
+  let narrowed = route.HOME;
+
+  /**
+   * Which pill is lit. Two answers, and which one applies is a fact about the hash.
+   *
+   * Away from Home it is the view showing — the pane on the shell, the address on the
+   * eleven pages that are still documents, both of them read through `here()`. On Home
+   * five pills share one address *and* one empty hash, so neither can tell them apart and
+   * the filter is the answer instead.
+   */
+  const lit = () => (onHome() ? narrowed : here() || '');
+
+  /**
+   * What each counted pill's badge says right now, as text, keyed by pill id.
+   *
+   * One store rather than two, and it is deliberately the *rendered string* rather than
+   * the number: `draw()` reads it when it rebuilds the row and `counts()` writes it when
+   * a poll lands, so the badge a rebuild puts back is the badge that was there. Holding
+   * numbers instead would mean formatting in two places, and the two drifting is a badge
+   * that changes what it says every time the lit pill moves.
+   *
+   * `'0'` from the first paint, before any poll has answered — see the header. A badge
+   * that arrives later is a pill that changes width under a thumb already moving to it.
+   */
+  const shown = Object.fromEntries(PILLS.filter((p) => p.count).map((p) => [p.id, '0']));
 
   /**
    * Draw the row.
    *
-   * Three shapes of pill, and the difference between them is what a tap should do.
-   * The current one is a `<span aria-current="page">` with no href and no handler,
-   * because tapping where you already are should do nothing — an `<a>` pointed at this
-   * page would throw the list, the open card and the scroll position away to rebuild
-   * the same screen. A kind pill on Home is a `<button>`: it moves a filter over rows
-   * already in hand, and making it a link would be a full document load to change which
-   * of them are drawn. Everything else is an `<a href>`, which is what a pill was.
+   * Three shapes of pill, and the difference between them is what a tap should do — the
+   * argument for each is in the doc comment above. Two `data-` attributes carry the two
+   * things a tap can ask for and a pill may carry **both**: `data-pane` is the view to
+   * show and `data-kind` is the narrowing to move to within Home. `My Epics` tapped from
+   * the Ledger pane is exactly that pair, and so is every other kind pill tapped from a
+   * pane that is not Home — switch, then narrow, in one tap and no document load.
+   *
+   * `showable` is `false` for the pane already up, so the pill for the pane you are on —
+   * when it is not also the lit one, which happens on Home whenever a kind is selected —
+   * does not rewrite a hash that is already right.
    */
   function draw() {
+    const cur = lit();
+    const home = onHome();
     nav.innerHTML = PILLS.map((p) => {
-      const on = p.id === lit;
-      const act = !on && onHome && p.kind && !p.href;
+      const on = p.id === cur;
+      const showable = !on && !!panes?.has(p.id) && p.id !== here();
+      const narrows = !on && !!p.kind && !p.href && homeIsHere();
+      const act = showable || narrows;
+      /* Where the tap has to land first. The pane for a view pill; Home for a kind pill
+         tapped from anywhere else, because a narrowing of a list means nothing until the
+         list is the one on screen. Empty when the pane is already right. */
+      const pane = showable ? p.id : narrows && !home ? route.HOME : '';
       const tag = on ? 'span' : act ? 'button' : 'a';
       const attrs = on
         ? 'aria-current="page"'
         : act
-          ? `type="button" data-kind="${esc(p.kind)}"`
+          ? `type="button"${pane ? ` data-pane="${esc(pane)}"` : ''}${narrows ? ` data-kind="${esc(p.kind)}"` : ''}`
           : `href="${esc(hrefOf(p))}"`;
+      /* The badge, on the four that carry one and only on Home. Not `aria-hidden`: it is
+         the one part of a pill that is information rather than decoration, and a reader
+         that cannot see it hears "Questions 4", which is what the pill says. */
+      const badge =
+        home && p.count
+          ? `<span class="viewpill-count" data-count="${esc(p.id)}">${esc(shown[p.id])}</span>`
+          : '';
       /* `data-pill` and not `data-view`: the chips on /monitor already carry a `data-view`
          and it means something else there — what public/presence.js should say this device
          is looking at — so one name for two things across two rows of chrome is exactly
-         what this change exists to stop. */
+         what this change exists to stop. `data-pane` above is the shell's own word for a
+         container in public/index.html, which is the thing this attribute names. */
       return `<${tag} class="viewpill" data-pill="${esc(p.id)}" ${attrs}>` +
         `<span class="viewpill-icon" aria-hidden="true">${p.icon}</span>` +
         `<span class="viewpill-label">${esc(p.label)}</span>` +
+        badge +
         `</${tag}>`;
     }).join('');
   }
@@ -235,7 +417,11 @@
     const btn = e.target.closest?.('button.viewpill');
     if (!btn) return;
     e.preventDefault();
-    window.beadcause?.inboxFilter?.pick?.(btn.dataset.kind);
+    /* The pane first and the narrowing second, and the order is the point: a kind pill
+       tapped from another pane carries both, and picking the kind before Home is the pane
+       on screen would narrow a list nobody is looking at and then paint over it. */
+    if (btn.dataset.pane) panes?.go(btn.dataset.pane);
+    if (btn.dataset.kind) window.beadcause?.inboxFilter?.pick?.(btn.dataset.kind);
   });
 
   /* Second row of the shell, under the top bar — not appended to the end of <body> the
@@ -272,26 +458,74 @@
   reveal();
   addEventListener('load', reveal, { once: true });
 
+  /* The pane moved under the row, so the row is over a different view than it was — a
+     different pill is lit and a different set of them are links. Registered rather than
+     polled, and a no-op on the eleven pages that have no panes to move. */
+  panes?.onShow(() => {
+    draw();
+    reveal();
+  });
+
   window.beadcause = window.beadcause || {};
   window.beadcause.views = {
     /** The row's own list, for anything that has to agree with it. */
     pills: PILLS,
     /** Which pill is lit right now. */
-    lit: () => lit,
+    lit,
     /**
      * Light a different pill, from the filter that actually knows.
      *
-     * A no-op off Home and a no-op for an id the row does not draw: the row is on twelve
-     * pages and only one of them has a filter behind it, so this has to be safe to call
-     * into thin air. Redraws only when the answer moved — the inbox repaints every 25
-     * seconds and `paint` rides along with it, and rebuilding seven nodes on a timer
-     * would drop the focus ring off a pill somebody is tabbing through.
+     * A no-op for an id the row does not draw: the row is on twelve pages and only one of
+     * them has a filter behind it, so this has to be safe to call into thin air. Redraws
+     * only when the answer moved — the inbox repaints every 25 seconds and `paint` rides
+     * along with it, and rebuilding seven nodes on a timer would drop the focus ring off
+     * a pill somebody is tabbing through.
+     *
+     * The narrowing is **recorded from anywhere and only painted over Home**. It used to
+     * be refused outright off Home, which was the same thing while Home was a whole
+     * document; on the shell the inbox repaints behind a pane you have switched away
+     * from, and a refusal there would leave the row lighting the pill you chose two
+     * switches ago the moment you came back.
      */
     mark(id) {
-      if (!onHome || lit === id || !PILLS.some((p) => p.id === id)) return;
-      lit = id;
+      if (narrowed === id || !PILLS.some((p) => p.id === id)) return;
+      narrowed = id;
+      if (!onHome()) return;
       draw();
       reveal();
+    },
+    /**
+     * The four numbers, from the page that already has them.
+     *
+     * `map` is kind id → how many rows that kind would leave you with, which is exactly
+     * what `surveyKinds` in public/app.js hands the filter — counted before the kind
+     * filter and after the space picker, so it is what *picking* the pill gets you and
+     * not what you are already looking at. Only the ids flagged `count` in `PILLS` are
+     * read out of it; the rest of the map is somebody else's business, and a kind the
+     * row draws no badge for cannot grow one by appearing in it.
+     *
+     * A no-op off Home, like `mark()`, and for the same reason: this file is on twelve
+     * pages and the one that counts is on Home alone.
+     *
+     * **In place, never through `draw()`.** The inbox repaints every 25 seconds and this
+     * rides along with it — rebuilding seven nodes on that timer would drop the focus
+     * ring off a pill somebody is tabbing through, which is the whole reason `mark()`
+     * redraws only when the answer moved. A number is text, and text can be replaced
+     * without replacing the element holding it. The row is not re-`reveal()`ed either:
+     * a digit's worth of width is not a navigation, and scrolling the row under a thumb
+     * because a poll landed would be a worse bug than the pixels it corrects.
+     */
+    counts(map) {
+      if (!onHome() || !map || typeof map !== 'object') return;
+      for (const p of PILLS) {
+        if (!p.count) continue;
+        const n = Number(map[p.id]);
+        const next = String(Number.isFinite(n) && n > 0 ? Math.round(n) : 0);
+        if (shown[p.id] === next) continue;
+        shown[p.id] = next;
+        const el = nav.querySelector(`.viewpill-count[data-count="${p.id}"]`);
+        if (el) el.textContent = next;
+      }
     },
   };
 })();

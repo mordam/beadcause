@@ -10,7 +10,7 @@
 // is the whole feature, because every one of these settings was a config hand-edit
 // until there was a button.
 //
-// So this one drives the real `public/monitor.js` in a headless Chrome the size of a
+// So this one drives the real `public/config.js` in a headless Chrome the size of a
 // phone, over a real `bin/beadcause.js` started on a temp config directory. Nothing is
 // faked: the fake server is exactly how the shadowed `GET /api/foundation` handler
 // survived a green suite for weeks (test/routes.mjs), and a settings screen is the
@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url';
 import { freePort } from '../test/helpers/net.mjs';
 import { SETTINGS } from '../lib/spaces.js';
 import { CHROME, launchChrome } from './helpers/chrome.mjs';
+import { onExit, killAndRemoveSync } from '../lib/teardown.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VP = { width: 393, height: 852, dpr: 3 };
@@ -105,6 +106,17 @@ const daemon = spawn(process.execPath, [path.join(ROOT, 'bin', 'beadcause.js')],
   env: { ...process.env, BEADCAUSE_CONFIG_DIR: CONFIG_DIR },
   stdio: 'ignore',
 });
+/**
+ * And again for the endings the `finally` at the bottom cannot reach — bc-5isv.
+ *
+ * This is the only check that starts a *daemon*, and a daemon that outlives its check is
+ * worse than a leaked Chrome: it goes on listening on a loopback port, out of a worktree
+ * that the attic sweep will later remove out from under it, because a running process
+ * does not lock a worktree. One was found doing exactly that, seven days after the run
+ * that started it. `scripts/checks.mjs` SIGTERMs anything that overruns its timeout, and
+ * a `finally` does not run on a signal. See lib/teardown.js.
+ */
+const disarmExit = onExit(() => killAndRemoveSync(daemon, KEEP ? null : tmp));
 
 const BASE = `http://127.0.0.1:${port}`;
 for (let i = 0; i < 80; i += 1) {
@@ -144,7 +156,10 @@ try {
 
   // `?t=` is how a browser that has never scanned the QR gets paired — the same pickup
   // the page does for the login window opened on the Mac at boot.
-  await s.send('Page.navigate', { url: `${BASE}/monitor?t=${TOKEN}` });
+  // `/config` since bc-khoe.10. The card was a section of the advocate console and then
+  // a chip on it; it is a page of its own now, so this check opens the page rather than
+  // opening the console and tapping a chip to reach it.
+  await s.send('Page.navigate', { url: `${BASE}/config?t=${TOKEN}` });
   await sleep(1200);
 
   // Narrow to a space, through the picker rather than by writing state.json: the card
@@ -309,7 +324,7 @@ try {
   /* The claim no static read can make: this page repaints off a stream event rather
      than off your thumb, so a poll landing mid-type must not take the id away. */
   await type('C0HALFTYPED');
-  await evalJs(s, `window.beadcause.monitor.refresh()`);
+  await evalJs(s, `window.beadcause.config.refresh()`);
   await sleep(700);
   check(
     'and a repaint under your thumb does not take a half-typed one away',
@@ -479,42 +494,30 @@ try {
 
   /* ------------------------------------------------------------ the rest of it */
 
-  /* Where the card is drawn, which is the other half of bc-me2b. `#config` is a pane of
-     monitor.html like `#prs` and the Mirror, and everything above this line was pressed
-     through it — so this is the claim that the twenty-nine checks before it were not
-     quietly passing against a card still sitting at the top of the roster. */
+  /* Where the card is drawn, which is the other half of bc-khoe.10. Everything above
+     this line was pressed on /config — so this is the claim that the thirty checks before
+     it were not quietly passing against a card still on the console. */
   check(
-    'the card is in the Config pane rather than at the top of the advocates roster',
+    'the card is the page — it is in #space, and this is /config',
+    await evalJs(s, `Boolean(document.querySelector('#space .space-card')) && location.pathname === '/config'`)
+  );
+  check(
+    'and the pill that reaches it is on the row, lit',
     await evalJs(
       s,
-      `Boolean(document.querySelector('#config .space-card')) && !document.querySelector('#mon .space-card')`
-    )
-  );
-  check(
-    'and the chip that shows it is on the row',
-    await evalJs(s, `Boolean(document.querySelector('#mon-tabs [data-tab="config"][data-pane="config"]'))`)
-  );
-
-  check(
-    'the gear points at admin',
-    await evalJs(s, `document.querySelector('#gear')?.getAttribute('href') === '/admin'`)
-  );
-  check(
-    'and nothing the page already did has gone',
-    await evalJs(
-      s,
-      `Boolean(document.querySelector('#mon-tabs') && document.querySelector('.viewbar') && document.getElementById('tally'))`
+      `(() => {
+        const row = document.querySelector('.viewbar');
+        if (!row) return false;
+        const lit = row.querySelector('[aria-current="page"]');
+        return Boolean(lit && /config/i.test(lit.textContent));
+      })()`
     )
   );
 
   if (SHOT) {
-    // Back to the space, on the Config chip, with both panels open — the picture is of
-    // the card, and a shut card is a picture of a heading. The chip is tapped rather
-    // than the pane unhidden: `hidden` is what montabs.js swaps, and a section forced
-    // visible under a row that still says Advocates would be a picture of a state the
-    // page cannot be in.
+    // Back to the space, with both panels open — the picture is of the card, and a shut
+    // card is a picture of a heading.
     await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
-    await press('#mon-tabs [data-tab="config"]');
     await sleep(900);
     await open('Settings');
     await open('What each repo resolves to');
@@ -536,6 +539,7 @@ try {
     )
   );
 } finally {
+  disarmExit();
   close();
   daemon.kill();
   if (!KEEP) fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3 });

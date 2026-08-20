@@ -298,6 +298,32 @@ check('the brief tells it the one thing that makes this job different', () => {
   assert.match(text, /lint is red\./, 'what stopped it last time is not carried in, so it starts from zero');
 });
 
+check('it is told to say on the pull request what it is about to do, before it touches the tree', () => {
+  // bc-kan5f. From GitHub's side a branch that will not merge is indistinguishable from
+  // an abandoned one, for as long as the resolution takes — so the window says it has it
+  // *first*, and says what it expects, which is the half that makes the closing record
+  // worth reading. The order is the assertion: a prediction posted after the work is a
+  // report, and the brief already asks for one of those at the end.
+  const text = mergeAdvocatePrompt('beadcause', { id: 'bc-m1' }, spec, { attempts: 1 }, { owner: 'Adam' });
+  assert.match(text, /Say on #42 that you have it, before you touch the tree/, 'nothing tells it to speak first');
+  assert.match(text, /gh pr comment 42/, 'it is asked to say something with no way named to say it');
+  assert.ok(
+    text.indexOf('Say on #42') < text.indexOf('Bring `main` into'),
+    'the arrival comment is asked for after the merge, which makes it a report rather than a prediction'
+  );
+});
+
+check('and a second attempt is asked for what stopped the first, rather than for a risk note', () => {
+  // The two openings are not the same window. On attempt 1 the useful thing to say in
+  // advance is which of the worker's risks it will read hardest; on attempt 2 the useful
+  // thing is what already went wrong, which the first window has by then written down.
+  const first = mergeAdvocatePrompt('beadcause', { id: 'bc-m1' }, spec, { attempts: 1 });
+  const again = mergeAdvocatePrompt('beadcause', { id: 'bc-m1' }, spec, { attempts: 3 });
+  assert.match(first, /any risk the worker flagged/);
+  assert.match(again, /what stopped the last attempt/);
+  assert.doesNotMatch(again, /any risk the worker flagged/, 'a third window is still being briefed as a first one');
+});
+
 check('and it says it is re-entrant, because the next window starts from the bead', () => {
   const text = mergeAdvocatePrompt('beadcause', { id: 'bc-m1' }, spec, { attempts: 2 });
   assert.match(text, /re-entrant/);

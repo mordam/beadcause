@@ -4,7 +4,7 @@
 //
 //   node scripts/beadsearch-check.mjs [--baseline] [--shots]
 //
-// bc-0xil put a typeahead in the filter panel: type part of a bead id, click a match,
+// bc-0xil put a typeahead in the filter row: type part of a bead id, click a match,
 // and the inbox narrows to that bead and everything under it, with a pill and an × to
 // undo it. `node test/beadsearch.mjs` drives the same control through a hand-made
 // document and covers the logic exhaustively. What it cannot see is the half that only
@@ -319,8 +319,10 @@ try {
   await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
   if (!(await waitFor(s, `!!document.querySelector('#list .card[data-key]')`)))
     throw new Error('the inbox never rendered');
-  // Nothing is stored, so the box is empty on every load — the filter panel simply has
-  // to be open for any of this to be reachable.
+  // Nothing is stored, so the box is empty on every load — the bead pill simply has to be
+  // open for any of this to be reachable. It is the first `.filter-summary` on the row
+  // because the page's own group leads `groupsOf()`, and under `My Epics` it is the only
+  // one offered anyway (bc-khoe.3).
   await tap(s, '.filter-summary');
   await sleep(150);
 
@@ -330,7 +332,7 @@ try {
 
   const cold = await evalJs(s, GEOMETRY);
   await shot(s, 'panel-open');
-  check('the box is drawn inside the filter panel', Boolean(cold), cold ? '' : 'no .filter-typeahead');
+  check('the box is drawn inside the pill’s panel', Boolean(cold), cold ? '' : 'no .filter-typeahead');
   check(
     'at 16px, so focusing it does not zoom iOS in on the panel',
     cold?.fontPx === 16,
@@ -416,9 +418,12 @@ try {
   check('the list narrows to that bead and the two under it', narrowed.length === 3 && narrowed.every((k) => k.startsWith(`${WS}/bc-rfnr`)), narrowed.join(', '));
   check('the tree was fetched once', state.trees.length === 1 && state.trees[0] === 'bc-rfnr', state.trees.join(','));
   check(
-    'and the collapsed line says so, in bold, without being opened',
-    await evalJs(s, `document.querySelector('.filter-menu').classList.contains('narrowed') && /bc-rfnr/.test(document.querySelector('.filter-summary .sel').textContent)`),
-    await evalJs(s, `document.querySelector('.filter-summary .sel').textContent`)
+    'and the pill says so on its own face, without being opened',
+    await evalJs(
+      s,
+      `document.querySelector('.filter-summary').classList.contains('on') && /bc-rfnr/.test(document.querySelector('.filter-summary .sel').textContent)`
+    ),
+    await evalJs(s, `document.querySelector('.filter-summary').textContent`)
   );
 
   /* ============================================================ 4. and back */
@@ -431,9 +436,13 @@ try {
   await shot(s, 'cleared');
   check('the × brings the whole list back', back.length === QUESTIONS.length, back.join(', '));
   check(
-    'and the line stops claiming a narrowing',
-    !(await evalJs(s, `document.querySelector('.filter-menu').classList.contains('narrowed')`)),
-    ''
+    'and the pill stops claiming a narrowing, and goes back to its bare legend',
+    await evalJs(
+      s,
+      `!document.querySelector('.filter-summary').classList.contains('on')
+        && document.querySelector('.filter-summary .sel').textContent === ''`
+    ),
+    await evalJs(s, `document.querySelector('.filter-summary').textContent`)
   );
 
   /* ================================================== 5. the sentences it says */

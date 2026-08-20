@@ -6,7 +6,7 @@
  *     node test/spacecard.mjs
  *
  * `SETTINGS` in lib/spaces.js is the canonical list of what a space may set: `POST
- * /api/space` refuses any key that is not in it, and the card in public/monitor.js draws
+ * /api/space` refuses any key that is not in it, and the card in public/config.js draws
  * one row per entry. Those two agreeing is the whole of whether the screen can express
  * what the daemon reads — a setting with no row is one you can only set by editing
  * config.json on the Mac, and a row writing a key the list has never heard of is a
@@ -21,7 +21,7 @@
  * proving the red was not theirs.
  *
  * So this suite asks the same question the browser check asks, in a `node:vm`: the real
- * public/monitor.js, a fake document, and a `/api/space` payload built by the real
+ * public/config.js, a fake document, and a `/api/space` payload built by the real
  * `spaceDetail` rather than written out here — a fixture typed by hand is free to be right
  * about a shape the endpoint does not serve. What is left to the browser check is
  * everything a string cannot answer: that a press reaches the config file, and that eleven
@@ -50,7 +50,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
-const MONITOR = fs.readFileSync(path.join(ROOT, 'public', 'monitor.js'), 'utf8');
+const PAGE = fs.readFileSync(path.join(ROOT, 'public', 'config.js'), 'utf8');
 
 const { SETTINGS, spaceDetail } = await import(path.join(ROOT, 'lib', 'spaces.js'));
 
@@ -73,7 +73,7 @@ console.log('\nthe space card carries a row for every setting');
 /* --------------------------------------------------- the page, in a room of its own */
 
 /**
- * `public/monitor.js` for real, with the handful of things it touches stubbed.
+ * `public/config.js` for real, with the handful of things it touches stubbed.
  *
  * The repo pattern (test/beadsession.mjs, test/spacebar.mjs): run the shipped file rather
  * than a re-implementation of it, because a re-implementation can pass every case here
@@ -81,14 +81,19 @@ console.log('\nthe space card carries a row for every setting');
  * `out.innerHTML` ends up being the string the page decided on — which is exactly what
  * these cases want to read.
  *
- * Two details make it work:
+ * **This used to lift public/monitor.js**, which wanted five stub nodes, an `/api/work`
+ * payload, an `/api/questions` payload and a page's worth of optional-chained globals to
+ * get one card out. The card is its own document since bc-khoe.10 and the room it needs
+ * is most of what is left below: three nodes, one payload, and nothing that sweeps.
  *
- *   - **`querySelector` answers null.** Every partial-repaint path in these pages is
- *     written as "find the block, and re-render the lot if it is not there", so a null
- *     answer forces the full render whose output is worth asserting.
+ * Two details still make it work:
+ *
+ *   - **`querySelectorAll` answers empty.** The only thing the page asks it for is the
+ *     observer's read-only pass, which does nothing on an instance that acts.
  *   - **The Settings panel is opened through `localStorage`.** Which sections are unfolded
- *     lives in `beadcause.mon.open` and survives reloads, so a stored key is the same
- *     state a thumb reaches by tapping the summary — which is what space-check does.
+ *     lives in `beadcause.mon.open` — the console's key, kept when the card moved — and
+ *     survives reloads, so a stored key is the same state a thumb reaches by tapping the
+ *     summary, which is what space-check does.
  */
 async function drawCard(detail) {
   const node = () => ({
@@ -104,7 +109,7 @@ async function drawCard(detail) {
     querySelector: () => null,
     querySelectorAll: () => [],
   });
-  const nodes = { mon: node(), pulse: node(), tally: node(), observing: node(), refresh: node() };
+  const nodes = { space: node(), pulse: node(), observing: node(), refresh: node() };
   const store = {
     'beadcause.token': 'tok',
     'beadcause.mon.open': JSON.stringify([`space:${detail.space}:cfg`]),
@@ -126,7 +131,7 @@ async function drawCard(detail) {
       },
     },
     document: { getElementById: (id) => nodes[id] || null, addEventListener() {}, activeElement: null },
-    location: { search: '', pathname: '/monitor', hash: '' },
+    location: { search: '', pathname: '/config', hash: '' },
     history: { replaceState() {} },
     localStorage: { getItem: (k) => store[k] ?? null, setItem(k, v) { store[k] = v; } },
     URLSearchParams,
@@ -138,23 +143,19 @@ async function drawCard(detail) {
     clearTimeout,
     setInterval,
     clearInterval,
+    // One path, which is the whole of what this page fetches. `/api/spaces` is asked for
+    // only after a write, and nothing here writes.
     fetch: async (url) => {
-      const body = url.startsWith('/api/space')
-        ? detail
-        : url.startsWith('/api/work')
-          ? { workspaces: [{ name: 'demo' }], advocates: [], observing: false }
-          : url.startsWith('/api/questions')
-            ? { questions: [] }
-            : {};
+      const body = url.startsWith('/api/space?') ? detail : {};
       return { ok: true, status: 200, json: async () => body };
     },
   });
-  vm.runInContext(MONITOR, ctx, { filename: 'monitor.js' });
+  vm.runInContext(PAGE, ctx, { filename: 'config.js' });
 
   // The boot is async and the IIFE hands nothing back, so settle on the stubs' own
   // microtasks. Bounded rather than timed: nothing here waits on a clock.
   for (let i = 0; i < 80; i += 1) await new Promise((r) => setImmediate(r));
-  return nodes.mon.innerHTML;
+  return nodes.space.innerHTML;
 }
 
 /**
@@ -250,7 +251,7 @@ const unsetHtml = await drawCard(unset);
 /* ------------------------------------------------------------------------ the claims */
 
 await check('the card is drawn for the space, with its settings panel open', async () => {
-  assert.match(setHtml, /class="[^"]*\bspace-card\b/, 'no card in the rendered console');
+  assert.match(setHtml, /class="[^"]*\bspace-card\b/, 'no card on the rendered page');
   assert.ok(setHtml.includes('<div class="space-row">'), 'the settings panel drew no rows — is it still folded?');
 });
 

@@ -46,6 +46,7 @@
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
 import { landedWork } from '../lib/promote.js';
+import { epicOf } from '../lib/promoterun.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -94,9 +95,12 @@ if (!row) {
  * written by `title()` in lib/promote.js, so the id is in a fixed place; a promotion bead
  * whose title somebody rewrote falls back to being treated as an epic, which fails with
  * "closed nothing" rather than with a wrong list.
+ *
+ * `epicOf` lives in lib/promoterun.js because the release agent needs the same read for the
+ * same reason, off the same bead — and two hand-rolled copies of one regex is how the two
+ * ends of a seam drift apart with both of them passing their own tests.
  */
-const fromTitle = /^Promote\s+(\S+)\s+—/.exec(row.title || '');
-const epicId = fromTitle ? fromTitle[1] : given;
+const epicId = epicOf(row) || given;
 if (epicId !== given) console.error(`# ${given} promotes ${epicId}`);
 
 const work = await landedWork(bd, ws, epicId);

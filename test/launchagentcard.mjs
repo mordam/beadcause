@@ -7,11 +7,15 @@
  *
  * bc-tj36 gave the deploy a verdict and wrote it onto the record, and both readers then
  * threw the structure away. The deploy strip printed `rec.error` — the whole verdict as
- * a wrapped paragraph in the gap above the steps — and the ntfy push sent
+ * a wrapped paragraph in the gap above the steps — and the notification sent
  * `rec.error.slice(0, 300)`. That slice is the bug worth a suite: the message leads with
  * the refusal and *ends* with the command that fixes it, so the truncation eats the fix
- * first. A push that says a deploy was refused and cannot say what to type is a push
+ * first. A notification that says a deploy was refused and cannot say what to type is one
  * that costs you the walk to the Mac it was sent to save.
+ *
+ * The notification is a bus event rather than an ntfy push since bc-ka5y.15.1 — the
+ * Android app draws the card — so claim 3 below reads `deployEvent` in lib/news.js. The
+ * composition moved with it verbatim, which is why the assertions did not have to.
  *
  * So four claims, one per reader:
  *
@@ -21,23 +25,25 @@
  * 2. **They survive onto the deploy record**, which is the only thing either reader
  *    ever sees. test/deploy.mjs drives the runner into a real refusal; this asserts the
  *    shape it wrote.
- * 3. **The push sends them, and stays short enough that none is cut.** The old
- *    behaviour is checked as a regression rather than described: the message must reach
- *    the fix, and a 300-character slice of the paragraph provably does not.
+ * 3. **The notification carries them, and stays short enough that none is cut.** The
+ *    old behaviour is checked as a regression rather than described: the message must
+ *    reach the fix, and a 300-character slice of the paragraph provably does not. It
+ *    also checks the classification — a refused deploy is *work being stuck* rather than
+ *    a release, which is the difference between the one voice allowed to insist and a
+ *    water drop you never hear.
  * 4. **The screen reads the fields rather than the paragraph.** A static read of
- *    public/prs.js and public/style.css, like test/quietcard.mjs: the renderer needs the
- *    whole board document to run, so what is checked is what a refactor breaks quietly
+ *    public/releases.js and public/style.css, like test/quietcard.mjs: the renderer needs
+ *    the whole page's document to run, so what is checked is what a refactor breaks quietly
  *    — that each field is read, that the error paragraph is no longer printed beside
  *    them, and that the classes it draws have rules.
  *
  * Hermetic: fake homes and fake checkouts under a scratch dir, so nothing reads the
  * real ~/Library/LaunchAgents and this passes on a machine with no service installed.
- * The push goes to an http server started in this file, exactly as test/outagepush.mjs
- * reaches ntfy — same publish(), same body, no seam invented for the test.
+ * Claim 3 needs no server at all now — the event is a value, so it is asserted directly
+ * rather than through a relay stood up to catch it.
  */
 import fs from 'node:fs';
 import os from 'node:os';
-import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -56,7 +62,7 @@ process.on('exit', () => removeTreeSync(tmp));
 
 const { LABEL } = await import('../lib/service.js');
 const { launchAgentProblem } = await import('../lib/launchagent.js');
-const { pushDeploy } = await import('../lib/notify.js');
+const { deployEvent } = await import('../lib/news.js');
 
 let failures = 0;
 let ran = 0;
@@ -157,31 +163,14 @@ check(
   check('but where launchd looked is still named', typeof n?.plist === 'string' && n.plist.endsWith('.plist'), String(n?.plist));
 }
 
-/* ------------------------------------------------------- 3. what the push sends */
+/* --------------------------------------------- 3. what the notification carries */
 
-console.log('\nthe push sends the fields, and none of them is cut off');
+console.log('\nthe notification carries the fields, and none of them is cut off');
 
-const pushed = [];
-const ntfy = http.createServer((req, res) => {
-  let body = '';
-  req.setEncoding('utf8');
-  req.on('data', (c) => (body += c));
-  req.on('end', () => {
-    try {
-      pushed.push(JSON.parse(body));
-    } catch {
-      pushed.push({ unparseable: body });
-    }
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end('{}');
-  });
-});
-await new Promise((r) => ntfy.listen(0, '127.0.0.1', r));
-const cfg = {
-  baseUrl: 'https://example.test',
-  ntfy: { enabled: true, topic: 'beadcause-test', server: `http://127.0.0.1:${ntfy.address().port}` },
-};
-
+// An event on the bus rather than an ntfy push since bc-ka5y.15.1 — the Android app
+// draws this card itself, on the one channel it is allowed to be insistent about. So
+// there is no relay to stand up here any more: `deployEvent` composes the whole payload
+// and the assertions below are the same four, against `text` instead of `message`.
 const rec = {
   id: 'd-test',
   workspace: 'beadcause',
@@ -193,9 +182,11 @@ const rec = {
   error: v.message,
   launchAgent: v,
 };
-await pushDeploy(cfg, rec);
-const msg = pushed.at(-1)?.message || '';
+const event = deployEvent(rec);
+const msg = event.text || '';
 
+check('a refused deploy is work being stuck, not a release', event.type === 'stuck' && event.state === 'stuck', JSON.stringify(event.type));
+check('and a muted space cannot silence it', event.quiet === false, JSON.stringify(event.quiet));
 check('it names the label', msg.includes(LABEL), JSON.stringify(msg));
 check('it names the program launchd would have restarted', msg.includes(server), JSON.stringify(msg));
 check('and it reaches the fix', msg.includes('npm run install-service'), JSON.stringify(msg));
@@ -210,22 +201,23 @@ check(
 );
 check('and it stays short enough to read on a lock screen', msg.length < 300, `${msg.length} chars`);
 
-// Every other deploy is untouched: a failure with no LaunchAgent verdict still sends
-// the error it always sent, and a success still says what it moved.
+// Every other deploy is untouched: a failure with no LaunchAgent verdict still says the
+// error it always said, and a success is a release rather than a blockage.
 {
-  pushed.length = 0;
-  await pushDeploy(cfg, { ...rec, launchAgent: null, error: 'the deploy command failed (exit 1)' });
-  check('an ordinary failure still pushes its error', (pushed.at(-1)?.message || '').includes('exit 1'), JSON.stringify(pushed.at(-1)?.message));
-  await pushDeploy(cfg, { ...rec, status: 'ok', launchAgent: null, error: null });
-  check('and a success is still a success', pushed.at(-1)?.title?.includes('deployed') === true, JSON.stringify(pushed.at(-1)?.title));
+  const plain = deployEvent({ ...rec, launchAgent: null, error: 'the deploy command failed (exit 1)' });
+  check('an ordinary failure still carries its error', (plain.text || '').includes('exit 1'), JSON.stringify(plain.text));
+  const good = deployEvent({ ...rec, status: 'ok', launchAgent: null, error: null });
+  check('and a success is a release', good.type === 'released' && good.title.includes('deployed'), JSON.stringify(good.title));
 }
-await new Promise((r) => ntfy.close(r));
 
 /* ----------------------------------------------------- 4. what the screen reads */
 
 console.log('\nthe deploy strip reads the fields rather than the paragraph');
 
-const prs = fs.readFileSync(path.join(ROOT, 'public', 'prs.js'), 'utf8');
+/* public/releases.js since bc-khoe.7, and it was public/prs.js before it: the strip is a
+   view of its own now rather than a box at the top of the PR board. Nothing about the
+   verdict moved with it — the same `launchAgentHtml`, the same four fields. */
+const prs = fs.readFileSync(path.join(ROOT, 'public', 'releases.js'), 'utf8');
 const css = fs.readFileSync(path.join(ROOT, 'public', 'style.css'), 'utf8');
 
 check('there is a renderer for the verdict at all', /function launchAgentHtml/.test(prs));

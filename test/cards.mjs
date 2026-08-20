@@ -67,6 +67,8 @@ const {
   boundsArg,
   restoreApp,
   ITERM_BUNDLE_ID,
+  parseClosedWindows,
+  closeEmptyWindows,
 } = iterm;
 
 let failures = 0;
@@ -337,6 +339,62 @@ check(() => {
   assert.ok(at > 0, 'nothing hands the keyboard back');
   assert.ok(/delay 0\.4[\s\S]{0,200}select priorWindow/.test(script), 'without the beat, select loses the race');
 }, 'the keyboard goes back to the window that had it, after a beat long enough to win');
+
+/* ------------------------------------------------- the windows nothing is left in */
+
+check(() => {
+  assert.deepEqual(parseClosedWindows('0'), { closed: 0, ids: [] });
+  assert.deepEqual(parseClosedWindows('2 42590 42729'), { closed: 2, ids: ['42590', '42729'] });
+  // The real script prints a trailing newline, and osascript is entitled to pad it.
+  assert.deepEqual(parseClosedWindows('  1 42590 \n'), { closed: 1, ids: ['42590'] });
+}, 'the empty-window sweep reads back a count and the ids it closed');
+
+check(() => {
+  // Every one of these is "the script said something this does not understand", and the
+  // answer to all of them is the same as finding nothing — never a throw, and never a
+  // number invented from half a line.
+  for (const bad of ['', null, undefined, 'missing', 'iTerm got an error: -1743', '-3 x']) {
+    assert.deepEqual(parseClosedWindows(bad), { closed: 0, ids: [] }, `on ${JSON.stringify(bad)}`);
+  }
+  // A count that outruns its own list is read as far as the list goes rather than
+  // padded with undefined, so the log cannot print a window id that was never there.
+  assert.deepEqual(parseClosedWindows('3 42590'), { closed: 3, ids: ['42590'] });
+}, 'and reads anything it cannot understand as having closed nothing');
+
+await checkAsync(async () => {
+  // The belt behind the injection: this suite *is* a suite, so the real function must
+  // refuse before it spawns anything. If this ever starts talking to iTerm, it closes
+  // windows on the Mac running the tests — which is why the guard is the same one that
+  // stops a suite opening them. See `mayLaunch` in lib/launchguard.js.
+  const res = await closeEmptyWindows();
+  assert.equal(res.refused, true, 'a suite may not close windows on this Mac');
+  assert.equal(res.closed, 0);
+  assert.equal(res.error, null, 'refusing is not failing');
+}, 'and never touches iTerm from inside a test suite');
+
+const emptyScript = fs.readFileSync(path.join(ROOT, 'scripts', 'close-empty-windows.applescript'), 'utf8');
+
+check(() => {
+  // The one line that is the whole safety argument. A window with any tab in it holds a
+  // session, and a session is an agent with a transcript: if this test is ever failing
+  // because the condition was widened, the widening is the bug.
+  assert.match(emptyScript, /if \(count of tabs of w\) is 0 then set end of doomed to \(id of w\)/);
+  assert.equal(/is 0 then/.test(emptyScript), true);
+  assert.equal(/count of tabs/.test(emptyScript.replace(/^--.*$/gm, '')), true, 'and it is code, not a comment');
+}, 'the empty-window script closes a window only when it has no tabs at all');
+
+check(() => {
+  // Collect, then close by id. Closing inside the enumeration renumbers `windows` under
+  // the loop and iTerm answers -1719 partway through — after it has closed some of them.
+  const collect = emptyScript.indexOf('repeat with w in windows');
+  const close = emptyScript.indexOf('close (first window whose id is theId)');
+  assert.ok(collect > 0 && close > collect, 'the ids are collected before anything is closed');
+  assert.match(emptyScript, /repeat with theId in doomed/, 'and closed by id rather than by index');
+}, 'and does it in two passes, because closing renumbers the collection it is walking');
+
+check(() => {
+  assert.match(emptyScript, /if not \(application id "com\.googlecode\.iterm2" is running\) then return "0"/);
+}, 'and never starts iTerm in order to tidy it');
 
 /* --------------------------------------------------------- what the caller passes */
 

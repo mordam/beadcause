@@ -243,6 +243,25 @@ class WatchService : Service() {
                     Notifications.cancel(this, key)
                     showing -= key
                 }
+                // The three sizes of good news, and the one card that is not news.
+                //
+                // **They are handled by type and not by payload**, which is the whole
+                // reason lib/news.js emits four types rather than one `news` type with a
+                // `kind` field: the phone has to be able to file an arrival — which card,
+                // which channel, does it expire — without asking the server a second
+                // question, and a `when` on `event.type` is that decision in one line.
+                //
+                // Quiet is respected on the same terms as everything above. A space you
+                // have muted for the evening should not chime because something in it
+                // merged; lib/news.js is explicit that a *blockage* is the one kind that
+                // is never quiet, so nothing here has to make that judgement twice.
+                "landed", "released", "epic-done" -> if (!event.quiet) Notifications.news(this, event)
+                // Both halves, and deliberately one branch. A `clear` is not a different
+                // event, it is this one saying the state it reported has ended, and
+                // [Notifications.stuck] is where that difference is read — putting it
+                // here would be a second place to get "which key does the clear cancel"
+                // wrong.
+                "stuck" -> Notifications.stuck(this, event)
                 // "created" is a question filed from this phone's own share sheet, and
                 // "activity" is an agent progress chip — neither is worth a buzz.
                 else -> Unit

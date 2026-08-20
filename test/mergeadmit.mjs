@@ -263,6 +263,7 @@ check('an admission resets the queue block and leaves the review block untouched
     verdict: 'changes',
     reviewer: 'NeanderthalMan',
     at: '2026-08-16T12:00:00.000Z',
+    reviewedSha: '1c0ffee1c0ffee1c0ffee1c0ffee1c0ffee1c0ff',
     comments: [
       { id: 'rc1', path: 'lib/x.js', line: 12, body: 'This swallows the error.', answer: 'declined', note: 'It is deliberate.' },
       { id: 'rc2', body: 'Name it after what it does.', answer: 'changed', resolved: true },
@@ -287,6 +288,10 @@ check('an admission resets the queue block and leaves the review block untouched
   assert.equal(r.round, 2, 'the round count did not survive the admission');
   assert.equal(r.comments.length, 2);
   assert.equal(r.comments[0].answer, 'declined', 'the worker answer did not survive the admission');
+  // bc-36xx.10. The sha is what the *next* tick compares the pull request's head against,
+  // so an admission that dropped it would leave a reviewed branch looking unreviewed —
+  // and the review has not un-happened because Adam pressed Merge on a different bead.
+  assert.equal(r.reviewedSha, review.reviewedSha, 'the reviewed commit did not survive the admission');
   assert.match(after, /Adam left this line\./, 'the write ate what was already in notes');
 });
 
@@ -296,6 +301,7 @@ check('and a merge-bead that has never been reviewed is not read as one that was
   const state = reviewState({ notes: withQueueBlock('', admittedState(null, { by: 'Adam', at: 'now' })) });
   assert.equal(state.verdict, null);
   assert.equal(state.round, 0);
+  assert.equal(state.reviewedSha, '', 'an unreviewed bead claimed a commit had been reviewed');
   assert.deepEqual(state.comments, []);
 });
 

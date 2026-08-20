@@ -55,7 +55,7 @@ for (const d of [SESSIONS, path.join(REPO, 'lib')]) fs.mkdirSync(d, { recursive:
 
 const { createAdvocates } = await import(LIB('advocate.js'));
 const { overlap, collides } = await import(LIB('beadfiles.js'));
-const { formatPlan, validatePlan } = await import(LIB('plan.js'));
+const { formatPlan, surfaceNotes, validatePlan } = await import(LIB('plan.js'));
 
 let failures = 0;
 async function test(name, fn) {
@@ -198,6 +198,115 @@ await test('the surface reaches the stored plan and the human-readable line', ()
     'and a group with no surface says nothing rather than "touches"'
   );
   assert.match(body, /"files": \[\n\s+"lib\/plan\.js"/, 'and it is in the JSON the next tick reads');
+});
+
+/* ---------------------------------------- plan time: what it will only *say* */
+
+console.log('a plan that declared nothing is remarked on rather than refused (bc-zjab.1)');
+
+// Real files, because a guessed path is kept only where one exists in the checkout the group
+// would be worked in — the existence check is the whole reason a guess is worth printing.
+for (const f of ['lib/plan.js', 'lib/server.js', 'lib/other.js']) {
+  fs.mkdirSync(path.dirname(path.join(REPO, f)), { recursive: true });
+  fs.writeFileSync(path.join(REPO, f), '// a file that is really there\n');
+}
+const DIRS = [{ name: 'beadcause', dir: REPO }];
+const row = (id, description) => ({ id, title: `do ${id}`, description });
+const notesFor = (spec, over = {}) =>
+  surfaceNotes(validatePlan(spec, { epic: 'bc-e' }), { dirs: DIRS, ...over });
+
+await test('a group with no `files:` says which check did not run for it', () => {
+  const one = group('first');
+  const notes = notesFor({ groups: [one] });
+  assert.equal(notes.length, 1, notes.join('\n'));
+  assert.match(notes[0], /^"first" declares no `files:`/, notes[0]);
+  assert.match(notes[0], /no two groups are sent at one file did not run/, 'the check has to be named');
+  assert.match(notes[0], /not the same as having passed it/, 'which is the whole of what was wrong');
+});
+
+await test('a group that declared its surface is not remarked on', () => {
+  assert.deepEqual(notesFor({ groups: [group('first', { files: ['lib/plan.js'] })] }), []);
+});
+
+await test('two undeclared groups whose beads name one file say so, and nothing is refused', () => {
+  const one = group('first');
+  const two = group('second');
+  const notes = notesFor(
+    { groups: [one, two] },
+    {
+      beads: [
+        row(one.beads[0], 'rewrite the header of lib/plan.js'),
+        row(two.beads[0], 'the fix belongs in lib/plan.js as well'),
+      ],
+    }
+  );
+  // Two "declares no files:" lines and one overlap line — the plan itself came back validated,
+  // which is what "not a refusal" means here.
+  assert.equal(notes.length, 3, notes.join('\n'));
+  const hit = notes.find((n) => n.includes('both look like they touch'));
+  assert.match(hit, /^"second" and "first"/, 'the earlier group is named second, as in the refusal');
+  assert.match(hit, /both look like they touch lib\/plan\.js/, hit);
+  assert.match(hit, /neither declared a surface, so both were read off their beads' own text/, hit);
+  assert.match(hit, /which makes this an observation and not a refusal/, hit);
+});
+
+await test('one declared side and one guessed side is said to be exactly that', () => {
+  const one = group('first', { files: ['lib/server.js'] });
+  const two = group('second');
+  const hit = notesFor({ groups: [one, two] }, { beads: [row(two.beads[0], 'touch lib/server.js')] }).find((n) =>
+    n.includes('both look like they touch')
+  );
+  assert.match(hit, /"first" declared that and "second" was read off its beads' own text/, hit);
+});
+
+await test('a bead that declares its own surface counts for the group that did not', () => {
+  const one = group('first', { files: ['lib/server.js'] });
+  const two = group('second');
+  const hit = notesFor(
+    { groups: [one, two] },
+    { beads: [row(two.beads[0], ['what to do', '', '```beadfiles', 'lib/server.js', '```'].join('\n'))] }
+  ).find((n) => n.includes('both look like they touch'));
+  assert.ok(hit, 'a `beadfiles` block on the bead is a surface too — `surfaceOf` reads it first');
+});
+
+await test('a group that declared wins outright and its beads are not read', () => {
+  // `first` declares lib/other.js and its bead's text names lib/plan.js. Declared is never
+  // merged with the guess, here as in `surfaceOf`, so there is nothing for `second` to meet.
+  const one = group('first', { files: ['lib/other.js'] });
+  const two = group('second');
+  const notes = notesFor(
+    { groups: [one, two] },
+    { beads: [row(one.beads[0], 'lib/plan.js'), row(two.beads[0], 'also lib/plan.js')] }
+  );
+  assert.deepEqual(notes.filter((n) => n.includes('both look like')), []);
+});
+
+await test('a path that is nowhere on disk is not a guess worth printing', () => {
+  const one = group('first');
+  const two = group('second');
+  const beads = [row(one.beads[0], 'edit lib/nosuchfile.js'), row(two.beads[0], 'edit lib/nosuchfile.js too')];
+  assert.deepEqual(notesFor({ groups: [one, two] }, { beads }).filter((n) => n.includes('both look like')), []);
+  assert.deepEqual(
+    notesFor({ groups: [one, two] }, { beads, dirs: [] }).filter((n) => n.includes('both look like')),
+    [],
+    'and with no checkout at all it goes quiet rather than throwing'
+  );
+});
+
+await test('two groups in two checkouts naming one path still name two files', () => {
+  const one = { ...group('first'), prs: [{ repo: 'beadcause', title: 'a' }] };
+  const two = { ...group('second'), prs: [{ repo: 'sophab', title: 'b' }] };
+  const notes = surfaceNotes(validatePlan({ groups: [one, two] }, { epic: 'bc-e' }), {
+    dirs: [{ name: 'beadcause', dir: REPO }, { name: 'sophab', dir: REPO }],
+    beads: [row(one.beads[0], 'lib/plan.js'), row(two.beads[0], 'lib/plan.js')],
+  });
+  assert.deepEqual(notes.filter((n) => n.includes('both look like')), []);
+});
+
+await test('rows it never got, and a plan it can read nothing about, are quiet not fatal', () => {
+  const notes = surfaceNotes(validatePlan({ groups: [group('first'), group('second')] }, { epic: 'bc-e' }));
+  assert.equal(notes.length, 2, 'both groups still say they declared nothing');
+  assert.deepEqual(notes.filter((n) => n.includes('both look like')), []);
 });
 
 /* ------------------------------------------------- dispatch time: a deferral */
