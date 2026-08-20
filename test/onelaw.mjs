@@ -14,6 +14,12 @@
  * G1/G4 unblocked on a lie. Decided as bc-bmry.2 / dv-vry / dv-8o5: the brief states the
  * law and the code refuses the close, so a brief that drifts cannot reopen the hole.
  *
+ * bc-bmry.2 left the *merge* alone on purpose — a gate bead's pull request still went on
+ * the merge queue, held out of `main` only by a session remembering `--review`. bc-bmry.8
+ * is the follow-up: the same reasoning applied to the merge, so `bin/deliver.js` now holds
+ * that too, whether or not `--review` was passed — the same guarantee `editHold` already
+ * gives an in-app edit.
+ *
  * Three failures are worth a file, and the middle one is the expensive one:
  *
  * 1. **Missing a door.** A merge reaches `main` four ways and closes the work bead from
@@ -50,7 +56,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-onelaw-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { GATE_LABEL, NEEDS_APPROVAL, approvalHold, approvalRefusal, approvalStop } = await import(LIB('approval.js'));
+const { GATE_LABEL, NEEDS_APPROVAL, approvalHold, approvalMergeHold, approvalRefusal, approvalStop } = await import(LIB('approval.js'));
 const { Bd } = await import(LIB('bd.js'));
 const { oweClose, readOwed, sweepOwed } = await import(LIB('owed.js'));
 const { sweepMergeQueue } = await import(LIB('mergequeue.js'));
@@ -106,6 +112,14 @@ await check('the refusal names the label and says what to do instead', () => {
 await check('and it is a rule about the close reason: no merge, no refusal', () => {
   assert.equal(approvalStop({ labels: [GATE_LABEL] }, false), '');
   assert.notEqual(approvalStop({ labels: [GATE_LABEL] }, true), '');
+});
+
+/* ------------------------------------------------------- and bc-bmry.8's half: the merge */
+
+await check('the merge-hold names the label too, and the two sentences differ', () => {
+  assert.match(approvalMergeHold(GATE_LABEL), /`gate`/);
+  assert.match(approvalMergeHold(NEEDS_APPROVAL), /`needs-approval`/);
+  assert.notEqual(approvalMergeHold(GATE_LABEL), approvalMergeHold(NEEDS_APPROVAL));
 });
 
 /* ------------------------------------------------------------------ the gate */
@@ -295,6 +309,25 @@ await check('the brief states the law to a session opened on a gate', () => {
   assert.match(brief, /gate:G0/);
 });
 
+await check('bc-bmry.8: the brief also says the merge itself is held, not only the close', () => {
+  // The space in this fixture has autoMerge: true — an ordinary bead in it puts its pull
+  // request on the **merge queue** (the ordinary ending's own bolded phrase, pinned in
+  // test/editwork.mjs). A gate bead must not get that ending at all.
+  const brief = briefFor([GATE_LABEL]);
+  assert.doesNotMatch(brief, /\*\*merge queue\*\*/);
+  assert.doesNotMatch(brief, /prints `queued/);
+  assert.match(brief, /you do not merge it — you deliver it/);
+  assert.match(brief, /is redundant here, not required/);
+  assert.match(brief, /\*\* BEAD WORK DONE \*\* CAN BE REVIEWED \*\*/);
+  assert.doesNotMatch(brief, /CAN BE DEPLOYED, REBUILT/);
+});
+
+await check('and the same for a bead waiting to be approved', () => {
+  const brief = briefFor([NEEDS_APPROVAL]);
+  assert.doesNotMatch(brief, /\*\*merge queue\*\*/);
+  assert.match(brief, /you do not merge it — you deliver it/);
+});
+
 await check('and to a session opened on a bead waiting to be approved', () => {
   const brief = briefFor([NEEDS_APPROVAL]);
   assert.match(brief, /needs-approval/);
@@ -317,6 +350,22 @@ await check('bin/deliver.js asks the same rule about its own close', () => {
   const src = fs.readFileSync(path.join(ROOT, 'bin', 'deliver.js'), 'utf8');
   assert.match(src, /from '\.\.\/lib\/approval\.js'/, 'deliver.js no longer imports the rule');
   assert.match(src, /approvalStop\(bead, isMergeReason\(closeReason\)\)/, 'the close branch no longer asks it');
+});
+
+await check("bc-bmry.8: bin/deliver.js also holds the merge, whether or not --review was passed", () => {
+  const src = fs.readFileSync(path.join(ROOT, 'bin', 'deliver.js'), 'utf8');
+  assert.match(
+    src,
+    /const autoMerge = policy\.autoMerge && !review && !editHold && !approvalLabel;/,
+    'a gate/needs-approval bead is queued for auto-merge again'
+  );
+  // `asked` must not credit the worker with a decision the hold made for it — the same
+  // rule `editHold` already gets, extended to cover the second label.
+  assert.match(
+    src,
+    /asked: review && policy\.autoMerge && !editHold && !approvalLabel,/,
+    'a gate/needs-approval delivery with --review would read as the worker choosing review'
+  );
 });
 
 console.log(`\n${ran - failures}/${ran} ok\n`);

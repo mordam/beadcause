@@ -1895,14 +1895,37 @@ closes a gate. bd has no pre-close hook — `bd hooks` installs git hooks and no
 else — so no rule beadcause holds can reach it. What is covered is the only ending an
 unattended session has, which is the one that fired.
 
+#### And the merge itself, held the same way (bc-bmry.8)
+
+The table above is the **close**. Until bc-bmry.8, a gate or `needs-approval` bead's
+*merge* was untouched: its pull request went on the merge queue exactly like anything
+else, and the only thing standing between it and `main` was a session remembering to
+type `--review`. That is precisely the shape [dv-vry](#the-one-law--no-agent-closes-a-gate)
+warned against — a brief is a promise a session can forget to keep — applied to the merge
+instead of the close.
+
+So `bin/deliver.js` now holds the merge too, whether or not `--review` was passed:
+`autoMerge = policy.autoMerge && !review && !editHold && !approvalLabel`, the same shape
+[`editHold`](#the-worker-at-the-far-end-and-the-one-thing-it-may-not-do) already uses for
+an in-app edit. The
+delivery opens the pull request and files the question card exactly as `--review` would
+have, the brief says so before the session has to wonder, and the pull request's own note
+and the PR body say the same thing to whoever reads the diff. dv-8o5's own words about the
+close are why the wider cost — every gate delivery becomes a card instead of a queue entry
+— is not a reason to stop: *"costs a decision per gate session, which is the point of a
+gate."*
+
 #### Checking the one law
 
 **`node test/onelaw.mjs`** — the predicate, the gate, the retry, the merge queue driven
-end to end with a fake tracker, and the brief. Three failures are worth the file and the
-middle one is the expensive one: missing a door, refusing a close Adam asked for, and
-retrying a terminal refusal for ever. `bin/deliver.js` is a separate process that cannot
-be imported, so it is read rather than driven — the drive of the real binary is
-`test/landcheck.mjs`.
+end to end with a fake tracker, the brief, and (since bc-bmry.8) `bin/deliver.js`'s own
+`autoMerge`/`asked` lines, read rather than driven for the same reason as the close. Three
+failures are worth the file and the middle one is the expensive one: missing a door,
+refusing a close Adam asked for, and retrying a terminal refusal for ever. `bin/deliver.js`
+is a separate process that cannot be imported, so it is read rather than driven — the
+drive of the real binary is `test/landcheck.mjs`. The `gate` opening in `deliveryBody` and
+the `gate` clause in the pull-request footer are pinned beside their own neighbours in
+`test/delivery.mjs` and `test/prtext.mjs`.
 
 ### Checking it
 

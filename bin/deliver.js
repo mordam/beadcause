@@ -71,7 +71,7 @@ import { ownAddresseeLabels } from '../lib/addressee.js';
 import { isClaimGuard, LIVE_STATUSES } from '../lib/bd.js';
 import { bylineFor } from '../lib/byline.js';
 import { isMergeReason, parseJson } from '../lib/bd.js';
-import { approvalHold, approvalStop } from '../lib/approval.js';
+import { approvalHold, approvalMergeHold, approvalStop } from '../lib/approval.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
@@ -467,32 +467,36 @@ const policy = prPolicyFor(cfg, ws.name);
 const editHold = fromEditMode(bead);
 if (editHold) console.error(`beadcause-deliver: ${beadId} is an in-app edit, so this delivery asks rather than merges.`);
 /**
- * The one law, said out loud at the start rather than only at the close.
+ * The one law, said out loud at the start rather than only at the close — and, since
+ * bc-bmry.8, held here rather than only asked about later.
  *
- * A gate bead and a `needs-approval` bead are both delivered exactly as anything else is —
- * this does *not* hold the merge, and that is deliberate rather than an omission. dv-8o5
- * decided the code half as "beadcause learns not to close a bead carrying the bare gate
- * label", and forcing the hold would additionally decide which pull requests may reach
- * `main` unattended, which nobody was asked. What it does do is tell the session, before it
- * spends twenty minutes wondering, that the ending it is about to get is *merged and still
- * open* — and that `--review` is the way to put the merge in front of Adam too.
+ * bc-bmry.2 built the close refusal and left this line alone: a gate bead and a
+ * `needs-approval` bead went on the merge queue exactly like anything else, and the only
+ * thing standing between one and `main` was a session remembering to type `--review`.
+ * bc-bmry.8 is the follow-up that closes that gap, on dv-vry's own reasoning applied a
+ * second time — "a brief that drifts cannot silently reopen the hole" was said about the
+ * close, and a worker's memory is no better a guarantee about the merge. So this reads
+ * exactly like `editHold` above it, on purpose: a bead carrying either label is held from
+ * the merge queue and from merging itself, whether or not `--review` was passed, the same
+ * way an in-app edit already is.
  *
- * It says "whatever merges this" rather than naming one, because three different things
- * can: the merge queue, a tap on the delivery card, or this process itself on the paths
- * that still land their own work. The rule is the same for all three and the sentence
- * should not have to be right about which one this is.
+ * dv-8o5's own words about the close are why the wider cost is not a reason to stop here:
+ * "costs a decision per gate session, which is the point of a gate." Every gate delivery
+ * becoming a card instead of a queue entry is that cost, spent on purpose.
  *
- * The refusal itself is not carried by this line. It is in lib/approval.js, and it holds
- * whether or not anybody reads this. See the `staysOpen` branch in `landHere`.
+ * The refusal on the *close* is still not carried by this line — it is in lib/approval.js
+ * and holds whether or not anybody reads this, on every path a merge can arrive by,
+ * including the tap this now routes every one of these through. See the `staysOpen`
+ * branch in `landHere`.
  */
 const approvalLabel = approvalHold(bead);
-if (approvalLabel && !review) {
+if (approvalLabel) {
   console.error(
-    `beadcause-deliver: ${beadId} is labelled \`${approvalLabel}\` — whatever merges this will NOT close it, deliberately. ` +
-      `${owner} closes it; deliver with --review to put the merge in front of them too.`
+    `beadcause-deliver: ${beadId} is labelled \`${approvalLabel}\` — ${approvalMergeHold(approvalLabel)}. ` +
+      `This delivery opens the pull request and asks ${owner}; --review is redundant here, not required.`
   );
 }
-const autoMerge = policy.autoMerge && !review && !editHold;
+const autoMerge = policy.autoMerge && !review && !editHold && !approvalLabel;
 // Green checks are not enough in a space that asks for a review first. Only consulted
 // inside the `autoMerge` branch below — with auto-merge off every delivery is already a
 // question, and answering it *is* the approval.
@@ -531,6 +535,7 @@ const prBody = renderBody({
   autoMerge,
   requireApproval,
   editHold,
+  gate: approvalLabel,
 });
 
 // The second delivery on a branch is the ordinary case, not the exception: changes
@@ -1234,12 +1239,14 @@ const out = bd([
     // `asked` is deliberately narrower than `review` on its own: with auto-merge off for
     // this space every delivery is a question, so `--review` asked for nothing that was
     // not already going to happen, and a card claiming the worker chose this would be
-    // crediting it with a decision it never had.
-    asked: review && policy.autoMerge && !editHold,
-    // Ahead of `asked` in the card's precedence, and it has to be: with the hold on, a
+    // crediting it with a decision it never had. Same reasoning for `editHold` and now
+    // `approvalLabel` — both hold the merge whether or not `--review` was passed.
+    asked: review && policy.autoMerge && !editHold && !approvalLabel,
+    // Ahead of `asked` in the card's precedence, and it has to be: with either hold on, a
     // worker's `--review` asked for nothing that was not already going to happen, and a
     // card crediting it with the decision would be describing a choice it never had.
     edit: editHold,
+    gate: approvalLabel,
     ship: shipHint,
   }),
   '--json',
@@ -1267,6 +1274,7 @@ try {
         ? ` It replaces ${superseded.join(', ')}, which asked the same question and ${superseded.length === 1 ? 'was' : 'were'} never answered.`
         : '') +
       (editHold ? ` It was not merged, and will not be by a worker: ${EDIT_HOLD}.` : '') +
+      (approvalLabel ? ` It was not merged, and will not be by a worker: ${approvalMergeHold(approvalLabel)}.` : '') +
       (owed ? ` Still owed after the merge: ${owed}.` : ''),
   ]);
 } catch {
@@ -1280,9 +1288,11 @@ try {
 // failed at.
 const prNote = editHold
   ? `A beadcause worker opened this and stopped on purpose: ${beadId} was typed into the running app with edit mode on, and an in-app edit is merged by the person who asked for it.`
-  : review
-    ? `A beadcause worker opened this and stopped on purpose: it asked for a human on this one rather than putting it on the merge queue.`
-    : `A beadcause worker opened this and stopped: auto-merge is off for this space, so every delivery here is ${owner}'s call.`;
+  : approvalLabel
+    ? `A beadcause worker opened this and stopped on purpose: ${beadId} is labelled \`${approvalLabel}\`, and ${approvalMergeHold(approvalLabel)}.`
+    : review
+      ? `A beadcause worker opened this and stopped on purpose: it asked for a human on this one rather than putting it on the merge queue.`
+      : `A beadcause worker opened this and stopped: auto-merge is off for this space, so every delivery here is ${owner}'s call.`;
 if (prNote) {
   await pr
     .comment(dir, request.number, `${prNote}\n\nIt is now ${owner}'s call — see ${questionId}.`)
