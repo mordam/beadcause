@@ -14835,7 +14835,7 @@ is death on the spot. For a check that is exactly right, because there is nobody
 daemon is not a check. `bin/beadcause.js`, `bin/router.js` and `bin/monitor.js` each
 register a `shutdown` at load, and the router's ends with `setTimeout(() =>
 process.exit(0), 300)` on purpose — 300 ms of grace so its `SIGTERM` lands on the backends
-before its own exit orphans them. These handlers wire *lazily*, on the first `onExit`,
+before its own exit orphans them. `onExit`'s own handlers wire *lazily*, on the first call,
 which in the daemon is the first browse; so they were registered second, ran second, and
 killed the process out from under a shutdown that had already started. Measured with a
 probe in that shape: shutdown started, profile removed, exit 143, the grace line never
