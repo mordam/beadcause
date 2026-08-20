@@ -94,9 +94,17 @@ const fs = require('node:fs');
 const statePath = process.env.GH_FAKE_STATE;
 const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
 const args = process.argv.slice(2);
+// '--input -' is only ever sent by callers that wrote something to stdin (submitReview),
+// so reading fd 0 here is safe: every other call leaves stdin unwritten and unclosed, and
+// a synchronous read against that would hang the fake forever rather than fail loudly.
+const inputIdx = args.indexOf('--input');
+const stdinBody = inputIdx >= 0 && args[inputIdx + 1] === '-' ? fs.readFileSync(0, 'utf8') : null;
 // The token is logged because "which account was this call made as" is the whole
 // question one scenario below exists to answer, and it is invisible in argv.
-fs.appendFileSync(state.log, JSON.stringify({ args: args, cwd: process.cwd(), token: process.env.GH_TOKEN || null }) + '\\n');
+fs.appendFileSync(
+  state.log,
+  JSON.stringify({ args: args, cwd: process.cwd(), token: process.env.GH_TOKEN || null, stdin: stdinBody }) + '\\n'
+);
 
 const save = () => fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
 const out = (s) => { process.stdout.write(s); process.exit(0); };
@@ -147,18 +155,49 @@ if (a === 'repo' && b === 'view') {
   out(JSON.stringify(state.repo));
 }
 
+if (a === 'api' && b === 'graphql') {
+  // The one place this fake speaks GraphQL: thread listing and thread resolution, neither
+  // of which REST can answer at all. Routed by which field name the query text carries,
+  // exactly the way pr.js's two callers are told apart from each other.
+  var qArg = args.filter(function (x) { return x.indexOf('query=') === 0; })[0] || '';
+  var query = qArg.slice('query='.length);
+  if (query.indexOf('resolveReviewThread') >= 0) {
+    if (state.resolveRefusal) fail(state.resolveRefusal);
+    var tArg = args.filter(function (x) { return x.indexOf('threadId=') === 0; })[0] || '';
+    var threadId = tArg.slice('threadId='.length);
+    var threads = state.threads || [];
+    var match = null;
+    for (var ti = 0; ti < threads.length; ti++) {
+      if (threads[ti].id === threadId) match = threads[ti];
+    }
+    if (!match) fail("Could not resolve to a node with the global id of '" + threadId + "'");
+    match.isResolved = true;
+    save();
+    out(JSON.stringify({ data: { resolveReviewThread: { thread: { id: threadId, isResolved: true } } } }));
+  }
+  if (query.indexOf('reviewThreads') >= 0) {
+    if (state.threadsRefusal) fail(state.threadsRefusal);
+    out(JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: state.threads || [] } } } } }));
+  }
+  fail('unknown graphql query');
+}
+
 if (a === 'api') {
-  // The reviews endpoint, which is how an approval is submitted: it hands back the review
-  // it created, and that response is where the permanent anchor to the approval comes from.
+  // The reviews endpoint, which is how an approval (or an inline-commented review) is
+  // submitted: it hands back the review it created, and that response is where the
+  // permanent anchor to the approval comes from.
   var route = args.filter(function (x) { return x.indexOf('repos/') === 0; })[0] || '';
   if (/\\/pulls\\/\\d+\\/reviews$/.test(route)) {
     if (state.reviewRefusal) fail(state.reviewRefusal);
     var n = route.match(/pulls\\/(\\d+)/)[1];
+    // submitReview() sends its whole body over stdin rather than as -f fields, because
+    // 'comments' is an array and gh's field flags only ever set one scalar apiece; approve()
+    // still sends -f event=/-f body= and stdinBody is null for it, exactly as before.
     out(JSON.stringify({
       id: 909,
       node_id: 'PRR_909',
       html_url: 'https://github.com/them/shared/pull/' + n + '#pullrequestreview-909',
-      state: 'APPROVED',
+      state: (stdinBody && JSON.parse(stdinBody).event) || 'APPROVED',
       submitted_at: '2026-08-17T15:02:03Z',
       user: { login: state.reviewAs || 'somebody' },
     }));
@@ -921,6 +960,283 @@ check(
   'and no empty comment is left on the pull request',
   !calls().some((c) => c.args[0] === 'pr' && c.args[1] === 'comment'),
   JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+pr.forgetAvailability();
+world();
+
+/* ------------------------------------------------------- inline comments */
+
+/**
+ * `submitReview` — the general shape `approve()` sits on top of: a review that carries
+ * inline comments, sent as a JSON body over stdin rather than as `-f` fields, because a
+ * nested `comments` array has no `-f`/`-F` syntax at all.
+ */
+console.log('\nsubmitting a review with inline comments');
+
+pr.forgetAvailability();
+twoAccounts();
+resetLog();
+const commented = await pr.submitReview(REPO, 42, {
+  event: 'request_changes',
+  body: 'Two things worth a look before this merges.',
+  comments: [
+    { path: 'lib/pr.js', line: 42, body: 'this drops the reviewer identity on retry' },
+    { path: 'lib/pr.js', line: 0, body: 'a comment with no real line, dropped' },
+    { path: '', line: 5, body: 'a comment with no path, dropped' },
+  ],
+});
+const reviewCall2 = calls().find((c) => c.args[0] === 'api');
+check(
+  'it is submitted, under the reviewer identity, with the two bad comments dropped',
+  commented.submitted === true && commented.reviewer === 'helperacct' && commented.dropped === 2,
+  JSON.stringify(commented)
+);
+check(
+  'it goes out over stdin as one JSON body, the event upper-cased',
+  !!reviewCall2 &&
+    reviewCall2.args.includes('--input') &&
+    reviewCall2.args.includes('-') &&
+    JSON.parse(reviewCall2.stdin).event === 'REQUEST_CHANGES' &&
+    JSON.parse(reviewCall2.stdin).comments.length === 1,
+  reviewCall2 && reviewCall2.stdin
+);
+check(
+  'the surviving comment carries path, line and a RIGHT side',
+  JSON.parse(reviewCall2.stdin).comments[0].path === 'lib/pr.js' &&
+    JSON.parse(reviewCall2.stdin).comments[0].line === 42 &&
+    JSON.parse(reviewCall2.stdin).comments[0].side === 'RIGHT',
+  reviewCall2.stdin
+);
+check(
+  "the review call carries the reviewer's token and not the acting account's",
+  reviewCall2.token === 'tok-helper',
+  JSON.stringify(reviewCall2)
+);
+check(
+  'and the answer carries the same kind of anchor approve() does',
+  commented.url === 'https://github.com/them/shared/pull/42#pullrequestreview-909',
+  commented.url
+);
+
+pr.forgetAvailability();
+twoAccounts();
+resetLog();
+const defaulted = await pr.submitReview(REPO, 42, { comments: [{ path: 'lib/pr.js', line: 1, body: 'a question, not a demand' }] });
+const defCall = calls().find((c) => c.args[0] === 'api');
+check(
+  'with no event given, it defaults to a plain comment review',
+  defaulted.submitted === true && !!defCall && JSON.parse(defCall.stdin).event === 'COMMENT',
+  defCall && defCall.stdin
+);
+
+pr.forgetAvailability();
+twoAccounts();
+resetLog();
+const weirdEvent = await pr.submitReview(REPO, 42, { event: 'banana', body: 'still says something' });
+const weirdCall = calls().find((c) => c.args[0] === 'api');
+check(
+  'an event nothing recognises falls back to a plain comment rather than failing the call',
+  weirdEvent.submitted === true && !!weirdCall && JSON.parse(weirdCall.stdin).event === 'COMMENT',
+  weirdCall && weirdCall.stdin
+);
+
+// Nothing to say at all — no body, no comment that survives — is refused the same
+// direction an empty `approve()` body is, and for the same reason.
+pr.forgetAvailability();
+twoAccounts();
+resetLog();
+const emptyReview = await pr.submitReview(REPO, 42, {});
+check(
+  'nothing to say at all is refused before gh is reached',
+  emptyReview.submitted === false && /nothing to submit/.test(emptyReview.reason),
+  JSON.stringify(emptyReview)
+);
+check('and it costs no gh call', calls().length === 0, JSON.stringify(calls().map((c) => c.args.join(' '))));
+
+pr.forgetAvailability();
+twoAccounts();
+resetLog();
+const allDropped = await pr.submitReview(REPO, 42, { comments: [{ path: '', line: 1, body: 'x' }] });
+check(
+  'a submission whose only comment does not survive validation is refused the same way',
+  allDropped.submitted === false && allDropped.dropped === 1,
+  JSON.stringify(allDropped)
+);
+
+// The common case everywhere except this Mac: one login, so nobody may review what that
+// account opened — the same degrade `approve()` makes, from the same cause.
+pr.forgetAvailability();
+world({ auth: { ok: true, accounts: [{ user: 'soloacct', active: true }] }, tokens: { soloacct: 'tok-solo' }, repo: { nameWithOwner: 'acme/widgets' } });
+resetLog();
+const soloReview = await pr.submitReview(REPO, 42, { body: 'still nobody to say it as' });
+check(
+  'a Mac with one login has no reviewer to submit as, and says why rather than throwing',
+  soloReview.submitted === false && /second GitHub account/.test(soloReview.reason),
+  JSON.stringify(soloReview)
+);
+
+// GitHub's own refusal survives intact, exactly as it does for `approve()`.
+pr.forgetAvailability();
+twoAccounts();
+world({ ...JSON.parse(fs.readFileSync(STATE, 'utf8')), reviewRefusal: 'HTTP 422: Can not request changes on your own pull request' });
+resetLog();
+const refusedReview = await pr.submitReview(REPO, 42, {
+  event: 'REQUEST_CHANGES',
+  body: 'x',
+  comments: [{ path: 'a', line: 1, body: 'y' }],
+});
+check(
+  "a review GitHub refuses comes back unsubmitted, with GitHub's own sentence",
+  refusedReview.submitted === false && /Can not request changes/.test(refusedReview.reason),
+  JSON.stringify(refusedReview)
+);
+
+pr.forgetAvailability();
+world();
+
+/* ------------------------------------------------------ review threads */
+
+/**
+ * `reviewThreads` — the GraphQL read that gives each thread its GitHub id and whether
+ * *GitHub* considers it resolved, which is the anchor a review block's own `resolved`
+ * flag (lib/mergebead.js) is not: one is the reviewer's bookkeeping, the other is what
+ * the pull request page actually shows.
+ */
+console.log("\nreading a pull request's review threads");
+
+pr.forgetAvailability();
+twoAccounts();
+world({
+  ...JSON.parse(fs.readFileSync(STATE, 'utf8')),
+  threads: [
+    { id: 'PRRT_kwABC', isResolved: false, comments: { nodes: [{ databaseId: 5551, path: 'lib/pr.js', line: 42, body: 'why not X' }] } },
+    { id: 'PRRT_kwXYZ', isResolved: true, comments: { nodes: [{ databaseId: 5552, path: 'lib/pr.js', line: 7, body: 'nit' }] } },
+  ],
+});
+resetLog();
+const threads = await pr.reviewThreads(REPO, 42);
+check(
+  "each thread carries GitHub's own id, its own resolved state, and the comments inside it",
+  Array.isArray(threads) &&
+    threads.length === 2 &&
+    threads[0].id === 'PRRT_kwABC' &&
+    threads[0].resolved === false &&
+    threads[0].comments.length === 1 &&
+    threads[0].comments[0].id === '5551' &&
+    threads[0].comments[0].path === 'lib/pr.js' &&
+    threads[0].comments[0].line === 42 &&
+    threads[1].resolved === true,
+  JSON.stringify(threads)
+);
+const threadsCall = calls().find((c) => c.args[0] === 'api' && c.args[1] === 'graphql');
+check(
+  'read under the reviewer identity, the same as the write it anchors',
+  !!threadsCall && threadsCall.token === 'tok-helper',
+  JSON.stringify(threadsCall)
+);
+check(
+  'and it asks GraphQL for this owner, repo and pull request number',
+  !!threadsCall && threadsCall.args.includes('owner=them') && threadsCall.args.includes('repo=shared') && threadsCall.args.includes('number=42'),
+  JSON.stringify(threadsCall && threadsCall.args)
+);
+
+// No account here can see any repo at all, so there is nothing to anchor to — null, not
+// a throw the sweep would have to catch.
+pr.forgetAvailability();
+world({ auth: { ok: true } });
+resetLog();
+const noRepoThreads = await pr.reviewThreads(EMPTY, 42);
+check('no repo anybody can see means no threads to read', noRepoThreads === null, JSON.stringify(noRepoThreads));
+check(
+  'and nothing reaches the graphql query at all',
+  !calls().some((c) => c.args[0] === 'api'),
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+// The repo is real and visible; there is simply nobody to read the threads *as* the
+// reviewer, which is the same one-login degrade every other write in this file makes.
+pr.forgetAvailability();
+world({ auth: { ok: true, accounts: [{ user: 'soloacct', active: true }] }, tokens: { soloacct: 'tok-solo' }, repo: { nameWithOwner: 'acme/widgets' } });
+resetLog();
+const soloThreads = await pr.reviewThreads(REPO, 42);
+check('a Mac with one login has nobody to read the threads as, so this is null too', soloThreads === null);
+check('and it costs no graphql call', !calls().some((c) => c.args[0] === 'api'), JSON.stringify(calls().map((c) => c.args.join(' '))));
+
+// GitHub refusing the query outright.
+pr.forgetAvailability();
+twoAccounts();
+world({ ...JSON.parse(fs.readFileSync(STATE, 'utf8')), threadsRefusal: 'HTTP 403: Resource not accessible by integration' });
+resetLog();
+const failedThreads = await pr.reviewThreads(REPO, 42);
+check('gh refusing the query is null, not a throw the sweep has to catch', failedThreads === null, JSON.stringify(failedThreads));
+
+pr.forgetAvailability();
+world();
+
+/* ------------------------------------------------------- resolving one */
+
+/**
+ * `resolveThread` — the one write in this whole file that only the reviewer may make, in
+ * Adam's own words: "only the reviewer marks a thread resolved." Nobody else calls it and
+ * this is the seam that would let them if it were wrong.
+ */
+console.log('\nresolving a thread');
+
+pr.forgetAvailability();
+twoAccounts();
+world({
+  ...JSON.parse(fs.readFileSync(STATE, 'utf8')),
+  threads: [{ id: 'PRRT_kwABC', isResolved: false, comments: { nodes: [] } }],
+});
+resetLog();
+const resolved = await pr.resolveThread(REPO, 'PRRT_kwABC');
+check('the thread resolves', resolved.resolved === true && resolved.reason === '', JSON.stringify(resolved));
+const resolveCall = calls().find((c) => c.args[0] === 'api' && c.args[1] === 'graphql');
+check(
+  'it runs as the reviewer, not the account that opened the pull request',
+  !!resolveCall && resolveCall.token === 'tok-helper',
+  JSON.stringify(resolveCall)
+);
+check(
+  "the mutation carries GitHub's own thread id",
+  !!resolveCall && resolveCall.args.includes('threadId=PRRT_kwABC'),
+  JSON.stringify(resolveCall && resolveCall.args)
+);
+
+// The fake's own state is what a real GitHub would remember — the closest this suite
+// gets to it without a network — and a read straight after agrees.
+resetLog();
+const afterResolve = await pr.reviewThreads(REPO, 42);
+check('and the very next read agrees it is resolved now', Array.isArray(afterResolve) && afterResolve[0].resolved === true, JSON.stringify(afterResolve));
+
+pr.forgetAvailability();
+twoAccounts();
+resetLog();
+const noId = await pr.resolveThread(REPO, '   ');
+check('an empty thread id is refused before gh is reached', noId.resolved === false && /no thread id/.test(noId.reason), JSON.stringify(noId));
+check('and it costs no call at all', calls().length === 0, JSON.stringify(calls().map((c) => c.args.join(' '))));
+
+pr.forgetAvailability();
+world({ auth: { ok: true, accounts: [{ user: 'soloacct', active: true }] }, tokens: { soloacct: 'tok-solo' }, repo: { nameWithOwner: 'acme/widgets' } });
+resetLog();
+const soloResolve = await pr.resolveThread(REPO, 'PRRT_kwABC');
+check(
+  'a Mac with one login cannot resolve a thread either, and says so rather than throwing',
+  soloResolve.resolved === false && /second GitHub account/.test(soloResolve.reason),
+  JSON.stringify(soloResolve)
+);
+check('and it never reaches the graphql endpoint', !calls().some((c) => c.args[0] === 'api'), JSON.stringify(calls().map((c) => c.args.join(' '))));
+
+pr.forgetAvailability();
+twoAccounts();
+world({ ...JSON.parse(fs.readFileSync(STATE, 'utf8')), resolveRefusal: 'HTTP 403: Resource not accessible by integration' });
+resetLog();
+const refusedResolve = await pr.resolveThread(REPO, 'PRRT_kwABC');
+check(
+  "GitHub refusing the mutation comes back unresolved, with GitHub's own sentence",
+  refusedResolve.resolved === false && /403/.test(refusedResolve.reason),
+  JSON.stringify(refusedResolve)
 );
 
 pr.forgetAvailability();

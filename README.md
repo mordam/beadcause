@@ -18443,6 +18443,66 @@ whichever login `gh` happens to be on, which here is sometimes the author of the
 The verdict is the agent's output; the review is submitted *for* it, by the daemon, under
 an identity it cannot choose.
 
+### Inline comments, and who is allowed to say a thread is settled
+
+A verdict's comments live on the merge-bead as beadcause's own bookkeeping — an `id` the
+worker answers by, a `resolved` flag only the reviewer writes. None of that is visible on
+the pull request itself: the diff a person opens six months later shows a green tick and a
+comment naming the agent, and nothing that says *this line was objected to and this is what
+became of it*. `submitReview`, `reviewThreads` and `resolveThread` in `lib/pr.js` are the
+seam that puts the argument where the diff is, so "unresolved" stops being something
+beadcause infers from its own block and becomes GitHub's own answer.
+
+**`submitReview(dir, number, { event, body, comments })` is the general shape `approve()`
+sits on top of.** `approve()` is Adam's narrower case by name — an approval, always
+disclosed, always as the reviewer — and stays exactly as it was, `-f` fields and all, with
+its own pinned test. This is for the ordinary case underneath it: the ReviewAdvocate has
+objections to raise on specific lines, whether or not the same review also approves.
+`comments` is `{ path, line, body }`, one per objection; each becomes an inline review
+comment pinned to that line, `side: RIGHT` always, since nothing here reviews a deletion.
+A comment missing a path, a positive line or a body does not reach GitHub at all — it is
+dropped before the call, and the answer says how many were, so a caller that gets back
+`submitted: true, dropped: 2` knows the review went out lighter than it was asked to make it.
+
+It goes to the same reviews endpoint `approve()` does — the only one that takes inline
+comments at all, since `gh pr review` has no flag for one — but the request goes out as a
+JSON body over `gh api --input -`, piped in on stdin, rather than as `-f` fields. That is
+the one addition `gh()` itself needed: `-f`/`-F` each set a single scalar, and `comments` is
+an array with no field syntax for a list. Every other call in the file leaves `input`
+unset and is unchanged.
+
+Runs under the reviewer identity for the reason `approve()` does: GitHub refuses a review —
+inline comments included — from the pull request's own author. A one-login Mac returns
+`{ submitted: false, reason }` rather than throwing, the same fallback `approve()` degrades
+to, and for the same underlying cause: there is no second account here to submit as.
+
+**`reviewThreads(dir, number)` reads what GitHub itself thinks a thread's state is** — its
+own id, `isResolved`, and the comments inside it, each carrying the *real* comment id
+(`databaseId`, the same number the REST comments endpoint would give it). REST has no idea
+threads are resolvable at all; this is the one place in `lib/pr.js` that speaks GraphQL,
+because `pullRequest.reviewThreads` is GraphQL-only. It is the read a review block's own
+anchored ids are meant to be checked against: a comment's `resolved` flag in
+`lib/mergebead.js`'s block is the reviewer *answering* a comment, where a thread's
+`isResolved` here is GitHub's own state, set only by the mutation below — conflating the
+two would mean "unresolved" is inferred again rather than read.
+
+**`resolveThread(dir, threadId)` is the one write in the whole file only the reviewer may
+make** — Adam's own words, *"only the reviewer marks a thread resolved."* `threadId` is
+GitHub's id from `reviewThreads` above, never the review block's own comment id, which
+means nothing to this mutation. There is no REST equivalent at all: `resolveReviewThread`
+only exists on the GraphQL API, which is why this speaks it too.
+
+Both run under the reviewer identity, for the same reason `submitReview` does, and both
+return an ordinary `null` or `{ ..., reason }` rather than throwing on a one-login Mac or a
+repo nobody here can see — every caller already has to handle that answer for `approve()`
+and `reviewerFor`, so nothing above this file learns a new failure shape.
+
+**What this does not yet do.** Nothing writes a verdict's inline comments through
+`submitReview`, and nothing reads `reviewThreads` back onto a merge-bead's review block to
+replace beadcause's own `id` with the real thread id it anchors to. That wiring — the
+worker answering a specific GitHub thread, the reviewer resolving the ones it accepts — is
+further up this epic, not here: this is the primitive the wiring calls.
+
 ### What it does to the two things that were already here
 
 **A fourth ending.** The advocate reads three endings off a session that exits: closed,
