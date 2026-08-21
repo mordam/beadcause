@@ -677,6 +677,27 @@ const evalJs = async (s, expr) => {
   return r.result.value;
 };
 
+/**
+ * Poll for the row (or a way home) instead of trusting a fixed settle after
+ * `Page.navigate` (bc-khoe.32). `/flow` loads `/vendor/mermaid.js` — ~3.5MB — ahead of
+ * `/viewbar.js`, and a `<script>` blocks parsing of everything after it until it has
+ * downloaded *and* executed; on a slow link or a cold cache that can outlast any fixed
+ * interval, and neither `.viewbar` nor a link home exists in the static HTML on any page
+ * here (both are mounted by script), so a probe taken too early reads exactly like the
+ * row being missing rather than merely not-yet-there. A page whose chrome never turns up
+ * still fails, at the ceiling, with the same message as before — this only removes the
+ * race, not the assertion.
+ */
+const waitForRow = async (s, { timeout = 8000, step = 100 } = {}) => {
+  const deadline = Date.now() + timeout;
+  let m = await evalJs(s, PROBE);
+  while (!m.row && !m.home && Date.now() < deadline) {
+    await sleep(step);
+    m = await evalJs(s, PROBE);
+  }
+  return m;
+};
+
 /* ---------------------------------------------------------------------- run */
 
 let failures = 0;
@@ -734,7 +755,7 @@ try {
 
     for (const page of PAGES) {
       await s.send('Page.navigate', { url: `http://127.0.0.1:${port}${page.url}?t=viewbar-check` });
-      await sleep(1100);
+      await waitForRow(s);
       await evalJs(s, `window.beadcause && window.beadcause.space && window.beadcause.space.adopt(${JSON.stringify(SPACEPAY)}), 1`);
       await sleep(250);
       const m = await evalJs(s, PROBE);
@@ -1171,8 +1192,7 @@ try {
   if (!later.length) bad('some page lights a pill other than the first', 'every path in the row points at its first pill — the reveal cannot be observed');
   for (const page of later) {
     await s.send('Page.navigate', { url: `http://127.0.0.1:${port}${page.url}?t=viewbar-check-pinch` });
-    await sleep(1100);
-    const m = await evalJs(s, PROBE);
+    const m = await waitForRow(s);
     const at = `${page.url} @${PINCH.width}`;
     if (!m.row) {
       bad(`${at}: the page draws the pill row`, 'it does not draw one at this width');
