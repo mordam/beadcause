@@ -175,7 +175,7 @@ const WANT_OBJECT = [
   // Reads the queue through `bd.ready(ws)`, and every public `Bd` method takes the
   // workspace object — the check two above this one is the same rule from the other side.
   'sweepFinishedEpics',
-  // lib/sessionaudit.js:743 normalises with `workspace?.name || String(workspace || '')`,
+  // lib/sessionaudit.js:697 normalises with `workspace?.name || String(workspace || '')`,
   // so it wants the object and merely survives a name. Passed as a property rather than
   // positionally, which is why it reads oddly here.
   'audit?.noteArchive',
