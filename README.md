@@ -22070,35 +22070,52 @@ Three surfaces, and they answer different questions.
 | a line in the log | the slow one you did not go looking for | `[beadcause] slow GET /api/questions 10264ms cold — 10243ms of it waiting on 9 child process(es) (bd 16701ms of work), ours 21ms`, at `slowRequestMs` (default 1000, the budget itself) |
 | `GET /api/timings` | every route, warm and cold, since the daemon started | what `npm run timings` prints as a table, and the only one of the three the **phone** can be measured through — a phone cannot show you a response header |
 
+Off the running daemon, 2026-08-21 14:32 ADT — the first sample taken since `#471`
+(bc-1kwl.22) made the three columns honest, rather than hand-widening the older
+two-column table that used to sit here. Trimmed to the three routes that make the point;
+the rest of what it was asked for that morning was deploy/claim/timings plumbing, all warm:
+
 ```
 $ npm run timings
 
-beadcause request timings — 412 requests over 26m  ·  budget 1000ms  ·  slow log at 1000
+beadcause request timings — 36 requests over 5m  ·  budget 1000ms  ·  slow log at 1000
 
-                                            —— cold ——                  —— warm ——
-route                        n     p50     p95     max  sub%     ×      n     p50     p95
-GET /api/prs                 3   26.8s   37.5s   37.5s  1.00  13.0×    41    12ms    22ms
-GET /api/questions          14   875ms    2.7s    4.5s  0.99   9.1×   126     9ms    18ms
-GET /api/session-log         ·       ·       ·       ·     ·     ·      6    1.2s    1.5s
+                                                     —— cold ——            —— stale ——             —— warm ——
+route                     n     p50     p95     max  sub%     ×      n     p50     p95      n     p50     p95
+GET /api/prs              1   39.7s   39.7s   39.7s  1.00 13.6×      ·       ·       ·      1   104ms   104ms
+GET /api/questions        ·       ·       ·       ·     ·     ·      2    1.2s    1.6s      1   691ms   691ms
+GET /api/work             ·       ·       ·       ·     ·     ·      2    81ms    99ms      ·       ·       ·
 
 over budget — p95 past 1000ms, cold or warm:
   GET /api/prs
   GET /api/questions
-  GET /api/session-log
 ```
+
+`GET /api/questions` above has **no cold samples at all** and is still over budget — its
+two stale reads, at a 1.6s p95, are what crossed the line, while its one warm read
+(691ms) sits comfortably inside it. That is not a fluke of one sample; it is the exact
+shape the next section explains. And a table taken this soon after `#471` reads *colder*
+than older figures quoted elsewhere on this epic, on purpose, not as a regression: a
+request is now filed as cold as its coldest read, so samples that used to be mislabelled
+`stale` — including a forced `refresh: true`, which pays for a producer and so is
+rightly filed cold even when everything else the request read was warm — are filed
+`cold` now. That relabelling is the fix bc-1kwl.22 made, not a new slowdown.
 
 That last block is the point of the whole thing: **the routes that miss the budget are
 named**, rather than left to be read off a table. `--json` gives the snapshot as it comes
 off the route, `--top N` the worst few, and `--parked` includes the long-polls.
 
-**Cold or warm, and that is not a hedge in the heading.** A route is over budget on the
-worse of its two p95s, because a request that took a second and a half took a second and
-a half whether or not it spawned anything. The third row above is the case that made the
-distinction concrete: `GET /api/session-log` reads a transcript off disk, so it spawns no
-child, so it is *warm* by the derivation — and it has no cold samples at all. Filtering
-the list on the cold p95 would have dropped the only genuinely slow route on that page
-out of the one list whose job is to name slow routes. The list has always been the worse
-of the two; for a while the heading over it said `cold p95`, which is what bc-fg37 fixed.
+**Cold, stale or warm, and that is not a hedge in the heading.** A route is over budget
+on the worst of its three p95s, because a request that took a second and a half took a
+second and a half whichever temperature it was filed under. `GET /api/questions` above is
+the case that makes it concrete now: no cold samples, and still over budget, because the
+rule was never really about *cold* — it is about the worst reading a route has, across
+however many temperatures it has samples in. That used to mean two: `GET /api/session-log`
+reads a transcript off disk, so it spawns no child, so it is *warm* by the derivation —
+and it has no cold samples at all — the case bc-fg37 fixed the heading for. bc-1kwl.2.4
+extended the same worst-of rule to a third temperature rather than writing a new one,
+which is why nothing here needed to change except what the table, and this sentence,
+call it.
 
 ### A request is as cold as its coldest read
 
