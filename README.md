@@ -25492,6 +25492,7 @@ to be one.
 | `slowRequestMs` | a request past this is named in the log with where its time went (default `1000` — the page-load budget itself, so a line means "this missed the budget" rather than "this was slower than its neighbours"). `0` turns **the log** off and nothing else: the per-route figures behind `/api/timings` are always collected. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | `sync.enabled` | keep a shared tracker shared — `bd dolt pull` then `bd dolt push`, per workspace, on a timer (default `true`). It is on for everybody and it does nothing at all on a workspace with no Dolt remote, which is every workspace until you add one. See [A tracker two Macs share](#a-tracker-two-macs-share) |
 | `sync.seconds` | how often (default 120, floor 30). **Not a performance knob** — it is the width of the window in which two machines can act on stale information, which is why it is a setting and not a constant. There is deliberately no list of *which* workspaces sync: a Dolt remote is that list |
+| `publication.seconds` | how often the daemon publishes what this install can say about itself (default 3600, floor 60). It does nothing at all on an install with the management system off, which is every install by default. There is deliberately **no `publication.enabled`** beside it: a cadence is a setting, and whether an install with the layer on publishes at all is not — see [Publishing on a clock nobody has to remember](#publishing-on-a-clock-nobody-has-to-remember--libpublishsweepjs-testpublishsweepmjs) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
 | `mirrorStateToBeads` | write `agent:<phase>` state labels into beads too (off — see Progress) |
@@ -28289,6 +28290,79 @@ here rather than taken from `lib/evidence.js`, because a deployment that could l
 bar it is measured against by editing the file that declares the bar is doing the
 self-assessment this whole section refuses. If the two ever disagree, the disagreement is
 the finding.
+
+### Publishing on a clock nobody has to remember — `lib/publishsweep.js`, `test/publishsweep.mjs`
+
+Every module in the two sections above was a leaf with a suite and **no caller**. `lib/publishable.js`
+said what may leave the Mac, `lib/publication.js` kept the chain and published it,
+`lib/posture.js` said what this deployment could back up, `lib/instance.js` said which install
+was speaking — and on a running install none of them was ever entered. `refs/beadcause/publications`
+did not exist on this laptop. Every acceptance criterion in the family that began *"every
+deployment publishes…"* was satisfied by a function nobody called, which is bc-keqy, and this
+is the other side of the door.
+
+**The door is `whenOn` in `lib/management.js`, and nothing here reaches around it.** Off is the
+default for every install and off has to cost nothing — not a git repo, not an identity, not a
+ref. So the whole of the work sits inside the loader `whenOn` calls only when the layer is on,
+and `lib/publication.js`, `lib/posture.js` and `lib/instance.js` are `import()`ed *there* rather
+than at the top of the file. That is not a promise in a comment: `test/publishsweep.mjs` reads
+the module's own import list and fails the repo if any of the three appears in it, and then
+sweeps a fresh config directory with the layer off and asserts that afterwards it holds **no
+`.git`, no `instance.json`, no `instance.key` and in fact nothing at all**.
+
+A sweep does four things, in this order.
+
+1. **Enrols, once.** A chain's first record names the instance publishing it and there is no
+   chain without one. The organisation is not invented — `lib/organisation.js` refuses
+   `default`, `main`, `shared` and fifteen others *precisely* because they are what an install
+   writes when it has one tenant and a column to fill — it is read from the `BOUNDARIES`
+   register in `lib/boundary.js`, which is keyed by organisation id and ships compiled into the
+   release. A release shipping exactly one organisation is an install belonging to it; a
+   release shipping two **refuses**, because an install that has to be told which tenant it is
+   must be told rather than guessed at, and a guess here is a chain filed under the wrong
+   organisation for as long as the install lives.
+2. **Attests, then publishes a head.** `recordAttestedHead` writes the posture in force and the
+   chain head at one instant and in that order — that rule is the section above's, not this
+   file's to restate. What this file decides is *when*: a governed ref whose tip has **moved**
+   is published on the next sweep, because the movement is the interesting fact, and a ref that
+   has not moved is published again once its last head is older than the **anchoring interval**.
+   That number is imported from `lib/anchor.js` rather than chosen here, so the two cannot
+   disagree; the floor is what makes a quiet fortnight read as an instance that went on
+   reporting rather than as one that stopped.
+3. **Publishes the management transitions.** A chain that carries heads but not the moment the
+   compliance layer was switched off is a chain with the gap taken out of it.
+4. **Sends whatever the far end has not witnessed**, through `publishQuietly` — the door that
+   cannot throw, cannot reject and cannot hang.
+
+**Which refs get a head is a table with a crosswalk under it.** `PUBLISHED_REFS` names seven,
+each of them a *chained* evidence class in `lib/evidence.js`'s register that lives at one fixed
+ref, and the suite checks every entry against that register by literal id. Two kinds of class
+are deliberately absent and each is a sentence in `NOT_PUBLISHED` rather than an omission: the
+publication chain itself, because a head of it appended to it changes the head it just
+published; and the classes that live at a *family* of refs — `refs/beadcause/sessions/<bead>`
+and the per-kind, per-topic and per-bead halves of the agent memory — because one head each is
+unbounded in the beads this laptop has ever run, and a family wants one record digesting the
+set. A chained class at a fixed ref that is in neither list fails the suite.
+
+**A service that is unreachable, refusing, lying or silent leaves the tick untouched.** The
+suite drives all four — a transport that throws, one that rejects, one that acknowledges a
+different record, and one that accepts the connection and then never speaks — and after each of
+them the sweep has returned an outcome and the chain is still on disk and still links. That is
+the epic's second principle applied at the one call site that could have broken it: *fail open
+for work, fail closed for claims.* Nothing here papers over a gap; the claim half is
+`claimProblems` in `lib/continuity.js`, which refuses an unpublished period rather than
+rendering it as a clean window.
+
+**There is no transport on this Mac yet** (bc-3muu.14), and the sweep does not report that as an
+outage — an install whose service has not been stood up is not an install that lost touch with
+one, and a word that says otherwise every hour is the word nobody reads on the day it is true.
+The chain grows locally regardless, which is the arrangement `lib/publication.js` argues for at
+length: the local chain is the record and the service corroborates it.
+
+It runs **last** in the slow half of the poll cycle, on an hourly clock of its own
+(`publication.seconds`). Nothing waits on it, and it is the only sweep that both writes evidence
+and may reach a network with a thirty-second deadline behind it — so it goes after even the
+tracker sync, which every other sweep is ordered in front of.
 
 ### Inside the boundary it evidences — `lib/servicescope.js`, `test/servicescope.mjs`
 
