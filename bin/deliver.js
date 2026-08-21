@@ -327,15 +327,14 @@ if (!gh.ok) die(gh.reason, 4);
  * half you need, so it is asked here — before the push, while a refusal is still free —
  * and the slug is kept, because resolving it is a `gh` call and it is wanted twice more
  * below.
+ *
+ * `null` here is two different situations dressed identically — a checkout with
+ * nothing GitHub-shaped about it, and a GraphQL outage nobody here caused (bc-36xx.14)
+ * — and `pr.noRepoMessage` is what tells them apart, from `pr.probeTransient`, which
+ * `pr.slugFor` just set on its way to this null. See lib/pr.js.
  */
 const slug = await pr.slugFor(dir);
-if (!slug) {
-  die(
-    `no GitHub repo is visible from ${dir} — nothing there opens pull requests. ` +
-      `The work is committed on ${branch}; say so on ${beadId} and leave it there.`,
-    4
-  );
-}
+if (!slug) die(pr.noRepoMessage(dir, branch, beadId), 4);
 
 /**
  * A `#123` written in a workspace of forty repos is a link to the wrong repo.
