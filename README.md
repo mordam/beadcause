@@ -14112,6 +14112,104 @@ a bead, and that is all it knows. So:
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
 
+#### The window that opened and never ran its command
+
+Every ending above starts from a session. This is the one that does not: the window came
+up, the command was typed into it, and the shell never ran a line of it.
+
+A dispatch does not *start* the command — it **types** it, with iTerm's `write text`,
+into a fresh login shell that is still running `~/.zshrc`. Until zsh's line editor takes
+over, anything in those rc files that reads the terminal reads **our bytes**. On
+2026-08-21 that was oh-my-zsh's upgrade prompt, whose `read -r -k 1 option` took one
+character off the front of the buffered line; the window then submitted `ource '<file>'`
+and sat at a prompt. Fixing *that* is a different piece of work. This is about the fact
+that **nothing noticed**.
+
+Nothing could. The window is alive. It is sitting at a zsh prompt, in the right
+directory, with the bead's id on its tab, and it has no `claude` in it — so there is no
+session record, no pid, no status, no done file, and nothing for the reaper to signal.
+Every liveness check in this daemon reads it as healthy, and the first thing that ever
+disagreed was `workerTimeoutMinutes`, two hours later. Three costs, in the order they
+matter:
+
+1. **the bead is pinned for two hours** — the worker record holds the slot, and a bead
+   this advocate has a worker on is not dispatchable;
+2. **it is then charged an attempt**, and `maxAttemptsPerBead` is 2 with nothing that
+   decrements it. So two launches lost to a shell prompt can retire a bead from this
+   machine's queue for good — which is [the state that reads as ordinary ready work
+   everywhere else](#a-bead-it-has-given-up-on-says-so);
+3. **it leaks its three temp files**, because the shell that would have removed them is
+   the shell that never ran.
+
+82 leftover command files had accumulated in TMPDIR in eighteen hours when this was
+measured, 55 of them with their prompt file still beside them. Two beads accounted for
+most of it, relaunched about every three minutes, and the log line `bc-khoe.21 was
+claimed by 26 machines — this one holds it` turned out to be the claim counter counting
+failed launches.
+
+**The probe was already on the disk; nothing was reading it.** `sessionCommand` emits, in
+order, `P="$(cat <prompt>)" && rm -f <prompt> && claude … && rm -f <system> <command>`.
+So the prompt file goes away *before* `claude` starts and the command file *after* it
+exits, and two `existsSync` calls answer the question exactly:
+
+| prompt | command | reading |
+|---|---|---|
+| present | present | **the shell never reached line 3** — nothing ran |
+| gone | present | the session is running now |
+| gone | gone | it ran and exited |
+| present | gone | something else took a file — `unknown`, and nothing is concluded |
+
+The last row is why this reads two files rather than the obvious one. A prompt file with
+no command file beside it is not a state this daemon can produce, so it is somebody
+else's — a TMPDIR sweeper, a suite tidying up after a fixture — and the safe answer to a
+state you cannot explain is to leave the window alone. Asking only about the prompt file
+would take a live session's slot away on a sweeper's schedule.
+
+So `launchProgress` in lib/session.js reads those two files, `launch` reports the three
+paths back for the first time (it always minted them and always forgot them the moment
+`osascript` returned), the worker record carries them, and `reconcile` asks once per tick
+for any worker older than `advocates.neverStartedSeconds` — 45 by default, seconds rather
+than minutes because the whole value is answering before the two hours, and not
+milliseconds because what is being waited out is a `~/.zshrc` with nvm and pnpm in it.
+`0` or `false` switches the probe off and restores the old behaviour exactly.
+
+When it fires: the ending is logged against the bead as **never-started**, the slot comes
+back, the three temp files are removed, the claim is handed back if there was one — and
+**no attempt is charged**. Not *counter cleared*: not charged. A launch that never ran is
+not an attempt at the work, and wiping the counter would erase a real earlier failure
+that this launch says nothing about. That is the load-bearing half; the slot would have
+come back on the timeout eventually, and the attempt would not.
+
+**The order of those two is what makes a mistimed grace safe.** The fair objection to
+measuring this in seconds is the false positive: a Mac loaded enough that `~/.zshrc` takes
+longer than the grace, a launch cancelled that was about to work, and two windows on one
+bead — which is the worst failure in this file. It cannot happen, because the temp files
+are taken away **before** the slot goes back, and the command file is the only thing that
+slow shell was ever going to read. When it finally gets past its rc files it sources a path
+that is not there, says so, and stays at its prompt. A launch cancelled this way is
+cancelled for good, so the worst a mistimed grace costs is one wasted window and one fresh
+dispatch — never a second agent on work somebody else is already doing. Cleaning up after
+releasing the slot would give up exactly that property.
+
+Two things it deliberately does not do. It does not teach the stall sweep about
+handed-back beads, which would undo
+[the re-entry rule](#the-claim-a-window-leaves-behind). And it knows nothing about
+`delivered` or `handback` — both leave the bead open and the TUI on screen, which is
+exactly what a stalled window looks like from every other angle, and both consumed their
+prompt file at line 2 an hour before they got there. The probe cannot see them, so it
+cannot confuse them, and it sits *ahead* of every inference branch for that reason and
+*behind* the tracker's own answers — a closed bead is a fact somebody just handed over,
+and it outranks anything on a disk.
+
+`never-started` is not in `REAPABLE`, and could not usefully be: closing a window needs a
+pid, and the pid on this record is null because no `claude` ever ran there. The window
+stays on screen — one to close by hand, which is what a `zsh` prompt with the bead's name
+on it is.
+
+`test/neverstarted.mjs` is the check: the four states off a real directory, the ending,
+the temp files, the same bead dispatched three times without the counter moving, and
+delivered and handed-back sessions coming out unchanged.
+
 #### A bead it has given up on says so
 
 `maxAttemptsPerBead` is a floor nothing decrements. The counter is cleared on the four
@@ -14369,7 +14467,7 @@ closes the window exactly as it does for a session that ended on its own.
 
 ##### Which endings those are
 
-Three of the seven. Not because three is a compromise, but because the brief gives a
+Three of the eight. Not because three is a compromise, but because the brief gives a
 session exactly three ways to *finish*, and every one of them ends somewhere that is not
 the window:
 
@@ -14379,9 +14477,16 @@ the window:
 | `delivered` — the merge was refused, or it asked for review | a card in the inbox whose one tap is the merge, on a pull request that is open on GitHub |
 | `handback` — it needs a decision | the question is on the bead, under a `human` label, in a `decision` block written to be answerable from a phone |
 
-The other four — `unfinished`, `timeout`, `lapsed`, `silent` — are not endings a session
-reached. They are the daemon inferring from a window that went quiet that something went
-wrong, and a window somebody should read is precisely what that is. Those stay open.
+Four of the others — `unfinished`, `timeout`, `lapsed`, `silent` — are not endings a
+session reached. They are the daemon inferring from a window that went quiet that
+something went wrong, and a window somebody should read is precisely what that is. Those
+stay open.
+
+And the eighth is neither, which is why it is not here either:
+[`never-started`](#the-window-that-opened-and-never-ran-its-command) is a measurement
+rather than an inference — the launch's own temp files say the shell never ran a line —
+but there is nothing to close. No `claude` ever started in that window, so the record
+carries no pid, and `closingFor` would refuse it on guard 2 whatever this set said.
 
 `delivered` and `handback` were left out at first, on the theory that a session waiting
 on a decision has something on screen worth reading. It has not, and that is not luck:
@@ -25228,6 +25333,7 @@ to be one.
 | `advocates.workerTimeoutMinutes` | how long a session may hold its slot with no ending reached before the slot is released and the bead charged an attempt (default 120) |
 | `advocates.checkinMinutes` | how long a session asked to check in has to answer before its slot goes back (default 10) — long enough for a turn in flight to land and run the command, short enough that pressing Reclaim sessions is worth doing at all |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
+| `advocates.neverStartedSeconds` | how long a window is given to get past line 3 of its command before [the launch's own temp files are read as proof it never started](#the-window-that-opened-and-never-ran-its-command) (default 45). Then the slot comes back, the files are cleaned up, the claim is handed back and **no attempt is charged** — a launch that never ran is not an attempt at the work. Seconds rather than minutes because the point is answering before `workerTimeoutMinutes`; `0` or `false` asks nothing and restores the two-hour wait |
 | `advocates.batchEpicChildren` | [hand an epic's ready children to one worker as a batch](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window), instead of holding the epic back and letting each child take its own window on its own tick (default `true`). `false` falls back to `heldByChildren`'s suppression, which is what this did before |
 | `advocates.maxBatchBeads` | how many of an epic's ready children one worker is briefed on at once (default 5) — the overflow waits rather than racing its own siblings in a second window |
 | `advocates.minBatchBeads` | the floor: below this many ready children an epic is never a batch head or a planner candidate, and a childless or single-child epic is dispatched as an ordinary ready bead instead (default 2) |
