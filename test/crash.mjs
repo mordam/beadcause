@@ -643,6 +643,10 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the publication sweep',
       'the release sweep',
       'the reply push',
+      // lib/sessionaudit.js's `sweepStale` — bc-dgx7.7. `audit()` itself never rejects,
+      // so what reaches this catch is `sweepStale`'s own dispatch loop failing, which is
+      // a bug in the daemon rather than anything about the checkouts it is walking.
+      'the session audit sweep',
       // lib/strays.js, and the one entry in the list that signals other processes. Its
       // own guards — the age floor, the profile match, `mayReap` — decide what it may
       // touch, and every one of them answering "nothing" is the settled state rather
