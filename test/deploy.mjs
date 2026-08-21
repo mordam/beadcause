@@ -51,6 +51,7 @@ const {
   sweepDeploys,
   unannounced,
   markAnnounced,
+  deployTrouble,
   DEPLOY_DIR,
 } = await import(LIB('deploy.js'));
 
@@ -594,6 +595,81 @@ await check('an unreadable record is left out rather than read as anything', () 
   assert.equal(showDeploy('d-corrupt'), null);
   // And it is not something to announce either — there is nothing true to say about it.
   assert.equal(unannounced().some((r) => r.id === 'd-corrupt'), false);
+});
+
+/* ------------------------------------------------ the snapshot bc-ka5y.15.8 needed */
+
+console.log('\nwhat is stuck right now — not what changed last');
+
+// A workspace all its own, so the directory's clutter from every test above cannot
+// answer for it either way.
+const stuckRec = (id, workspace, status, at) => ({
+  id,
+  workspace,
+  status,
+  restarts: false,
+  pid: null,
+  requestedAt: at,
+  steps: [],
+});
+
+await check('a repo whose last settled deploy failed is in trouble', () => {
+  fs.writeFileSync(
+    path.join(DEPLOY_DIR, 'd-stuck-1.json'),
+    JSON.stringify(stuckRec('d-stuck-1', 'stuckdemo', 'failed', new Date(Date.now() - 3000).toISOString()))
+  );
+  const trouble = deployTrouble().filter((r) => r.workspace === 'stuckdemo');
+  assert.equal(trouble.length, 1);
+  assert.equal(trouble[0].id, 'd-stuck-1');
+});
+
+await check('a later ok for the same key is the clear — the failure drops out on its own', () => {
+  fs.writeFileSync(
+    path.join(DEPLOY_DIR, 'd-stuck-2.json'),
+    JSON.stringify(stuckRec('d-stuck-2', 'stuckdemo', 'ok', new Date().toISOString()))
+  );
+  assert.deepEqual(deployTrouble().filter((r) => r.workspace === 'stuckdemo'), []);
+});
+
+await check('and a later failure the same way — the newest settled word wins, no flag to keep in step', () => {
+  fs.writeFileSync(
+    path.join(DEPLOY_DIR, 'd-stuck-3.json'),
+    JSON.stringify(stuckRec('d-stuck-3', 'stuckdemo', 'lost', new Date().toISOString()))
+  );
+  const trouble = deployTrouble().filter((r) => r.workspace === 'stuckdemo');
+  assert.equal(trouble.length, 1);
+  assert.equal(trouble[0].id, 'd-stuck-3', 'the newest settled record for the key, not the first one written');
+});
+
+await check('a fresh attempt in flight does not erase the previous failure yet', () => {
+  fs.writeFileSync(
+    path.join(DEPLOY_DIR, 'd-stuck-4.json'),
+    JSON.stringify(stuckRec('d-stuck-4', 'stuckdemo', 'deploying', new Date().toISOString()))
+  );
+  // d-stuck-3 (lost) is still the newest *settled* record — d-stuck-4 is live and
+  // skipped, exactly as `unannounced` skips a live record rather than reading it as
+  // "nothing wrong yet".
+  const trouble = deployTrouble().filter((r) => r.workspace === 'stuckdemo');
+  assert.equal(trouble.length, 1);
+  assert.equal(trouble[0].id, 'd-stuck-3');
+});
+
+await check('unconfirmed is not trouble, same as everywhere else since bc-ka5y.15.5', () => {
+  fs.writeFileSync(
+    path.join(DEPLOY_DIR, 'd-stuck-5.json'),
+    JSON.stringify(stuckRec('d-stuck-5', 'stuckdemo2', 'unconfirmed', new Date().toISOString()))
+  );
+  assert.deepEqual(deployTrouble().filter((r) => r.workspace === 'stuckdemo2'), []);
+});
+
+await check('two repos in trouble are two rows, not one merged into the other', () => {
+  fs.writeFileSync(
+    path.join(DEPLOY_DIR, 'd-stuck-6.json'),
+    JSON.stringify(stuckRec('d-stuck-6', 'stuckdemo3', 'failed', new Date().toISOString()))
+  );
+  const trouble = deployTrouble();
+  assert.ok(trouble.some((r) => r.workspace === 'stuckdemo'), 'stuckdemo (still failing, from above) is missing');
+  assert.ok(trouble.some((r) => r.workspace === 'stuckdemo3'), 'stuckdemo3 is missing');
 });
 
 /* -------------------------------------------------------------- announcing once */

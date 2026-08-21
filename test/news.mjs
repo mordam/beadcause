@@ -204,6 +204,26 @@ check(
   /app\.bus\.emit\(syncStuckEvent\(/.test(SERVER) && /app\.bus\.emit\(syncClearEvent\(/.test(SERVER)
 );
 check('a successful deploy also clears the last failure’s card', /app\.bus\.emit\(deployClearEvent\(rec\)\)/.test(SERVER));
+
+// bc-ka5y.15.8: the snapshot the poll needs when there is no transition left to
+// replay, built from the same two functions the transitions above already call.
+check('the snapshot is built from the same two sources as the transitions', /syncer\.trouble\(\)\.filter\(mine\)/.test(SERVER) && /deployTrouble\(\)\.filter\(mine\)/.test(SERVER));
+check('reusing the transition builders rather than a second event shape', /syncStuckEvent\(sync\)/.test(SERVER) && /deploys\.map\(\(rec\) => deployEvent\(rec\)\)/.test(SERVER));
+// Present on both branches of /api/poll, and neither conditioned on `polled`/`fresh` —
+// that gate is what `questions`/`requests` cost a `bd` sweep for, and this does not.
+const POLL_ROUTE = SERVER.slice(SERVER.indexOf("p === '/api/poll'"), SERVER.indexOf("if (p === '/api/asset'"));
+const [resyncBranch, ordinaryBranch] = [POLL_ROUTE.slice(0, POLL_ROUTE.indexOf('const cold =')), POLL_ROUTE.slice(POLL_ROUTE.indexOf('const cold ='))];
+check('present on the resync branch', /resync: true,/.test(resyncBranch) && /stuck: currentStuck\(\),/.test(resyncBranch));
+check('and on the ordinary branch', /stuck: currentStuck\(\),/.test(ordinaryBranch));
+// Ahead of the `...(fresh ? await inboxPayload(...) : { questions: null, ... })`
+// spread on both branches, not inside it — that gate is what `questions`/`requests`
+// cost a `bd` sweep for, and a `stuck` tucked inside it would go back to null on
+// exactly the poll this bead is about.
+check(
+  'ahead of the spread questions/requests are gated behind, not inside it',
+  resyncBranch.indexOf('stuck: currentStuck()') < resyncBranch.indexOf('...(fresh') &&
+    ordinaryBranch.indexOf('stuck: currentStuck()') < ordinaryBranch.indexOf('...(polled')
+);
 // And the line the push left behind, which is why this one is a `!`. When the sync
 // notification was an awaited ntfy push, its catch logged `[sync] could not push: …` —
 // a *notification* failing, under a prefix whose every other line is `bd dolt push`, so
@@ -279,6 +299,33 @@ check(
   'bc-ka5y.15.4 gave the three sizes of good news three channels — see test/channels.mjs'
 );
 
+/* ---------------------------------------- 5b. and the stuck card survives a restart */
+
+console.log('\nand the stuck card is reassembled from a snapshot, not replayed — bc-ka5y.15.8\n');
+
+check('the poll model parses a snapshot the daemon never used to send', /val stuck: List<Event>\?/.test(API));
+check('read the same way the events themselves are — no second parser for the shape', /stuck = json\.optJSONArray\("stuck"\)\?\.map \{ it\.toEvent\(\) \}/.test(API));
+
+check('the watcher reconciles it on every poll, not only a resync', /reconcileStuck\(poll\.stuck\)/.test(WATCH));
+check(
+  'resync no longer stops short of that reconciliation',
+  !/showing\.retainAll\(byKey\.keys\)\s*\n\s*return\s*\n\s*\}/.test(WATCH),
+  'a `return` right after retainAll would skip reconcileStuck on exactly the poll it matters most on'
+);
+// The whole of "no second buzz for a state it was already showing": a key the shade is
+// already showing is left alone, never re-handed to Notifications.stuck.
+check(
+  'a key already in the shade is never re-notified',
+  /for \(key in showingKeys - liveKeys\) Tray\.remove\(this, key\)/.test(WATCH) &&
+    /if \(event\.key != null && event\.key !in showingKeys\) Notifications\.stuck\(this, event\)/.test(WATCH)
+);
+// And the reverse: it cannot be the bead-deck retain(), which would wrongly sweep a
+// `stuck/…` key on the very next resync (see the check above pinning BEAD_DECKS).
+check(
+  'and this is not a second call to retain() over the STUCK deck',
+  !/retain\(this, .*Chan\.STUCK/.test(WATCH)
+);
+
 /* ------------------------------------------------- 6. and it reaches a real poll */
 
 console.log('\nend to end: the door a worker posts through, and the poll it wakes\n');
@@ -351,6 +398,77 @@ check('a landing with no pull request number is refused', nonsense.status === 40
 
 const wrongWs = await request('POST', '/api/landed', { ...LANDING, workspace: 'nowhere' });
 check('and so is one for a workspace this daemon does not serve', wrongWs.status >= 400, JSON.stringify(wrongWs.json));
+
+/* -------------------------------------- 7. the snapshot bc-ka5y.15.8 needed */
+
+console.log('\nthe stuck snapshot: unconditional, not a replay of a transition\n');
+
+const { DEPLOY_DIR } = await import(LIB('deploy.js'));
+fs.mkdirSync(DEPLOY_DIR, { recursive: true });
+
+// A quiet poll — `since` already at the current seq, so nothing on the bus moved and
+// `bd` is never asked. This is the exact poll a phone makes after a restart lost its
+// tray while nothing else in the world happened: the one `questions`/`requests` are
+// deliberately null on, and the one bc-ka5y.15.8 is about.
+const quietSince = (await request('GET', '/api/poll?want=presence')).json.seq;
+const quiet = await request('GET', `/api/poll?since=${quietSince}&wait=0`);
+check('nothing changed, so questions/requests stay null — no bd was asked', quiet.json.questions === null && quiet.json.requests === null, JSON.stringify(quiet.json));
+check('but stuck is an array, not null, on that same quiet poll', Array.isArray(quiet.json.stuck), JSON.stringify(quiet.json.stuck));
+check('and it is empty — nothing is stuck yet', quiet.json.stuck.length === 0, JSON.stringify(quiet.json.stuck));
+
+// A tracker in conflict, recorded the way `sweepSync` would — straight into the
+// syncer, no HTTP door, because bc-ka5y.15.8 is about the daemon already knowing this
+// (`syncer.trouble()` survives its own restart) and simply not being asked for it here.
+app.syncer.record({ workspace: 'demo', state: 'conflict', error: 'divergent histories', dir: wsDir });
+
+const withSync = await request('GET', `/api/poll?since=${quietSince}&wait=0`);
+check('still nothing changed on the bus — questions/requests are still null', withSync.json.questions === null, JSON.stringify(withSync.json.questions));
+const syncCard = (withSync.json.stuck || []).find((e) => e.key === 'stuck/sync');
+check('and the conflict is on the poll anyway, as a snapshot rather than a bus event', Boolean(syncCard), JSON.stringify(withSync.json.stuck));
+check('naming the workspace and saying it will not clear on its own', (syncCard?.title || '').includes('demo') && (syncCard?.text || '').includes('will not clear'), JSON.stringify(syncCard));
+
+// A deploy failure, written straight to the journal the way a real runner leaves it —
+// no sweep involved, because the case this is for is a daemon that already restarted
+// and is reading a journal an earlier process wrote.
+fs.writeFileSync(
+  path.join(DEPLOY_DIR, 'd-stuck-news.json'),
+  JSON.stringify({
+    id: 'd-stuck-news',
+    workspace: 'demo',
+    repo: 'widgets',
+    status: 'failed',
+    restarts: false,
+    pid: null,
+    requestedAt: new Date().toISOString(),
+    steps: [],
+    error: 'the deploy command failed (exit 1)',
+  })
+);
+const withDeploy = await request('GET', `/api/poll?since=${quietSince}&wait=0`);
+const deployCard = (withDeploy.json.stuck || []).find((e) => e.key === 'stuck/deploy/demo/widgets');
+check('a repo whose last deploy failed rides the same snapshot', Boolean(deployCard), JSON.stringify(withDeploy.json.stuck));
+check('both cards are on the poll side by side', (withDeploy.json.stuck || []).length === 2, JSON.stringify(withDeploy.json.stuck));
+
+// Recovery: the tracker settles, the deploy that fixed it lands. Both are gone from
+// the next snapshot without anything having to say "this cleared" — the newest word
+// in each journal is the ordinary kind now, and there is nothing left to disagree
+// with a `deployClearEvent`/`syncClearEvent` that never has to fire for this to work.
+app.syncer.record({ workspace: 'demo', state: 'ok' });
+fs.writeFileSync(
+  path.join(DEPLOY_DIR, 'd-stuck-news-2.json'),
+  JSON.stringify({
+    id: 'd-stuck-news-2',
+    workspace: 'demo',
+    repo: 'widgets',
+    status: 'ok',
+    restarts: false,
+    pid: null,
+    requestedAt: new Date().toISOString(),
+    steps: [],
+  })
+);
+const clearedPoll = await request('GET', `/api/poll?since=${quietSince}&wait=0`);
+check('and both are gone from the snapshot once they are fixed', (clearedPoll.json.stuck || []).length === 0, JSON.stringify(clearedPoll.json.stuck));
 
 for (const s of servers) s.close();
 

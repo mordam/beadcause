@@ -20572,6 +20572,47 @@ the running build you are reading this on came up out of one of them. Nothing is
 away by the move — the card still says "deploy unconfirmed" rather than "deployed", and a
 previous failure's card is still only cleared by an `ok`.
 
+### The stuck card survives a restart, because it is asked for rather than replayed
+
+`stuck` is the one class that is a *state*: a tracker in conflict or a deploy that failed
+is still true an hour later, and both halves say so exactly once, on the tick the state
+changed (`syncStuckEvent`/`deployEvent`) — which is right for not repeating itself every
+poll and wrong for the two places that state actually lives. The daemon's event log
+(`lib/events.js`) keeps 256 entries and nothing more; the phone's `Tray` is documented as
+living in memory only, and empties the moment the process does. So the tracker breaks, the
+card appears, the phone reboots, and the card is gone while the tracker is still broken —
+and nothing says so again until the word moves, which for a conflict is never, because
+nothing retries its way out of one. `bc-ka5y.15.8`.
+
+**Both halves already know the current answer without replaying anything.** `syncer.trouble()`
+survives its own restart (`state.json`'s `sync` key, `bc-y3qk.7`) and `deployTrouble()` reads
+the same on-disk journal `sweepDeploys`/`unannounced` already sweep every cycle — newest
+settled record per repo, `failed`/`lost` counts as trouble, an `ok` or `unconfirmed` after it
+*is* the clear, with no flag of its own to keep in step with `deployClearEvent`. `GET
+/api/poll` carries both as `stuck: [...]`, built with the same `syncStuckEvent`/`deployEvent`
+that a real transition would use, so the phone's reconciliation is not a second wire shape to
+learn.
+
+**Unconditional, unlike `questions`/`requests`.** Those cost a `bd` sweep across every
+workspace and are worth skipping on a poll that timed out with nothing new on the bus; the
+stuck snapshot costs an in-memory map read and a handful of small files already read every
+cycle, so there is no poll worth skipping it on — and skipping it on exactly the poll where
+nothing else changed is the bug this section exists to fix. That poll is precisely the one a
+phone makes right after a restart: the daemon did not restart, no new transition fired, and
+`questions`/`requests` are correctly `null` on it. A `stuck` field gated the same way would
+have been `null` too, every time, which is why it is not.
+
+**The phone reconciles rather than replaying.** `WatchService.reconcileStuck` diffs the
+snapshot's keys against what `Tray`'s `STUCK` deck is actually showing: a key present but not
+showing is posted (and knocks — correct, it is the first time *this instance* has said so,
+whatever the daemon's own history of the same condition); a key showing but no longer present
+is taken down; a key present on both sides is left alone. That last case is the whole of "no
+second buzz for a state it was already showing" — the acceptance criterion this was filed
+against — and it is why this cannot be `Tray.retain()`, the same-shaped reconciliation the bead
+decks already had: `retain()` only ever sweeps the bead decks, because a `stuck/…` key is
+never a bead's and would be wrongly cleared by the question list's live set on the very next
+resync.
+
 ### The five sounds, and auditioning one before it is permanent
 
 `res/raw` holds five voices — `blip.wav`, `knock.wav`, `land.wav`, `drop.wav`, `chime.wav`,
@@ -20680,7 +20721,10 @@ when the condition does. Same type, same key, `state: "clear"` instead of `"stuc
 is what `pushSyncedAgain` became. It is also the only class a mute may not silence, which
 is the whole argument for giving it the one insistent voice: a tracker that is not syncing
 is the app quietly lying to you about every other machine, and a warning that can be
-arranged not to speak is not a warning.
+arranged not to speak is not a warning. Being a state rather than an arrival is also
+what makes it the one card a restart can lose while the thing it was warning about is
+still true — [see below](#the-stuck-card-survives-a-restart-because-it-is-asked-for-rather-than-replayed)
+for how the poll answers that without replaying the transition.
 
 **Nothing arrives twice.** The four pushers are *deleted* from `lib/notify.js` rather than
 left running beside the events — a phone that gets a native card and an ntfy push for the
