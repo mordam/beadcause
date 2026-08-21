@@ -633,6 +633,14 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the merge queue',
       'the owed-close sweep',
       'the poll',
+      // lib/publishsweep.js. Its whole body is behind `whenOn`, so on an install with the
+      // management system off this catch is unreachable — and on one with it on, `sweep`
+      // lands every failure a transport can have in an outcome, including a connection
+      // that is accepted and then never speaks. So what reaches here is the sweep's own
+      // bookkeeping, which is the bar every entry in this list is held to. Worth reporting
+      // rather than logging because a publication sweep that silently stopped is a chain
+      // that silently stopped growing, and an unpublished period cannot be claimed.
+      'the publication sweep',
       'the release sweep',
       'the reply push',
       // lib/strays.js, and the one entry in the list that signals other processes. Its
