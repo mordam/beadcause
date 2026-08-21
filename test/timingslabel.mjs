@@ -100,6 +100,24 @@ const child = (kind, ago) => timing.spend(kind, process.hrtime.bigint() - BigInt
   timing.end(rec, 200);
 }
 
+// Over budget, no child, and most of it with the loop busy: the starved row. Blocked
+// for real rather than fabricated — `loopBusy` reads the loop's own counters, so a
+// rewound `t0` has no busy loop behind it and the row would come out at 0.00 and prove
+// nothing. `t0` is still rewound a little on top, to clear the budget without paying a
+// second of wall clock for it.
+{
+  // The wait is what makes this work rather than a nicety: `eventLoopUtilization` answers
+  // zeros until the loop has actually started, and a module body runs before it does — so
+  // a block written at the top of this file would be invisible to the very measurement
+  // this row exists to exercise, and the row would come out at 0.00 and prove nothing.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const rec = timing.begin('GET /style.css');
+  rec.t0 -= 300_000_000n;
+  const until = Date.now() + 900;
+  while (Date.now() < until);
+  timing.end(rec, 200);
+}
+
 // Warm and inside the budget: the control, so "reddened" and "listed" mean something.
 timing.end(timing.begin('GET /api/fast'), 200);
 
@@ -110,6 +128,7 @@ check(
   'the warm-only route really has no cold half — otherwise this suite proves nothing'
 );
 check(() => assert.ok(snap.overBudget.includes('GET /api/session-log')), 'and the snapshot names it over budget anyway');
+check(() => assert.deepEqual(snap.starved, ['GET /style.css']), 'and the starved row is the only one the snapshot calls starved');
 
 /* ------------------------------------------------------------------ a fake daemon */
 
@@ -143,7 +162,7 @@ const run = await new Promise((resolve, reject) => {
 
 daemon.close();
 
-console.log('\nnpm run timings — the over-budget block\n');
+console.log('\nnpm run timings — the over-budget and starved blocks\n');
 
 check(() => assert.equal(run.status, 0, run.stderr || `exit ${run.status}`), 'the script runs against the snapshot');
 
@@ -170,6 +189,19 @@ check(
   'the warm-only route that misses the budget is named in the list'
 );
 check(() => assert.match(plain, / {2}GET \/api\/prs/), 'and so is the cold one, which never stopped working');
+
+/**
+ * And the same rule for the second list. `starved` is the daemon's finding too, for the
+ * same reason `overBudget` is — a consumer recomputing it can disagree with the daemon
+ * about which routes it is naming, and that is the bug bc-fg37 was.
+ */
+check(
+  () => assert.match(plain, /blocked behind the loop[^\n]*\n(?:[^\n]*\n)*? {2}GET \/style\.css/),
+  'the route that was starved rather than slow gets a block of its own'
+);
+check(() => assert.match(plain, /GET \/style\.css[^\n]*% of its wall clock/), 'saying how much of it went behind a busy loop');
+check(() => assert.doesNotMatch(plain, /blocked behind the loop[^\n]*\n(?:[^\n]*\n)*? {2}GET \/api\/prs/), 'and the route that spawned a child is not in it');
+check(() => assert.match(plain, /route +loop +n +p50/), 'the table carries the loop column the block is read against');
 check(
   () => assert.ok(reddened('GET /api/session-log'), `its row is not highlighted:\n${JSON.stringify(out)}`),
   'the table agrees with the list — the warm-only row is reddened too'

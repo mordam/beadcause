@@ -22,6 +22,15 @@
  * warm** are the same route on three sides of a cache; averaging them together produces a
  * number that has never once happened.
  *
+ * **`loop`** is the fourth, and it is the only column on the table that a cache cannot
+ * move. It is what share of the average request's wall clock the event loop was not
+ * idle for — so a route over budget at `1.00` with no child process was not slow, it
+ * was queued behind whatever else had the CPU, and the same route at `0.02` was waiting
+ * on something that is neither the CPU nor a subprocess.
+ * Those two used to print identically as `all ours`. The `blocked behind the loop` block
+ * under the table names the first kind outright, the way `over budget` names the other
+ * question this script exists to answer; lib/timing.js decides both lists.
+ *
  * The middle column is the one bc-1kwl.2 added and the one to read a conversion by: a
  * **stale** request was answered out of memory while a refresh ran behind it, so it
  * should look like the warm column and not like the cold one. A route whose stale figures
@@ -90,8 +99,8 @@ if (top > 0) rows = rows.slice(0, top);
 
 const w = Math.min(40, Math.max(20, ...rows.map((r) => r.route.length)));
 const short = `${'n'.padStart(5)} ${'p50'.padStart(7)} ${'p95'.padStart(7)}`;
-const head = `${'route'.padEnd(w)}  ${'n'.padStart(5)} ${'p50'.padStart(7)} ${'p95'.padStart(7)} ${'max'.padStart(7)} ${'sub%'.padStart(5)} ${'×'.padStart(5)}  ${short}  ${short}`;
-console.log(dim(`${''.padEnd(w)}  ${'—— cold ——'.padStart(41)}   ${'—— stale ——'.padStart(20)}   ${'—— warm ——'.padStart(20)}`));
+const head = `${'route'.padEnd(w)}  ${'loop'.padStart(5)}  ${'n'.padStart(5)} ${'p50'.padStart(7)} ${'p95'.padStart(7)} ${'max'.padStart(7)} ${'sub%'.padStart(5)} ${'×'.padStart(5)}  ${short}  ${short}`;
+console.log(dim(`${''.padEnd(w)}  ${''.padEnd(5)}  ${'—— cold ——'.padStart(41)}   ${'—— stale ——'.padStart(20)}   ${'—— warm ——'.padStart(20)}`));
 console.log(dim(head));
 
 const cell = (s, n) => String(s).padStart(n);
@@ -103,6 +112,9 @@ const blank = (n) => dim('·'.padStart(n));
 // and takes a second and a half (a transcript read spawns nothing, so it is warm by the
 // derivation) was named in the list and left black in the table.
 const overBudget = new Set(snap.overBudget);
+// Same rule: which routes were starved rather than slow is the daemon's finding, and a
+// route named below the table must be the one marked in it.
+const starved = new Set(snap.starved || []);
 
 for (const r of rows) {
   const c = r.cold;
@@ -113,7 +125,10 @@ for (const r of rows) {
     ? `${cell(c.n, 5)} ${cell(secs(c.p50Ms), 7)} ${cell(secs(c.p95Ms), 7)} ${cell(secs(c.maxMs), 7)} ${cell(c.subShare.toFixed(2), 5)} ${cell(c.fanout ? `${c.fanout}×` : '·', 5)}`
     : `${blank(5)} ${blank(7)} ${blank(7)} ${blank(7)} ${blank(5)} ${blank(5)}`;
   const three = (b) => (b ? `${cell(b.n, 5)} ${cell(secs(b.p50Ms), 7)} ${cell(secs(b.p95Ms), 7)}` : `${blank(5)} ${blank(7)} ${blank(7)}`);
-  console.log(`${name}  ${cold}  ${three(r.stale)}  ${three(h)}`);
+  // Blank rather than `0.00` for a route with no samples yet, so an empty cell never
+  // reads as a measured zero — the same reason every other column blanks.
+  const loopCell = typeof r.loopShare === 'number' ? cell(r.loopShare.toFixed(2), 5) : blank(5);
+  console.log(`${name}  ${starved.has(r.route) ? amber(loopCell) : loopCell}  ${cold}  ${three(r.stale)}  ${three(h)}`);
 }
 
 if (!rows.length) console.log(dim('  nothing has been asked for yet'));
@@ -123,6 +138,19 @@ if (snap.overBudget.length) {
   for (const route of snap.overBudget) console.log(`  ${route}`);
 } else if (snap.requests) {
   console.log(`\nevery route inside the ${snap.budgetMs}ms budget.`);
+}
+
+if (snap.starved?.length) {
+  console.log(
+    `\n${amber('blocked behind the loop')} — over budget, spawned nothing, and spent most of it with the loop unavailable:`
+  );
+  for (const route of snap.starved) {
+    const r = snap.routes.find((x) => x.route === route);
+    console.log(`  ${route}${r ? dim(`  ${Math.round(r.loopShare * 100)}% of its wall clock`) : ''}`);
+  }
+  console.log(
+    dim('  Nothing here is a caching problem — there was nothing to cache and no child to wait on.\n  What it was queued behind is a profile’s question, not this table’s.')
+  );
 }
 
 const bg = Object.entries(snap.background.byKind || {})
