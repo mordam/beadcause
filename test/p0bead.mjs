@@ -256,6 +256,7 @@ function board({
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
+      lift(APP, 'const openingCardClass = ('),
       lift(APP, 'const cardId = ('),
       lift(APP, 'const spaceForWorkspace = ('),
       lift(APP, 'const STATUS_LABEL = '),
@@ -425,9 +426,9 @@ check('nor does a bead an agent has, which is not a question anybody asked', () 
 check('the tap is `expand` and nothing else — the inbox card is not rebuilt in the tree', () => {
   const at = APP.indexOf("if (act === 'p0-answer') {");
   assert.notEqual(at, -1, 'the answer handler is gone');
-  const branch = APP.slice(at, at + 900);
+  const branch = APP.slice(at, at + 1600);
   const body = branch.slice(0, branch.indexOf('\n    }'));
-  assert.match(body, /await expand\(btn\.dataset\.key\)/);
+  assert.match(body, /await expand\(key\)/);
   // No place-holding around it: `.card.open` covers the page, so where the page happens
   // to be scrolled to underneath it is not something anybody can see.
   assert.ok(!body.includes('keepTheScreenStill'), 'the tap is holding a page it is about to cover');
@@ -437,6 +438,25 @@ check('the tap is `expand` and nothing else — the inbox card is not rebuilt in
   // the card underneath and read as a tap that did nothing.
   assert.match(body, /state\.p0adv = null;/, 'the answer opens under the advocate sheet');
   assert.ok(!/innerHTML|optionsHtml|cardHtml\(/.test(body), 'the tap is rebuilding the inbox card in the tree');
+});
+
+check('and bc-ka5y.14: the pending mark is set before the await and cleared in a finally', () => {
+  // The same shape the list's own `toggle` uses — see test/cardpending.mjs — moved here
+  // because this tap awaits the exact same `expand()` and used to have nothing to show
+  // for the wait at all.
+  const at = APP.indexOf("if (act === 'p0-answer') {");
+  const branch = APP.slice(at, at + 1600);
+  const body = branch.slice(0, branch.indexOf('\n    }'));
+  const mark = body.indexOf('state.opening = key');
+  const paint = body.indexOf('paintOpening()');
+  const wait = body.indexOf('await expand(key)');
+  assert.ok(mark !== -1 && paint !== -1 && wait !== -1, 'the branch no longer marks the row');
+  assert.ok(mark < wait && paint < wait, 'the mark is set after the fetch, which is the bug');
+  assert.match(body, /finally \{/, 'a throw would leave the row marked until a reload');
+  const fin = body.slice(body.indexOf('finally {'));
+  assert.match(fin, /state\.opening === key/, 'the finally clears a mark a later tap owns');
+  assert.match(fin, /state\.opening = null/);
+  assert.match(fin, /paintOpening\(\)/, 'state is cleared but the class stays on the node');
 });
 
 check('and the row it opens is kept in the list for exactly as long as the card is up', () => {
