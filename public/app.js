@@ -3306,15 +3306,19 @@
    * gate is the honest thing to show. `some` is the wrong quantifier for the same reason —
    * one commission beside a `close-it` still leaves a button that means the close.
    */
+  // A **deferral** counts here, and that is deliberate: it carries `closes: false` and
+  // `/api/respond` skips the gate for it exactly as it does for a commission, so on a card
+  // where nothing closes there is no refusal coming either, and withdrawing the button
+  // would leave a card nobody can put off — the bc-xl7n.52 failure arriving through the
+  // fix for it. This predicate answers "is a refusal coming?", which is why the quantifier
+  // is `every` and why a deferral is inside it.
+  //
+  // What a deferral does *not* count for is the label under the box with nothing picked,
+  // which asks a different question — see `answerLabel`. One predicate cannot serve both,
+  // and narrowing this one to serve that one is the mistake that reached a pull request.
   const allCommissions = (q) => {
     const options = q?.decision?.options || [];
-    // A **deferral** is not a commission, however much it looks like one from here: it
-    // is `closes: false` and it starts nothing, and the server excludes it from
-    // `anyCommission` for that reason (lib/server.js). So it must not count towards
-    // "every option commissions" either — a card whose only non-closing option is a
-    // *not yet* still has a reading under which a typed answer closes, which is the
-    // reading the server takes.
-    return options.length > 0 && options.every((o) => o.closes === false && !o.defers);
+    return options.length > 0 && options.every((o) => o.closes === false);
   };
 
   /**
@@ -3342,11 +3346,18 @@
    */
   function answerLabel(chosen, q) {
     // *Answer & defer* is the third of these, and it is the only one of the three that
-    // promises the card will still be here afterwards. Picked-only: a typed answer can
-    // never defer, because no parser may read "not yet" out of a sentence without
-    // reading it out of the wrong one too (`ambiguous` in lib/server.js).
+    // promises the card will still be here afterwards.
     if (chosen) return chosen.defers ? 'Answer & defer' : chosen.closes === false ? 'Answer & commission' : 'Answer & close';
-    return allCommissions(q) ? 'Answer & commission' : 'Answer & close';
+    // With nothing picked this describes a **typed** answer, and that is where a deferral
+    // parts company with the gate predicate above. A typed answer on a card whose only
+    // non-closing choice is a *not yet* closes: a deferral starts no work, so there is no
+    // instruction for a sentence to lose and the server does not hold it back as ambiguous
+    // (`anyCommission`, lib/server.js). So a deferral changes this label only while it is
+    // in the box — never from the card. Saying *Answer & commission* over it would name
+    // the one outcome that cannot happen, which is the fault this whole function exists
+    // to avoid.
+    const options = q?.decision?.options || [];
+    return allCommissions(q) && !options.some((o) => o.defers) ? 'Answer & commission' : 'Answer & close';
   }
 
   /**
