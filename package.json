@@ -27,6 +27,7 @@
     "beadcause-plan": "bin/plan.js",
     "beadcause-relay": "bin/relaystep.js",
     "beadcause-promotework": "bin/promotework.js",
+    "beadcause-promoterun": "bin/promoterun.js",
     "beadcause-attic": "bin/attic.js",
     "beadcause-requirements": "bin/requirements.js",
     "beadcause-access": "bin/access.js",
