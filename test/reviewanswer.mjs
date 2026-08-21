@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
 
-const { parseAnswers, checkAnswers, withAnswers, answerComment, reviewAnswerPrompt, commentAt } = await import(
+const { parseAnswers, checkAnswers, withAnswers, answerComment, reviewAnswerPrompt, commentAt, severityTag } = await import(
   LIB('reviewanswer.js')
 );
 const { REVIEW_ANSWERS, reviewState, withReviewBlock, commentsForWorker, commentsForReviewer } = await import(
@@ -333,6 +333,40 @@ check('the brief is a pure function of its arguments — no tracker, no checkout
 check('a comment about a file reads as path:line, and one about the change as a whole reads as nothing', () => {
   assert.equal(commentAt(STATE.comments[0]), 'lib/thing.js:42');
   assert.equal(commentAt(STATE.comments[1]), '');
+});
+
+check('a comment carries a severity tag, or nothing when it did not arrive with one', () => {
+  assert.equal(severityTag({ severity: 'blocking' }), ' (blocking)');
+  assert.equal(severityTag({ severity: '' }), '');
+  assert.equal(severityTag({}), '', 'a comment from before this field existed is not thereby a suggestion');
+});
+
+check('the brief prints severity and why on the comments the worker owes, so it can tell a blocking one from a suggestion', () => {
+  const withSeverity = {
+    ...STATE,
+    comments: [
+      { ...STATE.comments[0], severity: 'blocking', why: 'it is exercised on the hot path' },
+      { ...STATE.comments[1], severity: 'suggestion' },
+      STATE.comments[2],
+    ],
+  };
+  const text = reviewAnswerPrompt('beadcause', ISSUE, SPEC, withSeverity);
+  assert.match(text, /\*\*c1\*\* \(blocking\) `lib\/thing\.js:42` — this throws on an empty list it is exercised on the hot path/);
+  assert.match(text, /\*\*c2\*\* \(suggestion\) — why is the lock taken twice/);
+});
+
+check('the standing list carries severity too, on a comment the reviewer has not settled', () => {
+  const second = {
+    ...STATE,
+    round: 2,
+    comments: [
+      { ...STATE.comments[0], severity: 'blocking', answer: 'declined', note: 'it cannot be empty here' },
+      STATE.comments[1],
+      STATE.comments[2],
+    ],
+  };
+  const text = reviewAnswerPrompt('beadcause', ISSUE, SPEC, second);
+  assert.match(text, /\*\*c1\*\* \(blocking\) `lib\/thing\.js:42` — this throws on an empty list\n {2}- you said: declined/);
 });
 
 /* --------------------------------------------------------- the delivering worker's half */
