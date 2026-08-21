@@ -282,6 +282,7 @@ console.log('\nthe slow log\n');
   check(() => assert.match(lines[0] || '', /800ms of it waiting on 1 child/), 'and where the time went, which is the point of the line');
   check(() => assert.match(lines[0] || '', /bd 800ms of work/), 'naming the binary that took it');
   check(() => assert.match(lines[0] || '', /ours 7\d\dms/), 'and our own share, so a slow handler is not read as a slow tracker');
+  check(() => assert.match(lines[0] || '', /loop busy \d+ms/), 'and how long the loop was busy, so a starved request is not read as a slow one');
 
   /**
    * `/api/poll` parks for twenty-five seconds because that is what a long-poll is. A
@@ -334,6 +335,77 @@ console.log('\nthe things that would quietly corrupt the numbers\n');
   check(() => assert.ok(snap.routes.some((r) => r.route === 'other')), 'under one `other` key');
 }
 
+/* --------------------------------------------- the third number: starved or slow */
+
+/**
+ * Two requests that take the same time for opposite reasons.
+ *
+ * `total` and `children` cannot tell them apart — neither spawns anything, so both come
+ * out `all ours`, and that is what filed 132 static-asset requests on 2026-08-21 as
+ * though `/style.css` were a slow handler. The only difference between them is whether
+ * the loop was available while they waited, which is what `loopBusy` reads.
+ * Timed for real rather than fabricated: the whole claim is about a live event loop, and
+ * a rewound `t0` has no loop behind it to have been blocked.
+ */
+
+console.log('\nstarved rather than slow\n');
+
+const sleep = (msec) => new Promise((r) => setTimeout(r, msec));
+/** Hold the loop, the way a synchronous sweep across eleven workspaces does. */
+const hog = (msec) => {
+  const until = Date.now() + msec;
+  while (Date.now() < until);
+};
+
+{
+  timing.reset();
+  timing.configure({ slowMs: 0 });
+
+  // Nothing of its own to do, and its wait happens to span somebody else's synchronous
+  // work. This is the shape the bead is about.
+  const starvedRec = timing.begin('GET /style.css');
+  setTimeout(() => hog(300), 5);
+  await sleep(360);
+  const starved = timing.end(starvedRec, 200);
+
+  // The same wait on a quiet loop — a slow disk, a lock, a socket. Indistinguishable
+  // from the one above under the first two numbers, and a different bug with a
+  // different fix.
+  const patientRec = timing.begin('GET /api/patient');
+  await sleep(360);
+  const patient = timing.end(patientRec, 200);
+
+  check(() => assert.ok(starved.loopMs > 200, `loopMs ${starved.loopMs}`), 'a request that waited behind a busy loop is charged for the block');
+  check(() => assert.ok(starved.loopMs <= starved.ms, `${starved.loopMs} > ${starved.ms}`), 'and never for more of it than the request itself lasted');
+  check(() => assert.ok(patient.loopMs < 100, `loopMs ${patient.loopMs}`), 'while one that waited on a quiet loop is charged almost nothing');
+  check(
+    () => assert.ok(Math.abs(starved.ms - patient.ms) < 150, `${starved.ms}ms vs ${patient.ms}ms`),
+    'though the two took about the same time and spawned nothing — which is exactly what `total` and `children` could not tell apart'
+  );
+
+  const snap = timing.snapshot({ budgetMs: 100 });
+  const row = snap.routes.find((r) => r.route === 'GET /style.css');
+  check(() => assert.ok(row?.loopShare >= 0.5, `loopShare ${row?.loopShare}`), 'the route carries the share, which is the column the table prints');
+  check(() => assert.deepEqual(snap.starved, ['GET /style.css']), 'and the snapshot names it starved — over budget, no child, most of it behind the loop');
+  check(() => assert.ok(snap.overBudget.includes('GET /api/patient')), 'the patient one is over budget too, and still is');
+  check(() => assert.ok(!snap.starved.includes('GET /api/patient')), 'but is not called starved, because nothing was running while it waited');
+}
+
+{
+  // A route that paid for a child process has an ordinary explanation available, so it
+  // is never named starved however busy the loop was while it ran. The list is only
+  // worth reading if everything in it has no other reading.
+  timing.reset();
+  const rec = timing.begin('GET /api/sweeps');
+  setTimeout(() => hog(250), 5);
+  await sleep(300);
+  child('bd', 40);
+  timing.end(rec, 200);
+  const snap = timing.snapshot({ budgetMs: 100 });
+  check(() => assert.ok(snap.overBudget.includes('GET /api/sweeps')), 'a route that both spawned and waited is over budget');
+  check(() => assert.deepEqual(snap.starved, []), 'and is not in the starved list — a child process is an explanation, and that list is for routes with none');
+}
+
 /* ------------------------------------------------------------------- Server-Timing */
 
 {
@@ -344,6 +416,7 @@ console.log('\nthe things that would quietly corrupt the numbers\n');
   const h = timing.header(rec);
   check(() => assert.match(h, /^total;dur=2\d\d\.\d/), `the header leads with the total — got ${h}`);
   check(() => assert.match(h, /bd;dur=120\.0/), 'then each binary it waited on');
+  check(() => assert.match(h, /loop;dur=\d/), 'how long the loop was busy while it was open');
   check(() => assert.match(h, /cache;desc=cold/), 'and whether it was warm or cold');
   timing.end(rec, 200);
 }
