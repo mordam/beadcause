@@ -159,7 +159,18 @@ fs.writeFileSync(
       // other, plus a bead hanging off neither.
       [spaceDir('alpha')]: {
         summary: SUMMARY,
-        held: [heldBead('bc-deep'), heldBead('bc-mid'), heldBead('bc-loose'), heldBead('bc-orphan')],
+        held: [
+          heldBead('bc-deep'),
+          heldBead('bc-mid'),
+          heldBead('bc-loose'),
+          heldBead('bc-orphan'),
+          // Filed while bc-epic's own EpicAdvocate was planning bc-epic itself
+          // (`filed-while:bc-epic` — bc-xl7n.65's own shape, `--parent bc-epic`), then
+          // hand-adopted afterwards to sit under `bc-later`, an unrelated bead with no
+          // advocate of its own. `bc-adopted`'s CURRENT parent says bc-later; only the
+          // stamp says bc-epic. bc-xl7n.76.1.
+          heldBead('bc-adopted', { labels: ['unendorsed', 'filed-while:bc-epic'] }),
+        ],
         graph: [
           node('bc-root'),
           node('bc-epic', 'bc-root'),
@@ -167,6 +178,8 @@ fs.writeFileSync(
           node('bc-mid', 'bc-root'),
           node('bc-loose', 'bc-nobody'),
           node('bc-orphan'),
+          node('bc-later', 'bc-root'),
+          node('bc-adopted', 'bc-later'),
         ],
       },
       // Everything held, nothing above any of it. The console still has to draw them.
@@ -209,10 +222,10 @@ const warmGraph = async (name) => {
 await check('the rows behind the held count ride on the row that already counted them', async () => {
   await warmGraph('alpha');
   const [row] = await collectWork(bd, [workspace('alpha')], {}, []);
-  assert.equal(row.counts.held, 4, 'the pill still quotes every held bead');
+  assert.equal(row.counts.held, 5, 'the pill still quotes every held bead');
   assert.deepEqual(
     row.heldRows.map((b) => b.id).sort(),
-    ['bc-deep', 'bc-loose', 'bc-mid', 'bc-orphan'],
+    ['bc-adopted', 'bc-deep', 'bc-loose', 'bc-mid', 'bc-orphan'],
     'the rows are the ones behind that number and no others'
   );
   const deep = row.heldRows.find((b) => b.id === 'bc-deep');
@@ -231,6 +244,20 @@ await check('and each carries the chain of epics above it, nearest first', async
   assert.deepEqual(under['bc-mid'], ['bc-root']);
   assert.deepEqual(under['bc-loose'], ['bc-nobody'], 'a parent that is not itself in the export still ends the walk');
   assert.deepEqual(under['bc-orphan'], [], 'a bead with nothing above it is not an error, it is the repo bucket');
+});
+
+await check('a `filed-while` stamp wins over wherever the bead sits now — bc-xl7n.76.1', async () => {
+  await warmGraph('alpha');
+  const [row] = await collectWork(bd, [workspace('alpha')], {}, []);
+  const adopted = row.heldRows.find((b) => b.id === 'bc-adopted');
+  assert.deepEqual(
+    adopted.under,
+    ['bc-epic', 'bc-root'],
+    'the chain above where it was FILED — bc-epic itself, then its own ancestor — not above ' +
+      'bc-later, where a triage pass moved it afterwards. Self-inclusive: the EpicAdvocate ' +
+      'that planned bc-epic filed this straight under bc-epic, and the ancestry walk this ' +
+      'replaces would never put an epic above itself.'
+  );
 });
 
 await check('it costs no `bd` call the row was not already making, and never waits on the export', async () => {

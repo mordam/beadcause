@@ -52,8 +52,18 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 const { Bd } = await import(LIB('bd.js'));
 const { UNENDORSED, QUEUE_EXCLUDED, isHeld, assertEndorsed } = await import(LIB('endorse.js'));
-const { FILED_LABEL, PRIORITY_FLOOR, DISCOVERED_FROM, clampPriority, withDiscoveredFrom, beadToIssue, fileBeads } =
-  await import(LIB('filing.js'));
+const {
+  FILED_LABEL,
+  FILED_WHILE_PREFIX,
+  PRIORITY_FLOOR,
+  DISCOVERED_FROM,
+  clampPriority,
+  withDiscoveredFrom,
+  filedWhileLabel,
+  filedWhileTarget,
+  beadToIssue,
+  fileBeads,
+} = await import(LIB('filing.js'));
 
 /* ------------------------------------------------------------------- the stub bd */
 
@@ -344,6 +354,15 @@ await check('bdReason finds what bd said, past the command it echoed back', asyn
   assert.match(bdReason(killed), /timed out in demo/, 'and a child this process killed says nothing on stderr at all');
 });
 
+await check('filedWhileLabel and filedWhileTarget round-trip, and are `null`/`""` on nothing', () => {
+  assert.equal(filedWhileLabel('zz-work'), `${FILED_WHILE_PREFIX}zz-work`);
+  assert.equal(filedWhileLabel(''), null, 'no bead being worked, no stamp to invent');
+  assert.equal(filedWhileLabel(undefined), null);
+  assert.equal(filedWhileTarget(`${FILED_WHILE_PREFIX}zz-work`), 'zz-work');
+  assert.equal(filedWhileTarget('agent-filed'), '', 'an unrelated label is not this one');
+  assert.equal(filedWhileTarget(''), '');
+});
+
 await check('the marker goes on first, and `human` never does', () => {
   const out = beadToIssue({ title: 'x', priority: 2, labels: ['api'] }, { from: 'zz-work' });
   assert.equal(out.labels[0], UNENDORSED, 'a reader of bd show sees why it is not being worked, first');
@@ -379,6 +398,10 @@ await check('it arrives held, provenanced, and pointing back at the work that fo
   const [bead] = filedBeads();
   assert.ok(bead.labels.includes(UNENDORSED), `no marker on ${bead.id} — it would be worked tonight`);
   assert.ok(bead.labels.includes(FILED_LABEL), 'and nothing would say an agent filed it');
+  assert.ok(
+    bead.labels.includes(`${FILED_WHILE_PREFIX}zz-work`),
+    'and the console can read which bead was being worked, without walking the graph'
+  );
   assert.deepEqual(
     bead.dependencies,
     [{ id: 'zz-work', dependency_type: DISCOVERED_FROM }],
@@ -431,6 +454,10 @@ await check('a bead filed while working a root lands UNDER that root, not beside
   assert.match(bead.notes, /Filed by an agent while working zz-root/, 'the provenance is in the prose either way');
   assert.doesNotMatch(res.stderr, /would not take/, 'and nothing was refused on the way in');
   assert.doesNotMatch(res.stderr, /NO PARENT/, 'so the session is not told its discovery is stranded');
+  assert.ok(
+    bead.labels.includes(`${FILED_WHILE_PREFIX}zz-root`),
+    'the label survives exactly where the edge above could not — this is the case it exists for'
+  );
 });
 
 await check('the stub really does refuse both edges — otherwise the check above proves nothing', async () => {

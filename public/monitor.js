@@ -733,17 +733,17 @@
    * own — an endorsement no advocate owns does not vanish from the console, it lands in
    * the repo's own section, and nothing is ever unreachable.
    *
-   * **"Produced by its work or by the agents it spawns" is read off the graph, and the
-   * graph is honest about it.** An EpicAdvocate's agents are the sessions opened on beads
-   * under its epic; a discovery one of them files is filed *under* the bead it was
-   * working (lib/filing.js homes it, and `withDiscoveredFrom` keeps the parent when bd
-   * refuses to hold both edges), so the epic is an ancestor of the held bead. That is
-   * what `under` on the row is — the parent chain, nearest first, computed server-side in
-   * lib/work.js. It is a proxy and not a stamp: nothing records *which agent* filed a
-   * bead, so a bead somebody parented under the epic by hand reads the same as one an
-   * advocate's worker found. The exact reading needs a filer stamp at file time, which is
-   * its own bead; this is the reading available today and it is right for every bead the
-   * advocates actually produce.
+   * **"Produced by its work or by the agents it spawns" is read off a stamp now, not
+   * inferred from the graph — bc-xl7n.76.1.** `lib/filing.js` writes `filed-while:<bead>`
+   * on everything an agent files, naming the bead that was actually being worked at file
+   * time, and `under` on the row (computed server-side in lib/work.js) is the chain above
+   * *that* bead — the stamped bead included — rather than the chain above wherever the
+   * created bead happens to sit today. That is the fix for the gap this comment used to
+   * describe: before the stamp existed, `under` was the created bead's own live ancestry,
+   * and a bead somebody hand-adopted under an epic afterwards read exactly like one that
+   * epic's own worker produced. A bead with no stamp — filed before bc-xl7n.76.1, or
+   * through a path that predates it — still falls back to that same live-ancestry walk,
+   * which is why the fallback below still matters.
    *
    * Nearest ancestor wins, which is why `under` is ordered: an advocate on the bead's own
    * epic owns it over one on the P0 three levels above.
