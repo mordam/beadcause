@@ -64,6 +64,8 @@ const {
   beadToIssue,
   fileBeads,
 } = await import(LIB('filing.js'));
+const { parseDecision, decisionTail } = await import(LIB('decision.js'));
+const { parseSurface } = await import(LIB('beadfiles.js'));
 
 /* ------------------------------------------------------------------- the stub bd */
 
@@ -481,6 +483,81 @@ await check('when bd does refuse the parent, the session is told the bead is str
     res.stderr,
     /^beadcause-file: filed under /m,
     'and never "filed under zz-root" over a bead that is under nothing — that is what hid this for a fortnight'
+  );
+});
+
+/* ------------------------------------------- bc-ka5y.23: a fence inside the fence */
+
+/**
+ * `bin/file.js` re-wraps the whole input in its own `beadproposal` fence and hands it
+ * to `parseProposal`. If a bead's own `description` carries a fenced block of its
+ * own (the normal shape for a decision bead — bc-ka5y.22 is exactly this), YAML's
+ * block-scalar indentation puts that inner closing fence a few spaces in, and an
+ * unanchored closing alternative in `BLOCK_RE` was happy to treat an indented fence as
+ * the end of the whole `beadproposal` block. Everything serialised after `description`
+ * — acceptance, rationale, files, and the rest of the decision block itself — vanished,
+ * with no error and an ordinary success line on stdout.
+ */
+await check('a description carrying its own fenced block survives whole, with everything after it', () => {
+  const res = fileIt(`- title: Ship now or wait for review?
+  type: decision
+  priority: 2
+  description: |
+    Weigh shipping now against waiting for another pass.
+
+    \`\`\`decision
+    question: Ship now or wait for review?
+    options:
+      - id: ship
+        label: Ship now
+        recommended: true
+      - id: wait
+        label: Wait for review
+    \`\`\`
+  acceptance: The question is answered either way.
+  rationale: Found while reading lib/proposal.js for zz-work.
+`);
+  assert.equal(res.status, 0, res.stderr);
+  const bead = world().issues[res.stdout.trim()];
+  assert.ok(bead, 'and it is really in the tracker');
+  // The whole description, decision block and all — not truncated at the inner fence.
+  assert.match(bead.description, /Weigh shipping now against waiting for another pass\./);
+  assert.match(bead.description, /```decision/);
+  assert.match(bead.description, /label: Wait for review/, 'the second option, past the truncation point');
+  assert.match(bead.description, /```\s*$/, 'the description ends with the decision block\'s own closing fence');
+  // Everything the truncation used to drop, because field order put it after `description`.
+  assert.equal(bead.acceptance, 'The question is answered either way.', 'acceptance must not go missing');
+  assert.match(bead.notes, /How it was found:.*lib\/proposal\.js/s, 'rationale must not go missing');
+  // And the decision block inside the description is itself intact and well-formed.
+  const { decision, error } = parseDecision(bead.description);
+  assert.equal(error, undefined, 'the inner decision block parses as YAML');
+  assert.equal(decision?.question, 'Ship now or wait for review?');
+  assert.equal(decision?.options?.length, 2, 'both options survived, not just the ones before the truncation');
+  assert.ok(decision?.options?.some((o) => o.recommended), 'and the recommendation on the second one');
+  assert.equal(decisionTail(bead.description).ok, true, 'and it ends the way a question has to end');
+});
+
+await check('files declared alongside a fenced description survive too', () => {
+  const res = fileIt(`- title: Another one with a fence in it
+  description: |
+    Context first.
+
+    \`\`\`decision
+    question: Which way?
+    options:
+      - a
+      - b
+    \`\`\`
+  rationale: Found while reading lib/beadfiles.js for zz-work.
+  files: [lib/proposal.js, lib/decision.js]
+`);
+  assert.equal(res.status, 0, res.stderr);
+  const bead = world().issues[res.stdout.trim()];
+  assert.ok(bead, 'filed at all — files used to be silently dropped along with everything after description');
+  assert.deepEqual(
+    parseSurface(bead.description),
+    ['lib/proposal.js', 'lib/decision.js'],
+    'the beadfiles block bin/filing.js appends is there, past where the truncation used to cut'
   );
 });
 
