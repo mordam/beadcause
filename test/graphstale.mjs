@@ -125,10 +125,17 @@ check('the failed refresh really did spawn an export', afterTwo > afterOne, `${a
 // second window, and a suite that waited one out to prove it would be the slowest file in
 // the repo for a single assertion. What is pinned is the decision — the entry it fell back
 // on keeps its own age, so a read that failed cannot push the next re-export a minute away.
+//
+// bc-4m2j.7 renamed the fallback's variable from `hit` to `prior`, and re-reads it fresh
+// from PARENT_CACHE inside the catch rather than closing over the value from the top of
+// the call — which matters once a `refresh: true` chains a second export behind one
+// already in flight (see `graph`'s own note): the freshest entry by the time a *chained*
+// export's own read fails may be the one the export ahead of it in the chain just wrote,
+// not whatever was cached when this particular call started.
 const SRC = fs.readFileSync(path.join(ROOT, 'lib', 'bd.js'), 'utf8');
 check(
   'and the cache entry it fell back on keeps its own age rather than being stamped fresh',
-  /at:\s*hit\.at/.test(SRC),
+  /at:\s*prior\.at/.test(SRC),
   'lib/bd.js no longer carries the previous entry\'s `at` into the fallback — a failed export renews the window again'
 );
 
