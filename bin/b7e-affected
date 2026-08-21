@@ -1,0 +1,121 @@
+#!/usr/bin/env node
+/**
+ * `b7e-affected` — given a diff, name the suites that actually cover it.
+ *
+ *     b7e-affected                          # the diff since origin/main, plus anything uncommitted
+ *     b7e-affected lib/advocate.js public/spacebar.js
+ *     b7e-affected --why lib/advocate.js    # one line per suite, with the reason it matched
+ *     b7e-affected --json lib/advocate.js   # one object per changed file, then a summary
+ *     b7e-affected --dir <root>             # another tree — this is how it is tested
+ *
+ * bc-khoe.40: eight sessions each hand-wrote this exact grep before running `npm test` (or,
+ * since `bc-khoe.39`, `b7e-gate --only`) on a subset of suites they had to derive by hand.
+ * `lib/affected.js` is the matching; this is the argv parsing and the printing around it.
+ *
+ * **Plain mode is built to be piped straight into `b7e-gate --only`.** stdout carries
+ * nothing but matched suite paths, one per line — no prose, no reasons — because
+ * `xargs -I{} b7e-gate --only {}` (or a caller building `--only` flags itself) needs
+ * exactly that and nothing else. If any changed file matched nothing, stdout is left
+ * EMPTY rather than a partial list: printing only what narrowed successfully would make
+ * "found nothing for this one file" look identical to "these are the only suites this
+ * diff needs", and `b7e-gate --only` run with zero flags is `b7e-gate` with none at all —
+ * every suite. That is the fallback this is for, not a bug in it. Each unmatched file
+ * still gets a loud, explicit line, on stderr so it cannot corrupt the pipe.
+ *
+ * Exit codes: `0` every changed file matched at least one suite. `1` at least one did
+ * not (stdout is empty in this case — see above). `2` refused — bad usage.
+ */
+import path from 'node:path';
+import {
+  REPO_ROOT,
+  defaultChangedFiles,
+  findAffected,
+  toRepoRel,
+} from '../lib/affected.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+const DIR_GIVEN = value('--dir', null);
+const ROOT = path.resolve(DIR_GIVEN || REPO_ROOT);
+const WHY = has('--why');
+const JSON_MODE = has('--json');
+// With `--dir`, a bare path on argv is relative to *that* tree, not to wherever this
+// process actually runs from — the whole point of `--dir` is testing against a tree this
+// process is not sitting in. Without it, ordinary CLI use: relative to the real cwd.
+const CWD_BASE = DIR_GIVEN ? ROOT : process.cwd();
+
+// Everything left over once the known flags and their values are pulled out is a path.
+const FLAG_VALUES = new Set(['--dir']);
+const paths = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--why' || a === '--json') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1; // skip its value
+    continue;
+  }
+  if (a.startsWith('--')) {
+    console.error(`\x1b[31munrecognised flag: ${a}\x1b[0m`);
+    process.exit(2);
+  }
+  paths.push(a);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+
+const leave = async (code) => {
+  await new Promise((r) => process.stdout.write('', r));
+  process.exit(code);
+};
+
+const changedFiles = paths.length ? paths.map((p) => toRepoRel(ROOT, CWD_BASE, p)) : defaultChangedFiles(ROOT);
+
+if (!changedFiles.length) {
+  console.error(dim('no changed files — nothing to narrow; run the full gate if unsure'));
+  await leave(0);
+}
+
+const { results, unmatched, suites } = findAffected(ROOT, changedFiles);
+
+if (JSON_MODE) {
+  for (const file of changedFiles) {
+    const found = results.find((r) => r.file === file);
+    const reasons = {};
+    for (const m of found ? found.matches : []) reasons[m.suite] = m.reasons;
+    console.log(JSON.stringify({ file, suites: found ? found.matches.map((m) => m.suite) : [], reasons }));
+  }
+  console.log(JSON.stringify({ summary: true, suites, unmatchedFiles: unmatched }));
+  await leave(unmatched.length ? 1 : 0);
+}
+
+if (WHY) {
+  for (const { file, matches } of results) {
+    for (const { suite, reasons } of matches) {
+      console.log(`${suite}\t${reasons.join('; ')} — ${file}`);
+    }
+  }
+  for (const file of unmatched) {
+    console.log(dim(`# ${file}\tno suite matched — run the full gate`));
+  }
+  await leave(unmatched.length ? 1 : 0);
+}
+
+if (unmatched.length) {
+  for (const file of unmatched) {
+    console.error(red(`no suite matches ${file} — run the full gate`));
+  }
+  // Nothing on stdout: a narrowed list would be wrong the moment even one file has no
+  // known cover, and an empty `--only` selection is `b7e-gate`'s own spelling of "all".
+  await leave(1);
+}
+
+for (const suite of suites) console.log(suite);
+await leave(0);
