@@ -2890,8 +2890,18 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
   .brand h1.mark img.absorbing, .brand .dot.absorbing { animation: none; }
 }
 
-/* Reader tab */
-.doc { padding: 16px 16px 40px; max-width: 780px; margin: 0 auto; }
+/* Reader tab
+   `width: 100%` matters here for the same reason it is on `.thread` and `.launcher`
+   below (bc-khoe.21): `.doc` is the `.pagescroll` element itself on session.html and
+   beadsession.html, so it is a flex item of `body` (or of `.pane`, both flex columns),
+   and `margin: 0 auto` on a flex item turns `align-self: stretch` off. Without an
+   explicit width it is sized `fit-content` instead — `min(max-content, max(min-content,
+   available))` — and one unwrapped string inside it is enough to make the whole page
+   wider than the phone, silently, because `body { overflow: hidden }` clips the excess
+   rather than scrolling or wrapping it. `width: 100%` plus `max-width` is the pattern
+   already proven on `.thread`/`.launcher`: it fills the available width and still caps
+   at 780px on a wide screen, so centering the same one document class always did. */
+.doc { padding: 16px 16px 40px; max-width: 780px; margin: 0 auto; width: 100%; }
 .doc pre { white-space: pre-wrap; }
 .doc .pdf { width: 100%; height: calc(100vh - 140px); border: 1px solid var(--line); border-radius: 10px; }
 /* Publishing this document to Confluence. A footer rather than anything in the top
@@ -2909,8 +2919,20 @@ button.q { display: block; width: 100%; text-align: left; background: none; bord
 .publish-what { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
 .publish-note { color: var(--muted); font-size: 13px; line-height: 1.45; }
 .publish-err { color: var(--danger); }
-/* The work view: one card per workspace, its claimed beads, a way into its graph. */
-.work { padding: 12px 16px 40px; max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+/* The work view: one card per workspace, its claimed beads, a way into its graph.
+   `width: 100%` (bc-khoe.21): `.work` is what every scroller in this app is — the
+   `.pagescroll` element itself, so a flex item of `body` directly or of `.pane` (both
+   `display: flex; flex-direction: column`) — and `margin: 0 auto` turns that flex
+   item's `align-self: stretch` off. Without an explicit width it falls back to
+   `fit-content`, and one `white-space: nowrap` string anywhere inside is enough to
+   size the whole scroller — and so the whole page — to that string's length rather
+   than to the phone. `body { overflow: hidden }` clips whatever hangs off the right
+   edge with no scrollbar and nothing in the console, so the failure is silent; it cost
+   a screenshot on bc-khoe.7 to find at all. `width: 100%` is the fix already proven on
+   `.thread` and `.launcher`: filled by default, still capped at `max-width` on a wide
+   screen, so it changes nothing about how `.work` looks except when it would have
+   overflowed. */
+.work { padding: 12px 16px 40px; max-width: 780px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 12px; }
 .work-card { padding: 12px 14px; }
 /* Every card is a disclosure, and only one is open at a time. Collapsed, the heading
    is the whole card — so it carries the summary too, and a fold never costs you the
@@ -3509,13 +3531,17 @@ button.work-row {
 }
 .queue-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 /* Wraps, and that is a sizing decision rather than a typographic one. `.work` — which
-   every scroller on every page is — carries `margin: 0 auto`, and an auto cross-axis
-   margin on a flex item turns `align-self: stretch` off: the scroller is then sized
-   `fit-content`, which is `min(max-content, max(min-content, available))`. A `nowrap`
-   title makes min-content the whole string, so one long pull request title made the
-   *page* 56px wider than the phone and everything on it hung off the right edge, clipped
-   by `body { overflow: hidden }` with nothing to say it had happened. Wrapping puts
-   min-content back to the longest word. Do not add `white-space: nowrap` here. */
+   every scroller on every page is — used to carry `margin: 0 auto` with no explicit
+   width, and an auto cross-axis margin on a flex item turns `align-self: stretch` off:
+   the scroller was then sized `fit-content`, which is `min(max-content, max(min-content,
+   available))`. A `nowrap` title made min-content the whole string, so one long pull
+   request title made the *page* 56px wider than the phone and everything on it hung off
+   the right edge, clipped by `body { overflow: hidden }` with nothing to say it had
+   happened. `.work` now carries `width: 100%` too (bc-khoe.21), which fixes that at the
+   source — the scroller itself can no longer be blown wider than the phone. Wrapping
+   here is still worth keeping regardless: without it a long title still overflows *this
+   row*, just no longer the whole page, and `overflow-wrap: anywhere` is what keeps that
+   contained. Do not add `white-space: nowrap` here. */
 .queue-title {
   font-size: 14px; color: var(--text);
   overflow-wrap: anywhere;
