@@ -14261,9 +14261,12 @@ for a claim that is abandoned, and this is the one caller that can be sure it is
 reason and a shorter one — the claim it is releasing is its own.
 
 **Three things were deliberately left alone.** `Bd.reopen` still has no flag on it, because
-`Bd.commission` and `lib/jiragate.js` reopen beads whose holder may still be typing, and
-there the guard is doing exactly the job it was added for; force belongs at the call site
-that has established otherwise, not in the shared write. The refusal is
+`lib/jiragate.js` reopens a ticket coming back off Jira whose holder may still be typing,
+and there the guard is doing exactly the job it was added for; force belongs at the call
+site that has established otherwise, not in the shared write. `Bd.commission` was on this
+list too when it was first written, and [it should not have
+been](#bdcommission-was-on-that-list-too-and-so-was-the-other-half-of-the-answer-path)
+either. The refusal is
 matched by its own regex (`REASSIGN_GUARD_RE`) rather than by widening the one that reads
 a refused *close*, because both hand `--force` to their caller and the two sentences share
 no wording — a regex that drifted across them would step over a live blocker or an epic's
@@ -14306,6 +14309,44 @@ what happened, and the response carries `delivery.handedBack` for anything watch
 `test/handbackdelivery.mjs` drives the whole answer through `/api/respond` against a fake
 `bd` that *enforces* the refusal and reads the bead's row back afterwards — a stub that
 only records argv would pass with the bug still in.
+
+##### Bd.commission was on that list too, and so was the other half of the answer path
+
+The review-path correction above fixed the *hand-back* half of this guard. **The
+*answer* half — the one Adam actually taps — had the identical bug in two places, and
+both of them were on the "deliberately left alone" list above.** That is bc-xl7n.88.
+
+`Bd.closeAnswered` recovers from bd's *close* refusal (`assignee is … actor is …`) by
+clearing the assignee and closing again: `bd update <id> --assignee ''`, no flag. The
+docblock above it said the clear was "permitted from an actor that is not the
+assignee", measured against an *open* bead. Every question this method ever runs on is
+`in_progress` — a worker claims it as its first act, same as the hand-back's beads —
+and against an `in_progress` bead the clear is refused in the reassign guard's own
+words, every time. The failure was quiet in the worst way: `answerOnce` had already
+written the answer to the thread, the close then threw, and the card stayed in the
+inbox to be answered again — bc-ko7n's shape, reopened through the door bc-ko7n had
+just closed. `Bd.commission` — "build both as written", the answer that orders work
+instead of settling the question — called the plain `Bd.reopen` for the same reason
+this section's list gave it a pass: "the holder may still be typing". It never was. A
+question's assignee is the same worker-window artifact the hand-back's is, and by the
+time an answer reaches `commission` that window has always already delivered, handed
+back, or filed the question and stopped.
+
+Both now escalate the way the hand-back does: try the plain write, and reach for
+`--force` only on the specific write that guard refuses, only after that refusal comes
+back. `closeAnswered`'s escalation is narrower than `reopenAbandoned`'s, on purpose —
+its write never touches status, so there is no "moving into a done status" for the flag
+to lift, only the one guard it names — and `commission` was simply pointed at
+`Bd.reopenAbandoned`, the method already built for this. `lib/jiragate.js` is the one
+caller left on the live-holder list, and it is a different shape: a ticket coming back
+off Jira really can still be under a claim nobody has released yet.
+
+Measured against the real binary rather than reasoned about, the same way the
+hand-back's refusal was: an `in_progress` bead refuses a bare `--assignee ''` clear and
+a bare `reopen` in the exact words `REASSIGN_GUARD_RE` already matched, `--force`
+clears both, and a subsequent close or reopen then succeeds
+(`test/reassignguard.mjs`'s real-`bd` section). `test/answerclose.mjs` covers the fake
+side of `closeAnswered`'s escalation and `commission`'s new call, argv by argv.
 
 #### Closing the window — a session that has finished should not still be on screen
 
