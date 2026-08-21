@@ -366,6 +366,16 @@ images:
   because the close is the one outcome that is not going to happen. The option's id
   rides with the answer and the server re-reads the bead to decide, so editing the
   sentence into your own words does not turn a commission back into a close.
+- **`defers: true` on an option that means *not yet, leave this on the list*.** The
+  other kind of non-closing answer, and the one `closes: false` used to be pressed
+  into service for — wrongly, because it hands the bead to an agent. A deferral hands
+  it to nobody: the answer goes on the thread, the bead stays open and unclaimed, and
+  the **card stays in your inbox** with its options, because that is what you just
+  said should happen to it. `defers: true` implies `closes: false` and wins over a
+  `closes: true` written beside it. The button reads *Answer & defer*, the option
+  carries *↪ not yet — the card stays on your list*, and the two-tap arm on a
+  collapsed card says *Tap again — defers bc-7qo*. See [Not yet — the third thing an
+  answer can mean](#not-yet--the-third-thing-an-answer-can-mean).
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
 - `docs` are files on the Mac you need to read before answering. Each opens in the
@@ -460,8 +470,8 @@ disagreeing about what the question is.
 **A `decision` block is still better** and is what to write when you know the
 question is going to a phone: full-width buttons above the fold rather than chips
 in the box, the sentence you meant recorded as the answer rather than one lifted
-out of a paragraph, and the only place `closes: false` can be said. This is the
-safety net under everything else.
+out of a paragraph, and the only place `closes: false` or `defers: true` can be said.
+This is the safety net under everything else.
 
 #### Checking it
 
@@ -1340,6 +1350,73 @@ set.
 
 An answer lands as a comment authored by `beadcause` and the bead closes with reason
 "Answered via Beadcause".
+
+### Not yet — the third thing an answer can mean
+
+**A card offering "not yet" used to eject itself.** bc-7qo.10 asked which environments
+the release agent promotes into, and its third option read exactly as an agent would
+write one:
+
+```yaml
+- id: park
+  label: Not yet — leave it blocked
+  hint: Keeps this card on the list.
+  closes: false
+```
+
+Tapping it took the `human` label off, reopened the bead and dropped the claim — the
+commission path, which is right for *build both as written* and backwards for this. The
+card fell out of the inbox into `bd ready`, and the next advocate tick opened an
+unattended worker window on the question that had just been put off. The hint said
+*keeps this card on the list* and the machinery did the opposite of it.
+
+**The two answers are not the same answer and a boolean cannot tell them apart.** Both
+leave the bead open; what differs is who has it next.
+
+| the option says | the bead | the `human` label | who has it next |
+|---|---|---|---|
+| nothing — the ordinary case | closed, reason *Answered via Beadcause* | irrelevant, the bead is closed | nobody, it is settled |
+| `closes: false` — a commission | open, unclaimed | **off** | an agent, via `bd ready` |
+| `defers: true` — a deferral | open, unclaimed | **on** | you, on the same card |
+
+So `defers: true` is `closes: false` **plus** the label staying, and that one write is
+the whole difference: the inbox is `bd human list` and an advocate's queue is `bd ready
+--exclude-label human`, so it is one fact read from two sides rather than two states to
+keep in step. Nothing can open a session on a bead you have deferred.
+
+**Why the cost of not having it was more than one wrong tap.** Every advocate writing a
+card had to give *every* option `closes: false`'s opposite as a workaround, and reason
+it out separately each time — bc-7qo.12, bc-7qo.13 and bc-7qo.17 all say so in their own
+words. Nobody could offer a *not yet* at all, on any card, which is a tax the whole card
+layer was paying for one routing decision.
+
+**A typed answer is never a deferral**, and that is deliberate rather than an omission.
+A sentence on a card where a button would have *commissioned* is [not an answer
+yet](#a-question-you-have-already-answered-arriving-again) — the words are saved and the
+card comes back, because a commission may not be granted on a guess about what a
+sentence meant, nor discarded on one. A deferral is excluded from that rule: it starts
+nothing, so there is no instruction at risk of being dropped by closing on your
+sentence, and counting it would have moved the tax rather than removed it. Tapping is
+how you defer; typing still closes.
+
+The thread says which happened, in as many words, because the next reader is an agent
+deciding whether it has just been given work: *Left open and still in the inbox — this
+answer defers the question rather than settling it or commissioning anything.* And a
+deferral does not lift a [superseded marker](#the-duplicate-that-comes-ready-the-moment-its-original-lands), where a
+commission does — *not yet* is not *these are two jobs*.
+
+**One surface still gets it wrong, and it is not new.** An ntfy action button POSTs the
+option's `response` text and no option *id*, so the server has nothing to look up and
+takes the ordinary closing path — which has always been true of `closes: false` and is
+worse for a deferral, because a commission at least leaves its instruction on a thread
+somebody reads where a deferral just loses the card. It is a notification-wire change
+rather than a card change, so it is **bc-7qo.20** rather than part of this: until that
+lands, treat a *not yet* offered on a card you may answer from a lock screen as an
+ordinary close. The phone, the Mirror and the Slack path all send the id and are fine.
+
+`node test/defer.mjs` drives all four endings against one card: the deferral keeps the
+label and the commission beside it still drops it, an ordinary option still closes, and
+a typed answer on a card whose only non-closing option is a deferral still closes.
 
 ### Setting a card aside is not answering it
 

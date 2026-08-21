@@ -335,8 +335,14 @@
         <button class="mir-btn" data-mact="comment" ${text.trim() ? '' : 'disabled'}>Comment &amp; ask an agent</button>
         <button class="mir-btn primary" data-mact="respond" ${text.trim() ? '' : 'disabled'}>${
           // Same rule as the phone's: a choice marked `closes: false` is a
-          // commission, so the button over it must not promise a close.
-          picked?.closes === false ? 'Answer &amp; commission' : 'Answer &amp; close'
+          // commission, so the button over it must not promise a close — and one
+          // marked `defers: true` promises less than either, because the card is
+          // still going to be here afterwards.
+          picked?.defers
+            ? 'Answer &amp; defer'
+            : picked?.closes === false
+              ? 'Answer &amp; commission'
+              : 'Answer &amp; close'
         }</button>
       </div>
     </div>`;
@@ -377,7 +383,14 @@
               o.id
             )}" data-response="${esc(o.response)}" aria-pressed="${o.id === picked?.id}">
               <span>${esc(o.label)}</span>${
-                o.closes === false ? '<small>↪ commissions the work — the bead stays open</small>' : ''
+                // A deferral is `closes: false` too and means the opposite of a
+                // commission — nothing starts, and this card is still here — so it gets
+                // its own line rather than borrowing the one below it.
+                o.defers
+                  ? '<small>↪ not yet — the card stays on your list</small>'
+                  : o.closes === false
+                    ? '<small>↪ commissions the work — the bead stays open</small>'
+                    : ''
               }${o.hint ? `<small>${esc(o.hint)}</small>` : ''}
             </button>`
           )
@@ -686,9 +699,14 @@
         note(
           res?.handedBack
             ? 'Answered — left open and handed back as work.'
-            : res?.needsChoice
-              ? 'Saved — one of these options starts work, so pick one to commit it.'
-              : 'Answered — the card is closed.'
+            : // Before `needsChoice`, as on the phone: both leave the card on screen, and
+              // "a choice is still owed" over a deferral you have just made would read as
+              // the tap not having landed.
+              res?.deferred
+              ? 'Deferred — the answer is on the thread and the card is still on your list.'
+              : res?.needsChoice
+                ? 'Saved — one of these options starts work, so pick one to commit it.'
+                : 'Answered — the card is closed.'
         );
       } else {
         await api('/api/comment', { method: 'POST', body: JSON.stringify({ workspace: t.workspace, id: t.id, text }) });

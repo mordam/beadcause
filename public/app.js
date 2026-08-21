@@ -3082,8 +3082,15 @@
           ${o.recommended ? '<span class="rec-tag">★ recommended</span>' : ''}
           ${
             // Worth saying before the tap rather than only in the toast after it:
-            // this option is an instruction, and the bead stays open.
-            o.closes === false ? '<span class="hand-tag">↪ commissions the work</span>' : ''
+            // this option is an instruction, and the bead stays open. A deferral is
+            // also `closes: false` and means the opposite of an instruction — it puts
+            // nothing in motion and leaves this very card where it is — so the two
+            // cannot share one tag (lib/decision.js).
+            o.defers
+              ? '<span class="hand-tag">↪ not yet — the card stays on your list</span>'
+              : o.closes === false
+                ? '<span class="hand-tag">↪ commissions the work</span>'
+                : ''
           }
           ${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ''}
         </button>`;
@@ -3301,7 +3308,13 @@
    */
   const allCommissions = (q) => {
     const options = q?.decision?.options || [];
-    return options.length > 0 && options.every((o) => o.closes === false);
+    // A **deferral** is not a commission, however much it looks like one from here: it
+    // is `closes: false` and it starts nothing, and the server excludes it from
+    // `anyCommission` for that reason (lib/server.js). So it must not count towards
+    // "every option commissions" either — a card whose only non-closing option is a
+    // *not yet* still has a reading under which a typed answer closes, which is the
+    // reading the server takes.
+    return options.length > 0 && options.every((o) => o.closes === false && !o.defers);
   };
 
   /**
@@ -3328,7 +3341,11 @@
    * through `textContent` when paintPicked() repaints it.
    */
   function answerLabel(chosen, q) {
-    if (chosen) return chosen.closes === false ? 'Answer & commission' : 'Answer & close';
+    // *Answer & defer* is the third of these, and it is the only one of the three that
+    // promises the card will still be here afterwards. Picked-only: a typed answer can
+    // never defer, because no parser may read "not yet" out of a sentence without
+    // reading it out of the wrong one too (`ambiguous` in lib/server.js).
+    if (chosen) return chosen.defers ? 'Answer & defer' : chosen.closes === false ? 'Answer & commission' : 'Answer & close';
     return allCommissions(q) ? 'Answer & commission' : 'Answer & close';
   }
 
@@ -3347,7 +3364,13 @@
    * `textContent` in paintArmed() and paintPicked().
    */
   const optionLabel = (q, o, armed) =>
-    !armed ? o.label : o.closes === false ? `Tap again — commissions ${q.id}` : `Tap again — answers ${q.id}`;
+    !armed
+      ? o.label
+      : o.defers
+        ? `Tap again — defers ${q.id}`
+        : o.closes === false
+          ? `Tap again — commissions ${q.id}`
+          : `Tap again — answers ${q.id}`;
 
   /**
    * Why this card has no *Answer & close* — said before you type, not after.
@@ -8240,6 +8263,12 @@
                 // rather than off which button was pressed.
                 res?.handedBack
                 ? `Answered ${q.id} — handed back as work`
+                : // A deferral, where the card is *still there* and nothing was handed to
+                // anybody. Above `needsChoice` because the two are the only outcomes
+                // where the card survives the answer and they must not be confused: one
+                // is a decision you made, the other is a decision still owed.
+                res?.deferred
+                ? `Deferred ${q.id} — still on your list`
                 : // The card did not go anywhere, and that is the one outcome a toast
                 // has to explain rather than confirm: everywhere else the card
                 // vanishing is the feedback. One of these options starts work, and a
