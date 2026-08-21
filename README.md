@@ -14074,6 +14074,84 @@ prompt uses — after the exit status is captured, never before, since every `rm
 `test/canonline.mjs` pins all of it, and measures the limit against a real pty rather
 than quoting it: 1500 characters sent, 1024 echoed, nothing delivered.
 
+### The other thing eating that line — a reader in the rc files
+
+A window came up and printed this, and the third line is the whole bug:
+
+```
+[oh-my-zsh] Would you like to update? [Y/n]
+[oh-my-zsh] You can update manually by running `omz update`
+ource '/var/folders/.../beadcause-cmd-4eaf3aa87171.zsh'
+zsh: command not found: ource
+```
+
+The section above is about a line too *long*. This is about a line typed while the
+shell's line editor is not yet the thing reading the terminal — and while that is true,
+anything in the rc files that reads the tty reads **our bytes**.
+`~/.oh-my-zsh/tools/check_for_upgrade.sh` is `read -r -k 1 option`: one character,
+straight off the front. It took the `s`. What the line editor then submitted was
+`ource '<path>'`, and the `s` fell through omz's `case` to its `*)` arm — which is why
+the window also answers a question nobody was there to answer.
+
+That window ran nothing, and it did not look like it. It sat at a zsh prompt with the
+tab still named after its bead, so every liveness check read it as healthy; the bead was
+pinned to a session that did not exist until the lease lapsed. The cost is bc-xl7n.113.2's
+subject and it is worth reading beside this.
+
+**oh-my-zsh is one instance of a class, and the class is what is defended.** The front of
+the typed line is not safe, so nothing load-bearing goes there: `sourceLine` pads it with
+eight spaces, which a shell throws away before it parses and a reader eats instead of the
+command. Eight readers' worth of food, eight bytes against the 1024 above, and when there
+is no reader at all it costs a line of history that `HIST_IGNORE_SPACE` would have
+dropped anyway.
+
+**Spaces, and never a newline.** A newline is the obvious sacrifice and the one character
+that must not be used: omz's arm is `[yY$'\n'])`, so a newline does not get eaten quietly
+— it answers *yes* and runs `omz update`, minutes of git on your machine because a byte
+was wanted. A space falls to `*)` and changes nothing.
+
+Which is also why the prompt keeps coming back: `*)` records no answer, so omz asks
+again in every window for the rest of its 13-day window. `n` would land on `[nN])` and
+stamp the timestamp and stop it — but `n` is not inert to a *shell*, so with no reader to
+eat it the line reads `nsource '<path>'` and nothing runs at all. It would have to be a
+sacrificial line of its own, and then every window beadcause opens is quietly answering
+a question of yours on your behalf, forever. A repeated prompt in a scrollback is the
+cheaper of the two.
+
+Both halves were measured rather than reasoned about, because either one being false
+would have made the whole fix an inert comment:
+
+| the question | how it was answered |
+|---|---|
+| does iTerm's `write text` deliver leading spaces, or trim them? | eight of them into a live session running `head -1 \| cat -et`, which came back `        source '…'$` |
+| does the reader eat the pad instead of the command? | a real pty, an rc file that does nothing but `read -r -k 1`: unpadded reproduces `command not found: ource` bit for bit, padded runs |
+
+`test/ttyread.mjs` is that second measurement, kept: the reproduction is a check of its
+own, so taking the pad out cannot look like a passing suite. It uses a stand-in rc file
+rather than oh-my-zsh, since a suite that needed omz installed would be testing the
+laptop rather than the repo. And it uses a pty throughout for a reason worth knowing
+before you try to simplify it — `read -k` refuses a pipe outright (*"not interactive and
+can't open terminal"*) and leaves the byte alone, so a pipe does not reproduce this bug,
+it makes it look already fixed.
+
+**What is not covered, and two shapes that were declined.** A *line*-oriented reader — a
+bare `read answer` in an rc file — consumes up to the newline and takes the command with
+it, pad and all. Defending that needs a sacrificial line typed ahead of this one, which
+costs an empty prompt at the top of every window forever, and nothing in these rc files
+does it. Of the alternatives:
+
+- **Quiet the readers from the dynamic profile.** iTerm will run a Custom Command instead
+  of the login shell, and `env DISABLE_AUTO_UPDATE=true zsh -il` means omz never asks. But
+  a Custom Command is not run through `login`, so `path_helper` and the login `PATH` go
+  with it, and nothing in the suite can exercise an iTerm profile. Getting it wrong is
+  *every* window opening a shell that cannot find `claude`, found out by a queue that
+  stopped moving. Eight spaces cannot fail that way.
+- **Wait for the prompt before typing.** It sounds like the fix for the whole class and it
+  is the opposite: a `read` with an empty buffer **blocks**, so the shell never reaches a
+  prompt, so the wait times out — and then the same character is lost to the same blocked
+  read, a timeout later. Buffered input is what keeps that reader moving; the pad is what
+  makes it eat the right byte.
+
 ### How a session ends, and the parts that stay guesses
 
 The command runs in an interactive shell, so when `claude` exits you get a

@@ -34,6 +34,19 @@
 -- lib/session.js. Nothing here enforces it — this script types what it is given — so if
 -- you ever hand it something long again, this is the failure you will get.
 --
+-- ## Why the command arrives with spaces on the front
+--
+-- The same shell that is not ready to *parse* the line is also not the only thing
+-- reading the tty: anything in the rc files that reads the terminal during startup —
+-- oh-my-zsh's update prompt is `read -r -k 1` — takes bytes off the **front** of what
+-- was typed. A window that lost its `s` submitted `ource '<path>'` and sat at a prompt.
+--
+-- So the caller pads the line with spaces, which a shell throws away and a reader eats
+-- instead of the command. `write text` was measured to deliver them verbatim rather
+-- than trimming — into a session running `head -1 | cat -et`, eight spaces came back as
+-- eight spaces — and that is the fact this half of the fix rests on. `TTY_PAD` in
+-- lib/session.js is the argument, including why the sacrifice may not be a newline.
+--
 -- ## Why the geometry is four integers and not a position and a size
 --
 -- iTerm's dictionary advertises `position`, `size`, `origin` and `frame` on a window.
