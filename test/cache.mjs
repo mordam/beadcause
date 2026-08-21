@@ -465,6 +465,124 @@ const timing = await import('../lib/timing.js');
   await check(() => assert.ok(row.warm && !row.cold && !row.stale), 'a request whose every key was fresh is not dragged colder by having read more than one');
 }
 
+/* ------------------------------------------- who paid, and who merely waited */
+
+/**
+ * bc-1kwl.33 — two readers on one cold key, and what each of their records says.
+ *
+ * The coalescing above is checked by counting producer calls, which is the right check
+ * for "one refresh, however many callers" and says nothing at all about the *second*
+ * caller's bill. That caller spawned nothing, so it came back `no subprocess, all ours`
+ * — indistinguishable in the log from a handler that really had run for a minute, and on
+ * 2026-08-21 that is exactly what the two worst samples in the daemon log were: a
+ * `/api/prs` at 62.6s and a `/api/queues` at 64.3s, both waiting on the 73.7s board
+ * sweep with 102 children that a third request was paying for.
+ *
+ * So this is the pair: one reader starts the producer, one joins it, and the assertions
+ * are that the starter keeps the children and the joiner names the wait. **Neither the
+ * coalescing nor the charge moved** — that the joiner's `children` is still zero is one
+ * of the checks here rather than an omission.
+ *
+ * Real elapsed time rather than the fake clock, because the wait is measured off
+ * `hrtime` the way a child process is: `now` moves the freshness windows and cannot move
+ * an interval.
+ */
+console.log('\nwhat the request that joined a sweep is filed as\n');
+
+/**
+ * One request, in an async context of its own.
+ *
+ * `timing.begin` uses `enterWith`, which persists for the remainder of the async
+ * resource it is called on — so two records opened side by side in this file's top-level
+ * context would be one record, the second silently overwriting the first, and every
+ * figure below would be about the same request twice. A `setImmediate` callback is a
+ * fresh resource, so the store it enters is its own and does not leak back out here.
+ * test/timing.mjs buys the same isolation with a real HTTP server, which is the right
+ * shape there and more than this needs.
+ */
+const inRequest = (key, fn) =>
+  new Promise((resolve, reject) => {
+    setImmediate(() => {
+      const rec = timing.begin(key);
+      Promise.resolve()
+        .then(fn)
+        .then(
+          (value) => {
+            // The header before the close, because that is the order a response goes out
+            // in and the only order in which what it says is a fact about the request.
+            const head = timing.header(rec);
+            resolve({ head, closed: timing.end(rec, 200), value });
+          },
+          (err) => {
+            timing.end(rec, 500);
+            reject(err);
+          }
+        );
+    });
+  });
+
+{
+  cache.clear();
+  timing.reset();
+  const lines = [];
+  timing.configure({ slowMs: 1, write: (l) => lines.push(l) });
+
+  let calls = 0;
+  let release = null;
+  /** The board sweep: one `bd` child, held open until the checks let it finish. */
+  const sweep = () => {
+    calls += 1;
+    return timing.measure('bd', () => new Promise((resolve) => (release = () => resolve('board'))));
+  };
+  const opts = { freshMs: 10_000, now, ceilingMs: 5_000 };
+
+  const starter = inRequest('GET /api/prs', () => cache.read('board:', sweep, opts));
+  // Long enough for the `setImmediate` and the microtask inside it: the slot has to exist
+  // before the second reader arrives, or this is two cold reads and not a join at all.
+  await new Promise((r) => setTimeout(r, 10));
+  const joiner = inRequest('GET /api/queues', () => cache.read('board:', sweep, opts));
+  await new Promise((r) => setTimeout(r, 40));
+  release();
+  const first = await starter;
+  const second = await joiner;
+
+  await check(() => assert.equal(calls, 1), 'two cold readers of one key still produce one sweep — the coalescing is untouched');
+  await check(() => assert.equal(second.value.value, 'board'), 'and the one that joined gets the answer the sweep produced');
+
+  await check(() => assert.ok(first.closed.wallMs > 30, `wallMs ${first.closed.wallMs}`), 'the reader that started the sweep is charged its child process');
+  await check(() => assert.equal(first.closed.joinedMs, 0), 'and nothing as a wait, because it was not waiting on anybody');
+
+  await check(() => assert.equal(second.closed.wallMs, 0), 'the reader that joined is charged no child process — the sweep was not its fan-out');
+  await check(
+    () => assert.ok(second.closed.joinedMs > 30, `joinedMs ${second.closed.joinedMs}`),
+    'and the wait is recorded as its own figure, which is the fact that was missing'
+  );
+  await check(
+    () => assert.ok(second.closed.oursMs < second.closed.ms / 2, `ours ${second.closed.oursMs} of ${second.closed.ms}`),
+    'so `ours` no longer absorbs it — a joined wait is not this handler running'
+  );
+  await check(() => assert.equal(second.closed.temperature, 'cold'), 'it is still filed cold: it did wait for a producer, and that is what cold means');
+
+  await check(() => assert.match(second.head, /joined;dur=\d/), 'the Server-Timing header carries the field');
+  await check(() => assert.doesNotMatch(second.head, /children;dur=/), 'and not a children field, which would claim a fan-out it never had');
+  await check(() => assert.match(first.head, /children;dur=\d/), 'while the starter carries children');
+  await check(() => assert.doesNotMatch(first.head, /joined;dur=/), 'and no joined field at all');
+
+  const line = lines.find((l) => l.includes('/api/queues')) || '';
+  await check(() => assert.match(line, /waiting on a sweep already running/), 'the slow line says what it waited on');
+  await check(() => assert.doesNotMatch(line, /no subprocess, all ours/), 'instead of the sentence that reads as a hung handler');
+  await check(
+    () => assert.match(lines.find((l) => l.includes('/api/prs')) || '', /waiting on 1 child process/),
+    "and the sweep's own request still reads as the sweep it was"
+  );
+
+  const rows = timing.snapshot().routes;
+  await check(() => assert.equal(rows.find((r) => r.route === 'GET /api/queues')?.joins, 1), 'the route counts the join, which is what keeps it out of `starved`');
+  await check(() => assert.equal(rows.find((r) => r.route === 'GET /api/prs')?.joins, 0), 'and the one that started the sweep has none');
+
+  timing.configure({ slowMs: 1000 });
+}
+
 /* ---------------------------------------------------------------------- verdict */
 
 console.log('');
