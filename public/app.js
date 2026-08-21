@@ -181,6 +181,11 @@
      * of why an already-cached card does not flash: nothing awaits on that path, so the
      * set, the clear and the repaint all happen inside the one tap, and the browser never
      * paints a frame in between.
+     *
+     * **Also the mark for `p0-answer`**, since bc-ka5y.14 — tapping "Answer it" on a bead
+     * inside an epic's tree runs the same `expand()` and has the same half-second wait, and
+     * a second field would just be this one with a different name. One key, whichever
+     * surface set it; `paintOpening()` draws it onto both shapes.
      */
     opening: null,
     /**
@@ -974,14 +979,17 @@
   const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
 
   /**
-   * The pending mark, for as long as this card's detail fetch is in the air. bc-jair.
+   * The pending mark, for as long as this bead's detail fetch is in the air. bc-jair,
+   * widened to the tree row by bc-ka5y.14.
    *
-   * Both card renderers interpolate it so that a poll landing mid-fetch paints it back:
-   * `paintOpening()` writes the class inside the tap's own frame, but the node it writes
-   * on is one the next reconcile is free to replace. Same division of labour as the ⋮
-   * menu's `state.menu`, and the same reason for it.
+   * Every renderer that can wear it interpolates it so that a poll landing mid-fetch
+   * paints it back: `paintOpening()` writes the class inside the tap's own frame, but the
+   * node it writes on is one the next reconcile is free to replace. Same division of
+   * labour as the ⋮ menu's `state.menu`, and the same reason for it. Takes anything with a
+   * `.key` — a question, an agent bead, or the plain `{ key }` `p0RowHtml` calls it with —
+   * because the tree row it marks is drawn from a `bd` row, not a question.
    *
-   * Shared between the two renderers where the title `<button>` beside it deliberately is
+   * Shared between the renderers where the title `<button>` beside it deliberately is
    * not: `editmode.js` anchors a control by grepping this file for the markup that drew
    * it, and what it anchors on is the `data-act` — nothing has ever anchored on the
    * *class* an article wears. See the note on `shutCardAct`.
@@ -4052,11 +4060,21 @@
    * different card while the first fetch is still going, and two cards both claiming to
    * be opening is worse than the inert tap this replaced. `state.opening` holds at most
    * one key, and this makes the DOM say the same thing.
+   *
+   * **Two shapes since bc-ka5y.14, not two functions.** `.card[data-key=...]` is the inbox
+   * card `toggle` marks; `[data-p0bead=...]` is the tree row `p0-answer` marks — the same
+   * key, whichever surface set it, and a sweep of each so a stray mark on either cannot
+   * survive a second tap landing on the other. Both selectors run every time rather than
+   * being told which shape to look for, because the caller only knows a key, not which
+   * screen the row it names is on — the epic tree and the inbox list can both be showing
+   * the same bead at once.
    */
   function paintOpening() {
-    for (const el of listEl.querySelectorAll('.card.opening')) el.classList.remove('opening');
+    for (const el of listEl.querySelectorAll('.card.opening, [data-p0bead].opening'))
+      el.classList.remove('opening');
     if (!state.opening) return;
     listEl.querySelector(`.card[data-key="${CSS.escape(state.opening)}"]`)?.classList.add('opening');
+    listEl.querySelector(`[data-p0bead="${CSS.escape(state.opening)}"]`)?.classList.add('opening');
   }
 
   /**
@@ -6178,6 +6196,12 @@
    * `aria-hidden`, no `tabindex` taken away — because it is still a real link to a real
    * bead, and a screen reader that skipped it would read the tree with a level missing,
    * which is the exact failure drawing the row at all is preventing.
+   *
+   * **`openingCardClass` is interpolated here too, since bc-ka5y.14.** The board is one
+   * reconcile chunk replaced whole every 25 seconds — more often than the inbox list, not
+   * less — so a mark that `paintOpening()` had only poked onto this node would be the
+   * first thing the next poll throws away. Called with a plain `{ key }` rather than a
+   * question, which is all it ever reads.
    */
   function p0RowHtml(card, row) {
     const status = String(row.status || 'open');
@@ -6188,7 +6212,7 @@
       row.context ? ' via' : ''
     }${row.pending ? ' asks' : ''}${
       on ? ' on' : ''
-    }" style="--d:${p0Step(row)}" data-act="p0-bead" data-p0bead="${esc(key)}" data-ws="${esc(
+    }${openingCardClass({ key })}" style="--d:${p0Step(row)}" data-act="p0-bead" data-p0bead="${esc(key)}" data-ws="${esc(
       card.workspace
     )}" data-bead="${esc(row.id)}" aria-expanded="${on}"${on ? ` aria-controls="p0bead-${cardId(key)}"` : ''}>
       <span class="p0-row-caret" aria-hidden="true">${on ? '▾' : '▸'}</span>
@@ -8398,6 +8422,20 @@
     openOnly(key);
     if (opening) openOn = key;
     render(true);
+    // **`paintOpening()` again, after the render — bc-ka5y.14, and this is not belt and
+    // braces.** For a card, `render(true)` alone always used to be enough: opening one
+    // flips `shutCardAct`/`.open` on that same chunk, so its HTML always differs from
+    // what was last painted and `warm.paint` rebuilds the node, dropping the surgically
+    // added class along with it. A tree row tapped through `p0-answer` has no such
+    // transition of its own — it was already open in the tree before the tap, `on` and
+    // every other class on it are unchanged by the fetch landing, so the freshly rendered
+    // `@p0` chunk is byte-for-byte the html `warm.paint` already has recorded against that
+    // key (`paintOpening()`'s classList surgery updates the live node, never the recorded
+    // string) — and `warm.paint` reads that as nothing to do, keeping the stale node with
+    // the mark stuck on it forever. Measured: without this line the row stayed marked
+    // after the card it belongs to opened. Calling it unconditionally rather than only on
+    // that path costs one query with nothing to find on every other one.
+    paintOpening();
   }
 
   /**
@@ -8757,6 +8795,13 @@
      *
      * The row this opens is kept in the list for exactly as long as the card is open — see
      * `underOwnedRoots`. Collapse and it drops back out, because the board is drawing it.
+     *
+     * **The pending mark since bc-ka5y.14, exactly as the list's own `toggle` sets it** —
+     * this was the one tap on the board that had nothing to show for itself until
+     * `/api/question` came back, the same wait bc-jair fixed on the card list and never on
+     * the tree. `state.opening` is a page-wide field rather than one scoped to either
+     * surface, so setting it here and letting `expand()` clear it needs nothing new: the
+     * only thing that changed is which selector `paintOpening()` finds a match on.
      */
     if (act === 'p0-answer') {
       closeMenu();
@@ -8766,7 +8811,22 @@
       // nothing. bc-r2b5.2. Cleared for the offer on the board card too, which costs
       // nothing there — the sheet is not up — and means one rule rather than two.
       state.p0adv = null;
-      await expand(btn.dataset.key);
+      const key = btn.dataset.key;
+      state.opening = key;
+      paintOpening();
+      try {
+        await expand(key);
+      } finally {
+        // Same guard as the list's `toggle`: a second tap can have moved the mark to
+        // another row while this fetch was in the air, and clearing it blind would strip
+        // a mark whose fetch is still going. The ordinary path never reaches this line at
+        // all — `expand()` clears the mark itself, before it opens the card — this is only
+        // for the throw `expand()` does not swallow.
+        if (state.opening === key) {
+          state.opening = null;
+          paintOpening();
+        }
+      }
       return;
     }
 

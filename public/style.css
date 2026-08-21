@@ -7017,6 +7017,27 @@ button.p0-row {
    under it every time you tapped one. */
 .p0-row.on { background: var(--surface); }
 
+/* Waiting on the fetch `p0-answer`'s "Answer it" launched — the row-shaped version of
+   `.card.opening:not(.open)` (bc-jair), reused rather than reinvented for bc-ka5y.14: the
+   tap on a bead inside a tree used to run `expand()` and show nothing until it landed,
+   the exact wait `.card.opening` exists to fill on the inbox list.
+
+   The mark rides the row's own leading edge rather than an outline, because the edge is
+   already the row's visual language — `.asks` colours it `--warn`, `.via` dashes it — and
+   a ring wrapped around a flex row that can wrap onto three lines would draw a box with a
+   step in the middle of it. Only `border-left-color` changes, never `border-left` itself:
+   the row already sets the width and the style, and repeating them here would be one more
+   place for the two to drift out of step. Last among the row's own state rules so it wins
+   over `.asks`' colour on a row that is both — the bead being answered is always the more
+   urgent of the two facts to show right now. */
+.p0-row.opening { border-left-color: var(--accent); animation: p0-row-opening 1.4s ease-in-out infinite; }
+@keyframes p0-row-opening {
+  50% { border-left-color: color-mix(in srgb, var(--accent) 30%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .p0-row.opening { animation: none; }
+}
+
 /* One bead's own details, opened in place under its row (bc-rfnr.9.4). Indented to its
    row's own step and then one notch further, so it reads as belonging to the row above
    rather than to the level below — where its children still are, because the expansion

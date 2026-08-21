@@ -6278,12 +6278,37 @@ agent bead, which share the one `toggle` branch. A pull request row and a JIRA r
 to their own acts, and both of those already put the sheet up first and fetch underneath
 it — they never sat inert, so there is nothing to mark.
 
+**A third place waits the same way, and bc-ka5y.14 gave it the same mark.** `p0-answer` —
+"Answer it" on a bead already expanded in an epic's tree — is `await expand(key)` and
+nothing else, the identical call the list's own `toggle` makes, so it had the identical
+half-second of nothing on a slow link. `[data-p0bead]` is the tree row's own shape, not
+`.card`, so `paintOpening()` grew a second selector rather than a second function, and
+`p0RowHtml` interpolates it exactly as `cardHtml` does — through the one shared
+`openingCardClass`, called with a plain `{ key }` since a row is drawn from a `bd` row and
+not a question. One `state.opening`, whichever surface set it; both selectors sweep every
+time, because the caller only knows a key and not which screen it is currently on.
+
+Reusing the mechanism surfaced a bug the card side never had to face. **A card's own
+`render(true)` was always enough on its own — a tree row's is not.** Opening a card always
+flips `.open` on that same list chunk, so its rendered HTML is never what `warm.paint` last
+recorded for that key and the node is rebuilt clean, taking the surgically-added class with
+it. A tree row tapped through `p0-answer` transitions nothing of its own: it was already
+open in the tree before the tap, and every class on it besides `opening` is unchanged by
+the card it answers landing — so the freshly rendered `@p0` chunk can come out
+byte-for-byte what `warm.paint` already has on file, and a reconciler that sees no
+difference leaves the stale node exactly as it was, mark and all. `expand()` now calls
+`paintOpening()` a second time, right after its own `render(true)`, to strip the class by
+DOM surgery regardless of whether the render rebuilt anything under it — one query with
+nothing to find on the card path, and the only thing that clears the row path at all.
+
 `node test/cardpending.mjs` (part of `npm test`) holds the half a browser is not needed
-for: both renderers run for real, `paintOpening()` is driven over a hand-made list to prove
-a second tap *moves* the mark rather than adding one, and the style is read for anything
-that could shift a pixel. `node scripts/pending-check.mjs` is where the timing itself is
-proved, in a real Chrome against a deliberately slow fixture — the click is dispatched and
-the class counted inside one evaluation, so no frame can have gone by in between.
+for: both renderers run for real, `paintOpening()` is driven over a hand-made list — cards
+and rows both, together and singly keyed — to prove a second tap *moves* the mark rather
+than adding one, and the style is read for anything that could shift a pixel.
+`node scripts/pending-check.mjs` and `node scripts/p0answerpending-check.mjs` are where the
+timing itself is proved, in a real Chrome against a deliberately slow fixture each — the
+click is dispatched and the class counted inside one evaluation, so no frame can have gone
+by in between.
 
 ## What a question is blocking
 

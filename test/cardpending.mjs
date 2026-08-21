@@ -12,26 +12,37 @@
  * the mark that fills that gap: put on inside the tap's own handler by `paintOpening()`,
  * taken off by the repaint that opens the card.
  *
+ * **bc-ka5y.14 widened the same mark to the board's tree row.** `p0-answer` — "Answer it"
+ * on a bead inside an epic's tree — runs the identical `expand()` and had the identical
+ * wait, and the mark it wears is `[data-p0bead].opening` rather than a second field or a
+ * second `paintOpening()`: one `state.opening`, one sweep, two selectors. Section 1 below
+ * covers `.card`, section 1b covers `[data-p0bead]`, and everything about the sweep and
+ * the clearing is one mechanism proven once.
+ *
  * `scripts/pending-check.mjs` is where the timing is proved, because only a browser can
  * say whether a class was on before a frame was painted. What is pinned *here* is
  * everything that would still be wrong on a machine with no Chrome:
  *
- * 1. **Both renderers draw it, and only for the card that is opening.** The class is
- *    interpolated rather than only written by hand onto a node, which is what makes it
+ * 1. **Every renderer draws it, and only for the row or card that is opening.** The class
+ *    is interpolated rather than only written by hand onto a node, which is what makes it
  *    survive a poll landing mid-fetch — the reconcile is free to replace the node
  *    `paintOpening()` wrote on. Written in exactly one place in the file, for the reason
  *    `shutCardAct` is: two literals are two things to keep in step.
  * 2. **`paintOpening()` is a sweep, not a toggle.** A second tap can land on another card
- *    while the first fetch is still in the air, and two cards both claiming to be opening
- *    is worse than the inert tap this replaced. Driven for real against a hand-made list.
+ *    or row while the first fetch is still in the air, and two nodes both claiming to be
+ *    opening is worse than the inert tap this replaced. Driven for real against a
+ *    hand-made list.
  * 3. **The mark is cleared where it has to be.** `expand()` clears it *before* it opens
  *    the card — that ordering is the whole of why an already-cached card cannot flash,
  *    since nothing on that path awaits — and the tap clears it again in a `finally`, for
- *    the throw `expand()` does not swallow.
+ *    the throw `expand()` does not swallow. `p0-answer`'s own `finally` is
+ *    test/p0bead.mjs's, since it lives beside the rest of that branch.
  * 4. **The style cannot move anything.** An outline and an offset, no border, no padding,
  *    no width: the draft edge above it is a shadow for the same reason. And reduced
  *    motion drops the pulse while keeping the ring, which is only true because the
- *    keyframes touch nothing but the colour.
+ *    keyframes touch nothing but the colour. The row's own version pulses its leading
+ *    edge instead of an outline — that edge is already the row's visual language
+ *    (`.asks` colours it, `.via` dashes it) — but is held to the same two rules.
  *
  * public/app.js is one IIFE with nothing exported, so the declarations are sliced out and
  * run in a `vm` the way test/cardtap.mjs does it, with the same Proxy stub floor for the
@@ -131,6 +142,15 @@ vm.runInContext(
     lift(APP, 'function agentCardHtml(q)'),
     lift(APP, 'function cardHtml(q)'),
     lift(APP, 'function paintOpening()'),
+    // The tree row's own renderer, and the two helpers it calls that this suite has no
+    // stub-worthy opinion about — `p0RowKey` and `p0Step` are one-liners, and `p0RelayHtml`
+    // short-circuits to '' the moment `row.relay` is falsy, which every fixture below
+    // leaves it as.
+    lift(APP, 'const P0_INDENT_CAP = '),
+    lift(APP, 'const p0RowKey = ('),
+    lift(APP, 'const p0Step = ('),
+    lift(APP, 'function p0RelayHtml(relay)'),
+    lift(APP, 'function p0RowHtml(card, row)'),
   ].join('\n'),
   ctx
 );
@@ -141,6 +161,26 @@ const draw = (fn, q, { open = false, opening = null } = {}) => {
   real.propBulkHtml = () => '';
   return vm.runInContext(`${fn}(Q)`, Object.assign(ctx, { Q: q }));
 };
+
+/**
+ * Same shape as `draw()`, for `p0RowHtml(card, row)` — the tree row's own signature,
+ * which takes two objects rather than one and reads `state.p0beadopen` instead of
+ * `state.open`.
+ */
+const drawRow = (card, row, { opening = null } = {}) => {
+  real.state = { p0beadopen: new Set(), opening };
+  return vm.runInContext('p0RowHtml(CARD, ROW)', Object.assign(ctx, { CARD: card, ROW: row }));
+};
+
+const TREE_CARD = { workspace: 'beadcause' };
+const treeRow = (id, extra = {}) => ({
+  id,
+  key: `beadcause/${id}`,
+  title: 'A bead under an epic',
+  status: 'open',
+  depth: 1,
+  ...extra,
+});
 
 const question = () => ({
   key: 'beadcause/bc-aaa1',
@@ -197,10 +237,12 @@ check('the card keeps everything else it was wearing', () => {
   assert.match(t, /data-key="beadcause\/bc-aaa1"/);
 });
 
-check('one place in the file writes the class — both renderers call it', () => {
+check('one place in the file writes the class — every renderer calls it', () => {
   // Same rule `shutCardAct` is under, and for a weaker version of the same reason: two
   // literals are two things to keep in step, and the card kind that gets forgotten is
-  // always the one nobody was looking at.
+  // always the one nobody was looking at. `p0RowHtml` calls the same function rather
+  // than writing a second literal, which is why this count did not move when the row
+  // learned the mark (bc-ka5y.14).
   const sites = APP.match(/' opening'/g) || [];
   assert.equal(sites.length, 1, `the literal is written ${sites.length} times`);
   assert.match(
@@ -210,16 +252,63 @@ check('one place in the file writes the class — both renderers call it', () =>
   );
 });
 
+/* -------------------------------------------- 1b. the tree row draws it too — bc-ka5y.14 */
+
+console.log('\nand the tree row wears the same mark, for the same reason\n');
+
+check('a row whose Answer tap is waiting on /api/question wears the mark', () => {
+  const t = tag(drawRow(TREE_CARD, treeRow('bc-ccc3'), { opening: 'beadcause/bc-ccc3' }));
+  assert.match(t, /class="p0-row[^"]*\bopening\b/, 'the row says nothing about the wait');
+});
+
+check('a row nobody tapped does not', () => {
+  const t = tag(drawRow(TREE_CARD, treeRow('bc-ccc3'), { opening: 'beadcause/bc-zzz9' }));
+  assert.doesNotMatch(t, /\bopening\b/, 'every row in the tree would be marked');
+});
+
+check('nor does anything when no fetch is in the air', () => {
+  assert.doesNotMatch(tag(drawRow(TREE_CARD, treeRow('bc-ccc3'))), /\bopening\b/);
+});
+
+check('the row keeps everything else it was wearing', () => {
+  // Added to the class list, not swapped for it — a marked row is still the same
+  // disclosure button, still carrying the attribute `p0-answer`'s own `expand()` and
+  // `paintOpening()` look it up by.
+  const t = tag(drawRow(TREE_CARD, treeRow('bc-ccc3'), { opening: 'beadcause/bc-ccc3' }));
+  assert.match(t, /data-act="p0-bead"/, 'the marked row stopped being its own disclosure');
+  assert.match(t, /data-p0bead="beadcause\/bc-ccc3"/);
+});
+
+check('a row uses the exact key p0RowKey and p0-answer both build', () => {
+  // `p0AnswerHtml` keys its button `${workspace}/${b.id}` and `p0RowKey` falls back to the
+  // same shape — this is the seam that makes marking the row by `state.opening` work at
+  // all, pinned so a change to either side is caught here rather than as a mark that
+  // silently stops landing.
+  const row = treeRow('bc-ccc3');
+  delete row.key;
+  const t = tag(drawRow(TREE_CARD, row, { opening: 'beadcause/bc-ccc3' }));
+  assert.match(t, /class="p0-row[^"]*\bopening\b/, 'p0RowKey\'s own fallback no longer matches p0AnswerHtml\'s key');
+});
+
 /* --------------------------------------------- 2. paintOpening is a sweep, not a toggle */
 
 console.log('\npaintOpening() puts it on one card and takes it off the rest\n');
 
-/** A list of cards, close enough to the DOM for the two selectors paintOpening uses. */
-function fakeList(keys, marked = []) {
-  const cards = keys.map((key) => {
-    const classes = new Set(['card', ...(marked.includes(key) ? ['opening'] : [])]);
+/**
+ * A list of nodes, close enough to the DOM for the two selectors paintOpening uses on
+ * each of its two shapes since bc-ka5y.14. A plain string is a `.card` — every test this
+ * suite had before that bead names its fixtures this way, and none of them changed; an
+ * `{ key, kind: 'row' }` is a tree row, `[data-p0bead]` rather than `.card`. The two kinds
+ * can share a key, because the same bead can be a card in the inbox list and a row in an
+ * epic's tree on the very same page.
+ */
+function fakeList(specs, marked = []) {
+  const nodes = specs.map((spec) => {
+    const { key, kind = 'card' } = typeof spec === 'string' ? { key: spec } : spec;
+    const classes = new Set([kind, ...(marked.includes(key) ? ['opening'] : [])]);
     return {
       key,
+      kind,
       classes,
       classList: {
         add: (c) => classes.add(c),
@@ -229,22 +318,24 @@ function fakeList(keys, marked = []) {
     };
   });
   return {
-    cards,
-    marked: () => cards.filter((c) => c.classes.has('opening')).map((c) => c.key),
+    nodes,
+    marked: () => nodes.filter((n) => n.classes.has('opening')).map((n) => n.key),
     querySelectorAll: (sel) => {
-      assert.equal(sel, '.card.opening', `unexpected selector ${sel}`);
-      return cards.filter((c) => c.classes.has('opening'));
+      assert.equal(sel, '.card.opening, [data-p0bead].opening', `unexpected selector ${sel}`);
+      return nodes.filter((n) => n.classes.has('opening'));
     },
     querySelector: (sel) => {
-      const want = /\.card\[data-key="(.*)"\]$/.exec(sel);
-      assert.ok(want, `unexpected selector ${sel}`);
-      return cards.find((c) => c.key === want[1]) || null;
+      const card = /^\.card\[data-key="(.*)"\]$/.exec(sel);
+      if (card) return nodes.find((n) => n.kind === 'card' && n.key === card[1]) || null;
+      const row = /^\[data-p0bead="(.*)"\]$/.exec(sel);
+      if (row) return nodes.find((n) => n.kind === 'row' && n.key === row[1]) || null;
+      throw new Error(`unexpected selector ${sel}`);
     },
   };
 }
 
-const paint = (keys, opening, marked = []) => {
-  const list = fakeList(keys, marked);
+const paint = (specs, opening, marked = []) => {
+  const list = fakeList(specs, marked);
   real.listEl = list;
   real.state = { opening };
   vm.runInContext('paintOpening()', ctx);
@@ -269,6 +360,21 @@ check('a card that has left the list on the poll is not an exception', () => {
   // `?.` on the lookup: the row can be gone by the time this runs — answered, filtered
   // out, or replaced by a reconcile — and a throw here would come out of a click handler.
   assert.deepEqual(paint(['a', 'b'], 'gone', ['a']), []);
+});
+
+check('a tree row is marked exactly as a card is — bc-ka5y.14', () => {
+  assert.deepEqual(paint([{ key: 'a', kind: 'row' }, 'b'], 'a'), ['a']);
+});
+
+check('the same key marks both shapes at once, if both are on the page', () => {
+  // The case the mark exists for on a board: the bead the tap on `p0-answer` is for is
+  // both a row in the tree and, once `expand()` lands, a card. Nothing in `paintOpening`
+  // picks one over the other — both selectors always run.
+  assert.deepEqual(paint(['x', { key: 'x', kind: 'row' }], 'x').sort(), ['x', 'x']);
+});
+
+check('moving the mark off a row clears it, same as moving it off a card', () => {
+  assert.deepEqual(paint([{ key: 'a', kind: 'row' }, 'b'], 'b', ['a']), ['b']);
 });
 
 /* ------------------------------------------- 3. the mark is cleared where it has to be */
@@ -314,6 +420,20 @@ check('and clears it in a finally, for the throw expand() does not swallow', () 
 
 check('the mark starts life empty', () => {
   assert.match(APP, /^\s*opening: null,$/m, 'state.opening is not declared on the page state');
+});
+
+check('expand() sweeps the DOM again after its own render — bc-ka5y.14', () => {
+  // The bug this line exists for: `render(true)` alone is enough for a CARD, because
+  // opening one always flips `.open` on the same chunk, so its html never matches what
+  // `warm.paint` has recorded and the node is rebuilt clean. A tree row tapped through
+  // `p0-answer` has no such transition of its own — it was already open in the tree, and
+  // nothing about it changes when the card it answers opens — so the freshly rendered
+  // `@p0` chunk can come out byte-for-byte what was last painted, and a reconciler that
+  // sees no difference leaves the surgically-marked node exactly as it was. Calling
+  // `paintOpening()` again after the render is what strips the class even when nothing
+  // rebuilds the node under it.
+  const after = EXPAND.slice(EXPAND.lastIndexOf('render(true);'));
+  assert.match(after, /^render\(true\);\s*\n(\s*\/\/.*\n)*\s*paintOpening\(\);/, 'the render is not followed by a sweep');
 });
 
 /* ------------------------------------------------ 4. the style cannot move anything */
@@ -368,6 +488,50 @@ check('and it starts at the ring rather than fading up to it', () => {
 check('reduced motion keeps the ring and drops the pulse', () => {
   const at = CSS_SRC.indexOf('.card.opening:not(.open) { animation: none; }');
   assert.notEqual(at, -1, 'nothing turns the pulse off for prefers-reduced-motion');
+  const before = CSS_SRC.slice(0, at);
+  assert.match(
+    before.slice(before.lastIndexOf('@media')),
+    /prefers-reduced-motion: reduce/,
+    'the animation is switched off outside a reduced-motion query — for everybody'
+  );
+});
+
+/* -------------------------------------------- 4b. the row's own version — bc-ka5y.14 */
+
+console.log("\nand the row's own mark, on its own edge\n");
+
+check('the row mark changes only the colour of the edge it already has', () => {
+  const body = rule('.p0-row.opening');
+  assert.match(body, /border-left-color:\s*var\(--accent\)/);
+  // Never the `border-left` shorthand — the row's own rule already sets the width and
+  // style, and repeating them here is one more place for the two to drift apart.
+  assert.doesNotMatch(body, /border-left\s*:/, 'the mark redeclares the edge instead of just its colour');
+});
+
+check('and declares nothing that could move a pixel', () => {
+  const body = rule('.p0-row.opening');
+  const moves = /(^|[;{\s])(border-left|border|padding|margin|width|height|font-size|inset|top|left|transform)\s*:/;
+  assert.doesNotMatch(body, moves, 'the mark changes the row box');
+});
+
+check('it comes after .asks in the file, so a bead asking a question that is also being answered shows the wait', () => {
+  assert.ok(
+    CSS_SRC.indexOf('.p0-row.opening') > CSS_SRC.indexOf('.p0-row.asks'),
+    'the two rules have the same specificity — source order is all that decides which wins'
+  );
+});
+
+check("the row's pulse touches nothing but the colour", () => {
+  const at = CSS_SRC.indexOf('@keyframes p0-row-opening');
+  assert.notEqual(at, -1, 'the pulse is gone, or has been renamed out from under the rule');
+  const body = CSS_SRC.slice(at, CSS_SRC.indexOf('}\n', CSS_SRC.indexOf('{', at)) + 1);
+  const declared = [...body.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(declared)], ['border-left-color'], `it also animates ${declared}`);
+});
+
+check('and reduced motion keeps the edge and drops the pulse, same as the card', () => {
+  const at = CSS_SRC.indexOf('.p0-row.opening { animation: none; }');
+  assert.notEqual(at, -1, 'nothing turns the row pulse off for prefers-reduced-motion');
   const before = CSS_SRC.slice(0, at);
   assert.match(
     before.slice(before.lastIndexOf('@media')),
