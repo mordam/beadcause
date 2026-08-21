@@ -231,6 +231,17 @@ check('and a commission says so rather than claiming to answer and close', () =>
   assert.ok(said.includes('bc-aaa1'), `"${said}" does not say which bead`);
 });
 
+check('and a deferral says *that*, which is neither of the other two', () => {
+  // bc-7qo.11. `defers: true` is `closes: false` plus "the card stays in the inbox", so an
+  // armed button reading "commissions bc-aaa1" over it would name the one thing a deferral
+  // is defined by not doing — and on a collapsed card the tap is the last chance to say
+  // so, because the next one sends.
+  const said = label({ id: 'park', label: 'Not yet', closes: false, defers: true }, true);
+  assert.match(said, /defers/i, `"${said}"`);
+  assert.doesNotMatch(said, /commissions/i, `"${said}" reads as a build order`);
+  assert.ok(said.includes('bc-aaa1'), `"${said}" does not say which bead`);
+});
+
 /* ------------------------------------------- 3. a redraw under a hot button */
 
 console.log('\nthe poll redraws the list every 25 seconds — the arm has to survive it\n');
