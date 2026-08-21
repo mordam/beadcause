@@ -119,3 +119,122 @@ export function blankJs(src) {
   }
   return out.join('');
 }
+
+/**
+ * The complement of `blankJs`: keep every comment, blank everything else — code, strings,
+ * template literals, regex bodies — to spaces, preserving length and line numbers exactly the
+ * same way. Built for bc-fq5a.1's "question N" prose scan in test/wizardnumbers.mjs, whose
+ * whole point is the opposite of every other static read in this repo: those blank comments
+ * because a scan of *code* must not find its own documentation quoting that code; this one
+ * wants only the comments, because the references it is checking (`// already handled in
+ * question 3`) live nowhere else. Blanking comments here, as usual, would erase the very thing
+ * being looked for — worth a function of its own, and this sentence, so nobody "fixes" the new
+ * check by reaching for `blankJs` out of habit.
+ *
+ * Mirrors blankJs's state machine exactly, char for char, with `keep` in place of `wipe` and
+ * the two swapped. Keep the two in step by hand, same as blankJs and its public/editmode.js
+ * original.
+ */
+export function extractComments(src) {
+  const out = src.split('').map((ch) => (ch === '\n' ? '\n' : ' '));
+  const stack = [];
+  let mode = 'code';
+  let prev = '';
+  let i = 0;
+  const keep = (n) => {
+    for (let k = 0; k < n; k++) out[i + k] = src[i + k];
+  };
+  while (i < src.length) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (mode === 'code') {
+      if (c === '/' && d === '/') {
+        mode = 'line';
+        continue;
+      }
+      if (c === '/' && d === '*') {
+        mode = 'block';
+        continue;
+      }
+      if (c === '/' && /[(,=:[!&|?{};+\-*%~^<>]/.test(prev)) {
+        mode = 'regex';
+        i += 1;
+        continue;
+      }
+      if (c === "'" || c === '"') {
+        mode = c;
+        i += 1;
+        continue;
+      }
+      if (c === '`') {
+        stack.push('tpl');
+        mode = 'tpl';
+        i += 1;
+        continue;
+      }
+      if (c === '}' && stack[stack.length - 1] === 'sub') {
+        stack.pop();
+        mode = 'tpl';
+        i += 1;
+        continue;
+      }
+      if (!/\s/.test(c)) prev = c;
+      i += 1;
+      continue;
+    }
+    if (mode === 'line') {
+      if (c === '\n') {
+        mode = 'code';
+        prev = '';
+        i += 1;
+        continue;
+      }
+      keep(1);
+      i += 1;
+      continue;
+    }
+    if (mode === 'block') {
+      if (c === '*' && d === '/') {
+        keep(2);
+        mode = 'code';
+        i += 2;
+        continue;
+      }
+      keep(1);
+      i += 1;
+      continue;
+    }
+    if (c === '\\') {
+      i += 2;
+      continue;
+    }
+    if (mode === 'tpl') {
+      if (c === '`') {
+        stack.pop();
+        mode = 'code';
+        i += 1;
+        continue;
+      }
+      if (c === '$' && d === '{') {
+        stack.push('sub');
+        mode = 'code';
+        i += 2;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    if (mode === 'regex') {
+      if (c === '/' || c === '\n') mode = 'code';
+      i += 1;
+      continue;
+    }
+    // A single- or double-quoted string, named by the quote that opened it.
+    if (c === mode) {
+      mode = 'code';
+      prev = c;
+    }
+    i += 1;
+  }
+  return out.join('');
+}
