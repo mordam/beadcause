@@ -16826,6 +16826,80 @@ for ending a worker's own run, and the one agent `DEFAULT_TOOL_LIST` actually re
 leave, and no worker slot to check in on. A worker session, which is what actually hits
 this bug, already carries an unrestricted allowlist and needs no grant to run it.
 
+### One command runs the whole suite without bailing — `b7e-gate`
+
+`bc-khoe.39` is the fourth finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
+filed against the same shape breaking repeatedly rather than once, and it is the biggest
+of the four: nine separate sessions (`bc-khoe.23`, `bc-b4fs.1`, `bc-khoe.27.1`, `bc-36xx.6`,
+`bc-5k22`, `bc-xl7n.79`, `bc-xl7n.71`, `bc-1kwl.22`, `bc-j52g`) each hand-wrote a runner
+into their own scratchpad because `npm test` (`scripts/test.mjs`) has no `--skip`/`--only`
+and stops dead at the first red suite — and with `scripts/selftest.mjs` pinned second,
+one unrelated failure there hides the other 300-odd. No two of the nine agreed on
+parallelism (1, 6, unspecified), per-suite timeout (120s, 300s, none — two of them cost a
+session a false red from a suite that needed longer than its guess), or whether to skip
+`scripts/test-swap.js`. Five then wrote their own `until grep -q ... ; sleep` polling loop
+on top, and two of those were refused by the worktree guard before finding a shape that ran.
+
+```
+b7e-gate                              every suite scripts/test.mjs --list would run
+b7e-gate --only <suite>|<glob> ...    repeatable — an exact path or a * glob, never a regex
+b7e-gate --skip <suite>|<glob> ...    repeatable, applied after --only
+b7e-gate --jobs N                     how many suites at once (default 6)
+b7e-gate --timeout <s>                per-suite seconds, overriding the slow-suite default
+b7e-gate --json                       one object per suite, streamed, for a caller to parse
+b7e-gate --log <path>                 also write every line here (default: a tmp file, named at the end)
+b7e-gate --list                       what would run, without running it
+b7e-gate --dir <root>                 another tree — this is how it is tested
+```
+
+**Discovery is reused, not reimplemented.** `lib/gate.js` shells out to
+`scripts/test.mjs --list --dir <root>` for the suite list, which is the pinned order
+(`test/lockfile.mjs`, `scripts/selftest.mjs` first, `scripts/test-swap.js` last) and the
+sorted middle both at once — the same argument `scripts/coverage.mjs` already makes for
+doing this rather than a second `readdirSync`: a suite list can never disagree with
+`npm test` about what a suite is if there is only one place it is decided.
+
+**No bail, and real concurrency.** Every suite in the selection runs regardless of an
+earlier failure — the exit code is non-zero if any of them did, but the tally names which
+ones and the rest were not held hostage to being alphabetically first. The pool is `spawn`
+(async), not `spawnSync` in a loop dressed up as workers — `spawnSync` blocks the one JS
+thread, so N "workers" built on it run strictly one at a time and a serial run wears a
+parallel runner's clothes. `test/gate.mjs` proves the
+difference by writing a start/end timestamp either side of a sleep in two fabricated
+suites and asserting the windows actually overlap, and each concurrent suite gets its own
+`TMPDIR` sandbox the same way `scripts/test.mjs` and `scripts/checks.mjs` already do
+(bc-5isv), so nothing here can leak the shared `$TMPDIR` twenty other sessions are using.
+
+**Two suites cannot take the pool, and one family wants longer alone.**
+`scripts/test-swap.js` drives a real blue/green swap under load and `test/slowstart.mjs`
+is a documented flake under concurrent load that passes alone — both are held out of the
+concurrent pool and run afterward, one at a time, rather than being skipped by convention the way some of the
+nine sessions did and some did not. Every suite driving the *real* `bd` against shared
+state (`test/*real.mjs`) plus `test/landcheck.mjs`, which drives a real `git`+`bd` end to
+end through `bin/deliver.js`, gets fifteen minutes instead of the ordinary five by
+default — a loaded Mac should report one of these slow, not manufacture a red from it —
+and `--timeout` overrides both defaults uniformly, because an explicit ask from whoever is
+running the gate is a real ask.
+
+**One gate per tree at a time.** A second invocation against the same root while the
+first is still running would double the load a busy Mac is already under, so it refuses
+(exit `2`) rather than doing that — a lock file under the system temp directory, keyed by
+the resolved root, holding the running pid. A lock whose pid is no longer alive is stale
+and is silently reclaimed on the next attempt, because a runner that leaves a permanent
+lock behind after a crash is worse than the race it exists to prevent.
+
+**Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, for a sharper version of
+the reason `b7e-say` is not there: `lib/grants.js` already classifies `Bash(npm test:*)` —
+running this repository's own suites — as a `write`, "spawns daemons, binds ports and
+writes scratch directories," and grants it to `merge-advocate` alone. `b7e-gate` does
+exactly that, concurrently, for up to fifty minutes on a loaded Mac; it is a heavier
+version of the same capability, not a lighter one. `DEFAULT_TOOL_LIST` widens exactly one
+agent's baseline — `dispatch`, the single-turn phone comment answerer — which has no more
+use for running the whole suite than it does for
+`b7e-say`'s seven write actions. A worker session, which is what actually hits the
+shape this bead is about, already carries an unrestricted allowlist and needs no grant to
+run it.
+
 ### Whether the library is being used — the Skills view
 
 `/skills` (or `/candidates`) is the one screen the whole programme is visible from: the

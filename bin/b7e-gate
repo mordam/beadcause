@@ -1,0 +1,161 @@
+#!/usr/bin/env node
+/**
+ * `b7e-gate` — the whole `npm test` suite, without bailing at the first red.
+ *
+ *     b7e-gate                              # every suite scripts/test.mjs --list would run
+ *     b7e-gate --only test/gate.mjs --only test/b7e*.mjs
+ *     b7e-gate --skip test/browse.mjs       # known-flaky-under-concurrency, say so and drop it
+ *     b7e-gate --jobs 4                     # how many suites at once (default 6)
+ *     b7e-gate --timeout 120                # per-suite seconds, overriding the slow-suite default
+ *     b7e-gate --json                       # one object per suite, streamed, for a caller to parse
+ *     b7e-gate --log /path/to/gate.log      # also write every line here (default: a tmp file, named at the end)
+ *     b7e-gate --list                       # what would run, without running it
+ *     b7e-gate --dir <root>                 # another tree — this is how it is tested
+ *
+ * bc-khoe.39: nine sessions each hand-wrote this exact runner into a scratchpad rather than
+ * typing `npm test` — which stops dead at the first failing suite and says nothing about
+ * the other three hundred — and no two of the nine agreed on parallelism, per-suite
+ * timeout, or whether `scripts/test-swap.js` should run at all. `lib/gate.js` carries the
+ * one answer; this file is the argv parsing and the printing around it.
+ *
+ * Exit codes: `0` every suite passed, `1` at least one failed or timed out, `2` refused —
+ * bad usage, or another `b7e-gate` on this same tree is already running.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  REPO_ROOT,
+  acquireLock,
+  discoverSuites,
+  runGate,
+  selectSuites,
+  summaryLine,
+  toJsonRecord,
+} from '../lib/gate.js';
+import { onExit } from '../lib/teardown.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+/** Every occurrence of `--flag value` or `--flag=value` — `--only`/`--skip` are repeatable. */
+const multi = (f) => {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === f && argv[i + 1] !== undefined) out.push(argv[++i]);
+    else if (argv[i].startsWith(`${f}=`)) out.push(argv[i].slice(f.length + 1));
+  }
+  return out;
+};
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const ONLY = multi('--only');
+const SKIP = multi('--skip');
+const JOBS = Math.max(1, Number(value('--jobs', 6)) || 6);
+const TIMEOUT_ARG = value('--timeout', null);
+const TIMEOUT_MS = TIMEOUT_ARG == null ? null : Math.max(0, Number(TIMEOUT_ARG) || 0) * 1000;
+const JSON_MODE = has('--json');
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+/** `process.exit` does not wait for a pipe to drain — flush stdout before handing back the code. */
+const leave = async (code) => {
+  await new Promise((r) => process.stdout.write('', r));
+  process.exit(code);
+};
+
+if (has('--list')) {
+  const suites = selectSuites(discoverSuites(ROOT), { only: ONLY, skip: SKIP });
+  console.log(suites.join('\n'));
+  await leave(0);
+}
+
+const lock = acquireLock(ROOT);
+if (!lock.ok) {
+  const since = lock.startedAt ? `${Math.round((Date.now() - lock.startedAt) / 1000)}s ago` : 'a while ago';
+  console.error(red(`a gate is already running on this tree — pid ${lock.pid}, started ${since}`));
+  console.error(dim('refusing rather than doubling the load; that run\'s own output is the one to read'));
+  await leave(2);
+}
+const releaseLock = onExit(lock.release);
+
+const logPath = path.resolve(value('--log', path.join(fs.realpathSync(os.tmpdir()), `beadcause-gate-${process.pid}.log`)));
+const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+const logLine = (plain) => logStream.write(`${plain}\n`);
+/**
+ * `stream.end()` alone does not wait for the underlying write to land — same trap as
+ * `leave()` below, and a log missing its own last line (the summary, the one line that
+ * says whether the run was clean) is worse than a log missing an early one. Measured on
+ * the first end-to-end dogfood run of this file: 392 per-suite lines, and no summary —
+ * every earlier write had a whole suite's runtime to flush in, and this one did not.
+ */
+const closeLog = () => new Promise((resolve) => logStream.end(resolve));
+
+const plainStatus = (r) => (r.status === 'ok' ? 'ok' : r.status === 'TIMEOUT' ? 'TIMEOUT' : 'FAIL');
+
+const onResult = (r, done, total) => {
+  if (JSON_MODE) {
+    const line = toJsonRecord(r, done, total);
+    console.log(JSON.stringify(line));
+    logLine(JSON.stringify(line));
+    return;
+  }
+  const mark = r.status === 'ok' ? green('ok') : r.status === 'TIMEOUT' ? amber('TIMEOUT') : red('FAIL');
+  const secs = (r.ms / 1000).toFixed(1);
+  console.log(`${dim(`[${done}/${total}]`)} ${mark} ${r.suite} ${dim(`${secs}s`)}`);
+  logLine(`[${done}/${total}] ${plainStatus(r)} ${r.suite} ${secs}s`);
+  if (r.status !== 'ok') {
+    const tail = String(r.out || '').trim().split('\n').slice(-15);
+    for (const line of tail) {
+      console.log(dim(`      ${line}`));
+      logLine(`      ${line}`);
+    }
+    if (r.scratch) {
+      console.log(dim(`      scratch kept in ${r.scratch}`));
+      logLine(`      scratch kept in ${r.scratch}`);
+    }
+  }
+};
+
+if (!JSON_MODE) console.log(dim(`log: ${logPath}\n`));
+
+let result;
+try {
+  result = await runGate(ROOT, {
+    only: ONLY,
+    skip: SKIP,
+    jobs: JOBS,
+    timeoutOverrideMs: TIMEOUT_MS,
+    onResult,
+    signalAbort: onExit,
+  });
+} finally {
+  releaseLock();
+}
+
+if (!result.total) {
+  console.log(red(ONLY.length ? `nothing matches --only ${ONLY.join(', ')}` : 'no suites found'));
+  await closeLog();
+  await leave(1);
+}
+
+const line = summaryLine(result);
+if (JSON_MODE) {
+  console.log(JSON.stringify({ summary: true, total: result.total, passed: result.passed, failed: result.failed.map((f) => f.suite) }));
+} else {
+  console.log('');
+  console.log(result.ok ? green(line) : red(line));
+  console.log(dim(`full log: ${logPath}`));
+}
+logLine(line);
+await closeLog();
+
+await leave(result.ok ? 0 : 1);
