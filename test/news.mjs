@@ -64,7 +64,9 @@ const bad = (name, detail) => {
 };
 const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
 
-const { landedEvent, deployEvent, deployClearEvent, syncStuckEvent, syncClearEvent, epicDoneEvent, mutedNews } = await import(LIB('news.js'));
+const { landedEvent, landedNewsEvents, deployEvent, deployClearEvent, syncStuckEvent, syncClearEvent, epicDoneEvent, mutedNews } = await import(
+  LIB('news.js')
+);
 
 /* ------------------------------------------------------- 1. four types, not one */
 
@@ -109,6 +111,31 @@ check('and what moved, and what is still owed', landed.text.includes('abcdef12')
 // the delivery filed — the tray sweeps by key across its decks, so the landing would
 // replace the question rather than sit beside it.
 check('its key is not the bead key a question card uses', landed.key !== 'demo/zz-work' && landed.key.startsWith('news/'), landed.key);
+
+/* -------------------------------------------- 1b. a sweep that closes several at once */
+
+console.log('\na sweep that finds many at once does not post one card each\n');
+
+const rowFor = (n) => ({ workspace: 'demo', bead: `zz-${n}`, number: n, title: `fix thing ${n}`, base: 'main' });
+
+check('nothing to close is nothing to post', landedNewsEvents([]).length === 0);
+const one = landedNewsEvents([rowFor(1)]);
+check('a single close is still one ordinary landing', one.length === 1 && one[0].type === 'landed' && one[0].id === 'zz-1', JSON.stringify(one));
+const two = landedNewsEvents([rowFor(1), rowFor(2)]);
+check('two closes are still two cards, one each', two.length === 2 && two.every((e) => e.type === 'landed'), JSON.stringify(two));
+
+const many = landedNewsEvents([rowFor(1), rowFor(2), rowFor(3)]);
+check('three or more collapse to a single card', many.length === 1, JSON.stringify(many));
+check('and it is still the "landed" type, so the phone needs no new channel', many[0].type === 'landed', many[0].type);
+check('the summary names how many', many[0].title.includes('3'), many[0].title);
+check('and lists each pull request in the body', ['1', '2', '3'].every((n) => many[0].text.includes(`#${n}`)), many[0].text);
+check('its key is not any one bead — keyed on the batch instead', many[0].key.includes('sweep-3'), many[0].key);
+check('and it still carries the workspace', many[0].workspace === 'demo', many[0].workspace);
+check('a muted space quiets the summary exactly like an ordinary landing', landedNewsEvents([rowFor(1), rowFor(2), rowFor(3)], { quiet: true })[0].quiet === true);
+
+// The threshold is exclusive of the boundary picked above (three collapses); make sure
+// two really is still "one at a time" rather than an off-by-one on the other side.
+check('the boundary is inclusive going up: three closes, not four, are already a summary', landedNewsEvents([rowFor(1), rowFor(2), rowFor(3)]).length === 1);
 
 check('a release says where it ran and what went live', released.title.includes('deployed') && released.text.includes('abcdef12'), `${released.title} / ${released.text}`);
 check('a failed deploy is a blockage rather than a release', stuck.type === 'stuck' && stuck.source === 'deploy', JSON.stringify(stuck));

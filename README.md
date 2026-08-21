@@ -20729,6 +20729,22 @@ whether or not a phone in another room hears about it.
 `test/news.mjs` covers all of it, including a real `POST /api/landed` into a real
 `createApp` and the `GET /api/poll` that answers with it.
 
+**And a fourth kind of landing announces itself minutes or hours late — bc-ka5y.15.7.**
+`lib/landed.js`'s own sweep closes a bead whose pull request merged **on github.com**
+itself — a phone browser, another Mac, somebody else's tap — which none of the three
+above ever sees. Until this bead it did exactly that and stopped: the bead closed, the
+board drew it merged, and the phone said nothing about the landing that is arguably the
+one you would most want to hear about, because it is the one you did not watch happen.
+`lib/advocate.js`'s `landed()` now emits the same `landedEvent` the other three do, once
+per tick and once per repo's worth of closes rather than once per bead — a Mac that
+reconnects after a while away can close a dozen beads in one sweep, and a dozen
+identical-looking cards is not a dozen pieces of news, it is one piece of news read a
+dozen times. `landedNewsEvents` in `lib/news.js` is the one place that decides, and
+below three closes it is still one ordinary card each; at or above it, one summary card
+naming how many and listing every pull request. Still `type: 'landed'`, deliberately —
+the phone already knows how to draw and sound that card, and a sweep catching up is not
+a different *kind* of arrival.
+
 **Three of those emitters live in the poller, where `bus` is not a name.** `createApp` is
 one long closure holding `bus`, `bd`, `advocates` and `syncer` as locals; `startPoller` is
 a separate top-level function beside it that gets the same objects as `app.bus`, `app.bd`
