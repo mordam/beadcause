@@ -16609,6 +16609,20 @@ exactly the read-only surface every other reading agent has, and [a new
 kind](#what-an-agent-is--and-how-it-asks-to-be-different) owes five registrations that would each say something
 already true of `console`.
 
+**The trigger is a session ending, and a checkout that stops having those is a checkout
+this agent stops looking at.** `sessionAuditEvery` is what makes a busy repo wait for a
+batch; in a repo that finishes four sessions and then goes quiet, nothing ever pushes the
+count past the threshold, because nothing else here ends a session in it. The backstop is
+the poll cycle's own look at every checkout of every configured workspace, on its own
+clock (`sessionAuditSweepMinutes`, thirty by default — not the fast poll, since asking costs
+two `git` reads per checkout and a workspace can hold forty): past `sessionAuditMaxAgeMinutes`
+(a day by default), the oldest unread archive is audited *whatever the count*. It is not a
+second decision — the bypass lives inside the one function both callers share, next to the
+count threshold it widens — and it never widens the cooldown, which still bounds how often an
+agent actually starts. Dispatched and never awaited, for the same reason `noteArchive` is:
+a run that actually starts can take minutes, and this runs beside the advocate tick and the
+merge queue in the same beat.
+
 ### Where a symbol is defined — `b7e-def`
 
 The first command [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
@@ -25476,6 +25490,8 @@ to be one.
 | `advocates.sessionAuditEvery` | how many unread archives have to pile up before a run is worth its `claude -p` (default 5). Also what makes a run's input worth reading: one session at a time can only ever show a one-off, and a finding is a repeated shape |
 | `advocates.sessionAuditCooldownMinutes` | the floor between runs whatever the arrivals (default 60), so a morning that finishes nine sessions does not become nine agents |
 | `advocates.sessionAuditMax` | how many archived sessions one run reads (default 12, clamped 3–40). Every one of them is marked read afterwards, whether or not it contributed to a finding |
+| `advocates.sessionAuditMaxAgeMinutes` | past this age the oldest unread archive is audited whatever `sessionAuditEvery` says (default a day, clamped 60–10080) — the backstop for a checkout that finishes a few sessions and then goes quiet, so nothing ever pushes the count over the threshold |
+| `advocates.sessionAuditSweepMinutes` | how often the poll cycle asks every checkout whether that backstop applies (default 30, clamped 5–1440) — not the fast poll clock, since asking costs two `git` reads per checkout and a workspace can hold forty |
 | `advocates.agentRepo` | which arm of the [tier 3 experiment](#tier-3--a-repo-one-agent-owns-and-the-experiment-that-is-the-point-of-it) each run of an agent that owns a private repo gets: `alternate` (the default) flips per workspace and agent, `blind`/`index` pin one, and `off` withdraws the affordance and the write grant with it. Named under `advocates` because the advocate was the first agent to have one; the Epic Advocate and the worker read the same key. `npm run agentrepo` is what reads the result back |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
 | `advocates.closeGraceSeconds` | how long an idle session gets between reaching its ending and the first signal (default 90) |

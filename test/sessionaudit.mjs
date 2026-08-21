@@ -58,6 +58,7 @@ const {
   extractFindings,
   findingProblems,
   normalise,
+  oldestUnreadAt,
   options,
   readLedger,
   sessionsIn,
@@ -332,7 +333,15 @@ function fakeBd({ createFails = null } = {}) {
   };
 }
 
-const auditorOver = ({ answer = ONE_FINDING, bd, cfg = {}, now = () => Date.now(), throws = null } = {}) => {
+// A caller that does not pass its own `now` gets one anchored a few minutes past the
+// most recently archived session — never the real wall clock. The archives above are
+// timestamped off the fixed `when` epoch, and bc-dgx7.7's age backstop measures every
+// unread session against `now() - at`; a default of `Date.now()` would make the age of
+// a 2026-08-01 fixture whatever day this suite happens to run, and a threshold test
+// below would start passing for the wrong reason the day that gap outgrows
+// `sessionAuditMaxAgeMinutes`. Five minutes keeps every count-threshold test here about
+// the count, and the tests that mean to exercise staleness pass their own `now`.
+const auditorOver = ({ answer = ONE_FINDING, bd, cfg = {}, now = () => when + 5 * 60_000, throws = null } = {}) => {
   const prompts = [];
   const settled = [];
   const auditor = createAuditor({
@@ -521,6 +530,163 @@ checks('switching it off switches it off', () => {
   assert.equal(options({}).enabled, true, 'on by default — bc-dgx7 wants it running unasked');
   assert.equal(options({ advocates: { sessionAuditEvery: 900 } }).every, 50, 'every number is clamped');
   assert.equal(options({ advocates: { sessionAuditMax: 1 } }).max, MIN_SESSIONS);
+  assert.equal(options({}).maxAgeMs, 24 * 60 * 60 * 1000, 'a day, unasked — bc-dgx7.7');
+  assert.equal(options({ advocates: { sessionAuditMaxAgeMinutes: 1 } }).maxAgeMs, 60 * 60 * 1000, 'clamped to an hour floor');
+  assert.equal(options({}).sweepMs, 30 * 60 * 1000, 'the backstop checks in every half hour, unasked');
+  assert.equal(options({ advocates: { sessionAuditSweepMinutes: 1 } }).sweepMs, 5 * 60 * 1000, 'clamped to five minutes');
+});
+
+/* ---------------------------------------------------- 7. the backstop: bc-dgx7.7 */
+
+console.log('\na checkout that goes quiet still gets its last few sessions read');
+
+/** Polls a predicate rather than sleeping a fixed guess — the git reads inside `audit()`
+ * are real subprocess I/O, and a fixed delay is either a flake on a loaded Mac or three
+ * seconds of padding on an idle one. */
+async function until(predicate, { timeoutMs = 5000, stepMs = 10 } = {}) {
+  const start = Date.now();
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() - start > timeoutMs) throw new Error('timed out waiting');
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+}
+
+checks('oldestUnreadAt is the oldest row not yet in the ledger, or nothing at all', () => {
+  const rows = [
+    { commit: 'c1', at: '2026-08-10T00:00:00Z' },
+    { commit: 'c2', at: '2026-08-01T00:00:00Z' },
+    { commit: 'c3', at: '2026-08-05T00:00:00Z' },
+  ];
+  assert.equal(oldestUnreadAt(rows, ['c1']), Date.parse('2026-08-01T00:00:00Z'), 'the oldest of the two still unread');
+  assert.equal(oldestUnreadAt(rows, ['c1', 'c2', 'c3']), null, 'nothing unread has no age');
+  assert.equal(oldestUnreadAt([], []), null);
+});
+
+await checksAsync('a checkout whose unread archives never reach the threshold runs anyway once they are old enough', async () => {
+  const bd = fakeBd();
+  archive('bc-jjj', { log: 'a lone session in a checkout that has otherwise gone quiet' });
+  const at = when;
+  const { auditor, prompts } = auditorOver({
+    bd,
+    cfg: { sessionAuditEvery: 5, sessionAuditMaxAgeMinutes: 60 },
+    now: () => at + 2 * 60 * 60 * 1000, // two hours later — past the sixty-minute backstop
+  });
+  const out = await auditor.audit(repo, WS);
+  assert.equal(out.ran, true, out.why || 'a stale unread archive should have overridden the count');
+  assert.equal(prompts.length, 1);
+});
+
+await checksAsync('the same shape, still young, is held by the count exactly as before', async () => {
+  const bd = fakeBd();
+  archive('bc-kkk', { log: 'another lone session, not old enough yet to override anything' });
+  const at = when;
+  const { auditor, prompts } = auditorOver({
+    bd,
+    cfg: { sessionAuditEvery: 5, sessionAuditMaxAgeMinutes: 60 },
+    now: () => at + 10 * 60 * 1000, // ten minutes later — inside the backstop's window
+  });
+  const out = await auditor.audit(repo, WS);
+  assert.equal(out.ran, false);
+  assert.match(out.why, /the threshold is 5/);
+  assert.equal(prompts.length, 0);
+});
+
+await checksAsync('staleness widens the count check, never the cooldown floor', async () => {
+  const bd = fakeBd();
+  let clock;
+  const { auditor } = auditorOver({
+    bd,
+    cfg: { sessionAuditEvery: 5, sessionAuditMaxAgeMinutes: 60, sessionAuditCooldownMinutes: 60 },
+    now: () => clock,
+  });
+  archive('bc-lll', { log: 'first of a new quiet batch' });
+  clock = when + 2 * 60 * 60 * 1000; // already stale
+  const first = await auditor.audit(repo, WS);
+  assert.equal(first.ran, true, first.why);
+  archive('bc-mmm', { log: 'one more, also stale, minutes after the first run' });
+  clock = when + 2 * 60 * 60 * 1000; // stale by the same margin — the cooldown is the only thing left to hold it
+  const second = await auditor.audit(repo, WS);
+  assert.equal(second.ran, false, 'a bypass of the count is not a bypass of the cooldown');
+  assert.match(second.why, /the last audit was \d+ minute\(s\) ago/);
+});
+
+console.log('\nsweepStale: the poll cycle\'s own look at every checkout');
+
+await checksAsync('sweepStale dispatches the one checkout with something unread, and never waits for it', async () => {
+  archive('bc-nnn', { log: 'the session that makes this checkout worth a look' });
+  const bd = fakeBd();
+  let release;
+  const held = new Promise((r) => {
+    release = r;
+  });
+  const prompts = [];
+  const cfg = {
+    workspaces: [WS],
+    sessionDirs: { [WS.name]: repo },
+    advocates: { sessionAuditEvery: 1, sessionAuditCooldownMinutes: 0, sessionAuditSweepMinutes: 30 },
+  };
+  const auditor = createAuditor({
+    cfg,
+    bd,
+    log: () => {},
+    warn: () => {},
+    run: async ({ prompt }) => {
+      prompts.push(prompt);
+      await held;
+      return blockOf('findings: []\n');
+    },
+  });
+  auditor.sweepStale();
+  // `running` is set synchronously, before `audit`'s first `await` — so it is already
+  // true the instant `sweepStale` returns, with nothing here waited on to make it so.
+  assert.equal(auditor.state().running, true, 'the dispatch happened before sweepStale returned');
+  await until(() => prompts.length === 1);
+  release();
+  await until(() => auditor.state().running === false);
+});
+
+await checksAsync('sweepStale does not ask again before its own clock says to', async () => {
+  archive('bc-ooo', { log: 'one more session in the same quiet checkout' });
+  const bd = fakeBd();
+  const prompts = [];
+  const cfg = {
+    workspaces: [WS],
+    sessionDirs: { [WS.name]: repo },
+    advocates: { sessionAuditEvery: 1, sessionAuditCooldownMinutes: 0, sessionAuditSweepMinutes: 30 },
+  };
+  const auditor = createAuditor({
+    cfg,
+    bd,
+    log: () => {},
+    warn: () => {},
+    run: async ({ prompt }) => {
+      prompts.push(prompt);
+      return blockOf('findings: []\n');
+    },
+  });
+  auditor.sweepStale();
+  await until(() => prompts.length === 1 && auditor.state().running === false);
+  archive('bc-qqq', { log: 'and another, moments later' });
+  auditor.sweepStale();
+  // Not "no new candidate" — no new `git` read was even asked for, because the sweep's
+  // own thirty-minute clock has not come round since the call above.
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(prompts.length, 1, 'the sweep asked nothing until its own interval passed');
+});
+
+await checksAsync('sweepStale skips a checkout it cannot resolve, rather than throwing', async () => {
+  const bd = fakeBd();
+  const ghost = { name: 'ghost-workspace', dir: path.join(tmp, 'nope', '.beads') };
+  const cfg = {
+    workspaces: [ghost],
+    // A `sessionDirs` override pointed at nothing is `resolveSessionDir`'s one throw in
+    // the single-repo branch — the case this loop's own `try` exists to catch.
+    sessionDirs: { [ghost.name]: path.join(tmp, 'nowhere-beadcause-ghost') },
+    advocates: { sessionAuditEvery: 1 },
+  };
+  const auditor = createAuditor({ cfg, bd, log: () => {}, warn: () => {} });
+  assert.doesNotThrow(() => auditor.sweepStale());
 });
 
 await checksAsync('a nudge never throws at the advocate that gave it', async () => {
