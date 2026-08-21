@@ -118,6 +118,19 @@ const child = (kind, ago) => timing.spend(kind, process.hrtime.bigint() - BigInt
   timing.end(rec, 200);
 }
 
+// Over budget, no child, and a quiet loop — because all of it went on a sweep another
+// request had already started. Neither of the two blocks above is about this row, and
+// before bc-1kwl.33 it printed as `all ours` beside the starved one.
+{
+  const rec = timing.begin('GET /api/queues');
+  rec.t0 -= 3_000_000_000n;
+  const at = Number(process.hrtime.bigint() - rec.t0) / 1e6;
+  rec.joinSpans.push([Math.max(0, at - 2900), at]);
+  rec.joins += 1;
+  timing.cache('cold');
+  timing.end(rec, 200);
+}
+
 // Warm and inside the budget: the control, so "reddened" and "listed" mean something.
 timing.end(timing.begin('GET /api/fast'), 200);
 
@@ -129,6 +142,7 @@ check(
 );
 check(() => assert.ok(snap.overBudget.includes('GET /api/session-log')), 'and the snapshot names it over budget anyway');
 check(() => assert.deepEqual(snap.starved, ['GET /style.css']), 'and the starved row is the only one the snapshot calls starved');
+check(() => assert.deepEqual(snap.joined, ['GET /api/queues']), 'and the joined row is the only one it says queued behind another sweep');
 
 /* ------------------------------------------------------------------ a fake daemon */
 
@@ -201,7 +215,30 @@ check(
 );
 check(() => assert.match(plain, /GET \/style\.css[^\n]*% of its wall clock/), 'saying how much of it went behind a busy loop');
 check(() => assert.doesNotMatch(plain, /blocked behind the loop[^\n]*\n(?:[^\n]*\n)*? {2}GET \/api\/prs/), 'and the route that spawned a child is not in it');
-check(() => assert.match(plain, /route +loop +n +p50/), 'the table carries the loop column the block is read against');
+check(() => assert.match(plain, /route +loop +join +n +p50/), 'the table carries the loop and join columns the blocks are read against');
+
+/**
+ * And the third list, for the same reason again. A route that queued behind another
+ * request's sweep is neither slow nor starved, and the two blocks above would each have
+ * been wrong about it — which is why the daemon decides this one too.
+ */
+check(
+  () => assert.match(plain, /waiting on a sweep already running[^\n]*\n(?:[^\n]*\n)*? {2}GET \/api\/queues/),
+  'the route that joined a sweep gets a block of its own'
+);
+check(() => assert.match(plain, /GET \/api\/queues[^\n]*% of its wall clock/), 'saying how much of it went on somebody else\u2019s producer');
+// Sliced to the one block rather than matched across the output: a lazy `(?:.*\n)*?`
+// walks straight past the blank line into the next block, so a route named *below*
+// would satisfy a regex asking whether it is named above.
+const blockOf = (heading) => (plain.split(heading)[1] || '').split('\n\n')[0];
+check(
+  () => assert.doesNotMatch(blockOf('blocked behind the loop'), /GET \/api\/queues/),
+  'and it is not also called starved, which is the list for routes with no explanation at all'
+);
+check(
+  () => assert.doesNotMatch(blockOf('waiting on a sweep already running'), /GET \/style\.css/),
+  'nor the other way round — the starved route is not said to have joined anything'
+);
 check(
   () => assert.ok(reddened('GET /api/session-log'), `its row is not highlighted:\n${JSON.stringify(out)}`),
   'the table agrees with the list — the warm-only row is reddened too'
