@@ -13473,6 +13473,51 @@ not a promotion bead, one already closed, one another agent is holding, one whos
 not name its epic, one naming no repo at all, a tracker that will not say what the epic
 closed, and a driver missing one of the four calls.
 
+### The caller — `beadcause-promoterun`, and why the sweep waits
+
+bc-7qo.14. `carry()` and `openPromotions()` landed under bc-y8k4.2 with exactly one
+caller in the repo: `test/promoterun.mjs`, against a fake `bd` and a fake driver. Nothing
+asked a real workspace for its open promotions and nothing carried one by hand — the bead
+half of the release agent existed and had nobody to drive it.
+
+```
+beadcause-promoterun -w beadcause -b bc-9d37.10 --driver ./azure-driver.mjs
+beadcause-promoterun -w beadcause -b bc-9d37.10 --driver ./azure-driver.mjs --json
+```
+
+This is the one-at-a-time, human-triggered shape the bead asked for first, and it suits a
+first production promotion better than an unattended sweep would: a person names the bead,
+names the driver, and reads the record `carry()` writes back — the same text either way,
+`--json` only adds the machine-readable run alongside it.
+
+**`--driver` is a path, not a name, because there is no default to pick.** `carry()` is
+written against a driver *interface* — `deployToUat`, `testInUat`, `promoteToProd`,
+`testInProd` — precisely so this file does not need to know what a pipeline is. bc-y8k4.3
+is meant to fill that interface for Climative's Azure DevOps pipelines, and as of this
+writing **it has not landed** — nothing outside `lib/promoterun.js` and its own test
+defines any of the four calls. A `--pipeline azure` flag wired to code that does not exist
+would be a CLI that looks finished and refuses every real bead; `--driver <path>` is
+dynamically imported instead, so the same file carries a bead against whichever driver a
+workspace actually has, real or otherwise, and needs no change the day bc-y8k4.3 lands.
+`test/promoterunbin.mjs` proves the whole thing against the real `bd` binary and a driver
+module loaded off disk — a fresh `bd init`, a real epic with a real closed work bead under
+it, a real promotion bead in the shape `lib/promote.js` files, carried to a verified close
+by a driver `beadcause-promoterun` imports exactly as it would in production. Exit codes:
+`1` usage, `2` the driver would not load or is missing a call, `3` `carry` refused before
+touching production, `4` it ran but did not close, `0` every repo it names is verified.
+
+**The sweep is deferred, and this is the whole of why.** `openPromotions()` finds every
+endorsed promotion bead in a workspace, and nothing loops over that list on a timer — the
+natural seat for it is beside `sweepRelease` in `lib/server.js`'s `cycle()`, gated the same
+two ways the bead itself names: the endorsement hold `carry()` already refuses without, and
+the per-workspace [`autoShip`](#auto-ship--the-merge-that-does-not-wait-for-the-tap) switch
+that decides whether a workspace's deploys are allowed to run unattended at all. Wiring it
+now would be a sweep with no real driver to hand it — bc-y8k4.3 is still open, unendorsed,
+and has no Azure identity or ADO project behind it either — and no workspace that has said
+yes to unattended production promotion. That is infrastructure with nothing to prove it
+against, not a feature: the one-at-a-time CLI above is the whole of the release agent that
+is real today, and the sweep is future work for whoever lands the driver.
+
 ### One image per repo — an epic that spans three repos, and a result that is partial
 
 An epic spanning three repos is three images, three UAT runs and three production runs, and
