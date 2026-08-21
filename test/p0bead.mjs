@@ -309,6 +309,10 @@ function board({
       // bc-bmry.4's relay trail, which `p0BeadBodyHtml` calls on every bead — the beads
       // here carry no `relay`, so it draws nothing; what it draws is test/relayjournal.mjs's.
       lift(APP, 'function p0RelayTrailHtml(relay)'),
+      // bc-42ow.6's row of pills, which `p0BeadBodyHtml` now calls on every bead too —
+      // the beads here carry no `files`, so it draws nothing; test/cardfilessurface.mjs
+      // is where it draws something.
+      lift(APP, 'const filesRowHtml = ('),
       lift(APP, 'function p0BeadBodyHtml(card, b)'),
       lift(APP, 'function p0TreeHtml(card)'),
       lift(APP, 'function openingHere(key)'),

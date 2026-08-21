@@ -3674,10 +3674,33 @@
     </article>`;
   }
 
+  /**
+   * The paths a bead declares it expects to touch (bc-42ow), as their own labelled
+   * row of pills — the same shape `PROP_FIELDS` draws `Expects to touch` in on a
+   * proposal row, so a reader who has seen one recognises the other.
+   *
+   * `/api/bead` is what supplies `files` (lib/server.js), already parsed out of the
+   * `beadfiles` block and out of `description` in the same breath — this file never
+   * reads the fence itself, which is bc-42ow's whole point: one reading, in
+   * lib/beadfiles.js, or none. `''` on a bead that declared nothing, which is still
+   * almost every bead, so the card looks exactly as it did before this landed.
+   */
+  const filesRowHtml = (files) =>
+    files?.length
+      ? `<div class="prop-field pills">
+      <span class="prop-label">Expects to touch</span>
+      ${files.map((f) => `<span class="pill">${esc(f)}</span>`).join('')}
+    </div>`
+      : '';
+
   /** The body of an agent bead: description, notes, thread. Fetched by expand(). */
   function agentBriefHtml(q) {
     const parts = [];
     if (q.description) parts.push(`<div class="md">${renderMarkdown(q.description, FROM_BD)}</div>`);
+    // Where the block used to sit inline, at the end of the prose it was written
+    // into (`withSurface` appends it) — so it comes right after the description it
+    // was lifted out of, not buried under notes and the thread.
+    parts.push(filesRowHtml(q.files));
     // `notes` is where sessions record what they actually did, and it is often the
     // only part worth reading — a bead can have an aspirational description and a
     // notes field saying it shipped three days ago.
@@ -6583,6 +6606,10 @@
     ].filter(Boolean);
     if (groups.length) parts.push(`<div class="p0-rel">${groups.join('')}</div>`);
     if (b.description) parts.push(`<div class="md">${renderMarkdown(b.description, FROM_BD)}</div>`);
+    // Same reasoning and same helper as the inbox card's brief (bc-42ow.6): the block
+    // is already out of `description` by the time this got here (`/api/bead`), and
+    // this is where it lands instead.
+    parts.push(filesRowHtml(b.files));
     // The rest of bd's own fields, in the order bd prints them. Acceptance is the one
     // you close a bead against and it was readable only from a terminal until the
     // graph's sheet drew it; a board you read a whole epic from cannot be the surface
@@ -8376,6 +8403,7 @@
           q.description = full.description || '';
           q.notes = full.notes || '';
           q.comments = full.comments || [];
+          q.files = full.files || [];
         } catch {
           q.description = q.description || '';
           q.comments = q.comments || [];
