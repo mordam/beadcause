@@ -603,6 +603,20 @@ console.log('\nwhat is stuck right now — not what changed last');
 
 // A workspace all its own, so the directory's clutter from every test above cannot
 // answer for it either way.
+//
+// And a clock all its own, which is bc-ibt8g. What this section asserts is that the
+// *newest settled* record answers for a key, and `listDeploys` decides "newest" from
+// `requestedAt` alone — an ISO string, so millisecond resolution and no tie-break. A
+// bare `new Date()` per record does not guarantee an order: on a runner fast enough to
+// write two of them inside one millisecond the sort tie falls through to `readdirSync`
+// order, `d-stuck-2` (`ok`) answers for `d-stuck-3` (`lost`), and three of these go red
+// on CI while passing every time locally. So the sequence numbers its own instants
+// instead of hoping the clock ticks between two writes.
+const STUCK_STEP = 1000;
+const stuckClock = Date.now() - 6 * STUCK_STEP;
+let stuckNth = 0;
+const stuckAt = () => new Date(stuckClock + stuckNth++ * STUCK_STEP).toISOString();
+
 const stuckRec = (id, workspace, status, at) => ({
   id,
   workspace,
@@ -616,7 +630,7 @@ const stuckRec = (id, workspace, status, at) => ({
 await check('a repo whose last settled deploy failed is in trouble', () => {
   fs.writeFileSync(
     path.join(DEPLOY_DIR, 'd-stuck-1.json'),
-    JSON.stringify(stuckRec('d-stuck-1', 'stuckdemo', 'failed', new Date(Date.now() - 3000).toISOString()))
+    JSON.stringify(stuckRec('d-stuck-1', 'stuckdemo', 'failed', stuckAt()))
   );
   const trouble = deployTrouble().filter((r) => r.workspace === 'stuckdemo');
   assert.equal(trouble.length, 1);
@@ -626,7 +640,7 @@ await check('a repo whose last settled deploy failed is in trouble', () => {
 await check('a later ok for the same key is the clear — the failure drops out on its own', () => {
   fs.writeFileSync(
     path.join(DEPLOY_DIR, 'd-stuck-2.json'),
-    JSON.stringify(stuckRec('d-stuck-2', 'stuckdemo', 'ok', new Date().toISOString()))
+    JSON.stringify(stuckRec('d-stuck-2', 'stuckdemo', 'ok', stuckAt()))
   );
   assert.deepEqual(deployTrouble().filter((r) => r.workspace === 'stuckdemo'), []);
 });
@@ -634,7 +648,7 @@ await check('a later ok for the same key is the clear — the failure drops out 
 await check('and a later failure the same way — the newest settled word wins, no flag to keep in step', () => {
   fs.writeFileSync(
     path.join(DEPLOY_DIR, 'd-stuck-3.json'),
-    JSON.stringify(stuckRec('d-stuck-3', 'stuckdemo', 'lost', new Date().toISOString()))
+    JSON.stringify(stuckRec('d-stuck-3', 'stuckdemo', 'lost', stuckAt()))
   );
   const trouble = deployTrouble().filter((r) => r.workspace === 'stuckdemo');
   assert.equal(trouble.length, 1);
@@ -644,7 +658,7 @@ await check('and a later failure the same way — the newest settled word wins, 
 await check('a fresh attempt in flight does not erase the previous failure yet', () => {
   fs.writeFileSync(
     path.join(DEPLOY_DIR, 'd-stuck-4.json'),
-    JSON.stringify(stuckRec('d-stuck-4', 'stuckdemo', 'deploying', new Date().toISOString()))
+    JSON.stringify(stuckRec('d-stuck-4', 'stuckdemo', 'deploying', stuckAt()))
   );
   // d-stuck-3 (lost) is still the newest *settled* record — d-stuck-4 is live and
   // skipped, exactly as `unannounced` skips a live record rather than reading it as
@@ -657,7 +671,7 @@ await check('a fresh attempt in flight does not erase the previous failure yet',
 await check('unconfirmed is not trouble, same as everywhere else since bc-ka5y.15.5', () => {
   fs.writeFileSync(
     path.join(DEPLOY_DIR, 'd-stuck-5.json'),
-    JSON.stringify(stuckRec('d-stuck-5', 'stuckdemo2', 'unconfirmed', new Date().toISOString()))
+    JSON.stringify(stuckRec('d-stuck-5', 'stuckdemo2', 'unconfirmed', stuckAt()))
   );
   assert.deepEqual(deployTrouble().filter((r) => r.workspace === 'stuckdemo2'), []);
 });
@@ -665,11 +679,35 @@ await check('unconfirmed is not trouble, same as everywhere else since bc-ka5y.1
 await check('two repos in trouble are two rows, not one merged into the other', () => {
   fs.writeFileSync(
     path.join(DEPLOY_DIR, 'd-stuck-6.json'),
-    JSON.stringify(stuckRec('d-stuck-6', 'stuckdemo3', 'failed', new Date().toISOString()))
+    JSON.stringify(stuckRec('d-stuck-6', 'stuckdemo3', 'failed', stuckAt()))
   );
   const trouble = deployTrouble();
   assert.ok(trouble.some((r) => r.workspace === 'stuckdemo'), 'stuckdemo (still failing, from above) is missing');
   assert.ok(trouble.some((r) => r.workspace === 'stuckdemo3'), 'stuckdemo3 is missing');
+});
+
+// The other half of bc-ibt8g: the section above no longer *can* tie, so something has to
+// hold the line that a tie has one answer. `listDeploys` breaks it on `id`, which is the
+// only field left that belongs to the record — so the newest settled word for a key is
+// the same word on every machine, rather than whatever `readdirSync` happened to hand
+// back. Both directions, because a single pair would also pass if the answer were coming
+// from the status rather than from the ordering.
+await check('two records in the same millisecond are ordered by id, not by directory order', () => {
+  const tie = new Date(stuckClock + 100 * STUCK_STEP).toISOString();
+  for (const [id, ws, status] of [
+    ['d-tie-1a', 'stucktie1', 'ok'],
+    ['d-tie-1b', 'stucktie1', 'failed'],
+    ['d-tie-2a', 'stucktie2', 'failed'],
+    ['d-tie-2b', 'stucktie2', 'ok'],
+  ]) {
+    fs.writeFileSync(path.join(DEPLOY_DIR, `${id}.json`), JSON.stringify(stuckRec(id, ws, status, tie)));
+  }
+  const trouble = deployTrouble();
+  const rowFor = (ws) => trouble.filter((r) => r.workspace === ws);
+  // `1b` is the later id and it failed, so the key is in trouble and it is that record.
+  assert.deepEqual(rowFor('stucktie1').map((r) => r.id), ['d-tie-1b']);
+  // `2b` is the later id and it is `ok`, so the earlier failure is answered for and gone.
+  assert.deepEqual(rowFor('stucktie2'), []);
 });
 
 /* -------------------------------------------------------------- announcing once */
