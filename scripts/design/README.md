@@ -16,6 +16,7 @@ node scripts/design/shots.mjs        # the rendering gate: real Chrome, both the
 node scripts/design/serve.mjs 4577   # look at it in a browser yourself
 node scripts/design/audit.mjs [path] # what a card is missing
 node scripts/design/coverage.mjs     # what no card covers yet
+node scripts/design/compound-coverage.mjs  # what no card covers *together*
 ```
 
 ## Why it is generated rather than hand-written
@@ -187,9 +188,28 @@ the pills card drew `pill st-live` where public/prcard.js draws `pill pr-stage s
 the colour rule never matched, the card showed a grey pill, and the audit measured
 `--muted` and passed it. That is the hazard of a strict slice — markup that forgets a class
 produces a card that looks wrong *and* an audit that reports nothing — and it is worse than
-`coverage.mjs` can currently see, because coverage is decided one class at a time and both
-halves of that selector were covered separately. bc-ka5y.16 is the general form. The rule
-from the top of this file is the first defence: **markup is copied, never invented.**
+`coverage.mjs` could see, because coverage is decided one class at a time and both halves
+of that selector were covered separately. The rule from the top of this file is the first
+defence: **markup is copied, never invented.**
+
+```sh
+node scripts/design/compound-coverage.mjs        # gaps, colour-bearing ones first
+node scripts/design/compound-coverage.mjs --all  # every compound, matched or not
+```
+
+bc-ka5y.16 is the general form, and this is its answer: every selector in the sheet that
+chains two or more classes on one element (`.pr-stage.st-live`, not the descendant
+`.pr-stage .st-live`), checked against whether any card's actual `class="…"` attribute
+carries the whole set — not whether each class is covered somewhere on its own. A crude
+probe over the sheet when the bead was filed counted 525 such compounds, 290 rendered
+together by no card at all, 134 of those setting a colour or background; both the
+co-occurrence test and the colour test here are still text matches rather than a real
+cascade, so treat every count as an upper bound the same way — some gaps are legitimately
+uncoverable (`:has()`, a state no static card can be in). `test/compoundcoverage.mjs` pins
+`.pr-stage.st-live` itself as the worked example: it asserts the real sheet and the real
+manifest report that selector as covered, so a markup edit that separates the two classes
+again fails a suite that runs in `npm test`, rather than waiting to be noticed in a
+browser-driven contrast run nothing gates on.
 
 ## The vocabulary count, and the two scales it produced
 
