@@ -17717,6 +17717,47 @@ the background; `dispatch`, the one agent this list governs, has no branch and s
 gate of its own to watch.
 
 
+### Read another workspace's tracker by name — `b7e-ws`
+
+`bc-bmry.10`, filed by the session audit (`lib/sessionaudit.js`) against three sessions
+that each had to read *deluvia*'s graph while working a bug in *beadcause*'s. Each one
+hand-rolled the same shell dance and each one broke a different way. `bc-bmry.2` ran `cd
+~/beads/deluvia 2>/dev/null && zsh -c 'bd show dv-vry'` and got `Error fetching dv-vry: no
+issue found matching "dv-vry"` — the wrong directory, so `_bd_set_workspace` resolved to
+the wrong graph and `bd` answered "not found" rather than "wrong workspace"; it recovered
+with `ls ~/beads/` and `ls ~/neadamthal.projects/`, then retried in the other directory.
+Two more sessions (`bc-bmry.5`, `bc-bmry.6`) arrived at the same shape independently,
+wrapped differently, each also running an `ls` first for the same reason. Every one of
+these ends with the shell printing `Shell cwd was reset to …`, and a worktree-isolated
+session has some of them refused outright as "too complex to verify that it stays inside
+the worktree."
+
+```
+b7e-ws -w deluvia show dv-vry            what bd would have printed, from any cwd
+b7e-ws -w deluvia comments dv-vry
+b7e-ws -w deluvia list --status=open
+b7e-ws -w deluvia ready
+b7e-ws -w deluvia search "some phrase"
+b7e-ws -w deluvia show dv-vry --json     bd's own rows, unformatted
+```
+
+**Nothing here is a new lookup.** The workspace name → `.beads` directory mapping is
+`discoverWorkspaces`/`namedWorkspaces` in `lib/workspaceroots.js`, surfaced as
+`cfg.workspaces` by `lib/config.js`, and `Bd.run` (`lib/bd.js`) already spawns `bd` with
+`BEADS_DIR` and `cwd` set to that directory directly. The three sessions above were
+hand-simulating, badly, a lookup the daemon already does for free — this is that lookup,
+on the command line, with no `cd` and no nested shell, so the caller's own cwd (worktree
+or otherwise) never enters into it. An unconfigured workspace name is refused with the
+list of workspaces that are, so "not found" can never again mean "wrong graph."
+
+**Only five verbs are forwarded** — `show`, `comments`, `list`, `ready`, `search` — and
+anything else (`create`, `update`, `close`, `claim`, `label`, `dep`, …) is refused before
+a workspace is even resolved. That is what makes this read-only *by construction*, the
+same shape as `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme`, and what earns it a place
+on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` alongside them — this is a lookup, not a
+second door into `bd`.
+
+
 ### Which requirement a change was for — `refs/beadcause/requirements`
 
 Climative records acceptance criteria as **requirements**: `resources/reqs/{product,technical}/*.yaml`
