@@ -1,0 +1,219 @@
+#!/usr/bin/env node
+/**
+ * Call one export from this repo, with arguments — or over every row of a real tracker.
+ *
+ *   b7e-call <module>#<export> --json '<args-array>'
+ *   b7e-call <module>#<export> --over <workspace>[:ready|open|all] [--limit N] [--fields a,b]
+ *
+ * bc-zjab.7, filed by the session audit against seven sessions that each hand-rolled the
+ * same `node -e "import('./lib/x.js').then(m=>...)"` one-liner to see what one export
+ * returns. Two of those round trips were spent on shell quoting rather than the answer:
+ * bc-bmry.5's NUL scan came back "command contains control characters" and was rewritten
+ * around `String.fromCharCode(0)`. `--json` is the fix — the arguments and the answer both
+ * cross as data, never as a shell word, so newlines, `>`, quotes and NULs all survive.
+ *
+ * `--over` is the half nothing in this repo covered: run the export against every row of a
+ * real tracker (bc-bmry.3, bc-bmry.5, bc-bmry.2 each wrote a throwaway scratchpad/*.mjs for
+ * exactly this). It never shells `bd` itself and never guesses a workspace's checkout —
+ * lib/bd.js and lib/config.js already own both.
+ *
+ * This is next to b7e-census (bc-bmry.12) and is not it: a census counts a label it already
+ * knows the meaning of; this calls a predicate written minutes earlier in the same session,
+ * one nothing here has ever heard of.
+ *
+ * NOT on DEFAULT_TOOL_LIST in lib/toolbelt.js, unlike its read-only siblings. Unlike
+ * b7e-def/b7e-census/b7e-owes, which each run exactly one fixed, read-only operation, this
+ * one calls whatever export the argument names — including a write. See the comment in
+ * lib/toolbelt.js next to the other write-shaped exclusions (b7e-apply, b7e-gate,
+ * b7e-worktree) for the same argument made about those.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
+
+const USAGE = `usage:
+  b7e-call <module>#<export> --json '<args-array>'
+  b7e-call <module>#<export> --over <workspace>[:ready|open|all] [--limit N] [--fields a,b,c]
+
+  <module> is a path inside this checkout, e.g. lib/relay.js or bin/b7e-census.
+  --json is a JSON array of arguments to call <export> with; the return value is printed
+    for a human — a string is printed verbatim (newlines, quotes, NULs intact), anything
+    else is printed with util.inspect.
+  --over calls <export>(bead) once per row from a real tracker (or <export>(...args, bead)
+    when --json is also given), printing one line per bead and a tally of distinct results.
+    mode defaults to "ready" when omitted after the ":".
+  --limit N caps the rows read over (--over only); a cap is always announced, never silent.
+  --fields a,b,c prints these bead fields before the arrow on each --over line.`;
+
+function fail(msg) {
+  console.error(`b7e-call: ${msg}`);
+  process.exit(1);
+}
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h') || argv.length === 0) {
+  console.log(USAGE);
+  process.exit(argv.length === 0 ? 1 : 0);
+}
+
+const target = argv[0];
+if (!target || target.startsWith('-')) fail(`missing <module>#<export>\n${USAGE}`);
+
+let jsonArgsRaw = null;
+let overRaw = null;
+let limit = null;
+let fields = [];
+
+for (let i = 1; i < argv.length; i += 1) {
+  const a = argv[i];
+  const next = () => {
+    i += 1;
+    return argv[i];
+  };
+  switch (a) {
+    case '--json':
+      jsonArgsRaw = next();
+      break;
+    case '--over':
+      overRaw = next();
+      break;
+    case '--limit':
+      limit = Number(next());
+      break;
+    case '--fields':
+      fields = (next() || '').split(',').map((s) => s.trim()).filter(Boolean);
+      break;
+    default:
+      fail(`unrecognised argument "${a}"\n${USAGE}`);
+  }
+}
+
+/* --------------------------------------------------------- module#export, and the refusal */
+
+const hashAt = target.indexOf('#');
+if (hashAt < 0) fail(`"${target}" is not <module>#<export> — missing "#"`);
+const modArg = target.slice(0, hashAt);
+const exportName = target.slice(hashAt + 1);
+if (!modArg || !exportName) fail(`"${target}" is not <module>#<export> — both sides required`);
+
+const rootAbs = path.resolve(ROOT);
+const resolvedModule = path.resolve(process.cwd(), modArg);
+if (resolvedModule !== rootAbs && !resolvedModule.startsWith(rootAbs + path.sep)) {
+  fail(`refusing module path outside the worktree: ${modArg}`);
+}
+if (!fs.existsSync(resolvedModule)) fail(`no such module: ${modArg}`);
+
+let mod;
+try {
+  mod = await import(pathToFileURL(resolvedModule).href);
+} catch (err) {
+  fail(`${modArg} failed to import: ${String(err.message || err).split('\n')[0]}`);
+}
+
+const fn = mod[exportName];
+if (typeof fn !== 'function') {
+  fail(`${modArg} has no exported function "${exportName}" (found: ${Object.keys(mod).join(', ') || 'nothing'})`);
+}
+
+async function callFn(args) {
+  try {
+    return { ok: true, value: await fn(...args) };
+  } catch (err) {
+    return { ok: false, message: String((err && err.message) || err).split('\n')[0] };
+  }
+}
+
+function printForHuman(value) {
+  if (typeof value === 'string') {
+    process.stdout.write(value.endsWith('\n') ? value : `${value}\n`);
+    return;
+  }
+  console.log(value);
+}
+
+/* --------------------------------------------------------------------------- --over mode */
+
+if (overRaw != null) {
+  const colonAt = overRaw.indexOf(':');
+  const wsName = colonAt < 0 ? overRaw : overRaw.slice(0, colonAt);
+  const mode = colonAt < 0 ? 'ready' : overRaw.slice(colonAt + 1) || 'ready';
+  if (!['ready', 'open', 'all'].includes(mode)) {
+    fail(`"${mode}" is not a mode --over understands (ready|open|all)`);
+  }
+  if (!wsName) fail(`--over needs a workspace, got "${overRaw}"`);
+
+  const cfg = loadConfig();
+  const ws = cfg.workspaces.find((w) => w.name === wsName);
+  if (!ws) {
+    fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+  }
+
+  const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+  let rows;
+  try {
+    if (mode === 'ready') rows = await bd.ready(ws);
+    else if (mode === 'open') rows = await bd.listStatus(ws, 'open');
+    else rows = await bd.listLive(ws); // "all" — `bd list --limit 0 --json`, bd's own default (closed excluded)
+  } catch (err) {
+    fail(`reading ${wsName} failed: ${String(err.message || err).split('\n')[0]}`);
+  }
+
+  const total = rows.length;
+  if (limit != null && Number.isFinite(limit) && limit >= 0 && rows.length > limit) {
+    rows = rows.slice(0, limit);
+    console.log(`(showing ${rows.length} of ${total} ${mode} beads in ${wsName} — --limit ${limit})`);
+  }
+
+  let leadingArgs = [];
+  if (jsonArgsRaw != null) {
+    try {
+      const parsed = JSON.parse(jsonArgsRaw);
+      if (!Array.isArray(parsed)) throw new Error('--json must be a JSON array');
+      leadingArgs = parsed;
+    } catch (err) {
+      fail(`--json is not valid JSON: ${err.message}`);
+    }
+  }
+
+  const tally = new Map();
+  for (const row of rows) {
+    const result = await callFn([...leadingArgs, row]);
+    const rendered = result.ok ? JSON.stringify(result.value) : `ERROR: ${result.message}`;
+    const fieldStr = fields.map((f) => JSON.stringify(row?.[f])).join(' ');
+    console.log(`${row.id}${fieldStr ? ` ${fieldStr}` : ''} → ${rendered}`);
+    tally.set(rendered, (tally.get(rendered) || 0) + 1);
+  }
+
+  console.log('');
+  const names = [...tally.keys()].sort();
+  for (const name of names) console.log(`${tally.get(name)}\t${name}`);
+  console.log(`${rows.length} bead${rows.length === 1 ? '' : 's'} called`);
+  process.exit(0);
+}
+
+/* --------------------------------------------------------------------------- --json mode */
+
+if (jsonArgsRaw == null) fail(`need --json '<args-array>' or --over <workspace>[:mode]\n${USAGE}`);
+
+let args;
+try {
+  const parsed = JSON.parse(jsonArgsRaw);
+  if (!Array.isArray(parsed)) throw new Error('--json must be a JSON array');
+  args = parsed;
+} catch (err) {
+  fail(`--json is not valid JSON: ${err.message}`);
+}
+
+const result = await callFn(args);
+if (!result.ok) {
+  console.error(`b7e-call: ${modArg}#${exportName} threw: ${result.message}`);
+  process.exit(1);
+}
+printForHuman(result.value);
+process.exit(0);
