@@ -1,0 +1,209 @@
+#!/usr/bin/env node
+/**
+ * `b7e-swbump` — which number a service-worker cache bump takes, the note that argues
+ * for it, and the renumber a downmerge's add/add conflict on `docs/sw-cache/vNN.md` asks
+ * for.
+ *
+ *     b7e-swbump                  bump if lib/swbump.js says this branch owes one
+ *     b7e-swbump --check          print the verdict, write nothing
+ *     b7e-swbump --against <ref>  compare against <ref> instead of origin/main
+ *     b7e-swbump --renumber       resolve an unresolved add/add on a sw-cache note
+ *
+ * bc-khoe.44: bc-khoe.23, bc-khoe.26 and bc-ka5y.15.3 each did this by hand, three
+ * different ways, and bc-ka5y.15.3 got the number wrong the first time by trusting a
+ * sibling worktree's unmerged note as if it were a claim on `origin/main` (it wasn't —
+ * see `lib/swcache.js`'s header). `lib/swbump.js` already answers *whether* a bump is
+ * owed, definitively, for the one case that is not a judgement call: a member gained in
+ * one changed shell file and called from another, unbumped — the `bc-dmt` shape, a
+ * `TypeError` rather than an opinion. The advisory cases (two shell files merely both
+ * changed, a named style pair, a guarded script tag) are left alone here exactly as
+ * `lib/swbump.js`'s own header insists they must be — "the judgement stays with the
+ * person reading it" — because none of them is a case this file can bump without
+ * occasionally bumping over an additive change that owed nothing at all.
+ *
+ * `--renumber` assumes the ordinary downmerge direction: `origin/main` (or whatever
+ * `--against` names) merged *into* this branch, so git's "ours" is this branch's note and
+ * "theirs" is the one already reachable through the tracked history. A rebase flips that,
+ * and this command does not try to detect it — resolve a rebase's add/add by hand.
+ *
+ * Exit codes: `0` ran cleanly, whether or not it wrote anything; `1` --renumber found no
+ * unresolved conflict to resolve; `2` refused — bad usage, not a git repo, or `--against`
+ * does not resolve to a commit.
+ */
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { analyse, breaking, report, shellFiles } from '../lib/swbump.js';
+import { conflictedNotes, nextNumber, noteNumbers, numberSection, renumberHeading, scaffoldNote, setConst, summarize } from '../lib/swcache.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const at = (name) => {
+  const i = argv.indexOf(name);
+  return i === -1 ? null : argv[i + 1];
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-swbump                  bump if lib/swbump.js says this branch owes one',
+      'b7e-swbump --check          print the verdict, write nothing',
+      'b7e-swbump --against <ref>  compare against <ref> instead of origin/main',
+      'b7e-swbump --renumber       resolve an unresolved add/add on a sw-cache note',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const git = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+const gitQuiet = (cwd, args) => {
+  try {
+    return git(cwd, args);
+  } catch {
+    return null;
+  }
+};
+
+const ROOT = (gitQuiet(process.cwd(), ['rev-parse', '--show-toplevel']) || '').trim();
+if (!ROOT) {
+  console.error('[b7e-swbump] refusing — not inside a git repository');
+  process.exit(2);
+}
+const g = (args) => git(ROOT, args);
+const gq = (args) => gitQuiet(ROOT, args);
+
+const NOTES = path.join(ROOT, 'docs', 'sw-cache');
+const SW = path.join(ROOT, 'public', 'sw.js');
+
+/* ------------------------------------------------------------- --renumber ------------------------------------------------------------- */
+
+if (has('--renumber')) {
+  const status = gq(['status', '--porcelain']) || '';
+  const conflicts = conflictedNotes(status).sort((a, b) => a.number - b.number);
+  if (!conflicts.length) {
+    console.error('[b7e-swbump] --renumber: no unresolved add/add conflict on a docs/sw-cache/vNN.md note');
+    process.exit(1);
+  }
+
+  let pool = noteNumbers(fs.readdirSync(NOTES));
+  let highest = null;
+  const toStage = [];
+
+  for (const { path: relPath, number } of conflicts) {
+    const ours = g(['show', `:2:${relPath}`]);
+    const theirs = g(['show', `:3:${relPath}`]);
+
+    // Theirs is already reachable through the tracked history — keep it at its number.
+    fs.writeFileSync(path.join(ROOT, relPath), theirs);
+    toStage.push(relPath);
+
+    // Ours moves to the next free number above everything in the directory, the
+    // conflicted number included — theirs occupies that one for good now.
+    pool = [...pool.filter((n) => n !== number), number];
+    const moveTo = nextNumber(pool);
+    const renumbered = renumberHeading(ours, moveTo) + numberSection({ claimedAs: number, landedAs: moveTo });
+    const newPath = path.join(NOTES, `v${moveTo}.md`);
+    fs.writeFileSync(newPath, renumbered);
+    toStage.push(path.relative(ROOT, newPath));
+    pool = [...pool, moveTo];
+    highest = moveTo;
+
+    console.log(`[b7e-swbump] kept ${relPath} (already on the tracked history)`);
+    console.log(`[b7e-swbump] moved ours to docs/sw-cache/v${moveTo}.md`);
+  }
+
+  const swSource = fs.readFileSync(SW, 'utf8');
+  fs.writeFileSync(SW, setConst(swSource, highest));
+  toStage.push(path.relative(ROOT, SW));
+  console.log(`[b7e-swbump] public/sw.js const CACHE set to beadcause-v${highest}`);
+
+  g(['add', ...toStage]);
+  process.exit(0);
+}
+
+/* ------------------------------------------------------- default: is a bump owed? ------------------------------------------------------- */
+
+const against = at('--against') || 'origin/main';
+if (!gq(['rev-parse', '--verify', `${against}^{commit}`])) {
+  console.error(`[b7e-swbump] refusing — ${against} does not resolve to a commit`);
+  process.exit(2);
+}
+
+/** Everything `analyse` needs about `against`..working tree, read out of git. Mirrors test/swbump.mjs's own `collect`, which is what this answers the same question as. */
+function collect(base) {
+  const statusOut = g(['diff', '--name-status', base]);
+  const entries = [];
+  for (const line of statusOut.split('\n')) {
+    if (!line.trim()) continue;
+    const [code, ...rest] = line.split('\t');
+    const p = rest[rest.length - 1];
+    entries.push({ path: p, status: code[0] === 'R' ? 'A' : code[0] });
+  }
+  for (const p of (gq(['ls-files', '--others', '--exclude-standard']) || '').split('\n')) {
+    if (p.trim()) entries.push({ path: p.trim(), status: 'A' });
+  }
+  const show = (rev, p) => gq(['show', `${rev}:${p}`]) ?? '';
+  const atRev = (p) => (fs.existsSync(path.join(ROOT, p)) ? fs.readFileSync(path.join(ROOT, p), 'utf8') : '');
+  const added = (p) => {
+    const d = gq(['diff', '-U0', base, '--', p]) || '';
+    return d.split('\n').filter((l) => l.startsWith('+') && !l.startsWith('+++')).map((l) => l.slice(1));
+  };
+  const swBase = show(base, 'public/sw.js');
+  const swHead = atRev('public/sw.js');
+  const shell = shellFiles(swHead || swBase);
+  return {
+    swBase,
+    swHead,
+    files: entries.map((f) =>
+      shell.has(f.path)
+        ? { ...f, base: f.status === 'A' ? '' : show(base, f.path), head: f.status === 'D' ? '' : atRev(f.path), added: added(f.path) }
+        : { ...f, base: '', head: '', added: [] },
+    ),
+  };
+}
+
+const data = collect(against);
+const result = analyse(data);
+
+if (result.bumped) {
+  console.log(`[b7e-swbump] already bumped: public/sw.js is beadcause-v${result.version.after} against ${against} (was v${result.version.before})`);
+  process.exit(0);
+}
+
+for (const line of report(result)) console.log(`[b7e-swbump] ${line}`);
+
+// The one non-judgement signal: a member gained in one changed shell file and called
+// from another, unbumped (result.couplings — a TypeError), or the same shape through a
+// window global instead of a member (breaking(result) — the unguarded half of the
+// script-tag coupling). Both are `report()`'s own "failure" condition, verbatim.
+const owed = result.couplings.length > 0 || breaking(result).length > 0;
+if (!owed) {
+  console.log(result.advisory ? '[b7e-swbump] advisory only — nothing here forces a bump; that call stays yours' : '[b7e-swbump] no bump owed');
+  process.exit(0);
+}
+
+if (has('--check')) {
+  console.log(`[b7e-swbump] a bump is owed against ${against} — rerun without --check to take the number and write it`);
+  process.exit(0);
+}
+
+// The number is a property of `against`, never of this working directory — reading it
+// out of the ref's own tree is what keeps a sibling worktree's unmerged note from ever
+// being mistaken for a claim (see lib/swcache.js's header, bc-ka5y.15.3).
+// The trailing slash matters: `git ls-tree <ref> docs/sw-cache` with no slash prints the
+// one line for the directory's own tree object, not its contents.
+const listing = gq(['ls-tree', '--name-only', against, '--', 'docs/sw-cache/']) || '';
+const entries = listing.split('\n').filter(Boolean).map((p) => path.basename(p));
+const numbers = noteNumbers(entries);
+const number = nextNumber(numbers);
+
+const note = scaffoldNote({ number, summary: summarize(result), argument: report(result), files: result.changed });
+fs.writeFileSync(path.join(NOTES, `v${number}.md`), note);
+
+const swSource = fs.readFileSync(SW, 'utf8');
+fs.writeFileSync(SW, setConst(swSource, number));
+
+console.log(`[b7e-swbump] bump owed against ${against} — took v${number}`);
+console.log(`[b7e-swbump] wrote docs/sw-cache/v${number}.md`);
+console.log(`[b7e-swbump] public/sw.js const CACHE set to beadcause-v${number}`);
+process.exit(0);
