@@ -165,6 +165,33 @@ check('AN UNKNOWN BASELINE FALLS BACK TO THE STRICT RULE, NOT TO A GREEN ONE', (
   assert.deepEqual(v.baseline, [], 'an unknown baseline was reported as something merged over');
 });
 
+/* ------------------------------------------------------- bc-ysqd.1: zero checks */
+
+const none = { failed: [], failing: 0, pending: 0, total: 0, state: 'none' };
+
+check('ZERO CHECKS ON A COMMIT WHOSE BASE HAS CHECKS REFUSES, IN ADAM\'S OWN WORDS', () => {
+  // #480, 2026-08-18: a push authored with the Actions/Copilot token does not trigger a
+  // pull_request workflow, so the head commit it left behind carried zero check runs —
+  // and the queue read that the same as green.
+  const v = gateVerdict({ checks: none, baseline: ['test/reenter.mjs'], baseHasChecks: true });
+  assert.equal(v.merge, false);
+  assert.match(v.refused, /nothing ran on this commit at all/);
+});
+
+check('AND AN UNKNOWN BASELINE FALLS BACK TO REFUSING IT TOO', () => {
+  // `baseHasChecks` is null when the caller never asked or could not — the same direction
+  // as an unknown `baseline` above: guessing "this base has no checks" is the guess that
+  // would have let #480 through.
+  const v = gateVerdict({ checks: none, baseline: null, baseHasChecks: null });
+  assert.equal(v.merge, false);
+  assert.match(v.refused, /nothing ran on this commit at all/);
+});
+
+check('a CI-less workspace never wedges — zero checks on both sides merges', () => {
+  const v = gateVerdict({ checks: none, baseline: [], baseHasChecks: false });
+  assert.equal(v.merge, true, 'a base that also runs no checks is the ordinary state of a CI-less space');
+});
+
 check('a conflict is not a verdict — it is the thing a resolver fixes', () => {
   const v = gateVerdict({ checks: green, baseline: [], mergeable: 'CONFLICTING' });
   assert.equal(v.merge, false);
