@@ -18488,10 +18488,15 @@ in the window between a push and its first red check, every single time.
 **A base with nothing queued against it is watched too**, on a five-minute clock, wherever
 a workspace is one repo — because the queue's own reading only happens where a merge is
 about to happen, and `main` going red on an evening when nobody is delivering is exactly
-the case that went unnoticed for four hours. In a workspace of forty checkouts it is asked
-only where something is waiting to land: forty `gh` calls every five minutes to answer a
-question that matters at one of them is the wrong trade, and there the queue's own tick is
-the whole of it.
+the case that went unnoticed for four hours. In a workspace of forty checkouts asking all
+forty on the same clock would be the wrong trade — forty `gh` calls every five minutes to
+answer a question that matters at one of them — so there it is narrowed instead of skipped:
+`watchQueuedBases` asks only the repos the pull request board already says have something
+*open* against them, whether or not the merge queue has been handed anything to deliver yet
+(bc-xl7n.103). That board is a screen kept warm for its own reason and its cache is what
+this reuses, so the narrowing costs no `gh` call of its own — a repo with an open pull
+request nobody has queued for hours is no longer invisible to this runbook just because it
+shares a workspace with thirty-nine others that are quiet.
 
 `lib/redbase.js` is the decision — pure, and driven state by state in `test/redbase.mjs`;
 `lib/mergequeue.js` holds; `lib/server.js` is the wiring onto `pr.baseChecks`, `bd.create`,
