@@ -492,6 +492,130 @@ try {
     widened.map((r) => r.split(' ')[0]).join(', ')
   );
 
+  /* ------------------------------- the four things that have to name one space */
+
+  /*
+    bc-ka5y.32, reported from the phone: change the space and the label immediately left
+    of the ▾ keeps the old one, until the page is reloaded.
+
+    The control is four readings of one selection, and only three of them are written by
+    code. `.spacepick-shown` is the span the script fills; `select.title` is the whole
+    name for a thumb that hovers; the card under the bar is what the page decided to
+    draw — and `select.value` is *moved by the browser*, on the pick itself, with no line
+    of ours involved. `paint()` used to set it only as a side effect of rebuilding the
+    rows, behind a guard that skips the rebuild when the rows come out identical to the
+    ones last written. So a value that moved without a `change` reaching the file was
+    never put back by anything: not by the next payload, and not even by one that
+    rebuilt every row, because identical rows are exactly the case the guard skips.
+
+    Nothing in `node:vm` can see that half. test/spacebar.mjs's `<select>` is an object
+    whose `value` is whatever the check last assigned to it, so it agrees by
+    construction — the disagreement only exists in a control a browser is driving. Which
+    is why the whole of it is asserted here, on a real pick, in one turn and then again
+    after the page has handed the picker its next payload.
+  */
+  const facing = () =>
+    evalJs(
+      s,
+      `(() => {
+        const sel = document.querySelector('#space-pick');
+        const sp = window.beadcause?.space;
+        return {
+          shown: document.querySelector('#space-shown')?.textContent,
+          value: sel?.value,
+          title: sel?.title,
+          // What the row the dropdown is actually holding says. The one reading that
+          // tells "nothing is selected" apart from "its first row is" — a <select> whose
+          // value matches no option shows the first, and "All spaces" over a narrowed
+          // list is the failure that looks most like success.
+          row: sel?.selectedOptions?.[0]?.textContent,
+          label: sp?.label(),
+          card: document.querySelector('.space-card h2')?.textContent,
+        };
+      })()`
+    );
+
+  /** All four naming the same space, said as one check so a failure names which one drifted. */
+  const agreeing = async (what, space) => {
+    const f = await facing();
+    const wrong = [
+      f.shown === space ? '' : `the bar says ${JSON.stringify(f.shown)}`,
+      f.value === `space:${space}` ? '' : `the select holds ${JSON.stringify(f.value)} (${JSON.stringify(f.row)})`,
+      f.title === space ? '' : `its title says ${JSON.stringify(f.title)}`,
+      f.card === space ? '' : `the card says ${JSON.stringify(f.card)}`,
+    ].filter(Boolean);
+    check(what, wrong.length === 0 && f.label === space, wrong.length ? wrong.join('; ') : space);
+  };
+
+  /* Through the control rather than through `space.set`: the value the browser moves is
+     the whole subject, and a programmatic `set` never moves it. This is the pick. */
+  const pickInBar = async (value) => {
+    await evalJs(
+      s,
+      `(() => {
+        const sel = document.querySelector('#space-pick');
+        sel.value = ${JSON.stringify(value)};
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        return sel.value;
+      })()`
+    );
+    await sleep(900);
+  };
+
+  await pickInBar('space:Side');
+  await agreeing('a pick names the new space in the bar, the select, its title and the card', 'Side');
+
+  await pickInBar('space:Work');
+  await agreeing('and picking back again moves all four, not three of them', 'Work');
+
+  /* The next payload. A real one: pressing a setting on the card is what hands the picker
+     a fresh `spaces` list (`saveSpace` in public/config.js), which is a `paint()` with
+     nothing about the selection in it — the case a repaint is most likely to get wrong. */
+  await press('[data-space-set="autoMerge"][data-value="false"]');
+  await agreeing('and they still agree once the page has handed over its next payload', 'Work');
+  await press('[data-space-set="autoMerge"][data-value="null"]');
+
+  /* And the reported failure itself, staged the only way a check can stage it: the value
+     moved with no `change` behind it, which is what the browser does on the pick and what
+     a form restore does after a back navigation. Nothing has told the picker, so nothing
+     could have corrected it yet — what is asserted is that the next paint puts it back
+     rather than leaving the two to disagree until a reload. */
+  await evalJs(s, `document.querySelector('#space-pick').value = 'space:Side'`);
+  const behind = await facing();
+  check(
+    'the select`s value can move behind the picker`s back — the premise of the bug',
+    behind.value === 'space:Side' && behind.shown === 'Work',
+    `${behind.shown} / ${behind.value}`
+  );
+  await press('[data-space-set="autoMerge"][data-value="false"]');
+  await agreeing('and the next paint puts it back rather than waiting for a reload', 'Work');
+  await press('[data-space-set="autoMerge"][data-value="null"]');
+
+  /* The other way they can part, and the reason the fallback matters: a filter outlives
+     the config it was picked under, so a repo retired from /admin — or a space renamed in
+     the config file — leaves the picker pinned to a name the next payload does not carry.
+     With no row holding it the `<select>` shows its first, and the bar reads "All spaces"
+     over a list that is still narrowed to the repo the label names.
+
+     Driven through `adopt` because that is the seam every page feeds this file through
+     and a retire is exactly this payload — a `workspaces` list with the name gone. The
+     daemon reconciles a stale pin on the way out (`reconcileFilter`), so this is the
+     window between the two, which is where the phone lives. */
+  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'alpha' })`);
+  await sleep(700);
+  await evalJs(s, `window.beadcause.space.adopt({ workspaces: ['beta'] })`);
+  await sleep(400);
+  const gone = await facing();
+  check(
+    'a repo the config no longer offers keeps its row rather than reading as All spaces',
+    gone.value === 'ws:alpha' && gone.shown === 'alpha' && /alpha/.test(gone.row || ''),
+    `${gone.shown} / ${gone.value} / ${JSON.stringify(gone.row)}`
+  );
+  await evalJs(s, `window.beadcause.space.adopt({ workspaces: ['alpha', 'beta'] })`);
+  await sleep(300);
+  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
+  await sleep(700);
+
   /* ------------------------------------------------------------ the rest of it */
 
   /* Where the card is drawn, which is the other half of bc-khoe.10. Everything above

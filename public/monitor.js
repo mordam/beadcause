@@ -563,6 +563,7 @@
     const stood = (a && a.stoodDown) || [];
     const orphans = (a && a.heldByNoRoot) || [];
     const paused = (a && a.heldByPause) || [];
+    const undecided = (a && a.heldByUndecided) || [];
     const gaveUp = (a && a.givenUp) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
@@ -611,6 +612,17 @@
         ? `<span class="pill muted" title="${esc(
             paused.map((h) => `${h.id} — ${h.why}`).join('\n')
           )}">${paused.length} under a paused epic</span>`
+        : '',
+      // `heldByUndecided` is the twelfth (bc-jvt0.4), and the only one waiting on a
+      // *judgement*: an owned epic with no children that nothing has yet said the shape of.
+      // `p1` with `heldByRepo` and `heldByNoRoot` — the holds no amount of waiting resolves
+      // — and it is theirs rather than `heldByPause`'s `muted` even though the fix is also
+      // one tap, because a pause is already known to whoever pressed it and this is not
+      // known to anybody. The tooltip carries the reason, which names both ways out.
+      undecided.length
+        ? `<span class="pill p1" title="${esc(
+            undecided.map((h) => `${h.id} — ${h.why}`).join('\n')
+          )}">${undecided.length} childless epic${undecided.length === 1 ? '' : 's'} nobody has decided the shape of</span>`
         : '',
       // The eleventh, and the only pill on this row naming a bead that is (usually) still
       // *in* the queue the pill beside it counts (bc-xl7n.111 — and bc-xl7n.117 for the

@@ -93,6 +93,25 @@
   same tick. Which is why this belongs here and not in five pages: one file knows a tap
   happened, and the pages only have to keep listening.
 
+  ## Four readings of one selection, and only three of them are ours
+
+  What is selected is drawn four times over: the span the bar fills, the `<select>`'s
+  value, its `title`, and whatever the page under the bar filtered itself to. `paint()`
+  writes three of those. The fourth the *browser* writes — a `<select>`'s value moves on
+  the pick itself, and again on a form restore after a back navigation, with no line of
+  ours involved.
+
+  So the value is assigned here rather than left to ride along inside the markup as a
+  `selected` attribute. It used to do exactly that, and the rebuild that carries it is
+  guarded — identical rows are not written again, because rebuilding a `<select>` under an
+  open native wheel shuts the wheel. Which meant a value that moved without a `change`
+  reaching this file was never put back by anything, and the bar kept the old space until
+  the page was reloaded (bc-ka5y.32).
+
+  It also means the selection needs a row to be held in even when the list no longer
+  offers one: a `<select>` whose value matches nothing shows its *first* option, which
+  says "All spaces" over a list that is still narrowed. See the `held` flag below.
+
   ## What a page has to do
 
       window.beadcause.space.onChange(() => render());     // repaint when it moves
@@ -341,8 +360,19 @@
     return { space: ALL, workspace: ALL };
   };
 
-  const option = (value, text, on) =>
-    `<option value="${esc(value)}"${on ? ' selected' : ''}>${esc(text)}</option>`;
+  /* Did any row this paint built carry the selection? A `<select>` whose value matches no
+     option shows its *first* one, so a filter pinned to something the list no longer
+     offers says "All spaces" over a list that is still narrowed — which is the hole
+     bc-qid8b closed for `space:Other` by always drawing that row, and which is open for
+     every other pin the config can drop under you. Recorded here rather than re-derived
+     after the fact, because the question is exactly "did we mark one selected", and a
+     second pass over the rows asking it a different way is how the two answers start to
+     differ. Reset at the top of every `paint()`. */
+  let held = false;
+  const option = (value, text, on) => {
+    if (on) held = true;
+    return `<option value="${esc(value)}"${on ? ' selected' : ''}>${esc(text)}</option>`;
+  };
 
   /**
    * Repaint once the screen is let go of again.
@@ -391,6 +421,7 @@
     // answers undefined and paints as it always did.
     if (window.beadcause?.editMode?.frozen?.()) return void thawFirst();
     const now = valueOf(state.filter);
+    held = false;
     /* "Everything", not "All spaces", and the two words are not a tidy-up. The rows below
        are *groups* holding *bead-spaces*, so "all spaces" now names one of the two levels
        and means both — the exact confusion the three words were separated to end. It is
@@ -432,9 +463,37 @@
       rows.push('</optgroup>');
     }
 
-    /* The one row that is not a place to go. Outside every optgroup so it reads as an
-       action rather than as a repo in the last group, and never `selected` — the change
-       handler opens the dialog and puts the selection straight back. */
+    /*
+      And a row for the selection itself, if nothing above offered one.
+
+      The filter outlives the config it was picked under — it sits in `state.json` across
+      restarts and reconfigurations — so a space renamed in `~/.config/beadcause/config.json`
+      and a repo retired from `/admin` both leave it pinned to a name the payload no longer
+      carries. With no row holding it the `<select>` falls back to its first option and says
+      **All spaces** while the label beside it, and every list on the page, are still
+      narrowed to what the filter really is: the control contradicting itself about the one
+      thing it exists to say. bc-qid8b drew the `Other — all` row for exactly this reason;
+      this is the same argument applied to every other pin, because "Other" was never the
+      only name the list can lose.
+
+      It says so rather than pretending, because widening the filter here is not this
+      file's decision to make — `matches()` and the server's `matchesFilter` are still
+      answering for the pin, so a row that quietly read `Work` would be a second lie. The
+      inbox reconciles a vanished pin back to `all` on its next payload (see
+      public/app.js), and until something does, this is where you can see why the list is
+      empty and pick your way out of it.
+    */
+    if (!held) {
+      rows.push(`<optgroup label="No longer configured">`);
+      rows.push(option(now, `${label()} — gone`, true));
+      rows.push('</optgroup>');
+    }
+
+    /* The one row that is not a place to go, and the last one whatever is above it.
+       Outside every optgroup so it reads as an action rather than as a repo in the final
+       group, and never `selected` — `option()` only sets `held` for a row drawn as the
+       selection, so this one cannot be mistaken for the pin the block above is looking
+       for, and the change handler puts the selection straight back. */
     rows.push(option(ADD, '＋ Add a bead-space', false));
 
     // Assigned only when it has actually changed. Pages republish on every poll and on
@@ -447,6 +506,27 @@
       drawn = html;
       sel.innerHTML = html;
     }
+
+    /*
+      The selection, said to the control rather than only to the markup — bc-ka5y.32.
+
+      Every line above writes *rows*, and the selection rode along inside them as a
+      `selected` attribute. That made the value a side effect of the rebuild, and the
+      rebuild is guarded by a string: when the rows come out identical to the ones last
+      written, `sel.innerHTML` is not touched, and whatever the live control is holding
+      stays. The control is not only written to, though — it is the thing under the thumb,
+      and its value moves without a line of code running, on the pick itself and on a form
+      restore after a back navigation. So a value that moved without a `change` reaching
+      us was never corrected by *anything*: not by the next poll, and not even by a poll
+      that rebuilt every row, because identical rows are exactly the case the guard skips.
+      The label said one repo, the dropdown held another, and it stayed that way until the
+      page was reloaded, which is what was reported from the phone.
+
+      One assignment, and only when they disagree — the same shape as the two lines below,
+      and for the same reason: agreeing is the normal case, and touching a `<select>` a
+      phone has open is what the guard above exists to avoid.
+    */
+    if (sel.value !== now) sel.value = now;
 
     // What the bar itself says, which is not what the dropdown says — see `shorten`.
     // Written on every paint rather than only on a change: it is one string assignment
@@ -560,11 +640,12 @@
        what it said before the tap, and a dialog that succeeds is followed by a `reload()`
        that redraws it from the server anyway. */
     if (sel.value === ADD) {
-      // Assigned rather than repainted: `paint()` rewrites the options only when the
-      // *markup* has changed, and picking a row changes the DOM's selection without
-      // changing a character of it — so a repaint alone would leave the bar sitting on
-      // "＋ Add a bead-space" as though it were a repo.
-      sel.value = valueOf(state.filter);
+      // A repaint is enough, and only since bc-ka5y.32: `paint()` assigns `sel.value`
+      // itself now, so it puts the control back on whatever is actually selected. It
+      // could not before — the rebuild is guarded on the markup, and picking a row moves
+      // the DOM's selection without changing a character of it, so the bar would have sat
+      // on "＋ Add a bead-space" as though it were a repo. That fix and this row are the
+      // same mechanism: a value that moved without a `change` we honoured.
       paint();
       window.beadcause?.addSpace?.open?.();
       return;
