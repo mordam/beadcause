@@ -7110,7 +7110,7 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**A pane can be present and unshowable, and none is any more.** `data-pending` names the
+**A pane can be present and unshowable, and one is.** `data-pending` names the
 bead that fills a container, and it is load-bearing rather than a note: a pending pane is
 registered nowhere, can never be shown, and the pill row asks the same question, so its pill
 stays the `<a href>` it has always been and still loads its own document. That is what let
@@ -7119,8 +7119,13 @@ until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
 History's attribute came off when
 [bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash),
-Releases' with bc-khoe.30.14, and Advocates' — the last of them — with **bc-khoe.4**, which
-folded the whole advocate console in, chip row and all. The attribute names the bead whose
+Releases' with bc-khoe.30.14, and Advocates' — the last of the four the shell shipped with
+— with **bc-khoe.4**, which folded the whole advocate console in, chip row and all. Config's
+went **on** afterwards, which is the direction worth noticing: bc-khoe.50 gave the row a
+fifth view because a pill pointing at a page that is not a view marks nothing current on the
+page it points at, and a view the grammar knows owes a container the same day. **bc-khoe.60**
+fills it. So the attribute is how a view arrives rather than a debt the shell was born with.
+The attribute names the bead whose
 merge *deletes* it, which is why it named bc-khoe.4 rather than bc-khoe.30.6: that bead
 ruled how the fold goes rather than folding it. The mechanism is not retired with the last
 of them; it is how the next view arrives, and `test/panes.mjs` covers it against fixtures
@@ -7257,7 +7262,7 @@ the hops against a real server, including both halves of what one does with a qu
 and checks that each lands on the view whose own pill claims that address — a `/history`
 that hopped to `#advocates` would show one pane and light another pill.
 
-**All sixteen are hops now**, and they arrived in three commits rather than one. The
+**Sixteen are hops now**, and they arrived in three commits rather than one. The
 ledger's went first, while the other two containers were still
 [`data-pending`](#the-shell--one-document-one-pane-per-view) — a path whose pane is pending
 must keep its document, because a hop onto a pending container is Home, whatever was
@@ -7265,7 +7270,10 @@ tapped. So the rule the suites above enforce runs in *both* directions: a view w
 has landed owes its addresses as hops, and one still pending must not have them. That is
 what made this safe to land in pieces, and it is what caught bc-khoe.4 and bc-khoe.30.14
 filling their containers without flipping their paths — the failure names the addresses and
-the three edits each one owes.
+the three edits each one owes. It is also why Config's three addresses are **not** in that
+table: bc-khoe.50 made it a view so the row could light its pill, its container is still
+`data-pending`, and the same rule that forces a hop when a pane lands forbids one until it
+does.
 
 The board's three are the only hops that carry a **chip** as well as a view.
 `/prs`, `/pulls` and `/prs.html` have always meant the board rather than merely the view it

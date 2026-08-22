@@ -378,8 +378,9 @@
   <!--
     The advocate console — who is arguing for work in this space, what is shipping, and
     what another device is looking at. The last of the four containers that held a place
-    in the grammar with nothing in it, and bc-khoe.4 is the bead that filled it; there are
-    no `data-pending` panes left in this document.
+    in the grammar with nothing in it, and bc-khoe.4 is the bead that filled it. It was
+    the last `data-pending` pane in this document for two days; Config took the part back
+    (bc-khoe.50), at the bottom of this file, and the mechanism is the same one.
 
     **It is the only pane with a row of its own inside it, and that was decided rather
     than inherited** (bc-khoe.30.6). This bead used to say Advocates and Mirror became
@@ -487,6 +488,28 @@
       </div>
     </main>
   </div>
+
+  <!--
+    Config — every setting the selected space has, and the newest empty container.
+
+    `data-pending` again, and **bc-khoe.60** is the bead that fills it. It is here for a
+    reason none of the other four had: bc-khoe.10 gave the row a Config pill pointing at
+    /config while the pill paths still lived in public/viewbar.js, bc-khoe.30.2 moved that
+    table into `VIEWS` in public/hashroute.js, and Config was not in it — so the row asked
+    `viewOfPath('/config')`, got `null`, and drew itself on the one screen that pill
+    reaches with **nothing current** and the Config pill a live `<a href="/config">` back
+    to the page you were already on. bc-khoe.50 put the row in `VIEWS`, which is what
+    lights the pill and what `scripts/space-check.mjs` asserts; the grammar knowing the
+    view is what obliges this container, because a view with nowhere to go is a pill
+    leading to a blank screen (test/panes.mjs holds every view to one).
+
+    Empty until the fold, and deliberately so — the three addresses go on serving
+    public/config.html while it is, because `panes.js` answers a hash naming a pending pane
+    by showing Home and a 302 here would land a home-screen shortcut on the inbox.
+    test/pagealias.mjs enforces both halves of that, so the flip is bc-khoe.60's commit and
+    cannot happen early: `data-pending` off, three `viewHop`s on, in one go.
+  -->
+  <div class="pane" data-pane="config" data-pending="bc-khoe.60" hidden></div>
 
   <div id="toast" class="toast" role="status" hidden></div>
 
