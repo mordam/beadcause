@@ -297,6 +297,46 @@ check('every configured repo is in the dropdown, quiet ones and empty ones inclu
   assert.ok(select.innerHTML.includes('<optgroup label="Other">'));
 });
 
+/*
+  bc-qid8b. The strays were drawn twice.
+
+  `summarise()` emits a row literally named "Other" for the strays it found beads in, so
+  the payload's `spaces` carries one — and `paint()` looped that array *and* called
+  `strays()`, pushing an `<optgroup label="Other">` from each. `stray` has a question in
+  the fixture above, which is exactly the condition that put it in both: the synthetic row
+  listed it because it had a bead, and `strays()` returns it because `spaceOf` answers
+  "Other" for any repo no configured space names.
+
+  Asserted by counting rather than by looking for a string, because both spellings were
+  the same string — a check for the label's presence passed throughout the bug.
+*/
+check('the strays are one group and one row each, not two of both', () => {
+  const { select } = fresh();
+  const groups = select.innerHTML.match(/<optgroup label="Other">/g) || [];
+  assert.equal(groups.length, 1, `${groups.length} "Other" groups`);
+  const rows = select.innerHTML.match(/value="ws:stray"/g) || [];
+  assert.equal(rows.length, 1, `stray has ${rows.length} rows`);
+});
+
+/*
+  The `— all` row is the one a filter pinned to `space:Other` is selected in, and it has
+  to survive the group being drawn from `strays()` instead of from the payload — a
+  `<select>` whose value matches no option shows its first, which here says "All spaces"
+  over a list narrowed to the strays.
+*/
+check('"Other — all" stays selectable, even with no stray left to list', () => {
+  const { space, select } = fresh();
+  assert.ok(select.innerHTML.includes('value="space:Other"'));
+
+  space.set({ space: 'Other', workspace: 'all' }, { post: false });
+  // Every configured repo now belongs to a space, so `strays()` is empty — the pin is
+  // all that is holding the group open.
+  space.adopt({ spaces: SPACES, workspaces: ['beadcause', 'sophab', 'climative'] });
+  // The `selected` attribute rather than `select.value`: `paint()` writes the markup and
+  // a real `<select>` derives its value from it, which the DOM double here does not.
+  assert.match(select.innerHTML, /<option value="space:Other" selected>/, 'the pinned row went away');
+});
+
 /* --------------------------------------------- the face, and the list behind it */
 
 /*
