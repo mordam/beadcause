@@ -202,6 +202,7 @@ const epic = (id, over) => ({
   type: 'epic',
   labels: [],
   paused: false,
+  assigned: true,
   window: null,
   why: 'nothing under it is ready to plan yet',
   ...over,
@@ -376,6 +377,36 @@ await check('an advocate with no assigned epic still draws exactly one card', as
   assert.match(drawn[0], /No epic has an advocate assigned/, 'and the card does not say the roster is empty');
   assert.ok(!/came out of an epic/.test(drawn[0]), 'it accounts for windows that do not exist');
 });
+
+await check(
+  'a root that merely qualifies is not drawn as though it were advocated — bc-r2b5.3',
+  async () => {
+    // A graph carrying both shapes at once: two epics with an advocate actually on them,
+    // one that only qualifies (`wantsAdvocate`) and has never had one. The count and the
+    // unassigned card's own head both have to say so.
+    const cold = {
+      ...PAYLOAD,
+      advocates: [
+        {
+          ...PAYLOAD.advocates[0],
+          epicAdvocates: [
+            ...PAYLOAD.advocates[0].epicAdvocates,
+            epic('bc-e4', { assigned: false, why: 'nothing under it is ready to plan yet' }),
+          ],
+        },
+      ],
+    };
+    const drawn = cards(await draw(cold, OPEN));
+    const repo = drawn[0];
+    assert.match(
+      repo,
+      /3 epics have an advocate assigned — one card each.*1 more open epic could have one and has not been assigned yet/,
+      'the count still claims every qualifying root is advocated'
+    );
+    const coldCard = drawn.find((c) => c.includes('data-epic-card="bc-e4"'));
+    assert.match(coldCard, /not yet assigned/, "bc-e4's card reads identically to an idle assigned epic");
+  }
+);
 
 /* `EYEBALL=1 node test/epiccard.mjs` prints the cards this suite asserted against.
    Kept because the one thing a string assertion cannot answer is whether a repo with a
