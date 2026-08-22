@@ -220,6 +220,24 @@ if (args[0] === 'label' && args[1] === 'add') {
   save();
   process.exit(0);
 }
+if (args[0] === 'export') {
+  if (w.exportFails) die('bd: export failed');
+  if (w.exportEmpty) { process.stdout.write(''); process.exit(0); }
+  // JSONL, one record per line, exactly as \`indexFrom\` reads it. \`w.graph\` is child → parent
+  // and every id mentioned either side gets a row, because an index with no row for the epic
+  // is one bin/plan.js deliberately refuses to believe.
+  const edges = w.graph || {};
+  const ids = new Set([...Object.keys(edges), ...Object.values(edges), ...Object.keys(w.issues)]);
+  const rows = [...ids].map((id) => ({
+    id,
+    title: id,
+    status: 'open',
+    issue_type: 'task',
+    dependencies: edges[id] ? [{ issue_id: id, depends_on_id: edges[id], type: 'parent-child' }] : [],
+  }));
+  process.stdout.write(rows.map((r) => JSON.stringify(r)).join('\\n'));
+  process.exit(0);
+}
 if (args[0] === 'update') {
   const issue = w.issues[args[1]];
   if (!issue) die('Error: no issue found matching "' + args[1] + '"');
@@ -250,12 +268,15 @@ const bdCalls = () =>
     .map((l) => JSON.parse(l));
 
 /** Run the real bin/plan.js with YAML on stdin. Never throws — the exit code is the answer. */
-function plan(yaml, { kids = {} } = {}) {
+function plan(yaml, { kids = {}, graph = null, exportFails = false, exportEmpty = false } = {}) {
   fs.writeFileSync(
     WORLD,
     JSON.stringify({
       issues: { 'zz-1': { id: 'zz-1', title: 'an epic', status: 'in_progress', issue_type: 'epic', labels: [], assignee: 'adam' } },
       kids,
+      graph,
+      exportFails,
+      exportEmpty,
     })
   );
   fs.writeFileSync(BD_LOG, '');
@@ -351,6 +372,68 @@ check('and so does one on an epic that already has children', () => {
   assert.equal(r.code, 4);
   assert.match(r.err, /already has 1 child bead/);
   assert.deepEqual(r.world.issues['zz-1'].labels, []);
+});
+
+/* ------------------------------------------- the plan path reaches the whole subtree
+
+   bc-khoe.33. `bd children` answers about one level, and that was the whole of what the
+   plan was checked against — so a group naming a grandchild was refused with "no child by
+   that id" while `unplanned` counted that same bead as loose work the plan had to cover.
+   The epic could neither name it nor leave it out, and no plan a planner could write
+   cleared the hold. These drive the real CLI, because the half that was missing is a
+   *read*: `validatePlan` could always be handed a graph, and nothing was handing it one. */
+
+const GROUP = (beads) =>
+  `groups:\n  - name: a\n    beads: [${beads.join(', ')}]\n    prs: [{repo: alpha, title: t}]\n    prompt: do it\n`;
+
+const SUBEPIC = { 'zz-1': [{ id: 'zz-1.2', title: 'a sub-epic', status: 'open' }] };
+
+check('a group may name a grandchild, and the plan that gets written names it too', () => {
+  const r = plan(GROUP(['zz-1.2.1']), { kids: SUBEPIC, graph: { 'zz-1.2': 'zz-1', 'zz-1.2.1': 'zz-1.2' } });
+  assert.equal(r.code, 0, `exited ${r.code}: ${r.err}`);
+  assert.ok(
+    r.calls.some((c) => c[0] === 'export'),
+    'the graph is read at all — the missing half was a read, not a rule'
+  );
+  const written = (r.world.issues['zz-1'].comments || []).join('\n');
+  assert.match(written, /zz-1\.2\.1/, 'the bead the old check refused is in the plan on the bead');
+  assert.ok(r.world.issues['zz-1'].labels.includes('planned'), 'and the epic is marked planned');
+});
+
+check('and a bead that is genuinely somewhere else is still refused', () => {
+  const r = plan(GROUP(['yy-9.1']), { kids: SUBEPIC, graph: { 'zz-1.2': 'zz-1', 'yy-9.1': 'yy-9' } });
+  assert.equal(r.code, 4, 'an illegal plan is the refusal it always was');
+  assert.match(r.err, /names yy-9\.1, which is not under zz-1/);
+  assert.deepEqual(r.world.issues['zz-1'].comments || [], [], 'and nothing is written');
+});
+
+/* And the two ways there is no graph. Both narrow to the one-level check rather than
+   refusing outright — that check still holds every plan it ever held, so the cost is one run
+   that cannot name a grandchild — and both say so, because a narrowing nobody is told about
+   is a refusal nobody can act on. */
+
+check('an export that will not run falls back to the one-level check, out loud', () => {
+  const r = plan(GROUP(['zz-1.2.1']), { kids: SUBEPIC, exportFails: true });
+  assert.equal(r.code, 4, 'without a graph a grandchild cannot be confirmed, so it is refused');
+  assert.match(r.err, /which zz-1 has no child by/, 'and the sentence names the question that was actually asked');
+  assert.match(r.err, /may only name zz-1's direct children/, 'the narrowing is said rather than left to be inferred');
+});
+
+check('and so does an export with no row for the epic being planned', () => {
+  // The quieter of the two, and the reason bin/plan.js looks for the row rather than only
+  // for an `error`: an empty index carries no error at all, and `isUnder` falls back to the
+  // id for every bead in one — which would admit every id-shaped guess *and* take the
+  // `children` check off in the same move. A root epic has a row even with no parent edge.
+  const r = plan(GROUP(['zz-1.2.1']), { kids: SUBEPIC, exportEmpty: true });
+  assert.equal(r.code, 4, 'an index that did not read this tracker is not an answer');
+  assert.match(r.err, /the export has no row for zz-1/, 'and it says which of the two it was');
+});
+
+check('an ordinary direct child is unaffected by any of it', () => {
+  // The whole point of falling back rather than refusing: every plan the narrow check ever
+  // took, it still takes.
+  const r = plan(GROUP(['zz-1.2']), { kids: SUBEPIC, exportFails: true });
+  assert.equal(r.code, 0, `exited ${r.code}: ${r.err}`);
 });
 
 await cleanupTmp(tmp);

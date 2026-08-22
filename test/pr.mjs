@@ -232,10 +232,18 @@ if (a === 'pr') {
     out(JSON.stringify(found));
   }
   if (b === 'create') {
+    // Simulates a real permission flip: the account this call actually ran as (its
+    // token, '' for ambient) may not be the one that answered the earlier probe.
+    if (state.writeRefusal && (process.env.GH_TOKEN || null) !== (state.writeRefusal.token || null)) {
+      fail(state.writeRefusal.message);
+    }
     if (state.create && state.create.stderr) fail(state.create.stderr);
     out((state.create && state.create.stdout) || '');
   }
   if (b === 'merge') {
+    if (state.writeRefusal && (process.env.GH_TOKEN || null) !== (state.writeRefusal.token || null)) {
+      fail(state.writeRefusal.message);
+    }
     if (state.mergeRefusal) fail(state.mergeRefusal);
     const found = find(rest[0]);
     if (!found) fail('no pull requests found');
@@ -650,6 +658,136 @@ check(
     calls().filter((c) => c.args[0] === 'repo')[0].token === null,
   JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
 );
+
+/**
+ * bc-khoe.11 — the account cache outliving the account it remembered.
+ *
+ * `accountFor` is cached for the life of the process, on purpose: it is asked on
+ * every `gh` call, and re-sweeping every account on every one would be traffic for
+ * nothing on the common day nothing changes. But a `gh auth switch` run by some
+ * *other* session sharing this Mac's one `~/.config/gh/hosts.yml` can flip who the
+ * ambient account actually is without this process ever finding out — its cached
+ * answer keeps naming an account that could write when it was first asked, and
+ * every write after the flip fails with GitHub's own permission refusal until the
+ * daemon is restarted. That is the whole outage bc-khoe.11 describes.
+ *
+ * So a write that fails this way re-sweeps once, right there, rather than trusting
+ * the stale answer for the rest of the process's life.
+ */
+console.log('\nand the account cache surviving a flip underneath it');
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  // The world as this process first saw it: the ambient account could write, so
+  // `resolve()` cached it and never asked again.
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+  },
+});
+check('the ambient account is cached as the writer', (await pr.slugFor(REPO)) === 'them/shared');
+
+// The flip: something else on the Mac ran `gh auth switch`. Nothing in this process
+// asked again, so its cache still says "ambient can write" — exactly as wrong as the
+// real outage. The account that can actually write now is the other one.
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+  writeRefusal: { token: 'tok-owner', message: 'GraphQL: must be a collaborator (createPullRequest)' },
+  create: { stdout: 'https://github.com/them/shared/pull/77\n' },
+  prs: { 77: rawPR({ number: 77, url: 'https://github.com/them/shared/pull/77', title: 'After the flip' }) },
+});
+
+resetLog();
+const madeAfterFlip = await pr.create(REPO, { head: 'worktree-thing-a1b', title: 'After the flip', body: 'why' });
+const createCalls = calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'create');
+check(
+  'the stale cached account is tried first, and refused',
+  createCalls.length === 2 && createCalls[0].token === null,
+  JSON.stringify(createCalls)
+);
+check(
+  'a fresh sweep finds the account that can actually write, and the retry lands',
+  createCalls[1].token === 'tok-owner' && madeAfterFlip.number === 77,
+  JSON.stringify({ createCalls, made: madeAfterFlip })
+);
+
+resetLog();
+check('and the corrected account is what stays cached', (await pr.slugFor(REPO)) === 'them/shared');
+check(
+  'costing one `gh repo view` to re-confirm it, not another sweep of every account',
+  calls().filter((c) => c.args[0] === 'repo').length === 1 && calls().every((c) => c.args[0] !== 'auth'),
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+// The mirror image, on `merge()` — the other sentence GitHub uses for the same refusal.
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+  },
+  prs: { 43: rawPR({ number: 43 }) },
+});
+await pr.slugFor(REPO);
+
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+  writeRefusal: {
+    token: 'tok-owner',
+    message: 'GraphQL: readonlyacct does not have the correct permissions to execute `MergePullRequest`',
+  },
+  prs: { 43: rawPR({ number: 43 }) },
+});
+
+resetLog();
+const mergedAfterFlip = await pr.merge(REPO, 43, { method: 'squash' });
+const mergeCallsAfterFlip = calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
+check(
+  'merge() re-sweeps and retries on the same shape of refusal',
+  mergeCallsAfterFlip.length === 2 && mergeCallsAfterFlip[0].token === null && mergeCallsAfterFlip[1].token === 'tok-owner',
+  JSON.stringify(mergeCallsAfterFlip)
+);
+check('and the merge that landed is what comes back', mergedAfterFlip.state === 'MERGED', JSON.stringify(mergedAfterFlip));
 
 pr.forgetAvailability();
 resetLog();
