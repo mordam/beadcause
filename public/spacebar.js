@@ -132,6 +132,14 @@
 
   const ALL = 'all';
 
+  /* The name of the group for repos in no configured space. Not a space — there is no
+     entry for it in `spaces` and nothing to set on it (`GET /api/space` 404s on it by
+     design) — but it is a value the filter can hold, so it needs a name in one place.
+     It has to stay the string `summarise()` uses in lib/spaces.js and the one
+     `matchesFilter` there compares against: a filter pinned to a name only one of the
+     three spells would push a bead the picker cannot show. */
+  const STRAY = 'Other';
+
   /* The same `?t=` pickup the other pages do, and here for a reason of its own: this
      file loads *before* the page's own script so a page can register `onChange` at the
      top of its IIFE, which means it can be the first thing on the page to want the
@@ -217,10 +225,10 @@
    *  `summarise()` and the inbox's own `spaceOf` do — if these three ever disagreed,
    *  a bead would be pushed by a filter that cannot show it. */
   const spaceOf = (workspace) =>
-    state.spaces.find((s) => (s.workspaces || []).includes(workspace))?.name || 'Other';
+    state.spaces.find((s) => (s.workspaces || []).includes(workspace))?.name || STRAY;
 
   /** Configured workspaces in no configured space, in the order the server sent them. */
-  const strays = () => state.workspaces.filter((w) => spaceOf(w) === 'Other');
+  const strays = () => state.workspaces.filter((w) => spaceOf(w) === STRAY);
 
   /**
    * Is this row in view? The client half of `matchesFilter` in lib/spaces.js.
@@ -379,6 +387,16 @@
     const rows = [option(ALL, 'All spaces', now === ALL)];
 
     for (const s of state.spaces) {
+      // The synthetic group is drawn once, below, and not here. `summarise()` emits a
+      // row literally named "Other" for the strays that have questions, so a payload
+      // carrying it used to be drawn twice: once by this loop and once by the `strays()`
+      // block, under two optgroups with the same label — and a stray with a question in
+      // it appeared in both, because `summarise()` had put it in the synthetic row and
+      // `spaceOf` answers "Other" for it as well. Skipped rather than merged because the
+      // two lists are not the same list: this one is only the strays the last sweep found
+      // beads in, and the one below is every configured repo in no space, which is the
+      // list the picker is for — see `strays()`.
+      if (s.name === STRAY) continue;
       const inside = (s.workspaces || []).filter((w) => state.workspaces.includes(w));
       // A space whose every workspace has left the config is config drift, not a place
       // to go. Its own row stays — it is still what the filter may be pinned to.
@@ -389,10 +407,14 @@
     }
 
     const rest = strays();
-    if (rest.length) {
-      // The same synthetic group `summarise()` emits, and named the same, so a filter
-      // pinned to "Other" has a row to be selected in.
-      rows.push(`<optgroup label="Other">`);
+    // The `— all` row is what a filter pinned to `space:Other` is selected in, so the
+    // group is drawn for that pin even with nothing under it — a `<select>` whose value
+    // matches no option shows its first, which would say "All spaces" over a narrowed
+    // list. Its own quiet flag is not read: "Other" is not a configured space and has no
+    // settings to be quiet by.
+    if (rest.length || now === `space:${STRAY}`) {
+      rows.push(`<optgroup label="${esc(STRAY)}">`);
+      rows.push(option(`space:${STRAY}`, `${STRAY} — all`, now === `space:${STRAY}`));
       for (const w of rest) rows.push(option(`ws:${w}`, w, now === `ws:${w}`));
       rows.push('</optgroup>');
     }

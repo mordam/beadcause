@@ -592,6 +592,12 @@ it acts on the daemon rather than on a repo, and a page whose buttons reach ever
 workspace must not draw a chip implying otherwise. The chip is there — it is how you
 switch from that page — but nothing on the page below it is filtered.
 
+Which is exactly why **Trackers** lives there — the list of every workspace this Mac
+reads, and the Retire button that takes one out of the space picker for good. Reaching
+every workspace at once is what that control needs, and the page that cannot narrow is
+the only page that can honestly offer it. See
+[`workspaceDirs`](#where-a-workspace-lives-when-it-is-not-under-beads).
+
 ## Spaces — keeping work out of your evening
 
 Workspaces can be grouped into **spaces**, and a space is defined by *when it may
@@ -24784,6 +24790,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], filter}`. Costs no `bd` call — the spaces are cached off the last sweep — because it is fetched on every page load of every standing view. **No counts**: the picker draws none |
 | GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--every-setting-a-space-has-on-a-page-of-its-own) screen: `{settings, effective, repos[], defaults, missing[], observing}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. `observing` rides along the way it does on `/api/prs`: `/config` is a page whose only payload is this one, and an instance that merely watches has to draw every control on it disabled. 404 for anything that is not a configured space, the synthetic `Other` group included |
 | POST | `/api/space` | `{space, workspace?, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. With a `workspace`, it writes that **repo's own** override instead — `autoEndorse` only, and a repo the named space does not contain is a 400. Either way the reply is the whole `spaceDetail`, and it writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
+| GET | `/api/workspaces` | — | every beads workspace this Mac serves and every one retired from it: `{workspaces[], retired[], observing}`. Each live row carries `{name, dir, space, inAccount}` — `space` being what the picker files it under, so a row says where it is about to disappear from; each retired row carries `{name, space, restorable}`, and `restorable` is asked of discovery rather than remembered, because the `null` that retired a name replaced the directory it lived at. Drawn by **Trackers** on `/admin`. Costs no `bd` call |
+| POST | `/api/workspaces` | `{action, workspace}` | `retire` a tracker or `restore` one. Retiring writes `workspaceDirs.<name>: null` — see [`workspaceDirs`](#where-a-workspace-lives-when-it-is-not-under-beads) — and nothing else, leaving the name in its space so a restore is that one key deleted and the repo returns where it was with its settings intact. Both halves write the live `cfg` *and* `config.json`, so the tracker stops being swept immediately rather than at the next restart. The beads are untouched. The **last** tracker is refused, a name nobody serves is a 404, and so is a restore discovery cannot find — which leaves the retirement standing rather than pointing `workspaces` at nothing. Refused on an observer |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/bead/create` | `{workspace, title, type?, priority?, description?, acceptance?, parent?, labels?}` | `{ok, id, key, workspace, parent, warnings[]}` — the [create form](#a-bead-you-file-yourself-from-the-form-behind-) behind ＋ on **All Beads**. One bead, through the same `createBead` the chat console's accept button calls, so the two doors cannot disagree about labels, the surface block or `created_by`. **Not** `fileBeads`: a bead you typed carries no `unendorsed`, no `agent-filed` and no agent provenance. A blank `parent` is [`lib/homing.js`](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists) and lands it under the repo's `unsorted` root — a *named* parent that does not exist is a `400` with nothing filed, because a blank field is "you decide" and a typo is not. `400` for no title or an unknown workspace; `502` carries bd's own first line, which the form keeps on screen |
 | POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
@@ -25138,6 +25146,36 @@ this is a hand-edited line that gets copied onto a second Mac. **`null`** takes 
 and keeps it out, however it was found; nothing is deleted and nothing moves, which is
 the point — the directory being *there* is the whole state being talked about, so "drop
 what no longer exists" could never have expressed it.
+
+**The `null` half has a button now**, under **Trackers** on `/admin`, and it is the same
+key written for you rather than a second mechanism. The list there is every workspace this
+Mac reads, each with the space the picker files it under; Retire writes the `null` and
+Bring back deletes it. Both take effect without a restart — the running daemon's own list
+is updated in the same press, so the tracker stops being swept immediately rather than at
+the next start, which is what the screen would otherwise be lying about.
+
+It is on `/admin` rather than on `/config` because it is a statement about the machine
+rather than about one space, which is the line those two pages are already divided on. The
+thing it cleans up is the space picker, and the picker cannot host it: that control is a
+native `<select>` on purpose — a wheel on a phone, a real menu on a laptop, and never
+half-open behind a card — and a `<select>` cannot carry a button per row. So a finished
+repo used to sit in the dropdown until somebody hand-edited this key on a machine they had
+to be sitting at.
+
+Retiring **leaves the name in its space**, and that is deliberate rather than untidy: it
+is what makes Bring back one deleted key, returning the repo to the space it was always in
+with every per-workspace setting intact. The alternative — dropping it from
+`spaces[].workspaces` — would make a restore guess where it came from, and a wrong guess
+lands the tracker in "Other" without saying so. A space naming a deliberately retired
+workspace is therefore *not* reported as config drift; `/config` says it is retired and
+where to bring it back, and keeps the drift warning for the case it was written for, a
+checkout that went somewhere without telling anybody.
+
+The beads are untouched by any of this. It is a line about what gets **read** — which is
+what makes it safe enough to be a button, and what the confirm sentence on that button
+says before the second press. What stops while a tracker is retired is being told: no
+questions from it, no advocate, no notifications. All of them are still in the tracker,
+and all of them come back with it.
 
 `~/beads` is still the rule and this is still the exception. An install that has never
 configured anything finds its workspaces exactly as it always did, which is what makes a
@@ -25841,7 +25879,7 @@ to be one.
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
 | `workspaceRoots` | where to look for trackers (default: `~/beads` and nothing else). A **container** root holds one workspace per subdirectory, which is what `~/beads` is; a root with its own `.beads` **is** one workspace, named after the directory it sits in, which is what a tracker living inside the repo it tracks looks like — `["~/beads", "~/climative.dev/architecture"]`. Rediscovered on every start, so adding a root is the only edit and a workspace *created* under it later arrives on its own. Two roots reaching the same directory are one workspace; two workspaces that would share a *name* are refused with the second named in the log. Use this when the answer is "and look here too", and `workspaceDirs` below when it is one particular workspace. See [Where trackers live](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) |
 | `workspaces` | auto-discovered under `workspaceRoots`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone. Do not hand-edit this to add a workspace that lives elsewhere: an entry here survives only while its directory does, and one start with the checkout away drops it for good. Add a root, or use `workspaceDirs` |
-| `workspaceDirs` | the workspaces the roots cannot answer for, keyed by name and empty by default — `{"climative": "~/climative.dev/architecture", "climative.retired-20260812": null}`. A **directory** serves a workspace from wherever it actually lives (the checkout or the `.beads` inside it, `~` expands); **`null`** takes a name out of the list and keeps it out, which is the retired-tracker case and the one thing neither "drop what no longer exists" nor a root can say. Applied on every load rather than baked into `workspaces` once, so a named workspace comes back on its own when its checkout does. A name a root also turns up resolves to the one named here; a named directory that is not there is a logged warning, not a refusal. See [Where a workspace lives](#where-a-workspace-lives-when-it-is-not-under-beads) |
+| `workspaceDirs` | the workspaces the roots cannot answer for, keyed by name and empty by default — `{"climative": "~/climative.dev/architecture", "climative.retired-20260812": null}`. A **directory** serves a workspace from wherever it actually lives (the checkout or the `.beads` inside it, `~` expands); **`null`** takes a name out of the list and keeps it out, which is the retired-tracker case and the one thing neither "drop what no longer exists" nor a root can say — and is what **Trackers** on `/admin` writes for you, Retire and Bring back being that key set and deleted, applied to the running daemon as well as to the file so nothing waits for a restart. Applied on every load rather than baked into `workspaces` once, so a named workspace comes back on its own when its checkout does. A name a root also turns up resolves to the one named here; a named directory that is not there is a logged warning, not a refusal. See [Where a workspace lives](#where-a-workspace-lives-when-it-is-not-under-beads) |
 | `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `edits.workspace` | which tracker a pass from [edit mode](#save-files-the-pass) is filed into (default `null`). Null is not "none": it means the workspace whose sessions open in *this* checkout, because an edit typed into this screen is a change to this app whichever tracker's beads happen to be drawn on it. Set it only where that answer is wrong |
 | `edits.root` | the standing P0 every pass lands under (default `null`). Null means found by its `edit-root` label, or created on the first Save — so an install that has configured nothing still files under a P0 that exists, without which nothing under it would be workable at all. Name one here to override that; a root named here and since **closed** is ignored rather than used |

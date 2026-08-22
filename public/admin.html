@@ -92,6 +92,16 @@
       </div>
     </section>
 
+    <!-- Which trackers this Mac reads, and the way to set one aside. Here rather than on
+         /config because that page is one *space's* settings and this is the machine's:
+         "stop reading this tracker" is the same kind of statement as "pause everything",
+         and the space picker it cleans up is deliberately absent from this page.
+
+         Empty until admin.js has heard from /api/workspaces, and drawn as nothing at all
+         on a daemon older than that route — a list of repos with no buttons that work
+         would be worse than no list. -->
+    <div id="repos"></div>
+
     <!-- HTTPS. Below the pause controls because that is what this screen is opened
          for, and on this screen at all because the alternative is a hand-edit of
          ~/.config/beadcause/config.json and a setting on Tailscale's website that

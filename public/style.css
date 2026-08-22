@@ -6283,7 +6283,10 @@ button.viewpill { cursor: pointer; }
 .admin-state.live { color: var(--accent); }
 .admin-state.held { color: var(--warn); }
 .admin-state.dim { opacity: 0.7; }
-.admin-detail { margin: 5px 0 10px; font-size: 13px; color: var(--muted); }
+/* `overflow-wrap` because the Trackers card puts a filesystem path in one of these, and a
+   path is a single unbreakable token: every other row here is prose, which is why nothing
+   needed it until bc-qid8b. The same treatment `.board-where` and `.pr-said` already get. */
+.admin-detail { margin: 5px 0 10px; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 
 .admin-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .admin-btns .primary, .admin-btns .secondary { flex: 1 1 190px; }
