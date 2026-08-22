@@ -1,0 +1,152 @@
+#!/usr/bin/env node
+/**
+ * `b7e-landed` — say whether a bead's work is already on `main`, and under whose pull
+ * request, before a session starts doing it again.
+ *
+ *     b7e-landed <bead-id>              is <bead-id> already on origin/main?
+ *     b7e-landed                        no id given — read it off the current branch's
+ *                                        own commits (the first "<id>: ..." subject)
+ *     b7e-landed <bead-id> --base main  compare against a ref other than origin/main
+ *     b7e-landed <bead-id> --json       one object instead of the printed report
+ *     b7e-landed <bead-id> --dir <root> "your tree" is <root>, not this repo's own root
+ *
+ * bc-khoe.47: four sessions (bc-42ow.4, bc-xl7n.55, bc-dgx7.5, bc-ka5y.15.3) each asked
+ * "is this already done on main?" and answered it by hand, with a different chain of
+ * git/gh/bd commands and, twice, a scratch worktree built just to check. `lib/
+ * landedcheck.js` carries the git and bd reading; this file is the argv parsing and the
+ * printing around it, the same split `b7e-blame` and `bin/b7e-blame` already use.
+ *
+ * Exit codes: `0` the work is on `base` (directly, or via a superseding bead that is
+ * itself landed); `1` it is not — superseded by a bead that is not landed either, an
+ * unlanded branch of its own, or no evidence at all; `2` refused — bad usage, or neither
+ * `origin/<base>` nor `<base>` resolves in the tree asked about.
+ */
+import path from 'node:path';
+import {
+  REPO_ROOT,
+  checkLanded,
+  beadIdFromBranch,
+  resolveBase,
+} from '../lib/landedcheck.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-landed <bead-id>              is <bead-id> already on origin/main?',
+      'b7e-landed                        no id given — read it off the current branch\'s own commits',
+      'b7e-landed <bead-id> --base main  compare against a ref other than origin/main',
+      'b7e-landed <bead-id> --json       one object instead of the printed report',
+      'b7e-landed <bead-id> --dir <root> "your tree" is <root>, not this repo\'s own root',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const JSON_MODE = has('--json');
+const BASE = value('--base', 'main');
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+let id = argv.find((a, i) => !a.startsWith('-') && argv[i - 1] !== '--dir' && argv[i - 1] !== '--base');
+
+if (!id) {
+  const baseRef = resolveBase(ROOT, BASE);
+  id = baseRef ? beadIdFromBranch(ROOT, baseRef) : null;
+  if (!id) {
+    console.error(red('no bead id given, and the current branch has no commits of its own to read one off — give one explicitly'));
+    process.exit(2);
+  }
+}
+
+const result = await checkLanded(ROOT, id, { base: BASE });
+
+if (!result.ok) {
+  console.error(red(`b7e-landed: ${result.reason}`));
+  process.exit(2);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(result));
+  process.exit(result.verdict === 'landed' || (result.verdict === 'superseded' && result.supersededLanded) ? 0 : 1);
+}
+
+const shortSha = (sha) => String(sha || '').slice(0, 8);
+const prPart = (pr) => (pr ? ` — PR #${pr}` : '');
+
+console.log(bold(`${id}${result.bead?.title ? ` — ${result.bead.title}` : ''}`));
+console.log(dim(`checked against ${result.base}`));
+
+const printCommits = (commits) => {
+  for (const c of commits) {
+    console.log(green(`  ${shortSha(c.sha)}  ${c.subject}${prPart(c.pr)}`));
+    const others = c.ids.filter((i) => i !== id);
+    if (others.length) console.log(dim(`    also names: ${others.join(', ')}`));
+  }
+};
+
+switch (result.verdict) {
+  case 'landed':
+    console.log(green(`${id} is already on ${result.base}:`));
+    printCommits(result.commits);
+    break;
+
+  case 'superseded':
+    if (result.supersededLanded) {
+      console.log(green(`${id} is closed, superseded by ${result.supersededBy}, which is on ${result.base}:`));
+      printCommits(result.commits);
+    } else {
+      console.log(amber(`${id} is closed, superseded by ${result.supersededBy} — but ${result.supersededBy} is not on ${result.base} either.`));
+    }
+    break;
+
+  case 'unlanded':
+    console.log(red(`${id} has not landed on ${result.base}.`));
+    console.log(dim(`  its own branch: ${result.branch} (${result.tip ? shortSha(result.tip) : 'no tip'}${result.ahead != null ? `, ${result.ahead} commit${result.ahead === 1 ? '' : 's'} ahead` : ''})`));
+    if (result.github?.merged) {
+      console.log(amber(`  GitHub says it merged as #${result.github.merged.number} — ${result.github.merged.url}`));
+    } else if (result.github?.open) {
+      console.log(amber(`  #${result.github.open.number} is open for it — someone is already looking (${result.github.open.url})`));
+    }
+    if (result.collisions) {
+      const { literal, textual } = result.collisions;
+      if (literal.length) {
+        console.log(amber(`  ${result.base} has also touched, since the merge-base:`));
+        for (const f of literal) console.log(amber(`    ${f}`));
+      }
+      if (textual.length) {
+        console.log(amber(`  ${result.base} reaches, without touching directly:`));
+        for (const t of textual) console.log(amber(`    ${t.branchFile}  ${dim(`(named in ${t.reachedVia})`)}`));
+      }
+      if (!literal.length && !textual.length) console.log(dim(`  no overlap with what ${result.base} has landed since the merge-base`));
+    }
+    break;
+
+  case 'no-evidence':
+  default:
+    console.log(red(`no evidence ${id} has landed on ${result.base} — no commit names it, no supersede marker, no branch of its own.`));
+    break;
+}
+
+const FAMILY_DISPLAY_CAP = 15;
+const siblings = result.family.filter((c) => !c.ids.includes(id));
+if (siblings.length) {
+  console.log(`\n${bold('family:')}`);
+  printCommits(siblings.slice(0, FAMILY_DISPLAY_CAP));
+  const more = siblings.length - FAMILY_DISPLAY_CAP;
+  if (more > 0) console.log(dim(`  ...and ${more} more family commit${more === 1 ? '' : 's'} — --json for the whole list`));
+}
+
+const landed = result.verdict === 'landed' || (result.verdict === 'superseded' && result.supersededLanded);
+process.exit(landed ? 0 : 1);
