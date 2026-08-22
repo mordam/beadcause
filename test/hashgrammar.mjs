@@ -195,13 +195,14 @@ check('a hash that will not decode does not throw out of boot', () => {
 
 console.log('\na view hash');
 
-check('each of the four views is named by exactly one hash, and Home by none', () => {
+check('each of the five views is named by exactly one hash, and Home by none', () => {
   const ids = [...route.VIEWS].map((v) => v.id);
-  assert.deepEqual(ids, ['epics', 'history', 'advocates', 'releases']);
+  assert.deepEqual(ids, ['epics', 'history', 'advocates', 'releases', 'config']);
   assert.equal(route.hashFor('epics'), '', 'Home is the empty hash — every existing link says it by saying nothing');
   assert.equal(route.hashFor('history'), '#history');
   assert.equal(route.hashFor('advocates'), '#advocates');
   assert.equal(route.hashFor('releases'), '#releases');
+  assert.equal(route.hashFor('config'), '#config');
   assert.equal(route.hashFor('flow'), null, 'a page that is not a view has no hash, and null is how that is said');
   const hashes = [...route.VIEWS].map((v) => v.hash);
   assert.equal(new Set(hashes).size, hashes.length, 'two views claim one hash');
@@ -234,8 +235,9 @@ check('no view name can ever be mistaken for a key, or a key for a view name', (
 });
 
 check('and the other half of the same question: which view an address names', () => {
-  // The nine addresses that are all the advocate console, the two that are Home, and the
-  // five pages that draw the pill row and are on no pill. `viewOfPath` is what
+  // The nine addresses that are all the advocate console, the two that are Home, the
+  // three that are the space's settings, and the five pages that draw the pill row and are
+  // on no pill. `viewOfPath` is what
   // bc-khoe.30.7 will land an old path on the right pane with, and what the row already
   // lights itself by.
   assert.equal(route.viewOfPath('/'), 'epics');
@@ -247,6 +249,13 @@ check('and the other half of the same question: which view an address names', ()
   }
   for (const p of ['/releases', '/deploys', '/releases.html']) {
     assert.equal(route.viewOfPath(p), 'releases', `${p} is the releases view`);
+  }
+  // The three that made bc-khoe.50 a bug: the row draws its Config pill on this page and
+  // had no answer for the address, so nothing was current on the one screen that pill
+  // reaches. Its pane is still `data-pending`, which is why these are here and not in the
+  // hop table — see test/pagealias.mjs, which holds both halves of that.
+  for (const p of ['/config', '/settings', '/config.html']) {
+    assert.equal(route.viewOfPath(p), 'config', `${p} is the space's settings`);
   }
   for (const p of ['/flow', '/requirements', '/endorse', '/admin', '/console']) {
     assert.equal(route.viewOfPath(p), null, `${p} draws the row and is on no pill — that is deliberate`);
