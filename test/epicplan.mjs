@@ -33,7 +33,16 @@ import { fileURLToPath } from 'node:url';
 import { quiesce, removeTree } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
+
+/** Comments blanked to spaces, so prose describing the wording is not read as the wording. */
+function code(file) {
+  const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + m.slice(p.length).replace(/./g, ' '));
+}
 
 // Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load, and
 // the daemon's own advocates.json is not this suite's to read or to write.
@@ -792,6 +801,22 @@ await check('a `planned` label with no plan behind it changes nothing', async ()
   });
   assert.deepEqual(r.created, [], 'nothing promoted off a plan that is not there');
   assert.deepEqual(r.planned.map((p) => p.id), ['x-1'], 'and it is planned like any other unplanned epic');
+});
+
+/**
+ * bc-zjab.8. A planner reads "planned <epic> — N groups, N pull requests" and exit 0 as
+ * the plan having taken effect — it has not, since whether the daemon actually dispatches
+ * those groups is a later tick's call. bin/plan.js has to say so itself, beside the group
+ * summary, and name the one command that answers it afterwards.
+ */
+await check('bin/plan.js says, beside the group summary, that dispatch is not confirmed and where to check', () => {
+  const src = code('bin/plan.js');
+  assert.match(src, /filed, not dispatched/, 'says plainly that a filed plan is not yet a dispatched one');
+  assert.match(src, /bd show \$\{epicId\}/, 'names the one command to check afterwards');
+  // Imported, not spelt out — bin/plan.js is a binary lib/advocate.js never imports, so
+  // unlike lib/session.js's brief it can name the real mark rather than guess its spelling.
+  assert.match(src, /import\s*\{\s*DISPATCHED_PREFIX\s*\}\s*from\s*'\.\.\/lib\/advocate\.js'/, 'names the real mark, not a guess at its spelling');
+  assert.match(src, /\$\{DISPATCHED_PREFIX\}/, 'and actually prints it');
 });
 
 /* ---------------------------------------------------------------------- done */
