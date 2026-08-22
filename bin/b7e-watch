@@ -1,0 +1,141 @@
+#!/usr/bin/env node
+/**
+ * How far the gate has got, and whether anything is red — one call, instead of
+ * thirty tails of a scratchpad log.
+ *
+ *   b7e-watch                 this worktree's most recent gate run
+ *   b7e-watch --run <id>      a specific run, from any worktree
+ *   b7e-watch --wait [--timeout <seconds>]   block until it finishes, or the deadline
+ *
+ * bc-gdub.3, filed by the session audit that found six sessions doing this by hand:
+ * launch the suite in the background, then poll — `tail -1 sweep.log`, `grep -c 'ok\|
+ * FAIL' gate.log`, `ps -o etime=` — thirty-odd times in a row, one session's filter
+ * defeated outright by the runner's own ANSI colour codes. There was nowhere to ask
+ * the question except the log. `bin/b7e-gate` (bc-khoe.39) now writes the answer down
+ * as it goes (`lib/gaterun.js`, one JSONL line per suite); this reads it back.
+ *
+ * Prints one line: suites done/total, elapsed, and — once the run has finished — the
+ * name of every suite that failed, each tagged with whether it also fails on
+ * `origin/main`. That comparison is `lib/blame.js`'s (bc-khoe.42, `bin/b7e-blame`): it
+ * re-runs a still-red suite against a throwaway `origin/main` worktree and compares by
+ * *named* check rather than by exit code, so "red on both sides but for a different
+ * reason" is not reported as "already red, not yours". It only runs once the gate has
+ * actually finished — while it is still going, failed-so-far is reported by name alone,
+ * so watching a live run never adds a second suite invocation on top of the ones the
+ * gate is already running.
+ *
+ * Exit codes: 0 while the run is still going, or once it finished with nothing red, or
+ * once every red suite is also red on `origin/main`; 1 once it finished with a suite
+ * red that is not `origin/main`'s; 2 if the run named (or found) does not exist.
+ */
+import fs from 'node:fs';
+import { runsDir, latestRunFor, readRun, runFile, worktreeSlug } from '../lib/gaterun.js';
+import { runBlame, exitCodeFor } from '../lib/blame.js';
+
+function arg(...names) {
+  for (const n of names) {
+    const i = process.argv.indexOf(n);
+    if (i > -1) return process.argv[i + 1];
+  }
+  return undefined;
+}
+const has = (n) => process.argv.includes(n);
+
+const USAGE = `usage: b7e-watch [--run <id>] [--wait [--timeout <seconds>]]
+
+With no arguments, reports on this worktree's most recent gate run (started by
+\`b7e-gate\`). --run <id> reports on a specific run, started by any session in any
+worktree — the id \`b7e-gate\` prints at the top of its own output. --wait blocks,
+polling every 2s, until the run finishes or --timeout seconds pass (default 570,
+since a single call is capped well under that) — then reports exactly as the
+no-wait form would once it stops waiting.`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const cwd = process.cwd();
+const runId = arg('--run');
+const wait = has('--wait');
+const timeoutArg = arg('--timeout');
+const timeoutMs = (timeoutArg ? Number(timeoutArg) : 570) * 1000;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function findFile() {
+  if (runId) {
+    const dir = await runsDir(cwd);
+    const f = runFile(dir, runId);
+    return fs.existsSync(f) ? f : null;
+  }
+  return latestRunFor(cwd);
+}
+
+function fmtElapsed(sec) {
+  if (sec === null) return '?';
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m ? `${m}m${String(s).padStart(2, '0')}s` : `${s}s`;
+}
+
+const TAGS = {
+  clean: 'now passes — stale',
+  'main-red': 'also red on origin/main',
+  partial: 'red on origin/main too, but with new failures',
+  yours: 'new — not on origin/main',
+  unclear: "red on both sides, can't compare by name",
+  unknown: 'could not check origin/main',
+  'no-local': 'missing locally',
+};
+
+async function report(file) {
+  const r = readRun(file);
+  const state = r.running ? 'running' : r.status === 'ok' ? 'done, green' : 'done, red';
+  let tail = '';
+  let exitCode = 0;
+
+  if (r.failed.length && r.running) {
+    // Still going — name what's red so far, without adding a second run of anything
+    // on top of the gate that is already running.
+    tail = `, ${r.failed.length} failed so far: ${r.failed.join(', ')}`;
+  } else if (r.failed.length) {
+    const { results } = await runBlame(cwd, r.failed);
+    const tags = results.map((res) => `${res.suite} (${TAGS[res.verdict] || res.verdict})`);
+    tail = `, ${r.failed.length} failed: ${tags.join(', ')}`;
+    exitCode = exitCodeFor(results);
+  }
+
+  console.log(
+    `run ${r.runId} (${r.worktree || '?'}): ${r.done}/${r.total ?? '?'} done, ${fmtElapsed(r.elapsedSeconds)} elapsed, ${state}${tail}`
+  );
+  return r.running ? 0 : exitCode;
+}
+
+async function main() {
+  const file = await findFile();
+  if (!file) {
+    const dir = await runsDir(cwd);
+    console.error(
+      runId
+        ? `b7e-watch: no run ${runId} found in ${dir}`
+        : `b7e-watch: no gate run found for worktree ${await worktreeSlug(cwd)} in ${dir} — start one with \`b7e-gate\``
+    );
+    process.exit(2);
+  }
+
+  if (wait) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (!readRun(file).running) break;
+      await sleep(2000);
+    }
+  }
+
+  process.exit(await report(file));
+}
+
+main().catch((err) => {
+  console.error(`b7e-watch: ${err.message}`);
+  process.exit(1);
+});

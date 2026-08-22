@@ -52,6 +52,11 @@ public/beadcause.apk.json
 
 # Android build output and machine-local SDK path.
 android/.gradle/
+
+# `bin/b7e-gate` run records (bc-gdub.3, `lib/gaterun.js`) — one JSONL file per run,
+# read back by `bin/b7e-watch`. Churn, gone with the worktree they describe, the same
+# reason logs/ and workers/ under ~/.config/beadcause are ignored rather than kept.
+.claude/gate-runs/
 android/build/
 android/app/build/
 android/local.properties
