@@ -48,6 +48,7 @@
     "b7e-gate": "bin/b7e-gate",
     "b7e-landed": "bin/b7e-landed",
     "b7e-owes": "bin/b7e-owes.js",
+    "b7e-readme": "bin/b7e-readme",
     "b7e-say": "bin/b7e-say.js",
     "b7e-swbump": "bin/b7e-swbump",
     "b7e-worktree": "bin/b7e-worktree"
