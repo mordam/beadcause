@@ -271,6 +271,8 @@ One residual needed `freeze()` in the harness: `.spark`'s opacity, read mid-brea
 `shots.mjs` deliberately does **not** freeze — its probe asserts that a live row's spark
 really is running, which a frozen page cannot show.
 
-The baseline lives in `design-shots/`, which is gitignored, so it is per-machine and a
-fresh clone has none. That is the honest default: a baseline recorded on someone else's
-machine is a claim about their fonts.
+The baseline lives at `design-baseline.json`, at the repo root rather than inside
+`design-shots/` — that directory is disposable by design (`shots.mjs` clears it before
+every render, bc-ka5y.24) and the baseline explicitly is not. It is gitignored, so it is
+per-machine and a fresh clone has none. That is the honest default: a baseline recorded
+on someone else's machine is a claim about their fonts.
