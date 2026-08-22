@@ -857,6 +857,52 @@ is corrected in the same tick. Without that the bar would be right and the list 
 wrong, which is a worse bug than the one being fixed. `test/spacebar.mjs` covers both
 orderings, the echo, the bound and the failed write against the real file in a vm.
 
+#### The label that kept the old space
+
+Reported from the phone: change the space and the label immediately left of the `▾` goes
+on naming the last one, and stays wrong until the page is reloaded.
+
+One selection is drawn **four** times over — the span the bar fills, the `<select>`'s
+value, its `title`, and whatever the page under the bar filtered itself to — and only
+three of those were ever written by a line of code. The value rode along inside the
+markup, as a `selected` attribute on one of the rows `paint()` builds, and the rebuild
+that carries it is guarded: rows identical to the ones last written are not assigned
+again, because rebuilding a `<select>` under an open native dropdown, on a phone, is a
+wheel that shuts itself.
+
+That guard is right and the coupling was wrong, because this control is not only written
+to. **A browser moves a `<select>`'s value with no code involved** — on the pick itself,
+and again when a form is restored after a back navigation. So a value that moved without a
+`change` reaching `public/spacebar.js` was never put back by anything: not by the next
+payload, and not even by one that rebuilt every row, since identical rows are exactly the
+case the guard skips. The label said one repo, the dropdown held another, and only a reload
+settled it.
+
+The selection is said to the control now — one assignment, and only when the two
+disagree, which is the same shape as the label and the title beside it and for the same
+reason: agreeing is the normal case.
+
+**Which needs the selection to have a row at all.** The filter outlives the config it was
+picked under — it sits in `state.json` across restarts and reconfigurations — so a space
+renamed in the config file, or a repo retired from `/admin`, leaves the picker pinned to a
+name the next payload does not carry. A `<select>` whose value matches no option shows its
+*first*, so the bar read **All spaces** over a list that was still narrowed to the repo the
+label named: the control contradicting itself about the one thing it is for. bc-qid8b drew
+the `Other — all` row for exactly this reason, and `Other` was never the only name the
+list can lose, so a pin nothing else offers gets a row of its own reading `sophab — gone`.
+It says so rather than quietly widening: `matches()` and the server's `matchesFilter()` are
+both still answering for that pin, so a row reading plainly `sophab` would be a second lie
+— and widening the filter is not this file's decision to make. The daemon reconciles a
+stale pin on the way out (`reconcileFilter`), and the inbox reconciles its own mirror on its
+next payload; until one of them does, this is where you can see why the list is empty and
+pick your way out of it.
+
+The half that matters is the half `node:vm` cannot hold: test/spacebar.mjs's `<select>` is
+an object whose value is whatever the check last assigned, so it agrees by construction.
+`scripts/space-check.mjs` asserts the whole of it in a real browser, on a real pick — the
+label, the value, the title and the card all naming one space, in the same turn and again
+after the page has handed the picker its next payload.
+
 #### The row it cost, and why it no longer costs one
 
 The picker had a full-width row of its own until bc-khoe.5, so six pages carried two rows
