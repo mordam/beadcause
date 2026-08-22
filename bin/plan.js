@@ -23,6 +23,29 @@
  *         These two are one change: the switch is unreadable until the router owns the
  *         certificate, so do them in one branch and one pull request.
  *
+ * ## The other answer: this epic is one job (bc-jvt0.4)
+ *
+ * A **childless** epic has two honest answers and this door takes both, because the two are
+ * one decision and a decision recorded in two places is two decisions that can disagree.
+ * The second answer names no groups at all:
+ *
+ *   whole:
+ *     why: |
+ *       The description names both files and the check, and the change is one edit to each.
+ *       Splitting it would file two beads so that two windows could each hold one, which is
+ *       a decomposition made for the dispatcher rather than for the work.
+ *
+ * That writes `lib/plan.js`'s whole-job block as a comment and puts `whole-job` on the
+ * epic, and the label is what lets the survey dispatch the epic *as itself* — see
+ * `heldByChildren` in lib/advocate.js, which holds an owned childless epic until one of
+ * these two answers exists. `why:` is not optional and has a floor, because for this
+ * document the reason is the decision: "one job" with nothing behind it is
+ * indistinguishable from a window that ran out of turn.
+ *
+ * `groups:` and `whole:` in one document is refused rather than resolved. They are opposite
+ * conclusions, and picking one for the author would be this tool deciding the thing it
+ * exists to record.
+ *
  * ## What it will refuse, and why refusing is the point
  *
  * Everything in `validatePlan` — a bead that is not under this epic, a bead in two groups,
@@ -71,16 +94,24 @@
  * and it happens here rather than in the brief so that it cannot be the one instruction a
  * session skipped.
  *
- * Exit codes: 3 when the input names no plan, 4 when the plan is not a legal one, 5 when
- * the tracker would not take it. A plan that wrote its comment but could not label or hand
- * back the epic exits 0 with a warning, because the comment is the plan and the other two
- * are recoverable by hand.
+ * Exit codes: 3 when the input names neither answer (or names both), 4 when what it names
+ * is not a legal one, 5 when the tracker would not take it. A write that landed its comment
+ * but could not label or hand back the epic exits 0 with a warning, because the comment is
+ * the document and the other two are recoverable by hand.
  */
 import fs from 'node:fs';
 import YAML from 'yaml';
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
-import { formatPlan, PLANNED_LABEL, surfaceNotes, validatePlan } from '../lib/plan.js';
+import {
+  formatPlan,
+  formatWhole,
+  PLANNED_LABEL,
+  surfaceNotes,
+  validatePlan,
+  validateWhole,
+  WHOLE_LABEL,
+} from '../lib/plan.js';
 import { multiRepo, repoList } from '../lib/repos.js';
 import { resolveSessionDir } from '../lib/session.js';
 
@@ -102,6 +133,7 @@ const file = arg('--file', '-f');
 const ws = cfg.workspaces.find((w) => w.name === wsName);
 if (!ws || !epicId || has('--help') || has('-h')) {
   console.error('usage: beadcause-plan -w <workspace> -b <epic> [-f plan.yaml]');
+  console.error('input is `groups:` (a group plan) or `whole:` (a childless epic that is one job)');
   console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
   process.exit(1);
 }
@@ -114,8 +146,21 @@ try {
   warn(`that is not valid YAML — ${err.message.split('\n')[0]}`);
   process.exit(3);
 }
-if (!spec || (!Array.isArray(spec) && !Array.isArray(spec.groups))) {
-  warn('no groups in that input — a plan is a `groups:` list');
+// Which of the two answers this is. `whole:` present at all counts, including `whole: null`
+// from a key somebody typed and left empty — that is a decision half-written, and the
+// refusal `validateWhole` gives it names the missing `why:`, which is more use than "no
+// groups in that input" about a document that never mentioned groups.
+const wantsGroups = Array.isArray(spec) || Array.isArray(spec?.groups);
+// `typeof … === 'object'` and not merely truthy: `in` throws on a primitive, and YAML that
+// is a bare scalar (`whole` on its own line, say) parses to a string.
+const wantsWhole = Boolean(spec) && typeof spec === 'object' && !Array.isArray(spec) && 'whole' in spec;
+if (wantsGroups && wantsWhole) {
+  // Refused rather than resolved: see the header. Picking one would be this tool deciding.
+  warn('that input has both `groups:` and `whole:` — those are opposite answers, so say only one of them');
+  process.exit(3);
+}
+if (!wantsGroups && !wantsWhole) {
+  warn('no groups in that input — a plan is a `groups:` list, or `whole:` for an epic that is one job');
   process.exit(3);
 }
 
@@ -153,6 +198,57 @@ try {
 } catch (err) {
   warn(`could not read ${epicId}'s children, so the plan cannot be checked — ${err.message.split('\n')[0]}`);
   process.exit(5);
+}
+
+/**
+ * The whole-job answer, and it exits here — bc-jvt0.4.
+ *
+ * Above the plan path rather than beside it, because everything below is about groups and a
+ * whole-job decision has none: no surface notes (nothing to intersect with), no group
+ * summary, and the `children` read it *does* want is the one already in hand — a decision
+ * that the epic is one job is a lie the moment the epic has children, and `validateWhole`
+ * refuses it on exactly that.
+ *
+ * The three writes are the plan path's three, in the plan path's order and for its reasons,
+ * which is the whole argument for one door: the comment first because the comment *is* the
+ * decision, the label second so a label with no decision behind it is not a state this can
+ * produce, and the handback last because a claimed epic is out of `bd ready` and an epic
+ * out of `bd ready` is one nothing will ever dispatch — which for this answer is the entire
+ * point of having made it.
+ */
+if (wantsWhole) {
+  let whole;
+  try {
+    whole = validateWhole(spec, { epic: epicId, children: children || [] });
+  } catch (err) {
+    warn(err.message);
+    process.exit(4);
+  }
+
+  try {
+    await bd.comment(ws, epicId, formatWhole(whole));
+  } catch (err) {
+    warn(`could not write the decision onto ${epicId} — ${err.message.split('\n')[0]}`);
+    process.exit(5);
+  }
+
+  try {
+    await bd.addLabel(ws, epicId, WHOLE_LABEL);
+  } catch (err) {
+    warn(`the decision is on ${epicId} but the \`${WHOLE_LABEL}\` label would not go on — ${err.message.split('\n')[0]}`);
+    warn(`add it by hand (\`bd label add ${epicId} ${WHOLE_LABEL}\`) or the queue will go on holding the epic`);
+  }
+
+  try {
+    await bd.reopenAbandoned(ws, epicId);
+  } catch (err) {
+    warn(`could not hand ${epicId} back to the queue — ${err.message.split('\n')[0]}`);
+    warn(`run \`bd update ${epicId} --status open --assignee ""\` yourself, or nothing will pick the epic up`);
+  }
+
+  console.log(`decided ${epicId} — one job, no children filed`);
+  console.log(`  ${whole.why.split('\n')[0]}`);
+  process.exit(0);
 }
 
 let plan;

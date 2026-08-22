@@ -53,6 +53,11 @@ const {
 } = await import(LIB('epicadvocate.js'));
 const { AGENTS, baseline, mark } = await import(LIB('foundation.js'));
 const { ERROR_LABEL } = await import(LIB('errors.js'));
+// bc-jvt0.4. Imported rather than spelled out, for the reason test/plandispatch.mjs imports
+// `DISPATCHED_PREFIX`: the brief quotes a document lib/plan.js owns and the daemon reads, so
+// a suite carrying its own copy of the label would go on passing after a rename and the epic
+// would be held for ever by a brief telling an advocate to write the wrong thing.
+const { MIN_WHY_CHARS, WHOLE_CLOSE, WHOLE_LABEL, WHOLE_OPEN } = await import(LIB('plan.js'));
 
 let failures = 0;
 let ran = 0;
@@ -377,9 +382,68 @@ check('AND A DECISION IT CANNOT MAKE HAS A DOOR THAT REACHES A PHONE', () => {
   assert.match(text, /recommended: true/, 'and with no recommendation, which is the cheapest thing it can give');
 });
 
-check('with no children it is told to plan; with children it is told to take stock', () => {
+/* ------------------------------------- the childless branch is a decision, not an order
+   (bc-jvt0.4)
+
+   This branch used to open "planning it is the whole job this time" and go straight on to
+   filing children — an instruction to decompose, given to the one agent that had read the
+   bead, whatever the bead said. Adam's decision (2026-08-21) is that this agent judges and
+   the default is to do the work; the queue half is `heldByChildren` check 4 in
+   lib/advocate.js, pinned in test/epicqueue.mjs.
+
+   Three cases, one per answer, and then the two things about them that are easy to get
+   wrong: the default has to be *stated* as the default (an agent handed three equal options
+   picks by temperament), and the third answer has to be *named* (an agent with no third
+   answer has to pick one of the first two, which is the plan-filed-to-look-productive
+   failure this bead was filed about). */
+
+check('THE DEFAULT IS TO DO IT WHOLE, AND IT SAYS SO', () => {
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
+  assert.match(text, /Do it whole — and this is the default/, 'the default is not stated as the default');
+  assert.match(text, /one branch and one pull request/, 'nothing says what "simple enough" is measured against');
+  // The refusal that is the whole point: a bead filed so that a worker has something to
+  // hold is the failure mode, and it has to be named rather than merely not-recommended.
+  assert.match(text, /merely to give a worker something to hold/, 'nothing refuses a bead filed for the dispatcher');
+  // And it is not left as a conclusion in a conversation nobody keeps: the label is what
+  // the queue reads, so a decision that does not write it is an epic that stays held.
+  assert.ok(text.includes(WHOLE_LABEL), 'the label the queue reads is not named');
+  assert.ok(text.includes(WHOLE_OPEN) && text.includes(WHOLE_CLOSE), 'the block it has to write is not quoted');
+  assert.match(text, new RegExp(`"epic": "${p0().id}"`), 'the block it is handed does not name its own epic');
+  assert.match(text, new RegExp(`floor of\\s+${MIN_WHY_CHARS} characters`), 'the reason has no stated floor');
+});
+
+check('SPLITTING IS THE SECOND ANSWER AND IT OWES A REASON', () => {
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
+  assert.match(text, /Split it — and say why/, 'the split answer does not ask for a reason');
+  assert.match(text, /genuinely needs to be several/, 'nothing says when a split is the right answer');
+  assert.match(text, /--parent zz-p0/, 'the one thing a filed child must carry is missing');
+  // Why no marker: the children are the record, and saying so is what stops a window
+  // adding the whole-job label alongside a split it just filed.
+  assert.match(text, /no label to add/, 'nothing says a split needs no marker of its own');
+});
+
+check('AND ASKING IS THE THIRD, NAMED OUTRIGHT RATHER THAN LEFT IMPLIED', () => {
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
+  assert.match(text, /Neither — ask/, 'the third answer is not offered');
+  assert.match(text, /not a failure/, 'asking is offered without being made safe to choose');
+  assert.match(text, /Do not invent a decomposition/, 'the failure mode this bead is about is not refused');
+  // Both writes, because only one of them is the question: a `human` bead reaches the
+  // phone, and `human` on the epic itself is what stops the queue offering it meanwhile.
+  assert.match(text, /`human` bead carrying a `decision` block/, 'the question has no door to a phone');
+  assert.match(text, /put\n?`human` on zz-p0 itself/, 'the epic is left in the queue while the question stands');
+});
+
+check('and the brief says the queue is waiting on this, so a visit that decides nothing costs a tick', () => {
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
+  assert.match(text, /the queue holds this epic/, 'nothing tells it that the dispatch is waiting on its answer');
+  assert.match(text, /yours to decide/, 'the decision is not claimed for this agent');
+});
+
+check('with no children it decides the shape; with children it is told to take stock', () => {
   const fresh = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
-  assert.match(fresh, /no children yet/);
+  assert.match(fresh, /This epic has no children, so the one thing this visit decides/);
+  // The sentence that used to be here, gone on purpose — see the heading above.
+  assert.ok(!fresh.includes('planning it is the whole job this time'), 'the brief still orders a decomposition');
   const kids = [
     { id: 'zz-p0.1', title: 'one', status: 'open', priority: 1 },
     { id: 'zz-p0.2', title: 'two', status: 'closed', priority: 1 },
