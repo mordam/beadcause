@@ -13284,6 +13284,102 @@ in lib/advocate.js is the whole of it, and `test/plandispatch.mjs` is what pins 
 spelling of the prefix to the code's, because the brief cannot import it — lib/advocate.js
 imports lib/session.js to open the windows, so the reverse would be a cycle.
 
+### A childless epic is its advocate's call — do it whole or split it, and nothing dispatches before that call
+
+An epic with no children is work, not a shelf. Two places used to disagree about what to do
+with one, and both were sincere.
+
+The Epic Advocate's brief said *"this epic has no children yet, so planning it is the whole
+job this time"* — read the repo, decompose it, file each child under it. So the one agent
+that had actually read the bead was told to split it whatever it said. Meanwhile the queue
+had already answered the opposite question by silence: `heldByChildren` in lib/advocate.js
+deliberately left a leaf epic workable, on the argument that *"an epic with nothing under it
+is an ordinary bead with an ambitious type"*, so a childless epic went out as a plain worker
+window on the first tick it was seen. That argument is right about what such an epic **is**
+and wrong about who gets to say so — and because a tick comes round every thirty seconds and
+an advocate window comes round every few hours, the queue won every time. The judgement
+arrived after the question had been settled.
+
+**Adam's decision (2026-08-21): the advocate judges, and the default is to do the work.** It
+decides whether the epic's description holds enough to act on and whether the job is simple
+enough; if so, a worker carries it out under the epic alone, and no child bead is filed
+merely to give a worker something to hold. It splits into children only when the work
+genuinely needs them.
+
+So three answers rather than two, and the third is the one worth naming out loud:
+
+- **One job.** The epic is dispatched as itself, exactly as before — but now because
+  somebody decided it, not because nobody had. Recorded as a `whole-job` label on the epic
+  plus a comment carrying the reason.
+- **Several pieces.** Children, filed under the epic with `--parent`. Nothing marks this
+  answer, because the children *are* the mark: the moment one exists the epic is no longer
+  childless, and [the hold that has always applied to an epic with open children](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window)
+  takes over and dispatches the children instead.
+- **Neither — ask.** If the description is not enough to act on and reading the repo does not
+  settle it, the answer is a `human` bead under the epic carrying a `decision` block, and
+  `human` on the epic itself so the queue stops offering it while the question stands. A plan
+  filed to look productive is the failure this feature is closest to, and an agent with no
+  third answer has to pick one of the first two.
+
+**And the queue waits.** `heldByChildren` gained a fourth check: an **owned** epic with no
+children at all and no `whole-job` label is held out of the dispatch queue. That is what
+turns the advocate's judgement from a recommendation into a decision — before it, a decision
+recorded an hour after the window opened was a decision about work already under way.
+
+Two words in that sentence are doing real work. **Owned**, because `wantsAdvocate` needs an
+`owner:` label: an unowned epic has no advocate and never will, so holding one would hold it
+for ever with nothing that could ever clear it. And **no children at all** rather than no
+*open* children — an epic whose last child closed has already been decomposed, the judgement
+is in the graph, and holding it would be waiting for a decision it does not need. A
+`container` epic never reaches any of this: `Bd.ready` filters it out of every queue before
+the survey sees it, so a standing root is still neither dispatched nor held, because it is
+not work.
+
+The hold is on the card and in the log rather than silent, which is a departure from the
+three hierarchy checks beside it. Those clear themselves when a window closes or a child
+lands; this one clears only when somebody decides something, so it is drawn as its own
+`heldByUndecided` pill — `p1`, with the two other holds no amount of waiting resolves — and
+the reason names both ways out. It is a separate list from `heldByChildren` on purpose:
+"waiting on their children" printed over an epic that has none is the kind of line that
+teaches a reader to skip the line.
+
+**Both answers go through one door.** `beadcause-plan` takes a second shape of input:
+
+```yaml
+whole:
+  why: |
+    The description names both files and the check, and the change is one edit to each.
+    Splitting it would file two beads so that two windows could each hold one, which is a
+    decomposition made for the dispatcher rather than for the work.
+```
+
+That writes the comment, adds the label and hands the epic back to the queue — the same
+three writes in the same order as a group plan, for the same reasons: the comment is the
+document, so a label with nothing behind it is not a state the tool can produce, and a
+claimed epic is out of `bd ready` and would be a decision nothing could act on. `groups:`
+and `whole:` in one document is refused rather than resolved; they are opposite conclusions
+and picking one would be the tool deciding the thing it exists to record.
+
+`why:` is not optional and has a floor of forty characters — the only prose floor anywhere
+in this repo. Everywhere else a document is checkable without its prose: a plan's groups
+either name beads under the epic or they do not. Here the reason *is* the decision, and
+"one job" with nothing behind it is indistinguishable from a window that ran out of turn and
+reached for the cheapest exit. The worker opened on that epic reads it before the diff.
+
+lib/plan.js owns the format, `validateWhole` owns the refusals, and lib/epicadvocate.js
+quotes the block rather than spelling it out — an Epic Advocate writes it with `bd comment`
+and `bd label add`, exactly as it already writes the plan, so the two writers of one document
+cannot drift. `test/wholejob.mjs` drives the real `bin/plan.js` against a fake `bd` for the
+three writes and their order; `test/epicqueue.mjs` pins the hold and every way out of it;
+`test/epicadvocate.mjs` pins one case per answer.
+
+**What is still owed after this.** An epic worked as one job is delivered by a pull request
+that merges, and the merge queue deliberately leaves an epic open — *an epic closes when its
+theme is done, not when a branch sharing its name merges*. For an epic with children that is
+right; for one that was its own single job there is no theme beyond the branch that just
+landed, so it comes back to the queue as apparently unworked. bc-jvt0.5 is that bead: the
+epic comes back as a card that says it is done, with Close as the tap.
+
 ### One card per advocate — an EpicAdvocate is not a fold inside the repo's card
 
 The advocates view draws one card per repo, and until bc-henk every EpicAdvocate under
@@ -14007,8 +14103,9 @@ even entered, and every one of them is a filter somebody added for its own incid
 - **it has no window open on this repo**, because an advocate that proposed new work
   while it was doing old work would be doing the easy half of its job;
 - **`bd ready` is empty** of anything it could take;
-- **and empty for no *reason*** — none of the nine holds fired. A queue emptied by a
-  hold is not a clear one: `heldByChildren`, `heldByRepo`, `heldByTwin`, `heldByPr`,
+- **and empty for no *reason*** — none of the ten holds fired. A queue emptied by a
+  hold is not a clear one: `heldByChildren`, `heldByUndecided`, `heldByRepo`,
+  `heldByTwin`, `heldByPr`,
   `heldByLive`, `heldByLease`, `heldByClaim`, `heldByNoRoot` and `heldByPause` each stand
   for work that *is* there and cannot be started yet, and an advocate that said "clear" over one and
   then filed new beads beside it would be burying the one sentence that says what to
@@ -14093,16 +14190,19 @@ ten-minute agent. Both are allowed to fail, and a failure costs the paragraph it
 rather than the survey its run — `null` and `0` are kept apart all the way down, because
 *"nothing is waiting on you"* is a claim and *"I could not ask"* is not.
 
-**The nine holds get the opposite treatment: a promise rather than a list of zeros.** They
+**The ten holds get the opposite treatment: a promise rather than a list of zeros.** They
 are always empty when a survey runs — that is the gate in the section above — so the brief says
 so in one sentence and tells the agent nothing is hiding behind them, which is worth more
-than nine lines reading `0`. It is derived rather than asserted: `queueBrief` reads the
+than ten lines reading `0`. It is derived rather than asserted: `queueBrief` reads the
 lists, and a future caller reaching it without that gate would get the counts instead. The
 hold names live in one exported table, `QUEUE_HOLDS`, and `test/surveybrief.mjs` fails the
-repo for any `heldBy*` field of the agent record that has no row in it — so a tenth hold
+repo for any `heldBy*` field of the agent record that has no row in it — so an eleventh hold
 filter is a red test rather than a hold the survey is silently never told about. The bead
 that asked for this said "eight"; `heldByPause` had been added in between, and the list in
-the section above still said `heldByNoP0` a rename later.
+the section above still said `heldByNoP0` a rename later. `heldByUndecided` is the tenth
+(bc-jvt0.4) and the counts above were nine when it landed, which is the same drift a third
+time and the reason the *count* is the only part of those two paragraphs a reader should
+distrust.
 
 ### What you see, and where
 
