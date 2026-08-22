@@ -16626,6 +16626,18 @@ list is written once in lib/sessionaudit.js rather than rediscovered per finding
 it is a fact about this repo and the registration everybody forgets is the one that stops
 the whole test sweep at suite one.
 
+**Candidates land under the skills epic, not under whatever evidenced them.** Every other
+agent-filed bead goes under the root the work that found it belongs to
+([the filing seam](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists)),
+which is right for a discovery and wrong for this: a candidate's evidence is whichever
+sessions happened to end that hour, so for four months candidates piled up under whichever
+epic was busiest — thirty-seven of them across twelve unrelated epics by 2026-08-21, each
+counted against a theme it had nothing to do with and each one *ahead* of that theme's own
+work in the queue. So this seam names its home rather than inferring it: the open root
+carrying `self-started-skills`, which is bc-dgx7, the epic this whole programme is. The
+`discovered-from` edge back to the evidencing session is unchanged — that is what the
+parent link never was. No such root, and the old rule applies exactly as before.
+
 **Exactly once, from a ledger rather than from memory.** `refs/beadcause/audits` in the
 audited checkout is one chained commit per run — `run.json` for what happened this time,
 `state.json` for the cumulative answer every later run asks:
@@ -18404,6 +18416,34 @@ per-Mac and the graph is shared, so an id in a settings file would name a differ
 — or nothing at all — on the second machine. Label an open P0 `unsorted` and every
 daemon writing to that tracker files into the same pile. Two of them is not an error: the
 lowest id wins, on every machine, until somebody takes the label off.
+
+**Except for a seam that files one *kind* of bead every time, which names its own home.**
+The rule above is right because the root above `--from` is the only thing the daemon
+knows about a *discovery*. The [session audit](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
+is not filing discoveries: every bead it files is a skill candidate, and which epic
+evidenced it is an accident of which sessions happened to end that hour. By 2026-08-21
+that had put **thirty-seven open candidates under twelve unrelated epics** — each counted
+against a theme it had nothing to do with, and, worse, each one *ahead* of that theme's
+own work in the ready queue. Every candidate is P2, so the whole ordering below priority
+is `created_at`, and nine filed in one 45-minute burst at midnight can never fall behind
+the navigation bugs they outrank; they only leave the front by closing, one worker window
+at a time. bc-khoe measured its own theme sitting twenty to forty places behind its
+session-tooling children for four days running.
+
+So such a caller passes `homeLabel`, and gets **the open root carrying that label** —
+named the same way and for the same reason as the `unsorted` pile, a label rather than an
+id, because config is per-Mac and the graph is shared. For the audit that label is
+`self-started-skills`, which bc-dgx7
+already carries and whose own description says the whole programme is one query on it.
+Reusing a label that is *also* on every candidate is safe because only **roots** are
+considered — a candidate is a P2 task, and the `unsorted` label is inherited by every
+child of the backlog for exactly the same reason and is exactly as harmless.
+
+It sits above `--from` and below an explicit parent: naming a label is the caller saying
+*these are all one thing*, which is a stronger claim than *this is what turned it up* and
+a weaker one than a parent worked out per bead. And it **falls through** rather than
+refusing — no root carries the label, and the answer is the one the seam gave before — so
+pointing a seam at a home nobody has raised yet is a no-op, not a pile of orphans.
 
 **Nothing is refused.** No `--from`, a `--from` that is itself under nothing, no
 `unsorted` P0, or a `bd export` that lost a Dolt lock race: the bead is filed with no
