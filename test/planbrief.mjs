@@ -60,6 +60,23 @@ check(
 check('it lists the beads there are to group', KIDS.every((k) => plan.includes(`bd show ${k.id}    # ${k.title}`)));
 check('it claims the epic before anything else', /bd update x-1 --claim/.test(plan));
 
+// bc-khoe.33. The list above is "everything ready under it", which since bc-jk4m has meant
+// the whole subtree — `unplanned` walks parent edges at any depth and `batchesFor` filters
+// the queue by prefix, so a sub-epic's child arrives in that list already. What was missing
+// was permission: `validatePlan` checked against direct children alone, so a planner that
+// grouped one had its plan refused, and a planner that guessed the rule and left it out
+// wrote the plan that re-opens a planner here. Now both ends agree, and the brief says so
+// rather than leaving a planner to find out by refusal.
+check(
+  'it says a group may name a bead at any depth, not just a direct child',
+  /at any depth/.test(plan) && /parent edges rather than against the shape of\nan id/.test(plan),
+  'a planner that thinks a plan reaches one level leaves grandchildren ungrouped'
+);
+check(
+  'and says what an ungrouped one costs, so leaving it out does not look free',
+  /re-opens a planner here/.test(plan) && /required to cover and forbidden to/.test(plan)
+);
+
 check('filing is spelled out as a command it can run', /bin\/file\.js/.test(plan) && /--from x-1/.test(plan));
 check(
   'and endorsing is refused rather than left unsaid',
