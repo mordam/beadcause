@@ -16,6 +16,14 @@
  * that bead a committed, passing, never-pushed test suite: its second window had the work
  * on disk when it died, and there is no third.
  *
+ * bc-xl7n.117 adds the half that is not in the ready queue at all: a bead that is
+ * retired **and claimed** — one whose work is sitting in a delivered pull request — is in
+ * neither `a.queue` nor `candidates`, so the list answered "nothing" about the exact
+ * population a delivery lands in. Answering `Request changes` on such a card put the bead
+ * back in `bd ready`, said "back in the queue", and left the dispatcher refusing it for
+ * ever; `rearm` is the per-bead clear that makes the sentence true, and its cases are at
+ * the bottom of this file.
+ *
  * Four claims, and the last two are what keep the first two honest:
  *
  *   - **a bead at the cap is named**, in the note, with its id — not folded into
@@ -83,7 +91,7 @@ const bead = (id, title, over = {}) => ({
  * — and it is the same file the daemon persists its own into, so a fixture that passes
  * here is one that would hold against the live state.
  */
-async function tick({ ready = [], attempts = {}, workers = [], overrides = {} } = {}) {
+async function tick({ ready = [], attempts = {}, workers = [], rows = [], overrides = {} } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // `quiesce` + `removeTree` rather than a bare recursive `rmSync`: every write of
   // `advocates.json` schedules a common-repo commit 2000ms out whose `git init` lands in
@@ -127,6 +135,15 @@ async function tick({ ready = [], attempts = {}, workers = [], overrides = {} } 
     show: async (_ws, id) => ({ id, status: 'in_progress' }),
     children: async () => [],
     listStatus: async () => [],
+    // The tick's own export, which `givenUp` reads to tell a retired bead that is claimed
+    // from one whose counter has simply outlived it (bc-xl7n.117). One row per bead the
+    // case cares about; every field `indexFrom` builds that this path touches.
+    graph: async () => ({
+      parents: new Map(),
+      adopts: new Map(),
+      edges: new Map(),
+      beads: new Map(rows.map((r) => [r.id, { title: '', status: 'open', assignee: '', labels: [], ...r }])),
+    }),
   };
 
   const advocates = createAdvocates(cfg, {
@@ -139,7 +156,14 @@ async function tick({ ready = [], attempts = {}, workers = [], overrides = {} } 
     prs: async () => ({ ok: true, reason: '', checked: 0, beads: new Map() }),
   });
   await advocates.tick();
-  return { opened, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
+  return {
+    opened,
+    advocates,
+    card: advocates.snapshot().find((a) => a.workspace === 'alpha'),
+    // The card again, after something has been done to the state — `snapshot` is built
+    // per call, so a stale one taken before a write would pass whatever the write did.
+    recard: () => advocates.snapshot().find((a) => a.workspace === 'alpha'),
+  };
 }
 
 const goneIds = (card) => (card.givenUp || []).map((g) => g.id);
@@ -258,6 +282,155 @@ await check('a bead with a window open on it is not given up on', async () => {
   assert.equal(card.workers.length, 1, 'the window survived the sweep, or this case proves nothing');
   assert.deepEqual(goneIds(card), [], 'a live window is not a bead nobody will come back to');
   assert.doesNotMatch(card.note, /given up/, card.note);
+});
+
+/* ------------------------------------------- the half that is not in the queue */
+
+/**
+ * bc-xl7n.117. Everything above answers over `a.queue`, so a bead that is retired **and
+ * claimed** was in neither the dispatcher's queue nor the report: bc-xl7n.87 sat exactly
+ * there — two advocate windows timed out and charged it, the pull request was then made
+ * by a session the daemon never opened, and the tick note named three other beads. It is
+ * the population every delivery lands in, and the one where `Request changes` promises a
+ * session that cannot open.
+ */
+await check('a claimed bead at the cap is named, even though it is not in the queue', async () => {
+  const { card } = await tick({
+    ready: [bead('x-2', 'ordinary work')],
+    attempts: { 'x-1': 2 },
+    rows: [{ id: 'x-1', title: 'delivered as a pull request', status: 'in_progress', assignee: 'a@example.invalid' }],
+  });
+
+  assert.deepEqual(goneIds(card), ['x-1'], 'the claimed one is reported, and it is the only one');
+  assert.equal(card.givenUp[0].claimed, true, 'flagged as claimed, because it is not in the queue the pill counts');
+  assert.match(card.givenUp[0].why, /claimed rather than ready/, card.givenUp[0].why);
+  assert.match(card.note, /given up on after 2 attempt\(s\) \(x-1\)/, card.note);
+});
+
+/**
+ * And the reason the walk is over the graph rather than over the counter map: nothing
+ * decrements `a.attempts`, so a charge outlives the bead it was charged to. A list built
+ * from the map alone would name last week's closed work for ever, and a pill that is
+ * always lit is a pill nobody reads.
+ */
+await check('a closed bead at the cap is not named, however many charges it kept', async () => {
+  const { card } = await tick({
+    attempts: { 'x-1': 3 },
+    rows: [{ id: 'x-1', title: 'long since merged', status: 'closed' }],
+  });
+
+  assert.deepEqual(goneIds(card), [], 'a counter is not a bead');
+});
+
+/** Nor is one the tick's export has never heard of — a tracker that would not answer. */
+await check('a bead the graph has no row for is not named', async () => {
+  const { card } = await tick({ attempts: { 'x-1': 2 }, rows: [] });
+
+  assert.deepEqual(goneIds(card), []);
+});
+
+/**
+ * And an open, unclaimed bead that is out of the queue for some *other* reason is left to
+ * whatever is holding it. Every one of the ten subtractions above reports its own, and
+ * two pills for one bead is how a row of them stops being read.
+ */
+await check('an unclaimed bead out of the queue is left to whatever is holding it', async () => {
+  const { card } = await tick({
+    attempts: { 'x-1': 2 },
+    rows: [{ id: 'x-1', title: 'held somewhere else', status: 'open' }],
+  });
+
+  assert.deepEqual(goneIds(card), []);
+});
+
+/**
+ * And the tick where saying nothing would be worst: a repo whose whole queue is empty and
+ * whose one outstanding bead is a delivered pull request nobody can open a window on. The
+ * empty-queue note could not have carried this before — every bead `givenUp` knew about
+ * was in the queue, so an empty queue meant an empty list by construction.
+ */
+await check('it is said on a tick with nothing ready at all', async () => {
+  const { card } = await tick({
+    attempts: { 'x-1': 2 },
+    rows: [{ id: 'x-1', title: 'delivered', status: 'in_progress', assignee: 'a@example.invalid' }],
+  });
+
+  assert.deepEqual(goneIds(card), ['x-1']);
+  assert.match(card.note, /given up on after 2 attempt\(s\) \(x-1\)/, card.note);
+});
+
+/**
+ * And the arithmetic beside it, which is the one place the two halves must not be added
+ * up: `settling` is `queue − ready − retired`, over the *queue*. A claimed bead is not in
+ * it, so subtracting it there takes a genuinely settling bead off a count it was never
+ * part of — and with two of them the number goes negative.
+ */
+await check('a claimed retired bead is not subtracted from the settling count', async () => {
+  const { card } = await tick({
+    // Inside `settleSeconds`, so it is in the queue and not ready — which is the branch
+    // that does the subtraction.
+    ready: [bead('x-2', 'just filed', { updated_at: new Date().toISOString() })],
+    attempts: { 'x-1': 2 },
+    rows: [{ id: 'x-1', title: 'delivered', status: 'in_progress', assignee: 'a@example.invalid' }],
+    overrides: { settleSeconds: 600 },
+  });
+
+  assert.deepEqual(goneIds(card), ['x-1'], 'the claimed one is still reported');
+  assert.match(card.note, /1 settling or already under way/, `the settling bead is still counted — ${card.note}`);
+  assert.doesNotMatch(card.note, /-\d+ settling/, card.note);
+});
+
+/* ------------------------------------------------------------ re-arming one bead */
+
+/**
+ * The per-bead half of `forget`, which is what lib/server.js's hand-back calls when you
+ * answer a delivery card — see `rearm`. The counter is the dispatcher's, in memory, and no
+ * tracker write reaches it: without this the bead comes back open and unclaimed and
+ * `candidates` goes on refusing it for ever.
+ */
+await check('rearm clears one bead’s charges and says what it found', async () => {
+  const { advocates, recard } = await tick({
+    ready: [bead('x-1', 'retired'), bead('x-2', 'also retired')],
+    attempts: { 'x-1': 2, 'x-2': 2 },
+  });
+  assert.deepEqual(goneIds(recard()).sort(), ['x-1', 'x-2'], 'both are retired to start with');
+
+  const out = advocates.rearm('alpha', 'x-1');
+  assert.deepEqual(out, { charges: 2, cap: 2, retired: true }, 'the charges, the cap, and that it was over it');
+  assert.deepEqual(goneIds(recard()), ['x-2'], 'and only the one named is re-armed — `forget` is the other button');
+});
+
+/** And it is written down, or a `launchctl kickstart` puts the charges back. */
+await check('rearm persists, so a restart does not undo it', async () => {
+  const { advocates } = await tick({ ready: [bead('x-1', 'a')], attempts: { 'x-1': 2 } });
+  advocates.rearm('alpha', 'x-1');
+
+  const saved = JSON.parse(fs.readFileSync(path.join(process.env.BEADCAUSE_CONFIG_DIR, 'advocates.json'), 'utf8'));
+  assert.deepEqual(saved.alpha.attempts, {}, 'the counter is gone from the file the record is rebuilt from');
+});
+
+/** A bead nothing had given up on is not a write, and has nothing to tell anybody. */
+await check('rearm is a no-op where there is nothing to clear', async () => {
+  const { advocates } = await tick({ ready: [bead('x-1', 'a')] });
+
+  assert.deepEqual(advocates.rearm('alpha', 'x-1'), { charges: 0, cap: 2, retired: false }, 'no charges');
+  assert.deepEqual(advocates.rearm('nosuch', 'x-1'), { charges: 0, cap: 2, retired: false }, 'nor a workspace with no advocate');
+  assert.deepEqual(advocates.rearm('alpha', ''), { charges: 0, cap: 2, retired: false }, 'nor no bead at all');
+});
+
+/** The point of all of it: the next tick offers the bead a window. */
+await check('a re-armed bead gets its window on the next tick', async () => {
+  const dir = process.env.BEADCAUSE_CONFIG_DIR;
+  const { advocates, opened } = await tick({ ready: [bead('x-1', 'a')], attempts: { 'x-1': 2 } });
+  assert.deepEqual(opened, [], 'retired, so nothing opened');
+
+  advocates.rearm('alpha', 'x-1');
+  await advocates.tick();
+  const after = advocates.snapshot().find((a) => a.workspace === 'alpha');
+  assert.deepEqual(goneIds(after), [], 'no longer given up on');
+  assert.equal(after.workers.length, 1, 'and a window is open on it');
+  assert.equal(after.workers[0].id, 'x-1');
+  assert.ok(fs.existsSync(path.join(dir, 'advocates.json')), 'and the state is still where the next boot reads it');
 });
 
 /* --------------------------------------------------- the card, in a room of its own */

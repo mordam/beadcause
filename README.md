@@ -14422,7 +14422,47 @@ itself — a bead inside `settleSeconds`, or one this advocate already has a win
 — and a bead with a live window is never reported as given up on, because it is at the cap
 by construction for as long as that window is up.
 
-`test/givenup.mjs` is the check.
+##### The bead is in two queues, and only one of them is the tracker's
+
+Answering **Request changes** on a delivery card says, on the card and on the phone, that
+the work bead *is back in the queue*. It puts it back in exactly one of them.
+`handBackWorkBead` reopens the bead and drops the assignee, which is the whole of `bd
+ready` — and `candidates` filters again, on `a.attempts`, in the daemon's memory, where no
+tracker write reaches. So a bead already at `maxAttemptsPerBead` came back open,
+unclaimed, carrying no queue-excluding label, and permanently unpickable, while the one
+sentence that reached a phone said the opposite.
+
+**bc-xl7n.87 is the bead it happened to**, and how it got there is the ordinary shape
+rather than an unlucky one: both of its advocate windows timed out at two hours with no
+commits, so both charged an attempt, and the pull request was then made by a session the
+daemon never opened — so the `delivered` clear in `reconcile`, which only ever fires for a
+window this advocate launched, never ran. It was retired before anybody had read a line of
+its diff.
+
+Two halves, and the first is the fix:
+
+- **the hand-back clears that bead's charges** — `advocates.rearm(workspace, bead)`, called
+  by `handBackWorkBead` after the reopen and never instead of it. An answer of yours is a
+  fresh commission, not a third retry, which is the same reasoning `reconcile` already
+  states out loud for `delivered` and `handback`: "documented endings the brief asks for,
+  so neither costs an attempt". It is the **per-bead** clear and not `forget`, because
+  re-arming every other bead in the repo as a side effect of answering one card is not
+  what the tap said. Where there were charges the log line says so, and where the bead was
+  actually *retired* the card says so too — the one case where the promise it made was
+  false. A hand-back bd refused clears nothing: the bead is still claimed by a session that
+  is gone, and clearing its counter would only make the log read better.
+- **and a retired bead that is claimed is now reported at all.** `givenUp` was computed
+  over the ready queue, so a bead that is retired *and* claimed — which is what a delivered
+  bead is — was in neither queue nor list: the tick note named three other beads while
+  bc-xl7n.87 sat there. It walks the counters too now, and names a bead the tick's own
+  export says is `in_progress` or assigned, marked `claimed` so the card can tell it from
+  the ready ones. Only what that export can vouch for: nothing decrements `a.attempts`, so
+  a counter outlives its bead, and a list built from the map alone would name last week's
+  closed work for ever.
+
+`test/givenup.mjs` and `test/handbackdelivery.mjs` are the checks — the first for the
+report and the per-bead clear, the second for the whole answer driven through
+`/api/respond` against a `bd` that enforces the refusal.
 
 #### The claim a window leaves behind
 
