@@ -1,0 +1,112 @@
+#!/usr/bin/env node
+/**
+ * Read another workspace's tracker by name, instead of guessing which directory
+ * resolves it.
+ *
+ *   b7e-ws -w deluvia show dv-vry
+ *   b7e-ws -w deluvia comments dv-vry
+ *   b7e-ws -w deluvia list --status=open
+ *   b7e-ws -w deluvia ready
+ *   b7e-ws -w deluvia search "some phrase"
+ *   b7e-ws -w deluvia show dv-vry --json
+ *
+ * bc-bmry.10, filed by the session audit (lib/sessionaudit.js) against three sessions
+ * that each had to read deluvia's graph and each hand-rolled the same shell dance —
+ * `cd ~/beads/deluvia && zsh -c 'bd show dv-vry'`, wrong the first time because
+ * `_bd_set_workspace` resolves a cwd to a graph and `bd` then answered "no issue
+ * found" for what was really "wrong workspace"; recovered with an `ls` of two
+ * directories and a retry `cd`'d into the right one. All three ended with the shell
+ * printing "cwd was reset to …", and a worktree-isolated session refused the whole
+ * shape outright as too complex to verify it stays inside the worktree.
+ *
+ * The lookup this replaces already exists, for free: `namedWorkspaces` /
+ * `discoverWorkspaces` in lib/workspaceroots.js (surfaced here as `cfg.workspaces`,
+ * see lib/config.js) already maps a workspace name to its `.beads` directory, and
+ * `Bd.run` (lib/bd.js) already spawns `bd` with `BEADS_DIR` and `cwd` set to that
+ * directory directly — no `cd`, no nested shell, and nothing about the *caller's* cwd
+ * (worktree or otherwise) ever enters into it.
+ *
+ * Only a fixed set of read verbs is forwarded — show, comments, list, ready, search —
+ * so this can sit on lib/toolbelt.js's DEFAULT_TOOL_LIST as a read the same way
+ * b7e-def/b7e-owes/b7e-affected/b7e-readme already do: nothing this command does can
+ * write to a tracker. Anything else (create, update, close, claim, label, dep, …) is
+ * refused rather than forwarded, on purpose — this is a lookup, not a second door into
+ * `bd`.
+ */
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+
+const READ_VERBS = ['show', 'comments', 'list', 'ready', 'search'];
+
+const USAGE = `usage: b7e-ws -w <workspace> <verb> [args...] [--json]
+
+verbs (read-only, forwarded to \`bd\` as-is):
+  show <id...>
+  comments <id>
+  list [--status=...] [--label=...]
+  ready
+  search <query>
+
+--json passes bd's own rows through unformatted, instead of bd's default prose.
+Anything not in this list (create, update, close, claim, label, dep, ...) is refused.`;
+
+const rawArgv = process.argv.slice(2);
+if (rawArgv.includes('--help') || rawArgv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let wsName;
+let jsonFlag = false;
+const rest = [];
+for (let i = 0; i < rawArgv.length; i += 1) {
+  const a = rawArgv[i];
+  if (a === '-w' || a === '--workspace') {
+    wsName = rawArgv[i + 1];
+    i += 1;
+    continue;
+  }
+  if (a === '--json') {
+    jsonFlag = true;
+    continue;
+  }
+  rest.push(a);
+}
+
+const cfg = loadConfig();
+
+if (!wsName) {
+  console.error('b7e-ws: -w/--workspace is required');
+  console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+  console.error(USAGE);
+  process.exit(1);
+}
+
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  console.error(`b7e-ws: no workspace named "${wsName}"`);
+  console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+  process.exit(2);
+}
+
+const verb = rest[0];
+if (!verb) {
+  console.error('b7e-ws: a read verb is required');
+  console.error(USAGE);
+  process.exit(1);
+}
+if (!READ_VERBS.includes(verb)) {
+  console.error(`b7e-ws: "${verb}" is not a read verb — only ${READ_VERBS.join(', ')} are forwarded`);
+  process.exit(3);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+const bdArgs = [...rest, ...(jsonFlag ? ['--json'] : [])];
+
+try {
+  const out = await bd.run(ws, bdArgs);
+  process.stdout.write(out);
+} catch (err) {
+  console.error(`b7e-ws: ${err.message}`);
+  process.exit(1);
+}
