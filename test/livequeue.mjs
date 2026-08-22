@@ -15,7 +15,7 @@
  * `namesBead` already decides for the reaper.
  *
  * `withoutLiveSessions` in lib/advocate.js is the filter and `resight` is the read
- * before a launch. Four claims:
+ * before a launch. Five claims:
  *
  *   - **no window** over a bead a live session already names;
  *   - **and it is visible as held**, with the pid on it, because a queue that silently
@@ -23,7 +23,14 @@
  *   - **and a session that appears mid-tick still stops the launch**, because a window
  *     opened seconds ago carries no bead id until its first turn renames it;
  *   - **and a record whose process is gone holds nothing.** Nothing deletes those files
- *     on exit, so "a record exists" and "a session is running" are different questions.
+ *     on exit, so "a record exists" and "a session is running" are different questions;
+ *   - **and a window that has never renamed at all still stops the launch, if its own
+ *     command line names the bead** (bc-xl7n.114). A session reading code and running a
+ *     slow suite for its first several minutes before its first rename is invisible to
+ *     every claim above — `namesBead(s.name, …)` has nothing to match — and that is
+ *     exactly when it looks quietest. The brief itself carries no such gap: it is on the
+ *     process's own argv from the instant `claude` starts, so `resight` falls back to
+ *     reading it, via `psLines` here rather than a real `ps` of this Mac.
  *
  *     node test/livequeue.mjs
  *
@@ -91,7 +98,7 @@ function plant(name, { pid = process.pid, status = 'busy', cwd = REPO } = {}) {
  * is staged, and it is not a contrivance: the snapshot is taken once per tick for every
  * advocate, and a session renaming itself in that gap is the ordinary case.
  */
-async function tick({ ready = [], sessions = [], planted = [], overrides = {} } = {}) {
+async function tick({ ready = [], sessions = [], planted = [], overrides = {}, psLines = async () => [] } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // A clean slate per case: state, the activity file the launch stamps, and the session
   // records. Otherwise case N's window is still holding case N+1's bead.
@@ -155,6 +162,7 @@ async function tick({ ready = [], sessions = [], planted = [], overrides = {} } 
       if (reads === 2) for (const s of planted) plant(...s);
       return { ok: true, reason: '', checked: 0, beads: new Map() };
     },
+    psLines,
   });
   await advocates.tick();
   return { opened, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
@@ -241,6 +249,37 @@ await check('a session on a subtask does not hold the parent', async () => {
 await check('an unnamed session holds nothing', async () => {
   const { opened } = await tick({ ready: [bead('x-1', 'a')], sessions: [['']] });
   assert.deepEqual(opened, ['x-1']);
+});
+
+/**
+ * bc-xl7n.114. A window that has never renamed at all — no session record naming the
+ * bead, nothing this daemon remembers launching — but whose own command line already
+ * carries "alpha/x-1", the way `sessionCommand` in lib/session.js actually invokes
+ * `claude`. Still no second window: the process itself is evidence, and it needs no
+ * rename to be read.
+ */
+await check('a live process naming the bead on its own command line holds it too', async () => {
+  const { opened, card } = await tick({
+    ready: [bead('x-1', 'a')],
+    psLines: async () => [{ pid: process.pid, args: 'claude -- You are working bead **alpha/x-1**, opened automatically' }],
+  });
+  assert.deepEqual(opened, [], 'no second window on a bead a live process already names');
+  assert.deepEqual(heldIds(card), ['x-1']);
+  assert.match(whyFor(card, 'x-1'), /own command line/);
+});
+
+/**
+ * And the false positive this has to refuse: a bare id, unqualified by the workspace,
+ * appearing in a process's argv for reasons that have nothing to do with claiming the
+ * bead — a memory note, a doc, a comment quoted back at the model in its own context.
+ * Only "alpha/x-1" is evidence; "x-1" alone is not.
+ */
+await check('a bare id on some other process argv holds nothing', async () => {
+  const { opened } = await tick({
+    ready: [bead('x-1', 'a')],
+    psLines: async () => [{ pid: process.pid, args: 'claude -- a memory note that happens to mention x-1 in passing' }],
+  });
+  assert.deepEqual(opened, ['x-1'], 'the bare id is not a claim on the bead');
 });
 
 /**

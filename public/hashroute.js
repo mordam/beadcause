@@ -26,7 +26,7 @@
   ## The grammar, in four decisions
 
   **1. A view is a bare name; a card is everything with a shape.** The view names are a
-  closed list of four and they are held here (`VIEWS`). Everything else is read as a card
+  closed list of five and they are held here (`VIEWS`). Everything else is read as a card
   key, and a card key is recognised by *shape* rather than by lookup, because there are
   three of them and the app mints all three: `workspace/id` for a bead — the only form
   that has ever been in a notification — plus `pr:` and `jira:` prefixes for the two rows
@@ -138,6 +138,24 @@
     // for: `/releases` is what it is, `/deploys` is the word somebody types, and the
     // `.html` is what the service worker precaches by name.
     { id: 'releases', hash: '#releases', paths: ['/releases', '/deploys', '/releases.html'] },
+    // The selected space's own settings (bc-khoe.10), and the last row for the same reason
+    // it is the last pill: you reach it about once a month.
+    //
+    // It is here because a pill pointing at a page that is *not* a view is a pill that
+    // marks nothing current on the page it links to — the row asks `viewOfPath` and
+    // /config was not one of the answers it had, so the one screen the pill reaches drew
+    // the row with nothing lit and the Config pill as a live `<a href="/config">` on
+    // /config itself. That is bc-khoe.50, and this row is its answer: three addresses
+    // rather than one, because the screen has two honest names — the *config* of a space
+    // and where its *settings* are — and the `.html` is what the service worker precaches.
+    //
+    // **Its pane is still `data-pending` (bc-khoe.60), and that is what keeps these three
+    // documents.** A view whose container is empty must not hop: `public/panes.js` answers
+    // a hash naming a pending pane by showing Home, so a 302 here would put the phone on
+    // the inbox from a home-screen shortcut. test/pagealias.mjs holds both directions of
+    // that — a filled pane owes hops, a pending one must not have them — so the flip
+    // happens in bc-khoe.60's commit and cannot happen early by accident.
+    { id: 'config', hash: '#config', paths: ['/config', '/settings', '/config.html'] },
   ];
 
   /** Where a hash falls when it names nothing — and where a card is always opened. */
@@ -269,7 +287,7 @@
 
   window.beadcause = window.beadcause || {};
   window.beadcause.route = {
-    /** The three views, their hashes and every address that means them. */
+    /** Every view, its hash, and every address that means it. */
     VIEWS,
     /** Where a hash falls when it names nothing, and where a card always opens. */
     HOME,

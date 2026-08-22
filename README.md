@@ -7116,7 +7116,7 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**A pane can be present and unshowable, and none is any more.** `data-pending` names the
+**A pane can be present and unshowable, and one is.** `data-pending` names the
 bead that fills a container, and it is load-bearing rather than a note: a pending pane is
 registered nowhere, can never be shown, and the pill row asks the same question, so its pill
 stays the `<a href>` it has always been and still loads its own document. That is what let
@@ -7125,8 +7125,13 @@ until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
 History's attribute came off when
 [bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash),
-Releases' with bc-khoe.30.14, and Advocates' — the last of them — with **bc-khoe.4**, which
-folded the whole advocate console in, chip row and all. The attribute names the bead whose
+Releases' with bc-khoe.30.14, and Advocates' — the last of the four the shell shipped with
+— with **bc-khoe.4**, which folded the whole advocate console in, chip row and all. Config's
+went **on** afterwards, which is the direction worth noticing: bc-khoe.50 gave the row a
+fifth view because a pill pointing at a page that is not a view marks nothing current on the
+page it points at, and a view the grammar knows owes a container the same day. **bc-khoe.60**
+fills it. So the attribute is how a view arrives rather than a debt the shell was born with.
+The attribute names the bead whose
 merge *deletes* it, which is why it named bc-khoe.4 rather than bc-khoe.30.6: that bead
 ruled how the fold goes rather than folding it. The mechanism is not retired with the last
 of them; it is how the next view arrives, and `test/panes.mjs` covers it against fixtures
@@ -7263,7 +7268,7 @@ the hops against a real server, including both halves of what one does with a qu
 and checks that each lands on the view whose own pill claims that address — a `/history`
 that hopped to `#advocates` would show one pane and light another pill.
 
-**All sixteen are hops now**, and they arrived in three commits rather than one. The
+**Sixteen are hops now**, and they arrived in three commits rather than one. The
 ledger's went first, while the other two containers were still
 [`data-pending`](#the-shell--one-document-one-pane-per-view) — a path whose pane is pending
 must keep its document, because a hop onto a pending container is Home, whatever was
@@ -7271,7 +7276,10 @@ tapped. So the rule the suites above enforce runs in *both* directions: a view w
 has landed owes its addresses as hops, and one still pending must not have them. That is
 what made this safe to land in pieces, and it is what caught bc-khoe.4 and bc-khoe.30.14
 filling their containers without flipping their paths — the failure names the addresses and
-the three edits each one owes.
+the three edits each one owes. It is also why Config's three addresses are **not** in that
+table: bc-khoe.50 made it a view so the row could light its pill, its container is still
+`data-pending`, and the same rule that forces a hop when a pane lands forbids one until it
+does.
 
 The board's three are the only hops that carry a **chip** as well as a view.
 `/prs`, `/pulls` and `/prs.html` have always meant the board rather than merely the view it
@@ -14428,7 +14436,47 @@ itself — a bead inside `settleSeconds`, or one this advocate already has a win
 — and a bead with a live window is never reported as given up on, because it is at the cap
 by construction for as long as that window is up.
 
-`test/givenup.mjs` is the check.
+##### The bead is in two queues, and only one of them is the tracker's
+
+Answering **Request changes** on a delivery card says, on the card and on the phone, that
+the work bead *is back in the queue*. It puts it back in exactly one of them.
+`handBackWorkBead` reopens the bead and drops the assignee, which is the whole of `bd
+ready` — and `candidates` filters again, on `a.attempts`, in the daemon's memory, where no
+tracker write reaches. So a bead already at `maxAttemptsPerBead` came back open,
+unclaimed, carrying no queue-excluding label, and permanently unpickable, while the one
+sentence that reached a phone said the opposite.
+
+**bc-xl7n.87 is the bead it happened to**, and how it got there is the ordinary shape
+rather than an unlucky one: both of its advocate windows timed out at two hours with no
+commits, so both charged an attempt, and the pull request was then made by a session the
+daemon never opened — so the `delivered` clear in `reconcile`, which only ever fires for a
+window this advocate launched, never ran. It was retired before anybody had read a line of
+its diff.
+
+Two halves, and the first is the fix:
+
+- **the hand-back clears that bead's charges** — `advocates.rearm(workspace, bead)`, called
+  by `handBackWorkBead` after the reopen and never instead of it. An answer of yours is a
+  fresh commission, not a third retry, which is the same reasoning `reconcile` already
+  states out loud for `delivered` and `handback`: "documented endings the brief asks for,
+  so neither costs an attempt". It is the **per-bead** clear and not `forget`, because
+  re-arming every other bead in the repo as a side effect of answering one card is not
+  what the tap said. Where there were charges the log line says so, and where the bead was
+  actually *retired* the card says so too — the one case where the promise it made was
+  false. A hand-back bd refused clears nothing: the bead is still claimed by a session that
+  is gone, and clearing its counter would only make the log read better.
+- **and a retired bead that is claimed is now reported at all.** `givenUp` was computed
+  over the ready queue, so a bead that is retired *and* claimed — which is what a delivered
+  bead is — was in neither queue nor list: the tick note named three other beads while
+  bc-xl7n.87 sat there. It walks the counters too now, and names a bead the tick's own
+  export says is `in_progress` or assigned, marked `claimed` so the card can tell it from
+  the ready ones. Only what that export can vouch for: nothing decrements `a.attempts`, so
+  a counter outlives its bead, and a list built from the map alone would name last week's
+  closed work for ever.
+
+`test/givenup.mjs` and `test/handbackdelivery.mjs` are the checks — the first for the
+report and the per-bead clear, the second for the whole answer driven through
+`/api/respond` against a `bd` that enforces the refusal.
 
 #### The claim a window leaves behind
 
@@ -16632,6 +16680,18 @@ list is written once in lib/sessionaudit.js rather than rediscovered per finding
 it is a fact about this repo and the registration everybody forgets is the one that stops
 the whole test sweep at suite one.
 
+**Candidates land under the skills epic, not under whatever evidenced them.** Every other
+agent-filed bead goes under the root the work that found it belongs to
+([the filing seam](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists)),
+which is right for a discovery and wrong for this: a candidate's evidence is whichever
+sessions happened to end that hour, so for four months candidates piled up under whichever
+epic was busiest — thirty-seven of them across twelve unrelated epics by 2026-08-21, each
+counted against a theme it had nothing to do with and each one *ahead* of that theme's own
+work in the queue. So this seam names its home rather than inferring it: the open root
+carrying `self-started-skills`, which is bc-dgx7, the epic this whole programme is. The
+`discovered-from` edge back to the evidencing session is unchanged — that is what the
+parent link never was. No such root, and the old rule applies exactly as before.
+
 **Exactly once, from a ledger rather than from memory.** `refs/beadcause/audits` in the
 audited checkout is one chained commit per run — `run.json` for what happened this time,
 `state.json` for the cumulative answer every later run asks:
@@ -18410,6 +18470,34 @@ per-Mac and the graph is shared, so an id in a settings file would name a differ
 — or nothing at all — on the second machine. Label an open P0 `unsorted` and every
 daemon writing to that tracker files into the same pile. Two of them is not an error: the
 lowest id wins, on every machine, until somebody takes the label off.
+
+**Except for a seam that files one *kind* of bead every time, which names its own home.**
+The rule above is right because the root above `--from` is the only thing the daemon
+knows about a *discovery*. The [session audit](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
+is not filing discoveries: every bead it files is a skill candidate, and which epic
+evidenced it is an accident of which sessions happened to end that hour. By 2026-08-21
+that had put **thirty-seven open candidates under twelve unrelated epics** — each counted
+against a theme it had nothing to do with, and, worse, each one *ahead* of that theme's
+own work in the ready queue. Every candidate is P2, so the whole ordering below priority
+is `created_at`, and nine filed in one 45-minute burst at midnight can never fall behind
+the navigation bugs they outrank; they only leave the front by closing, one worker window
+at a time. bc-khoe measured its own theme sitting twenty to forty places behind its
+session-tooling children for four days running.
+
+So such a caller passes `homeLabel`, and gets **the open root carrying that label** —
+named the same way and for the same reason as the `unsorted` pile, a label rather than an
+id, because config is per-Mac and the graph is shared. For the audit that label is
+`self-started-skills`, which bc-dgx7
+already carries and whose own description says the whole programme is one query on it.
+Reusing a label that is *also* on every candidate is safe because only **roots** are
+considered — a candidate is a P2 task, and the `unsorted` label is inherited by every
+child of the backlog for exactly the same reason and is exactly as harmless.
+
+It sits above `--from` and below an explicit parent: naming a label is the caller saying
+*these are all one thing*, which is a stronger claim than *this is what turned it up* and
+a weaker one than a parent worked out per bead. And it **falls through** rather than
+refusing — no root carries the label, and the answer is the one the seam gave before — so
+pointing a seam at a home nobody has raised yet is a no-op, not a pile of orphans.
 
 **Nothing is refused.** No `--from`, a `--from` that is itself under nothing, no
 `unsorted` P0, or a `bd export` that lost a Dolt lock race: the bead is filed with no
