@@ -1191,6 +1191,10 @@ body {
   background: var(--bg); color: var(--text); font-size: 16px;
 }
 .addspace-note { margin: -6px 0 14px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+/* `.accountform-field` sets `display: flex`, which beats the UA's own `[hidden]` rule —
+   so the Clone-to field drew under "A path on the Mac", where there is nothing to clone.
+   The same shape as `.filter-menu[hidden]` above, and the same reason. */
+.accountform-field[hidden], .addspace-note[hidden] { display: none; }
 /* Not an error — the press it belongs to succeeded, or has not happened yet. This is the
    sentence that says what it will cost, or what is now true and unfinished. */
 .addspace-warn {
@@ -1198,7 +1202,7 @@ body {
   border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line)); border-radius: 10px;
   color: var(--prose); font-size: 12.5px; line-height: 1.5;
 }
-.addspace-changed { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.addspace-changed { display: block; margin-top: 6px; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 /* The bottom 12px is the gap after the last card. It used to be 0 because the body
    reserved the bottom bar's whole height under the list; the list is the scroller now
