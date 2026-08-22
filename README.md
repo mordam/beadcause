@@ -13342,6 +13342,55 @@ in lib/advocate.js is the whole of it, and `test/plandispatch.mjs` is what pins 
 spelling of the prefix to the code's, because the brief cannot import it — lib/advocate.js
 imports lib/session.js to open the windows, so the reverse would be a cycle.
 
+#### A plan reaches the whole subtree, and for a long time it reached one level
+
+Two pieces of this file asked the same question — *is this bead under that epic?* — and
+answered it differently, and the disagreement had a direction that made it expensive.
+
+`unplanned` walks the tracker's **parent edges**, at any depth. That is what decides whether
+a planner is re-opened: a bead comes up ready anywhere under the epic and no group names it,
+so the plan is out of date and everything under that epic waits for the one tick a rewrite
+takes. `validatePlan` checked the ids a group named against **`bd children`**, which is one
+level and nothing more, and refused anything else with *"which bc-x has no child by"*. That
+sentence was true about what the check could see and false about what the rest of the
+machinery does.
+
+So an epic with a sub-epic had beads it was **required to cover and forbidden to name**. The
+loose grandchild held every ready bead in the subtree, the planner was re-opened to fold it
+in, `beadcause-plan` refused the plan that folded it in, and the same thing happened again on
+the next tick until the two-attempt fuse blew — after which dispatch resumed with the bead
+ungrouped, one window per bead, in the subtree whose recurring failure is two windows editing
+`public/app.js` at once. It was not a rare shape: bc-khoe reached eleven such beads across two
+sub-epics, and the answer for a year was to flatten the tree or split the epic by hand.
+
+The fix is not a new rule. It is giving `validatePlan` the graph `unplanned` already had:
+`bin/plan.js` reads `bd.graph`'s parent edges beside its `bd children` call and passes them,
+and membership becomes `isUnder(id, epic, parents)` — the same function, on the same edges, as
+the sweep that re-opens the window. A grandchild is nameable exactly as a child is, at any
+depth; a bead adopted in with `bd update --parent` is under the epic whatever its id says; and
+one that was **reparented out** is refused however much its id still looks like a member,
+which the one-level check could not see either.
+
+**The graph is preferred, not required, and the fallback is the point of the design.** An
+export that will not run leaves `children` in place — the narrow check still takes every plan
+it ever took, so the cost is one run that cannot name a grandchild, and `beadcause-plan` says
+so on stderr rather than leaving a planner to discover it as a refusal it cannot act on. There
+is a second, quieter way to have no graph and it is the one worth guarding: an **empty** index
+carries no error, and `isUnder` deliberately falls back to the id for a bead the graph has no
+row for — so believing an empty index would admit every id-shaped guess *and* take the
+`children` check off in the same move. `bin/plan.js` therefore asks whether the index has a row
+for the epic it is planning; a root epic has one even though it has no parent edge, and an
+index without one did not read this tracker.
+
+The briefs changed with it, because permission nobody is told about is permission nobody uses.
+`planPromptFor` says a group may name a bead under the epic at any depth and what an ungrouped
+one costs, and the Epic Advocate's brief — which lists direct children, and so could not see
+half of what it was deciding about — now lists what is open further down as well, off the
+subtree `advocatedRoots` already walks beside the children. `test/epicplan.mjs` pins the two
+ends answering alike, and `test/wholejob.mjs` drives the real CLI, because the half that was
+missing was a *read*: `validatePlan` could always be handed a graph and nothing was handing it
+one.
+
 ### A childless epic is its advocate's call — do it whole or split it, and nothing dispatches before that call
 
 An epic with no children is work, not a shelf. Two places used to disagree about what to do

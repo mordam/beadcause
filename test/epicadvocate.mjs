@@ -338,6 +338,43 @@ check('`human` wins over a delivery card if somehow both fire', () => {
   assert.ok(!text.includes('delivered, waiting on'), 'one annotation per row, not two');
 });
 
+/* --------------------- and what the child list cannot see (bc-khoe.33)
+
+   A plan reaches the whole subtree — `unplanned` counts a ready bead at any depth as work
+   the epic's plan has to cover, and since bc-khoe.33 `validatePlan` will let a group name
+   one. `kids` is direct children, so an advocate deciding whether the plan still fits was
+   deciding it over one level of a tree that may be several. bc-khoe had eleven beads it
+   could neither see here nor group. `advocatedRoots` already walks the subtree beside the
+   children, so this costs the caller nothing. */
+
+check('the brief lists what is open further down, and says a group may name it', () => {
+  const kids = [{ id: 'zz-p0.1', title: 'a sub-epic', status: 'open', priority: 1 }];
+  const tree = [
+    { id: 'zz-p0.1', title: 'a sub-epic', status: 'open', priority: 1 },
+    { id: 'zz-p0.1.1', title: 'a grandchild', status: 'open', priority: 2 },
+    { id: 'zz-p0.1.2', title: 'a closed one', status: 'closed', priority: 2 },
+  ];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam', { tree });
+  assert.match(text, /1 more bead is open further down/, 'the count is of what the list above omits');
+  assert.match(text, /`zz-p0\.1\.1` P2 open — a grandchild/, 'and it is named, the way a child is');
+  assert.match(text, /A group may name any of them/, 'seeing it is no use without being told it is groupable');
+  assert.ok(!text.includes('zz-p0.1.2'), 'a closed one is not outstanding work');
+});
+
+check('a caller with no subtree in hand says nothing rather than guessing', () => {
+  // The card-driven door has no index to walk, exactly as it has none for `deliveryCard`.
+  // Silence is the safe direction: the alternative is a fresh `bd.graph` call on a tap.
+  const kids = [{ id: 'zz-p0.1', title: 'one', status: 'open', priority: 1 }];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam');
+  assert.ok(!text.includes('open further down'), 'no tree, no section');
+});
+
+check('a subtree that is only the direct children adds nothing to the brief', () => {
+  const kids = [{ id: 'zz-p0.1', title: 'one', status: 'open', priority: 1 }];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam', { tree: [...kids] });
+  assert.ok(!text.includes('open further down'), 'the section is for what `kids` cannot show, not a second copy of it');
+});
+
 check('a genuinely stalled in_progress child reads exactly as it always has', () => {
   const kids = [{ id: 'zz-p0.4', title: 'stuck', status: 'in_progress', priority: 1 }];
   const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam');
