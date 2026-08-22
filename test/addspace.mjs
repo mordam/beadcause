@@ -50,6 +50,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -381,7 +382,11 @@ await check('the picker draws the row and opens the dialog with it', async () =>
 });
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+// `cleanupTmp` rather than a bare `fs.rmSync`: this suite spawns nothing, but the daemon
+// it built writes config.json under the tree, and a teardown that races its own last
+// write ends the whole run from after the final green check. test/tmpadoption.mjs fails
+// the repo for the bare form.
+await cleanupTmp(tmp);
 
 if (failures) {
   console.error(`\naddspace: ${failures} failed`);
