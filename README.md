@@ -14849,6 +14849,54 @@ clears both, and a subsequent close or reopen then succeeds
 (`test/reassignguard.mjs`'s real-`bd` section). `test/answerclose.mjs` covers the fake
 side of `closeAnswered`'s escalation and `commission`'s new call, argv by argv.
 
+##### And the hand-back tells the bead what its dead window built
+
+Forcing the claim off fixed the four beads that never came back, and it opened a gap of
+its own — bc-xl7n.102. Before it, a dead window left the bead `in_progress`, which is the
+single state the stall sweep reports; **every** recorded stall shape, including "committed
+but never pushed", was found from an `in_progress` bead. Once the claim comes off, the bead
+is genuinely workable again *and* there is nothing left saying a window ever ran.
+
+Which matters because a window that dies is often a window that dies *after committing*.
+`archiveSession` has the facts at exactly that moment — the branch, the head sha, the
+commit list — and hands them back; the advocate puts them into `pendingNotes`, whose only
+consumer writes its git note **when the branch reaches main**. For a bead going back into
+the queue that never happens: nothing will push the branch, because the bead is workable
+and the next window opens a fresh worktree. So the commits were counted, logged, and then
+dropped on the floor.
+
+bc-xl7n.37 is the measured case. Attempt 2 exited 143 having committed `ceaa82df` on
+`worktree-bin-entrypoint-cover-xl7n37b` — `test/binentrypoints.mjs`, 247 lines, fourteen
+checks passing, the whole bead — and the log said `archived bc-xl7n.37 → …(1 commit(s))`
+in the same reconcile pass that handed the bead back. It then sat in `bd ready`
+indistinguishable from unstarted work, and was rescued twice by an advocate typing a
+comment on it by hand.
+
+So `archiveFinished` writes that comment itself, on the ending nobody chose and only
+there: the worker was handed back, the archive reported commits, and they are not already
+in main. The carrier is chosen rather than invented — an ordinary worker's brief runs
+`bd comments <id>` before it claims, unconditionally, at attempt 1 — so this needs no new
+label, no new sweep, and in particular **not** teaching the stall sweep to look at
+handed-back beads, which would put the bead straight back into the state the force-off
+exists to end.
+
+`salvageNote` (lib/sessionlog.js) builds it: branch, worktree, head sha, count and commit
+subjects, because for an unpushed branch nothing else records them — plus the two facts
+that change what the reader should *do*. **How far behind main it is**, since a branch a
+hundred commits back wants a cherry-pick onto a fresh worktree rather than a checkout. And
+**whether it was ever pushed**: unpushed, that worktree is the only copy of the work in the
+world and the comment says so; pushed, there is very likely a pull request already carrying
+it — bc-xl7n.83 was handed back on a timeout with its work sitting in an open PR — and
+telling a worker "never pushed" there would simply be false. One `rev-parse` picks the
+sentence.
+
+It is written after the archive rather than in `handBack`, because `handBack` runs inside
+`reconcile` where none of those facts exist yet; the bead is back in `bd ready` for the
+seconds in between, which is the same tick. A tracker that refuses the comment is logged
+and dropped: the archive is the record and the comment is a courtesy to the next window,
+and one bead's failed write must not cost the rest of the finished list its archive.
+`node test/salvage.mjs`.
+
 #### Closing the window — a session that has finished should not still be on screen
 
 The `exit` above only runs **when `claude` exits**, and a session that has finished its
