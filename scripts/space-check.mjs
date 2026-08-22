@@ -527,7 +527,7 @@ try {
     console.log(`  ⤷ ${SHOT}`);
   }
 
-  // On `All spaces` there is no one space these would belong to, and the card has to
+  // On `Everything` there is no one group these would belong to, and the card has to
   // say so rather than keep the last one it drew.
   await evalJs(s, `window.beadcause.space.set({ space: 'all', workspace: 'all' })`);
   await sleep(700);
@@ -535,7 +535,7 @@ try {
     'widening to everything takes the card down and says why',
     await evalJs(
       s,
-      `!document.querySelector('.space-card') && /Pick a space/.test(document.querySelector('.space-none')?.textContent || '')`
+      `!document.querySelector('.space-card') && /Pick a group/.test(document.querySelector('.space-none')?.textContent || '')`
     )
   );
 } finally {

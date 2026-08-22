@@ -946,6 +946,89 @@ as its own failure, because that is how the old bug gets back in. `/monitor` is 
 second time with one workspace, in the shorter bar, because the two heights are still the
 two states this ships in and the pill row has to sit against the bar in both.
 
+### ＋ Add a bead-space — the last row of the picker
+
+Everything else about a tracker can be done from a phone: mute it, set its quiet hours,
+decide whether an agent may answer a comment in it unasked, retire it when the project is
+over. The one thing that could not was **having** one. A new repo meant opening
+`~/.config/beadcause/config.json` in an editor, writing a `workspaceDirs` entry, and
+restarting the backend — on the Mac, which is the single device this app exists so you do
+not need.
+
+So the picker has a last row, under every group, and it is the only row in it that is not a
+place to go. It opens a dialog (`public/addspace.js`) that takes **a path on the Mac** or **a
+git URL**, and a `Clone to` field prefilled with `<projectRoot>/<repo>` — editable, because a
+repo that belongs somewhere else should cost a line of typing rather than a config edit.
+
+**Three words, because two of them used to be one word.** `space` and `workspace` are a
+syllable apart, mean nothing like each other, and on a four-inch screen that is not a
+distinction anybody makes correctly. Everywhere a person reads:
+
+| word | what it is | in the config |
+|---|---|---|
+| **group** | "Personal", "Climative" — a name, a list, quiet hours, and the answer to *when may this reach me* | `spaces` |
+| **bead-space** | one tracker: one `.beads`, one Dolt database, one id prefix (`bc-`, `sp-`) | `workspaces` |
+| **bead-repo** | a checkout attached to a bead-space — forty Climative services filing into one `cl-` graph | `repos.<ws>.approved` |
+
+The config keys and every identifier under `lib/` still say the old words, deliberately:
+renaming a key is a migration and renaming an identifier is a sweep of forty files, and
+neither belongs in the same diff as a new button. That is bc-35qub.
+
+**It asks after it looks, never before.** A directory either has a `.beads` or it does not,
+and that is not a question to put to a person — they mostly do not know, and the directory
+always does. So the first round resolves or clones, inspects, and finishes on the spot in
+the common case. Only when there is no tracker does it come back with the one question that
+cannot be looked up: a graph of its own, or beads filed into a bead-space that already
+exists — with the list to choose from. The second round always arrives as a **path**, never
+the URL again, because by then the clone has happened and re-sending the URL would make the
+server decide whether the directory it finds is the one it just made or somebody else's
+checkout of the same name.
+
+**The refusals are the feature**, and they live in `lib/newspace.js` where the suite can
+reach them without a server:
+
+- **a relative path**, refused on the raw text and not after `expandHome` — that function
+  ends in `path.resolve`, so a check made after it can never fail, and `projects/safeleaf`
+  would come back as `/projects/safeleaf` resolved against the daemon's working directory,
+  which under launchd is `/`;
+- **a clone onto something**, refused before `git` is spawned at all;
+- **a name already served**, because the name is the key for `sessionDirs`, `jira`,
+  `advocates.perWorkspace` and every group's list, so two trackers sharing one would
+  silently share all of them — and **a name you retired**, refused with the word *Restore*
+  in it rather than added a second time over the top of the retirement;
+- **a prefix another tracker already mints**, because every screen in this app addresses
+  beads by id and two graphs both minting `bc-` makes an id ambiguous;
+- and the expensive one: **a clone carrying `refs/dolt/data`**, which is a team tracker
+  nobody has bootstrapped yet. `bd bootstrap` will not clone over a database that exists,
+  so a `bd init` there means the team's history can never arrive and every later
+  `bd dolt pull` meets two unrelated histories — the one outcome `lib/sync.js` says never
+  retries its way out, and the reason the install order is *bootstrap before the workspace
+  has ever been written to*. The choice is withheld rather than drawn and then refused, and
+  the sentence says `npm run onboard`.
+
+**A tracker it makes goes in the container root and never in the checkout.** This is
+`bd-newws` as a function, and the two things it does that a bare `bd init` does not are the
+whole reason it is not a bare `bd init`: `--skip-agents`, because `bd init` writes
+`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.agents/` and `.codex/` into the current directory
+and inside a checkout that overwrites the repo's own instructions; and running from the
+tracker directory with `BEADS_DIR` set, so those files could not land in a checkout even if
+the flag stopped working.
+
+**Nothing is rolled back on a cancel.** If a clone has happened, the directory stays and the
+message says where it is. Something was fetched from a network onto a disk, and deleting a
+tree to tidy up a dialog is not a thing a daemon should do behind a dismissed sheet.
+
+**It writes in all three places, in the order Retire already established** — the pin (or
+deliberately no pin: a tracker a root already reaches is left unpinned, because pinning one
+freezes it so that renaming its directory drops the bead-space instead of moving it),
+`cfg.workspaces` for what this tick serves, and the live `workspaces` Map for the routes
+that resolve one repo by name. So a bead-space added from a phone is being swept before the
+dialog closes, and no restart is owed.
+
+**And the bar draws where it used to hide.** The picker hid itself below two workspaces —
+one repo and one space is nothing to pick between. It is a choice now, and the install with
+one tracker, or with none, is precisely the one that needs the row.
+
 ### Space details — every setting a space has, on a page of its own
 
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
