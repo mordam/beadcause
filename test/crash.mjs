@@ -621,6 +621,10 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the conflict sweep',
       'the cycle',
       'the deploy sweep',
+      // lib/dupesweep.js. `sweepDuplicates` lands every write it could not make in its
+      // answer rather than throwing, so what reaches this catch is the sweep's own
+      // bookkeeping — the same bar `sweepAdopts` beside it is held to.
+      'the duplicate sweep',
       // lib/epicdone.js. `createEpicWatch().sweep` lands a tracker it could not read in
       // its outcome and leaves that workspace's snapshot alone, so what reaches this
       // catch is the watcher's own bookkeeping — and getting it wrong is quiet twice

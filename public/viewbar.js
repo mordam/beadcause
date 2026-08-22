@@ -263,12 +263,17 @@
     // Knobs rather than a gear: the gear in this app is Admin — the machine's own screen,
     // in the mark's menu — and two settings screens behind one glyph is the confusion the
     // menu was built to end.
-    // No `paths` of its own, unlike every pill above that has an address: since
-    // bc-khoe.30.2 that table is public/hashroute.js's `VIEWS`, and `/config` is not one
-    // of the three views it holds — so the row links here and marks nothing current on
-    // the page it links to. Making Config a view is a pane in index.html and a bead to
-    // fill it (test/panes.mjs holds every view to one), which is bc-khoe.30's decision
-    // rather than this bead's; see the merge note on bc-d477.
+    // Its three addresses are in public/hashroute.js's `VIEWS` with every other view's,
+    // and that row is newer than this pill: bc-khoe.10 shipped the pill while the paths
+    // still lived in this file, bc-khoe.30.2 moved the table out, and Config was not in
+    // it — so for four days the row marked **nothing** current on the one screen this
+    // pill reaches, and the pill was a live `<a href="/config">` on /config itself.
+    // bc-khoe.50 put it in the table. Nothing here changed to make that work, which is
+    // the point of asking rather than knowing.
+    //
+    // Its pane in index.html is still `data-pending` (bc-khoe.60), so `panes?.has` says
+    // no on the shell and this stays the `<a>` it has always been there — the same
+    // two-step History, Advocates and Releases each went through.
     { id: 'config', href: '/config', icon: '🎛', label: 'Config' },
   ];
 

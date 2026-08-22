@@ -75,6 +75,14 @@
   pane, and its chip row stays", and it is the reason this container is one pane rather
   than the three or four the chips look like.
 
+  Those two came off — History with bc-khoe.30.5, Advocates with bc-khoe.4 — and there is
+  one pending container again: **Config** (bc-khoe.60), which bc-khoe.50 added. So the
+  paragraphs above are the mechanism rather than a snapshot, and this is the shape it is
+  for: a view joins the grammar the moment the row needs it to light a pill, and its pane
+  arrives afterwards. The one rule that comes with it is in test/pagealias.mjs — while a
+  container is pending its addresses must stay documents, because `show()` falling to Home
+  is the right answer for a hash and the wrong answer for a home-screen shortcut.
+
   ## Why a file of its own, and not a few lines in viewbar.js
 
   `public/viewbar.js` draws the pill row on **twelve** pages and exactly one of them is
@@ -117,8 +125,8 @@
    * Read off the DOM rather than from a table here, because the document is what decides:
    * `index.html` holds three and the beads that fill the empty two are the ones that get
    * to say when they are showable. A `data-pane` naming something that is not a view is
-   * skipped rather than trusted — the hash grammar is a closed list of three and a fourth
-   * pane would be a pane no hash could ever name.
+   * skipped rather than trusted — the hash grammar is a closed list and a pane outside it
+   * would be a pane no hash could ever name.
    */
   const panes = new Map();
   /** Containers that exist but cannot be shown yet, by view id — see `data-pending`. */

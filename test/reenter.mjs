@@ -565,7 +565,21 @@ async function tick({
     listLabel: async () => [],
     listStatus: async () => [],
     show: async (_ws, id) => ({ id, title: id, status: 'open' }),
-    children: async () => [],
+    /**
+     * Off the graph fixture rather than a flat `[]` — bc-jvt0.4.
+     *
+     * This used to answer "no children" for every epic, including the one this whole file
+     * is about, which the suite's own `subtree()` gives three. Nothing noticed while the
+     * only reader was `heldByChildren`'s open-children check, because none of them is open
+     * in the cases that reach it. Its fourth check reads `children.length` — an epic with
+     * *nothing at all* under it is one nobody has decided the shape of — and read x-1 as
+     * childless, so the control half of the launch case below stopped launching. The
+     * fixture was wrong rather than the check: `parents` already says what is under x-1.
+     */
+    children: async (_ws, id) =>
+      [...(graph.parents || new Map()).entries()]
+        .filter(([, parent]) => parent === id)
+        .map(([kid]) => graph.beads?.get(kid) || { id: kid, status: 'open' }),
     comments: async (_ws, id) => {
       calls.comments.push(id);
       return [];
@@ -937,8 +951,19 @@ await check('the window it just opened holds the same bead out of the queue', as
   // `bd ready` is a bead the survey will happily open a *worker* on in that minute. It was
   // a second or two wide while only a tap could open an advocate; a sweep makes it real.
   const queued = [{ id: 'x-1', title: 'x-1', priority: 0, issue_type: 'epic', status: 'open', created_at: '2020-01-01T00:00:00Z', labels: [OWNER] }];
+  // **Every child closed, and this case is the only one in the file that needs it.** The
+  // subject here is `heldByLive` — a window that is up and has not named itself yet — so
+  // x-1 has to be a bead the survey would otherwise launch, and `heldByChildren` holds an
+  // epic with an open child for its own unrelated reason. It used to be a leaf by accident,
+  // because the fake `bd.children` answered `[]` for everything; now it answers off the
+  // graph, so the fixture has to say what it means. Not childless either — an epic with
+  // *nothing* under it is one bc-jvt0.4 holds until its advocate has judged it.
   const args = {
-    graph: subtree({ 'x-1.1': { status: 'closed' } }),
+    graph: subtree({
+      'x-1.1': { status: 'closed' },
+      'x-1.2': { status: 'closed' },
+      'x-1.3': { status: 'closed' },
+    }),
     advocated: { 'x-1': { ...SEEN, at: LONG_AGO } },
     ready: queued,
   };

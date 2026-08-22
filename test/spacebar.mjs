@@ -297,6 +297,120 @@ check('every configured repo is in the dropdown, quiet ones and empty ones inclu
   assert.ok(select.innerHTML.includes('<optgroup label="Other">'));
 });
 
+/*
+  bc-qid8b. The strays were drawn twice.
+
+  `summarise()` emits a row literally named "Other" for the strays it found beads in, so
+  the payload's `spaces` carries one — and `paint()` looped that array *and* called
+  `strays()`, pushing an `<optgroup label="Other">` from each. `stray` has a question in
+  the fixture above, which is exactly the condition that put it in both: the synthetic row
+  listed it because it had a bead, and `strays()` returns it because `spaceOf` answers
+  "Other" for any repo no configured space names.
+
+  Asserted by counting rather than by looking for a string, because both spellings were
+  the same string — a check for the label's presence passed throughout the bug.
+*/
+check('the strays are one group and one row each, not two of both', () => {
+  const { select } = fresh();
+  const groups = select.innerHTML.match(/<optgroup label="Other">/g) || [];
+  assert.equal(groups.length, 1, `${groups.length} "Other" groups`);
+  const rows = select.innerHTML.match(/value="ws:stray"/g) || [];
+  assert.equal(rows.length, 1, `stray has ${rows.length} rows`);
+});
+
+/*
+  The `— all` row is the one a filter pinned to `space:Other` is selected in, and it has
+  to survive the group being drawn from `strays()` instead of from the payload — a
+  `<select>` whose value matches no option shows its first, which here says "All spaces"
+  over a list narrowed to the strays.
+*/
+check('"Other — all" stays selectable, even with no stray left to list', () => {
+  const { space, select } = fresh();
+  assert.ok(select.innerHTML.includes('value="space:Other"'));
+
+  space.set({ space: 'Other', workspace: 'all' }, { post: false });
+  // Every configured repo now belongs to a space, so `strays()` is empty — the pin is
+  // all that is holding the group open.
+  space.adopt({ spaces: SPACES, workspaces: ['beadcause', 'sophab', 'climative'] });
+  // The `selected` attribute rather than `select.value`, which `paint()` also writes
+  // (bc-ka5y.32): what is being asserted here is that the *row* is still in the list, and
+  // a value assignment would say so even if the row it names had gone.
+  assert.match(select.innerHTML, /<option value="space:Other" selected>/, 'the pinned row went away');
+});
+
+/*
+  bc-ka5y.32. The label kept the old space after a pick, until a refresh.
+
+  There are four readings of one selection — the span the bar draws, `select.value`,
+  `select.title`, and whatever the page under the bar filtered itself to — and
+  `select.value` was the only one no line of code wrote. It rode along inside the markup
+  as a `selected` attribute, behind a guard that skips the rebuild when the rows come out
+  identical to the ones last written. And the control is not only written to: a browser
+  moves its value on the pick itself, and again on a form restore after a back
+  navigation. So a value that moved without a `change` reaching this file was never put
+  back by anything — not by the next payload, and not even by one that rebuilt every row,
+  because identical rows are exactly the case the guard skips.
+
+  What a `node:vm` can hold of that is the assignment: this `<select>` is an object whose
+  `value` is whatever was last written to it, so a paint that fails to write it leaves the
+  wrong string sitting there, which is the failure. What it *cannot* hold is the browser's
+  half — a real `<select>` whose value matches no option shows its first row, which is why
+  `scripts/space-check.mjs` asserts the whole of it in a real one, on a real pick.
+*/
+check('every paint says the selection to the control, not only to the markup', () => {
+  const { space, select } = fresh();
+  space.set({ space: 'Personal', workspace: 'beadcause' }, { post: false });
+  assert.equal(select.value, 'ws:beadcause');
+
+  // Moved with no `change` behind it — what the browser does on the pick, and what a form
+  // restore does after a back navigation. Nothing has been told, so nothing has corrected
+  // it yet.
+  select.value = 'ws:sophab';
+  // A payload with nothing in it about the selection, and nothing that moves a row: the
+  // paint most likely to decide it has nothing to do.
+  space.adopt({ spaces: SPACES, workspaces: NAMES });
+  assert.equal(select.value, 'ws:beadcause', 'the paint left the control holding the wrong repo');
+});
+
+/*
+  And the other way the four can part: the filter outlives the config it was picked under
+  — it sits in `state.json` across restarts and reconfigurations — so a space renamed in
+  the config file, or a repo retired from /admin, leaves the picker pinned to a name the
+  next payload does not carry. With no row holding it a real `<select>` shows its first,
+  and the bar reads "All spaces" over a list still narrowed to what the label names.
+
+  bc-qid8b drew the `Other — all` row for exactly this reason. "Other" was never the only
+  name the list can lose, so the row is drawn for whatever the pin is.
+*/
+check('a pin the config no longer offers keeps a row rather than falling off the list', () => {
+  const { space, select } = fresh();
+  space.set({ space: 'Personal', workspace: 'sophab' }, { post: false });
+  assert.ok(select.innerHTML.includes('value="ws:sophab"'));
+
+  // The payload a retire produces: the same spaces, one repo fewer.
+  space.adopt({ workspaces: ['beadcause', 'climative', 'stray'] });
+  assert.match(select.innerHTML, /<option value="ws:sophab" selected>/, 'the pin has no row to be held in');
+  assert.equal(select.value, 'ws:sophab');
+  // Said rather than pretended: `matches()` and the server's `matchesFilter` are both
+  // still answering for the pin, so a row reading plainly `sophab` would be a second lie.
+  assert.match(select.innerHTML, /sophab — gone/);
+});
+
+check('and a space renamed under the pin is the same case', () => {
+  const { space, select } = fresh();
+  space.set({ space: 'Personal', workspace: 'all' }, { post: false });
+  space.adopt({ spaces: [{ name: 'Personnel', workspaces: ['beadcause', 'sophab'] }] });
+  assert.match(select.innerHTML, /<option value="space:Personal" selected>/);
+  assert.equal(select.value, 'space:Personal');
+});
+
+check('and nothing extra is drawn while the pin is a row the list really has', () => {
+  // The guard has to be silent in the ordinary case, or every screen grows a group.
+  const { select } = fresh();
+  assert.ok(!select.innerHTML.includes('gone'), select.innerHTML);
+  assert.ok(!select.innerHTML.includes('No longer configured'), select.innerHTML);
+});
+
 /* --------------------------------------------- the face, and the list behind it */
 
 /*

@@ -93,6 +93,25 @@
   same tick. Which is why this belongs here and not in five pages: one file knows a tap
   happened, and the pages only have to keep listening.
 
+  ## Four readings of one selection, and only three of them are ours
+
+  What is selected is drawn four times over: the span the bar fills, the `<select>`'s
+  value, its `title`, and whatever the page under the bar filtered itself to. `paint()`
+  writes three of those. The fourth the *browser* writes — a `<select>`'s value moves on
+  the pick itself, and again on a form restore after a back navigation, with no line of
+  ours involved.
+
+  So the value is assigned here rather than left to ride along inside the markup as a
+  `selected` attribute. It used to do exactly that, and the rebuild that carries it is
+  guarded — identical rows are not written again, because rebuilding a `<select>` under an
+  open native wheel shuts the wheel. Which meant a value that moved without a `change`
+  reaching this file was never put back by anything, and the bar kept the old space until
+  the page was reloaded (bc-ka5y.32).
+
+  It also means the selection needs a row to be held in even when the list no longer
+  offers one: a `<select>` whose value matches nothing shows its *first* option, which
+  says "All spaces" over a list that is still narrowed. See the `held` flag below.
+
   ## What a page has to do
 
       window.beadcause.space.onChange(() => render());     // repaint when it moves
@@ -131,6 +150,14 @@
   if (!bar) return;
 
   const ALL = 'all';
+
+  /* The name of the group for repos in no configured space. Not a space — there is no
+     entry for it in `spaces` and nothing to set on it (`GET /api/space` 404s on it by
+     design) — but it is a value the filter can hold, so it needs a name in one place.
+     It has to stay the string `summarise()` uses in lib/spaces.js and the one
+     `matchesFilter` there compares against: a filter pinned to a name only one of the
+     three spells would push a bead the picker cannot show. */
+  const STRAY = 'Other';
 
   /* The same `?t=` pickup the other pages do, and here for a reason of its own: this
      file loads *before* the page's own script so a page can register `onChange` at the
@@ -217,10 +244,10 @@
    *  `summarise()` and the inbox's own `spaceOf` do — if these three ever disagreed,
    *  a bead would be pushed by a filter that cannot show it. */
   const spaceOf = (workspace) =>
-    state.spaces.find((s) => (s.workspaces || []).includes(workspace))?.name || 'Other';
+    state.spaces.find((s) => (s.workspaces || []).includes(workspace))?.name || STRAY;
 
   /** Configured workspaces in no configured space, in the order the server sent them. */
-  const strays = () => state.workspaces.filter((w) => spaceOf(w) === 'Other');
+  const strays = () => state.workspaces.filter((w) => spaceOf(w) === STRAY);
 
   /**
    * Is this row in view? The client half of `matchesFilter` in lib/spaces.js.
@@ -326,8 +353,19 @@
     return { space: ALL, workspace: ALL };
   };
 
-  const option = (value, text, on) =>
-    `<option value="${esc(value)}"${on ? ' selected' : ''}>${esc(text)}</option>`;
+  /* Did any row this paint built carry the selection? A `<select>` whose value matches no
+     option shows its *first* one, so a filter pinned to something the list no longer
+     offers says "All spaces" over a list that is still narrowed — which is the hole
+     bc-qid8b closed for `space:Other` by always drawing that row, and which is open for
+     every other pin the config can drop under you. Recorded here rather than re-derived
+     after the fact, because the question is exactly "did we mark one selected", and a
+     second pass over the rows asking it a different way is how the two answers start to
+     differ. Reset at the top of every `paint()`. */
+  let held = false;
+  const option = (value, text, on) => {
+    if (on) held = true;
+    return `<option value="${esc(value)}"${on ? ' selected' : ''}>${esc(text)}</option>`;
+  };
 
   /**
    * Repaint once the screen is let go of again.
@@ -376,9 +414,20 @@
     // answers undefined and paints as it always did.
     if (window.beadcause?.editMode?.frozen?.()) return void thawFirst();
     const now = valueOf(state.filter);
+    held = false;
     const rows = [option(ALL, 'All spaces', now === ALL)];
 
     for (const s of state.spaces) {
+      // The synthetic group is drawn once, below, and not here. `summarise()` emits a
+      // row literally named "Other" for the strays that have questions, so a payload
+      // carrying it used to be drawn twice: once by this loop and once by the `strays()`
+      // block, under two optgroups with the same label — and a stray with a question in
+      // it appeared in both, because `summarise()` had put it in the synthetic row and
+      // `spaceOf` answers "Other" for it as well. Skipped rather than merged because the
+      // two lists are not the same list: this one is only the strays the last sweep found
+      // beads in, and the one below is every configured repo in no space, which is the
+      // list the picker is for — see `strays()`.
+      if (s.name === STRAY) continue;
       const inside = (s.workspaces || []).filter((w) => state.workspaces.includes(w));
       // A space whose every workspace has left the config is config drift, not a place
       // to go. Its own row stays — it is still what the filter may be pinned to.
@@ -389,11 +438,41 @@
     }
 
     const rest = strays();
-    if (rest.length) {
-      // The same synthetic group `summarise()` emits, and named the same, so a filter
-      // pinned to "Other" has a row to be selected in.
-      rows.push(`<optgroup label="Other">`);
+    // The `— all` row is what a filter pinned to `space:Other` is selected in, so the
+    // group is drawn for that pin even with nothing under it — a `<select>` whose value
+    // matches no option shows its first, which would say "All spaces" over a narrowed
+    // list. Its own quiet flag is not read: "Other" is not a configured space and has no
+    // settings to be quiet by.
+    if (rest.length || now === `space:${STRAY}`) {
+      rows.push(`<optgroup label="${esc(STRAY)}">`);
+      rows.push(option(`space:${STRAY}`, `${STRAY} — all`, now === `space:${STRAY}`));
       for (const w of rest) rows.push(option(`ws:${w}`, w, now === `ws:${w}`));
+      rows.push('</optgroup>');
+    }
+
+    /*
+      And a row for the selection itself, if nothing above offered one.
+
+      The filter outlives the config it was picked under — it sits in `state.json` across
+      restarts and reconfigurations — so a space renamed in `~/.config/beadcause/config.json`
+      and a repo retired from `/admin` both leave it pinned to a name the payload no longer
+      carries. With no row holding it the `<select>` falls back to its first option and says
+      **All spaces** while the label beside it, and every list on the page, are still
+      narrowed to what the filter really is: the control contradicting itself about the one
+      thing it exists to say. bc-qid8b drew the `Other — all` row for exactly this reason;
+      this is the same argument applied to every other pin, because "Other" was never the
+      only name the list can lose.
+
+      It says so rather than pretending, because widening the filter here is not this
+      file's decision to make — `matches()` and the server's `matchesFilter` are still
+      answering for the pin, so a row that quietly read `Work` would be a second lie. The
+      inbox reconciles a vanished pin back to `all` on its next payload (see
+      public/app.js), and until something does, this is where you can see why the list is
+      empty and pick your way out of it.
+    */
+    if (!held) {
+      rows.push(`<optgroup label="No longer configured">`);
+      rows.push(option(now, `${label()} — gone`, true));
       rows.push('</optgroup>');
     }
 
@@ -407,6 +486,27 @@
       drawn = html;
       sel.innerHTML = html;
     }
+
+    /*
+      The selection, said to the control rather than only to the markup — bc-ka5y.32.
+
+      Every line above writes *rows*, and the selection rode along inside them as a
+      `selected` attribute. That made the value a side effect of the rebuild, and the
+      rebuild is guarded by a string: when the rows come out identical to the ones last
+      written, `sel.innerHTML` is not touched, and whatever the live control is holding
+      stays. The control is not only written to, though — it is the thing under the thumb,
+      and its value moves without a line of code running, on the pick itself and on a form
+      restore after a back navigation. So a value that moved without a `change` reaching
+      us was never corrected by *anything*: not by the next poll, and not even by a poll
+      that rebuilt every row, because identical rows are exactly the case the guard skips.
+      The label said one repo, the dropdown held another, and it stayed that way until the
+      page was reloaded, which is what was reported from the phone.
+
+      One assignment, and only when they disagree — the same shape as the two lines below,
+      and for the same reason: agreeing is the normal case, and touching a `<select>` a
+      phone has open is what the guard above exists to avoid.
+    */
+    if (sel.value !== now) sel.value = now;
 
     // What the bar itself says, which is not what the dropdown says — see `shorten`.
     // Written on every paint rather than only on a change: it is one string assignment

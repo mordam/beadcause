@@ -85,3 +85,8 @@ design-bundle
 
 # Screenshots from scripts/design/shots.mjs — 154 PNGs, regenerated on demand.
 design-shots
+
+# Regression fingerprint from scripts/design/baseline.mjs. Deliberately outside
+# design-shots/ — shots.mjs clears that whole directory on every render (bc-ka5y.24),
+# and per-machine either way, since it is a claim about the machine's own fonts.
+design-baseline.json

@@ -24,7 +24,9 @@
 // Run: node scripts/design/vocabulary.mjs [--full]
 import { readFileSync, existsSync } from 'node:fs';
 
-const FILE = 'design-shots/baseline.json';
+// Deliberately NOT under design-shots/ — see baseline.mjs; shots.mjs clears that whole
+// directory on every render and this file must survive it.
+const FILE = 'design-baseline.json';
 if (!existsSync(FILE)) {
   console.error('needs a baseline. Record one with:\n  node scripts/design/baseline.mjs --save');
   process.exit(2);

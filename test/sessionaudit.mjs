@@ -25,6 +25,15 @@
  *    session the run never read, a command the repo already ships. Each of those is a
  *    plausible finding, and filing any of them costs somebody an hour of reading.
  *
+ * A fifth, added later: **a candidate lands under the skills epic, not under whatever
+ * evidenced it** (bc-khoe.48). `from` is one of the cited sessions' beads and used to
+ * decide the parent as well as the provenance, so for four months candidates piled up
+ * under whichever epic happened to be busiest that hour — thirty-seven of them across
+ * twelve unrelated epics. Asserted from both sides, because the second is what made the
+ * change safe to land before anybody labelled an epic: with the programme's root present
+ * the candidate goes there, and with no such root the parent is exactly the one the seam
+ * chose before.
+ *
  * No agent and no tracker: the `claude -p` and `bd` are fakes that record what they were
  * asked. The git is real, because the ledger's whole job is to survive a restart and an
  * in-memory fake of it would be a test of the fake.
@@ -66,6 +75,7 @@ const {
 } = await import(LIB('sessionaudit.js'));
 const { FILED_LABEL, PRIORITY_FLOOR } = await import(LIB('filing.js'));
 const { UNENDORSED } = await import(LIB('endorse.js'));
+const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 
 let failures = 0;
 const ok = (name) => console.log(`  ✓ ${name}`);
@@ -463,6 +473,86 @@ await checksAsync('an agent that will not run is a recorded run, not a lost one'
   assert.match(out.error, /could not start claude/);
   assert.deepEqual(out.filed, []);
   assert.equal((await readLedger(repo)).runs, before + 1, 'a failure that leaves no trace is a failure nobody fixes');
+});
+
+/**
+ * bc-khoe.48 — where a candidate lands, and it is the last thing in this section because
+ * running an audit writes the ledger. `force` for the same reason: every archive above
+ * has been read by the checks before this one, and what is under test is the parent on
+ * the bead rather than whether the run was worth starting. A distinct command name per
+ * check, since the ledger refuses a slug it has already filed.
+ */
+const findingNamed = (command) =>
+  blockOf(`findings:
+  - command: ${command}
+    title: One command does the thing three sessions did by hand
+    sessions: [bc-aaa, bc-bbb.2, bc-ccc]
+    evidence: |
+      All three sessions did it, in three different orders.
+    takes: a bead id
+    returns: markdown
+    complexity: low
+`);
+
+/** A tracker with the busy epic that evidenced the finding, and optionally the programme. */
+const graphWith = (skillsEpic) =>
+  indexFrom(
+    [
+      JSON.stringify({ id: 'bc-busy', title: 'whichever epic was running', status: 'open', priority: 0, labels: [], dependencies: [] }),
+      JSON.stringify({
+        id: 'bc-aaa',
+        title: 'a session under it',
+        status: 'open',
+        priority: 2,
+        labels: [],
+        dependencies: [{ issue_id: 'bc-aaa', depends_on_id: 'bc-busy', type: PARENT_EDGE }],
+      }),
+      ...(skillsEpic
+        ? [JSON.stringify({ id: 'bc-skills', title: 'the skills programme', status: 'open', priority: 0, labels: [SKILL_LABEL], dependencies: [] })]
+        : []),
+    ].join('\n')
+  );
+
+/** `fakeBd` plus a graph, and every issue it was handed kept for inspection. */
+const homingBd = (skillsEpic) => {
+  const bd = fakeBd();
+  const seen = [];
+  const create = bd.create;
+  return {
+    seen,
+    bd: { ...bd, graph: async () => graphWith(skillsEpic), create: (ws, issue) => (seen.push(issue), create(ws, issue)) },
+  };
+};
+
+await checksAsync('A CANDIDATE LANDS UNDER THE SKILLS EPIC, NOT UNDER WHAT EVIDENCED IT', async () => {
+  // `from` is one of the cited sessions' beads, and lib/homing.js's default is the root
+  // above it — which for four months meant a candidate landed under whichever epic
+  // happened to be busiest that hour: thirty-seven of them across twelve unrelated
+  // epics by 2026-08-21, each one counted against a theme it had nothing to do with and
+  // each one ahead of that theme's own work in the queue. The home is named now: the
+  // open root carrying SKILL_LABEL, which is bc-dgx7 in the live graph.
+  const { bd, seen } = homingBd(true);
+  const { auditor } = auditorOver({ bd, answer: findingNamed('b7e-homed') });
+  const out = await auditor.audit(repo, WS, { force: true });
+  assert.equal(out.ran, true, out.why || 'the run did not happen');
+  assert.equal(seen.length, 1, `dropped ${JSON.stringify(out.dropped)} — ${String(out.error)}`);
+  assert.equal(seen[0].parent, 'bc-skills', 'the programme, found by its label');
+  assert.notEqual(seen[0].parent, 'bc-busy', 'not the root above whichever session evidenced it');
+  assert.ok(
+    (seen[0].deps || []).some((d) => String(d).startsWith('discovered-from:')),
+    'and the trail back to the sessions that evidenced it is untouched — provenance was never the parent link'
+  );
+});
+
+await checksAsync('and with no such epic raised, it files exactly where it filed before', async () => {
+  // What makes this safe to land before anybody labels an epic: no root carries the
+  // label, so lib/homing.js falls straight through to the rule this seam used before.
+  const { bd, seen } = homingBd(false);
+  const { auditor } = auditorOver({ bd, answer: findingNamed('b7e-unhomed') });
+  const out = await auditor.audit(repo, WS, { force: true });
+  assert.equal(out.ran, true, out.why || 'the run did not happen');
+  assert.equal(seen.length, 1, `dropped ${JSON.stringify(out.dropped)} — ${String(out.error)}`);
+  assert.equal(seen[0].parent, 'bc-busy');
 });
 
 /* ----------------------------------------------------- 6. what bounds the cost */
