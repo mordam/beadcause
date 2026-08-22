@@ -20105,6 +20105,21 @@ that cannot be bypassed on purpose is the one somebody disables permanently at t
 the morning. `bin/deliver.js` has no `--no-verify` to reach for, and it is the one that
 actually stands between a broken file and `origin`.
 
+**That resolution goes through `core.hooksPath` first, and this repo has already been
+bitten by that once — bc-y3qk.13.** A stray `bd init` run at some point had set it to
+`.beads/hooks`; the `.beads` directory was later removed, the config line was not, and
+git does not warn when `core.hooksPath` names a directory that does not exist — it just
+runs no hook, silently, in the main checkout and in every worktree at once, because they
+all resolve the same config. `--install-hook` would have made that worse rather than
+catching it: `mkdirSync` does not care whether the path it is creating is a real hooks
+directory or an invented one, so it would have written a working `pre-commit` into
+`.beads/hooks`, reported success, and left the guard live only until something next
+deleted that directory. So `--install-hook` now checks that the path `core.hooksPath`
+resolves to is inside this repo's own git directory before writing anything, and refuses
+— naming the exact `git config --local --unset core.hooksPath` to run — when it is not.
+The resolver commit that put committed conflict markers on `main` (bc-h2iz) would have
+been refused by the hook this repo believed was already installed, had this held then.
+
 ### Checking it
 
 `npm test` covers three libraries. `test/pr.mjs` drives `lib/pr.js` against a fake `gh` on
