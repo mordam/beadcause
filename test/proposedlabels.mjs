@@ -111,6 +111,12 @@ await check('and a ship label, whose only exit is a deploy', () => {
   assert.ok(daemonOnly('ship'));
 });
 
+await check('and a filed-while, which names the bead an agent was working — and this card is a person', () => {
+  const why = daemonOnly('filed-while:bc-xl7n.76.1');
+  assert.ok(why);
+  assert.match(why, /advocate console|epic/i, 'the warning has to say what crediting the wrong epic would mean');
+});
+
 console.log('\nand what it may');
 
 await check('an owner — the exception that made this a decision rather than a one-liner', () => {
@@ -273,6 +279,12 @@ await check('and held: and ran: go the same way, on the one card', async () => {
   assert.equal(body.warnings.filter((w) => w.includes('dropped the label')).length, 2);
 });
 
+await check('and filed-while: too — a person pressed this button, not an agent mid-session', async () => {
+  const body = await fileOne({ labels: ['filed-while:bc-xl7n.76.1', 'api'] });
+  assert.deepEqual(labelsPassed(), ['api']);
+  assert.ok(body.warnings.some((w) => w.includes('filed-while')));
+});
+
 await check('a P0 naming its owner is still filed with it — the exception, end to end', async () => {
   // The half of bc-vriu.1 that must not regress: a chat filing a P0 for somebody else
   // says so, and `Bd.create` treats the named owner as winning over its own stamp.
@@ -311,7 +323,7 @@ await check('every family isProtectedLabel refuses is decided here, one way or t
   const families = [...body[1].matchAll(/is[A-Z][A-Za-z]*Label|PROTECTED_LABELS/g)].map((m) => m[0]);
   assert.deepEqual(
     [...new Set(families)].sort(),
-    ['PROTECTED_LABELS', 'isAddresseeLabel', 'isOwnerLabel', 'isRanLabel'].sort(),
+    ['PROTECTED_LABELS', 'isAddresseeLabel', 'isFiledWhileLabel', 'isOwnerLabel', 'isRanLabel'].sort(),
     'lib/verdict.js protects a family this suite has not decided about for a create — ' +
       'add it to DAEMON_ONLY or to PROPOSAL_EXCEPTIONS in lib/proposedlabels.js, with the reason'
   );
@@ -323,9 +335,9 @@ await check('and the two it deliberately disagrees with are exactly owner: and f
     assert.equal(isProtectedLabel(l), true, `${l} is the ✎'s to refuse`);
     assert.equal(daemonOnly(l), null, `${l} is a proposal's to state`);
   }
-  // And nothing else the ✎ refuses is let through: the two plain strings and `ran:` are
-  // refused by both, so the exception list is two entries and not a hole.
-  for (const l of ['unendorsed', 'agent-filed', 'ran:opus']) {
+  // And nothing else the ✎ refuses is let through: the two plain strings, `ran:` and
+  // `filed-while:` are refused by both, so the exception list is two entries and not a hole.
+  for (const l of ['unendorsed', 'agent-filed', 'ran:opus', 'filed-while:bc-xl7n.76.1']) {
     assert.equal(isProtectedLabel(l), true);
     assert.ok(daemonOnly(l), `${l} is refused by both guards`);
   }

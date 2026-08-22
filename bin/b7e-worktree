@@ -1,0 +1,150 @@
+#!/usr/bin/env node
+/**
+ * `b7e-worktree` — make a fresh worktree runnable in one call.
+ *
+ *     b7e-worktree            symlink node_modules, build public/vendor, report git position
+ *     b7e-worktree --check    report only — link, build and reset nothing
+ *
+ * bc-khoe.41: a worktree created by `EnterWorktree` has no `node_modules` and no
+ * `public/vendor`, and may be branched from an `origin/main` that is behind local
+ * `main`. Ten sessions did the same three things immediately afterwards, in seven
+ * different spellings — see the bead for the roster. Two skipped `node
+ * scripts/vendor.js` and paid for it later with a red `test/pagealias.mjs` out of an
+ * otherwise-clean sweep. This is the one command that replaces all of it.
+ *
+ * Every run, idempotently:
+ *   1. symlinks `node_modules` to the main checkout's, if nothing is linked yet —
+ *      never installs one of its own (bc-mf9s: a real 160 MB copy works, but it is
+ *      carried into the attic when the worktree is retired and never mentioned again).
+ *   2. calls `scripts/vendor.js`, which does the equivalent borrow for `public/vendor`
+ *      — the seven bundles arrive as links there too (bc-oqu7), never as copies and
+ *      never as one symlinked directory (bc-slxm, bc-0i27.25). This file duplicates
+ *      none of that logic; it only calls the script that already owns it.
+ *   3. reports HEAD next to local `main` and `origin/main`, and says explicitly when
+ *      this worktree is behind local `main` — the case that needs
+ *      `git reset --hard main` run by hand before editing, which this command
+ *      deliberately does not do itself: rewriting a worktree's history out from under
+ *      whoever is about to start editing it is not a "make it runnable" step.
+ *
+ * `--check` skips the linking and the vendor build and only reports what it finds —
+ * useful to answer "is this worktree already set up" without changing anything.
+ *
+ * Exit codes: `0` clean and current, `1` this worktree is behind local `main`, `2`
+ * refused — not run from inside a `.claude/worktrees/<name>` checkout, or bad usage.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const argv = process.argv.slice(2);
+const CHECK = argv.includes('--check');
+const HELP = argv.includes('--help') || argv.includes('-h');
+
+if (HELP) {
+  console.log(
+    [
+      'b7e-worktree            symlink node_modules, build public/vendor, report git position',
+      'b7e-worktree --check    report only — change nothing',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const cwd = process.cwd();
+
+/** `.claude/worktrees/<name>` — the same test scripts/vendor.js makes for the same reason. */
+const WORKTREES = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
+const worktreesAt = (cwd + path.sep).indexOf(WORKTREES);
+if (worktreesAt === -1) {
+  console.error(`[b7e-worktree] refusing — ${cwd} is not inside a .claude/worktrees/<name> checkout`);
+  console.error('               this command exists to set up a fresh worktree, not the main checkout');
+  process.exit(2);
+}
+
+// `stdio: 'pipe'` on all three, explicitly — `execFileSync` otherwise echoes a failing
+// command's stderr straight to this process's own, and `gitOrNull` below relies on a
+// missing ref (no `origin`, no local `main`) failing *quietly*.
+function git(args) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' }).trim();
+}
+function gitOrNull(args) {
+  try {
+    return git(args);
+  } catch {
+    return null;
+  }
+}
+
+/* --------------------------------------------------------------- 1. node_modules */
+
+const nmPath = path.join(cwd, 'node_modules');
+let nmStatus;
+try {
+  const st = fs.lstatSync(nmPath);
+  nmStatus = st.isSymbolicLink() ? 'linked' : st.isDirectory() ? 'real' : 'other';
+} catch {
+  nmStatus = 'missing';
+}
+
+if (nmStatus === 'missing') {
+  if (CHECK) {
+    console.log('[b7e-worktree] node_modules missing — would link to the main checkout (not --check)');
+  } else {
+    fs.symlinkSync(path.join('..', '..', '..', 'node_modules'), nmPath);
+    console.log('[b7e-worktree] node_modules linked to the main checkout');
+  }
+} else if (nmStatus === 'linked') {
+  console.log('[b7e-worktree] node_modules already linked');
+} else if (nmStatus === 'real') {
+  // Same advice scripts/vendor.js's own borrowAdvice gives, and deliberately not acted
+  // on here: replacing somebody's installed tree without being asked is a bigger claim
+  // than "make it runnable".
+  console.warn(
+    "[b7e-worktree] node_modules is a real directory here (~160 MB), not a symlink to the main checkout's.\n" +
+      '               It works, but it is carried into the attic when this worktree is retired and never\n' +
+      '               mentioned again. To borrow instead: rm -rf node_modules && ln -s ../../../node_modules node_modules',
+  );
+} else {
+  console.warn(`[b7e-worktree] node_modules exists here and is neither a symlink nor a directory (${nmStatus})`);
+}
+
+/* --------------------------------------------------------------------- 2. vendor */
+
+if (CHECK) {
+  const files = ['marked.js', 'purify.js', 'mermaid.js', 'd3.js', 'xterm.js', 'xterm.css', 'xterm-addon-fit.js'];
+  const present = files.filter((f) => fs.existsSync(path.join(cwd, 'public', 'vendor', f)));
+  console.log(`[b7e-worktree] public/vendor: ${present.length}/${files.length} bundles present (--check, not building)`);
+} else {
+  // scripts/vendor.js derives its own root from where it is running FROM
+  // (`import.meta.url`), not from `cwd` — so this has to be the worktree's own tracked
+  // copy, not `bin/`'s (which resolves to the main checkout, since that is what is on
+  // PATH). Every worktree has one; scripts/ is an ordinary tracked directory.
+  execFileSync(process.execPath, [path.join(cwd, 'scripts', 'vendor.js')], { cwd, stdio: 'inherit' });
+}
+
+/* -------------------------------------------------------------- 3. git position */
+
+const head = gitOrNull(['rev-parse', 'HEAD']);
+const mainSha = gitOrNull(['rev-parse', 'main']);
+const originMainSha = gitOrNull(['rev-parse', 'origin/main']);
+const short = (sha) => (sha ? sha.slice(0, 8) : '(unknown)');
+console.log(`[b7e-worktree] HEAD ${short(head)} · main ${short(mainSha)} · origin/main ${short(originMainSha)}`);
+
+// `--is-ancestor` has no stdout either way; whether the call throws is the whole signal.
+// Only meaningful when the two shas differ — an ancestor of itself would otherwise read
+// as "behind" on a worktree that is exactly current.
+let behind = false;
+if (head && mainSha && head !== mainSha) {
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', head, mainSha], { cwd, stdio: 'pipe' });
+    behind = true;
+  } catch {
+    behind = false; // diverged, or HEAD is ahead of main — neither is "behind"
+  }
+}
+
+if (behind) {
+  console.error('[b7e-worktree] this worktree is behind local main — git reset --hard main before editing');
+}
+
+process.exit(behind ? 1 : 0);

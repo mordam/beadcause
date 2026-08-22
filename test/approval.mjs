@@ -599,6 +599,65 @@ console.log('\nthe brief and the command, reading one answer\n');
       )
     ).autoShip === false
   );
+
+  /* ------------------------- a worktree whose own name says "approv" ------------------------- */
+
+  // bc-36xx.15: this suite used to fail from ANY worktree whose directory name contained
+  // "approv" — nothing to do with approval policy. The brief bakes in an absolute path to
+  // bin/deliver.js (`pr.deliver`, built by `DELIVER_CMD()` above), and a bare `/approv/i`
+  // over the whole brief swept that baked-in path in too. `git stash` cannot prove this is
+  // fixed — the trap moves with the directory, not the tracked content — so this proves it
+  // the only way that is real: load `lib/session.js` from an actual worktree named with the
+  // word in it, and run the same brief through it.
+  //
+  // Two things have to hold at once, and this is the one place both are exercised together:
+  //   - `DELIVER_CMD()` resolves through `mainCheckout()` (bc-xl7n.61), which asks git's own
+  //     `--git-common-dir` for the answer, so the baked-in path names the checkout this
+  //     worktree belongs to and never the worktree itself.
+  //   - the assertions above (bc-36xx.6) test specific sentences, not a substring sweep.
+  //
+  // A throwaway repo, not the repo this suite is running from — the same reason every other
+  // `git worktree add` in this file's neighbours (test/regions.mjs, test/prboard.mjs, and
+  // the rest) uses one: a worktree of the real checkout registers in *its* git-common-dir,
+  // which every other session on this machine can see in `git worktree list` until it is
+  // removed. A throwaway repo's worktree is invisible to anyone else, and `cleanupTmp`'s
+  // plain `rm -rf` is enough for it — there is no shared `.git` to leave a dangling entry in.
+  console.log('\na worktree whose own directory name says "approv" gets the identical brief\n');
+  {
+    const fixture = path.join(tmp, 'wt-fixture');
+    fs.mkdirSync(fixture, { recursive: true });
+    fs.cpSync(path.join(HERE, '..', 'lib'), path.join(fixture, 'lib'), { recursive: true });
+    const fg = (...a) => execFileSync('git', a, { cwd: fixture, encoding: 'utf8' });
+    fg('init', '-q');
+    fg('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'add', '-A');
+    fg('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'lib');
+
+    const wtDir = path.join(tmp, 'review-approval-regress');
+    fg('worktree', 'add', '-q', '--detach', wtDir, 'HEAD');
+    fs.symlinkSync(path.join(HERE, '..', 'node_modules'), path.join(wtDir, 'node_modules'));
+
+    const { prMode: prModeWt, workPromptFor: workPromptForWt } = await import(path.join(wtDir, 'lib', 'session.js'));
+    const workWt = await prModeWt(cfg, repo, 'demo');
+    const soloWt = await prModeWt(cfg, repo, 'solo');
+
+    check(
+      'the baked-in delivery command names the checkout this worktree belongs to, not the worktree itself',
+      typeof workWt?.deliver === 'string' &&
+        workWt.deliver.includes('bin/deliver.js') &&
+        !workWt.deliver.includes('review-approval-regress'),
+      workWt?.deliver
+    );
+    check(
+      'and its brief still says the require-approval sentence, in the space that asks for one',
+      /waits for an approving review/.test(workPromptForWt('demo', bead, 1, workWt, 'Adam')) &&
+        /not yours to chase/.test(workPromptForWt('demo', bead, 1, workWt, 'Adam'))
+    );
+    check(
+      'while the exact same worktree, on a brief for a space that never asked, says neither sentence',
+      !/waits for an approving review/.test(workPromptForWt('solo', bead, 1, soloWt, 'Adam')) &&
+        !/not yours to chase/.test(workPromptForWt('solo', bead, 1, soloWt, 'Adam'))
+    );
+  }
 }
 
 await cleanupTmp(tmp);

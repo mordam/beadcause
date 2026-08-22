@@ -23,10 +23,12 @@
  *     open children instead;
  *   - **the argv** — `reopenAbandoned` tries the plain write first and appends `--force`
  *     only when *that* refusal is what came back, while `reopen` itself never forces,
- *     because `commission` and lib/jiragate.js reopen beads whose claim may still be live
- *     and the guard is doing the job it was added for. lib/server.js's review path was on
- *     that list until bc-36xx.17 and never belonged there: see test/handbackdelivery.mjs,
- *     which drives the answer end to end against a bd that enforces the refusal;
+ *     because lib/jiragate.js reopens a ticket coming back off Jira whose claim may
+ *     still be live and the guard is doing the job it was added for. lib/server.js's
+ *     review path and `Bd.commission` were both on that list once and neither belonged
+ *     there — bc-36xx.17 and bc-xl7n.88, the same mistake in the same shape twice: see
+ *     test/handbackdelivery.mjs and test/answerclose.mjs, which drive each answer end to
+ *     end against a bd that enforces the refusal;
  *   - **the binary**, at the bottom and skipped loudly where `bd` is not installed. The
  *     stub half above can only ever confirm what lib/bd.js already believes; that the
  *     plain reopen is refused *at all* is the belief the whole change rests on, and it is
@@ -171,15 +173,16 @@ await check('a second refusal is not forced twice', async () => {
   assert.equal(calls.length, 2, 'it steps over the guard once and then reports');
 });
 
-await check('`reopen` itself never forces — the paths with a live holder keep their guard', async () => {
-  // `commission` reopens on an answer that orders work and lib/jiragate.js on a ticket
-  // coming back, and there the holder may still be typing. bc-xl7n.85 is explicit that
-  // force belongs at the call site that has established the window is gone.
+await check('`reopen` itself never forces — the one remaining live-holder path keeps its guard', async () => {
+  // lib/jiragate.js reopens a ticket coming back off Jira, and there the holder may
+  // still be typing. bc-xl7n.85 is explicit that force belongs at the call site that
+  // has established the window is gone.
   //
-  // This list used to name lib/server.js's "changes requested" as such a path, which is
-  // what bc-36xx.17 was: a worker delivers and stops, so by the time the answer comes the
-  // holder is always gone. The assertion below is unchanged — `reopen` still never forces
-  // — but the reason it is safe is now about who calls it, not about that path.
+  // This list used to name lib/server.js's "changes requested" path (bc-36xx.17) and
+  // then `Bd.commission` (bc-xl7n.88) as such cases, and both were the same mistake: a
+  // worker delivers and stops, so by the time an answer comes back the holder is always
+  // gone. The assertion below is unchanged — `reopen` still never forces — but the
+  // reason it is safe is now about who calls it, not about either retired path.
   const { bd, calls } = stub([new Error(WRAPPED)]);
   await assert.rejects(() => bd.reopen(WS, 'x-1'), /cannot reassign/);
   assert.deepEqual(calls, [PLAIN('x-1')]);
@@ -222,6 +225,12 @@ await check('every path that releases a dead window’s claim asks for the aband
     2,
     'both the changes path and the decline path go through it'
   );
+  // bc-xl7n.88. `commission` is `Bd`'s own reopen call, and it made the identical
+  // mistake in the identical shape: a plain `reopen` refused on the ordinary case, not
+  // the edge case, because the assignee it is clearing is always a window that has
+  // already stopped.
+  const bdSrc = code('lib/bd.js');
+  assert.match(bdSrc, /await this\.reopenAbandoned\(workspace, id\);/, 'commission asks for the abandoned reopen');
 });
 
 /* ------------------------------------------------------------------- the binary */
@@ -285,6 +294,39 @@ if (!bdOnPath) {
       await bd.run(ws, ['update', id, '--status', 'in_progress']);
       await bd.reopenAbandoned(ws, id);
       assert.equal(row(id).status, 'open');
+    });
+
+    // bc-xl7n.88: the other half of the same guard, hit on the answer path rather than
+    // the hand-back. A question is `in_progress` from the moment a worker claims it —
+    // `closeAnswered`'s bare `--assignee ''` clear and `commission`'s reopen both
+    // reassign away from that holder, and both used to be refused every time.
+
+    await check('a claimed question closes anyway, and the clear that took no flag before now needs one', async () => {
+      const id = await claimed('a claimed question, answered');
+      const err = await bd.run(ws, ['update', id, '--assignee', ''], { actor: 'beadcause' }).then(
+        () => null,
+        (e) => e
+      );
+      assert.ok(isReassignGuard(err), `the bare clear is refused while it is in_progress: ${String(err?.message).split('\n')[0]}`);
+
+      await bd.closeAnswered(ws, id, 'Answered via Beadcause', { actor: 'beadcause' });
+      const after = row(id);
+      assert.equal(after.status, 'closed', 'closeAnswered gets past the guard it just hit');
+      assert.ok(!after.assignee, 'and the claim is gone, not merely forced past');
+    });
+
+    await check('a commissioned question reopens anyway, over the same guard', async () => {
+      const id = await claimed('a claimed question, commissioned');
+      const err = await bd.reopen(ws, id).then(
+        () => null,
+        (e) => e
+      );
+      assert.ok(isReassignGuard(err), `the plain reopen commission used to call is refused the same way: ${String(err?.message).split('\n')[0]}`);
+
+      await bd.commission(ws, id, 'Build both as written.');
+      const after = row(id);
+      assert.equal(after.status, 'open', 'open');
+      assert.ok(!after.assignee, 'and unassigned — back in `bd ready`, not stranded like bc-xl7n.85');
     });
   }
 

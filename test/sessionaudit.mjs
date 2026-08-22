@@ -25,6 +25,15 @@
  *    session the run never read, a command the repo already ships. Each of those is a
  *    plausible finding, and filing any of them costs somebody an hour of reading.
  *
+ * A fifth, added later: **a candidate lands under the skills epic, not under whatever
+ * evidenced it** (bc-khoe.48). `from` is one of the cited sessions' beads and used to
+ * decide the parent as well as the provenance, so for four months candidates piled up
+ * under whichever epic happened to be busiest that hour — thirty-seven of them across
+ * twelve unrelated epics. Asserted from both sides, because the second is what made the
+ * change safe to land before anybody labelled an epic: with the programme's root present
+ * the candidate goes there, and with no such root the parent is exactly the one the seam
+ * chose before.
+ *
  * No agent and no tracker: the `claude -p` and `bd` are fakes that record what they were
  * asked. The git is real, because the ledger's whole job is to survive a restart and an
  * in-memory fake of it would be a test of the fake.
@@ -58,6 +67,7 @@ const {
   extractFindings,
   findingProblems,
   normalise,
+  oldestUnreadAt,
   options,
   readLedger,
   sessionsIn,
@@ -65,6 +75,7 @@ const {
 } = await import(LIB('sessionaudit.js'));
 const { FILED_LABEL, PRIORITY_FLOOR } = await import(LIB('filing.js'));
 const { UNENDORSED } = await import(LIB('endorse.js'));
+const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 
 let failures = 0;
 const ok = (name) => console.log(`  ✓ ${name}`);
@@ -332,7 +343,15 @@ function fakeBd({ createFails = null } = {}) {
   };
 }
 
-const auditorOver = ({ answer = ONE_FINDING, bd, cfg = {}, now = () => Date.now(), throws = null } = {}) => {
+// A caller that does not pass its own `now` gets one anchored a few minutes past the
+// most recently archived session — never the real wall clock. The archives above are
+// timestamped off the fixed `when` epoch, and bc-dgx7.7's age backstop measures every
+// unread session against `now() - at`; a default of `Date.now()` would make the age of
+// a 2026-08-01 fixture whatever day this suite happens to run, and a threshold test
+// below would start passing for the wrong reason the day that gap outgrows
+// `sessionAuditMaxAgeMinutes`. Five minutes keeps every count-threshold test here about
+// the count, and the tests that mean to exercise staleness pass their own `now`.
+const auditorOver = ({ answer = ONE_FINDING, bd, cfg = {}, now = () => when + 5 * 60_000, throws = null } = {}) => {
   const prompts = [];
   const settled = [];
   const auditor = createAuditor({
@@ -456,6 +475,86 @@ await checksAsync('an agent that will not run is a recorded run, not a lost one'
   assert.equal((await readLedger(repo)).runs, before + 1, 'a failure that leaves no trace is a failure nobody fixes');
 });
 
+/**
+ * bc-khoe.48 — where a candidate lands, and it is the last thing in this section because
+ * running an audit writes the ledger. `force` for the same reason: every archive above
+ * has been read by the checks before this one, and what is under test is the parent on
+ * the bead rather than whether the run was worth starting. A distinct command name per
+ * check, since the ledger refuses a slug it has already filed.
+ */
+const findingNamed = (command) =>
+  blockOf(`findings:
+  - command: ${command}
+    title: One command does the thing three sessions did by hand
+    sessions: [bc-aaa, bc-bbb.2, bc-ccc]
+    evidence: |
+      All three sessions did it, in three different orders.
+    takes: a bead id
+    returns: markdown
+    complexity: low
+`);
+
+/** A tracker with the busy epic that evidenced the finding, and optionally the programme. */
+const graphWith = (skillsEpic) =>
+  indexFrom(
+    [
+      JSON.stringify({ id: 'bc-busy', title: 'whichever epic was running', status: 'open', priority: 0, labels: [], dependencies: [] }),
+      JSON.stringify({
+        id: 'bc-aaa',
+        title: 'a session under it',
+        status: 'open',
+        priority: 2,
+        labels: [],
+        dependencies: [{ issue_id: 'bc-aaa', depends_on_id: 'bc-busy', type: PARENT_EDGE }],
+      }),
+      ...(skillsEpic
+        ? [JSON.stringify({ id: 'bc-skills', title: 'the skills programme', status: 'open', priority: 0, labels: [SKILL_LABEL], dependencies: [] })]
+        : []),
+    ].join('\n')
+  );
+
+/** `fakeBd` plus a graph, and every issue it was handed kept for inspection. */
+const homingBd = (skillsEpic) => {
+  const bd = fakeBd();
+  const seen = [];
+  const create = bd.create;
+  return {
+    seen,
+    bd: { ...bd, graph: async () => graphWith(skillsEpic), create: (ws, issue) => (seen.push(issue), create(ws, issue)) },
+  };
+};
+
+await checksAsync('A CANDIDATE LANDS UNDER THE SKILLS EPIC, NOT UNDER WHAT EVIDENCED IT', async () => {
+  // `from` is one of the cited sessions' beads, and lib/homing.js's default is the root
+  // above it — which for four months meant a candidate landed under whichever epic
+  // happened to be busiest that hour: thirty-seven of them across twelve unrelated
+  // epics by 2026-08-21, each one counted against a theme it had nothing to do with and
+  // each one ahead of that theme's own work in the queue. The home is named now: the
+  // open root carrying SKILL_LABEL, which is bc-dgx7 in the live graph.
+  const { bd, seen } = homingBd(true);
+  const { auditor } = auditorOver({ bd, answer: findingNamed('b7e-homed') });
+  const out = await auditor.audit(repo, WS, { force: true });
+  assert.equal(out.ran, true, out.why || 'the run did not happen');
+  assert.equal(seen.length, 1, `dropped ${JSON.stringify(out.dropped)} — ${String(out.error)}`);
+  assert.equal(seen[0].parent, 'bc-skills', 'the programme, found by its label');
+  assert.notEqual(seen[0].parent, 'bc-busy', 'not the root above whichever session evidenced it');
+  assert.ok(
+    (seen[0].deps || []).some((d) => String(d).startsWith('discovered-from:')),
+    'and the trail back to the sessions that evidenced it is untouched — provenance was never the parent link'
+  );
+});
+
+await checksAsync('and with no such epic raised, it files exactly where it filed before', async () => {
+  // What makes this safe to land before anybody labels an epic: no root carries the
+  // label, so lib/homing.js falls straight through to the rule this seam used before.
+  const { bd, seen } = homingBd(false);
+  const { auditor } = auditorOver({ bd, answer: findingNamed('b7e-unhomed') });
+  const out = await auditor.audit(repo, WS, { force: true });
+  assert.equal(out.ran, true, out.why || 'the run did not happen');
+  assert.equal(seen.length, 1, `dropped ${JSON.stringify(out.dropped)} — ${String(out.error)}`);
+  assert.equal(seen[0].parent, 'bc-busy');
+});
+
 /* ----------------------------------------------------- 6. what bounds the cost */
 
 console.log('\nwhat stops this being an agent per session');
@@ -521,6 +620,163 @@ checks('switching it off switches it off', () => {
   assert.equal(options({}).enabled, true, 'on by default — bc-dgx7 wants it running unasked');
   assert.equal(options({ advocates: { sessionAuditEvery: 900 } }).every, 50, 'every number is clamped');
   assert.equal(options({ advocates: { sessionAuditMax: 1 } }).max, MIN_SESSIONS);
+  assert.equal(options({}).maxAgeMs, 24 * 60 * 60 * 1000, 'a day, unasked — bc-dgx7.7');
+  assert.equal(options({ advocates: { sessionAuditMaxAgeMinutes: 1 } }).maxAgeMs, 60 * 60 * 1000, 'clamped to an hour floor');
+  assert.equal(options({}).sweepMs, 30 * 60 * 1000, 'the backstop checks in every half hour, unasked');
+  assert.equal(options({ advocates: { sessionAuditSweepMinutes: 1 } }).sweepMs, 5 * 60 * 1000, 'clamped to five minutes');
+});
+
+/* ---------------------------------------------------- 7. the backstop: bc-dgx7.7 */
+
+console.log('\na checkout that goes quiet still gets its last few sessions read');
+
+/** Polls a predicate rather than sleeping a fixed guess — the git reads inside `audit()`
+ * are real subprocess I/O, and a fixed delay is either a flake on a loaded Mac or three
+ * seconds of padding on an idle one. */
+async function until(predicate, { timeoutMs = 5000, stepMs = 10 } = {}) {
+  const start = Date.now();
+  for (;;) {
+    if (predicate()) return;
+    if (Date.now() - start > timeoutMs) throw new Error('timed out waiting');
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+}
+
+checks('oldestUnreadAt is the oldest row not yet in the ledger, or nothing at all', () => {
+  const rows = [
+    { commit: 'c1', at: '2026-08-10T00:00:00Z' },
+    { commit: 'c2', at: '2026-08-01T00:00:00Z' },
+    { commit: 'c3', at: '2026-08-05T00:00:00Z' },
+  ];
+  assert.equal(oldestUnreadAt(rows, ['c1']), Date.parse('2026-08-01T00:00:00Z'), 'the oldest of the two still unread');
+  assert.equal(oldestUnreadAt(rows, ['c1', 'c2', 'c3']), null, 'nothing unread has no age');
+  assert.equal(oldestUnreadAt([], []), null);
+});
+
+await checksAsync('a checkout whose unread archives never reach the threshold runs anyway once they are old enough', async () => {
+  const bd = fakeBd();
+  archive('bc-jjj', { log: 'a lone session in a checkout that has otherwise gone quiet' });
+  const at = when;
+  const { auditor, prompts } = auditorOver({
+    bd,
+    cfg: { sessionAuditEvery: 5, sessionAuditMaxAgeMinutes: 60 },
+    now: () => at + 2 * 60 * 60 * 1000, // two hours later — past the sixty-minute backstop
+  });
+  const out = await auditor.audit(repo, WS);
+  assert.equal(out.ran, true, out.why || 'a stale unread archive should have overridden the count');
+  assert.equal(prompts.length, 1);
+});
+
+await checksAsync('the same shape, still young, is held by the count exactly as before', async () => {
+  const bd = fakeBd();
+  archive('bc-kkk', { log: 'another lone session, not old enough yet to override anything' });
+  const at = when;
+  const { auditor, prompts } = auditorOver({
+    bd,
+    cfg: { sessionAuditEvery: 5, sessionAuditMaxAgeMinutes: 60 },
+    now: () => at + 10 * 60 * 1000, // ten minutes later — inside the backstop's window
+  });
+  const out = await auditor.audit(repo, WS);
+  assert.equal(out.ran, false);
+  assert.match(out.why, /the threshold is 5/);
+  assert.equal(prompts.length, 0);
+});
+
+await checksAsync('staleness widens the count check, never the cooldown floor', async () => {
+  const bd = fakeBd();
+  let clock;
+  const { auditor } = auditorOver({
+    bd,
+    cfg: { sessionAuditEvery: 5, sessionAuditMaxAgeMinutes: 60, sessionAuditCooldownMinutes: 60 },
+    now: () => clock,
+  });
+  archive('bc-lll', { log: 'first of a new quiet batch' });
+  clock = when + 2 * 60 * 60 * 1000; // already stale
+  const first = await auditor.audit(repo, WS);
+  assert.equal(first.ran, true, first.why);
+  archive('bc-mmm', { log: 'one more, also stale, minutes after the first run' });
+  clock = when + 2 * 60 * 60 * 1000; // stale by the same margin — the cooldown is the only thing left to hold it
+  const second = await auditor.audit(repo, WS);
+  assert.equal(second.ran, false, 'a bypass of the count is not a bypass of the cooldown');
+  assert.match(second.why, /the last audit was \d+ minute\(s\) ago/);
+});
+
+console.log('\nsweepStale: the poll cycle\'s own look at every checkout');
+
+await checksAsync('sweepStale dispatches the one checkout with something unread, and never waits for it', async () => {
+  archive('bc-nnn', { log: 'the session that makes this checkout worth a look' });
+  const bd = fakeBd();
+  let release;
+  const held = new Promise((r) => {
+    release = r;
+  });
+  const prompts = [];
+  const cfg = {
+    workspaces: [WS],
+    sessionDirs: { [WS.name]: repo },
+    advocates: { sessionAuditEvery: 1, sessionAuditCooldownMinutes: 0, sessionAuditSweepMinutes: 30 },
+  };
+  const auditor = createAuditor({
+    cfg,
+    bd,
+    log: () => {},
+    warn: () => {},
+    run: async ({ prompt }) => {
+      prompts.push(prompt);
+      await held;
+      return blockOf('findings: []\n');
+    },
+  });
+  auditor.sweepStale();
+  // `running` is set synchronously, before `audit`'s first `await` — so it is already
+  // true the instant `sweepStale` returns, with nothing here waited on to make it so.
+  assert.equal(auditor.state().running, true, 'the dispatch happened before sweepStale returned');
+  await until(() => prompts.length === 1);
+  release();
+  await until(() => auditor.state().running === false);
+});
+
+await checksAsync('sweepStale does not ask again before its own clock says to', async () => {
+  archive('bc-ooo', { log: 'one more session in the same quiet checkout' });
+  const bd = fakeBd();
+  const prompts = [];
+  const cfg = {
+    workspaces: [WS],
+    sessionDirs: { [WS.name]: repo },
+    advocates: { sessionAuditEvery: 1, sessionAuditCooldownMinutes: 0, sessionAuditSweepMinutes: 30 },
+  };
+  const auditor = createAuditor({
+    cfg,
+    bd,
+    log: () => {},
+    warn: () => {},
+    run: async ({ prompt }) => {
+      prompts.push(prompt);
+      return blockOf('findings: []\n');
+    },
+  });
+  auditor.sweepStale();
+  await until(() => prompts.length === 1 && auditor.state().running === false);
+  archive('bc-qqq', { log: 'and another, moments later' });
+  auditor.sweepStale();
+  // Not "no new candidate" — no new `git` read was even asked for, because the sweep's
+  // own thirty-minute clock has not come round since the call above.
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(prompts.length, 1, 'the sweep asked nothing until its own interval passed');
+});
+
+await checksAsync('sweepStale skips a checkout it cannot resolve, rather than throwing', async () => {
+  const bd = fakeBd();
+  const ghost = { name: 'ghost-workspace', dir: path.join(tmp, 'nope', '.beads') };
+  const cfg = {
+    workspaces: [ghost],
+    // A `sessionDirs` override pointed at nothing is `resolveSessionDir`'s one throw in
+    // the single-repo branch — the case this loop's own `try` exists to catch.
+    sessionDirs: { [ghost.name]: path.join(tmp, 'nowhere-beadcause-ghost') },
+    advocates: { sessionAuditEvery: 1 },
+  };
+  const auditor = createAuditor({ cfg, bd, log: () => {}, warn: () => {} });
+  assert.doesNotThrow(() => auditor.sweepStale());
 });
 
 await checksAsync('a nudge never throws at the advocate that gave it', async () => {

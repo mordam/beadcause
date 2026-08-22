@@ -191,10 +191,15 @@ class WatchService : Service() {
         // Missed more than the server's event log holds, or the daemon restarted and
         // its sequence went backwards. Either way the event stream can't be trusted,
         // so reconcile against the question list instead of replaying.
+        //
+        // No `return` here (there used to be one): `poll.events` is always empty on a
+        // resync — the server never has any to replay either — so falling through to
+        // the loop below costs nothing, and `reconcileStuck` at the foot of this
+        // function must still run on exactly this poll. A resync is the daemon or the
+        // phone having lost its memory, which is the one moment bc-ka5y.15.8 is about.
         if (poll.resync && poll.questions != null) {
             dropStaleNotifications(byKey.keys.toSet())
             showing.retainAll(byKey.keys)
-            return
         }
 
         for (event in poll.events) {
@@ -267,6 +272,8 @@ class WatchService : Service() {
                 else -> Unit
             }
         }
+
+        reconcileStuck(poll.stuck)
     }
 
     /**
@@ -279,6 +286,31 @@ class WatchService : Service() {
      */
     private fun dropStaleNotifications(liveKeys: Set<String>) {
         Tray.retain(this, liveKeys)
+    }
+
+    /**
+     * Restore a stuck card the Tray lost — a restart, a reboot — and take down one the
+     * daemon says has cleared while this phone was not there to hear the transition.
+     * bc-ka5y.15.8.
+     *
+     * The bead-deck twin of this is [dropStaleNotifications], and it cannot be reused
+     * here: [Tray.retain] only ever sweeps the bead decks, on purpose — a `stuck/…` key
+     * is never a bead's, so it is absent from every live bead set `retain` is handed,
+     * and sweeping [Tray.Chan.STUCK] the same way would clear it on the very first
+     * resync after it arrived.
+     *
+     * **Never re-notifies a key already in the shade** — that is the whole of "no
+     * second buzz for a state it was already showing" (the acceptance criterion this
+     * bead was filed against). A key arriving here that the shade has never heard of
+     * posts and knocks, which is correct: it is the first time *this instance* of the
+     * app has said so, whatever the daemon's own history of the same condition.
+     */
+    private fun reconcileStuck(current: List<Event>?) {
+        val stuck = current ?: return
+        val liveKeys = stuck.mapNotNull { it.key }.toSet()
+        val showingKeys = Tray.snapshot(Tray.Chan.STUCK).map { it.key }.toSet()
+        for (key in showingKeys - liveKeys) Tray.remove(this, key)
+        for (event in stuck) if (event.key != null && event.key !in showingKeys) Notifications.stuck(this, event)
     }
 
     private fun stopSelfSafely() {

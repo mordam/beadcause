@@ -822,6 +822,10 @@ const { createAdvocates } = await import(LIB('advocate.js'));
 async function tickWith(bd, { reconcileLanded: on = true } = {}) {
   const workspace = { name: 'widgets', dir: path.join(tmp, 'beads', 'widgets', '.beads') };
   const opened = [];
+  // What bc-ka5y.15.7 is about: not the desktop console's own `advocate`/`landed` action
+  // (`emit` inside lib/advocate.js), but the actual phone-facing events — `landedEvent` /
+  // `landedNewsEvents` — that a merge made on github.com now has to reach the phone with.
+  const events = [];
   const cfg = {
     workspaces: [workspace],
     spaces: [],
@@ -844,14 +848,14 @@ async function tickWith(bd, { reconcileLanded: on = true } = {}) {
   };
   const advocates = createAdvocates(cfg, {
     bd,
-    bus: { emit() {} },
+    bus: { emit: (e) => events.push(e) },
     open: async (_cfg, _ws, bead) => {
       opened.push(bead.id);
       return { dir: REPO, mode: 'test', term: null };
     },
   });
   await advocates.tick();
-  return { opened, advocates };
+  return { opened, events, advocates };
 }
 
 fs.writeFileSync(PRS, JSON.stringify([mergedRow()]));
@@ -859,9 +863,15 @@ fs.writeFileSync(PRS, JSON.stringify([mergedRow()]));
 {
   forgetPrefixes();
   const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
-  const { opened } = await tickWith(bd);
+  const { opened, events } = await tickWith(bd);
   check('the tick closes the bead whose PR merged on GitHub', bd.rows.get('wg-aaa').status === 'closed', JSON.stringify(bd.writes));
   check('and opens no session on it', opened.length === 0, `opened: ${opened.join(', ')}`);
+  // bc-ka5y.15.7: the fourth door — a merge nobody here performed — now reaches the
+  // phone too, and a single close is still one ordinary landing card.
+  const news = events.filter((e) => e.type === 'landed');
+  check('and the phone hears about it as one landed card', news.length === 1, JSON.stringify(events));
+  check('naming the bead that closed', news[0]?.id === 'wg-aaa', JSON.stringify(news[0]));
+  check('and the pull request it closed on', news[0]?.title?.includes('#42'), JSON.stringify(news[0]));
 }
 
 {
@@ -869,9 +879,25 @@ fs.writeFileSync(PRS, JSON.stringify([mergedRow()]));
   // The control. Without this the case above passes for any reason at all — a cooldown,
   // a settle window, a config typo — and would keep passing with the feature removed.
   const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
-  const { opened } = await tickWith(bd, { reconcileLanded: false });
+  const { opened, events } = await tickWith(bd, { reconcileLanded: false });
   check('with the sweep off, that same tick does open one', opened.includes('wg-aaa'), `opened: ${opened.join(', ')}`);
   check('and the bead is still open', bd.rows.get('wg-aaa').status === 'open');
+  check('and nothing was posted to the phone either', events.filter((e) => e.type === 'landed').length === 0);
+}
+
+{
+  forgetPrefixes();
+  // Several pull requests merged on GitHub in the same sweep — a Mac that reconnects
+  // after a while away, which is the case lib/news.js's [LANDED_MANY_AT] exists for.
+  const rows = [1, 2, 3].map((n) => mergedRow({ number: 500 + n, url: `https://github.com/mordam/widgets/pull/${500 + n}`, title: `wg-b${n}: fix ${n}` }));
+  fs.writeFileSync(PRS, JSON.stringify(rows));
+  const bd = fakeBd([1, 2, 3].map((n) => ({ id: `wg-b${n}`, title: `fix ${n}` })));
+  const { events } = await tickWith(bd);
+  for (const n of [1, 2, 3]) check(`wg-b${n} closed`, bd.rows.get(`wg-b${n}`).status === 'closed');
+  const news = events.filter((e) => e.type === 'landed');
+  check('three closes in one sweep reach the phone as a single card, not three', news.length === 1, JSON.stringify(events));
+  check('naming how many', news[0]?.title?.includes('3'), JSON.stringify(news[0]));
+  check('and every pull request it covers', [501, 502, 503].every((n) => news[0]?.text?.includes(`#${n}`)), JSON.stringify(news[0]));
 }
 
 console.log(`\n${ran - failures}/${ran} passed`);

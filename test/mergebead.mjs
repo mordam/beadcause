@@ -68,6 +68,7 @@ const {
 const { MERGE_ADVOCATE } = await import(LIB('mergeadvocate.js'));
 const { AGENTS } = await import(LIB('foundation.js'));
 const { parseDelivery } = await import(LIB('delivery.js'));
+const { SEVERITIES, isBlocking } = await import(LIB('reviewadvocate.js'));
 
 let failures = 0;
 let ran = 0;
@@ -264,6 +265,42 @@ check('the review survives a round trip through notes, comments and answers incl
   // at a time over the life of a review.
   assert.equal(withReviewBlock('', s), withReviewBlock('', reviewed));
   assert.deepEqual(reviewState({ notes: withReviewBlock('', s) }), s);
+});
+
+check('a comment carries its severity, its why and its GitHub thread id through the round trip', () => {
+  // The gap this closes: a verdict comment (lib/reviewadvocate.js's checkVerdict) has
+  // {severity, why} and this block used to have nowhere to put either, so a worker reading
+  // the block back could not tell a blocking comment from a suggestion.
+  const withFields = {
+    round: 1,
+    comments: [
+      { id: 'x1', path: 'lib/y.js', line: 3, body: 'this leaks a handle', severity: 'blocking', why: 'it is called in a loop', threadId: 'RT_abc123==' },
+      { id: 'x2', body: 'consider a shorter name', severity: 'suggestion' },
+      { id: 'x3', body: 'no severity at all' },
+    ],
+  };
+  const s = reviewState({ notes: withReviewBlock('', withFields) });
+  assert.deepEqual(
+    s.comments.map((c) => [c.severity, c.why, c.threadId]),
+    [
+      ['blocking', 'it is called in a loop', 'RT_abc123=='],
+      ['suggestion', '', ''],
+      ['', '', ''],
+    ]
+  );
+  assert.equal(isBlocking(s.comments[0]), true, 'the shared isBlocking predicate reads a block comment too');
+  assert.equal(isBlocking(s.comments[1]), false);
+  // Fixed point, same as the rest of this block: a round trip must not shift a field.
+  assert.equal(withReviewBlock('', s), withReviewBlock('', withFields));
+});
+
+check('a severity nothing recognises lands as a defined unknown, not the raw value and not a dropped comment', () => {
+  const s = reviewState({
+    notes: withReviewBlock('', { round: 1, comments: [{ id: 'y1', body: 'still a comment', severity: 'urgent!!' }] }),
+  });
+  assert.equal(s.comments.length, 1, 'an unrecognised severity must not be grounds to drop the comment');
+  assert.equal(s.comments[0].severity, '', 'the raw garbage value must never be trusted through');
+  assert.ok(!SEVERITIES.includes('urgent!!'), 'sanity: the fixture really is outside the closed set');
 });
 
 check('the two blocks live in one notes field and neither eats the other', () => {

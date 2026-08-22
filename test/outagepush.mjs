@@ -329,10 +329,27 @@ try {
     'and tapping it opens the app on the port the router is holding',
     push.body?.click
   );
-  check(
-    routerLog.some((l) => /pushed the outage to the phone/.test(l)),
-    'the router logs that it pushed, so the log and the phone can be reconciled'
-  );
+  // Waited for rather than read once, and the order of two lines in bin/router.js is the
+  // whole reason: `pushNoBackend(...).then(() => log('pushed the outage to the phone'))`
+  // logs *after* the POST resolves, while the fake ntfy above records the push the moment
+  // it has read the body — before it has even answered. So the push is always observable
+  // first and the log line always arrives second, over a pipe, on the router's clock.
+  //
+  // The gap is normally sub-millisecond and this check read as instantaneous for as long
+  // as it was. On 2026-08-20 it was not: main went red here (run 32423711921) with
+  // "pushed the outage to the phone" printed in the log dump *underneath* the failure,
+  // timestamped 1.7ms after the assertion that said it was missing — a suite reporting
+  // that a thing had not happened while quoting it happening. That is one held merge queue
+  // and one session per occurrence, over an ordering that was never in doubt.
+  //
+  // A router that pushed and never logged still fails: the wait times out and the check
+  // below is named for what it was always about, not for how long it took.
+  const loggedThePush = await waitFor(
+    'the router to log the push the fake ntfy has already taken',
+    async () => routerLog.some((l) => /pushed the outage to the phone/.test(l)),
+    15000
+  ).catch(() => false);
+  check(loggedThePush, 'the router logs that it pushed, so the log and the phone can be reconciled');
 
   // --------------------------------------------- and it does not keep saying it
 

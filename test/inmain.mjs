@@ -802,6 +802,38 @@ console.log('\nthe card stays answerable on a gated bead');
 
   const ungated = { key: 'k4', id: 'wg-open', decision: { options: [opt('close-it', true), opt('keep-open', false)] } };
   check('and an ungated card is untouched by any of it', draw(ungated).includes('data-act="answer"'), draw(ungated).slice(0, 200));
+
+  // bc-7qo.11. A deferral (`defers: true`) is `closes: false` too, and the server skips
+  // the gate for it for the same reason — so a gated card whose every choice defers has
+  // no refusal coming, and withdrawing the button would leave a card nobody can put off.
+  // The label is the other half and pulls the other way: with nothing picked it describes
+  // a *typed* answer, and a typed answer there closes, because a deferral starts no work
+  // for a sentence to lose. One predicate cannot serve both, which is the whole subtlety —
+  // and narrowing the gate predicate to serve the label is exactly the regression that
+  // reached a pull request before this assertion existed.
+  const park = { id: 'later', label: 'Not yet', response: 'Not yet.', closes: false, defers: true };
+  const defersOnly = { key: 'k5', id: 'wg-park', gate, decision: { options: [park] } };
+  check(
+    'a gated card whose only choice defers keeps its button — nothing there was going to close',
+    draw(defersOnly).includes('data-act="answer"'),
+    draw(defersOnly).slice(0, 300)
+  );
+  check(
+    'and with nothing picked it promises a close, not a commission — that is what a sentence does there',
+    draw(defersOnly).includes('Answer &amp; close'),
+    draw(defersOnly).slice(0, 400)
+  );
+
+  // The mixed shape, which is the likelier one in practice and the one the narrowed
+  // predicate broke hardest: lib/inmain.js already writes a commission onto a bead with a
+  // live subtree, and those are exactly the beads bd gates. Add a "not yet" beside it and
+  // the card must keep its button — under the narrowed predicate it lost it.
+  const mixed = { key: 'k6', id: 'wg-mixed', gate, decision: { options: [opt('keep-open', false), park] } };
+  check(
+    'and a gated card offering a commission beside a deferral keeps its button too',
+    draw(mixed).includes('data-act="answer"'),
+    draw(mixed).slice(0, 300)
+  );
 }
 
 /* ---------------------------------------------------- and through the tick */

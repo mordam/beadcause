@@ -63,6 +63,19 @@
 //     badge says how many cards, and the other three badges have not moved — they are
 //     counted ahead of the board's gate and each still opens exactly its own slice.
 //
+// A fifth arrived with bc-khoe.21, and it is not about the row at all — it reuses the
+// navigation this file already does to ask something of every page it already visits:
+//
+//   * **nothing on the page is wider than the phone.** `.pagescroll` — `.work` or `.doc`
+//     on most pages — is a flex item of a flex column with `margin: 0 auto`, and without
+//     an explicit width an unwrapped string anywhere inside it can size the whole
+//     scroller, and so the whole page, past the phone. `body { overflow: hidden }` clips
+//     the excess silently: no scrollbar, nothing in the console, and every other
+//     assertion in this file still passes. That is exactly how bc-khoe.7's Releases view
+//     shipped at 449px on a 393px phone — found afterwards, by a screenshot. `.work` and
+//     `.doc` now carry `width: 100%` (the pattern `.thread` and `.launcher` already
+//     proved safe), so this is a regression guard rather than a live failure.
+//
 // ## The pill list is read, never repeated
 //
 // `PILLS` in `public/viewbar.js` is the one place a view is added, and it keeps moving:
@@ -546,6 +559,38 @@ const PROBE = `(() => {
     admin: !chip ? null : hoisted ? 'hoisted' : adminRow && !adminRow.hidden ? 'menu' : null,
     plus: null,
   };
+  /* Is the scroller ever wider than the phone it is on (bc-khoe.21)? Every page marks
+     one \`.pagescroll\` element — several mark more than one and hide all but the
+     current pane, which is why the first with real height rather than the first in the
+     document is taken. On most pages that element carries \`.work\` or \`.doc\` and both
+     are flex items of a flex column (\`body\`, or \`.pane\` since bc-khoe.30.3) with
+     \`margin: 0 auto\`, which used to turn off \`align-self: stretch\` and size the
+     scroller \`fit-content\` — so one unwrapped string anywhere inside it was enough to
+     make the whole page wider than the phone, silently, since \`body { overflow: hidden
+     }\` clips whatever hangs off the right edge instead of scrolling it. \`null\` means
+     no scroller was found at all, which is a different failure from a fit one and is
+     left to \`test/shell.mjs\`, the static suite that already asserts every page marks
+     one (or is named as having nothing to scroll). */
+  out.fit = (() => {
+    const el = [...document.querySelectorAll('.pagescroll')].find((c) => c.getBoundingClientRect().height > 0);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    /* A child of its OWN horizontally-scrolling row (the workspace tabs in
+       .chip-row, the pill row's own kin) legitimately extends past the screen —
+       that is what "it scrolls sideways" means, the same trade the row itself is
+       allowed. Walking up to \`el\` and skipping anything contained by such a row is
+       what tells that apart from the page itself having been blown wide. */
+    const scrolls = (p) => {
+      const cs = getComputedStyle(p);
+      return /(auto|scroll)/.test(cs.overflowX) && p.scrollWidth > p.clientWidth + 1;
+    };
+    const over = [...el.querySelectorAll('*')].filter((c) => {
+      if (Math.round(c.getBoundingClientRect().right) <= innerWidth + 0.5) return false;
+      for (let p = c.parentElement; p && p !== el; p = p.parentElement) if (scrolls(p)) return false;
+      return true;
+    });
+    return { width: Math.round(r.width), vw: innerWidth, over: [...new Set(over.map(name))] };
+  })();
   /* Zero-sized means the kind you are on has no ＋ (bc-khoe.27.1) — Questions and PRs
      have nothing to create, and the wrapper is hidden there. Nothing to measure and
      nothing to complain about: the assertion below is that a drawn ＋ takes its own
@@ -632,6 +677,27 @@ const evalJs = async (s, expr) => {
   return r.result.value;
 };
 
+/**
+ * Poll for the row (or a way home) instead of trusting a fixed settle after
+ * `Page.navigate` (bc-khoe.32). `/flow` loads `/vendor/mermaid.js` — ~3.5MB — ahead of
+ * `/viewbar.js`, and a `<script>` blocks parsing of everything after it until it has
+ * downloaded *and* executed; on a slow link or a cold cache that can outlast any fixed
+ * interval, and neither `.viewbar` nor a link home exists in the static HTML on any page
+ * here (both are mounted by script), so a probe taken too early reads exactly like the
+ * row being missing rather than merely not-yet-there. A page whose chrome never turns up
+ * still fails, at the ceiling, with the same message as before — this only removes the
+ * race, not the assertion.
+ */
+const waitForRow = async (s, { timeout = 8000, step = 100 } = {}) => {
+  const deadline = Date.now() + timeout;
+  let m = await evalJs(s, PROBE);
+  while (!m.row && !m.home && Date.now() < deadline) {
+    await sleep(step);
+    m = await evalJs(s, PROBE);
+  }
+  return m;
+};
+
 /* ---------------------------------------------------------------------- run */
 
 let failures = 0;
@@ -689,7 +755,7 @@ try {
 
     for (const page of PAGES) {
       await s.send('Page.navigate', { url: `http://127.0.0.1:${port}${page.url}?t=viewbar-check` });
-      await sleep(1100);
+      await waitForRow(s);
       await evalJs(s, `window.beadcause && window.beadcause.space && window.beadcause.space.adopt(${JSON.stringify(SPACEPAY)}), 1`);
       await sleep(250);
       const m = await evalJs(s, PROBE);
@@ -718,6 +784,18 @@ try {
         );
         continue;
       }
+
+      /* Nothing on this page is wider than the phone it is measured at (bc-khoe.21) —
+         the assertion that would have caught bc-khoe.7's Releases view laying out at
+         449px on a 393px phone with every other check in this file green. `m.fit` is
+         `null` only when no `.pagescroll` was on screen at all, which every page here
+         has by construction (it is what `test/shell.mjs` pins), so this is always run. */
+      if (m.fit) {
+        if (m.fit.width <= m.fit.vw) ok(`${at}: the scroller is no wider than the phone — ${m.fit.width}px against ${m.fit.vw}px`);
+        else bad(`${at}: the scroller is no wider than the phone`, `${m.fit.width}px against a ${m.fit.vw}px screen`);
+        if (!m.fit.over.length) ok(`${at}: nothing hangs off the right-hand edge`);
+        else bad(`${at}: nothing hangs off the right-hand edge`, m.fit.over.join(', '));
+      } else bad(`${at}: a .pagescroll is on screen to measure`, 'none found — see test/shell.mjs for which page dropped it');
 
       // Every pill in the list, in the list's order, and nothing else.
       const got = m.pills.map((p) => p.id);
@@ -1114,8 +1192,7 @@ try {
   if (!later.length) bad('some page lights a pill other than the first', 'every path in the row points at its first pill — the reveal cannot be observed');
   for (const page of later) {
     await s.send('Page.navigate', { url: `http://127.0.0.1:${port}${page.url}?t=viewbar-check-pinch` });
-    await sleep(1100);
-    const m = await evalJs(s, PROBE);
+    const m = await waitForRow(s);
     const at = `${page.url} @${PINCH.width}`;
     if (!m.row) {
       bad(`${at}: the page draws the pill row`, 'it does not draw one at this width');

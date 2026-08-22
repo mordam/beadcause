@@ -25,11 +25,12 @@
  *    `scrollTop` reads 0 and comes back 0. panes.js carries the number by hand and this
  *    drives the real file to prove it.
  *
- * 3. **A pane whose builder has not landed cannot be shown.** History and Advocates are
- *    empty containers marked `data-pending` until bc-khoe.30.5 and .30.6 fill them; until
- *    then their pills must still be the `<a href>` they have always been. Get that wrong
- *    and two of seven pills lead to a blank screen on an app that deploys itself the moment
- *    a branch merges.
+ * 3. **A pane whose builder has not landed cannot be shown.** The shell shipped with
+ *    History and Advocates as empty containers marked `data-pending`; Config is the one in
+ *    that state today (bc-khoe.50 put the view in the grammar so the row could light its
+ *    pill, bc-khoe.60 fills the container). Until it does its pill must still be the
+ *    `<a href>` it has always been. Get that wrong and a pill leads to a blank screen on an
+ *    app that deploys itself the moment a branch merges.
  *
  * 4. **The row is on twelve pages and only one has panes.** Every other page must draw
  *    exactly what it drew before, which means `window.beadcause.panes` being absent has to
@@ -220,7 +221,7 @@ const pill = (nav, id) => pills(nav).find((p) => p.id === id);
 console.log('\nthe shell, as written');
 
 await check('index.html holds a pane for every view the grammar knows', () => {
-  assert.deepEqual(VIEW_IDS, ['epics', 'history', 'advocates', 'releases'], 'the view list moved');
+  assert.deepEqual(VIEW_IDS, ['epics', 'history', 'advocates', 'releases', 'config'], 'the view list moved');
   for (const id of VIEW_IDS) {
     assert.ok(
       new RegExp(`<div class="pane" data-pane="${id}"`).test(HTML),
@@ -236,14 +237,33 @@ await check('exactly one of them is shown, and it is Home', () => {
   assert.deepEqual(shown, ['epics'], 'more than one pane starts visible, or the wrong one does');
 });
 
-await check('every container is built — nothing is pending any more', () => {
-  // Each of the four came off the pending list as its bead filled its container: History
-  // with bc-khoe.30.5, Releases with bc-khoe.30.14 and Advocates with bc-khoe.4, which was
-  // the last of them. A view named here that has since gone live is a line to delete, not
-  // a failure to route around — and a view *missing* from here whose container is still
-  // empty is a pill leading to a blank screen, which is the whole thing `data-pending`
-  // exists to stop. The mechanism is still covered, against fixtures, further down: it is
-  // how the next view arrives, not something this list retires with the last of them.
+await check('the one that is not built yet names the bead that builds it', () => {
+  // Config is the fifth view and the newest empty container (bc-khoe.50). It joined the
+  // grammar because the row lights a pill by asking `viewOfPath`, and until it did, the
+  // one screen that pill reaches drew the row with nothing current — so the view had to
+  // exist before its pane could, and this is the gap in between. **bc-khoe.60** fills it,
+  // and the attribute names the bead whose merge *deletes* it.
+  //
+  // A view named here that has since gone live is a line to delete, not a failure to
+  // route around. A view *missing* from here whose container is still empty is a pill
+  // leading to a blank screen, which is the whole thing `data-pending` exists to stop —
+  // which is what the count below is for.
+  for (const [view, bead] of [['config', 'bc-khoe.60']]) {
+    const m = new RegExp(`data-pane="${view}" data-pending="([^"]+)"`).exec(HTML);
+    assert.ok(m, `${view} is either live or unmarked — if it is live, drop it from this list`);
+    assert.equal(m[1], bead, `${view} names ${m[1]} rather than the bead that fills it`);
+  }
+  assert.equal(
+    (HTML.match(/data-pending=/g) || []).length,
+    1,
+    'a container is pending that is not named above — an unnamed one is a pill with nowhere to go'
+  );
+});
+
+await check('and every other container is built', () => {
+  // Each came off that list as its bead filled its container: History with bc-khoe.30.5,
+  // Releases with bc-khoe.30.14 and Advocates with bc-khoe.4, which was the last of the
+  // four the shell shipped with.
   for (const [view, bead] of [
     ['history', 'bc-khoe.30.5'],
     ['advocates', 'bc-khoe.4'],
@@ -254,11 +274,6 @@ await check('every container is built — nothing is pending any more', () => {
       `${view} is pending again — it was filled by ${bead}`
     );
   }
-  assert.equal(
-    (HTML.match(/data-pending=/g) || []).length,
-    0,
-    'a container is pending again — if that is deliberate, name it in the list above'
-  );
 });
 
 await check('and the live ones hold their own contents', () => {
@@ -419,32 +434,34 @@ await check('the service worker precaches it, and the version moved', () => {
 
 console.log('\nwhich pane is up');
 
-/** A shell with a container still waiting on the bead that fills it. No view is in that
-    state today — bc-khoe.4 filled the last of them — so this is a fixture rather than a
-    photograph, and it is what keeps the mechanism covered for the view that arrives next.
-    Advocates plays the part because it was the last one to leave it. */
+/** A shell with a container still waiting on the bead that fills it — a photograph again
+    rather than a fixture: Config joined the grammar with bc-khoe.50 because the row could
+    not light its pill without it, and bc-khoe.60 is the fold that fills the container. */
 const withPending = () => [
   pane('epics'),
   pane('history'),
-  pane('advocates', { pending: 'bc-khoe.4', scroller: false }),
+  pane('advocates'),
   pane('releases'),
+  pane('config', { pending: 'bc-khoe.60', scroller: false }),
 ];
 
-/** The shell as it actually ships: all four built. */
-const whenBuilt = () => [pane('epics'), pane('history'), pane('advocates'), pane('releases')];
+/** The shell once every container is filled — four of the five today, and what the fifth
+    becomes when bc-khoe.60 lands. The pill assertions below are about what filling one
+    changes at the row, so they want the finished shape. */
+const whenBuilt = () => [pane('epics'), pane('history'), pane('advocates'), pane('releases'), pane('config')];
 
 await check('with no hash, Home is the pane and the others are hidden', () => {
   const b = boot(whenBuilt());
   b.run('panes.js');
   assert.equal(b.panes().showing(), 'epics');
-  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [false, true, true, true]);
+  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [false, true, true, true, true]);
 });
 
 await check('a view hash lands on that pane, with no document asked for', () => {
   const b = boot(whenBuilt(), { hash: '#history' });
   b.run('panes.js');
   assert.equal(b.panes().showing(), 'history');
-  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [true, false, true, true]);
+  assert.deepEqual(b.body.querySelectorAll('[data-pane]').map((el) => el.hidden), [true, false, true, true, true]);
 });
 
 await check('a card hash is Home, from any pane — a question lives there', () => {
@@ -471,10 +488,11 @@ await check('the back button walks the panes', () => {
 });
 
 await check('a pending pane is never shown, and its hash falls to Home', () => {
-  // Both pending at once, which is what this rule is about and which the shell itself no
-  // longer shows: `withPending` has one, and it is a fixture rather than a photograph.
-  // Advocates carries bc-khoe.4 here for the same reason it does in the markup (bc-khoe.30.6):
-  // the attribute names the bead whose merge deletes it, and that is the fold, not the ruling.
+  // Both pending at once, which is what this rule is about and which the shell has not
+  // shown since bc-khoe.4 landed — `withPending` has the one it does have, Config. These
+  // two are the pair it shipped with, and they carry the beads the markup carried:
+  // bc-khoe.4 rather than bc-khoe.30.6, because the attribute names the bead whose merge
+  // deletes the container, and that is the fold rather than the ruling.
   const b = boot(
     [pane('epics'), pane('history', { pending: 'bc-khoe.30.5', scroller: false }), pane('advocates', { pending: 'bc-khoe.4', scroller: false })],
     { hash: '#history' }
@@ -553,13 +571,13 @@ function row(panes, opts) {
 
 await check('a pill whose container is still pending is a link to the document it is', () => {
   const { nav } = row(withPending());
-  assert.equal(pill(nav, 'advocates').tag, 'a');
-  assert.equal(pill(nav, 'advocates').href, '/monitor');
-  // And the other two are not, because bc-khoe.30.5 and bc-khoe.30.14 filled theirs. This
-  // is the whole of what filling a container changes at the row: nothing in viewbar.js
-  // moved for either of them, and the `href` in `PILLS` stays — eleven pages that have no
-  // panes still draw this row and still need the link.
-  for (const id of ['history', 'releases']) {
+  assert.equal(pill(nav, 'config').tag, 'a');
+  assert.equal(pill(nav, 'config').href, '/config');
+  // And the other three are not, because bc-khoe.30.5, bc-khoe.4 and bc-khoe.30.14 filled
+  // theirs. This is the whole of what filling a container changes at the row: nothing in
+  // viewbar.js moved for any of them, and the `href` in `PILLS` stays — eleven pages that
+  // have no panes still draw this row and still need the link.
+  for (const id of ['history', 'advocates', 'releases']) {
     assert.equal(pill(nav, id).tag, 'button', `${id} still loads a document this page has open`);
     assert.equal(pill(nav, id).pane, id);
     assert.equal(pill(nav, id).href, null);

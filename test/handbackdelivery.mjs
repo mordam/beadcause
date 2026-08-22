@@ -31,6 +31,16 @@
  *   - and when the hand-back cannot be made at all, the log line and the card **say so**
  *     rather than announcing the queue.
  *
+ * bc-xl7n.117 is the same sentence being false for a second reason, one queue further on.
+ * `bd ready` is the tracker's queue; the advocate keeps its own floor, `maxAttemptsPerBead`,
+ * in the daemon's memory, and no tracker write reaches it. A bead whose two windows died
+ * before anybody read the diff — bc-xl7n.87, whose pull request was then made by hand — comes
+ * back open and unclaimed and is refused by `candidates` for ever, while the card reports
+ * the queue. So the hand-back clears that bead's charges too (`advocates.rearm`), and the
+ * cases below assert it end to end: cleared where they existed, said out loud on the card
+ * only where the bead was actually retired, and **not** cleared when the hand-back itself
+ * was refused.
+ *
  * The fake bd is deliberately stateful, unlike the one in test/attribution.mjs: the claim
  * this is about only exists as a row that a write does or does not change, and a fake that
  * merely records argv would pass with the bug still in.
@@ -242,9 +252,19 @@ const cfg = {
   pollSeconds: 3600,
   terminal: false,
   ntfy: { enabled: false },
-  advocates: { enabled: false, workspaces: [] },
+  // An advocate for `demo`, with two attempt charges already on the work bead —
+  // bc-xl7n.117. Nothing ticks it (this file calls `listen`, not `startPoller`), so the
+  // record exists purely to be the dispatcher's queue that the tracker's is not. The
+  // counters go into `advocates.json` before `createApp` because that is the file the
+  // record is built from, which is also how the daemon's own are staged.
+  advocates: { enabled: true, workspaces: ['demo'] },
 };
+const STATE_FILE = path.join(process.env.BEADCAUSE_CONFIG_DIR, 'advocates.json');
+fs.writeFileSync(STATE_FILE, JSON.stringify({ demo: { attempts: { [WORK]: 2 }, workers: [] } }));
 listen(cfg, createApp(cfg).handler);
+
+/** What the dispatcher thinks it has spent on the work bead, read back off disk. */
+const charges = () => JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')).demo?.attempts?.[WORK] ?? 0;
 
 const post = (pathname, body, headers = {}) =>
   new Promise((resolve, reject) => {
@@ -327,6 +347,23 @@ console.log('\na changes-requested answer, against a bd that refuses the hand-ba
   );
   check(() => assert.match(wrote(), /is back in the queue/), 'and so does the answer written onto the card');
   check(() => assert.equal(r.json.delivery?.handedBack, true), 'and the response carries it, for anything watching');
+
+  /* ------------------------------------------ the other queue — bc-xl7n.117 */
+
+  // The tracker taking the bead back is half of it. `maxAttemptsPerBead` is the
+  // dispatcher's own floor, in the daemon's memory, and no tracker write reaches it: two
+  // windows that died before anybody read the diff had already retired this bead, so it
+  // came back open, unclaimed and permanently unpickable while the card said otherwise.
+  check(() => assert.equal(charges(), 0), 'the attempt charges are cleared, or `candidates` refuses it for ever');
+  check(
+    () => assert.match(said, /2 attempt charge\(s\) are cleared — it was retired at 2/),
+    `the log says which queue it was stuck in — ${said.split('\n').slice(-3).join(' / ')}`
+  );
+  check(
+    () => assert.match(wrote(), /It had run out of attempts \(2 of 2\), so those are cleared too/),
+    'and the card says it, because a promise of a session is what it made'
+  );
+  check(() => assert.equal(r.json.delivery?.rearmed, 2), 'and the response carries the count too');
 }
 
 /* ------------------------------------------------ the same, on the other answer */
@@ -358,6 +395,20 @@ console.log('\na changes-requested answer, against a bd that refuses the hand-ba
   check(() => assert.equal(row().status, 'open'), 'and the bead comes back');
 }
 
+/* ----------------------------- and nothing about attempts where there were none */
+
+{
+  // Almost every answer is this one: a bead nothing had given up on. A clause about
+  // attempt counters on every line is how the one that matters stops being read.
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ demo: { attempts: {}, workers: [] } }));
+  const { r, said } = await answer(`${CHANGES_MARKER} nothing was ever charged to this one`);
+  check(() => assert.equal(r.status, 200), 'the answer lands');
+  check(() => assert.match(said, /zz-work is back in the queue$/m), 'and the log line is the plain one');
+  check(() => assert.doesNotMatch(said, /attempt charge/), 'with nothing said about charges that were never made');
+  check(() => assert.doesNotMatch(wrote(), /run out of attempts/), 'nor on the card');
+  check(() => assert.equal(r.json.delivery?.rearmed, 0), 'and the count is zero');
+}
+
 /* --------------------------------------------- a hand-back that cannot be made */
 
 {
@@ -365,6 +416,7 @@ console.log('\na changes-requested answer, against a bd that refuses the hand-ba
   // itself. The old code caught every error into one line and then announced the queue
   // regardless, which is why two hours went on hunting a bead that had quietly stopped
   // existing rather than one grep of the log.
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ demo: { attempts: { [WORK]: 2 }, workers: [] } }));
   const { r, said } = await answer(`${CHANGES_MARKER} and again`, {
     assignee: '',
     refuse: 'dolt: database is locked',
@@ -383,6 +435,10 @@ console.log('\na changes-requested answer, against a bd that refuses the hand-ba
     'the card says it too — the only person who can release it by hand is the one reading it'
   );
   check(() => assert.equal(r.json.delivery?.handedBack, false), 'and the response carries it, for anything watching');
+  check(
+    () => assert.equal(charges(), 2),
+    'and the charges stay on: clearing them for a bead nothing can dispatch only makes the log read better'
+  );
 }
 
 await cleanupTmp(tmp);
