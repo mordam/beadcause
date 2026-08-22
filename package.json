@@ -51,7 +51,8 @@
     "b7e-say": "bin/b7e-say.js",
     "b7e-swbump": "bin/b7e-swbump",
     "b7e-watch": "bin/b7e-watch",
-    "b7e-worktree": "bin/b7e-worktree"
+    "b7e-worktree": "bin/b7e-worktree",
+    "b7e-ws": "bin/b7e-ws"
   },
   "scripts": {
     "start": "node bin/router.js",
