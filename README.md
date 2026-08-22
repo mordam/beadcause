@@ -22069,6 +22069,58 @@ binary, so it sees what actually reached the command line: the paragraph, the
 `bd dep relate` behind it, the caller that is not talked over, the question that is not
 checked, the batch that catches itself, and the unreadable tracker that still files.
 
+### And a sweep for what `Bd.create` never saw
+
+`Bd.create` only ever sees a bead the moment it is filed. That leaves two things
+uncaught: a pair that was already sitting on the graph, unjoined, before the check
+above existed, and a bead filed by a literal `bd create` typed into a shell — `bd
+hooks` is git hooks only (pre-commit, post-merge, pre-push, post-checkout,
+prepare-commit-msg), there is no pre-create hook, so a session that reaches past
+`beadcause-file` for a plain `bd create` is invisible to everything above.
+
+lib/dupesweep.js is the backfill: on every poll cycle it reads the same `Bd.graph`
+index `sweepAdopts` beside it already reads, and for every pair of live beads whose
+titles clear `DUPE_THRESHOLD` (0.9) with no edge between them yet, draws a
+`relates-to` — one `bd dep relate` per pair, nothing else. Reading the cached index
+rather than a fresh `bd list` is what makes it affordable on a thirty-second clock:
+the steady-state cost is a `Map` walk over data the daemon already had, and a write
+only for a pair that clears the bar, which after the first pass over a workspace is
+nearly always none. The first pass over this graph *is* the backfill: any pair
+sitting unjoined when this landed gets the same edge a fresh duplicate would, within
+one cycle rather than the hour the bead asked for.
+
+**It links silently, the same call `Bd.create` already made.** A resemblance is not
+a decision anybody has to tap through — `Bd.create`'s own answer to "refuse it, or
+file it linked" was to link it and say why in the new bead's own notes, and a pair
+found late is the same fact as a pair found at create time: two live beads about the
+same thing that had not found each other yet. A card would cost every hand-typed `bd
+create` an inbox entry nobody has to answer, on the one surface (lib/dupe.js's own
+words, about the sweep card and the stranded-branch finding) where noise costs most.
+Skips a `human` bead on either side for the same reason `Bd.create`'s check does — a
+question's title is formulaic by construction, and the sweep card, the
+stranded-branch finding and the merge card each already refuse to file their own
+twin.
+
+**Worth saying plainly: this stays at the same 0.9 bar, not a looser one.** The three
+pairs in the table above are the motivating case for this file too, and only one of
+them — `bc-767a` / `bc-giuc` — is still live; `bc-297u`/`bc-syzm` and `bc-zjep`/
+`bc-zflo` have since closed and carry their edge already. But none of the three ever
+scored above 0.65 against `titleSimilarity`: they are the same bug described from a
+different angle, not a near-verbatim title, and that is a harder problem than a
+word-set comparison solves — loosening the bar on a graph of several hundred long,
+similarly-worded titles (this repo's own convention) would trade a sweep that misses
+real pairs for one that wires unrelated beads together every cycle. So this sweep
+catches what its acceptance criterion actually asks for — a near-verbatim title with
+no edge — and the harder case of the same bug in different words is still open work,
+not a bug in this file.
+
+`node test/dupesweep.mjs` (in `npm test`) covers the plan against real `bd export`
+JSONL through `indexFrom` — an unjoined near-verbatim pair, a pair already linked by
+any edge type, one merely sharing a few words, a closed bead, a question on either
+side, a deterministic three-way tie — and the round trip against a fake `bd`: what it
+writes, that the graph refreshes once per batch rather than once per write, and a
+rejected write landing in the answer rather than throwing into the poll cycle.
+
 ### What you just filed, one tap away
 
 Creating leaves a **✓ Created N beads** note in the scrollback, one row per bead. That
