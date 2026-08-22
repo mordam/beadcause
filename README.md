@@ -1978,6 +1978,12 @@ that moves it, and holding those would stop the ladder rather than protect it. S
 the match is on the whole label, and a `startsWith` here would be wrong in the one
 way that is expensive to notice.
 
+These labels, and the four more the approval card reads (`draft`, `human-replied`,
+`revision:`, `gate:`), live in `lib/approvallabels.js` — a third file `lib/approval.js`
+(this policy) and `lib/approvalcard.js` (the display) both import, so the vocabulary
+cannot drift between the rule and the chip. `test/approvallabels.mjs` pins that
+neither file spells one of its own.
+
 #### It is a rule about the close *reason*, not a hold on the bead
 
 The obvious shape is the one `unendorsed`, `ship` and `container` already use — a
