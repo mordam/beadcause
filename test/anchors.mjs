@@ -38,6 +38,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { slug } from '../lib/readme.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -52,15 +53,6 @@ function check(name, fn) {
     console.log(`FAIL  ${name}`);
     console.log(`      ${err.message.split('\n').join('\n      ')}`);
   }
-}
-
-/** GitHub's heading slug: lowercased, punctuation dropped, spaces to hyphens. */
-function slug(heading) {
-  return heading
-    .trim()
-    .toLowerCase()
-    .replace(/[^\w\- ]+/g, '')
-    .replace(/ /g, '-');
 }
 
 console.log('README cross-links\n');
