@@ -10623,11 +10623,49 @@
     // that reach here come off `/api/poll`, which carries the advocate snapshot, the
     // event log and the presence list as well — none of which this page draws, all of
     // which would be sat in the phone's storage for nothing, and one of which is a list
-    // of devices. What is stored is exactly what would be painted back.
-    const { questions, requests, workspaces, spaces, filter, summary } = data;
+    // of devices.
+    //
+    // **This has to be everything `adopt` treats as "absent means an old server, keep
+    // what's on screen" (bc-khoe.51), not merely everything it draws.** A warm boot's
+    // whole point is that nothing else has run `adopt` yet this document, so "what's on
+    // screen" is the state object's own hard-coded defaults — `rootboard: {owned:
+    // false}` chief among them — and absent silently reads as "this install has no
+    // board" rather than as "ask the daemon". Leaving one of these out does not fail
+    // loud: the field just does not draw until the next `/api/poll` happens to carry
+    // it, which on a quiet tracker is minutes to hours. `rootboard`, `tickets`,
+    // `cancelledTickets`, `strandedCancels`, `trouble` and `syncTrouble` are exactly
+    // that set today; a field added to that list in `adopt` later has to be added here
+    // too, or this comment goes stale the same way the one it replaced did.
+    const {
+      questions,
+      requests,
+      workspaces,
+      spaces,
+      filter,
+      summary,
+      rootboard,
+      tickets,
+      cancelledTickets,
+      strandedCancels,
+      trouble,
+      syncTrouble,
+    } = data;
     window.beadcause?.warm?.write?.(
       questionsPath(scope),
-      { questions, requests, workspaces, spaces, filter, summary },
+      {
+        questions,
+        requests,
+        workspaces,
+        spaces,
+        filter,
+        summary,
+        rootboard,
+        tickets,
+        cancelledTickets,
+        strandedCancels,
+        trouble,
+        syncTrouble,
+      },
       Number(data.seq) || 0
     );
   }
