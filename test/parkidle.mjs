@@ -130,7 +130,7 @@ const openRow = (sessionId, over = {}) => ({
  * One tick, with an open register already on disk and whatever live sessions the case
  * needs — and nothing else running.
  */
-async function tick({ opened = {}, parked = {}, session = null } = {}) {
+async function tick({ opened = {}, parked = {}, session = null, workers = null } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // A clean slate per case. `quiesce` + `removeTree` rather than a bare recursive
   // `rmSync`: every write of `advocates.json` schedules a common-repo commit 2000ms out
@@ -175,6 +175,11 @@ async function tick({ opened = {}, parked = {}, session = null } = {}) {
   };
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(cfg, null, 2));
   fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ opened, parked }, null, 2));
+  // The slot list, written the way a previous daemon left it — `workers` is one of the
+  // three fields an advocate record adopts from `advocates.json` on boot, precisely so
+  // that the windows it opened survive a restart. That adoption is the only way a case
+  // here can have a worker without opening a window, and `open` throws in this suite.
+  if (workers) fs.writeFileSync(path.join(dir, 'advocates.json'), JSON.stringify({ alpha: { workers } }, null, 2));
 
   const advocates = createAdvocates(cfg, {
     bd: {
@@ -199,8 +204,18 @@ async function tick({ opened = {}, parked = {}, session = null } = {}) {
     terminals: () => [],
   });
   await advocates.tick();
+  // `persist()` runs at the end of every tick, so the slot list on disk is what this tick
+  // decided about it — which is where a worker row that re-bound onto the wrong window is
+  // visible, and the only place it is.
+  let slots = {};
+  try {
+    slots = JSON.parse(fs.readFileSync(path.join(dir, 'advocates.json'), 'utf8')).alpha || {};
+  } catch {
+    /* a case with no workers wrote none */
+  }
   return {
     state: loadState(),
+    slots,
     card: advocates.snapshot().find((a) => a.workspace === 'alpha'),
   };
 }
@@ -327,6 +342,94 @@ await check('a park written under the broken key is adopted, not orphaned', asyn
   // The narrowness that makes it safe: a record whose directory belongs to no workspace
   // this advocate owns is somebody else's to place, or nobody's, and is left where it is.
   assert.ok(state.parked['[object Object]/z-9'], 'a record that cannot be placed is left alone to age out');
+});
+
+/* ------------------------------------------- bc-2uj4.5.4: the two unbounded waits */
+
+/** A worker row as `closingFor` and `parkIdle` read one, with the id its launch minted. */
+const workerRow = (over = {}) => ({
+  id: 'x-7',
+  title: 'x-7 the delivered one',
+  // Recent, so `workerTimeoutMinutes` is nowhere near — the whole point of these cases is
+  // what happens in the two hours *before* that clock is the thing that frees the window.
+  at: new Date(minutesAgo(30)).toISOString(),
+  sessionId: LIVE_ID,
+  pid: process.pid,
+  claimed: true,
+  ...over,
+});
+
+/**
+ * The yield is right for the first few minutes: `reconcile` can say "delivered as a pull
+ * request" where this sweep can only say "it went quiet".
+ */
+await check('a worker window quiet for less than the worker grace is left to reconcile', async () => {
+  const { state } = await tick({
+    opened: { [LIVE_ID]: openRow(LIVE_ID, { bead: 'x-7', title: 'x-7 the delivered one' }) },
+    session: { sessionId: LIVE_ID, status: 'idle', quietFor: 12 },
+    workers: [workerRow()],
+  });
+
+  assert.deepEqual(state.parked, {}, 'twelve minutes is still reconcile’s to name');
+  assert.ok(state.opened[LIVE_ID], 'and the window keeps its place in the register');
+});
+
+/**
+ * And then it stops yielding. The incident: `bc-zjab.12` went idle at 15:08Z with
+ * `** BEAD WORK DONE ** CAN BE CLOSED **` on screen and was parked at 16:05Z — 58 minutes
+ * — because `reconcile` could not classify its ending and has no clock shorter than
+ * `workerTimeoutMinutes`, which is two hours. `timeout` is not in `REAPABLE`, so even that
+ * ending closes nothing; the window came back to this sweep anyway, two hours late.
+ */
+await check('a worker window quiet past the worker grace is parked anyway', async () => {
+  const { state } = await tick({
+    opened: { [LIVE_ID]: openRow(LIVE_ID, { bead: 'x-7', title: 'x-7 the delivered one' }) },
+    session: { sessionId: LIVE_ID, status: 'idle', quietFor: 45 },
+    workers: [workerRow()],
+  });
+
+  const key = beadKey('alpha', 'x-7');
+  assert.ok(state.parked[key], `parked under ${key} — got ${JSON.stringify(Object.keys(state.parked))}`);
+  assert.equal(state.parked[key].sessionId, LIVE_ID, 'and by id, so the conversation can be brought back');
+  assert.equal(state.opened[LIVE_ID], undefined, 'and it left the open register in the same write');
+});
+
+/**
+ * The re-bind, which is the other half of the same pile.
+ *
+ * `reconcile` used to find a worker's window with `sessions.find((s) => namesBead(s.name,
+ * w.id))` and then overwrite `w.pid` and `w.sessionId` from it. A name is a string the
+ * *session* writes about itself, and a reviewer, a resolver and an Epic Advocate all quote
+ * the bead they are about. Measured on this Mac: the worker row for `bc-zjab.12` carried
+ * the pid and session id of `beadcause - review PR 617 (bc-zjab.12)`. The review window is
+ * then a window the advocate holds a slot for, so this sweep steps over it and nothing
+ * closes it — and when the bead closes, `closingFor` aims a SIGTERM at a review that is
+ * halfway through, with guard 2 in lib/reap.js comparing the reviewer against itself.
+ *
+ * Here the live window is the reviewer and the worker's own session is gone. The slot list
+ * on disk is where the re-bind is visible, so that is what is asserted: the row must still
+ * address the conversation its launch minted, and must carry no pid at all, because the
+ * window it addresses has closed.
+ */
+await check('a window that only quotes the worker’s bead in its title is not adopted as the worker', async () => {
+  const REVIEWER = 'cccccccc-9999-aaaa-bbbb-cccccccccccc';
+  const { state, slots } = await tick({
+    opened: { [REVIEWER]: openRow(REVIEWER, { pr: '617', kind: 'review-advocate', title: 'review 617 alpha' }) },
+    session: { sessionId: REVIEWER, status: 'idle', quietFor: 45, name: 'alpha - review PR 617 (x-7)' },
+    // The worker's own session id, and no session record carrying it — its window closed.
+    workers: [workerRow({ sessionId: DEAD_ID, pid: null })],
+  });
+
+  const row = (slots.workers || []).find((w) => w.id === 'x-7');
+  assert.ok(row, 'the worker is still on the slot list — nothing here should finish it');
+  assert.equal(row.sessionId, DEAD_ID, 'and it still addresses the conversation its launch minted');
+  assert.ok(!row.pid, `and carries no pid, because its window is gone — got ${row.pid}`);
+
+  // Which is what leaves the reviewer's window closable at all: a window the advocate
+  // holds a slot for is one this sweep defers to.
+  const key = prKey('alpha', '617');
+  assert.ok(state.parked[key], `the reviewer is parked under ${key} — got ${JSON.stringify(Object.keys(state.parked))}`);
+  assert.equal(state.parked[key].sessionId, REVIEWER, 'and it is the reviewer’s conversation, not the worker’s');
 });
 
 /* --------------------------------------------------------------------- teardown */

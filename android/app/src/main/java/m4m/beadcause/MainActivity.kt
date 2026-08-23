@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
@@ -326,6 +327,31 @@ class MainActivity : AppCompatActivity() {
                 if (!Links.openInChrome(this@MainActivity, externalUrl(conn))) {
                     Toast.makeText(this@MainActivity, R.string.no_browser, Toast.LENGTH_LONG).show()
                 }
+            }
+        }
+
+        /**
+         * Android's own notification settings screen for this app — the volume,
+         * vibration, importance and schedule picker per channel that [Notifications]
+         * publishes, so beadcause never has to build or keep in sync a second copy of it.
+         *
+         * [Settings.ACTION_APP_NOTIFICATION_SETTINGS] lands on the whole-app screen
+         * rather than one channel's own — deliberately, over the alternative of five
+         * deep links (one per [Notifications] channel) that would have to be kept in
+         * step with that file by hand. The app screen already lists every channel as
+         * its own tappable row, so "one tap from the app" is satisfied by landing here;
+         * a typo in a hand-maintained channel id would instead open a settings screen
+         * on nothing.
+         */
+        @JavascriptInterface
+        fun openNotificationSettings() {
+            // A @JavascriptInterface method runs on the JavaBridge thread, and
+            // `startActivity` wants the main one — same reason openInBrowser hops.
+            runOnUiThread {
+                startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                )
             }
         }
     }

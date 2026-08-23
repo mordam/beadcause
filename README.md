@@ -10962,6 +10962,45 @@ the record that a merge is sitting unshipped is worth more than the home nothing
 repo when nobody has looked at the board recently, and "this merged and has not shipped"
 keeps for five minutes.
 
+**Closing asks the tracker what is open; only filing asks the board.** The two halves of
+the sweep look opposite ways, and until bc-xl7n.108 both looked the same way. The board is
+trimmed to the **twelve** most recently settled rows per repo (`RECENT_MAX` in
+lib/prboard.js) because a board is a screen; the sweep then looped over exactly those rows
+and found each one's bead by number, which quietly made a display decision the rule for
+what could ever close. A merge pushed off the twelve by later merges was never visited
+again — not that tick and not any tick after it — and nothing logged a line, because
+there was no loop it could have fallen out of. On 2026-08-17 nine pull requests merged
+between 23:47 and 23:49, thirteen more merged by 23:54, and the nine sat open for four
+days until they were closed by hand. Thirteen is greater than twelve; that is the whole
+mechanism, and this repo merges in batches, so it is the ordinary case rather than a race.
+
+So each sweep now also walks the ship beads the tracker still has **open** and subtracts
+the numbers the board accounted for. Whatever is left is asked about directly — one
+`gh pr view` apiece, newest first, at most twenty per repo per tick and at most once every
+half hour per repo — and closed on exactly the evidence a board row is closed on. Three
+things about that are deliberate:
+
+- **Both bounds are on the asking, never on the answer, and the slice moves.** What does
+  not fit this tick is named on the sweep's `skipped` lines and taken by the *next* one,
+  starting below the number this one stopped at — a tick that left a backlog does not wait
+  out the half hour, and a cycle runs until the cursor falls off the end of the list, so a
+  long tail costs minutes and not beads. That the slice moves is the half worth saying out
+  loud: a ship bead is open precisely because its merge is not live yet, so a head that
+  does not close is the ordinary case rather than a corner, and a fixed top slice would
+  have re-asked those twenty every tick forever while never reaching the tail at all —
+  which is the bug being fixed with a `skipped` line over it rather than a fix. The half
+  hour between cycles is there because that answer changes when somebody deploys rather
+  than every five minutes; a bounded, stated delay is what this bug did not have.
+- **A row off the board can close a bead and cannot start a deploy.** Ship's queue is
+  `owedFor`, which counts board rows, so a batch that quietly carried a merge the queue
+  never counted would deploy a number the screen it came from does not show. Such a merge
+  is not stranded by that: it goes out with the next batch like anything else, and this
+  closes it when it does.
+- **The lookup is injected, not imported** — lib/prboard.js imports lib/release.js, so it
+  is passed in from lib/server.js, and a caller that passes none never asks GitHub about
+  anything. The close line says which side of the join found it, so the next four-day
+  silence is one `grep` rather than one census.
+
 **And the sweep says when it did not run.** On the morning of 2026-08-14 the queue filed
 nothing for roughly three hours while eight pull requests merged, and then caught the
 whole backlog up in one pass — six beads and one settle window, all at 09:23. The
@@ -14454,7 +14493,7 @@ session finished; with it, four endings stop looking alike:
 | the file appears and… | reading |
 |---|---|
 | the bead is closed | **done** — the slot frees, the attempt counter resets |
-| an open `pr-delivery` question names this bead | **delivered** — the work is in a pull request waiting on you; a documented ending, so it costs no attempt |
+| an open `pr-delivery` question **or an open `merge-queue` merge-bead** names this bead | **delivered** — the work is in a pull request; a documented ending, so it costs no attempt |
 | the bead carries `human` | **handed back to you** — a documented ending, so it costs no attempt |
 | neither | **exited unfinished** — costs an attempt, and the exit code is logged |
 
@@ -14462,6 +14501,22 @@ The delivered row is asked of the tracker rather than read off the bead, because
 bead blocked by a question is not distinguishable from a bead blocked by anything
 else — and the id of the question is worth having anyway. "Delivered" and "delivered,
 and here is what to go and answer" are different things to put on a card.
+
+**Both labels, because there are two things a delivery leaves behind.** `pr-delivery`
+was the whole of that row while a worker's delivery *was* a card in your inbox. Since
+bc-r941 it is not: a worker files a **merge-bead** — `merge-queue`, one per pull
+request, a blocker on the work bead by construction — and stops; a `pr-delivery` card
+is raised later, and only on the failure path, when the merge queue has tried three
+times and the merge has become yours. So on a repo whose workers take the queue route,
+asking for `pr-delivery` alone asks whether the merge *failed*, and a delivery that is
+going perfectly well answers no. That is not a labelling nicety: **delivered** is the
+ending that frees the slot and hands the window to the reaper, so without it a worker
+that had done everything right fell through every ending to `workerTimeoutMinutes` —
+two hours — holding a slot against `maxWorkers` and holding its window on the screen
+with `** BEAD WORK DONE ** CAN BE CLOSED **` sitting in it the whole time. That was
+most of the window pile bc-2uj4.5.4 was filed about: 204 `releasing the slot` lines in
+one daemon log, and every `delivered as a pull request` line in its whole history
+belonging to a repo still on the older route.
 
 Everything else really is inference, and is treated as such. Nothing on the Mac
 records which process is on which bead; an advocate knows it *opened a window* for
@@ -14988,6 +15043,36 @@ The waiting list survives a restart, alongside the workers and for the same reas
 the windows are still open, and a daemon that forgot them would leave the pile this
 was written to clear. An observer instance signals nothing at all.
 
+##### And which window a worker row is actually about
+
+Guard 2 above is only as good as the pid and session id on the row it is checking, and
+those are re-read on every tick — a worker is joined back to its window each pass, because
+a window opened seconds ago has not renamed itself yet and a daemon that has just come up
+adopted its slot list from a file. That join used to be made on the window's **name**: the
+first live session whose title carried the bead id. A name is a string the *session* writes
+about itself, and a reviewer, a resolver and an Epic Advocate all quote the bead they are
+about, so it cannot tell a worker's window from any of them. Measured here on 2026-08-23:
+the worker row for `bc-zjab.12` had re-bound onto `beadcause - review PR 617 (bc-zjab.12)`,
+the review window this daemon had opened itself on the pull request that worker delivered.
+
+A re-bind is three bugs at once. The reviewer's window becomes a window an advocate holds a
+slot for, so the [idle sweep](#parking--a-window-waiting-on-you-closes-and-your-answer-brings-it-back) steps over it and
+nothing ever closes it. The slot it occupies is one the repo cannot dispatch into. And when
+the bead does close, the closing record is written with the *reviewer's* pid **and session
+id** — so guard 2, whose entire job is "never signal a window that is not the one we
+launched", compares the reviewer against itself, agrees, and `SIGTERM`s a review halfway
+through.
+
+So the join is by **session id**, which `launch` mints before the window exists and Claude
+Code reports straight back off its own live-session record: this is the same conversation,
+or the conversation is gone. The name match survives as the adoption path and nothing else
+— a worker with no session id was adopted from an older daemon, and once one is found it is
+written down, so a row is adopted at most once. One question stays deliberately wide: *is
+anybody at all in a window about this bead*, which is what decides whether the claim is
+handed back. A window you opened by hand, on the same bead, after the daemon's own closed,
+is exactly what makes that claim true — asking it by identity is how one bead ends up with
+two windows.
+
 ##### The windows nobody is holding
 
 Everything above starts from a **worker**: a row on the slot list, carrying the pid the
@@ -15116,6 +15201,8 @@ park nothing can place is not a park to guess at.
 | this daemon **opened** it, and said so at the time | the register in `state.json` is keyed by **session id**, written by `launch` itself. Every earlier attempt to match a window to what opened it matched on the *name*, and a name is something the session writes about itself and can change; the id is chosen by the launcher and reported straight back off Claude Code's own live-session record, so the join is exact. A window you opened yourself is not in the register and cannot be reached |
 | it is not **busy** | the guard that is not about time at all. A window mid-turn is never closed, whatever else is true |
 | it has been **idle** for `parkIdleMinutes` (default 10) | minutes, not the 90 seconds a finished worker gets, because here the ending is *inferred from silence* rather than proved by a closed bead. Ten and not sixty: an hour's grace means the screen is full for an hour before anything helps, which is the state of affairs already |
+| if it is a **worker whose slot this advocate still holds**, it has been idle for `parkWorkerIdleMinutes` (default 20) | the sweep yields to `reconcile` first, because `reconcile` knows what the session was asked and can say "delivered as a pull request" where this can only say "it went quiet". What that yield did not have was an end, and `reconcile` has no clock shorter than `workerTimeoutMinutes` — so a worker whose ending it could not classify kept its window for **two hours**, and `timeout` is not an ending that closes anything, so the close came from this sweep anyway, two hours late. Forty ticks for a better sentence, and then the honest one beats a rectangle |
+| if its status is neither `idle` nor `busy`, it has stood there for `parkStuckMinutes` (default 60) | an unrecognised status used to answer `wait` **forever**, and a Claude Code record only moves when its session moves — so a window abandoned in a state nothing enumerates was invisible to every sweep on the Mac at once. One was measured at four days and sixteen hours in `shell`, holding a worktree lock. `busy` keeps its unconditional exemption: that is the one status that means an agent is mid-sentence |
 | its conversation is **written down** | an id that is really an id, and the directory it ran in. `--resume <id>` finds the conversation from anywhere — measured on Claude Code 2.1.x — so the directory is not what locates it; it is what supplies everything the transcript cannot, which is the branch, the uncommitted edits and the files every path in that agent's context points at. Resuming in the wrong tree gives an agent a perfect memory of files that are not there, and it will act on it |
 
 Two windows are exempt by their own door rather than by a guard: **Open a session** and a
@@ -15124,8 +15211,11 @@ not a window waiting on somebody.
 
 A worker that reaches one of its documented endings is parked by `finish` instead, which
 knows which ending it was and can say so: **handed back** — it asked a question, and
-answering the bead brings the session back — or **delivered** — a pull request is waiting on
-a tap, and the merge does. The other five endings park nothing, and the test is not "did
+answering the bead brings the session back — or **delivered** — a pull request is open, and
+the merge brings the session back. Delivered says *which* of the two delivery routes it
+took, because they end differently: a `merge-queue` merge-bead is the queue's to merge and
+nothing is waiting on you, while a `pr-delivery` card is a tap you owe. Saying "waiting on
+you" about the first would send you looking for a button that is not there. The other five endings park nothing, and the test is not "did
 this window stop" but *does a conversation with this agent still have somewhere to go*: a
 closed bead has nothing to answer, a stood-down window belongs to another Mac, and a session
 that timed out or went silent is not one to hand an answer to.
@@ -17603,6 +17693,72 @@ by `merge-advocate` alone, on the argument that "nothing about run the tests is 
 `dispatch`, the one agent this list actually governs, has no branch of its own and no
 suite run to doubt.
 
+### Re-run a sweep's failures alone, and say which are real — `b7e-triage`
+
+`bc-ka5y.15.16` names four sessions (`bc-ka5y.15.5`, `bc-khoe.29`, `bc-khoe.30.4`,
+`bc-r2b5.2`) that each took a wide sweep's list of failed suite names and triaged it by
+hand, differently. Two lists were pure noise — a flake, a suite that only needed
+`scripts/vendor.js` — and two hid a real red inside the same-looking list; no session
+could tell without re-running, and every one did the re-run itself a different way. That
+split is the whole argument: the list alone is not readable, and the re-run is
+mechanical.
+
+```
+b7e-triage <suite>...           re-run each: flake, needs vendor, or real
+b7e-triage --from <gate-log>    take every failure out of a b7e-gate log, or a hand-rolled one
+b7e-triage --dir <root>         "this tree" is <root>, not the tree this file is in
+b7e-triage --timeout <s>        per-run seconds, overriding lib/gate.js's own default
+b7e-triage --json               one object per suite instead of the printed report
+```
+
+**Not `b7e-gate`.** `b7e-gate` (above) runs the whole sweep concurrently and reports
+what failed; this starts from that report and finishes what those four sessions did by
+hand — re-running each failure alone, serially, one at a time, never beside another,
+because removing the concurrent load the first sweep ran under is the entire point of a
+triage step. `test/slowstart.mjs` cannot even be compared against a concurrent run — it
+fails only there. `runSuite` and `timeoutMsFor` (`lib/gate.js`) are reused rather than
+reimplemented, and this never shells out to `bin/b7e-gate` itself: that command takes its
+own per-tree lock, and triage happens right after a sweep, so a caller doing that would
+be refused mid-triage for doubling a load that has already finished.
+
+**Three verdicts.** `real` — still fails alone; the report includes the last few lines
+of its output. `flake` — passes alone, first try. `needs vendor` — fails alone only
+because `public/vendor` (gitignored) had never been built in this tree; running
+`scripts/vendor.js` and re-running turns it green. `test/pagealias.mjs` is the suite this
+is already written down for, but the check is generic rather than hardcoded to that one
+name — any suite this tree adds that reads `public/vendor` gets the same answer for the
+same reason, and `scripts/vendor.js` is attempted at most once per run, lazily, the first
+time a re-run actually needs it. It always runs as `<root>/scripts/vendor.js` — the
+target tree's own copy, never a path resolved through this file's own location — because
+`scripts/vendor.js` roots itself from where it is *run from*, not from `--dir`, and a
+tool that got that wrong would build vendor for the wrong tree while printing a
+normal-looking success line.
+
+**Parsing a log nobody agreed the shape of.** `b7e-gate` did not exist when three of the
+four sessions above ran, so each wrote its own throwaway runner and none of their logs
+looked alike: `[n/t] FAIL <suite>` off a hand-rolled pool, `FAIL <suite> (NNms)` off a
+`grep` of one, a bare suite name off `grep -l`, a `==== FAILURES: N ====` header.
+`b7e-blame`'s `suitesFromGateLog` already covers `b7e-gate`'s own two *per-suite* log
+shapes and is reused here; `b7e-gate`'s own final tally line (`P/T passed, F failed: a,
+b, c`) — the shape most future sweeps will actually hand this command — and the four
+looser shapes above are read on top of that. A name with no directory in it
+(`pagealias.mjs` rather than `test/pagealias.mjs`) is resolved against the tree's own
+suite list by basename; a name that resolves to none, or to more than one, is reported as
+`unresolved` rather than silently dropped — a triage tool that drops a failure is worse
+than none, and is treated the same as a `real` one for the exit code.
+
+Exit codes: `0` every failure given was explained away (a flake, or fixed by
+`scripts/vendor.js`); `1` at least one is still `real`, or could not be resolved to a
+suite in this tree at all; `2` refused — bad usage, or nothing to triage.
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the same reason as `b7e-gate` and
+`b7e-blame` rather than the read-only shape of `b7e-def`/`b7e-owes`/`b7e-affected`: it
+re-runs a suite, which `lib/grants.js` already classifies as a write — `Bash(npm
+test:*)` is held by `merge-advocate` alone, on the argument that "nothing about run the
+tests is a read" — and on a suite it decides needs it, writes to the tree via
+`scripts/vendor.js`. `dispatch`, the one agent this list actually governs, has no sweep
+of its own to triage and no branch to have run one on.
+
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
 
 `test/swbump.mjs` (above) answers *whether* a branch owes a bump. Nothing answered
@@ -18248,6 +18404,66 @@ reads `test/*.mjs` and `public/app.js` off disk and writes to stdout. See `bin/b
 `lib/harness.js` and `test/harness.mjs`.
 
 
+### The brief instead of a CLAUDE.md that does not exist — `b7e-brief`
+
+`bc-ka5y.15` is the session audit naming the same first call *eight* times: every worker
+brief tells a session to "read this repo's CLAUDE.md and follow it", and beadcause has
+never had one — README.md is the spec, and it is over 2MB. `bc-ka5y.15.5`, `bc-zjab.5`,
+`bc-khoe.30.6`, `bc-zjab.4`, `bc-ka5y.15.4`, `bc-khoe.30.7`, `bc-khoe.29` and
+`bc-khoe.30.4` each burned a call discovering the absence — no two the same way, one of
+them chaining a claim onto a `sed` call so its exit code stopped meaning anything — and
+five of the eight then burned a *second* call guessing at which memory-store keys held
+the facts they actually needed, between them trying eleven different key names. What they
+were assembling by hand is the same brief every time; this prints it.
+
+```
+b7e-brief                     the whole brief
+b7e-brief --section <name>    just one part: spec, worktree, gate, owed
+b7e-brief --dir <root>        another tree — this is how it is tested
+```
+
+**Two different kinds of fact, deliberately not treated the same way.** The `spec`
+section's README index — every top-level (`#`/`##`) heading with its line number — is
+*derived from README.md at run time*, using the same fence-aware heading scan
+`b7e-readme` and `test/anchors.mjs` already share (`lib/readme.js`): a `#` at the start of
+a line inside a shell snippet is never mistaken for a real heading, which a naive `grep -n
+"^# "` gets wrong on this file today (seven hits, six of them comments inside example
+config fences). A retitled heading shows up on the next call with no edit to this tool.
+Everything else — worktree setup, how the gate is actually run, the sw-cache-bump
+question — is read live off this repo's own memory store (`beadcause-memory notes`,
+agent `worker`, the agent that actually hits these) under a **fixed set of standing
+keys**, one short list per section, and **quoted verbatim, not summarised**: a correction
+filed with `beadcause-memory note <key> "..."` changes this command's output on its next
+call, no edit here required. The key list is a hard-coded convention rather than "every
+note this agent has ever written" — most of which is about something else entirely — and
+a key that gets renamed or retired just drops out of the section it belonged to; it never
+prints an empty quote.
+
+**This is why `gate` quotes memory rather than stating its own prose.** How the suite is
+run here has changed twice already — `npm test` bails at the first red suite, then
+`bin/b7e-gate` (`bc-khoe.39`) replaced it as the whole gate — and a brief that hard-codes
+"run `npm test`" is worse than a brief that says nothing, because a brief is believed.
+Sourcing the description from the same memory keys the notes store already keeps current
+(`the-gate-is-one-command-now-bin-b7e-gate`, `b7e-gate-is-the-gate-not-npm-test`) means
+the next correction lands the same way any other note correction does, not as a diff to
+this file. The one fact computed rather than quoted is the live suite count — `scripts/test.mjs
+--list`, the same discovery `b7e-gate` itself uses — because this repo's suite count grows
+every week and a number typed into a note goes stale exactly as fast as one typed here.
+
+**Deliberately absent: the checklist for shipping a *new* `b7e-*` command** (two bin
+registrations, a `lib/grants.js` classification, `DEFAULT_TOOL_LIST`, this section, a
+`test/<name>.mjs`). That is a real and separate debt — `bc-dgx7.2` is where it is defined
+— but it is for the rare session extending the toolset, not the ordinary one using it, and
+baking it in here would lengthen every unrelated session's brief for a case it is not in.
+
+`Bash(b7e-brief:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`, the same shape as `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme` above:
+it reads README.md and this repo's own memory store and prints a brief. The one
+subprocess it spawns is `node scripts/test.mjs --list`, and only ever `--list` — never a
+suite, never `b7e-gate` — which that flag's own header comment already guarantees
+"creates nothing". See `bin/b7e-brief` and `test/b7e-brief.mjs`.
+
+
 ### Who calls this, who imports it, and is anything wired to it at all — `b7e-callers`
 
 `bc-36xx.24` is the session audit agent naming the same shape a seventh time: seven
@@ -18855,6 +19071,22 @@ and how long the whole passage took. A branch merged at the fourth attempt with 
 downmerges was not a bad branch, it was an unlucky one, and a month later that
 distinction is unrecoverable from anywhere else.
 
+**"Who approved it" is two different sentences, and this comment carries them apart.** Your
+own admission through **Merge** is one line; the ReviewAdvocate's reading of the diff is
+another, and that one says in as many words that *an agent, not you* approved it, names the
+agent and the login it spoke as, and links the review. It has to be here as well as on the
+review itself: the disclaimer that goes under an approving review is posted at the moment
+that review goes out, which on a busy pull request is a dozen comments above the bottom of
+the thread — and it is posted only when a review actually reached GitHub, so on a Mac with
+one login the whole page would otherwise say nothing at all about what released the merge.
+This is the last comment on the thread and it is posted either way. Where a space asks for
+both gates, both lines appear, which is what *necessary and not sufficient* looks like
+written down on the page somebody actually reads.
+
+The gap was not theoretical: #618 merged on 2026-08-23 **because** an agent approved it, and
+its closing comment — *"Merged into `main` as `cb531615` by the beadcause merge queue.
+Straight through."* — said nothing whatever about a review having happened at all.
+
 **What the queue's report deliberately does not do is summarise the advocate's.** The two
 have different witnesses. The advocate knows the conflicts, which side it kept and why,
 and which suites it ran against which tree — and it writes that on the bead. The queue
@@ -19110,10 +19342,16 @@ per repo, per space, or globally as `pr.reviewRequired`. It is the one policy de
 that is dangerous the other way round: the gate *holds* a pull request until a verdict
 appears, so turning it on where nothing writes one does not slow the queue down, it stops it
 — every branch at once, quietly, each merge-bead saying only that nothing has reviewed it.
-Turning it on is the last step of building this loop rather than the first, and the loop is
-not finished: a window opens and a verdict gets written, but
-[nothing reads that verdict back](#one-reviewer-per-pull-request--the-window-the-daemon-opens)
-onto the block this gate reads.
+**It is on in this repo now, and the loop has closed live.** `reviewRequiredPerWorkspace`
+gained `{"beadcause": true}` on 2026-08-23, and within the hour the whole thing ran against
+real pull requests without anybody watching it: #618 was reviewed, approved by
+`NeanderthalMan` at 16:11:58Z under a body that opens *"Approved on #618 by the
+ReviewAdvocate — an agent, not Adam"*, and merged six seconds later with both beads closed;
+#617 the same at 16:14:35Z. #539 took the other branch — a *changes* verdict with three
+comments, and the worker's window opened on it. That is every arrow in the table above
+drawn by the daemon rather than by a suite, and it is the evidence bc-36xx was waiting for.
+[The whole loop is also driven end to end in one suite](#the-whole-loop-in-one-suite--delivered-reviewed-answered-approved-merged),
+with the flag on, so the join stays pinned when nothing happens to be in the queue.
 
 ### One reviewer per pull request — the window the daemon opens
 
@@ -19166,12 +19404,70 @@ answers it was opened to read: the loop that never ends, arrived at by an off-by
 `nextReviewRound` in `lib/mergebead.js` is that arithmetic, named because getting it wrong
 is silent.
 
-**What is still missing, and it is the last piece.** A verdict is a comment; the gate reads
-a block. Nothing yet turns the first into the second — `verdictFrom`, `approve` and
-`approvedReview` all exist and none of them has a caller. So today a reviewer opens, reads,
-writes its verdict, and the next tick finds a pull request still waiting for one. That is
-bc-36xx.22, and it is why `reviewRequired` stays off everywhere: the gate holds a branch
-until a verdict *it can see* appears, and a verdict nothing reads back is not one.
+### The verdict comes home — the sweep folds it onto the block
+
+A verdict is a comment; the gate reads a block. Those used to be two different documents
+that nothing turned one into the other — `verdictFrom`, `approve` and `approvedReview` all
+existed, in lib/reviewadvocate.js, and none of them had a caller anywhere in either tree. A
+reviewer would open, read, write its verdict, and the next tick would find a pull request
+still waiting for one — for ever, one window at a time through the same registry, because
+`review` is exactly the state a delivered pull request returns to once the worker has
+answered everything. That was bc-36xx.22, and it is why `reviewRequired` stayed off
+everywhere: the gate holds a branch until a verdict *it can see* appears, and a verdict
+nothing reads back was not one.
+
+So the sweep reads its own comments back, in the same place it already asks whether a base
+is red: right before `judgeReview`, for every merge-bead the gate applies to. `bd comments`
+is the one call this always costs there — the durable record of whether a verdict is
+waiting is the comments themselves, in the same shape `holdFor` and the gate itself already
+cost a call apiece to answer their own questions — and most ticks land in between reviews,
+so most of those calls come back with nothing new to fold in.
+
+**"Fresh" is a round the block has not recorded, not "the newest comment."** A verdict
+carries its own round — the one it was opened under, `nextReviewRound` — and the block's
+`round` counts rounds *finished*, so a verdict is fresh exactly when its round is greater
+than that. Read this way round rather than "the last comment that parses," a tick that runs
+a second after the write does not fold the same verdict in twice, and a verdict `checkVerdict`
+cannot validate — two comments sharing an id, an unrecognised severity — is nothing fresh
+either: the same holding direction `reviewState` itself takes on a block it cannot parse, so
+a comment somebody hand-edited on a phone cannot move a gate on its own say-so.
+
+**Folded in one line above `judgeReview`, so a verdict that lands this tick is judged this
+tick** rather than costing a whole extra pass waiting for the sweep to notice its own write.
+`syncReviewVerdict` (lib/mergequeue.js) writes the tracker and hands back the state it just
+wrote; `judgeReview` reads that rather than re-parsing `issue.notes` a second time.
+
+**And the review actually goes out to GitHub, under `reviewerFor`'s identity** — the same
+second account `approve` and `submitReview` (lib/pr.js) always needed and, until now,
+nothing in this loop ever called. `approve()` for a bare approval with nothing to anchor to
+a line; `submitReview()` — general since `#533`, and it was not when bc-36xx.22 was filed —
+for anything that carries inline comments, approving or not, because `approve()` has no way
+to attach one. A `REQUEST_CHANGES` review with per-line comments is the ordinary shape a
+`changes` verdict takes now, where before this only an approval could ever reach GitHub at
+all.
+
+**Never `verdict: 'refused'`, whatever a comment says.** `REVIEW_VERDICTS` has three values
+and a ReviewAdvocate's own format can only ever produce two of them — `checkVerdict`
+validates `approved` as a boolean and, when it is false, `why`; there is no field for "and I
+will never approve this at all." The flat refusal is a state the round cap already reaches
+on its own (`reviewEscalation`, two `changes` rounds with no agreement) without the fold
+needing to invent a faster way to say it from a single comment.
+
+**A second GitHub account nobody promised is the ordinary case on this Mac, and the fold
+already handles it** — the same fallback `approve()` and `submitReview()` themselves take.
+`submitted: false` still writes the block: the verdict is recorded as approved (or as
+`changes`, with the reviewer's sentence), attributed to the agent kind rather than to a
+login that was never submitted, and `approvalUrl` stays empty as the tell that nothing on
+GitHub answers for it. A recorded approval, never a refused one — `approvedReview`'s own
+distinction, now with a caller.
+
+**Left for later, on purpose: anchoring a comment to the GitHub review thread it became.**
+`reviewComment` has carried a `threadId` field since `#560` for exactly this — what would
+make `resolveThread` callable at all — and this fold does not write it. Submitting a review
+with inline comments does not hand back which thread each one became without a second
+GraphQL read to match them by path and line, and a guess here would be worse than the gap:
+a wrong anchor closes the wrong thread later. Filed as its own question rather than folded
+in unverified.
 
 ### The worker answers — one window per round, and it may not resolve anything
 
@@ -19249,6 +19545,54 @@ And the delivering worker is told all of this **before** it stops, in the paragr
 may be opened again on the same branch, and that answering is those three words. A session
 reopened on work it thought was finished, on a branch it does not remember, opens a second
 branch — and then there are two.
+
+### The whole loop in one suite — delivered, reviewed, answered, approved, merged
+
+Every suite named above pins one decision with the rest of the world held still: the gate
+judges a review block somebody wrote by hand, the fold translates a verdict nobody
+submitted, the answer checker checks answers to comments no reviewer ever raised, and the
+queue's own suite drives one tick at a time over a merge-bead handed to it pre-baked. Each
+is the right shape for what it covers, and **none of them can see the join** — whether the
+document one half writes is the document the other half reads, one round after another,
+with nothing in between putting the state right by hand.
+
+That is not a hypothetical failure here. It is exactly what bc-36xx.22 was: seven exported
+functions, every one of them unit-tested and correct, and no caller anywhere between the
+comment a reviewer wrote and the block the gate read. The loop was green in pieces and did
+not close.
+
+So `test/endtoend.mjs` is built the other way round from its neighbours: **one mutable
+world, and nothing reaches into it except the code under test.** The tracker is a map that
+really keeps what is written to it and hands back a *copy* each tick, so anything the sweep
+works out and does not write through `bd.update` is gone by the next one — which is the
+property the suite exists to hold. GitHub is an object that remembers what was submitted to
+it. Then four ticks run, with `reviewRequired` **on**, and between them the two agents are
+played straight — the reviewer by writing its verdict through `formatVerdict`, the worker by
+going through `beadcause-answer`'s own `checkAnswers` / `withAnswers` / `withReviewBlock`
+with only its argv and its `git rev-parse` taken off:
+
+| tick | what the world looks like | what the queue does |
+|---|---|---|
+| 1 | delivered, nothing has read it | opens a reviewer, no downmerge, no attempt spent |
+| 2 | a round-1 verdict with two comments on the bead | folds it onto the block, sends a real *request changes* review with both comments on their lines, opens the worker |
+| 3 | both comments answered, neither resolved | opens the reviewer again — settling is not the worker's |
+| 4 | a round-2 verdict approving | submits the approval, stamps the bead, merges, closes both beads |
+
+What it pins that nothing else can: that **the two records of the approval do not straddle a
+tick** — before tick 4 neither GitHub nor the bead has one, after it both do, and the merge
+is on the same pass. One landing without the other is the one way they go on to disagree: a
+review on GitHub the bead does not carry is a pull request the gate holds forever under a
+green tick, and a stamp with no review behind it is the queue merging on a review nobody can
+go and read.
+
+The rest is what the loop would be *wrong* about rather than what it cannot render. `severity`
+and `why` survive the round trip, because which comments are blocking is the one judgement the
+reopened worker has to make. A worker's answer moves the turn and settles nothing, so a
+`changed` goes back to the reviewer like a `declined` does. And the two gates stay in series
+end to end: with `requireApproval` on, the same fully-reviewed, green, clean pull request
+still does not merge — it comes to you as a card, no attempt spent, the agent's approval
+sitting on it — and it is your admission that releases it, after which both stamps are on the
+bead, each in its own block, neither having stood in for the other.
 
 ### The notification with nothing to answer
 
@@ -20273,6 +20617,18 @@ opened — `APPROVED` and nothing else counts, so *changes requested* and *revie
 both stop it — and the card says outright that a review is what is missing. Your **Merge**
 is that review. This is beadcause's own gate, not GitHub's: branch protection is free to
 require its own on top, and will refuse the merge in its own words if it does.
+
+**Its default was asked about once a reviewer existed, and it stays off.** The argument for
+flipping it was that "nobody is going to review it" stopped being true the moment a
+ReviewAdvocate read every pull request. The answer is that the reviewer that now exists is
+an *agent* and this flag is about the *human*: where a space asks for your approval the
+agent's is necessary and not sufficient, and everywhere else the agent's approval alone
+releases the pull request. So
+[the agent's review is a separate gate in series](#the-review-gate--nothing-reaches-the-merge-without-a-verdict)
+with this one rather than a replacement for it, and turning this on by default would start
+demanding your tap on every delivery in the repo — the opposite of what that epic is for.
+Recorded here and above the default in `lib/config.js` so the next reader can see it was
+settled rather than never considered.
 
 **Both are per space, and the global here is only the default.** `autoMerge` was one
 global answer for every repo in every space, which is wrong at both edges: a side project
@@ -22022,6 +22378,30 @@ id had to change, and a channel that is abandoned without being deleted stays in
 screen with the old sound. `test/channels.mjs` is the suite that holds all of this: every
 class to its sound, every retired id to the delete list, and every sound to a file that
 actually ships.
+
+### One tap from the app to those settings
+
+The five channels above are where the options live, and that answer has one gap: nothing
+in the app points at it. Finding them means leaving the app and walking Settings → Apps →
+Beadcause → Notifications by hand. **Menu → Notification settings** (the gear at the top
+of every page) is the fix — one tap, from `MainActivity`'s `openNotificationSettings()`
+bridge method, to `Settings.ACTION_APP_NOTIFICATION_SETTINGS`.
+
+That lands on the whole-app notification screen rather than on one channel's own. The
+alternative — five deep links, `Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS` with a
+hardcoded `EXTRA_CHANNEL_ID` per row — would read more like a mixer at a glance, but it
+means five ids in `public/accountbar.js` that have to be kept in step with the ids in
+`Notifications.kt` by hand, forever, with no test that can catch a typo except a human
+tapping every row: a stale or misspelled id opens a settings screen on nothing rather than
+failing loudly. The whole-app screen already lists every channel as its own tappable row,
+so "one tap from the app" is satisfied by landing there, and there is nothing to keep in
+sync.
+
+The row is drawn hidden and revealed only by feature-detecting
+`window.BeadcauseNative?.openNotificationSettings`, the same way **Open in Chrome** reveals
+itself — a PWA running in a browser has nowhere for the tap to go, and a userAgent sniff
+would draw the row for a browser merely claiming to be one. An APK built before this
+shipped has no such method on its bridge, so the row stays hidden there too.
 
 ### Which arrival speaks in which voice, and what stops the loud one crying wolf
 
@@ -24945,6 +25325,15 @@ codes, where it is the last thing on the screen you walk away from. An https lin
 certificate, or a `baseUrl` you set yourself — prints nothing at all, because a line that
 appears on every run is a line nobody reads on the run that matters.
 
+The same discipline covers a notice this flag never asked for — bc-zjab.12. `lib/resolvers.js`
+prints its own line, once, at module load, when the last daemon left resolver windows
+behind; since every import in `bin/beadcause.js` has already run by the time `--url` is
+read, that line used to arrive on stdout ahead of the URL and land in `BASE_URL` in
+`scripts/build-android.sh` along with it. It is a boot notice, not a value, so it moved to
+stderr with everything else of that kind — still on the daemon's own console
+(`beadcause.log` captures both streams), just off the one stream a script trusts to be a
+bare address.
+
 **It is judged on the URL, not on the certificate**, and those are different questions. A
 `baseUrl` pointing at a reverse proxy or a real domain is pairable with no `tailscale
 cert` anywhere in sight. Loopback is exempt for the opposite reason: it is
@@ -27228,6 +27617,8 @@ to be one.
 | `advocates.closeEmptyWindows` | [close the iTerm windows that have no tabs left in them](#the-windows-that-are-no-longer-windows) — the blank frames iTerm sometimes leaves behind when a session's last tab goes away (default `true`). There is no session in one, so this keeps none of the guards above; `false` leaves them on the desk for you to dismiss by hand |
 | `advocates.parkIdleWindows` | [park a window this daemon opened once it goes quiet](#parking--a-window-waiting-on-you-closes-and-your-answer-brings-it-back) — write its conversation down by session id, then close it, so an answer resumes the same agent rather than briefing a new one (default `true`). This is the one sweep that closes a window whose work is not provably anywhere else, so it has its own switch; `false` leaves them open and the resume never happens. `closeFinishedSessions: false` switches it off too |
 | `advocates.parkIdleMinutes` | how long quiet is long enough (default 10). Minutes rather than the 90 seconds a *finished* worker gets, because here the ending is inferred from silence rather than proved by a closed bead |
+| `advocates.parkWorkerIdleMinutes` | how long the sweep yields to `reconcile` over a window whose worker slot the advocate still holds (default 20, floored at `parkIdleMinutes`). `reconcile` can name the ending where this can only say "it went quiet" — but it has no clock shorter than `workerTimeoutMinutes`, so without a bound here a worker whose ending it could not classify kept its window for two hours |
+| `advocates.parkStuckMinutes` | how long a status that is neither `idle` nor `busy` may stand before it is read as stale rather than as a session doing something with no name here (default 60). It used to be `wait` forever, and a record only moves when its session does: one window sat four days in `shell`, holding a worktree lock, invisible to every sweep at once. `busy` is exempt — that is the status that means mid-sentence |
 | `advocates.maintenance` | [the nightly maintenance window](#the-nightly-window--stop-dispatching-empty-the-mac-collect-the-store): stop dispatching everywhere, let the open windows finish, close whatever is left, collect every workspace's Dolt store, resume (default `false`). **Off by default because it is the one sweep here that closes a window somebody may be typing into** — everything else in this table reads something. One line turns it on |
 | `advocates.maintenanceAt` | when dispatching ceases, local wall clock (default `"03:00"`). A typo switches the window off and says so, rather than firing at midnight |
 | `advocates.maintenanceDrainMinutes` | how long a window that is still working gets to finish on its own before it is forced (default 45). Forty-five rather than ten because a worker that has just been asked to wrap up has a debrief to write and a branch to deliver, and a grace period shorter than doing what was asked wastes the asking |

@@ -513,6 +513,27 @@ await check('a pending pane is never shown, and its hash falls to Home', () => {
   assert.deepEqual({ ...b.panes().pending() }, { history: 'bc-khoe.30.5', advocates: 'bc-khoe.4' });
 });
 
+await check('a pill sharing a pane’s id cannot displace it in the map — bc-khoe.30.11', () => {
+  // A view pill's own `data-pane` is name-for-name the view id it switches to — the exact
+  // thing this map is keyed by — so an unscoped `[data-pane]` scan would let whichever
+  // element the query visits last win the id, real pane or not. The pill row is drawn
+  // after the panes today, so a scan that trusted script order would happen to be fine;
+  // this decoy is placed last on purpose, the one position an order-trusting scan would
+  // get wrong, to prove the fix does not lean on that order at all.
+  const history = pane('history');
+  history.hidden = true; // what the real markup starts with — see index.html
+  const decoy = new El('button');
+  decoy.className = 'viewpill';
+  decoy.setAttribute('data-pane', 'history');
+  decoy.hidden = true;
+  const b = boot([pane('epics'), history, pane('advocates'), pane('releases'), pane('config'), decoy], {
+    hash: '#history',
+  });
+  b.run('panes.js');
+  assert.equal(history.hidden, false, 'the decoy pill won the id in the map and the real pane stayed hidden');
+  assert.equal(decoy.hidden, true, 'panes.js touched an element that carries the attribute but is not a pane');
+});
+
 await check('go() writes the hash and switches — including Home, which fires no hashchange', () => {
   // `route.go('')` clears Home's hash with pushState so the URL stays the one the phone's
   // home screen holds, and pushState does not fire `hashchange`. A row that only wrote the
