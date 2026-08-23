@@ -1,0 +1,151 @@
+#!/usr/bin/env node
+/**
+ * `b7e-callers` — who calls this, who imports it, and is anything wired to it at all.
+ *
+ *     b7e-callers approvedReview                 a bare symbol
+ *     b7e-callers lib/pr.js#approve               pinned to one file, when the name is ambiguous
+ *     b7e-callers views.mark                      a property, disambiguated by its parent
+ *     b7e-callers approvedReview --tests          include test/ in the search (off by default)
+ *     b7e-callers lib/session.js --imports        the module-graph question instead
+ *     b7e-callers approvedReview --json
+ *     b7e-callers approvedReview --dir <root>     another tree — this is how it is tested
+ *
+ * `bc-36xx.24`: seven sessions each hand-built this query, differently, and it went wrong
+ * at least twice in ways that read as success — see `lib/callers.js`'s header for both.
+ * This prints a one-line verdict first, because "grep found nothing" and "this is
+ * genuinely unwired" look identical in a terminal and only this tells them apart.
+ *
+ * Exit codes: `0` an answer was found (even "no reference found" is an answer). `1` a
+ * qualified/plain/dotted target has no definition anywhere searched, or a `--imports`
+ * target does not resolve to a known source file. `2` refused — bad usage.
+ */
+import path from 'node:path';
+import { REPO_ROOT, findCallers, moduleReport, parseTarget } from '../lib/callers.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? null : (argv[at + 1] ?? null);
+};
+
+const USAGE = `usage:
+  b7e-callers <symbol>                a bare identifier
+  b7e-callers <module>#<export>       pinned to one file
+  b7e-callers <a.b>                   a property, disambiguated by its immediate parent
+  b7e-callers <symbol> --tests        include test/ in the search (excluded by default)
+  b7e-callers <module path> --imports what it imports, what imports it, cycle risk
+  b7e-callers <target> --json         machine-readable
+  b7e-callers <target> --dir <root>   another tree — this is how it is tested`;
+
+if (has('--help') || has('-h') || argv.length === 0) {
+  (argv.length === 0 ? console.error : console.log)(USAGE);
+  process.exit(argv.length === 0 ? 2 : 0);
+}
+
+const KNOWN_FLAGS = new Set(['--tests', '--imports', '--json', '--dir', '--help', '-h']);
+const DIR_GIVEN = value('--dir');
+const ROOT = path.resolve(DIR_GIVEN || REPO_ROOT);
+const TESTS = has('--tests');
+const IMPORTS = has('--imports');
+const JSON_MODE = has('--json');
+
+const positional = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--dir') {
+    i += 1;
+    continue;
+  }
+  if (KNOWN_FLAGS.has(a)) continue;
+  if (a.startsWith('--')) {
+    console.error(`\x1b[31mb7e-callers: unrecognised flag: ${a}\x1b[0m\n${USAGE}`);
+    process.exit(2);
+  }
+  positional.push(a);
+}
+
+const target = positional[0];
+if (!target) {
+  console.error(`\x1b[31mb7e-callers: missing target\x1b[0m\n${USAGE}`);
+  process.exit(2);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+/* ------------------------------------------------------------------------- --imports */
+
+if (IMPORTS || parseTarget(ROOT, target).kind === 'module') {
+  const parsed = parseTarget(ROOT, target);
+  if (parsed.kind !== 'module') {
+    console.error(`\x1b[31mb7e-callers: --imports needs a module path that exists under the tree; "${target}" is not one\x1b[0m`);
+    process.exit(2);
+  }
+  const report = moduleReport(ROOT, parsed.module);
+
+  if (JSON_MODE) {
+    console.log(JSON.stringify(report));
+    process.exit(report.error ? 1 : 0);
+  }
+
+  if (report.error) {
+    console.error(`\x1b[31mb7e-callers: ${report.module} — ${report.error}\x1b[0m`);
+    process.exit(1);
+  }
+
+  console.log(bold(report.module));
+  console.log(`imports (${report.imports.length}): ${report.imports.join(', ') || dim('none')}`);
+  console.log(
+    `imported by (${report.importedBy.length} direct): ${report.importedBy.join(', ') || dim('none')}`,
+  );
+  console.log(`imports transitively (${report.transitiveImportCount} files total)`);
+  if (report.wouldCloseCycleIfImported.length) {
+    console.log(
+      `importing any of these ${report.wouldCloseCycleIfImported.length} file(s) would close a cycle — each already reaches ${report.module}:`,
+    );
+    for (const f of report.wouldCloseCycleIfImported) console.log(`  ${f}`);
+  } else {
+    console.log('importing any file not already in its own closure is safe — none of the rest reach it back');
+  }
+  process.exit(0);
+}
+
+/* ---------------------------------------------------------------------- symbol / qualified / dotted */
+
+const result = findCallers(ROOT, target, { tests: TESTS });
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(result));
+  process.exit(result.definitions.length ? 0 : 1);
+}
+
+console.log(bold(result.verdict));
+console.log('');
+
+if (result.definitions.length) {
+  console.log(`definition${result.definitions.length === 1 ? '' : 's'} (${result.definitions.length}):`);
+  for (const d of result.definitions) console.log(`  ${d.file}:${d.startLine}-${d.endLine}  (${d.label})`);
+} else {
+  console.log(dim(`no definition of '${result.name}' found${TESTS ? '' : ' (test/ excluded — add --tests)'}`));
+}
+
+const byKind = { call: [], reference: [], comment: [], import: [] };
+for (const o of result.occurrences) byKind[o.kind].push(o);
+
+for (const [kind, label] of [
+  ['call', 'call sites'],
+  ['reference', 'references (not calls)'],
+  ['import', 'imports'],
+  ['comment', 'comment mentions'],
+]) {
+  const rows = byKind[kind];
+  if (!rows.length) continue;
+  console.log('');
+  console.log(`${label} (${rows.length}):`);
+  for (const o of rows) console.log(`  ${o.file}:${o.line}: ${o.text}`);
+}
+
+if (!TESTS) console.log(`\n${dim('test/ excluded — add --tests to include it')}`);
+
+process.exit(result.definitions.length ? 0 : 1);

@@ -44,6 +44,7 @@
     "b7e-apply": "bin/b7e-apply",
     "b7e-blame": "bin/b7e-blame",
     "b7e-call": "bin/b7e-call",
+    "b7e-callers": "bin/b7e-callers",
     "b7e-census": "bin/b7e-census",
     "b7e-def": "bin/b7e-def",
     "b7e-eyeball": "bin/b7e-eyeball",
