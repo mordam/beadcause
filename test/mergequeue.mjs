@@ -45,9 +45,10 @@ process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK, mergeReport } = await import(LIB('mergequeue.js'));
-const { MERGE_LABEL, MERGE_ASSIGNEE, MAX_ATTEMPTS, MAX_REVIEW_ROUNDS, mergeBeadBody, queueState, withQueueBlock, withReviewBlock } =
+const { MERGE_LABEL, MERGE_ASSIGNEE, MAX_ATTEMPTS, MAX_REVIEW_ROUNDS, mergeBeadBody, queueState, reviewState, withQueueBlock, withReviewBlock } =
   await import(LIB('mergebead.js'));
 const { MAX_DOWNMERGES } = await import(LIB('mergequeue.js'));
+const { formatVerdict } = await import(LIB('reviewadvocate.js'));
 
 let failures = 0;
 let ran = 0;
@@ -97,8 +98,8 @@ const bead = (over = {}, spec = {}, notes = '') => ({
  * lets one close fail the way bd's close gate fails — which is the only way to reach the
  * `oweClose` path without a real tracker.
  */
-function fakeBd({ rows = [], issues = {}, refuse = null } = {}) {
-  const calls = { closes: [], comments: [], updates: [] };
+function fakeBd({ rows = [], issues = {}, refuse = null, comments = {} } = {}) {
+  const calls = { closes: [], comments: [], updates: [], reads: [] };
   return {
     calls,
     listAgent: async () => rows,
@@ -109,12 +110,32 @@ function fakeBd({ rows = [], issues = {}, refuse = null } = {}) {
     },
     comment: async (ws, id, text) => calls.comments.push({ id, text }),
     update: async (ws, id, patch) => calls.updates.push({ id, ...patch }),
+    // A merge-bead's comments — where a ReviewAdvocate's verdict actually lives
+    // (bc-36xx.22). Empty for any id nobody stocked, which is every id in every test that
+    // is not itself about folding a verdict in.
+    comments: async (ws, id) => {
+      calls.reads.push(id);
+      return comments[id] || [];
+    },
   };
 }
 
 /** A `gh` that answers with whatever state this scenario is about. */
-const fakePr = (view, { merge = null, base = { failed: [] }, update = { updated: true, reason: '' }, comment = null } = {}) => {
-  const calls = { merges: [], updates: [], comments: [] };
+const fakePr = (
+  view,
+  {
+    merge = null,
+    base = { failed: [] },
+    update = { updated: true, reason: '' },
+    comment = null,
+    // bc-36xx.22: a second GitHub account nobody promised is the ordinary case, so the
+    // default here is the one `reviewerFor` gives on a one-login Mac — null.
+    reviewer = null,
+    approve = { submitted: true, reviewer: 'NeanderthalMan', url: 'https://github.com/acme/widgets/pull/42#pullrequestreview-1', at: '2026-08-23T00:00:00Z' },
+    submitReview = { submitted: true, reviewer: 'NeanderthalMan', url: 'https://github.com/acme/widgets/pull/42#pullrequestreview-1', at: '2026-08-23T00:00:00Z' },
+  } = {}
+) => {
+  const calls = { merges: [], updates: [], comments: [], approvals: [], reviews: [] };
   return {
     calls,
     view: async () => view,
@@ -137,6 +158,18 @@ const fakePr = (view, { merge = null, base = { failed: [] }, update = { updated:
       calls.merges.push({ n, ...opts });
       if (merge instanceof Error) throw merge;
       return merge || { mergeCommit: 'abcdef1234' };
+    },
+    /** Who would review — `reviewerFor`, lib/pr.js. `null` is the one-login Mac. */
+    reviewerFor: async () => reviewer,
+    /** A bare approval — `approve`, lib/pr.js. */
+    approve: async (dir, n, opts) => {
+      calls.approvals.push({ dir, n, ...opts });
+      return approve;
+    },
+    /** A review that may carry inline comments — `submitReview`, lib/pr.js. */
+    submitReview: async (dir, n, opts) => {
+      calls.reviews.push({ dir, n, ...opts });
+      return submitReview;
     },
   };
 };
@@ -1093,6 +1126,157 @@ await check('a review is one sentence per bead, not one every tick', async () =>
   const out = await run(bd, fakePr(openPr()), { policy: REVIEW_ON });
   assert.deepEqual(out.awaiting, ['zz-merge']);
   assert.deepEqual(bd.calls.updates, [], 'it rewrote a sentence that had not changed');
+});
+
+/* ================================================= folding a verdict onto the block
+
+   bc-36xx.22. `verdictFrom`, `approve` and `approvedReview` all existed and none of them
+   had a caller: a ReviewAdvocate could write a verdict comment for ever and the gate above
+   would keep reading a block nobody had touched. These are the sweep actually reading one
+   in — the comment a reviewer leaves is a different document from the block the gate reads
+   (lib/reviewadvocate.js's header), and this is what turns the first into the second.
+*/
+
+/** A verdict comment, exactly as a ReviewAdvocate would leave one — lib/reviewadvocate.js. */
+const verdictComment = (v) => ({ text: formatVerdict(v, { owner: 'Adam' }) });
+
+await check('AN APPROVING VERDICT IS FOLDED ONTO THE BLOCK AND MERGES THE SAME TICK', async () => {
+  const verdict = { pr: 42, bead: 'zz-work', round: 1, approved: true, comments: [] };
+  const bd = fakeBd({
+    rows: [reviewed({ round: 0 })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    comments: { 'zz-merge': [verdictComment(verdict)] },
+  });
+  const prApi = fakePr(openPr(), { reviewer: { login: 'NeanderthalMan', user: '', slug: 'acme/widgets', permission: 'write' } });
+  const out = await run(bd, prApi, { policy: REVIEW_ON, owner: 'Adam' });
+
+  // A bare approval, no comments to anchor — `approve()`, not `submitReview()`.
+  assert.equal(prApi.calls.approvals.length, 1, 'it did not submit a real review under the reviewer identity');
+  assert.equal(prApi.calls.reviews.length, 0);
+  assert.match(prApi.calls.approvals[0].body, /Approved.*by the ReviewAdvocate/s);
+  assert.match(prApi.calls.approvals[0].note, /agent's, not Adam's/);
+
+  // The block was written for the commit actually on the branch — reviewedSha comes from
+  // the branch's head, not from anything the verdict itself said.
+  const written = bd.calls.updates.find((u) => reviewState({ notes: u.notes }).round === 1);
+  assert.ok(written, 'the review block was never written');
+  const rev = reviewState({ notes: written.notes });
+  assert.equal(rev.verdict, 'approved');
+  assert.equal(rev.reviewedSha, HEAD);
+  assert.equal(rev.approvedBy, 'NeanderthalMan');
+  assert.equal(rev.approvalUrl, prApi.calls.approvals.length ? 'https://github.com/acme/widgets/pull/42#pullrequestreview-1' : '');
+
+  // Folded and judged on the same pass, exactly as the hold and the staleness cases are —
+  // a merge does not cost the queue a whole extra tick just because the verdict just landed.
+  assert.deepEqual(out.merged, ['zz-merge']);
+});
+
+await check('A CHANGES VERDICT WITH INLINE COMMENTS GOES OUT AS submitReview, NEVER refused', async () => {
+  const verdict = {
+    pr: 42,
+    bead: 'zz-work',
+    round: 1,
+    approved: false,
+    why: 'the lock is never released on the error path',
+    comments: [{ id: 'c1', file: 'lib/example.js', line: 42, severity: 'blocking', what: 'this leaks a handle', why: 'the finally never runs' }],
+  };
+  const bd = fakeBd({
+    rows: [reviewed({ round: 0 })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    comments: { 'zz-merge': [verdictComment(verdict)] },
+  });
+  const prApi = fakePr(openPr());
+  const out = await run(bd, prApi, { policy: REVIEW_ON });
+
+  // `approve()` has no way to carry an inline comment — this must go out as a real review,
+  // requesting changes, since #533.
+  assert.equal(prApi.calls.approvals.length, 0);
+  assert.equal(prApi.calls.reviews.length, 1);
+  assert.equal(prApi.calls.reviews[0].event, 'REQUEST_CHANGES');
+  assert.deepEqual(prApi.calls.reviews[0].comments, [{ path: 'lib/example.js', line: 42, body: '**blocking** — this leaks a handle the finally never runs' }]);
+  // Nothing on GitHub could be mistaken for a person's approval here, so no disclaimer.
+  assert.equal(prApi.calls.comments.length, 0);
+
+  const written = bd.calls.updates.find((u) => reviewState({ notes: u.notes }).round === 1);
+  const rev = reviewState({ notes: written.notes });
+  assert.equal(rev.verdict, 'changes');
+  assert.notEqual(rev.verdict, 'refused', 'a single comment escalated the pull request straight to a card');
+  assert.equal(rev.comments.length, 1);
+  assert.equal(rev.comments[0].answer, '', 'a fresh comment arrived pre-answered');
+
+  // Unanswered and blocking: the worker's window, not a second reviewer.
+  assert.deepEqual(out.merged, []);
+  assert.deepEqual(out.answering, [], 'no openAnswer was wired up for this scenario, so nothing should claim it opened one');
+  assert.deepEqual(out.awaiting, ['zz-merge']);
+});
+
+await check('recorded as approved even with no second GitHub account to submit it as', async () => {
+  const verdict = { pr: 42, bead: 'zz-work', round: 1, approved: true, comments: [] };
+  const bd = fakeBd({
+    rows: [reviewed({ round: 0 })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    comments: { 'zz-merge': [verdictComment(verdict)] },
+  });
+  const prApi = fakePr(openPr(), {
+    reviewer: null,
+    approve: { submitted: false, reviewer: '', url: '', at: '', reason: 'there is no second GitHub account here' },
+  });
+  const out = await run(bd, prApi, { policy: REVIEW_ON });
+
+  const written = bd.calls.updates.find((u) => reviewState({ notes: u.notes }).round === 1);
+  const rev = reviewState({ notes: written.notes });
+  assert.equal(rev.verdict, 'approved');
+  // `approvedReview`'s own fallback: recorded rather than refused, and attributed to the
+  // agent kind rather than to a login that was never submitted.
+  assert.equal(rev.approvedBy, 'review-advocate');
+  assert.equal(rev.approvalUrl, '');
+  assert.deepEqual(out.merged, ['zz-merge'], 'an approval nobody could submit to GitHub still gates the merge locally');
+});
+
+await check('a verdict for a round the block already has is not folded in twice', async () => {
+  const verdict = { pr: 42, bead: 'zz-work', round: 1, approved: true, comments: [] };
+  const already = { round: 1, verdict: 'approved', reviewer: 'somebody', reviewedSha: HEAD, approvedBy: 'somebody' };
+  const bd = fakeBd({
+    rows: [reviewed(already)],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    comments: { 'zz-merge': [verdictComment(verdict)] },
+  });
+  const prApi = fakePr(openPr());
+  const out = await run(bd, prApi, { policy: REVIEW_ON });
+
+  assert.equal(prApi.calls.approvals.length, 0, 're-submitted a review the block already recorded');
+  assert.equal(prApi.calls.reviews.length, 0);
+  // It still merges — the block already says approved for the commit on the branch —
+  // just not by way of a second submission.
+  assert.deepEqual(out.merged, ['zz-merge']);
+});
+
+await check('a verdict comment that will not parse holds the merge rather than crashing the tick', async () => {
+  // Two comments sharing an id: checkVerdict refuses it outright, so this is not a verdict
+  // this can fold in — the same holding direction reviewState itself takes on a block it
+  // cannot parse.
+  const broken = {
+    pr: 42,
+    bead: 'zz-work',
+    round: 1,
+    approved: false,
+    why: 'x',
+    comments: [{ id: 'c1', what: 'a' }, { id: 'c1', what: 'b' }],
+  };
+  const bd = fakeBd({
+    rows: [reviewed({ round: 0 })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    comments: { 'zz-merge': [verdictComment(broken)] },
+  });
+  const prApi = fakePr(openPr());
+  const opened = [];
+  const out = await run(bd, prApi, { policy: REVIEW_ON, openReview: async () => opened.push(1) });
+
+  assert.equal(prApi.calls.approvals.length, 0);
+  assert.equal(prApi.calls.reviews.length, 0);
+  assert.deepEqual(out.merged, []);
+  assert.deepEqual(out.reviewing, ['zz-merge'], 'a verdict that could not be read did not re-open the reviewer');
+  assert.equal(opened.length, 1);
 });
 
 
