@@ -104,14 +104,13 @@
   pane of `/` is bc-khoe.30.7. Until then those addresses are still their own documents,
   which is also why the two panes above are pending.
 
-  **One wart, recorded rather than fixed.** `route.go` clears Home's hash with
-  `replaceState` — Home is the empty hash, and a bare `#` left hanging would be a
-  different URL from the one the phone's home screen holds. So moving *to* Home from
-  another pane replaces the current history entry instead of pushing one, and the back
-  button that would have walked you back to the pane you came from takes you out of the
-  app instead. Moving between any two other panes pushes normally and back walks them.
-  Changing that means changing what bc-khoe.30.2 decided about the one line in this app
-  that writes the URL, which is not this bead's to change.
+  **A pill tap is always a step (bc-khoe.30.9).** `route.go` clears Home's hash with
+  `pushState` rather than by assignment, for the same reason every other pill tap writes
+  a new history entry: assigning `location.hash` pushes on its own, so leaving *only* the
+  clear-to-Home case on `replaceState` would have been the one transition in this row that
+  the back button could not walk. `go`'s `dismiss` argument is what a card closing back to
+  Home would pass instead — nothing here does yet, since a card in this shell is not
+  bc-khoe.30.9's to build.
 */
 (() => {
   const route = window.beadcause.route;
@@ -195,7 +194,7 @@
      * Move to a view: write the hash, then show what the hash now says.
      *
      * Both halves, rather than trusting `hashchange` to arrive: Home's hash is the empty
-     * string and `route.go` clears it with `replaceState`, which does **not** fire
+     * string and `route.go` clears it with `pushState`, which does **not** fire
      * `hashchange` — so a row that only wrote the URL would leave the Home pill dead from
      * every other pane. `sync` is idempotent, so the redundant call on every other
      * transition costs a map lookup and an early return.

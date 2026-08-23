@@ -172,11 +172,21 @@ function boot(panes, { hash = '', pathname = '/' } = {}) {
 
   const location = { pathname, search: '', hash };
   const listeners = new Map();
+  /** Every `history.pushState`/`replaceState` call `route.go` made, in order. */
+  const historyCalls = [];
+  const setFromUrl = (url) => {
+    location.hash = String(url).includes('#') ? String(url).slice(String(url).indexOf('#')) : '';
+  };
   const ctx = {
     location,
     history: {
+      pushState(_s, _t, url) {
+        historyCalls.push('push');
+        setFromUrl(url);
+      },
       replaceState(_s, _t, url) {
-        location.hash = String(url).includes('#') ? String(url).slice(String(url).indexOf('#')) : '';
+        historyCalls.push('replace');
+        setFromUrl(url);
       },
     },
     document: {
@@ -200,7 +210,7 @@ function boot(panes, { hash = '', pathname = '/' } = {}) {
     for (const fn of listeners.get('hashchange') || []) fn();
   };
   const run = (file) => vm.runInContext(read(`public/${file}`), ctx, { filename: file });
-  return { ctx, body, topbar, navigate, run, panes: () => ctx.window.beadcause.panes };
+  return { ctx, body, topbar, navigate, run, historyCalls, panes: () => ctx.window.beadcause.panes };
 }
 
 /** Every pill the row emitted, as `{ id, tag, href, pane, kind, current }`. */
@@ -504,9 +514,9 @@ await check('a pending pane is never shown, and its hash falls to Home', () => {
 });
 
 await check('go() writes the hash and switches — including Home, which fires no hashchange', () => {
-  // `route.go('')` clears Home's hash with replaceState so the URL stays the one the
-  // phone's home screen holds, and replaceState does not fire `hashchange`. A row that
-  // only wrote the URL would leave the Home pill dead from every other pane.
+  // `route.go('')` clears Home's hash with pushState so the URL stays the one the phone's
+  // home screen holds, and pushState does not fire `hashchange`. A row that only wrote the
+  // URL would leave the Home pill dead from every other pane.
   const b = boot(whenBuilt());
   b.run('panes.js');
   b.panes().go('history');
@@ -515,6 +525,18 @@ await check('go() writes the hash and switches — including Home, which fires n
   b.panes().go('epics');
   assert.equal(b.ctx.location.hash, '', 'a bare # was left hanging on the URL');
   assert.equal(b.panes().showing(), 'epics', 'the Home pill is dead from every other pane');
+});
+
+await check('moving to Home from another pane pushes, so back walks it (bc-khoe.30.9)', () => {
+  const b = boot(whenBuilt());
+  b.run('panes.js');
+  b.panes().go('history');
+  b.panes().go('epics');
+  assert.deepEqual(
+    b.historyCalls,
+    ['push'],
+    'Home was not reached with pushState — the entry for History would be gone and back would leave the app'
+  );
 });
 
 await check('onShow says which pane arrived, once per move', () => {

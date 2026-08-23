@@ -103,6 +103,10 @@ import fs from 'node:fs';
 import YAML from 'yaml';
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
+// A binary, not a lib module — lib/advocate.js never imports bin/plan.js, so unlike
+// lib/session.js (which lib/advocate.js *does* import, and so must spell this prefix out
+// rather than import it — see the comment there) this can just import the real constant.
+import { DISPATCHED_PREFIX } from '../lib/advocate.js';
 import {
   formatPlan,
   formatWhole,
@@ -376,3 +380,10 @@ try {
 const prs = plan.groups.reduce((n, g) => n + g.prs.length, 0);
 console.log(`planned ${epicId} — ${plan.groups.length} ${plan.groups.length === 1 ? 'group' : 'groups'}, ${prs} pull ${prs === 1 ? 'request' : 'requests'}`);
 for (const g of plan.groups) console.log(`  ${g.name}: ${g.beads.join(', ')} → ${g.prs.length} in ${g.prs[0].repo}`);
+
+// This is as far as this window can see — bc-zjab.8. The plan is filed and the label is
+// on, but whether the advocate actually opens a window per group is a later tick's call,
+// not this one's, and every surface this process can print looks identical whichever way
+// that goes. Say so, and name the one place it shows up afterwards.
+console.log(`  filed, not dispatched — a later tick decides whether these groups actually open`);
+console.log(`  check back with: bd show ${epicId} (one \`${DISPATCHED_PREFIX}<group>\` label lands per group that did)`);

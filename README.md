@@ -7196,12 +7196,13 @@ say where it is should fail loudly. That asymmetry is also why a phone still hol
 previous cached `index.html` is fine: no tag, no panes, no panes object, and the row draws
 exactly what it drew before.
 
-**One wart, recorded rather than fixed.** Home's hash is the empty string and `route.go`
-clears it with `replaceState`, because a bare `#` left hanging would be a different URL from
-the one the phone's home screen holds. So moving *to* Home from another pane replaces the
-current history entry instead of pushing one, and the back button that would have walked you
-back to the pane you came from leaves the app instead. Moving between any two other panes
-pushes normally and back walks them.
+**A pill tap always pushes (bc-khoe.30.9).** Home's hash is the empty string, so `route.go`
+clears it with `pushState`/`replaceState` rather than by assignment — a bare `#` left hanging
+would be a different URL from the one the phone's home screen holds. It defaults to
+`pushState`, because every pill tap, Home included, is a step the back button should walk
+back through; `go` takes a `dismiss` argument for the one case that should still replace — a
+card closing back to Home rather than a view being visited — which nothing calls yet, since
+this shell has no card of its own.
 
 `node test/panes.mjs` runs both files in a `node:vm` against a hand-made document: which
 pane a hash lands on, that a pending one is never shown, that a scroll position survives a
@@ -18101,6 +18102,122 @@ operation, this one calls whatever export its argument names — including a wri
 imports deep, with no argv shape to check for it. See the exclusion comment in
 `lib/toolbelt.js` next to `b7e-apply`/`b7e-gate`/`b7e-worktree` for the same argument made
 about those. See `bin/b7e-call`.
+
+
+### One call for the bead, its family, its thread and what earlier runs left — `b7e-orient`
+
+`bc-zjab.9`, filed by the same session audit as `b7e-call` above, against nine sessions
+that each opened by hand-assembling the same four questions in a different order. Nine of
+twelve spent a Bash call looking for a repo `CLAUDE.md` that does not exist, four of nine
+never ran `bd comments` at all, and five never asked `beadcause-memory debriefs` — one of
+them found out by hand, with five separate calls, that a previous attempt had already
+written the entire change.
+
+```
+b7e-orient -w beadcause -b bc-zjab.9          the printed report
+b7e-orient -w beadcause -b bc-zjab.9 --json    the same facts, machine-readable
+```
+
+One block, in the order a session actually needs it: the CLAUDE.md line, unconditionally
+and first; the bead itself (status, priority, labels, assignee, acceptance); its comment
+thread; its tracker parent and every sibling, each with status and holder; the epic plan
+group that names this bead, if one does; and the debriefs any earlier run at this bead or
+its family left.
+
+**Three or four `bd` spawns, not one per bead.** The bead and its thread are one spawn
+(`Bd.showWithComments`). The family — parent epic *and* every sibling, each with status and
+holder — is a second: one `bd export` (`Bd.graph`, already cached a minute), parsed with
+`lib/ancestry.js`'s `childrenFrom`. That is deliberate rather than `Bd.children`, which
+narrows every row to id/title/status/type/priority and drops `assignee` — the raw export
+row still carries it. The plan group is a third: `bd comments` on the tracker parent,
+parsed with `lib/plan.js`'s `planFrom`, looking for a group naming this bead.
+
+**The plan is not always on the tracker parent, and this bead is the reason.** `bc-zjab.9`
+was filed by `lib/sessionaudit.js` with `homeLabel` routing (see "Filing a bead under a
+parent" above), so its tracker parent is `bc-dgx7` — but the plan that actually names it
+lives on `bc-zjab`, its `discovered-from` ancestor's own parent and its id's own dotted
+prefix. So when the parent's comments carry no matching group and the bead's id has a
+dotted prefix of its own, that prefix is tried too — a fourth spawn, and only then.
+Debriefs cost no `bd` spawn at all: tier 4 lives in git refs beside the code checkout
+(`lib/sessionlog.js`), read with `lib/memory.js`'s `debriefFamily`/`debriefBrief` — the same
+selection the daemon's own worker brief already uses.
+
+**`ws.dir` is never used for the CLAUDE.md check or the debrief read**, because it is the
+*tracker's* directory (`~/beads/<name>/.beads` for a personal workspace) and never a git
+checkout. `lib/session.js`'s `resolveSessionDir` is what both actually use — the same
+answer `lib/foundation.js` computes for every worker session this daemon opens.
+
+**`debriefFamily` narrows a bead with no tracker parent to itself alone** — a root epic, or
+one this workspace never gave a home. `b7e-orient` says so plainly (`this bead has no
+tracker parent, so only ITS OWN prior runs are covered here`) rather than let an empty
+section read as "nobody has ever worked this family".
+
+`Bash(b7e-orient:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`, next to the other read-only surveys above: every path through it spawns
+`bd show`, `bd export` or `bd comments` and nothing else. See `bin/b7e-orient` and
+`test/b7eorient.mjs`.
+
+
+### Has somebody already done this, or where is it sitting — `b7e-prior`
+
+`bc-zjab.10`. Four sessions independently asked "has somebody already done this, or part
+of it?" and each built the answer out of a different tool set. `bc-zjab.1`'s second
+session guessed a worktree name, then ran `git status --short`, `git rev-parse
+--abbrev-ref HEAD`, a remote check, `gh pr list` and `git diff main...HEAD --stat` —
+most of a session's first phase — before concluding attempt 1 had written the whole
+change, committed twice, never pushed, opened no pull request and left no comment
+saying so. `bc-5e85` was told by its own bead to wait for `bc-1eru`; instead it ran four
+more calls and found `bc-1eru`'s own pull request naming `bc-5e85` in its *body* as the
+thing it does **not** fix — so the work was owed after all, and `--head` alone could
+never have found that, since it never reads the text. `bc-y3qk.4` asked the same
+question of its family with a third tool set, and its one hit was a worktree already
+moved into the attic.
+
+```
+b7e-prior -w beadcause -b bc-zjab.10             the printed report
+b7e-prior -w beadcause -b bc-zjab.10 --family    also check every other child of its tracker parent
+b7e-prior -w beadcause -b bc-zjab.10 --json      the same facts, machine-readable
+```
+
+**This is not `b7e-landed`, which answers "is it on `main`".** Every case above is work
+that is *not* on `main`: unpushed commits on a live branch, an open pull request, a
+retired worktree, a sibling's branch. `b7e-prior` says what exists and leaves the
+verdict to the reader — a branch naming a bead is not proof the work is missing (this
+repo carries dozens of unmerged branches, most of them superseded by a sibling's merged
+pull request), and a worktree naming it is not proof the work is done.
+
+**One block per bead, four kinds of evidence**, each read off the ground truth rather
+than off anything a bead's own prose claims: every worktree — live *and* retired — and
+every branch owning the bead's tag (`lib/notinmain.js`'s `ownsBranch`, the one rule the
+whole repo uses to say a branch belongs to a bead), with whether it is pushed and how
+far ahead of `main`; every commit on any ref naming the bead (`git log --all
+--extended-regexp --grep=…`, word-bounded, re-checked in JS with `lib/reap.js`'s
+`namesBead`); every pull request that is either on one of those branches or names the
+bead in a title or body a plain `--head` lookup would never reach.
+
+**`git worktree list --porcelain` already answers "live or retired" in one call**, and
+that is the reuse this is built on rather than a second command against the attic.
+Retiring a worktree is `git worktree move`, not `remove` — a retired entry is still a
+registered worktree, only under `.claude/worktrees-retired/` instead of
+`.claude/worktrees/`, so the two are told apart by a path prefix and nothing else has to
+be asked. (A worktree that was fully `git worktree remove`d, or an attic entry old
+enough that `lib/tidy.js`'s `expireRetired` has taken it, leaves nothing here to find —
+which is the correct reading of "gone", not a gap in this command.)
+
+**Built almost entirely out of `lib/notinmain.js` and `lib/pr.js`, on purpose.**
+`tagOf`/`ownsBranch`/`worktreeBranches`/`commitsAhead` were already exported there for
+the same branch-to-bead question; `tipOf` and `pickBase` were private and are exported
+now because this is the second caller. `lib/pr.js`'s `list(dir, { head })` is the same
+call `lib/notinmain.js`'s `githubState` makes, asked once per branch the bead owns.
+`list()` gained a `search` option for this bead — `list(dir, { search: '<id>
+in:title,body' })` — which is GitHub's own issue-search syntax passed straight through
+as `--search`, verified live against this repo: it correctly surfaces PR #488 for
+`bc-5e85`, opened for `bc-1eru`'s own branch, entirely from its body text.
+
+`Bash(b7e-prior:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`: every path through it is `bd show` (plus `bd export` under `--family`)
+and `git`/`gh` reads, nothing that writes anywhere. See `bin/b7e-prior`, `lib/prior.js`
+and `test/b7eprior.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
