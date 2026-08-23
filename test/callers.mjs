@@ -160,6 +160,46 @@ check('a real method definition still verifies against the stricter body check',
   assert.equal(defs[0].label, 'method');
 });
 
+check('a quote inside a regex literal does not run the body to the end of the file', () => {
+  // The bc-36xx.24 round-1 regression, reduced from lib/beadfiles.js:130. The body walk is
+  // a hand-rolled scanner, so the `"` in the regex used to open a string that closed at the
+  // NEXT quote — three lines down, inside an unrelated string — leaving endLine pointing at
+  // the end of the file and findCallers skipping every real call site in between.
+  const src =
+    "function normalize(raw) {\n" +
+    "  return raw.replace(/^[\"']|[\"']$/g, '');\n" +
+    "}\n" +
+    "\n" +
+    "function other() {\n" +
+    "  return normalize('x');\n" +
+    "}\n";
+  const defs = callers.definitionsFor('normalize', 'lib/a.js', src);
+  assert.equal(defs.length, 1);
+  assert.equal(defs[0].startLine, 1);
+  assert.equal(defs[0].endLine, 3, `body ran to line ${defs[0].endLine}, swallowing the caller below it`);
+});
+
+check('a { } quantifier inside a regex literal does not unbalance the brace count', () => {
+  const src = "function pad(s) {\n  return s.replace(/\\d{2,3}/g, '');\n}\n";
+  const defs = callers.definitionsFor('pad', 'lib/a.js', src);
+  assert.equal(defs.length, 1);
+  assert.equal(defs[0].endLine, 3);
+});
+
+check('blankRegexLiterals spaces out a regex and leaves every other offset alone', () => {
+  const src = "const re = /a\"b/;\nconst s = \"keep\";\n";
+  const out = callers.blankRegexLiterals(src);
+  assert.equal(out.length, src.length, 'must stay the same length or line numbers lie');
+  assert.equal(out.split('\n').length, src.split('\n').length);
+  assert.ok(!out.includes('/a'), 'the regex should be gone');
+  assert.ok(out.includes('"keep"'), 'strings are NOT blanked by this pass');
+});
+
+check('blankRegexLiterals hands back unparseable text unchanged', () => {
+  const src = 'function ( { this is not javascript\n';
+  assert.equal(callers.blankRegexLiterals(src), src);
+});
+
 /* ===================================================================== *
  * 3. occurrencesFor — call / reference / import / comment classification
  * ===================================================================== */
@@ -174,6 +214,38 @@ check('a call is classified "call"', () => {
 check('an optional call (?.() ) is also classified "call"', () => {
   const occ = callers.occurrencesFor(tree('occ-optcall', { 'lib/a.js': 'x.foo?.(1);\n' }), ['lib/a.js'], { name: 'foo' });
   assert.deepEqual(occ.map((o) => o.kind), ['call']);
+});
+
+check('a dotted target is found through a chain wrapped across lines', () => {
+  // 164 files here wrap a chain. A newline used to end the chain window outright, so
+  // `views.mark` matched the single-line call at public/inboxfilter.js and nothing else —
+  // the same silent miss as a regex-desynced body, one line-break wide.
+  const occ = callers.occurrencesFor(
+    tree('occ-wrapchain', { 'lib/a.js': 'window.beadcause\n  ?.views\n  ?.mark?.(id);\n' }),
+    ['lib/a.js'],
+    { name: 'mark', parentSegment: 'views' },
+  );
+  assert.deepEqual(occ.map((o) => o.kind), ['call']);
+});
+
+check('a chain wrapped with the dot trailing the previous line is found too', () => {
+  const occ = callers.occurrencesFor(
+    tree('occ-trailingdot', { 'lib/a.js': 'window.views.\n  mark(id);\n' }),
+    ['lib/a.js'],
+    { name: 'mark', parentSegment: 'views' },
+  );
+  assert.deepEqual(occ.map((o) => o.kind), ['call']);
+});
+
+check('a semicolon-less statement break is still a boundary, not a chain', () => {
+  // The reason `\n` was a boundary in the first place: JavaScript needs no semicolon, so
+  // `const a = foo` / `views2.mark(id)` are two statements and `views` must NOT match here.
+  const occ = callers.occurrencesFor(
+    tree('occ-asi', { 'lib/a.js': 'const a = views\nmark(id);\n' }),
+    ['lib/a.js'],
+    { name: 'mark', parentSegment: 'views' },
+  );
+  assert.deepEqual(occ, []);
 });
 
 check('a static import binding is classified "import"', () => {

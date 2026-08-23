@@ -18530,6 +18530,32 @@ is right for "does this text mention X anywhere" and wrong here, where a call si
 number *is* the answer. `blankNonCodeNaive`, the original hand-rolled scanner, stays only
 as the fallback for text `acorn` cannot parse at all.
 
+**The one place a hand-rolled walk survives is fed a regex-blanked copy of the file.**
+Finding a *definition's extent* — where its body opens and closes — still uses the
+`findBody`/`matchBrace` walk borrowed from `bin/b7e-def`, because that walk steers by the
+`//`, `/*` and quote characters `blankNonCode` would have removed. Round-one review of
+`bc-36xx.24` caught what that costs: a regex literal is exactly what such a scanner cannot
+read. `/^["']|["']$/` (real, `lib/beadfiles.js:130`) hands it a `"` that opens a string
+closing at some later, unrelated quote, so the function's `endLine` ran to the end of the
+file; `findCallers` then skipped that entire span as "the definition's own body" and
+`b7e-callers normalizeEntry` answered `no reference found anywhere searched` with the
+caller sitting nine lines below the definition. A `{2,3}` quantifier unbalances the brace
+count the same way. `acorn` already knew where every regex literal was, so
+`blankRegexLiterals` now spaces them out — same length, same line numbers, strings and
+comments untouched — and the body walk runs over that. This mattered more than an ordinary
+bug: the whole argument for a verdict that is *never a shrug* is that a shrug at least
+invites a second look, and a wrong `no reference found anywhere searched` does not.
+
+**A wrapped chain still counts as one chain.** `window.beadcause\n  ?.views\n  ?.mark?.(x)`
+is a real call to `views.mark`, and 164 files here wrap a chain like that. The parent-segment
+window originally stopped at any newline, which made every one of them invisible — the same
+silent-miss class as the regex bug, one line break wide. It cannot simply stop treating a
+newline as a boundary, because JavaScript requires no semicolon and `const a = foo` followed
+by `views.mark(x)` is two statements, not one chain. So a newline is crossed only where the
+chain demonstrably continues across it: the first non-space after it opens with `.` or `?.`,
+or the last non-space before it closes with one. Neither can begin or end a statement; a
+bare identifier on the next line still cuts.
+
 **A dotted target (`views.mark`) is disambiguated by its immediate parent, not resolved
 by a parser.** `mark` alone is not distinctive — this repo defines a same-named `mark`
 for a review pill's emoji, a duplicate bead, a farblock target, several others — so
