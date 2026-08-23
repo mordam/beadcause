@@ -11820,6 +11820,19 @@ the ids in hand rather than against a pattern is deliberate: a bead-id regex is 
 over](#which-bead-a-pull-request-is-for), and a question about one child of an epic would
 flag the epic and every other child of it. Nothing here ever truncates, so it cannot.
 
+**A `human` *epic* is not a question, and it is the one thing excluded.** Measured against
+the live beadcause tracker on 2026-08-23: 130 held beads, 17 open `human` beads, four of
+them P0/P2 epics — and those four produced *every* false positive there was, three
+unrelated held beads flagged because `bc-9d37`'s and `bc-rfnr.9`'s notes happen to mention
+them. That is not a tuning problem. A `human` epic is a **standing board card**: the epic
+*is* the work, the label is what puts it on the P0 board,
+and its notes are an advocate's running log naming every bead it has touched this week. A
+`human` task, bug or decision is the other thing entirely — somebody asking about
+something, once, and naming what they mean. One line of exclusion took the same
+measurement from four flags to one, and the one is true: bc-xl7n.77.1 on bc-xl7n.77.2. The
+difference matters more than it sounds, because a row that cries wolf is a row you learn to
+scroll past, which costs this whole section what it is for.
+
 It is **one `bd human list` per workspace that has a row in the queue**, on the
 `questions:<workspace>` key [the inbox already keeps warm](#what-is-on-it-and-what-is-deliberately-not) —
 so on a running daemon this costs no spawn at all, and on a cold one it pays for a read
@@ -12126,8 +12139,16 @@ get it wrong lives: read too loosely and rows cry wolf until you learn to scroll
 them, read too tightly and the screen draws nothing, which is indistinguishable from
 nobody having asked. It pins the dotted-child trap in both directions, that all five text
 fields are read, that a question naming only itself is about nothing, that several
-questions come loudest first and bounded, that only the workspaces with rows in the queue
-are asked at all, and that the answer is kept on the key `allQuestions()` writes.
+questions come loudest first and bounded, that a `human` epic never flags a row while a
+task, bug or decision does, that only the workspaces with rows in the queue are asked at
+all, and that the answer is kept on the key `allQuestions()` writes.
+
+`node scripts/endorse-check.mjs` is the half only a browser can make, and it is the
+acceptance the bead was written with: that both lines are on the row **folded**, that the
+question names its id and what it asks, that the comment is quoted with whoever said it,
+that the rows nobody asked about carry nothing at all — and that all of it was drawn off
+the one sweep the page had already made, because a row that had to fetch its own thread
+would raise the flag a second after the thumb had gone.
 
 `node test/discuss.mjs` covers the conversation, and every assertion in it is a way the
 thread could quietly decide something: that the comment is the *only* write and the

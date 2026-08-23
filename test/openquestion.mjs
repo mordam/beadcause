@@ -25,11 +25,16 @@
  *    advocate console actually produces.
  * 3. **A question that names only itself is not about anything else.** A held bead can carry
  *    `human`, which puts it in both lists at once.
- * 4. **Loudest first, and bounded.** A row is a row.
- * 5. **A workspace that could not be read leaves `null`, never `[]`.** `[]` is the sentence
+ * 4. **A `human` epic is a board card, not a question.** Measured against the live tracker:
+ *    four of seventeen open `human` beads were epics, and those four produced *every* false
+ *    positive, because an epic's notes are an advocate's running log naming every bead it
+ *    has touched. One line of exclusion took the same measurement from four flags to one
+ *    true one.
+ * 5. **Loudest first, and bounded.** A row is a row.
+ * 6. **A workspace that could not be read leaves `null`, never `[]`.** `[]` is the sentence
  *    *nobody has asked about this bead*, and saying it over a `bd` call that never came back
  *    is exactly the failure this file exists to end.
- * 6. **Only the workspaces with rows in the queue are read at all.** Seven repos and three
+ * 7. **Only the workspaces with rows in the queue are read at all.** Seven repos and three
  *    held beads in one of them is one `bd human list`, not seven.
  */
 import assert from 'node:assert/strict';
@@ -37,6 +42,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -139,6 +146,34 @@ await check('the question lands on the row it names, and on no other', async () 
   assert.deepEqual(rows[1].questions, [], 'nobody asked about aa-two, and the row has to be able to say so');
 });
 
+await check('a human epic is a board card and never flags a row', async () => {
+  cache.clear();
+  const rows = [row('alpha', 'aa-one')];
+  // An advocate's running log on a standing P0 names every bead it has touched this week.
+  // Measured on the live tracker before this exclusion existed: four `human` epics between
+  // them produced every false positive there was.
+  const bd = fakeBd({
+    alpha: [
+      ask('aa-epic', {
+        issue_type: 'epic',
+        notes: 'This week: aa-one, aa-two, and a dozen others were touched by the sweep.',
+      }),
+    ],
+  });
+  await addOpenQuestions(bd, [ALPHA], rows);
+  assert.deepEqual(rows[0].questions, [], 'a row that cries wolf is a row you learn to scroll past');
+});
+
+await check('but a task, bug or decision carrying human is a question and does flag', async () => {
+  for (const kind of ['task', 'bug', 'decision', undefined]) {
+    cache.clear();
+    const rows = [row('alpha', 'aa-one')];
+    const bd = fakeBd({ alpha: [ask('aa-q', { issue_type: kind, description: 'about aa-one' })] });
+    await addOpenQuestions(bd, [ALPHA], rows);
+    assert.equal(rows[0].questions.length, 1, `a ${kind || 'typeless'} human bead is somebody asking`);
+  }
+});
+
 await check('a question that names only itself is about nothing on the queue', async () => {
   cache.clear();
   // A held bead carrying `human` is in both lists at once, which is the one way this could
@@ -222,7 +257,7 @@ await check('the answer is kept on the key the inbox already keeps warm', async 
   assert.equal(again[0].questions.length, 1, 'and still answers, off the keep');
 });
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
 process.exit(failures ? 1 : 0);

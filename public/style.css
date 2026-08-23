@@ -6470,7 +6470,7 @@ button.viewpill { cursor: pointer; }
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; min-width: 0;
   margin-top: 2px; padding: 3px 8px;
   border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
-  border-radius: 8px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--warn) 10%, transparent);
   font-size: 12px; font-weight: 600; color: var(--text);
 }
