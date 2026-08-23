@@ -1,0 +1,130 @@
+#!/usr/bin/env node
+/**
+ * `b7e-lint` — say whether the file you just wrote survived being written.
+ *
+ *     b7e-lint [path...]      lint the given files; with none, the diff against the
+ *                              merge base plus every uncommitted and untracked change
+ *     b7e-lint --dir <root>   "this tree" is <root>, not wherever this file resolves from
+ *     b7e-lint --json         one object per dirty file instead of the printed report
+ *
+ * bc-khoe.30.18: three sessions each wrote a large, prose-heavy `lib/` module in one
+ * shot and then worked out by hand whether the prose had broken the code — `bc-4r10.4`
+ * found 12 smart-quote apostrophes with `grep`, normalised them with a blind `sed`
+ * that closed three single-quoted string literals early, and found out from a
+ * `SyntaxError` stack, twice. `bc-4r10.13` swept backticks into the exact character
+ * `bc-4r10.4` had to strip. `bc-4r10.3` hunted NUL bytes by hand because
+ * `test/filter.mjs`'s own check never runs over `test/` or `bin/` at all. `lib/lint.js`
+ * carries all four checks in one pass; this file is only the argv parsing, the default
+ * file list and the printing, the same split every other `b7e-*` command uses.
+ *
+ * Root resolution matters here specifically: `HERE` (this file's own directory) always
+ * resolves to the *main checkout*'s `lib/`, because `lib/foundation.js` puts the main
+ * checkout's `bin/` on every agent's `PATH` regardless of which worktree the caller is
+ * actually sitting in. A worker linting the file it just wrote wants *its own worktree's*
+ * copy, not the main checkout's — so root is `git rev-parse --show-toplevel` against
+ * `process.cwd()`, not a path built from `import.meta.url`, unless `--dir` overrides it.
+ *
+ * Exit codes: `0` every file given was clean, or there was nothing to lint; `1` at least
+ * one file has a finding; `2` refused — bad usage, or `--dir` does not resolve.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { defaultChangedFiles, toRepoRel } from '../lib/affected.js';
+import { lintFile, isClean } from '../lib/lint.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? null : argv[at + 1];
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-lint [path...]      lint the given files; with none, the diff against the merge base',
+      'b7e-lint --dir <root>   "this tree" is <root>, not wherever this file resolves from',
+      'b7e-lint --json         one object per dirty file instead of the printed report',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const JSON_MODE = has('--json');
+const DIR = value('--dir');
+
+const gitQuiet = (cwd, args) => {
+  try {
+    return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
+};
+
+const cwd = process.cwd();
+let ROOT;
+if (DIR) {
+  ROOT = path.resolve(DIR);
+  if (!fs.existsSync(ROOT) || !fs.statSync(ROOT).isDirectory()) {
+    console.error(`[b7e-lint] refusing — --dir does not resolve to a directory: ${DIR}`);
+    process.exit(2);
+  }
+} else {
+  ROOT = gitQuiet(cwd, ['rev-parse', '--show-toplevel']) || cwd;
+}
+
+// With `--dir`, a bare path on argv is relative to *that* tree, not to wherever this
+// process actually runs from — the whole point of `--dir` is testing against a tree this
+// session is not sitting in. See bin/b7e-affected, which this mirrors.
+const cwdBase = DIR ? ROOT : cwd;
+const paths = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--dir');
+const files = paths.length ? paths.map((p) => toRepoRel(ROOT, cwdBase, p)) : defaultChangedFiles(ROOT);
+
+if (!files.length) {
+  process.exit(0);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+let dirty = false;
+const jsonOut = [];
+
+for (const rel of files) {
+  const result = lintFile(ROOT, rel);
+  if (!result.exists || result.skipped) continue;
+  if (isClean(result)) continue;
+  dirty = true;
+
+  if (JSON_MODE) {
+    jsonOut.push(result);
+    continue;
+  }
+
+  for (const cb of result.controlBytes) {
+    console.log(`${red(rel)}:${cb.line} control byte 0x${cb.byte.toString(16).padStart(2, '0')} at offset ${cb.offset}`);
+  }
+  for (const sp of result.smartPunct) {
+    const codeStr = `U+${sp.codePoint.toString(16).toUpperCase().padStart(4, '0')}`;
+    console.log(
+      `${amber(rel)}:${sp.line} smart punctuation ${JSON.stringify(sp.char)} (${codeStr} ${sp.name}) — ` +
+        `this repo's convention is a plain apostrophe, escaped inside a single-quoted string`,
+    );
+  }
+  for (const ap of result.badApostrophes) {
+    console.log(`${red(rel)}:${ap.line} apostrophe closes the single-quoted string early — escape it (\\') or the literal ends here`);
+  }
+  if (result.checkError) {
+    console.log(`${red(rel)}: node --check failed`);
+    for (const line of result.checkError.split('\n').slice(0, 6)) console.log(dim(`  ${line}`));
+  }
+  for (const p of result.shebangProblems) {
+    console.log(`${amber(rel)}: ${p}`);
+  }
+}
+
+if (JSON_MODE && jsonOut.length) console.log(JSON.stringify(jsonOut, null, 2));
+
+process.exit(dirty ? 1 : 0);

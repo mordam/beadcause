@@ -50,6 +50,7 @@
     "b7e-eyeball": "bin/b7e-eyeball",
     "b7e-gate": "bin/b7e-gate",
     "b7e-harness": "bin/b7e-harness",
+    "b7e-lint": "bin/b7e-lint",
     "b7e-orient": "bin/b7e-orient",
     "b7e-owes": "bin/b7e-owes.js",
     "b7e-prior": "bin/b7e-prior",

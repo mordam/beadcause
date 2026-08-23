@@ -34,6 +34,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { isControlByte } from '../lib/lint.js';
 import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -551,13 +552,17 @@ check(() => {
   // a NUL inside a template literal is legal JavaScript, runs perfectly, and turns the
   // file binary — grep then matches nothing in it and says nothing about why. A bad
   // half-hour for a person, and a silently wrong answer for an agent.
+  //
+  // `isControlByte` is imported from lib/lint.js (bc-khoe.30.18's `b7e-lint`) rather than
+  // reimplemented here, so this check and that command's own control-byte scan cannot
+  // silently drift apart into two different definitions of "bad byte".
   const bad = [];
   for (const root of ['lib', 'public']) {
     const dir = path.join(HERE, '..', root);
     for (const f of fs.readdirSync(dir)) {
       if (!/\.(js|mjs)$/.test(f)) continue;
       const buf = fs.readFileSync(path.join(dir, f));
-      const at = buf.findIndex((b) => b < 32 && b !== 9 && b !== 10 && b !== 13);
+      const at = buf.findIndex((b) => isControlByte(b));
       if (at >= 0) bad.push(`${root}/${f} byte ${at} = 0x${buf[at].toString(16)}`);
     }
   }
