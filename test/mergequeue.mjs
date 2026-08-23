@@ -136,7 +136,7 @@ const fakePr = (
   } = {}
 ) => {
   const calls = { merges: [], updates: [], comments: [], approvals: [], reviews: [] };
-  return {
+  const api = {
     calls,
     view: async () => view,
     baseChecks: async () => base,
@@ -172,6 +172,24 @@ const fakePr = (
       return submitReview;
     },
   };
+  /**
+   * `mergeability`, lib/pr.js — one `view` at `timeoutMs: 0`, plus the one thing the raw
+   * read cannot say: whether GitHub has answered at all. That reading is what the queue's
+   * resolving sweep now turns on (bc-5mdsw), so a fake without it would leave every
+   * scenario below asserting the old behaviour.
+   *
+   * Through `api.view` rather than the row closed over above, so a scenario that replaces
+   * `view` — the rate-limited read further down — replaces both.
+   */
+  api.mergeability = async (dir, n) => {
+    const pr = await api.view(dir, n);
+    return {
+      pr,
+      waited: 0,
+      unresolved: String(pr.state || '').toUpperCase() === 'OPEN' && String(pr.mergeable || '').toUpperCase() === 'UNKNOWN',
+    };
+  };
+  return api;
 };
 
 const GREEN = { failed: [], failing: 0, pending: 0, total: 3, state: 'passing' };
@@ -475,6 +493,115 @@ await check('a conflict with nowhere to open a window is a refusal that says so'
   assert.deepEqual(out.refused, ['zz-merge']);
   const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
   assert.match(queueState({ notes: written.notes }).refused, /conflicts with/);
+});
+
+/* --------------------------------- the resolver that ends without resolving */
+
+/**
+ * bc-5mdsw, and the two halves of one loop.
+ *
+ * A conflict a resolver *declines* is the honest ending its brief offers it — both sides
+ * load-bearing, only Adam can say which wins — and until this landed the queue could not
+ * tell that ending apart from work in progress. `resolving` came off only when the branch
+ * stopped conflicting, a resolver spent no attempt, so a branch that never stopped
+ * conflicting had no route to `MAX_ATTEMPTS` and no route to the card. #488 collected nine
+ * windows on byte-identical state and escaped only because its conflict eventually turned
+ * into a red check, which is a different path and one that does record.
+ */
+await check('A BRANCH GITHUB HAS NOT ANSWERED ABOUT YET IS NOT ONE ITS RESOLVER FIXED', async () => {
+  // The read that produced eight "no longer conflicts" lines for one branch that kept
+  // conflicting: GitHub answers UNKNOWN for every open pull request for a window right
+  // after a merge lands, which is exactly when this sweep runs.
+  const unknown = openPr({ mergeable: 'UNKNOWN', mergeState: 'UNKNOWN' });
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 1, resolving: true }) })] });
+  const prApi = fakePr(unknown);
+  const out = await run(bd, prApi, { resolverOn: async () => false });
+  assert.deepEqual(out.reclaimed, [], 'a non-answer was read as the resolver having finished');
+  assert.deepEqual(out.refused, [], 'a non-answer was read as the resolver having given up');
+  assert.equal(prApi.calls.merges.length, 0);
+  assert.equal(bd.calls.updates.length, 0, 'it rewrote the state block over an answer it never got');
+});
+
+await check('A RESOLVER THAT ENDED WITHOUT RESOLVING SPENDS AN ATTEMPT', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 0, resolving: true, refused: 'the branch conflicts with its base' }) })] });
+  const asked = [];
+  const out = await run(bd, fakePr(dirty), { resolverOn: async (entry) => (asked.push(entry.spec.number), false) });
+  assert.deepEqual(asked, [42], 'the registry was never asked whether a window is still on it');
+  assert.deepEqual(out.refused, ['zz-merge']);
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  const state = queueState({ notes: written.notes });
+  assert.equal(state.attempts, 1, 'the stand-down still spent nothing, so nothing carries it to a card');
+  assert.equal(state.declined, true);
+  assert.equal(state.resolving, false);
+  // Factual, and the same sentence every tick — `record` counts the *same* refusal, so a
+  // sentence that varied would restart the three attempts on each one.
+  assert.match(state.refused, /still conflicts with .main. and no resolver is on it any more/);
+});
+
+await check('and one a resolver is still on is left exactly where it is', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 1, resolving: true }) })] });
+  const out = await run(bd, fakePr(dirty), { resolverOn: async () => true });
+  assert.deepEqual(out.refused, []);
+  assert.equal(bd.calls.updates.length, 0, 'it spent an attempt over a window that is still open');
+});
+
+await check('and with nothing wired up to ask, the flag stays exactly as it did before', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 1, resolving: true }) })] });
+  const out = await run(bd, fakePr(dirty));
+  // Not knowing whether a window is open must never be read as knowing that none is.
+  assert.deepEqual(out.refused, []);
+  assert.equal(bd.calls.updates.length, 0);
+});
+
+await check('A CONFLICT ONE RESOLVER DECLINED IS NOT HANDED ANOTHER, AND EACH TICK COSTS AN ATTEMPT', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  let opened = 0;
+  const opts = { openResolver: async () => (opened += 1, true), resolverOn: async () => false };
+
+  // Tick one: the stand-down is noticed off the registry and the door is shut.
+  const first = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 0, resolving: true }) })] });
+  await run(first, fakePr(dirty), opts);
+  const after = first.calls.updates.find((u) => u.id === 'zz-merge').notes;
+  assert.equal(queueState({ notes: after }).attempts, 1);
+
+  // Tick two, on what tick one actually wrote — which is the only honest way to assert
+  // that the sentence is stable, and a sentence that varied would restart the count.
+  const second = fakeBd({ rows: [bead({ notes: after })] });
+  const out = await run(second, fakePr(dirty), opts);
+  assert.equal(opened, 0, 'a second window re-derives the same hand-back at the cost of a whole session');
+  assert.deepEqual(out.raised, []);
+  assert.deepEqual(out.refused, ['zz-merge']);
+  const state = queueState({ notes: second.calls.updates.find((u) => u.id === 'zz-merge').notes });
+  assert.equal(state.attempts, 2, 'the sentence is the same one, so the count carries');
+  assert.equal(state.declined, true);
+});
+
+await check('and three of those is the card the stand-down should have produced', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  const spent = bead({ notes: withQueueBlock('', { attempts: MAX_ATTEMPTS, declined: true, refused: 'the branch still conflicts' }) });
+  const bd = fakeBd({ rows: [spent] });
+  const raised = [];
+  const out = await run(bd, fakePr(dirty), { raise: async (entry, why) => (raised.push(why), 'zz-card') });
+  assert.deepEqual(out.stuck, ['zz-merge']);
+  assert.equal(raised.length, 1, 'the loop this bead is named for still has no exit');
+});
+
+await check('and the flag comes off the moment the branch stops conflicting', async () => {
+  const bd = fakeBd({
+    rows: [bead({ notes: withQueueBlock('', { attempts: 1, declined: true, refused: 'the branch still conflicts' }) })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(openPr());
+  await run(bd, prApi);
+  // Adam resolved it himself, or `main` moved so that it no longer collides. Left standing,
+  // the flag would refuse a resolver to a *new* conflict months later.
+  assert.equal(prApi.calls.merges.length, 1);
+  const written = bd.calls.updates.filter((u) => u.id === 'zz-merge');
+  assert.ok(written.length, 'nothing took the sentence back');
+  assert.equal(queueState({ notes: written[0].notes }).declined, false);
 });
 
 /* ------------------------------------------- the window that delivered it */

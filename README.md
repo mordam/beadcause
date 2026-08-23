@@ -18869,7 +18869,11 @@ Nine things follow, and they are the whole of the change:
   window is the existing one, with the existing one-per-pull-request registry. What the
   agent in it is told is the thing that makes this job different from every other agent
   here: *you did not write this code*, so resolving a conflict by keeping whichever side
-  makes the merge go through is the one failure that looks exactly like success.
+  makes the merge go through is the one failure that looks exactly like success. And a
+  hand-back now *sticks*: the queue notices the window ended without making the branch
+  mergeable and
+  [spends an attempt on it](#a-conflict-a-resolver-will-not-settle-becomes-a-card), which
+  is what carries a conflict only you can settle to a card instead of to another window.
 - **And it brings the merge back down to this Mac afterwards.** The merge is at GitHub, so
   `origin/main` has it the instant it lands and the laptop's own `main` does not — until
   something happens to fetch: a deploy, a merge from the board, a person. Nothing
@@ -19076,6 +19080,72 @@ shares a workspace with thirty-nine others that are quiet.
 block, naming the bead that is the fix — which is what puts it under *Resolving issues* on
 the queues board, whose note is already the right one: *something outside the queue has to
 move before it can merge*.
+
+### A conflict a resolver will not settle becomes a card
+
+A conflicted branch gets [a resolver](#a-conflict-is-work-so-it-gets-a-session), and that
+window has an honest ending its brief offers it in as many words: *both sides are
+load-bearing, and only you can say which one wins.* It stands down and says why on the pull
+request. Nothing in the queue could hear it.
+
+The reason is one flag. `resolving` is written when a window goes **up**, and the only thing
+that ever took it off was the branch ceasing to conflict — so *a resolver is working on it*
+and *a resolver looked at it and declined* were the same state on the bead, and a branch
+whose conflict was never going to resolve itself sat in the first of them forever. The
+retry budget could not help either, because a resolver spends none of it: `MAX_ATTEMPTS`
+counts refusals, opening a window is not one, and the three attempts that carry a branch to
+a card were therefore unreachable down the whole conflicted path. #488 collected **nine**
+windows on byte-identical state — the branch pinned at the same commit since the first one —
+each costing a full session to re-derive the same hand-back, and it escaped in the end only
+because its conflict eventually turned into a red check, which is a different path and one
+that *does* record.
+
+The loop had a second half that made it faster than one window per stand-down. GitHub
+computes mergeability asynchronously and answers `UNKNOWN` for every open pull request for a
+window right after a merge lands — which is exactly when this sweep runs — and the check
+that cleared the flag read anything that was not `CONFLICTING` as *no longer conflicts*. So
+a still-conflicting branch was handed back to the queue on a **non-answer**, went round the
+conflicted path again, and got another window. `lib/pr.js` has had the answer to that since
+the first week — `mergeability` waits the window out and reports `unresolved` rather than
+guessing, and `lib/prsweep.js` routes every candidate through it — and the merge queue had
+simply never adopted it. It does now, at a zero timeout, because [a tick does not
+wait](#landing-work--a-branch-a-pull-request-and-a-merge-queue): the question is *has GitHub
+said anything*, and no is a perfectly good answer that costs one tick.
+
+So the queue asks the one thing the flag cannot say. `resolveFor`'s registry knows which
+pull requests have a window on them and which are in line for one of the two slots; a branch
+that is in neither, and that GitHub still calls conflicting, has had its resolver **end
+without resolving**. That records a refusal like any other — a spent attempt, a sentence on
+the bead, and `declined` alongside it so the door does not open again. Three of those and
+`raiseMergeCard` hands it to you, which is what the three attempts were always for.
+
+- **The sentence says only what was observed.** *The branch still conflicts with `main` and
+  no resolver is on it any more — the window that was opened on it ended without making it
+  mergeable.* Nothing here watched a session decide anything, and the queue is in no
+  position to claim an intent. It also has to read the **same** every tick: attempts count
+  the *same* refusal, so quoting the resolver's own `RESOLVER_SAYS` comment — a different
+  sentence each round — would restart the count and never reach the card.
+- **Every unreadable answer means somebody is on it.** No checkout, a `gh` that will not
+  answer, a workspace whose unit cannot be resolved: each of those leaves the flag exactly
+  where it was. The direction is the whole of the safety, because the other one spends an
+  attempt on a branch a window may still be sitting in — and `find` in `lib/resolvers.js`
+  already believes a handle-less record for half an hour, so a daemon restart does not read
+  as every resolver having vanished.
+- **`declined` is a sentence the queue can take back.** The first read that says the branch
+  no longer conflicts clears it, on [the hold's](#when-main-itself-is-red--the-queue-holds-and-something-is-put-on-the-fix)
+  reasoning: you may resolve it yourself, or `main` may move so that it no longer collides,
+  and a flag left standing would refuse a resolver to a *new* conflict months later over a
+  window that stood down from a different one.
+- **And `/merge` re-arms one rather than merely approving it.** A declined bead still looks
+  perfectly queued — the label, the assignee, attempts to spare — so the obvious reading
+  made the tap record an approval and change nothing, on the single bead whose whole point
+  is that only you can unstick it. It is admitted instead: the flag goes, the attempts reset,
+  and the next tick opens a resolver on a conflict a person has now looked at.
+
+`lib/mergebead.js` carries the field, `lib/mergequeue.js` decides, `lib/server.js` wires the
+registry read beside the one that opens the window, and `test/mergequeue.mjs` drives both
+halves — including two consecutive ticks on what the first one actually wrote, which is the
+only honest way to assert that the sentence is stable enough to count.
 
 ### The reviewer — a seventh agent kind, and the diff nobody reads
 
