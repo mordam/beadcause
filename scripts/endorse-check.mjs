@@ -56,7 +56,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 /* ---------------------------------------------------------------- fixtures */
 
 /** A held bead as /api/unendorsed hands it over — a card's vocabulary, not bd's. */
-const bead = (workspace, id, at, from) => ({
+const bead = (workspace, id, at, from, later = {}) => ({
   key: `${workspace}/${id}`,
   workspace,
   id,
@@ -75,6 +75,13 @@ const bead = (workspace, id, at, from) => ({
   updatedAt: at,
   commentCount: 0,
   from: from ? { id: from, title: 'the work it came out of', status: 'open', kind: 'discovered' } : null,
+  // What was learned *after* the bead was filed, and the only two fields on this payload
+  // that were not written by the filing agent. Null and empty by default, because that is
+  // what most rows carry and a fixture where every row is flagged proves nothing about a
+  // row that is.
+  latestComment: null,
+  questions: [],
+  ...later,
 });
 
 /* A function rather than a literal, because the Endorse all section needs a *list* to
@@ -83,7 +90,27 @@ const bead = (workspace, id, at, from) => ({
 const seed = () => [
   bead('alpha', 'aa-new', '2026-08-09T10:00:00Z', 'aa-src'),
   bead('beta', 'bb-mid', '2026-08-05T10:00:00Z', null),
-  bead('alpha', 'aa-old', '2026-08-01T10:00:00Z', 'aa-src'),
+  /**
+   * The bead bc-xl7n.76.2 is about, in miniature.
+   *
+   * bc-wi3s was finished work: an advocate had run the suite, found it green, written that
+   * on the bead as a comment, and filed an open P1 recommending it be closed rather than
+   * endorsed. The endorse sweep took it anyway in a batch of 56, because the row it drew
+   * said neither thing. Both now ride on the payload, so both have to reach the screen
+   * *folded* — the press that misfires is the one made without opening anything.
+   */
+  bead('alpha', 'aa-old', '2026-08-01T10:00:00Z', 'aa-src', {
+    commentCount: 2,
+    latestComment: {
+      author: 'bc-xl7n',
+      at: '2026-08-09T08:00:00Z',
+      text: 'I ran the suite on main and it is green — this is finished work.',
+      truncated: false,
+    },
+    questions: [
+      { key: 'alpha/aa-ask', workspace: 'alpha', id: 'aa-ask', title: 'Close aa-old rather than endorsing it?', priority: 1 },
+    ],
+  }),
 ];
 
 let BEADS = seed();
@@ -388,6 +415,43 @@ try {
   const head = await text();
   check('with a count at the top', /3 beads waiting on you/.test(head), head.slice(0, 50));
   check('and the bead each one was found under', /Found while working/.test(head));
+
+  /* ---- what was learned after the bead was filed, on the folded row ---- */
+
+  // The whole of bc-xl7n.76.2. Every other line on a folded row is the filing agent's own
+  // words; these two are what somebody concluded afterwards, and they are the only lines
+  // on the page that argue *against* the tap beside them. Asserted folded and with the
+  // sweep counter held still, because "you can see it if you open the row" is exactly the
+  // state a bulk endorse sails past.
+  const flagged = await evalJs(
+    `(() => { const el = document.querySelector('[data-row="alpha/aa-old"] .eq-ask'); return el ? el.textContent.replace(/\\s+/g, ' ').trim() : null; })()`
+  );
+  check('an open question naming a bead is on its folded row', /An open question names this bead/.test(flagged || ''), String(flagged));
+  check('and it names the question and what it asks', /aa-ask/.test(flagged || '') && /Close aa-old rather than endorsing it\?/.test(flagged || ''));
+
+  const said = await evalJs(
+    `(() => { const el = document.querySelector('[data-row="alpha/aa-old"] .eq-last'); return el ? el.textContent.replace(/\\s+/g, ' ').trim() : null; })()`
+  );
+  check('and the last thing anybody said about it, quoted', /this is finished work/.test(said || ''), String(said));
+  check('with whoever said it', /bc-xl7n/.test(said || ''));
+
+  check(
+    'both drawn off the one sweep the page has already made',
+    sweeps === 1,
+    `${sweeps} sweeps — a row that had to fetch its own thread would draw the flag a second too late`
+  );
+
+  const quiet = await evalJs(
+    `document.querySelectorAll('[data-row="alpha/aa-new"] .eq-ask, [data-row="beta/bb-mid"] .eq-ask').length`
+  );
+  check('and nothing at all on the rows nobody has asked about', quiet === 0, `${quiet} flags`);
+
+  // Two new lines on a row on a 393px screen, one of which deliberately *wraps* where
+  // everything else here truncates. A question that pushed the page sideways would be a
+  // warning you have to scroll to finish reading, on the one row you were meant not to
+  // skim.
+  const wide = await evalJs(`document.documentElement.scrollWidth - window.innerWidth`);
+  check('and the page still does not scroll sideways', wide <= 1, `${wide}px over`);
   await shot('list');
 
   /* ---- a row is the whole bead ---- */
