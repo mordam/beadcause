@@ -10962,6 +10962,41 @@ the record that a merge is sitting unshipped is worth more than the home nothing
 repo when nobody has looked at the board recently, and "this merged and has not shipped"
 keeps for five minutes.
 
+**Closing asks the tracker what is open; only filing asks the board.** The two halves of
+the sweep look opposite ways, and until bc-xl7n.108 both looked the same way. The board is
+trimmed to the **twelve** most recently settled rows per repo (`RECENT_MAX` in
+lib/prboard.js) because a board is a screen; the sweep then looped over exactly those rows
+and found each one's bead by number, which quietly made a display decision the rule for
+what could ever close. A merge pushed off the twelve by later merges was never visited
+again — not that tick and not any tick after it — and nothing logged a line, because
+there was no loop it could have fallen out of. On 2026-08-17 nine pull requests merged
+between 23:47 and 23:49, thirteen more merged by 23:54, and the nine sat open for four
+days until they were closed by hand. Thirteen is greater than twelve; that is the whole
+mechanism, and this repo merges in batches, so it is the ordinary case rather than a race.
+
+So each sweep now also walks the ship beads the tracker still has **open** and subtracts
+the numbers the board accounted for. Whatever is left is asked about directly — one
+`gh pr view` apiece, newest first, at most twenty per repo per tick and at most once every
+half hour per repo — and closed on exactly the evidence a board row is closed on. Three
+things about that are deliberate:
+
+- **Both bounds are on the asking, never on the answer.** What does not fit this tick is
+  named on the sweep's `skipped` lines and taken by the *next* one — a tick that left a
+  backlog does not wait out the half hour — so a long tail costs minutes and not beads. A
+  cap that silently dropped the rest is the bug being fixed, not a smaller version of it.
+  The half hour is there because a ship bead that is open is usually open for the reason
+  it exists (its merge is not live yet), and that answer changes when somebody deploys
+  rather than every five minutes; a bounded, stated delay is what this bug did not have.
+- **A row off the board can close a bead and cannot start a deploy.** Ship's queue is
+  `owedFor`, which counts board rows, so a batch that quietly carried a merge the queue
+  never counted would deploy a number the screen it came from does not show. Such a merge
+  is not stranded by that: it goes out with the next batch like anything else, and this
+  closes it when it does.
+- **The lookup is injected, not imported** — lib/prboard.js imports lib/release.js, so it
+  is passed in from lib/server.js, and a caller that passes none never asks GitHub about
+  anything. The close line says which side of the join found it, so the next four-day
+  silence is one `grep` rather than one census.
+
 **And the sweep says when it did not run.** On the morning of 2026-08-14 the queue filed
 nothing for roughly three hours while eight pull requests merged, and then caught the
 whole backlog up in one pass — six beads and one settle window, all at 09:23. The
