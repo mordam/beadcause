@@ -1,0 +1,133 @@
+#!/usr/bin/env node
+/**
+ * `b7e-chrome` — which headless Chromes this repo's checks left behind, and end them.
+ *
+ *     b7e-chrome                             list every one, at any age
+ *     b7e-chrome --reap                      end the ones at least an hour old
+ *     b7e-chrome --reap --older-than <mins>  end everything at least that old instead
+ *
+ * bc-ka5y.15.13: three sessions each hand-audited this Mac for a Chrome their own browser
+ * check had left running, and none of them could actually answer the question — "is this
+ * one mine?" A `pgrep -fl headless` matches the calling agent's own `claude` process as
+ * readily as a Chrome, a `pid` read a moment too late is one that already exited, and
+ * nothing distinguished a Chrome this repo's checks left from a Chrome belonging to
+ * another worktree, another session, or Adam's own browsing. `lib/strays.js` already
+ * carries the whole argument for telling those apart — a match needs `--headless=new`
+ * *and* a `--user-data-dir` under a `beadcause-` directory in `$TMPDIR` *and* an
+ * executable whose name contains "chrom", which is exactly specific enough to miss
+ * Adam's own Chrome (his profile lives in his home directory) and to miss the agent
+ * reading this (its command line is `claude`, not `chrom…`). This file is the CLI over
+ * that module, in the shape `bin/attic.js` has over `lib/attic.js`: the argument parsing
+ * and the exit code, and nothing else.
+ *
+ * **Listing takes no age filter, because the report is most of the value.** A check that
+ * just died is exactly as interesting as one that has been running since yesterday, and
+ * it is `--reap` that has to decide which of these actually get signalled.
+ *
+ * **`--reap` defaults to the same hour the daemon's own sweep will never go under**
+ * (`FLOOR_HOURS` in lib/strays.js — Adam's own ruling on this bead: "a check another
+ * session started thirty seconds ago is indistinguishable from a check that was
+ * abandoned thirty seconds ago, and the only thing that tells them apart is waiting").
+ * `--older-than <mins>` is the one way past that floor, for the case the ruling does not
+ * cover: an agent reaping the Chrome its own check just leaked seconds ago. **Getting
+ * this wrong is not free** — a live Chrome killed out from under a running check is what
+ * this whole file exists around: macOS counts a headless instance as a running
+ * `com.google.Chrome`, so once one is orphaned, opening Chrome.app only *activates* it —
+ * no window, and Cmd-Q apparently ignored. Read the age column before passing
+ * `--older-than`; it is a deliberate override, not a default.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { listChromes, reapChromes, FLOOR_HOURS, tmpRoot } from '../lib/strays.js';
+
+const USAGE = 'usage: b7e-chrome [--reap] [--older-than <mins>]';
+
+const die = (msg) => {
+  console.error(`b7e-chrome: ${msg}`);
+  process.exit(2);
+};
+
+let reap = false;
+let olderThanRaw = null;
+
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--reap') reap = true;
+  else if (a === '--older-than') olderThanRaw = argv[++i];
+  else if (a.startsWith('--older-than=')) olderThanRaw = a.slice('--older-than='.length);
+  else if (a === '-h' || a === '--help') {
+    console.log(USAGE);
+    process.exit(0);
+  } else die(`unknown argument: ${a}`);
+}
+
+if (olderThanRaw != null && !reap) die('--older-than only means something alongside --reap');
+
+let olderThanMin = null;
+if (olderThanRaw != null) {
+  olderThanMin = Number(olderThanRaw);
+  if (!Number.isFinite(olderThanMin) || olderThanMin < 0) {
+    die(`--older-than must be a number of minutes, got: ${olderThanRaw}`);
+  }
+}
+
+/** `ms` as the shortest of `Xm`, `XhYm` or `XdYh` — this runs in minutes, not days. */
+function fmtAge(ms) {
+  if (ms == null) return 'age unknown';
+  const s = Math.floor(ms / 1000);
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m`;
+  return `${Math.floor(s / 86400)}d${Math.floor((s % 86400) / 3600)}h`;
+}
+
+/** One reported line: pid, age, the prefix (and so which check), and the profile's fate. */
+function describe(c, outcome) {
+  const tag = path.basename(c.owns);
+  const disk = fs.existsSync(c.profile) ? 'profile on disk' : 'profile already gone';
+  const bits = [String(c.pid), fmtAge(c.ageMs), tag, disk];
+  if (outcome) bits.push(outcome);
+  return bits.join('  ');
+}
+
+try {
+  const root = tmpRoot();
+
+  if (!reap) {
+    for (const c of await listChromes({ root })) console.log(describe(c));
+    process.exit(0);
+  }
+
+  const olderThanMs = olderThanMin != null ? olderThanMin * 60_000 : FLOOR_HOURS * 3600_000;
+
+  // Taken before the reap, not read off its return value: a helper whose browser cascades
+  // it down is never itself signalled (see `killAll` in lib/strays.js), so the only way to
+  // report it honestly is to compare who was here against who is left, not who was sent a
+  // signal directly.
+  const before = await listChromes({ root });
+  const targeted = before.filter((c) => c.ageMs != null && c.ageMs >= olderThanMs);
+  if (!targeted.length) process.exit(0);
+
+  await reapChromes({ olderThanMs, root });
+  const stillThere = new Set((await listChromes({ root })).map((c) => c.pid));
+
+  // Only the profiles of things that actually went — a directory still holding a live
+  // Chrome, however old, is never on this list at all (see reapChromes' `keep`, which is
+  // exactly the set `stillThere` reconstructs here).
+  const gone = targeted.filter((c) => !stillThere.has(c.pid));
+  for (const dir of new Set(gone.map((c) => c.owns))) {
+    try {
+      await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 3 });
+    } catch {
+      /* a directory that will not go is a few megabytes the OS clears eventually, and it
+         must never be the thing that stops this from reporting what it did. */
+    }
+  }
+
+  for (const c of targeted) {
+    console.log(describe(c, stillThere.has(c.pid) ? 'refused the signal' : 'reaped'));
+  }
+  process.exit(0);
+} catch (err) {
+  die(err.message.split('\n')[0]);
+}
