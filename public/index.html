@@ -338,13 +338,12 @@
     The ledger — every bead this space has ever had, most recently touched first, and a
     pane of this document rather than the separate `/history` it used to be (bc-khoe.30.5).
 
-    The markup is history.html's, unchanged, minus the top bar and the pill row that page
-    drew for itself: the shell above already has both, which is most of the point. What
-    fills it is public/history.js, the same file that page loads, which registers with the
-    stager and builds this container when asked. `/history` is still a document and still
-    answers — a home-screen shortcut to it must keep working until bc-khoe.30.7 lands it
-    here — so that file has to run in either, and it decides which by asking whether this
-    document has panes.
+    The markup was history.html's, minus the top bar and the pill row that page drew for
+    itself: the shell above already has both, which is most of the point. What fills it is
+    public/history.js, which registers with the stager and builds this container when
+    asked. `/history` still answers — a home-screen shortcut, an old notification — but as
+    a redirect into `#history` now (bc-khoe.30.7), not a document; history.html itself and
+    the query-string half of history.js it went with are gone (bc-khoe.30.15).
 
     `id="hist-list"` rather than the `id="history"` it was, and the rename is not
     cosmetic: the hash that names this view is `#history`, and an element of that id in
