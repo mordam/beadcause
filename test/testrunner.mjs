@@ -24,7 +24,11 @@
  *   directory is;
  * - the order that matters is kept — lockfile, then selftest, then the tail, then
  *   test-swap last;
- * - a failure stops the run, propagates its exit code, and does not run what follows.
+ * - a failure stops the run, propagates its exit code, and does not run what follows;
+ * - a passing run leaves nothing behind in `$TMPDIR`, and a failing one leaves exactly
+ *   the one directory it says it kept — bc-xl7n.105, which was 234 suites leaking a
+ *   scratch directory a day until `TMPDIR` became this runner's to hand out and take
+ *   back (bc-5isv). Nothing here pins that it stays that way, which is what this is.
  *
  * Everything below runs against temp trees, so nothing here depends on this repo's own
  * suites passing, and `git` is the only tool assumed.
@@ -138,8 +142,25 @@ const tree = (name, files) => {
   }
   return dir;
 };
+/**
+ * A private `$TMPDIR` per tree, isolated from the one this process itself runs under —
+ * bc-xl7n.105. The real `$TMPDIR` is shared with however many other sessions are on this
+ * Mac at once, so a bare listing-diff there is exactly the flaky test that measurement
+ * would be; scoping each tree's run to a directory nothing else touches is what makes
+ * "did this leave anything behind" answerable without noise.
+ */
+const tmpdirFor = (dir) => {
+  const t = path.join(dir, '.tmpdir');
+  fs.mkdirSync(t, { recursive: true });
+  return t;
+};
 const runIn = (dir) =>
-  spawnSync(process.execPath, [RUNNER, '--dir', dir], { encoding: 'utf8' });
+  spawnSync(process.execPath, [RUNNER, '--dir', dir], {
+    encoding: 'utf8',
+    env: { ...process.env, TMPDIR: tmpdirFor(dir) },
+  });
+/** Top-level `beadcause-*` entries a run's own `$TMPDIR` still holds. */
+const leftoverSpools = (dir) => fs.readdirSync(tmpdirFor(dir)).filter((f) => f.startsWith('beadcause-'));
 
 /** Writes a file named after itself, so "did this suite run?" is a question of fact. */
 const marker = (name, exit = 0) =>
@@ -165,6 +186,18 @@ else bad('the suites after the failure did not run', 'c-pass ran after b-fail fa
 if (/b-fail\.mjs failed/.test(failedRun.stdout)) ok('the failing suite is named in the output');
 else bad('the failing suite is named in the output', failedRun.stdout.trim().split('\n').slice(-3).join(' / '));
 
+/**
+ * bc-xl7n.105: a failing suite's own `TMPDIR` scratch is deliberately kept, but nothing
+ * else should be — one spool, not one per suite that ran before the failure.
+ */
+const failingSpools = leftoverSpools(failing);
+if (failingSpools.length === 1) ok('a failing run keeps exactly one scratch directory, not one per suite');
+else bad('a failing run keeps exactly one scratch directory, not one per suite', `found ${failingSpools.length}: ${failingSpools.join(', ')}`);
+
+if (failingSpools[0] && failedRun.stdout.includes(path.join(tmpdirFor(failing), failingSpools[0])))
+  ok('the kept directory is the one the output says it kept');
+else bad('the kept directory is the one the output says it kept', failedRun.stdout.trim().split('\n').slice(-2).join(' / '));
+
 const green = tree('green', {
   'test/a-pass.mjs': marker('a-pass'),
   'test/b-pass.mjs': marker('b-pass'),
@@ -175,6 +208,15 @@ if (greenRun.status === 0 && didRun(green, 'a-pass') && didRun(green, 'b-pass'))
 } else {
   bad('a tree where everything passes exits 0, having run everything', `exit ${greenRun.status}`);
 }
+
+/**
+ * The point of bc-xl7n.105: a suite that never cleaned up its own scratch is
+ * indistinguishable from one that did, because `$TMPDIR` is this runner's for the
+ * duration and it removes the whole thing itself once every suite has passed.
+ */
+const greenSpools = leftoverSpools(green);
+if (!greenSpools.length) ok('a passing run adds no net beadcause-* directories to $TMPDIR');
+else bad('a passing run adds no net beadcause-* directories to $TMPDIR', `left behind: ${greenSpools.join(', ')}`);
 
 /**
  * FIRST and LAST are filtered by existence rather than assumed: a tree without them is
