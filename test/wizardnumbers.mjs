@@ -56,17 +56,35 @@
 //
 // WHAT THIS DOES NOT CLAIM. It says nothing about whether a question is numbered *at all* —
 // `bold(...)` also draws things that are not headings ("Saved"), so a heading added with no
-// number leaves 1..N intact and passes here. It says nothing about the comments inside
-// configure.js that name a question by number, lib/reposcan.js's doc comment that names one, or
-// the sentences in README.md that do; those are prose, and a renumber still owes them a
-// `grep -rn 'question [0-9]'` and a look for the ordinals ("the last question of the wizard"),
-// which is what the memory note adding-a-question-to-the-configure-wizard is for. What this
-// does claim is the one thing a clean merge can break without anyone seeing it.
+// number leaves 1..N intact and passes here.
+//
+// bc-fq5a.1: IT NOW ALSO CATCHES THE PROSE, mechanically. Five comments inside configure.js
+// name a question by number ("already handled in question 3"), so does the doc comment on
+// candidateRoot in lib/reposcan.js, and so does a sentence in README.md — and none of that was
+// gated before this bead: a renumber silently redirects every one of them, and a comment naming
+// the wrong question is worse than no comment. The check below reads every `question N` in
+// scripts/, lib/ and README.md — the OPPOSITE of the blanking above for the code: these
+// references live *inside* comments, so extractComments (helpers/blank.mjs) keeps only the
+// comments and blanks the code around them, rather than the other way round — and asserts
+// N is a question the wizard actually has. That is the mechanical half only — it proves the
+// number still exists, not that the prose still describes the right question, which is what the
+// memory note adding-a-question-to-the-configure-wizard is for and still needs a human for. The
+// ordinal phrasing ("the last question of the wizard") is not checked by number — there is no
+// number to check — but it is protected already: if sign-in stopped being the last question, the
+// "sign-in is the last question" check above already goes red.
+//
+// ONE SECTION OF README.md IS DELIBERATELY OUT OF SCAN: "Two branches that renumber the wizard
+// merge clean", which documents the incident this whole file exists for. It quotes a "phantom
+// question 99" that an unblanked scan once invented, as an illustration — not a live claim — and
+// scanning that quote as if it named a real question is exactly the failure this file exists to
+// avoid one level up: prose that quotes a number for illustration is not a reference to check,
+// same family as grepping-this-repos-own-source-must-blank-comments. It is excluded by heading,
+// not by line number, so it survives the README growing around it.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { blankJs } from './helpers/blank.mjs';
+import { blankJs, extractComments } from './helpers/blank.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -90,6 +108,7 @@ console.log('configure wizard question numbers\n');
 const CONFIGURE = path.join(ROOT, 'scripts', 'configure.js');
 const raw = fs.readFileSync(CONFIGURE, 'utf8');
 const src = blankJs(raw);
+const README = path.join(ROOT, 'README.md');
 
 // Both shapes, collected in document order — which is the order the wizard asks them in,
 // since configure.js is a top-to-bottom script with no branching around a question.
@@ -241,6 +260,82 @@ check('neither setup module numbers its own heading', () => {
         'counts itself is a duplicate the first time a question is inserted back in the wizard.'
     );
   }
+});
+
+function walkFiles(dir, exts) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...walkFiles(full, exts));
+    else if (exts.some((ext) => entry.name.endsWith(ext))) out.push(full);
+  }
+  return out;
+}
+
+const QUESTION_REF = /\bquestion\s+(\d+)\b/gi;
+
+check('every "question N" reference in scripts/, lib/ and README.md names a question the wizard has', () => {
+  const validNums = new Set(questions.map((q) => q.num));
+  const refs = [];
+
+  // Code first — and the OPPOSITE of blankJs's usual treatment: every reference this check
+  // looks for lives inside a comment ("// already handled in question 3"), so blanking
+  // comments the way every other static read in this file does would erase the very thing
+  // being searched for. extractComments keeps only the comments and blanks the code, strings
+  // and template literals around them instead — see its doc comment in helpers/blank.mjs.
+  for (const dir of ['scripts', 'lib']) {
+    for (const file of walkFiles(path.join(ROOT, dir), ['.js', '.mjs'])) {
+      const rel = path.relative(ROOT, file);
+      const text = extractComments(fs.readFileSync(file, 'utf8'));
+      for (const m of text.matchAll(QUESTION_REF)) {
+        refs.push({ where: `${rel}:${lineOf(text, m.index)}`, num: Number(m[1]) });
+      }
+    }
+  }
+
+  // README.md is prose, not code — its comments (there are none, in the JS sense) need no
+  // blanking — but one section is excluded by heading: it documents the incident this file
+  // exists for and quotes a "phantom question 99" as an illustration of what an unblanked scan
+  // once invented. Scanning that quote as a live claim would be the same mistake one level up.
+  const readmeRaw = fs.readFileSync(README, 'utf8');
+  const HISTORY_HEADING = '### Two branches that renumber the wizard merge clean';
+  const historyAt = readmeRaw.indexOf(HISTORY_HEADING);
+  assert.ok(
+    historyAt >= 0,
+    'README.md no longer has the "Two branches that renumber the wizard merge clean" section — ' +
+      'this exclusion needs rewriting with it, or removing if the section is genuinely gone.'
+  );
+  const nextHeadingAt = readmeRaw.indexOf('\n### ', historyAt + HISTORY_HEADING.length);
+  const historyEnd = nextHeadingAt >= 0 ? nextHeadingAt : readmeRaw.length;
+  const readmeScanned =
+    readmeRaw.slice(0, historyAt) +
+    readmeRaw.slice(historyAt, historyEnd).replace(/[^\n]/g, ' ') +
+    readmeRaw.slice(historyEnd);
+  for (const m of readmeScanned.matchAll(QUESTION_REF)) {
+    refs.push({ where: `README.md:${lineOf(readmeScanned, m.index)}`, num: Number(m[1]) });
+  }
+
+  // The parse, first — vacuously true over an empty list, same reason as the check above.
+  assert.ok(
+    refs.length >= 5,
+    `only ${refs.length} "question N" reference(s) found across scripts/, lib/ and README.md — the ` +
+      'scan is wrong, not the file: scripts/configure.js alone has had at least five since 2026-08-17.'
+  );
+
+  const bad = refs.filter((r) => !validNums.has(r.num));
+  assert.deepEqual(
+    bad.map(
+      (r) =>
+        `${r.where}  names question ${r.num}, which the wizard does not have ` +
+        `(it has ${questions.length}: 1..${questions.length})`
+    ),
+    [],
+    'a prose reference names a question number the wizard does not have — the shape a renumber-down\n' +
+      'produces ("question 15 of 14"). This is the mechanical half only: it proves the number still\n' +
+      'exists, not that the prose still describes the right question — a renumber that leaves the\n' +
+      'number in range but moves what it means still needs a human to check it:\n' +
+      bad.map((r) => r.where).join('\n')
+  );
 });
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nall checks passed');

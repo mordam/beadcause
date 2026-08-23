@@ -1,0 +1,133 @@
+#!/usr/bin/env node
+/**
+ * `b7e-prior` — has somebody already done this, or part of it, and where is that work
+ * sitting now?
+ *
+ *     b7e-prior -w beadcause -b bc-zjab.10
+ *     b7e-prior -w beadcause -b bc-zjab.10 --family
+ *     b7e-prior -w beadcause -b bc-zjab.10 --json
+ *
+ * bc-zjab.10: four sessions built this answer by hand, four different ways, and one of
+ * them — bc-zjab.1's second run — spent most of its first phase on six `git`/`gh` calls
+ * before concluding a prior attempt had already written the whole change. See
+ * lib/prior.js for the design and what it reuses; this file is only the argv parsing and
+ * the printing around it, same split as `bin/b7e-siblings` and `bin/b7e-orient`.
+ *
+ * **This is not `b7e-landed`, which answers "is it on main".** Every case here is work
+ * that is *not* on main: unpushed commits on a live branch, an open pull request, a
+ * retired worktree, a sibling's branch. It says what exists and leaves the verdict to
+ * the reader — see lib/prior.js's header.
+ *
+ * `--family` widens the search to every other child under this bead's tracker parent
+ * (the same `bd export` + `lib/ancestry.js` `childrenFrom` reading `b7e-orient` uses),
+ * for the case bc-y3qk.4 was in: asking "has any of us already done part of this?"
+ *
+ * Exit codes: `0` ran to completion, whether or not anything was found — an empty answer
+ * is the ordinary "nothing here", not a failure. `2` bad usage. `4` `-w`/`-b` named
+ * something this checkout's tracker does not have.
+ */
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { childrenFrom } from '../lib/ancestry.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { priorWork, describePrior, isEmpty } from '../lib/prior.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-prior -w <workspace> -b <bead> [--family] [--json]
+
+Has somebody already done this, or part of it, and where is that work sitting now?
+One block per bead checked: every worktree (live or retired) and every branch owning
+its tag, whether pushed and how far ahead of main; every commit on any ref naming it;
+every pull request that is either on one of its own branches or names it in a title or
+body. Not "is it on main" — see b7e-landed for that question.
+
+  -w, --workspace <name>   which tracker (required; one of the configured workspaces)
+  -b, --bead <id>          the bead to check (required)
+  --family                 also check every other child under this bead's tracker parent
+  --json                   the machine-readable form instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const beadId = value('-b', '--bead');
+const FAMILY = has('--family');
+const JSON_MODE = has('--json');
+
+function fail(msg, code = 2) {
+  console.error(`b7e-prior: ${msg}`);
+  process.exit(code);
+}
+
+if (!wsName) fail(`-w/--workspace is required\n${USAGE}`);
+if (!beadId) fail(`-b/--bead is required\n${USAGE}`);
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let row;
+try {
+  row = await bd.show(ws, beadId);
+} catch (err) {
+  fail(`${ws.name} has no bead ${beadId}: ${String(err?.message || err).split('\n')[0]}`, 4);
+}
+if (!row) fail(`${ws.name} has no bead ${beadId}`, 4);
+
+let ids = [beadId];
+if (FAMILY) {
+  const index = await bd.graph(ws);
+  const parentId = row.parent || index.parents.get(beadId) || null;
+  if (parentId) {
+    const kids = childrenFrom(index.parents).get(parentId) || [];
+    ids = [beadId, ...kids.filter((id) => id !== beadId)];
+  }
+}
+
+let dir;
+try {
+  dir = resolveSessionDir(cfg, ws, row);
+} catch (err) {
+  fail(`could not resolve a checkout for ${ws.name}: ${String(err?.message || err).split('\n')[0]}`, 4);
+}
+
+const results = [];
+for (const id of ids) {
+  results.push(await priorWork(dir, id));
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ workspace: ws.name, family: FAMILY, results }, null, 2));
+  process.exit(0);
+}
+
+const allEmpty = results.every(isEmpty);
+if (results.length === 1 && allEmpty) {
+  console.log(`b7e-prior ${beadId} · ${ws.name}: nothing anywhere names it — no worktree, branch, commit or pull request.`);
+  process.exit(0);
+}
+
+console.log(`b7e-prior ${beadId} · ${ws.name}${FAMILY ? ` (+${results.length - 1} sibling${results.length - 1 === 1 ? '' : 's'})` : ''}\n`);
+for (const found of results) {
+  for (const line of describePrior(found)) console.log(line);
+  console.log('');
+}
+
+process.exit(0);

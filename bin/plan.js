@@ -23,6 +23,29 @@
  *         These two are one change: the switch is unreadable until the router owns the
  *         certificate, so do them in one branch and one pull request.
  *
+ * ## The other answer: this epic is one job (bc-jvt0.4)
+ *
+ * A **childless** epic has two honest answers and this door takes both, because the two are
+ * one decision and a decision recorded in two places is two decisions that can disagree.
+ * The second answer names no groups at all:
+ *
+ *   whole:
+ *     why: |
+ *       The description names both files and the check, and the change is one edit to each.
+ *       Splitting it would file two beads so that two windows could each hold one, which is
+ *       a decomposition made for the dispatcher rather than for the work.
+ *
+ * That writes `lib/plan.js`'s whole-job block as a comment and puts `whole-job` on the
+ * epic, and the label is what lets the survey dispatch the epic *as itself* — see
+ * `heldByChildren` in lib/advocate.js, which holds an owned childless epic until one of
+ * these two answers exists. `why:` is not optional and has a floor, because for this
+ * document the reason is the decision: "one job" with nothing behind it is
+ * indistinguishable from a window that ran out of turn.
+ *
+ * `groups:` and `whole:` in one document is refused rather than resolved. They are opposite
+ * conclusions, and picking one for the author would be this tool deciding the thing it
+ * exists to record.
+ *
  * ## What it will refuse, and why refusing is the point
  *
  * Everything in `validatePlan` — a bead that is not under this epic, a bead in two groups,
@@ -71,16 +94,28 @@
  * and it happens here rather than in the brief so that it cannot be the one instruction a
  * session skipped.
  *
- * Exit codes: 3 when the input names no plan, 4 when the plan is not a legal one, 5 when
- * the tracker would not take it. A plan that wrote its comment but could not label or hand
- * back the epic exits 0 with a warning, because the comment is the plan and the other two
- * are recoverable by hand.
+ * Exit codes: 3 when the input names neither answer (or names both), 4 when what it names
+ * is not a legal one, 5 when the tracker would not take it. A write that landed its comment
+ * but could not label or hand back the epic exits 0 with a warning, because the comment is
+ * the document and the other two are recoverable by hand.
  */
 import fs from 'node:fs';
 import YAML from 'yaml';
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
-import { formatPlan, PLANNED_LABEL, surfaceNotes, validatePlan } from '../lib/plan.js';
+// A binary, not a lib module — lib/advocate.js never imports bin/plan.js, so unlike
+// lib/session.js (which lib/advocate.js *does* import, and so must spell this prefix out
+// rather than import it — see the comment there) this can just import the real constant.
+import { DISPATCHED_PREFIX } from '../lib/advocate.js';
+import {
+  formatPlan,
+  formatWhole,
+  PLANNED_LABEL,
+  surfaceNotes,
+  validatePlan,
+  validateWhole,
+  WHOLE_LABEL,
+} from '../lib/plan.js';
 import { multiRepo, repoList } from '../lib/repos.js';
 import { resolveSessionDir } from '../lib/session.js';
 
@@ -102,6 +137,7 @@ const file = arg('--file', '-f');
 const ws = cfg.workspaces.find((w) => w.name === wsName);
 if (!ws || !epicId || has('--help') || has('-h')) {
   console.error('usage: beadcause-plan -w <workspace> -b <epic> [-f plan.yaml]');
+  console.error('input is `groups:` (a group plan) or `whole:` (a childless epic that is one job)');
   console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
   process.exit(1);
 }
@@ -114,8 +150,21 @@ try {
   warn(`that is not valid YAML — ${err.message.split('\n')[0]}`);
   process.exit(3);
 }
-if (!spec || (!Array.isArray(spec) && !Array.isArray(spec.groups))) {
-  warn('no groups in that input — a plan is a `groups:` list');
+// Which of the two answers this is. `whole:` present at all counts, including `whole: null`
+// from a key somebody typed and left empty — that is a decision half-written, and the
+// refusal `validateWhole` gives it names the missing `why:`, which is more use than "no
+// groups in that input" about a document that never mentioned groups.
+const wantsGroups = Array.isArray(spec) || Array.isArray(spec?.groups);
+// `typeof … === 'object'` and not merely truthy: `in` throws on a primitive, and YAML that
+// is a bare scalar (`whole` on its own line, say) parses to a string.
+const wantsWhole = Boolean(spec) && typeof spec === 'object' && !Array.isArray(spec) && 'whole' in spec;
+if (wantsGroups && wantsWhole) {
+  // Refused rather than resolved: see the header. Picking one would be this tool deciding.
+  warn('that input has both `groups:` and `whole:` — those are opposite answers, so say only one of them');
+  process.exit(3);
+}
+if (!wantsGroups && !wantsWhole) {
+  warn('no groups in that input — a plan is a `groups:` list, or `whole:` for an epic that is one job');
   process.exit(3);
 }
 
@@ -137,15 +186,28 @@ if (epic.type && epic.type !== 'epic') {
 /**
  * The ids the plan is allowed to name.
  *
- * `bd children` is direct children only, which is the same reach `batchesFor` settles for
- * and for the same reason: a grandchild is a level deeper than anything here dispatches,
- * and recursing would be a `bd` call per level to police a shape nobody has filed. A plan
- * naming a grandchild is refused with "no child by that id", which is a true sentence
- * about what this can check rather than a claim the bead does not exist.
+ * **Two reads, because one level is not the reach a plan needs — bc-khoe.33.** `bd children`
+ * is direct children only, and until this bead that was the whole of the check: a plan naming
+ * a grandchild was refused with "no child by that id". That sentence was true about what this
+ * could check and false about what the rest of the machinery does. `unplanned` walks the whole
+ * subtree by parent edges, so a *ready grandchild* is a bead the epic's plan is required to
+ * cover — and the planner opened to cover it was then refused, twice, before the fuse blew and
+ * the beads went out one window each. bc-khoe carried eleven of them.
  *
- * A `bd` that will not answer means the ids cannot be checked at all — and that is a
- * refusal, not a shrug. The alternative is writing a plan that dispatches windows against
- * beads nobody confirmed are there.
+ * So the export's parent edges are read as well, and `validatePlan` prefers them: they answer
+ * "under this epic" at any depth, they see a bead adopted in with `bd update --parent`, and
+ * they refuse one that was reparented out however much its id still looks like a member. One
+ * `bd export` in a CLI a person is watching, once, against a check that otherwise disagrees
+ * with the sweep that re-opens this window.
+ *
+ * A `bd` that will not answer about the **children** means the ids cannot be checked at all —
+ * and that is a refusal, not a shrug. The alternative is writing a plan that dispatches windows
+ * against beads nobody confirmed are there. A **graph** that will not answer is the milder
+ * failure and falls back rather than refusing: the narrow check still holds every plan the old
+ * one held, so the cost is that this one run cannot name a grandchild, which is said out loud
+ * rather than left to be discovered as a refusal nobody can act on. An index with an `error` is
+ * an export that has never succeeded and its empty `parents` would admit every id-shaped
+ * guess — the permissive direction — so it is treated as no graph at all.
  */
 let children;
 try {
@@ -155,9 +217,82 @@ try {
   process.exit(5);
 }
 
+/**
+ * The whole-job answer, and it exits here — bc-jvt0.4.
+ *
+ * Above the plan path rather than beside it, because everything below is about groups and a
+ * whole-job decision has none: no surface notes (nothing to intersect with), no group
+ * summary, and the `children` read it *does* want is the one already in hand — a decision
+ * that the epic is one job is a lie the moment the epic has children, and `validateWhole`
+ * refuses it on exactly that.
+ *
+ * The three writes are the plan path's three, in the plan path's order and for its reasons,
+ * which is the whole argument for one door: the comment first because the comment *is* the
+ * decision, the label second so a label with no decision behind it is not a state this can
+ * produce, and the handback last because a claimed epic is out of `bd ready` and an epic
+ * out of `bd ready` is one nothing will ever dispatch — which for this answer is the entire
+ * point of having made it.
+ */
+if (wantsWhole) {
+  let whole;
+  try {
+    whole = validateWhole(spec, { epic: epicId, children: children || [] });
+  } catch (err) {
+    warn(err.message);
+    process.exit(4);
+  }
+
+  try {
+    await bd.comment(ws, epicId, formatWhole(whole));
+  } catch (err) {
+    warn(`could not write the decision onto ${epicId} — ${err.message.split('\n')[0]}`);
+    process.exit(5);
+  }
+
+  try {
+    await bd.addLabel(ws, epicId, WHOLE_LABEL);
+  } catch (err) {
+    warn(`the decision is on ${epicId} but the \`${WHOLE_LABEL}\` label would not go on — ${err.message.split('\n')[0]}`);
+    warn(`add it by hand (\`bd label add ${epicId} ${WHOLE_LABEL}\`) or the queue will go on holding the epic`);
+  }
+
+  try {
+    await bd.reopenAbandoned(ws, epicId);
+  } catch (err) {
+    warn(`could not hand ${epicId} back to the queue — ${err.message.split('\n')[0]}`);
+    warn(`run \`bd update ${epicId} --status open --assignee ""\` yourself, or nothing will pick the epic up`);
+  }
+
+  console.log(`decided ${epicId} — one job, no children filed`);
+  console.log(`  ${whole.why.split('\n')[0]}`);
+  process.exit(0);
+}
+
+/**
+ * And the graph, read here rather than beside `children` above: a whole-job decision has no
+ * groups, so it has nothing to check ids against and must not pay for an export to find that
+ * out. Everything from this line down is the plan path. See the note on `children`.
+ */
+let parents = null;
+const narrow = (why) => warn(`could not read ${ws.name}'s shape (${why}) — this plan may only name ${epicId}'s direct children`);
+try {
+  const index = await bd.graph(ws);
+  // Two ways an index is not an answer, and both have to fall back rather than be believed.
+  // `error` is an export that has never succeeded. The other is quieter and is the one that
+  // matters here: an index with no row for **the epic being planned** did not read this
+  // tracker, and its empty `parents` makes `isUnder` fall back to the id for every bead —
+  // which would admit every id-shaped guess and take the `children` check off at the same
+  // time. A root epic legitimately has no parent *edge*, so the question is about its row.
+  if (index?.error) narrow(index.error);
+  else if (!index?.beads?.has?.(epicId)) narrow(`the export has no row for ${epicId}`);
+  else parents = index.parents;
+} catch (err) {
+  narrow(err.message.split('\n')[0]);
+}
+
 let plan;
 try {
-  plan = validatePlan(spec, { epic: epicId, children: children || [] });
+  plan = validatePlan(spec, { epic: epicId, children: children || [], parents });
 } catch (err) {
   warn(err.message);
   process.exit(4);
@@ -245,3 +380,10 @@ try {
 const prs = plan.groups.reduce((n, g) => n + g.prs.length, 0);
 console.log(`planned ${epicId} — ${plan.groups.length} ${plan.groups.length === 1 ? 'group' : 'groups'}, ${prs} pull ${prs === 1 ? 'request' : 'requests'}`);
 for (const g of plan.groups) console.log(`  ${g.name}: ${g.beads.join(', ')} → ${g.prs.length} in ${g.prs[0].repo}`);
+
+// This is as far as this window can see — bc-zjab.8. The plan is filed and the label is
+// on, but whether the advocate actually opens a window per group is a later tick's call,
+// not this one's, and every surface this process can print looks identical whichever way
+// that goes. Say so, and name the one place it shows up afterwards.
+console.log(`  filed, not dispatched — a later tick decides whether these groups actually open`);
+console.log(`  check back with: bd show ${epicId} (one \`${DISPATCHED_PREFIX}<group>\` label lands per group that did)`);

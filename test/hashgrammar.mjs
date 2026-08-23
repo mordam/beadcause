@@ -195,13 +195,14 @@ check('a hash that will not decode does not throw out of boot', () => {
 
 console.log('\na view hash');
 
-check('each of the four views is named by exactly one hash, and Home by none', () => {
+check('each of the five views is named by exactly one hash, and Home by none', () => {
   const ids = [...route.VIEWS].map((v) => v.id);
-  assert.deepEqual(ids, ['epics', 'history', 'advocates', 'releases']);
+  assert.deepEqual(ids, ['epics', 'history', 'advocates', 'releases', 'config']);
   assert.equal(route.hashFor('epics'), '', 'Home is the empty hash — every existing link says it by saying nothing');
   assert.equal(route.hashFor('history'), '#history');
   assert.equal(route.hashFor('advocates'), '#advocates');
   assert.equal(route.hashFor('releases'), '#releases');
+  assert.equal(route.hashFor('config'), '#config');
   assert.equal(route.hashFor('flow'), null, 'a page that is not a view has no hash, and null is how that is said');
   const hashes = [...route.VIEWS].map((v) => v.hash);
   assert.equal(new Set(hashes).size, hashes.length, 'two views claim one hash');
@@ -234,8 +235,9 @@ check('no view name can ever be mistaken for a key, or a key for a view name', (
 });
 
 check('and the other half of the same question: which view an address names', () => {
-  // The nine addresses that are all the advocate console, the two that are Home, and the
-  // five pages that draw the pill row and are on no pill. `viewOfPath` is what
+  // The nine addresses that are all the advocate console, the two that are Home, the
+  // three that are the space's settings, and the five pages that draw the pill row and are
+  // on no pill. `viewOfPath` is what
   // bc-khoe.30.7 will land an old path on the right pane with, and what the row already
   // lights itself by.
   assert.equal(route.viewOfPath('/'), 'epics');
@@ -247,6 +249,13 @@ check('and the other half of the same question: which view an address names', ()
   }
   for (const p of ['/releases', '/deploys', '/releases.html']) {
     assert.equal(route.viewOfPath(p), 'releases', `${p} is the releases view`);
+  }
+  // The three that made bc-khoe.50 a bug: the row draws its Config pill on this page and
+  // had no answer for the address, so nothing was current on the one screen that pill
+  // reaches. Its pane is still `data-pending`, which is why these are here and not in the
+  // hop table — see test/pagealias.mjs, which holds both halves of that.
+  for (const p of ['/config', '/settings', '/config.html']) {
+    assert.equal(route.viewOfPath(p), 'config', `${p} is the space's settings`);
   }
   for (const p of ['/flow', '/requirements', '/endorse', '/admin', '/console']) {
     assert.equal(route.viewOfPath(p), null, `${p} draws the row and is on no pill — that is deliberate`);
@@ -399,21 +408,43 @@ check('setting a view hash writes it', () => {
   assert.equal(loc.hash, '#history', 'the card that was in the slot should be gone — one slot, last write wins');
 });
 
-check('clearing it leaves no bare # on the URL', () => {
+check('clearing it as a step leaves no bare # on the URL, and pushes (bc-khoe.30.9)', () => {
   // `location.hash = ''` leaves a `#` hanging, and `${baseUrl}/#` is a different URL from
-  // the `${baseUrl}/` a phone's home screen holds.
+  // the `${baseUrl}/` a phone's home screen holds. A step — the default, and what every
+  // pill tap is — pushes, so the back button can walk back to the pane it came from.
   const loc = { hash: '#history', pathname: '/', search: '' };
-  let wrote = null;
-  route.go(route.hashFor('epics'), loc, { replaceState: (_s, _t, url) => (wrote = url) });
-  assert.equal(wrote, '/', 'Home was not written with replaceState');
-  assert.equal(loc.hash, '#history', 'replaceState is what clears it; the hash must not also be assigned');
+  let pushed = null;
+  let replaced = null;
+  route.go(route.hashFor('epics'), loc, {
+    pushState: (_s, _t, url) => (pushed = url),
+    replaceState: (_s, _t, url) => (replaced = url),
+  });
+  assert.equal(pushed, '/', 'Home was not written with pushState');
+  assert.equal(replaced, null, 'a step must not also replace');
+  assert.equal(loc.hash, '#history', 'pushState is what clears it; the hash must not also be assigned');
 });
 
 check('and a query survives being sent Home', () => {
   const loc = { hash: '#history', pathname: '/', search: '?kind=pr' };
   let wrote = null;
-  route.go('', loc, { replaceState: (_s, _t, url) => (wrote = url) });
+  route.go('', loc, { pushState: (_s, _t, url) => (wrote = url) });
   assert.equal(wrote, '/?kind=pr');
+});
+
+check('clearing it as a dismissal replaces instead (bc-khoe.30.9)', () => {
+  // The fourth argument is what a card closing back to Home passes: nothing was visited,
+  // so back should still leave the app rather than walk to the card.
+  const loc = { hash: '#beadcause%2Fbc-x', pathname: '/', search: '' };
+  let pushed = null;
+  let replaced = null;
+  route.go(
+    '',
+    loc,
+    { pushState: (_s, _t, url) => (pushed = url), replaceState: (_s, _t, url) => (replaced = url) },
+    true
+  );
+  assert.equal(replaced, '/', 'a dismissal was not written with replaceState');
+  assert.equal(pushed, null, 'a dismissal must not also push');
 });
 
 check('with nowhere to write, it says so rather than throwing', () => {

@@ -615,6 +615,19 @@
         } — config drift, and nothing here reaches them.</div>`
       : '';
 
+    /* Retired on purpose, which is why it is a plain note and not the warning above it.
+       The name is still in the space — that is what makes bringing it back restore these
+       settings along with it — so the card would otherwise just list one repo fewer than
+       the config does and say nothing about the difference. Absent on a daemon older than
+       `retired`, which is the same silence that screen has always had. */
+    const retired = (d.retired || []).length
+      ? `<div class="adv-note">${esc(d.retired.join(', '))} ${
+          d.retired.length === 1 ? 'is retired' : 'are retired'
+        } — still in this space and its settings kept, but not being read. Bring ${
+          d.retired.length === 1 ? 'it' : 'them'
+        } back under Trackers on <a href="/admin">Admin</a>.</div>`
+      : '';
+
     // `work-card` is the padding, and this was the one card on the page without it —
     // every setting in it sat on the card's left border, and the only thing holding the
     // head off the top one was the margin an unstyled <h2> happens to bring. bc-8l74
@@ -626,6 +639,7 @@
         <span class="mon-state ${head.tone}">${esc(head.text)}</span>
       </div>
       ${missing}
+      ${retired}
       ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
       ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
       ${section(

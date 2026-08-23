@@ -31,7 +31,13 @@
  *
  *   - **The close recovers**, by dropping the claim and closing again. Adam chose that
  *     over `--force` on 2026-08-14, and the assertions say so in both directions: the
- *     reclaim happens, and `--force` never appears in any argv this path builds.
+ *     reclaim happens, and `--force` never appears in the *close* itself — this file used
+ *     to say it never appears in any argv this path builds at all, and that was only ever
+ *     true of the fake below, which always lets the clear through. bc-xl7n.88 measured the
+ *     clear itself against real bd (test/reassignguard.mjs) and it is refused every time a
+ *     question is `in_progress`, which is every question — so the clear now escalates to
+ *     `--force` when *it* is what gets refused, and still ends with the assignee gone
+ *     rather than kept, which is the outcome Adam chose either way.
  *   - **The answer is written once**, whatever the close does. The reclaim fixes the one
  *     refusal we know about; `answerOnce` is what stops the *next* one duplicating an
  *     answer, because comment-first means any failure after the comment leaves a card
@@ -47,7 +53,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const { Bd, isClaimGuard } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
+const { Bd, isClaimGuard, isReassignGuard } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-answerclose-'));
 
@@ -75,9 +81,15 @@ const check = (pass, name, detail) => (pass ? ok(name) : bad(name, detail));
  * look like it worked when all it did was try twice. The fake keeps that state in a file
  * beside the log, because each invocation is its own process.
  *
+ * `reassignRefusal` is bc-xl7n.88's half: what the *clear itself* comes back with when
+ * bd's reassign guard is what refuses it — measured true of every `in_progress` question
+ * against the real binary (test/reassignguard.mjs). Only the plain write is refused; the
+ * same argv with `--force` on it is what actually clears the assignee, so `cleared()`
+ * stays false until that one lands.
+ *
  * `said` is what `bd comments` answers — the thread `answerOnce` reads before it writes.
  */
-const fakeBd = (name, { refusal = null, sticky = false, said = [] } = {}) => {
+const fakeBd = (name, { refusal = null, sticky = false, said = [], reassignRefusal = null } = {}) => {
   const log = path.join(tmp, `${name}.log`);
   const cleared = path.join(tmp, `${name}.cleared`);
   const bin = path.join(tmp, name);
@@ -89,6 +101,10 @@ const argv = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(argv) + '\\n');
 const cleared = () => fs.existsSync(${JSON.stringify(cleared)});
 if (argv[0] === 'update' && argv.includes('--assignee')) {
+  if (${JSON.stringify(Boolean(reassignRefusal))} && !argv.includes('--force')) {
+    process.stderr.write(${JSON.stringify(String(reassignRefusal || ''))});
+    process.exit(1);
+  }
   fs.writeFileSync(${JSON.stringify(cleared)}, '1');
   process.stdout.write('updated');
   process.exit(0);
@@ -131,6 +147,16 @@ const CLAIM_AGENT =
   'reclaim or use --force to override';
 /** The other refusal that suggests `--force`, and which nothing here may override. */
 const BLOCKED = 'cannot close bc-jrvh: blocked by open issues [bc-a0vc] (use --force to override)';
+/**
+ * What the *clear* itself comes back with, bc-xl7n.88 — a different refusal from `CLAIM`
+ * above, over a different write, and it is the ordinary case rather than the exception:
+ * a question is `in_progress` from the moment a worker claims it. Copied off the binary
+ * in test/reassignguard.mjs, not paraphrased here.
+ */
+const REASSIGN =
+  'cannot reassign bc-jrvh: held by "neadamthal@gmail.com" (in_progress); coordinate with the holder ' +
+  '(bd mail neadamthal@gmail.com) — pass --force only if their claim is abandoned (crashed agent, expired lease), ' +
+  'or use bd reclaim';
 
 const closes = (calls) => calls.filter((a) => a[0] === 'close');
 const comments = (calls) => calls.filter((a) => a[0] === 'comment');
@@ -154,6 +180,10 @@ check(
   isClaimGuard(new Error(`bd close bc-jrvh --reason x failed in beadcause: ${CLAIM}`)),
   'it is still recognised inside the sentence `run` wraps it in'
 );
+// bc-xl7n.88: the clear the close refusal above sends `closeAnswered` to can itself be
+// refused, in the *other* wording — `isReassignGuard`'s, not `isClaimGuard`'s.
+check(isReassignGuard(new Error(REASSIGN)), 'the clear’s own refusal is recognised too, in the reassign guard’s words');
+check(!isClaimGuard(new Error(REASSIGN)), 'and not mistaken for the close refusal — the two share no wording');
 
 /* --------------------------------------------------------------- reclaim, then close */
 
@@ -169,9 +199,36 @@ check(
   check(!threw, 'a close bd refuses over the claim comes back as a close, not an error', String(threw?.message).split('\n')[0]);
   check(reclaims(c).length === 1, `the assignee is cleared exactly once (${reclaims(c).length})`);
   check(closes(c).length === 2, `the close is attempted, then attempted again (${closes(c).length})`);
-  check(forced(c).length === 0, 'and --force is never passed — Adam chose reclaim over it');
+  check(forced(c).length === 0, 'and --force is never passed when the plain clear is not itself refused');
   const order = c.findIndex((a) => a[0] === 'update') < c.map((a) => a[0]).lastIndexOf('close');
   check(order, 'the claim is dropped before the close that lands, not after it');
+}
+
+{
+  // bc-xl7n.88: the ordinary case, not a second refusal. The plain clear above only
+  // ever succeeds against this fake because it is the one write it never refuses; the
+  // real binary refuses it every time the question is `in_progress`, which is every
+  // question — see test/reassignguard.mjs against the real bd. This is that refusal,
+  // simulated here to prove `closeAnswered` gets past it too.
+  const { bd, calls } = fakeBd('reassign-refused-clear', { refusal: CLAIM, reassignRefusal: REASSIGN });
+  let threw = null;
+  try {
+    await bd.closeAnswered(WS, 'bc-jrvh', 'Answered via Beadcause');
+  } catch (err) {
+    threw = err;
+  }
+  const c = calls();
+  check(
+    !threw,
+    'a clear the reassign guard refuses still ends in a close, not an error',
+    String(threw?.message).split('\n')[0]
+  );
+  check(reclaims(c).length === 2, `the clear is tried plain, then tried again once forced (${reclaims(c).length})`);
+  check(
+    forced(c).length === 1 && forced(c).every((a) => a[0] === 'update'),
+    'and this time --force is passed exactly once, on the clear and never on the close'
+  );
+  check(closes(c).length === 2, `the close is still attempted, then attempted again, once the clear lands (${closes(c).length})`);
 }
 
 {
@@ -272,6 +329,25 @@ check(
     c.some((a) => a[0] === 'update' && a.includes('--status')),
     'and it still hands the work back'
   );
+}
+
+{
+  // bc-xl7n.88: `commission`'s reopen used to be the plain one, refused by the same
+  // reassign guard every time — a question is `in_progress` from the moment a worker
+  // claims it, so this was not an edge case either. `reopenAbandoned` is what makes it
+  // recover, the same way `closeAnswered`'s clear does above.
+  const { bd, calls } = fakeBd('commission-reassign-refused', { said: [], reassignRefusal: REASSIGN });
+  let threw = null;
+  try {
+    await bd.commission(WS, 'bc-jrvh', 'Build both.');
+  } catch (err) {
+    threw = err;
+  }
+  const c = calls();
+  check(!threw, 'a reopen the reassign guard refuses still hands the work back, not an error', String(threw?.message).split('\n')[0]);
+  const reopens = c.filter((a) => a[0] === 'update' && a.includes('--status') && a.includes('open'));
+  check(reopens.length === 2, `the reopen is tried plain, then tried again once forced (${reopens.length})`);
+  check(forced(c).length === 1, 'and --force is passed exactly once, on the reopen that lands');
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

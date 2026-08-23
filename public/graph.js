@@ -1059,6 +1059,25 @@
     };
   }
 
+  /**
+   * The paths a bead declares it expects to touch (bc-42ow), as their own labelled
+   * row of pills — same shape as `public/app.js`'s `filesRowHtml`, and it has to be
+   * a second copy rather than a shared one: the two pages share no script, only
+   * `style.css`.
+   *
+   * `/api/bead` supplies `files` (lib/server.js), already parsed out of the
+   * `beadfiles` block and out of `description` in the same breath — this file never
+   * reads the fence itself. `''` on a bead that declared nothing, which is still
+   * almost every bead, so the sheet looks exactly as it did before this landed.
+   */
+  const filesRowHtml = (files) =>
+    files?.length
+      ? `<div class="prop-field pills">
+      <span class="prop-label">Expects to touch</span>
+      ${files.map((f) => `<span class="pill">${esc(f)}</span>`).join('')}
+    </div>`
+      : '';
+
   /** One group of linked beads, or nothing — never a heading with no rows under it. */
   function relGroupHtml(label, rows) {
     if (!rows.length) return '';
@@ -1653,6 +1672,10 @@
     ].filter(Boolean);
     if (groups.length) parts.push(`<div class="rel">${groups.join('')}</div>`);
     if (b.description) parts.push(`<div class="md">${md(b.description, FROM_BD)}</div>`);
+    // Where the block used to sit inline, at the end of the prose it was written
+    // into (`withSurface` appends it) — so it comes right after the description it
+    // was lifted out of, not buried under acceptance/design/notes.
+    parts.push(filesRowHtml(b.files));
     // Where what points at the bead lands, once the second call has been made for it —
     // empty at first paint, and absent entirely on a bead nothing points at. What blocks
     // comes first inside it and the children after, because Blocks is a handful of rows

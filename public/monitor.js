@@ -528,8 +528,12 @@
    * because the epic is where the button back is.
    *
    * `givenUp` is the eleventh (bc-xl7n.111), and the only one that is not a subtraction
-   * from the queue at all: the bead is still *in* it, counted by the `for the advocate`
-   * pill on this same row, and no tick will ever pick it up again. `maxAttemptsPerBead`
+   * from the queue at all: the bead is usually still *in* it, counted by the `for the
+   * advocate` pill on this same row, and no tick will ever pick it up again. (Usually and
+   * not always since bc-xl7n.117: a retired bead that is *claimed* — one whose work is
+   * sitting in a delivered pull request — is in neither queue, and is named here with
+   * `claimed` on it, because it is the one where answering the card promised a session
+   * that could not open.) `maxAttemptsPerBead`
    * is a floor nothing decrements, so two windows that die without delivering retire the
    * bead from this machine for good, and every other screen there is goes on drawing it as
    * ordinary ready work. `p1` with `heldByRepo` and `heldByNoRoot`, the two that never
@@ -559,6 +563,7 @@
     const stood = (a && a.stoodDown) || [];
     const orphans = (a && a.heldByNoRoot) || [];
     const paused = (a && a.heldByPause) || [];
+    const undecided = (a && a.heldByUndecided) || [];
     const gaveUp = (a && a.givenUp) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
@@ -608,8 +613,20 @@
             paused.map((h) => `${h.id} — ${h.why}`).join('\n')
           )}">${paused.length} under a paused epic</span>`
         : '',
-      // The eleventh, and the only pill on this row naming a bead that is still *in* the
-      // queue the pill beside it counts (bc-xl7n.111). `p1` with `heldByRepo` and
+      // `heldByUndecided` is the twelfth (bc-jvt0.4), and the only one waiting on a
+      // *judgement*: an owned epic with no children that nothing has yet said the shape of.
+      // `p1` with `heldByRepo` and `heldByNoRoot` — the holds no amount of waiting resolves
+      // — and it is theirs rather than `heldByPause`'s `muted` even though the fix is also
+      // one tap, because a pause is already known to whoever pressed it and this is not
+      // known to anybody. The tooltip carries the reason, which names both ways out.
+      undecided.length
+        ? `<span class="pill p1" title="${esc(
+            undecided.map((h) => `${h.id} — ${h.why}`).join('\n')
+          )}">${undecided.length} childless epic${undecided.length === 1 ? '' : 's'} nobody has decided the shape of</span>`
+        : '',
+      // The eleventh, and the only pill on this row naming a bead that is (usually) still
+      // *in* the queue the pill beside it counts (bc-xl7n.111 — and bc-xl7n.117 for the
+      // claimed ones, which are not). `p1` with `heldByRepo` and
       // `heldByNoRoot`, and see the note above this function for why it is the loudest of
       // the three.
       gaveUp.length
@@ -719,8 +736,18 @@
   const codersOf = (a) => (a.workers || []).filter((w) => !w.planning);
   const plannersOf = (a) => (a.workers || []).filter((w) => w.planning);
 
-  /** The epics with an advocate assigned — the roster, not the window list. */
+  /**
+   * Every open, owned epic — the roster, not the window list. **Not the same as "has an
+   * advocate assigned"**: this is `wantsAdvocate` over the graph (bc-r2b5.3), so it
+   * includes a root nobody has ever put an advocate on — that root still needs a card,
+   * because the card is where the button to assign it lives. Use `assignedOf` for the
+   * subset that is actually enrolled, and never quote `epicsOf(a).length` as a count of
+   * advocated epics.
+   */
   const epicsOf = (a) => (Array.isArray(a.epicAdvocates) ? a.epicAdvocates : []);
+
+  /** The epics in the roster that somebody has actually put an advocate on — `e.assigned`. */
+  const assignedOf = (a) => epicsOf(a).filter((e) => e.assigned);
 
   /**
    * The beads held for endorsement in this repo, split between the advocates that
@@ -733,17 +760,17 @@
    * own — an endorsement no advocate owns does not vanish from the console, it lands in
    * the repo's own section, and nothing is ever unreachable.
    *
-   * **"Produced by its work or by the agents it spawns" is read off the graph, and the
-   * graph is honest about it.** An EpicAdvocate's agents are the sessions opened on beads
-   * under its epic; a discovery one of them files is filed *under* the bead it was
-   * working (lib/filing.js homes it, and `withDiscoveredFrom` keeps the parent when bd
-   * refuses to hold both edges), so the epic is an ancestor of the held bead. That is
-   * what `under` on the row is — the parent chain, nearest first, computed server-side in
-   * lib/work.js. It is a proxy and not a stamp: nothing records *which agent* filed a
-   * bead, so a bead somebody parented under the epic by hand reads the same as one an
-   * advocate's worker found. The exact reading needs a filer stamp at file time, which is
-   * its own bead; this is the reading available today and it is right for every bead the
-   * advocates actually produce.
+   * **"Produced by its work or by the agents it spawns" is read off a stamp now, not
+   * inferred from the graph — bc-xl7n.76.1.** `lib/filing.js` writes `filed-while:<bead>`
+   * on everything an agent files, naming the bead that was actually being worked at file
+   * time, and `under` on the row (computed server-side in lib/work.js) is the chain above
+   * *that* bead — the stamped bead included — rather than the chain above wherever the
+   * created bead happens to sit today. That is the fix for the gap this comment used to
+   * describe: before the stamp existed, `under` was the created bead's own live ancestry,
+   * and a bead somebody hand-adopted under an epic afterwards read exactly like one that
+   * epic's own worker produced. A bead with no stamp — filed before bc-xl7n.76.1, or
+   * through a path that predates it — still falls back to that same live-ancestry walk,
+   * which is why the fallback below still matters.
    *
    * Nearest ancestor wins, which is why `under` is ordered: an advocate on the bead's own
    * epic owns it over one on the P0 three levels above.
@@ -876,12 +903,23 @@
       </span>
       <time>${esc(age(a.lastSurveyAt))}</time>
     </div>`;
+    // The roster (`epicsOf`) is every epic that *qualifies* — `wantsAdvocate` — and a
+    // qualifying epic gets a card whether or not anything has ever run on it (bc-r2b5.3:
+    // this is the section it exists for, since that card carries the button to assign
+    // one). So the count in this sentence has to be `assignedOf`, not `epicsOf`, or a
+    // repo with twenty owned P0s and two enrolled advocates reads as twenty supervised.
+    const roster = epicsOf(a);
+    const assigned = assignedOf(a);
+    const unassigned = roster.length - assigned.length;
     return (
       repo +
       `<p class="subtitle">${esc(
-        epicsOf(a).length
-          ? `${plural(epicsOf(a).length, 'epic')} have an advocate assigned — one card each, directly below this one, for as long as the epic is open.`
-          : 'No epic has an advocate assigned. One is assigned per epic that is open, owned and not a crash.'
+        assigned.length
+          ? `${plural(assigned.length, 'epic')} have an advocate assigned — one card each, directly below this one, for as long as the epic is open.` +
+            (unassigned ? ` ${plural(unassigned, 'more open epic')} could have one and has not been assigned yet.` : '')
+          : roster.length
+            ? `No epic has an advocate assigned yet — ${plural(roster.length, 'open epic')} could have one. One is assigned per epic that is open, owned and not a crash.`
+            : 'No epic has an advocate assigned. One is assigned per epic that is open, owned and not a crash.'
       )}</p>`
     );
   }
@@ -911,12 +949,20 @@
    * The reason there is no window is the chip's text rather than something you have to
    * open the card to read, which is the whole of `why`: out of budget and nothing-ready
    * are both actionable and they are actionable in different places.
+   *
+   * **Unassigned wins over `why`, bc-r2b5.3.** `why` is `wantsAdvocate`'s reasoning —
+   * budget or the queue — and it is a true answer for an epic nobody has ever put an
+   * advocate on too, since that reasoning does not read `e.assigned` either. But "waiting
+   * for a slot" over a root that has never been supervised reads as an advocate that is
+   * merely busy, when the honest state is that none has ever been assigned here. Checked
+   * after paused/window, which are both facts about an assignment that already exists.
    */
   function epicStateOf(e) {
     if (e.paused) return { text: 'paused · nothing new below it', tone: 'held' };
     const w = e.window;
     if (w && w.ended) return { text: 'the window has exited', tone: 'warn' };
     if (w) return { text: "writing this epic's plan", tone: 'live' };
+    if (!e.assigned) return { text: 'not yet assigned — nobody has put an advocate on it', tone: '' };
     return { text: e.why || 'no window', tone: '' };
   }
 
@@ -999,8 +1045,10 @@
           : // Said in the body as well as the head chip, because a shut card is only its
             // head, and an open one is where you came to read why.
             `<p class="subtitle">No window right now — ${esc(
-              e.why || 'no reason recorded'
-            )}. The advocate stays assigned to this epic either way; it goes when the epic closes.</p>`
+              e.assigned
+                ? `${e.why || 'no reason recorded'}. The advocate stays assigned to this epic either way; it goes when the epic closes.`
+                : "nobody has put an advocate on this epic yet. It qualifies for one — open it, above, to assign one."
+            )}</p>`
       }
       ${
         e.paused

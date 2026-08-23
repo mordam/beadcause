@@ -26,7 +26,7 @@
   ## The grammar, in four decisions
 
   **1. A view is a bare name; a card is everything with a shape.** The view names are a
-  closed list of four and they are held here (`VIEWS`). Everything else is read as a card
+  closed list of five and they are held here (`VIEWS`). Everything else is read as a card
   key, and a card key is recognised by *shape* rather than by lookup, because there are
   three of them and the app mints all three: `workspace/id` for a bead — the only form
   that has ever been in a notification — plus `pr:` and `jira:` prefixes for the two rows
@@ -138,6 +138,24 @@
     // for: `/releases` is what it is, `/deploys` is the word somebody types, and the
     // `.html` is what the service worker precaches by name.
     { id: 'releases', hash: '#releases', paths: ['/releases', '/deploys', '/releases.html'] },
+    // The selected space's own settings (bc-khoe.10), and the last row for the same reason
+    // it is the last pill: you reach it about once a month.
+    //
+    // It is here because a pill pointing at a page that is *not* a view is a pill that
+    // marks nothing current on the page it links to — the row asks `viewOfPath` and
+    // /config was not one of the answers it had, so the one screen the pill reaches drew
+    // the row with nothing lit and the Config pill as a live `<a href="/config">` on
+    // /config itself. That is bc-khoe.50, and this row is its answer: three addresses
+    // rather than one, because the screen has two honest names — the *config* of a space
+    // and where its *settings* are — and the `.html` is what the service worker precaches.
+    //
+    // **Its pane is still `data-pending` (bc-khoe.60), and that is what keeps these three
+    // documents.** A view whose container is empty must not hop: `public/panes.js` answers
+    // a hash naming a pending pane by showing Home, so a 302 here would put the phone on
+    // the inbox from a home-screen shortcut. test/pagealias.mjs holds both directions of
+    // that — a filled pane owes hops, a pending one must not have them — so the flip
+    // happens in bc-khoe.60's commit and cannot happen early by accident.
+    { id: 'config', hash: '#config', paths: ['/config', '/settings', '/config.html'] },
   ];
 
   /** Where a hash falls when it names nothing — and where a card is always opened. */
@@ -250,10 +268,19 @@
    * `loc` is for a test and for a document that is not this one; a page passes nothing.
    * Clearing it is the case worth the extra line: `location.hash = ''` leaves a bare `#`
    * hanging on the URL, which is then a *different* URL from the one the phone's home
-   * screen holds, so Home is cleared with `replaceState` instead — no history entry,
-   * because arriving at Home from a card is a dismissal rather than a step.
+   * screen holds, so a clear is always written with `pushState`/`replaceState` rather than
+   * by assignment.
+   *
+   * Which of the two depends on `dismiss` (bc-khoe.30.9). Setting a hash always pushes —
+   * that is what assigning `location.hash` does on its own — so the only place this was
+   * ever a question is *clearing* it, and clearing it means two different things today: a
+   * pill tap landing on Home is a *step* (one more view visited, so back should walk to
+   * the pane you came from) and a card closing back to Home is a *dismissal* (nothing new
+   * was visited, so back should still leave the app). `dismiss` is falsy by default because
+   * every caller so far — `panes.js`'s pill handler — is a step; pass `true` for the
+   * dismissal case once one exists.
    */
-  function go(hash, loc, hist) {
+  function go(hash, loc, hist, dismiss) {
     const l = loc || (typeof location === 'undefined' ? null : location);
     if (!l) return false;
     const next = String(hash == null ? '' : hash);
@@ -262,14 +289,19 @@
       return true;
     }
     const h = hist || (typeof history === 'undefined' ? null : history);
-    if (h?.replaceState) h.replaceState(null, '', `${l.pathname}${l.search}`);
+    const url = `${l.pathname}${l.search}`;
+    if (dismiss) {
+      if (h?.replaceState) h.replaceState(null, '', url);
+      else l.hash = '';
+    } else if (h?.pushState) h.pushState(null, '', url);
+    else if (h?.replaceState) h.replaceState(null, '', url);
     else l.hash = '';
     return true;
   }
 
   window.beadcause = window.beadcause || {};
   window.beadcause.route = {
-    /** The three views, their hashes and every address that means them. */
+    /** Every view, its hash, and every address that means it. */
     VIEWS,
     /** Where a hash falls when it names nothing, and where a card always opens. */
     HOME,

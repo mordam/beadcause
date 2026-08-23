@@ -342,6 +342,17 @@ check('and installing twice over its own hook is fine', () => {
   fs.rmSync(path.join(repo, '.git', 'hooks', 'pre-commit'));
 });
 
+check('a core.hooksPath outside the git directory is refused, not silently obeyed — bc-y3qk.13', () => {
+  const stray = path.join(tmp, 'stray-hooks');
+  git(['config', '--local', 'core.hooksPath', stray]);
+  const res = runCode(['--install-hook'], repo);
+  assert.equal(res.code, 1, res.out);
+  assert.match(res.out, /core\.hooksPath/);
+  assert.match(res.out, /outside/);
+  assert.ok(!fs.existsSync(stray), 'wrote into the stray directory instead of refusing');
+  git(['config', '--local', '--unset', 'core.hooksPath']);
+});
+
 fs.rmSync(tmp, { recursive: true, force: true });
 
 console.log(failures ? `\n${failures} failed\n` : '\nall good\n');

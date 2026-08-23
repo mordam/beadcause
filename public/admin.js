@@ -476,8 +476,11 @@
         // is the whole reason the ten-second timer this replaced was worth removing.
         loadDevices();
         // Only when we have lost our place in the log, because the certificate card is
-        // the one thing here that nothing but this page ever changes.
+        // the one thing here that nothing but this page ever changes. The tracker list is
+        // the second: retiring is a press on this card, and the only other way the list
+        // moves is a hand-edited config file, which needs a restart to be read at all.
         if (resync) loadTls();
+        if (resync) loadRepos();
       },
     });
     stream.start();
@@ -619,6 +622,168 @@
     } catch {
       /* A daemon older than this route draws no card, rather than an error where a
          list has never been. */
+    }
+  }
+
+  /* ------------------------------------------------------------------ trackers */
+
+  /*
+   * Every beads workspace this Mac reads, and the way to stop reading one.
+   *
+   * **Why the control is here and not on the picker.** The thing it cleans up is the
+   * space picker (public/spacebar.js), which is a native `<select>` — deliberately, so
+   * it is a wheel on a phone and cannot end up half-open behind a card — and a `<select>`
+   * cannot carry a button per row. So a repo you had finished with stayed in the dropdown
+   * forever unless you hand-edited `workspaceDirs` in ~/.config/beadcause/config.json, on
+   * a machine you had to be sitting at. This page is the honest home for the fix: it is
+   * the one screen about what this Mac is *doing* rather than about beads, which is also
+   * why it is the one screen with no picker on it (see the header of public/spacebar.js).
+   *
+   * **Retiring is reversible, and that is what makes it a button.** It writes one config
+   * key and never touches a bead: the tracker stays on disk exactly as it is, and Bring
+   * back is that key deleted. So the repo returns to the space it was always in with
+   * every per-workspace setting intact — see the route in lib/server.js for why the name
+   * is deliberately left in its space rather than removed from it.
+   *
+   * It is still armed first, like Revoke above, because of what it does in between: a
+   * retired tracker stops being swept, so its questions stop arriving and stop reaching
+   * the phone. Nothing is lost — they are all still in the tracker, and they all come
+   * back on a Bring back — but "you will not be told about these until you undo this" is
+   * a sentence worth reading before the press rather than after it.
+   */
+  const reposOut = document.getElementById('repos');
+
+  /** The last /api/workspaces body, and what the last press did. */
+  let repos = null;
+  let reposSaid = '';
+
+  function repoRow(w) {
+    return `<div class="admin-row">
+      <div class="admin-row-head">
+        <span class="admin-what">${esc(w.name)}</span>
+        <span class="admin-state ${w.space ? 'live' : 'dim'}">${esc(w.space || 'no space')}</span>
+      </div>
+      <p class="admin-detail">${esc(w.dir || '')}${
+        // Said because this page has no picker and so cannot show it: a repo outside the
+        // account is already invisible on every other screen, and "Retire" on a row you
+        // cannot see the effect of wants explaining before it is pressed rather than after.
+        w.inAccount === false ? ' · outside the account you are in, so no screen is showing it' : ''
+      }</p>
+      <div class="admin-btns">
+        <button class="danger-btn admin-retire" data-retire="${esc(w.name)}" data-confirm="Tap again — ${esc(
+          w.name
+        )}’s questions stop arriving">Retire</button>
+      </div>
+    </div>`;
+  }
+
+  function retiredRow(w) {
+    return `<div class="admin-row">
+      <div class="admin-row-head">
+        <span class="admin-what">${esc(w.name)}</span>
+        <span class="admin-state dim">retired${w.space ? ` · ${esc(w.space)}` : ''}</span>
+      </div>
+      <p class="admin-detail">${
+        w.restorable
+          ? 'Set aside. The tracker is untouched on disk and every question in it comes back with it.'
+          : 'Set aside, and nothing under the configured roots has that name any more — bringing it back would find no tracker.'
+      }</p>
+      ${
+        // No dead button where there is nothing to find. The row stays, because the
+        // retirement is still a line in the config file and this is where it is recorded.
+        w.restorable
+          ? `<div class="admin-btns"><button class="secondary admin-restore" data-restore="${esc(
+              w.name
+            )}">Bring back</button></div>`
+          : ''
+      }
+    </div>`;
+  }
+
+  function renderRepos() {
+    // Nothing at all until the route has answered. A daemon older than it — an installed
+    // APK, a cached service worker — draws no card rather than an empty one.
+    if (!repos) {
+      reposOut.innerHTML = '';
+      return;
+    }
+    disarm();
+    const live = repos.workspaces || [];
+    const gone = repos.retired || [];
+    reposOut.innerHTML = `<section class="card admin-card">
+      <div class="admin-head">
+        <h2>Trackers</h2>
+        <span class="admin-state ${live.length ? 'live' : 'dim'}">${plural(live.length, 'tracker')}${
+          gone.length ? ` · ${gone.length} retired` : ''
+        }</span>
+      </div>
+      <p class="admin-detail">
+        Every beads workspace this Mac reads, and every row the space picker offers.
+        Retiring one takes it out of the picker and stops it being swept — no questions
+        from it, no advocate, no notifications. Nothing is deleted: the tracker stays on
+        disk and Bring back returns it to its space with its settings intact.
+      </p>
+      ${live.map(repoRow).join('')}
+      ${gone.length ? `<div class="admin-head"><h2>Retired</h2></div>${gone.map(retiredRow).join('')}` : ''}
+      ${reposSaid ? `<p class="admin-said">${esc(reposSaid)}</p>` : ''}
+    </section>`;
+  }
+
+  /**
+   * Press Retire or Bring back.
+   *
+   * One handler for both, because they are the same write with a different verb and the
+   * reply is the same list either way. Only the destructive half arms — a `data-confirm`
+   * is what asks for the second press, and Bring back does not carry one.
+   */
+  async function pressRepo(btn, action, name) {
+    if (busy) return;
+    if (btn.dataset.confirm && btn.dataset.armed !== 'yes') {
+      const was = btn.textContent;
+      btn.dataset.armed = 'yes';
+      btn.classList.add('armed');
+      btn.textContent = btn.dataset.confirm;
+      armed = { btn, was, timer: setTimeout(() => disarm(), 6000) };
+      return;
+    }
+    disarm({ keep: btn });
+
+    busy = true;
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      await api('/api/workspaces', { method: 'POST', body: JSON.stringify({ action, workspace: name }) });
+      reposSaid = action === 'retire' ? `${name} is set aside.` : `${name} is back.`;
+      // Re-read rather than patch what we have: a retire changes what `restorable` says
+      // about the row it just created, and the picker's own payload has moved too.
+      repos = await api('/api/workspaces');
+      renderRepos();
+      // Nothing to tell the picker, because this page does not have one — it is the only
+      // page that does not, on purpose (see the header of public/spacebar.js). Every other
+      // screen redraws its bar from `/api/spaces` on its own next poll, and the route has
+      // already corrected what that payload says.
+    } catch (err) {
+      btn.textContent = `${was} — ${err.message}`;
+      btn.disabled = false;
+    } finally {
+      busy = false;
+    }
+  }
+
+  reposOut.addEventListener('click', (e) => {
+    const retire = e.target.closest('button[data-retire]');
+    if (retire) return void pressRepo(retire, 'retire', retire.dataset.retire);
+    const restore = e.target.closest('button[data-restore]');
+    if (restore) return void pressRepo(restore, 'restore', restore.dataset.restore);
+  });
+
+  async function loadRepos() {
+    try {
+      repos = await api('/api/workspaces');
+      renderRepos();
+    } catch {
+      /* A daemon older than this route draws no card, exactly as the devices list does. */
     }
   }
 
@@ -977,8 +1142,10 @@
   refresh?.addEventListener('click', loadTls);
   refresh?.addEventListener('click', load);
   refresh?.addEventListener('click', loadDevices);
+  refresh?.addEventListener('click', loadRepos);
   warmBoot();
   load();
   loadTls();
   loadDevices();
+  loadRepos();
 })();

@@ -75,6 +75,14 @@
   pane, and its chip row stays", and it is the reason this container is one pane rather
   than the three or four the chips look like.
 
+  Those two came off — History with bc-khoe.30.5, Advocates with bc-khoe.4 — and there is
+  one pending container again: **Config** (bc-khoe.60), which bc-khoe.50 added. So the
+  paragraphs above are the mechanism rather than a snapshot, and this is the shape it is
+  for: a view joins the grammar the moment the row needs it to light a pill, and its pane
+  arrives afterwards. The one rule that comes with it is in test/pagealias.mjs — while a
+  container is pending its addresses must stay documents, because `show()` falling to Home
+  is the right answer for a hash and the wrong answer for a home-screen shortcut.
+
   ## Why a file of its own, and not a few lines in viewbar.js
 
   `public/viewbar.js` draws the pill row on **twelve** pages and exactly one of them is
@@ -96,14 +104,13 @@
   pane of `/` is bc-khoe.30.7. Until then those addresses are still their own documents,
   which is also why the two panes above are pending.
 
-  **One wart, recorded rather than fixed.** `route.go` clears Home's hash with
-  `replaceState` — Home is the empty hash, and a bare `#` left hanging would be a
-  different URL from the one the phone's home screen holds. So moving *to* Home from
-  another pane replaces the current history entry instead of pushing one, and the back
-  button that would have walked you back to the pane you came from takes you out of the
-  app instead. Moving between any two other panes pushes normally and back walks them.
-  Changing that means changing what bc-khoe.30.2 decided about the one line in this app
-  that writes the URL, which is not this bead's to change.
+  **A pill tap is always a step (bc-khoe.30.9).** `route.go` clears Home's hash with
+  `pushState` rather than by assignment, for the same reason every other pill tap writes
+  a new history entry: assigning `location.hash` pushes on its own, so leaving *only* the
+  clear-to-Home case on `replaceState` would have been the one transition in this row that
+  the back button could not walk. `go`'s `dismiss` argument is what a card closing back to
+  Home would pass instead — nothing here does yet, since a card in this shell is not
+  bc-khoe.30.9's to build.
 */
 (() => {
   const route = window.beadcause.route;
@@ -117,8 +124,8 @@
    * Read off the DOM rather than from a table here, because the document is what decides:
    * `index.html` holds three and the beads that fill the empty two are the ones that get
    * to say when they are showable. A `data-pane` naming something that is not a view is
-   * skipped rather than trusted — the hash grammar is a closed list of three and a fourth
-   * pane would be a pane no hash could ever name.
+   * skipped rather than trusted — the hash grammar is a closed list and a pane outside it
+   * would be a pane no hash could ever name.
    */
   const panes = new Map();
   /** Containers that exist but cannot be shown yet, by view id — see `data-pending`. */
@@ -187,7 +194,7 @@
      * Move to a view: write the hash, then show what the hash now says.
      *
      * Both halves, rather than trusting `hashchange` to arrive: Home's hash is the empty
-     * string and `route.go` clears it with `replaceState`, which does **not** fire
+     * string and `route.go` clears it with `pushState`, which does **not** fire
      * `hashchange` — so a row that only wrote the URL would leave the Home pill dead from
      * every other pane. `sync` is idempotent, so the redundant call on every other
      * transition costs a map lookup and an early return.

@@ -37,7 +37,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assignedAdvocates, wantsAdvocate } from '../lib/epicadvocate.js';
+import { ADVOCATE_LABEL, assignedAdvocates, isEnrolled, waitingBlock, wantsAdvocate } from '../lib/epicadvocate.js';
 import { namesBead } from '../lib/reap.js';
 import { epicAdvocateLimit, workerLimit, MAX_EPIC_ADVOCATES_CEILING } from '../lib/advocate.js';
 
@@ -122,6 +122,54 @@ check('AND A P2 EPIC IS ON THE ROSTER — bc-htoy', () => {
     ['bc-p2', 'bc-p4'],
     'an owned open epic is advocatable at whatever priority it carries'
   );
+});
+
+check(
+  "the roster still includes an epic nobody has ever put an advocate on — it is where the button to assign one lives — bc-r2b5.3",
+  () => {
+    // A graph carrying both shapes: one epic enrolled by the label, one by the waiting-on
+    // sentence, and one that merely qualifies (`wantsAdvocate`) and has never had either.
+    const enrolledByLabel = bead('bc-labelled', { labels: ['owner:adam@example.com', ADVOCATE_LABEL] });
+    const enrolledByNote = bead('bc-noted', { notes: waitingBlock('waiting on a downmerge') });
+    const neverTouched = bead('bc-cold');
+    const roster = assignedAdvocates([enrolledByLabel, enrolledByNote, neverTouched]);
+    assert.deepEqual(
+      roster.map((r) => r.id),
+      ['bc-cold', 'bc-labelled', 'bc-noted'],
+      'the filter is unchanged — every owned open root is still on the roster, assigned or not'
+    );
+    assert.equal(isEnrolled(enrolledByLabel), true, 'the label carrier');
+    assert.equal(isEnrolled(enrolledByNote), true, 'the waiting-on carrier');
+    assert.equal(isEnrolled(neverTouched), false, 'qualifies for an advocate; has never had one');
+  }
+);
+
+check('the daemon stamps assignment on the roster it hands the console — bc-r2b5.3', () => {
+  assert.match(
+    daemon,
+    /assigned:\s*isEnrolled\(epic\)/,
+    'rosterFor no longer says which of its entries are actually enrolled — every card would read as advocated'
+  );
+});
+
+check('the console counts enrolled epics, not every root that merely qualifies — bc-r2b5.3', () => {
+  // The regression this bead was filed over: `epicsOf(a).length` quoted as "epics with an
+  // advocate assigned" is `wantsAdvocate`'s count, not `isEnrolled`'s — a 2x overstatement
+  // measured on 2026-08-17 (22 vs 10). The prose must be built off the assigned subset.
+  assert.match(
+    page,
+    /const assignedOf = \(a\) => epicsOf\(a\)\.filter\(\(e\) => e\.assigned\)/,
+    'nothing on the page can tell an assigned epic from one that only qualifies'
+  );
+  const card = page.slice(page.indexOf('function advocatesHtml'), page.indexOf('function epicStateOf'));
+  assert.ok(
+    !/plural\(epicsOf\(a\)\.length, 'epic'\)/.test(card),
+    'the "have an advocate assigned" sentence is still counting the roster instead of the assigned subset'
+  );
+  assert.match(card, /assignedOf\(a\)/, 'the subtitle never reads the assigned subset');
+  // And an individual card says which it is, in the one part of a shut card you can see.
+  const state = page.slice(page.indexOf('function epicStateOf'), page.indexOf('function epicCard'));
+  assert.match(state, /!e\.assigned/, 'a card for an unassigned epic reads identically to a merely-idle assigned one');
 });
 
 check('a Map is accepted, because that is what bd.graph() hands over', () => {

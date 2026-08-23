@@ -38,10 +38,23 @@
  * whole mechanism: the question is asked while the answer is cheap, rather than a fortnight
  * later off a daemon log with no line in it.
  *
- * COMMENTS ARE BLANKED FIRST (`test/helpers/blank.mjs`). lib/advocate.js argues about this
- * exact hazard in prose, quoting `a.workspace` and `openList(opened, a.workspace)` by name
- * in the header above `parkIdle` — an unblanked scan reports its own documentation as a
- * violation, which is the third time that trap has been hit here. See the memory note
+ * **A third half, below the two above, reads every other file.** The two-list audit is
+ * precise because someone read lib/advocate.js call by call and wrote down what each
+ * callee wants — that does not scale to the other ~260 files under lib/ and bin/, and it
+ * does not need to: half one already establishes that *every* public `Bd` method wants the
+ * workspace object as its first argument, with no exception, so outside the advocate the
+ * only shape worth policing is narrower than WANT_OBJECT/WANT_NAME — `bd.<method>(<ident>.name`
+ * is wrong wherever it appears, because there is no `bd.*` call anywhere that wants a name
+ * for its first argument. This is exactly the bug bc-dgx7.5 shipped —
+ * `bd.listLabelAny(ws.name, CANDIDATE_LABEL)` in lib/skills.js, caught only because an
+ * unrelated count happened to disagree with the empty list it produced — and it is the bug
+ * this file existed to catch and did not, because it never read lib/skills.js. See bc-dgx7.10.
+ *
+ * COMMENTS ARE BLANKED FIRST (`test/helpers/blank.mjs`), for every file this reads, not
+ * only lib/advocate.js. lib/advocate.js argues about this exact hazard in prose, quoting
+ * `a.workspace` and `openList(opened, a.workspace)` by name in the header above `parkIdle`
+ * — an unblanked scan reports its own documentation as a violation, which is the third
+ * time that trap has been hit here. See the memory note
  * `grepping-this-repos-own-source-must-blank-comments`.
  */
 import assert from 'node:assert/strict';
@@ -175,7 +188,7 @@ const WANT_OBJECT = [
   // Reads the queue through `bd.ready(ws)`, and every public `Bd` method takes the
   // workspace object — the check two above this one is the same rule from the other side.
   'sweepFinishedEpics',
-  // lib/sessionaudit.js:743 normalises with `workspace?.name || String(workspace || '')`,
+  // lib/sessionaudit.js:697 normalises with `workspace?.name || String(workspace || '')`,
   // so it wants the object and merely survives a name. Passed as a property rather than
   // positionally, which is why it reads oddly here.
   'audit?.noteArchive',
@@ -333,6 +346,51 @@ await check('and the audit actually found something to check', () => {
   assert.ok(sites >= 40, `expected the advocate's 47 \`a.workspace\` sites, found ${sites}`);
   const named = [...src.matchAll(/\ba\.name\b/g)].length;
   assert.ok(named >= 100, `expected the advocate's 158 \`a.name\` sites, found ${named}`);
+});
+
+/* ------------------------------------------ half three: every other lib/ and bin/ file */
+
+/** Every entry directly under `dir` (relative to ROOT) that is a file, not a subdirectory. */
+function filesIn(dir) {
+  return fs
+    .readdirSync(path.join(ROOT, dir))
+    .filter((f) => fs.statSync(path.join(ROOT, dir, f)).isFile())
+    .map((f) => path.posix.join(dir, f));
+}
+
+// `bin/` still holds a handful of extensionless node scripts (b7e-gate, beadcause-memory,
+// …) alongside its `.js` files, so this lists files rather than filtering by extension —
+// lib/ has no non-`.js` entries to accidentally sweep in.
+const OTHER_MODULES = [...filesIn('lib'), ...filesIn('bin')].filter((rel) => rel !== ADVOCATE);
+
+await check('no bd.<method>(<ident>.name, …) anywhere else under lib/ or bin/', () => {
+  const bad = [];
+  for (const rel of OTHER_MODULES) {
+    const text = blankJs(fs.readFileSync(path.join(ROOT, rel), 'utf8'));
+    const fileLineOf = (index) => text.slice(0, index).split('\n').length;
+    for (const m of text.matchAll(/\bbd\.([a-zA-Z]+)\s*\(\s*([a-zA-Z_$][a-zA-Z0-9_$]*)\.name\b/g)) {
+      bad.push(`${rel}:${fileLineOf(m.index)} — bd.${m[1]}(${m[2]}.name …)`);
+    }
+  }
+  assert.deepEqual(
+    bad,
+    [],
+    'every `bd.*` call takes the workspace object, never its name (bc-dgx7.10):\n       ' +
+      bad.join('\n       ')
+  );
+});
+
+await check('and the tree-wide scan actually reads more than lib/advocate.js', () => {
+  // The same floor as half two's, for the same reason: a refactor that renamed lib/ or
+  // bin/ out from under `filesIn`, or that broke the regex above, would otherwise pass
+  // every case above by finding nothing to check.
+  assert.ok(OTHER_MODULES.length >= 250, `expected ~275 other lib/+bin/ files, found ${OTHER_MODULES.length}`);
+  const callBd = (rel) => /\bbd\.[a-zA-Z]+\s*\(/.test(blankJs(fs.readFileSync(path.join(ROOT, rel), 'utf8')));
+  const withBdCalls = OTHER_MODULES.filter(callBd);
+  // Fewer than a raw text grep would find — half a dozen files only mention `bd.foo(…)`
+  // in a comment (arguing about this very hazard, in some cases), and blanking correctly
+  // drops those; this floor is against the blanked count, not the raw one.
+  assert.ok(withBdCalls.length >= 50, `expected ~58 other modules calling bd.*, found ${withBdCalls.length}`);
 });
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);

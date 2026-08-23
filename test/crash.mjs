@@ -621,6 +621,10 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the conflict sweep',
       'the cycle',
       'the deploy sweep',
+      // lib/dupesweep.js. `sweepDuplicates` lands every write it could not make in its
+      // answer rather than throwing, so what reaches this catch is the sweep's own
+      // bookkeeping — the same bar `sweepAdopts` beside it is held to.
+      'the duplicate sweep',
       // lib/epicdone.js. `createEpicWatch().sweep` lands a tracker it could not read in
       // its outcome and leaves that workspace's snapshot alone, so what reaches this
       // catch is the watcher's own bookkeeping — and getting it wrong is quiet twice
@@ -639,8 +643,27 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the orphan-census sweep',
       'the owed-close sweep',
       'the poll',
+      // lib/publishsweep.js. Its whole body is behind `whenOn`, so on an install with the
+      // management system off this catch is unreachable — and on one with it on, `sweep`
+      // lands every failure a transport can have in an outcome, including a connection
+      // that is accepted and then never speaks. So what reaches here is the sweep's own
+      // bookkeeping, which is the bar every entry in this list is held to. Worth reporting
+      // rather than logging because a publication sweep that silently stopped is a chain
+      // that silently stopped growing, and an unpublished period cannot be claimed.
+      'the publication sweep',
       'the release sweep',
       'the reply push',
+      // lib/sessionaudit.js's `sweepStale` — bc-dgx7.7. `audit()` itself never rejects,
+      // so what reaches this catch is `sweepStale`'s own dispatch loop failing, which is
+      // a bug in the daemon rather than anything about the checkouts it is walking.
+      'the session audit sweep',
+      // lib/rootclose.js. `createStrandWatch().sweep` lands an unreadable tracker and a
+      // refused comment in its outcome, and a graph that came back empty produces no
+      // strandings at all rather than the whole workspace at once — so what reaches this
+      // catch is the watcher's own bookkeeping. Reported rather than logged because the
+      // thing it exists to end is a bead going unworkable in silence, and a sweep that
+      // silently stopped running is that bug again wearing the fix's clothes.
+      'the stranded-bead sweep',
       // lib/strays.js, and the one entry in the list that signals other processes. Its
       // own guards — the age floor, the profile match, `mayReap` — decide what it may
       // touch, and every one of them answering "nothing" is the settled state rather

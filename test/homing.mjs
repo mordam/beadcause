@@ -8,7 +8,7 @@
  * bc-rfnr.8, and the other half of test/underroot.mjs. That one asserts the rule; this
  * one asserts that the daemon stops filing beads that are born failing it.
  *
- * Seven properties, in the order they would break in:
+ * Eight properties, in the order they would break in:
  *
  * 1. **The home is the P0 the discovering bead is under — never the discovering bead.**
  *    The tempting version parents each discovery under whatever found it, which reads
@@ -35,7 +35,17 @@
  * 6. **And the bead it files is workable.** The acceptance criterion itself, asserted as
  *    one line: `hasRootAbove` over the tracker afterwards. Every other property here is a
  *    means to this one.
- * 7. **A tracker that could not be read says so** (bc-0i27.17), and is not confused with
+ * 7. **A seam that files one *kind* of bead names its own home, and it beats `from`**
+ *    (bc-khoe.48). The rule in (1) is right for a discovery and wrong for a production
+ *    line: which sessions evidenced a skill candidate is an accident of the hour, and
+ *    following it put thirty-seven of them under twelve unrelated epics. Two halves are
+ *    asserted, and the second is the one that makes the change safe to land — the named
+ *    home wins over the root above `from`, and with **no root carrying the label the
+ *    answer is byte-for-byte what it was**, so pointing a seam at a home nobody has
+ *    raised yet does nothing at all. Reusing a label the work also carries is safe
+ *    because only roots are looked at, and that is asserted against a P2 task carrying
+ *    the identical label rather than argued.
+ * 8. **A tracker that could not be read says so** (bc-0i27.17), and is not confused with
  *    a tracker that answered "nothing here". Both are `{ parent: '', gated: false }` and
  *    only one of them is a decision. Asserted through a real `Bd` over a `bd export`
  *    that exits non-zero, because that is where the lie was: `Bd.graph` does not throw,
@@ -59,7 +69,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-homing-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { UNSORTED_LABEL, rootOver, unsortedRoot, homeFor, homeIn } = await import(LIB('homing.js'));
+const { UNSORTED_LABEL, rootOver, unsortedRoot, rootLabelled, homeFor, homeIn } = await import(LIB('homing.js'));
 const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 const { hasRootAbove } = await import(LIB('underroot.js'));
 const { fileBeads } = await import(LIB('filing.js'));
@@ -87,6 +97,9 @@ const row = (id, extra = {}) =>
   JSON.stringify({ id, title: `bead ${id}`, status: 'open', priority: 2, labels: [], dependencies: [], ...extra });
 const parentEdge = (child, parent) => ({ issue_id: child, depends_on_id: parent, type: PARENT_EDGE });
 
+/** The label a seam names its own home by — `self-started-skills` in the live one. */
+const HOME_LABEL = 'zz-programme';
+
 /**
  * A tracker with a themed P0 and two levels under it, an unsorted-backlog P0, a P0 that
  * has closed over an open child, and a bead nothing has ever decided.
@@ -99,6 +112,12 @@ const LINES = [
   row('zz-done', { priority: 0, status: 'closed', labels: [UNSORTED_LABEL] }),
   row('zz-done.1', { dependencies: [parentEdge('zz-done.1', 'zz-done')] }),
   row('zz-loose'),
+  // bc-khoe.48: the epic a seam names as its own home, and — deliberately — a P2 task
+  // carrying the identical label, because the real one does. Every skill candidate
+  // carries `self-started-skills` as well as the epic that owns them, so a home found by
+  // label is only safe while it looks at roots alone.
+  row('zz-home', { priority: 0, labels: [HOME_LABEL] }),
+  row('zz-home.1', { labels: [HOME_LABEL], dependencies: [parentEdge('zz-home.1', 'zz-home')] }),
 ];
 const INDEX = indexFrom(LINES.join('\n'));
 
@@ -136,6 +155,59 @@ await check('two of them is a duplicate you can find, not two daemons filing int
   );
   assert.equal(unsortedRoot(two), 'zz-also', 'sorted, so it is stable rather than export order');
   assert.equal(unsortedRoot(two), 'zz-also');
+});
+
+/* ------------------------------------------------- the home a seam names for itself */
+
+await check('ROOTLABELLED FINDS THE OPEN ROOT CARRYING A LABEL, AND ONLY A ROOT', () => {
+  // bc-khoe.48. The whole safety of reusing a label the *work* also carries is here:
+  // `zz-home.1` is a P2 task with the identical label and must never be the answer, for
+  // the same reason every child of the unsorted backlog inherits `unsorted` and is not
+  // the pile.
+  assert.equal(rootLabelled(INDEX, HOME_LABEL), 'zz-home');
+  assert.equal(rootLabelled(INDEX, HOME_LABEL.toUpperCase()), 'zz-home', 'a label is matched case-insensitively');
+  assert.equal(rootLabelled(INDEX, 'nobody-carries-this'), null);
+  assert.equal(rootLabelled(INDEX, ''), null, 'no label named is not "find me any root"');
+  assert.equal(rootLabelled(INDEX, '   '), null);
+  assert.equal(rootLabelled(null, HOME_LABEL), null);
+  const closed = indexFrom(row('zz-home', { priority: 0, status: 'closed', labels: [HOME_LABEL] }));
+  assert.equal(rootLabelled(closed, HOME_LABEL), null, 'a closed epic is not a root, so it is not a home');
+});
+
+await check('and the backlog is now the same function, so the two cannot drift apart', () => {
+  assert.equal(unsortedRoot(INDEX), rootLabelled(INDEX, UNSORTED_LABEL));
+});
+
+await check('A NAMED HOME BEATS THE ROOT THE DISCOVERY CAME FROM — bc-khoe.48', () => {
+  // The point of the option. `from` is right for a one-off discovery and wrong for a
+  // seam filing the same *kind* of bead every time: which work evidenced a skill
+  // candidate is an accident of which sessions ended that hour, and following it put
+  // thirty-seven candidates under twelve unrelated epics.
+  const home = homeFor(INDEX, { from: 'zz-epic.1', homeLabel: HOME_LABEL });
+  assert.equal(home.parent, 'zz-home');
+  assert.notEqual(home.parent, 'zz-epic', 'the accident of who found it no longer decides');
+  assert.match(home.why, /zz-home/);
+  assert.match(home.why, new RegExp(HOME_LABEL), 'and says which label chose it');
+});
+
+await check('an explicit parent still beats a named home, and a named home beats the backlog', () => {
+  assert.equal(homeFor(INDEX, { parent: 'zz-epic.1', homeLabel: HOME_LABEL }).parent, 'zz-epic.1');
+  assert.equal(homeFor(INDEX, { homeLabel: HOME_LABEL }).parent, 'zz-home', 'no from at all, and it still lands home');
+  assert.equal(homeFor(INDEX, { from: 'zz-loose', homeLabel: HOME_LABEL }).parent, 'zz-home');
+  assert.equal(
+    homeFor(INDEX, { from: 'zz-loose', homeLabel: HOME_LABEL, unsorted: false }).parent,
+    'zz-home',
+    'and `unsorted: false` refuses the pile, not the home'
+  );
+});
+
+await check('POINTING A SEAM AT A HOME NOBODY HAS RAISED IS A NO-OP, NOT A PILE OF ORPHANS', () => {
+  // The property that makes the change safe to land before the epic is labelled: with no
+  // root carrying it, every answer is byte-for-byte the one the seam gave before.
+  const before = homeFor(INDEX, { from: 'zz-epic.1' });
+  assert.deepEqual(homeFor(INDEX, { from: 'zz-epic.1', homeLabel: 'not-raised-yet' }), before);
+  assert.deepEqual(homeFor(INDEX, { from: 'zz-loose', homeLabel: 'not-raised-yet' }), homeFor(INDEX, { from: 'zz-loose' }));
+  assert.deepEqual(homeFor(indexFrom(''), { homeLabel: HOME_LABEL }), { parent: '', why: '', gated: false, error: '' });
 });
 
 await check('a label is not an owner and not a priority — only an open P0 catches anything', () => {
@@ -352,6 +424,38 @@ await check('nothing discovered it → the backlog, and the session is warned ra
   assert.equal(res.home.parent, 'zz-pile');
   assert.deepEqual(warnings, [], 'a home was found, so there is nothing to warn about');
   assert.equal(world().parents.get(res.filed[0].id), 'zz-pile');
+});
+
+await check('FILEBEADS HANDS HOMELABEL THROUGH, AND `--parent` REALLY REACHES BD — bc-khoe.48', async () => {
+  // Asserted through the real seam over the real argv rather than against `homeFor`,
+  // for the reason property 5 of this file gives: a unit test of the decision passes
+  // just as happily against a `fileBeads` that never passes the option on. Both halves
+  // matter — the bead lands under the named home, and the `discovered-from` trail back
+  // to the session that evidenced it survives, because that is what the parent link
+  // never was.
+  forgetParents();
+  const res = await fileBeads(bd, ws, [{ title: 'b7e-something — filed by the audit' }], {
+    from: 'zz-epic.1',
+    homeLabel: HOME_LABEL,
+  });
+  assert.equal(res.failed.length, 0, JSON.stringify(res.failed));
+  assert.equal(res.home.parent, 'zz-home');
+  assert.notEqual(res.home.parent, 'zz-epic', 'not the epic that happened to evidence it');
+  assert.equal(world().parents.get(res.filed[0].id), 'zz-home');
+  const filed = JSON.parse(fs.readFileSync(WORLD, 'utf8')).lines.map(JSON.parse).find((r) => r.id === res.filed[0].id);
+  assert.ok(
+    (filed.dependencies || []).some((d) => d.type === 'discovered-from' && d.depends_on_id === 'zz-epic.1'),
+    'the provenance edge back to the evidencing work is untouched'
+  );
+});
+
+await check('and with the home unraised it files exactly where it filed before', async () => {
+  forgetParents();
+  const res = await fileBeads(bd, ws, [{ title: 'b7e-else — before the epic was labelled' }], {
+    from: 'zz-epic.1',
+    homeLabel: 'not-raised-yet',
+  });
+  assert.equal(res.home.parent, 'zz-epic', 'the old rule, unchanged, which is what makes this safe to land first');
 });
 
 await check('A PARENT BD REFUSES COSTS THE PARENT, NEVER THE BEAD', async () => {

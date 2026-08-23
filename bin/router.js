@@ -69,7 +69,7 @@ import {
   tlsEnabled,
   MIN_VERSION,
 } from '../lib/tls.js';
-import { tailnetLine, watchForAddress } from '../lib/tailnet.js';
+import { tailnetLine, watchForAddress, WATCH_EVERY_MS } from '../lib/tailnet.js';
 import {
   HEALTH_ATTEMPTS,
   HEALTH_BASE_MS,
@@ -1597,27 +1597,39 @@ let renewal = startRenewal(cfg, servers, {
 // first moment there is anything to renew. Clearing the old timer first keeps that
 // idempotent if Tailscale goes down and comes back more than once.
 armLateBind(() => {
-  const late = bindHost(cfg.host, {
-    onBound: () => {},
+  let late = null;
+  late = bindHost(cfg.host, {
+    // On the bind actually succeeding, and not a moment before it — mirroring the fix
+    // lib/server.js got in bc-b4fs.1. Pushed into the same array `shutdown` closes and
+    // `startRenewal` reads, so the late socket is closed on SIGTERM like any other, and
+    // an address that flaps does not leave a dead pair in that array on every attempt.
+    onBound: () => {
+      servers.push(...late);
+      if (renewal) clearInterval(renewal);
+      renewal = startRenewal(cfg, servers, {
+        notify: notifyCertificate,
+        onAcquired: () => reconcileBaseUrl(cfg, { persist: true }),
+        log,
+        warn,
+      });
+      // The URL a phone is handed names the address, not the certificate, until there
+      // is one — so it moves when the address does.
+      reconcileBaseUrl(cfg, { persist: true });
+    },
     // Nothing to exit over here whatever happens: loopback is already serving, and an
     // address that has gone away again is simply deferred a second time.
     onError: (err) => {
-      if (err.code === 'EADDRNOTAVAIL') deferTailnet();
+      late?.forEach(closeServer);
+      if (err.code !== 'EADDRNOTAVAIL') return;
+      // After a wait, and never straight away. `watchForAddress` fires immediately for
+      // an address the interface list already claims — and the list claiming one the
+      // kernel then refuses to bind is precisely the state this branch is in, so
+      // re-arming synchronously is a hot loop rather than a retry: defer, fire, fail,
+      // defer, as fast as the event loop will go, for as long as the two disagree. One
+      // interval of quiet makes it a retry again.
+      setTimeout(deferTailnet, WATCH_EVERY_MS).unref?.();
     },
   });
-  // Pushed into the same array `shutdown` closes and `startRenewal` reads, so the late
-  // socket is closed on SIGTERM like any other.
-  servers.push(...late);
-  if (renewal) clearInterval(renewal);
-  renewal = startRenewal(cfg, servers, {
-    notify: notifyCertificate,
-    onAcquired: () => reconcileBaseUrl(cfg, { persist: true }),
-    log,
-    warn,
-  });
-  // The URL a phone is handed names the address, not the certificate, until there is
-  // one — so it moves when the address does.
-  reconcileBaseUrl(cfg, { persist: true });
 });
 log(`supervising ${BACKEND}`);
 await bringUp('first start').catch((err) => {

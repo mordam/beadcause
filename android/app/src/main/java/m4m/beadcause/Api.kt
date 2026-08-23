@@ -317,6 +317,22 @@ data class Poll(
      */
     val requests: List<Question>?,
     val workspaces: List<String>,
+    /**
+     * Every card `stuck_v1` should be showing right now — not a transition, a snapshot.
+     *
+     * [Event.state] on each of these is never `"clear"`; a condition that has cleared
+     * is simply absent from the list. Sent on every poll, unlike [questions]/[requests]
+     * — building it costs the daemon no `bd` call, so there is no timed-out poll worth
+     * skipping it on, and skipping it on exactly the poll where nothing else changed is
+     * bc-ka5y.15.8: the one poll a phone makes right after a restart, with its tray
+     * empty and the thing it was warning about still true.
+     *
+     * Null from a server too old to send it, same as every other field a client this
+     * old has never heard of — [WatchService] treats that as "say nothing", which is
+     * the safe direction: a card this build cannot restore is no worse than the bug
+     * this field exists to fix, never worse than what shipped before it.
+     */
+    val stuck: List<Event>?,
 ) {
     /** Both channels together, for the lookups that only need "is this bead live". */
     val allBeads: List<Question> get() = questions.orEmpty() + requests.orEmpty()
@@ -329,6 +345,7 @@ data class Poll(
             questions = json.optJSONArray("questions")?.toQuestions(),
             requests = json.optJSONArray("requests")?.toQuestions(),
             workspaces = json.optJSONArray("workspaces").toStringList(),
+            stuck = json.optJSONArray("stuck")?.map { it.toEvent() },
         )
     }
 }

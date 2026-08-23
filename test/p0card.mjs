@@ -206,6 +206,7 @@ function board(roots, open = [], status = 'live') {
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
+      lift(APP, 'const openingCardClass = ('),
       lift(APP, 'const cardId = ('),
       lift(APP, 'const spaceForWorkspace = ('),
       lift(APP, 'const STATUS_LABEL = '),
@@ -915,6 +916,7 @@ check('the three no-op cases are untouched: no `me`, no P0s, an old payload', ()
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
+      lift(APP, 'const openingCardClass = ('),
       lift(APP, 'const cardId = ('),
       lift(APP, 'const spaceForWorkspace = ('),
       lift(APP, 'const STATUS_LABEL = '),

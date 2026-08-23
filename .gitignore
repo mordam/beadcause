@@ -52,6 +52,11 @@ public/beadcause.apk.json
 
 # Android build output and machine-local SDK path.
 android/.gradle/
+
+# `bin/b7e-gate` run records (bc-gdub.3, `lib/gaterun.js`) — one JSONL file per run,
+# read back by `bin/b7e-watch`. Churn, gone with the worktree they describe, the same
+# reason logs/ and workers/ under ~/.config/beadcause are ignored rather than kept.
+.claude/gate-runs/
 android/build/
 android/app/build/
 android/local.properties
@@ -85,3 +90,8 @@ design-bundle
 
 # Screenshots from scripts/design/shots.mjs — 154 PNGs, regenerated on demand.
 design-shots
+
+# Regression fingerprint from scripts/design/baseline.mjs. Deliberately outside
+# design-shots/ — shots.mjs clears that whole directory on every render (bc-ka5y.24),
+# and per-machine either way, since it is a claim about the machine's own fonts.
+design-baseline.json

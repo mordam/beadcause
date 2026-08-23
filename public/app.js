@@ -181,6 +181,11 @@
      * of why an already-cached card does not flash: nothing awaits on that path, so the
      * set, the clear and the repaint all happen inside the one tap, and the browser never
      * paints a frame in between.
+     *
+     * **Also the mark for `p0-answer`**, since bc-ka5y.14 — tapping "Answer it" on a bead
+     * inside an epic's tree runs the same `expand()` and has the same half-second wait, and
+     * a second field would just be this one with a different name. One key, whichever
+     * surface set it; `paintOpening()` draws it onto both shapes.
      */
     opening: null,
     /**
@@ -974,14 +979,17 @@
   const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
 
   /**
-   * The pending mark, for as long as this card's detail fetch is in the air. bc-jair.
+   * The pending mark, for as long as this bead's detail fetch is in the air. bc-jair,
+   * widened to the tree row by bc-ka5y.14.
    *
-   * Both card renderers interpolate it so that a poll landing mid-fetch paints it back:
-   * `paintOpening()` writes the class inside the tap's own frame, but the node it writes
-   * on is one the next reconcile is free to replace. Same division of labour as the ⋮
-   * menu's `state.menu`, and the same reason for it.
+   * Every renderer that can wear it interpolates it so that a poll landing mid-fetch
+   * paints it back: `paintOpening()` writes the class inside the tap's own frame, but the
+   * node it writes on is one the next reconcile is free to replace. Same division of
+   * labour as the ⋮ menu's `state.menu`, and the same reason for it. Takes anything with a
+   * `.key` — a question, an agent bead, or the plain `{ key }` `p0RowHtml` calls it with —
+   * because the tree row it marks is drawn from a `bd` row, not a question.
    *
-   * Shared between the two renderers where the title `<button>` beside it deliberately is
+   * Shared between the renderers where the title `<button>` beside it deliberately is
    * not: `editmode.js` anchors a control by grepping this file for the markup that drew
    * it, and what it anchors on is the `data-act` — nothing has ever anchored on the
    * *class* an article wears. See the note on `shutCardAct`.
@@ -2845,6 +2853,39 @@
   }
 
   /**
+   * Every element inside `container` a Tab key actually stops at — visible and
+   * enabled, in DOM order. `role="dialog" aria-modal="true"` is on three layers now
+   * (this dialog, `.p0-full` below, `.drawer` in drawer.js) and none of them kept Tab
+   * from walking straight through to whatever the layer is supposed to be covering.
+   * This is the one list both of the fixes in this file, and the third in
+   * drawer.js, are built on. bc-ywiy.
+   */
+  const FOCUSABLE_SEL =
+    'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  function focusables(container) {
+    return [...container.querySelectorAll(FOCUSABLE_SEL)].filter((el) => el.getClientRects().length > 0);
+  }
+
+  /**
+   * Tab and Shift-Tab, wrapped at the first and last focusable in `container` instead
+   * of leaving it. Call from a `keydown` handler with the event; it only acts on `Tab`,
+   * and only when the container has something to land focus on — an empty one just
+   * swallows the key rather than letting it fall through to whatever is behind it.
+   */
+  function trapTab(container, ev) {
+    if (ev.key !== 'Tab') return;
+    const list = focusables(container);
+    if (!list.length) return ev.preventDefault();
+    const first = list[0];
+    const last = list[list.length - 1];
+    const at = container.contains(document.activeElement) ? document.activeElement : null;
+    if (ev.shiftKey ? at === first || !at : at === last || !at) {
+      ev.preventDefault();
+      (ev.shiftKey ? last : first).focus({ preventScroll: true });
+    }
+  }
+
+  /**
    * The warning, the first time an agent is given its extra reach.
    *
    * The text comes from the server so every client warns in the same words about the
@@ -2853,6 +2894,10 @@
    */
   function confirmTools(disclaimer) {
     return new Promise((resolve) => {
+      // Whatever had the keyboard when this opened — the checkbox that armed it,
+      // ordinarily — so `done()` below can hand it straight back rather than leaving
+      // Tab to start over from the top of the document. bc-ywiy.
+      const opener = document.activeElement;
       const wrap = document.createElement('div');
       wrap.className = 'dialog-wrap';
       wrap.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-label="${esc(disclaimer.title)}">
@@ -2867,6 +2912,7 @@
       const done = (v) => {
         wrap.remove();
         resolve(v);
+        if (opener && opener.isConnected) opener.focus({ preventScroll: true });
       };
       wrap.addEventListener('click', (ev) => {
         if (ev.target.closest('[data-yes]')) return done(true);
@@ -2874,7 +2920,32 @@
         // inside the panel must not, or reading it would close it.
         if (ev.target.closest('[data-no]') || !ev.target.closest('.dialog')) return done(false);
       });
+      // Scoped to this one wrap rather than the page's shared keydown handler below:
+      // the wrap is appended once and removed whole, never repainted in place, so a
+      // listener on it costs nothing to keep current. Escape means Cancel — the same
+      // outcome the backdrop and `[data-no]` already give — which is what the shared
+      // handler's own Escape case already assumes is somebody else's job (see its
+      // "the modal's business" comment).
+      //
+      // `stopPropagation` on every key, not just the ones this handles: `done()`
+      // removes `wrap` from the document *before* this handler returns, so by the
+      // time the event would otherwise reach the shared handler its own "is the
+      // dialog still up" guard is already looking at an empty answer — and Escape
+      // falls through to closing the agent roster too, stealing the focus `done()`
+      // just gave back to the checkbox. Nothing behind this dialog gets to hear a
+      // keypress that happened while it was up.
+      wrap.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          return done(false);
+        }
+        trapTab(wrap.querySelector('.dialog'), ev);
+      });
       document.body.appendChild(wrap);
+      // Cancel, not "I understand" — the safe outcome if a keyboard reader's first
+      // press is Enter rather than a read of the warning it is sitting on.
+      wrap.querySelector('[data-no]').focus({ preventScroll: true });
     });
   }
 
@@ -3019,8 +3090,15 @@
           ${o.recommended ? '<span class="rec-tag">★ recommended</span>' : ''}
           ${
             // Worth saying before the tap rather than only in the toast after it:
-            // this option is an instruction, and the bead stays open.
-            o.closes === false ? '<span class="hand-tag">↪ commissions the work</span>' : ''
+            // this option is an instruction, and the bead stays open. A deferral is
+            // also `closes: false` and means the opposite of an instruction — it puts
+            // nothing in motion and leaves this very card where it is — so the two
+            // cannot share one tag (lib/decision.js).
+            o.defers
+              ? '<span class="hand-tag">↪ not yet — the card stays on your list</span>'
+              : o.closes === false
+                ? '<span class="hand-tag">↪ commissions the work</span>'
+                : ''
           }
           ${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ''}
         </button>`;
@@ -3236,6 +3314,16 @@
    * gate is the honest thing to show. `some` is the wrong quantifier for the same reason —
    * one commission beside a `close-it` still leaves a button that means the close.
    */
+  // A **deferral** counts here, and that is deliberate: it carries `closes: false` and
+  // `/api/respond` skips the gate for it exactly as it does for a commission, so on a card
+  // where nothing closes there is no refusal coming either, and withdrawing the button
+  // would leave a card nobody can put off — the bc-xl7n.52 failure arriving through the
+  // fix for it. This predicate answers "is a refusal coming?", which is why the quantifier
+  // is `every` and why a deferral is inside it.
+  //
+  // What a deferral does *not* count for is the label under the box with nothing picked,
+  // which asks a different question — see `answerLabel`. One predicate cannot serve both,
+  // and narrowing this one to serve that one is the mistake that reached a pull request.
   const allCommissions = (q) => {
     const options = q?.decision?.options || [];
     return options.length > 0 && options.every((o) => o.closes === false);
@@ -3265,8 +3353,19 @@
    * through `textContent` when paintPicked() repaints it.
    */
   function answerLabel(chosen, q) {
-    if (chosen) return chosen.closes === false ? 'Answer & commission' : 'Answer & close';
-    return allCommissions(q) ? 'Answer & commission' : 'Answer & close';
+    // *Answer & defer* is the third of these, and it is the only one of the three that
+    // promises the card will still be here afterwards.
+    if (chosen) return chosen.defers ? 'Answer & defer' : chosen.closes === false ? 'Answer & commission' : 'Answer & close';
+    // With nothing picked this describes a **typed** answer, and that is where a deferral
+    // parts company with the gate predicate above. A typed answer on a card whose only
+    // non-closing choice is a *not yet* closes: a deferral starts no work, so there is no
+    // instruction for a sentence to lose and the server does not hold it back as ambiguous
+    // (`anyCommission`, lib/server.js). So a deferral changes this label only while it is
+    // in the box — never from the card. Saying *Answer & commission* over it would name
+    // the one outcome that cannot happen, which is the fault this whole function exists
+    // to avoid.
+    const options = q?.decision?.options || [];
+    return allCommissions(q) && !options.some((o) => o.defers) ? 'Answer & commission' : 'Answer & close';
   }
 
   /**
@@ -3284,7 +3383,13 @@
    * `textContent` in paintArmed() and paintPicked().
    */
   const optionLabel = (q, o, armed) =>
-    !armed ? o.label : o.closes === false ? `Tap again — commissions ${q.id}` : `Tap again — answers ${q.id}`;
+    !armed
+      ? o.label
+      : o.defers
+        ? `Tap again — defers ${q.id}`
+        : o.closes === false
+          ? `Tap again — commissions ${q.id}`
+          : `Tap again — answers ${q.id}`;
 
   /**
    * Why this card has no *Answer & close* — said before you type, not after.
@@ -3577,10 +3682,33 @@
     </article>`;
   }
 
+  /**
+   * The paths a bead declares it expects to touch (bc-42ow), as their own labelled
+   * row of pills — the same shape `PROP_FIELDS` draws `Expects to touch` in on a
+   * proposal row, so a reader who has seen one recognises the other.
+   *
+   * `/api/bead` is what supplies `files` (lib/server.js), already parsed out of the
+   * `beadfiles` block and out of `description` in the same breath — this file never
+   * reads the fence itself, which is bc-42ow's whole point: one reading, in
+   * lib/beadfiles.js, or none. `''` on a bead that declared nothing, which is still
+   * almost every bead, so the card looks exactly as it did before this landed.
+   */
+  const filesRowHtml = (files) =>
+    files?.length
+      ? `<div class="prop-field pills">
+      <span class="prop-label">Expects to touch</span>
+      ${files.map((f) => `<span class="pill">${esc(f)}</span>`).join('')}
+    </div>`
+      : '';
+
   /** The body of an agent bead: description, notes, thread. Fetched by expand(). */
   function agentBriefHtml(q) {
     const parts = [];
     if (q.description) parts.push(`<div class="md">${renderMarkdown(q.description, FROM_BD)}</div>`);
+    // Where the block used to sit inline, at the end of the prose it was written
+    // into (`withSurface` appends it) — so it comes right after the description it
+    // was lifted out of, not buried under notes and the thread.
+    parts.push(filesRowHtml(q.files));
     // `notes` is where sessions record what they actually did, and it is often the
     // only part worth reading — a bead can have an aspirational description and a
     // notes field saying it shipped three days ago.
@@ -3955,11 +4083,21 @@
    * different card while the first fetch is still going, and two cards both claiming to
    * be opening is worse than the inert tap this replaced. `state.opening` holds at most
    * one key, and this makes the DOM say the same thing.
+   *
+   * **Two shapes since bc-ka5y.14, not two functions.** `.card[data-key=...]` is the inbox
+   * card `toggle` marks; `[data-p0bead=...]` is the tree row `p0-answer` marks — the same
+   * key, whichever surface set it, and a sweep of each so a stray mark on either cannot
+   * survive a second tap landing on the other. Both selectors run every time rather than
+   * being told which shape to look for, because the caller only knows a key, not which
+   * screen the row it names is on — the epic tree and the inbox list can both be showing
+   * the same bead at once.
    */
   function paintOpening() {
-    for (const el of listEl.querySelectorAll('.card.opening')) el.classList.remove('opening');
+    for (const el of listEl.querySelectorAll('.card.opening, [data-p0bead].opening'))
+      el.classList.remove('opening');
     if (!state.opening) return;
     listEl.querySelector(`.card[data-key="${CSS.escape(state.opening)}"]`)?.classList.add('opening');
+    listEl.querySelector(`[data-p0bead="${CSS.escape(state.opening)}"]`)?.classList.add('opening');
   }
 
   /**
@@ -6081,6 +6219,12 @@
    * `aria-hidden`, no `tabindex` taken away — because it is still a real link to a real
    * bead, and a screen reader that skipped it would read the tree with a level missing,
    * which is the exact failure drawing the row at all is preventing.
+   *
+   * **`openingCardClass` is interpolated here too, since bc-ka5y.14.** The board is one
+   * reconcile chunk replaced whole every 25 seconds — more often than the inbox list, not
+   * less — so a mark that `paintOpening()` had only poked onto this node would be the
+   * first thing the next poll throws away. Called with a plain `{ key }` rather than a
+   * question, which is all it ever reads.
    */
   function p0RowHtml(card, row) {
     const status = String(row.status || 'open');
@@ -6091,7 +6235,7 @@
       row.context ? ' via' : ''
     }${row.pending ? ' asks' : ''}${
       on ? ' on' : ''
-    }" style="--d:${p0Step(row)}" data-act="p0-bead" data-p0bead="${esc(key)}" data-ws="${esc(
+    }${openingCardClass({ key })}" style="--d:${p0Step(row)}" data-act="p0-bead" data-p0bead="${esc(key)}" data-ws="${esc(
       card.workspace
     )}" data-bead="${esc(row.id)}" aria-expanded="${on}"${on ? ` aria-controls="p0bead-${cardId(key)}"` : ''}>
       <span class="p0-row-caret" aria-hidden="true">${on ? '▾' : '▸'}</span>
@@ -6486,6 +6630,10 @@
     ].filter(Boolean);
     if (groups.length) parts.push(`<div class="p0-rel">${groups.join('')}</div>`);
     if (b.description) parts.push(`<div class="md">${renderMarkdown(b.description, FROM_BD)}</div>`);
+    // Same reasoning and same helper as the inbox card's brief (bc-42ow.6): the block
+    // is already out of `description` by the time this got here (`/api/bead`), and
+    // this is where it lands instead.
+    parts.push(filesRowHtml(b.files));
     // The rest of bd's own fields, in the order bd prints them. Acceptance is the one
     // you close a bead against and it was readable only from a terminal until the
     // graph's sheet drew it; a board you read a whole epic from cannot be the surface
@@ -8177,6 +8325,12 @@
                 // rather than off which button was pressed.
                 res?.handedBack
                 ? `Answered ${q.id} — handed back as work`
+                : // A deferral, where the card is *still there* and nothing was handed to
+                // anybody. Above `needsChoice` because the two are the only outcomes
+                // where the card survives the answer and they must not be confused: one
+                // is a decision you made, the other is a decision still owed.
+                res?.deferred
+                ? `Deferred ${q.id} — still on your list`
                 : // The card did not go anywhere, and that is the one outcome a toast
                 // has to explain rather than confirm: everywhere else the card
                 // vanishing is the feedback. One of these options starts work, and a
@@ -8273,6 +8427,7 @@
           q.description = full.description || '';
           q.notes = full.notes || '';
           q.comments = full.comments || [];
+          q.files = full.files || [];
         } catch {
           q.description = q.description || '';
           q.comments = q.comments || [];
@@ -8295,6 +8450,20 @@
     openOnly(key);
     if (opening) openOn = key;
     render(true);
+    // **`paintOpening()` again, after the render — bc-ka5y.14, and this is not belt and
+    // braces.** For a card, `render(true)` alone always used to be enough: opening one
+    // flips `shutCardAct`/`.open` on that same chunk, so its HTML always differs from
+    // what was last painted and `warm.paint` rebuilds the node, dropping the surgically
+    // added class along with it. A tree row tapped through `p0-answer` has no such
+    // transition of its own — it was already open in the tree before the tap, `on` and
+    // every other class on it are unchanged by the fetch landing, so the freshly rendered
+    // `@p0` chunk is byte-for-byte the html `warm.paint` already has recorded against that
+    // key (`paintOpening()`'s classList surgery updates the live node, never the recorded
+    // string) — and `warm.paint` reads that as nothing to do, keeping the stale node with
+    // the mark stuck on it forever. Measured: without this line the row stayed marked
+    // after the card it belongs to opened. Calling it unconditionally rather than only on
+    // that path costs one query with nothing to find on every other one.
+    paintOpening();
   }
 
   /**
@@ -8380,11 +8549,20 @@
   });
 
   document.addEventListener('keydown', (ev) => {
-    if (ev.key !== 'Escape') return;
-    // With the tools warning up, Escape is the modal's business — closing the panel
-    // out from under it would leave the dialog answering for a chooser that is no
-    // longer on screen.
+    // The tools warning, if it is up, is always the topmost layer and has its own
+    // keydown listener on its own wrap (see confirmTools) — this one stands aside for
+    // both Tab and Escape rather than fighting it for the same keypress. bc-ywiy.
     if (document.querySelector('.dialog-wrap')) return;
+    // The epic's tab, or the advocate sheet stacked over it (z-index 41 over the
+    // tab's 40 — see the `p0-adv` act above) — whichever is topmost gets the
+    // keyboard. Looked up fresh on every keypress rather than held in a variable:
+    // render() replaces this node whole on every repaint (the board polls every 25s),
+    // so a captured reference would be trapping focus in a layer already thrown away.
+    if (ev.key === 'Tab') {
+      const p0 = document.querySelector('.p0-full.p0-adv') || document.querySelector('.p0-full');
+      if (p0) return trapTab(p0, ev);
+    }
+    if (ev.key !== 'Escape') return;
     const hadMenu = Boolean(state.agentMenu || state.menu);
     if (state.agentMenu) closeAgentMenu();
     if (state.menu) closeMenu();
@@ -8645,6 +8823,13 @@
      *
      * The row this opens is kept in the list for exactly as long as the card is open — see
      * `underOwnedRoots`. Collapse and it drops back out, because the board is drawing it.
+     *
+     * **The pending mark since bc-ka5y.14, exactly as the list's own `toggle` sets it** —
+     * this was the one tap on the board that had nothing to show for itself until
+     * `/api/question` came back, the same wait bc-jair fixed on the card list and never on
+     * the tree. `state.opening` is a page-wide field rather than one scoped to either
+     * surface, so setting it here and letting `expand()` clear it needs nothing new: the
+     * only thing that changed is which selector `paintOpening()` finds a match on.
      */
     if (act === 'p0-answer') {
       closeMenu();
@@ -8654,7 +8839,22 @@
       // nothing. bc-r2b5.2. Cleared for the offer on the board card too, which costs
       // nothing there — the sheet is not up — and means one rule rather than two.
       state.p0adv = null;
-      await expand(btn.dataset.key);
+      const key = btn.dataset.key;
+      state.opening = key;
+      paintOpening();
+      try {
+        await expand(key);
+      } finally {
+        // Same guard as the list's `toggle`: a second tap can have moved the mark to
+        // another row while this fetch was in the air, and clearing it blind would strip
+        // a mark whose fetch is still going. The ordinary path never reaches this line at
+        // all — `expand()` clears the mark itself, before it opens the card — this is only
+        // for the throw `expand()` does not swallow.
+        if (state.opening === key) {
+          state.opening = null;
+          paintOpening();
+        }
+      }
       return;
     }
 
@@ -9206,6 +9406,16 @@
       // was refused must not leave a tick behind suggesting it was granted.
       const wanted = btn.checked;
       btn.checked = !wanted;
+      // confirmTools() hands the keyboard back to this very checkbox the moment it
+      // closes — but `paintAgents()` below repaints `.agent-panel` from scratch, so
+      // the node it just focused is gone a tick later and the keyboard is left on
+      // nothing at all. Re-found by the one thing that survives the repaint — which
+      // agent this checkbox is for — rather than by a reference to a node that does
+      // not. bc-ywiy.
+      const refocus = () =>
+        listEl.querySelector(`.agent-panel input[data-act="allow-tools"][data-agent="${CSS.escape(id)}"]`)?.focus({
+          preventScroll: true,
+        });
       try {
         const send = (extra = {}) =>
           api('/api/agent-arm', { method: 'POST', body: JSON.stringify({ id, ...extra }) });
@@ -9217,7 +9427,11 @@
             data = await send();
           } catch (err) {
             if (!err.body?.needsAcknowledgement) throw err;
-            if (!(await confirmTools(err.body.disclaimer))) return paintAgents();
+            if (!(await confirmTools(err.body.disclaimer))) {
+              paintAgents();
+              refocus();
+              return;
+            }
             data = await send({ acknowledge: true });
           }
           state.agents = data.agents || state.agents;
@@ -9227,6 +9441,7 @@
         toast(err.message, true);
       }
       paintAgents();
+      refocus();
       return;
     }
 

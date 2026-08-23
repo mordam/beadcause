@@ -17,9 +17,17 @@
  *   - the **epic** one, which costs a `bd list --parent` and catches the child that
  *     is *not* in the queue: in progress, blocked, or under the priority floor.
  *
- * And two things it must not do: swallow a leaf epic (an epic with nothing under it
- * is an ordinary bead with an ambitious type), or empty the queue because bd would
- * not answer.
+ * And two things it must not do: swallow a leaf epic **nobody owns** (an epic with
+ * nothing under it is an ordinary bead with an ambitious type), or empty the queue
+ * because bd would not answer.
+ *
+ * Since bc-jvt0.4 there is a fourth check and it is not hierarchy at all: an *owned*
+ * childless epic is held until its advocate has said whether it is one job or several,
+ * because before that the queue answered the question by dispatching the epic on the first
+ * tick it saw it, while the one agent that had read the bead was being told to decompose
+ * it whatever it said. Its cases are at the bottom, under their own heading, and they read
+ * off `heldByUndecided` rather than `heldByChildren` — the two claims are opposite and one
+ * array could not tell a hold that clears itself from one that never will.
  *
  *     npm test
  *
@@ -160,6 +168,13 @@ async function tick({ ready = [], children = {}, listLabel = [], show = null, wo
 }
 
 const heldIds = (card) => card.heldByChildren.map((h) => h.id);
+// bc-jvt0.4's list, and separate from the one above on purpose: "waiting on their children"
+// and "nobody has said what this decomposes into" are opposite claims, and a suite that read
+// them off one array could not tell a hold that resolves itself from one that never will.
+const undecidedIds = (card) => (card.heldByUndecided || []).map((h) => h.id);
+// An epic with an owner, which is what arms check 4 — `wantsAdvocate` needs one, so an
+// unowned epic has no advocate to decide and is never held for want of a decision.
+const owned = (id, over = {}) => epic(id, { labels: ['owner:adam@example.com'], ...over });
 
 /* ------------------------------------------------------------------- harness */
 
@@ -485,8 +500,14 @@ await check('an epic whose only open child is not in the queue', async () => {
  * What the cheap fix would have broken. Dropping `issue_type === 'epic'` outright was
  * one line; it also means an epic with nothing under it needs a human to retype it
  * before anything will ever pick it up.
+ *
+ * **Unowned, and since bc-jvt0.4 that is the load-bearing half of this case.** Check 4
+ * holds an *owned* childless epic until its advocate has decided the shape of it, and the
+ * word "owned" is what keeps this case true: an epic nobody owns has no advocate, so a
+ * hold on it would be permanent and nothing could ever clear it. The four cases below are
+ * the owned side of the same question.
  */
-await check('a leaf epic, and one whose children are all closed, are still work', async () => {
+await check('a leaf epic nobody owns, and one whose children are all closed, are still work', async () => {
   const { opened, card } = await tick({
     ready: [epic('x-1'), epic('x-2')],
     children: { 'x-2': [bead('x-2.1', { status: 'closed' })] },
@@ -494,6 +515,91 @@ await check('a leaf epic, and one whose children are all closed, are still work'
 
   assert.deepEqual(opened.sort(), ['x-1', 'x-2'], 'both are workable, and both got a window');
   assert.deepEqual(heldIds(card), []);
+  assert.deepEqual(undecidedIds(card), [], 'neither is owned, so neither is waiting on a decision');
+});
+
+/* ------------------------------------------- a childless epic is its advocate's call
+   (bc-jvt0.4)
+
+   The state this fixes, in one sentence: an owned childless epic was dispatched as
+   ordinary ready work on the first tick it was seen, while the Epic Advocate's brief told
+   the one agent that had read the bead to decompose it whatever it said. Two rules
+   answering one question, and the queue always got there first.
+
+   Now the queue waits for the answer. Which means these four cases together have to prove
+   both directions — that the pre-emption is gone, *and* that every way of answering
+   releases the epic — because a hold with no exit is worse than the pre-emption was. */
+
+await check('AN OWNED CHILDLESS EPIC IS NOT DISPATCHED — its advocate has not said what it is', async () => {
+  const { opened, card, calls } = await tick({
+    ready: [owned('x-1'), bead('x-2')],
+    children: {},
+  });
+
+  assert.deepEqual(opened, ['x-2'], 'no window on the epic — nothing has judged whether it splits');
+  assert.deepEqual(undecidedIds(card), ['x-1'], 'held, and in its own list');
+  assert.deepEqual(heldIds(card), [], 'not counted as waiting on children it does not have');
+  assert.match(card.heldByUndecided[0].why, /one job or several/, `got: ${card.heldByUndecided[0].why}`);
+  assert.match(card.heldByUndecided[0].why, /whole-job/, 'the reason does not name the way out');
+  assert.deepEqual(calls.children, ['x-1'], 'and it costs the one call the open-children check already paid for');
+});
+
+await check('THE `whole-job` LABEL MAKES IT WORK AGAIN — the decision, recorded', async () => {
+  const { opened, card } = await tick({
+    ready: [owned('x-1', { labels: ['owner:adam@example.com', 'whole-job'] })],
+    children: {},
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'one job means the epic is the work — dispatched as itself');
+  assert.deepEqual(undecidedIds(card), [], 'and no longer held');
+});
+
+/**
+ * The other answer, and it needs no marker at all: the children *are* the record. Check 3
+ * holds the epic for the ordinary reason the moment one exists, so a split releases the
+ * hold by ceasing to be the case it was a hold on.
+ */
+await check('AND SO DO CHILDREN — a split needs no label, because check 3 takes over', async () => {
+  const { opened, card } = await tick({
+    ready: [owned('x-1'), bead('x-1.1')],
+    children: { 'x-1': [bead('x-1.1', { status: 'open' })] },
+  });
+
+  assert.deepEqual(opened, ['x-1.1'], 'the child is the work');
+  assert.deepEqual(undecidedIds(card), [], 'not undecided — somebody decided, and this is what they decided');
+  assert.deepEqual(heldIds(card), ['x-1'], 'held for the reason it has always been held');
+});
+
+/**
+ * Every child, not every *open* child. An epic whose last child closed has been
+ * decomposed — the judgement is in the graph — so it is lib/finishedepic.js's business and
+ * not this check's. Reading `open.length` here instead would hold a finished epic for
+ * ever, since nothing will ever file it a decision it does not need.
+ */
+await check('an owned epic whose children have all closed is decomposed, not undecided', async () => {
+  const { opened, card } = await tick({
+    ready: [owned('x-1')],
+    children: { 'x-1': [bead('x-1.1', { status: 'closed' })] },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'it was judged once already, and the graph says so');
+  assert.deepEqual(undecidedIds(card), []);
+});
+
+/**
+ * Cannot-tell, in the one direction where it means the opposite of everywhere else here.
+ * Every other check keeps the bead when `bd` will not answer; this one *cannot establish*
+ * the childlessness it holds on, so the epic falls through to workable — which is exactly
+ * what it did before this check existed.
+ */
+await check('silence from bd cannot invent a decision to be waiting for', async () => {
+  const { opened, card } = await tick({
+    ready: [owned('x-1')],
+    children: { 'x-1': new Error('dolt: database is locked') },
+  });
+
+  assert.deepEqual(opened, ['x-1'], 'a tracker mid-write must not add a hold either');
+  assert.deepEqual(undecidedIds(card), []);
 });
 
 /** A tracker mid-write must not be able to empty the queue. */

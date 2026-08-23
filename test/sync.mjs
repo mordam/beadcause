@@ -75,6 +75,7 @@ const {
   STUCK_AFTER,
   FLAP_AFTER,
   FLAP_WINDOW_MS,
+  syncCardVerdict,
 } = await import(LIB('sync.js'));
 const { BD_TIMEOUT } = await import(LIB('bd.js'));
 
@@ -992,6 +993,76 @@ await check('the remote is read from --json, with the url and not just the name'
   assert.equal(await bd.doltRemote(WS('solo')), null, 'an empty list is a solo workspace');
 });
 
+/* ------------------------------------------------------- the shared card, driven */
+
+// bc-y3qk.11. Two workspaces with remotes is the whole precondition — a solo install
+// never has a second workspace to collide with — and that is why nothing had hit this:
+// driving one syncer over two fake workspaces is the cheapest way it can be reproduced
+// at all. `broke`/`recovered` below are lib/server.js's own filters, copied rather than
+// imported — they are pinned against the source separately (see "the poll cycle damps
+// the phone and nothing above it") so a drift between the two is caught on that side.
+await check('one workspace recovering must not clear a card another workspace is still holding up', async () => {
+  let bBroken = true;
+  const bd = fakeBd({
+    pull: (ws) => {
+      if (ws.name === 'a') throw new Error(STOMP);
+      if (ws.name === 'b' && bBroken) throw new Error(STOMP);
+    },
+  });
+  const s = createSyncer({ bd });
+  // Tick 1: both break together.
+  await s.sweep([WS('a'), WS('b')]);
+  assert.equal(s.get('a').state, 'stuck');
+  assert.equal(s.get('b').state, 'stuck');
+
+  // Tick 2: a is steady — still stuck, nothing changed for it — while b recovers.
+  bBroken = false;
+  const out = await s.sweep([WS('a'), WS('b')]);
+  const broke = out.changed.filter(
+    (o) =>
+      !o.damped &&
+      !o.flapped &&
+      (o.transition === 'broke' || (o.transition === null && (o.state === 'conflict' || o.state === 'stuck')))
+  );
+  const recovered = out.changed.filter((o) => !o.damped && !o.flapped && o.transition === 'recovered');
+  assert.deepEqual(broke, [], 'a is steady this tick, not a fresh break');
+  assert.equal(recovered.length, 1, 'b is the only thing that changed');
+  assert.equal(recovered[0].workspace, 'b');
+
+  const trouble = s.trouble();
+  assert.equal(trouble.length, 1, 'a is still stuck');
+  assert.equal(trouble[0].workspace, 'a');
+
+  assert.equal(
+    syncCardVerdict({ broke, clearing: recovered, trouble }),
+    'stuck',
+    'b recovering must not take away the card naming a — the phone would be told the tracker is fine while a is still broken'
+  );
+});
+
+await check('and once nothing named is left in trouble, the clear stands', async () => {
+  let aBroken = true;
+  const bd = fakeBd({ pull: (ws) => { if (ws.name === 'a' && aBroken) throw new Error(STOMP); } });
+  const s = createSyncer({ bd });
+  await s.sweep([WS('a')]);
+  assert.equal(s.get('a').state, 'stuck');
+  aBroken = false;
+  const out = await s.sweep([WS('a')]);
+  const recovered = out.changed.filter((o) => o.transition === 'recovered');
+  const trouble = s.trouble();
+  assert.deepEqual(trouble, [], 'nothing else is wrong');
+  assert.equal(syncCardVerdict({ broke: [], clearing: recovered, trouble }), 'clear', 'a really is fine now, so the card may clear');
+});
+
+await check('a tick that changed nothing says nothing, whatever trouble already stands', () => {
+  assert.equal(syncCardVerdict({ broke: [], clearing: [], trouble: [] }), null);
+  assert.equal(
+    syncCardVerdict({ broke: [], clearing: [], trouble: [{ workspace: 'a' }] }),
+    null,
+    'the card is already showing this — no fresh reason to repeat it'
+  );
+});
+
 /* --------------------------------------------------- the seams a fake cannot reach */
 
 const SERVER = read('lib/server.js');
@@ -1101,6 +1172,22 @@ await check('the poll cycle damps the phone and nothing above it', () => {
   // what the tracker was doing, and three passes over this bead were made by counting it.
   assert.match(sweep, /flapping — not notified/, 'the log keeps the transition and notes the phone was spared');
   assert.match(sweep, /for \(const o of out\.changed\) \{/, 'and still logs every one of them');
+});
+
+await check('a clear cannot fire without asking trouble() whether anyone else still owns the card — bc-y3qk.11', () => {
+  const from = SERVER.indexOf('const sweepSync = async () => {');
+  const sweep = SERVER.slice(from, SERVER.indexOf('let jiraSweptAt'));
+  // Read unconditionally, not gated on `broke.length` — the collision needs a
+  // workspace that is *already* stuck, with no transition of its own this tick, while
+  // some other workspace's good news tries to clear the shared card.
+  assert.match(sweep, /const trouble = app\.syncer\.trouble\(\);/, 'trouble() is read every tick, whatever changed');
+  assert.match(sweep, /const clearing = \[\.\.\.recovered, \.\.\.settled\];/, 'recovered and settled are judged together');
+  // Both emits still exist as literal calls, so test/news.mjs's own guard against a
+  // `bus is not defined`-shaped regression still means something — and neither is
+  // reachable except through the one function that reads `trouble()` first.
+  assert.match(sweep, /const verdict = syncCardVerdict\(\{ broke, clearing, trouble \}\);/);
+  assert.match(sweep, /if \(verdict === 'stuck'\) app\.bus\.emit\(syncStuckEvent\(trouble\)\);/);
+  assert.match(sweep, /else if \(verdict === 'clear'\) app\.bus\.emit\(syncClearEvent\(clearing\)\);/);
 });
 
 await check('the inbox draws it as a pane of its own, outside the empty state', () => {
