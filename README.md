@@ -10980,13 +10980,17 @@ the numbers the board accounted for. Whatever is left is asked about directly �
 half hour per repo — and closed on exactly the evidence a board row is closed on. Three
 things about that are deliberate:
 
-- **Both bounds are on the asking, never on the answer.** What does not fit this tick is
-  named on the sweep's `skipped` lines and taken by the *next* one — a tick that left a
-  backlog does not wait out the half hour — so a long tail costs minutes and not beads. A
-  cap that silently dropped the rest is the bug being fixed, not a smaller version of it.
-  The half hour is there because a ship bead that is open is usually open for the reason
-  it exists (its merge is not live yet), and that answer changes when somebody deploys
-  rather than every five minutes; a bounded, stated delay is what this bug did not have.
+- **Both bounds are on the asking, never on the answer, and the slice moves.** What does
+  not fit this tick is named on the sweep's `skipped` lines and taken by the *next* one,
+  starting below the number this one stopped at — a tick that left a backlog does not wait
+  out the half hour, and a cycle runs until the cursor falls off the end of the list, so a
+  long tail costs minutes and not beads. That the slice moves is the half worth saying out
+  loud: a ship bead is open precisely because its merge is not live yet, so a head that
+  does not close is the ordinary case rather than a corner, and a fixed top slice would
+  have re-asked those twenty every tick forever while never reaching the tail at all —
+  which is the bug being fixed with a `skipped` line over it rather than a fix. The half
+  hour between cycles is there because that answer changes when somebody deploys rather
+  than every five minutes; a bounded, stated delay is what this bug did not have.
 - **A row off the board can close a bead and cannot start a deploy.** Ship's queue is
   `owedFor`, which counts board rows, so a batch that quietly carried a merge the queue
   never counted would deploy a number the screen it came from does not show. Such a merge

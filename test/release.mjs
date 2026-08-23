@@ -498,24 +498,64 @@ forget();
   await check(() => assert.equal(asked.length, 2), 'half an hour later it does — bounded and stated, which is what silence was not');
 }
 
-/* A merge off the board is closed, and never deployed. */
+/**
+ * A merge off the board is closed, and never deployed.
+ *
+ * Every condition an auto-ship needs is switched **on** here, which is the whole point of
+ * the block: the guard is only load-bearing where a deploy could otherwise have gone, and
+ * an assertion over a workspace that could not auto-ship anyway would pass with the guard
+ * deleted — which is the same shape as the defect this section is about. So the workspace
+ * auto-ships, a `ship` is passed, and #300 is **filed on an earlier tick while it is still
+ * on the board**, because `ready` needs the ledger record that filing leaves behind. Take
+ * `!row.offBoard` out of lib/release.js and three of these fail; the two at the end are
+ * the control that says so — the same merge, on the board, does arm and does deploy.
+ */
 forget();
 {
-  const bd = tracker([shipBead('zz-owed', 300)]);
-  const board = { repos: [card({ prs: [row({ number: 999, mergedAt: ago(5) })] })] };
-  await sweepReleases(bd, CFG, board, { deploys: [] });
+  /** The one config in this file that says yes to an unattended deploy. */
+  const AUTO = { ...CFG, autoShipPerWorkspace: { demo: true } };
+  const bd = tracker();
+  const t0 = Date.now();
+  const stale = row({ number: 999, mergedAt: ago(5) });
+  const fresh = row({ number: 300, mergedAt: new Date(t0).toISOString() });
 
+  // The watermark, then the tick that files #300 while the board still carries it. No
+  // `ship` on either, so nothing arms yet and the ledger record is all this leaves.
+  await sweepReleases(bd, AUTO, { repos: [card({ prs: [stale] })] }, { deploys: [], now: t0 });
+  await sweepReleases(bd, AUTO, { repos: [card({ prs: [stale, fresh] })] }, { deploys: [], now: t0 + 1000 });
+  await check(() => assert.equal(bd.created.length, 1), 'the ship bead for #300 is filed while it is still on the board');
+  await check(() => assert.ok(loadLedger().demo.handled['300']?.bead), 'and the ledger records it — which is what `ready` needs, and what the guard has to beat');
+
+  // And now #300 is off the board, exactly as the nine of 2026-08-17 were.
+  const board = { repos: [card({ prs: [stale] })] };
   const shipped = [];
-  const out = await sweepReleases(bd, CFG, board, {
-    deploys: [],
-    // Merged and pushed, and no deploy has carried it: `shippedState` is false, which for a
-    // board row is exactly the state that arms the settle window.
-    lookup: async (_bd, _ws, _c, numbers) => numbers.map((n) => offRow(n)),
-    ship: async (_ws, _queue, { numbers }) => shipped.push(numbers),
-  });
-  await check(() => assert.equal(shipped.length, 0), 'a row off the board never starts a deploy');
-  await check(() => assert.equal(out.armed.length, 0), 'and never arms one either — the Ship queue counts board rows, and a batch must match it');
-  await check(() => assert.equal(bd.created.length, 0), 'and files nothing: it already has the open ship bead that is why it was asked about');
+  const ship = async (_ws, _queue, { numbers }) => shipped.push(numbers);
+  // Merged and pushed, and no deploy has carried it: `shippedState` is false, which for a
+  // board row is exactly the state that arms the settle window.
+  const lookup = async (_bd, _ws, _c, numbers) => numbers.map((n) => offRow(n));
+
+  const armTick = await sweepReleases(bd, AUTO, board, { deploys: [], lookup, ship, now: t0 + 2000 });
+  await check(
+    () => assert.equal(armTick.armed.length, 0),
+    'a row off the board never arms a deploy — the Ship queue counts board rows, and a batch must match it'
+  );
+  // Past the settle cap *and* past the ask interval, so this is the tick a batch armed by
+  // the one above would have fired on. Nothing armed, so nothing fires.
+  const fireTick = await sweepReleases(bd, AUTO, board, { deploys: [], lookup, ship, now: t0 + 31 * 60000 });
+  await check(() => assert.equal(shipped.length, 0), 'and never starts one — a deploy of a number the screen it came from does not show');
+  await check(() => assert.equal(fireTick.shipped.length, 0), 'so no deploy is reported either');
+  await check(() => assert.equal(bd.created.length, 1), 'and files nothing more: it already has the open ship bead that is why it was asked about');
+
+  // The control, and it is what tells a real guard from a workspace that could not have
+  // shipped anyway: the identical row *on* the board does arm, and then does fire.
+  forget();
+  const bd2 = tracker();
+  const onBoard = { repos: [card({ prs: [stale, fresh] })] };
+  await sweepReleases(bd2, AUTO, { repos: [card({ prs: [stale] })] }, { deploys: [], now: t0 });
+  const armed2 = await sweepReleases(bd2, AUTO, onBoard, { deploys: [], ship, now: t0 + 1000 });
+  await check(() => assert.deepEqual(armed2.armed[0]?.numbers, [300]), 'the same merge, on the board, does arm — so the assertions above are about `offBoard` and nothing else');
+  await sweepReleases(bd2, AUTO, onBoard, { deploys: [], ship, now: t0 + 31 * 60000 });
+  await check(() => assert.deepEqual(shipped[0], [300]), 'and does deploy, which is the thing the off-board row must not be able to do');
 }
 
 /* The cap is on the rate, not on the answer — the failure this whole section is about. */
@@ -543,6 +583,77 @@ forget();
   // very next one, which is what makes "the cap costs time, never a bead" mean minutes.
   await sweepReleases(bd, CFG, board, { deploys: [], lookup });
   await check(() => assert.equal(bd.closed.length, 25), 'the next tick takes the rest — the cap costs time, never a bead');
+  await check(() => assert.equal(asked[1][0], 104), 'and it starts below where the last one stopped, rather than at the top again');
+}
+
+/**
+ * And the slice moves **whether or not anything closes** — the round-1 review finding.
+ *
+ * The block above drains because every number it asks about comes back live, so the head
+ * of the list disappears and the next tick's top slice is new work by accident. That is
+ * not the ordinary case: a ship bead is open *precisely because* its merge is not live
+ * yet, so the ordinary case is a head that does not close. With the slice pinned to the
+ * front of the list, that state re-asked the same twenty numbers every five minutes for
+ * as long as the beads lasted, and the sixty-first was never asked about at all — the
+ * silent-tail bug this whole section exists to fix, wearing a `skipped` line.
+ */
+forget();
+{
+  const bd = tracker(Array.from({ length: 60 }, (_, i) => shipBead(`zz-s${i}`, 100 + i)));
+  const board = { repos: [card({ prs: [row({ number: 999, mergedAt: ago(5) })] })] };
+  const t0 = Date.now();
+  await sweepReleases(bd, CFG, board, { deploys: [], now: t0 });
+
+  const asked = [];
+  // Never live, on any tick. Nothing here ever closes, so nothing but the cursor can move.
+  const lookup = async (_bd, _ws, _c, numbers) => {
+    asked.push(numbers);
+    return numbers.map((n) => offRow(n, { deployed: false }));
+  };
+  for (let i = 1; i <= 4; i += 1) await sweepReleases(bd, CFG, board, { deploys: [], lookup, now: t0 + i * 5 * 60000 });
+
+  await check(() => assert.equal(bd.closed.length, 0), 'none of the sixty closes — their merges are not live, which is why the beads are open');
+  await check(
+    () => assert.deepEqual([asked[0]?.[0], asked[1]?.[0], asked[2]?.[0]], [159, 139, 119]),
+    'each tick starts below the number the last one stopped at, rather than at the top again'
+  );
+  await check(() => assert.equal(new Set(asked.flat()).size, 60), 'so all sixty are asked about, and no tail is starved');
+  await check(
+    () => assert.equal(asked.length, 3),
+    'three consecutive ticks walk the whole list, and the fourth five minutes later asks nothing — the floor is between cycles, and it applies again'
+  );
+
+  await sweepReleases(bd, CFG, board, { deploys: [], lookup, now: t0 + 46 * 60000 });
+  await check(() => assert.equal(asked.length, 4), 'half an hour after the cycle ended a new one starts');
+  await check(() => assert.equal(asked[3][0], 159), 'and it starts at the top, because a finished cycle wraps');
+}
+
+/* A number nothing can answer holds its slot, and says so rather than going quiet. */
+forget();
+{
+  const bd = tracker([shipBead('zz-ghost', 61), shipBead('zz-real', 62)]);
+  const board = { repos: [card({ prs: [row({ number: 999, mergedAt: ago(5) })] })] };
+  await sweepReleases(bd, CFG, board, { deploys: [] });
+  // #61 is a number `offBoardRows` produced no row for — not a pull request, closed
+  // unmerged, a repo that moved. It comes back as an absence, which is the shape that
+  // used to mean silence.
+  const out = await sweepReleases(bd, CFG, board, {
+    deploys: [],
+    lookup: async (_bd, _ws, _c, numbers) => numbers.filter((n) => n !== 61).map((n) => offRow(n, { deployed: true })),
+  });
+  await check(() => assert.equal(bd.closed[0]?.id, 'zz-real'), 'the number that answered still closes its bead');
+  await check(() => assert.match(out.skipped.join('\n'), /no merged pull request answers for #61/), 'and the one that did not is named, rather than dropped');
+}
+
+/* A lookup that hands back nothing at all must not take the whole sweep down with it. */
+forget();
+{
+  const bd = tracker([shipBead('zz-nil', 63)]);
+  const board = { repos: [card({ prs: [row({ number: 999, mergedAt: ago(5) })] })] };
+  await sweepReleases(bd, CFG, board, { deploys: [] });
+  const out = await sweepReleases(bd, CFG, board, { deploys: [], lookup: async () => null });
+  await check(() => assert.equal(out.error, null), 'a lookup returning null is a tick with no answers, not a `TypeError` past the ledger write');
+  await check(() => assert.equal(bd.closed.length, 0), 'and it closes nothing');
 }
 
 /* A lookup that throws is a tick that asked and did not get an answer. */
