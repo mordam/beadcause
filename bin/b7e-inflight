@@ -1,0 +1,202 @@
+#!/usr/bin/env node
+/**
+ * `b7e-inflight` — what the open pull requests are actually doing, and whether a red
+ * check is even current.
+ *
+ *     b7e-inflight                        every open PR in this checkout's repo
+ *     b7e-inflight 433                     one PR by number
+ *     b7e-inflight --bead bc-x             the PRs naming this bead (open or not)
+ *     b7e-inflight --files public/a.js public/b.js   PRs whose diff touches either path
+ *     b7e-inflight -w sophab               a workspace other than this checkout's own
+ *     b7e-inflight --json                  one object per row, for a caller
+ *     b7e-inflight --dir <root>            another tree — this is how it is tested
+ *
+ * bc-4r10.19: three sessions (bc-4r10.1, bc-khoe.30.6, bc-khoe.30.5) each hand-rolled a
+ * different subset of this with raw `gh` calls — a review handback that never checked
+ * whether the red check predated a downmerge that had already fixed it, a fold that
+ * needed to know who else was mid-edit on the same file, a resolver confirming a PR was
+ * still conflicting before touching it. lib/prsurvey.js is the matching; this is the
+ * argv parsing and printing around it, same split as `bin/b7e-siblings` and
+ * lib/siblings.js.
+ *
+ * The one thing every row insists on: a failing check is reported alongside the run's
+ * own timestamp, the sha it ran against, and how far the head is behind its base right
+ * now — never as a bare verdict on "this branch". See lib/prsurvey.js's header for why.
+ *
+ * Exit codes: `0` ran to completion, whatever it found — an empty answer over `--files`
+ * or `--bead` is the ordinary "nothing matches", not a failure. `2` bad usage. `3` `gh`
+ * itself could not be asked (no CLI, not authenticated, GitHub unreachable, or a
+ * transient failure) — printed as "unknown", never folded into "nothing open". `4`
+ * `--bead` or `-w` named something this checkout's tracker does not have.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { available } from '../lib/pr.js';
+import { inflightRows, describeChecks } from '../lib/prsurvey.js';
+import { workspaceFor } from '../lib/claude.js';
+import { resolveSessionDir } from '../lib/session.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+const values = (f) => {
+  const out = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === f) {
+      i += 1;
+      while (i < argv.length && !argv[i].startsWith('-')) {
+        out.push(argv[i]);
+        i += 1;
+      }
+    }
+  }
+  return out;
+};
+
+const USAGE = `usage: b7e-inflight [<number>] [--bead <id>] [--files <path> ...] [-w <workspace>] [--json]
+
+One row per pull request: number, the bead(s) it names, head sha, state and
+mergeStateStatus, the check verdict with the run's timestamp, the sha it ran against
+and how far behind its base it is right now — a STALE marker instead of a bare verdict
+when the check predates the base it would actually be judged against today.
+
+  <number>          one PR, by number, in this checkout's repo
+  --bead <id>       only PRs naming this bead (any state, not just open)
+  --files <path...> only PRs whose diff touches one of these paths (any state)
+  -w, --workspace   which tracker's beads to resolve against (default: this checkout's own)
+  --dir <root>      run against another tree — this is how it is tested
+  --json            one object per row instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const DIR_GIVEN = value('--dir');
+const ROOT = path.resolve(DIR_GIVEN || process.cwd());
+const JSON_MODE = has('--json');
+const beadId = value('--bead');
+const files = values('--files');
+const wsName = value('-w', '--workspace');
+
+const FLAG_VALUES = new Set(['--dir', '--bead', '-w', '--workspace']);
+let number = null;
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--files') {
+    while (i + 1 < argv.length && !argv[i + 1].startsWith('-')) i += 1;
+    continue;
+  }
+  if (a === '--json' || a === '--help' || a === '-h') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--') && a.includes('=')) continue;
+  if (a.startsWith('-')) {
+    console.error(`\x1b[31mb7e-inflight: unrecognised flag: ${a}\x1b[0m`);
+    process.exit(2);
+  }
+  if (number !== null) {
+    console.error(`b7e-inflight: one PR number at a time — got ${number} and ${a}\n\n${USAGE}`);
+    process.exit(2);
+  }
+  if (!/^\d+$/.test(a)) {
+    console.error(`b7e-inflight: not a PR number: ${a}\n\n${USAGE}`);
+    process.exit(2);
+  }
+  number = Number(a);
+}
+
+if (number && (beadId || files.length)) {
+  console.error('b7e-inflight: a PR number is already narrow — --bead and --files answer a different question');
+  process.exit(2);
+}
+
+const cfg = loadConfig();
+// **Not a directory match.** `cfg.workspaces[i].dir` is the `bd` tracker's own
+// directory — `~/beads/<name>/.beads` for a personal workspace on this Mac — never
+// the git checkout, and a worktree's path never equals either one. `workspaceFor`
+// (lib/claude.js) is the existing, tested answer to "which workspace does a checkout
+// (worktree included) belong to": the same `projectRoot`-relative rule the shell's own
+// `_bd_set_workspace` follows, so this agrees with the tracker a session here would
+// actually write to.
+const name = wsName || workspaceFor(cfg, ROOT);
+const ws = name ? cfg.workspaces.find((w) => w.name === name) : null;
+
+if (wsName && !ws) {
+  console.error(`b7e-inflight: no workspace named ${wsName}`);
+  process.exit(4);
+}
+if (beadId && !ws) {
+  console.error('b7e-inflight: --bead needs a workspace to resolve against, and none was found for this checkout — pass -w explicitly');
+  process.exit(4);
+}
+
+// `-w`/`--workspace` redirects which checkout `gh` runs in too — `resolveSessionDir`
+// (lib/session.js) is the inverse of `workspaceFor`, the same function ~25 other call
+// sites use to turn a workspace into the directory a session about it opens in. With
+// no explicit `--dir` and no `-w`, this stays `ROOT`: this checkout, always — never a
+// workspace it merely happens to also be, and never any other workspace's directory.
+let dir = ROOT;
+if (!DIR_GIVEN && wsName && ws) {
+  try {
+    dir = resolveSessionDir(cfg, ws);
+  } catch (err) {
+    console.error(`b7e-inflight: could not resolve a checkout for workspace ${ws.name} — ${err.message}`);
+    process.exit(4);
+  }
+}
+
+const bd = ws ? new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me }) : null;
+
+if (beadId && bd) {
+  const row = await bd.show(ws, beadId);
+  if (!row) {
+    console.error(`b7e-inflight: ${ws.name} has no bead ${beadId}`);
+    process.exit(4);
+  }
+}
+
+const result = await inflightRows(dir, { number, beadId, files: files.length ? files : null, bd, ws, available });
+
+if (!result.reachable) {
+  console.error(`b7e-inflight: could not ask gh — ${result.reason}`);
+  if (JSON_MODE) console.log(JSON.stringify({ reachable: false, reason: result.reason, rows: [] }));
+  process.exit(3);
+}
+
+if (JSON_MODE) {
+  for (const row of result.rows) console.log(JSON.stringify(row));
+  process.exit(0);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
+
+if (!result.rows.length) {
+  console.log('(nothing matches)');
+  process.exit(0);
+}
+
+for (const row of result.rows) {
+  const beads = row.beads.length ? row.beads.map((b) => b.id).join(', ') : dim('no bead named');
+  const draft = row.draft ? ' [draft]' : '';
+  console.log(`#${row.number}${draft}  ${beads}  ${row.branch}`);
+  console.log(`  ${row.state}  ${row.mergeState || 'UNKNOWN'}  ${row.headSha.slice(0, 8)}`);
+  const checkLine = describeChecks(row);
+  console.log(row.stale ? `  ${yellow(checkLine)}` : `  ${checkLine}`);
+  if (row.filesUnknown) console.log(yellow('  could not fetch this PR\'s diff — files touched is UNKNOWN, not "no"'));
+  else if (files.length && row.touchedFiles) console.log(dim(`  touches: ${row.touchedFiles.filter((f) => files.includes(f)).join(', ')}`));
+}
+
+process.exit(0);
