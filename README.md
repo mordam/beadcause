@@ -18760,6 +18760,22 @@ and how long the whole passage took. A branch merged at the fourth attempt with 
 downmerges was not a bad branch, it was an unlucky one, and a month later that
 distinction is unrecoverable from anywhere else.
 
+**"Who approved it" is two different sentences, and this comment carries them apart.** Your
+own admission through **Merge** is one line; the ReviewAdvocate's reading of the diff is
+another, and that one says in as many words that *an agent, not you* approved it, names the
+agent and the login it spoke as, and links the review. It has to be here as well as on the
+review itself: the disclaimer that goes under an approving review is posted at the moment
+that review goes out, which on a busy pull request is a dozen comments above the bottom of
+the thread — and it is posted only when a review actually reached GitHub, so on a Mac with
+one login the whole page would otherwise say nothing at all about what released the merge.
+This is the last comment on the thread and it is posted either way. Where a space asks for
+both gates, both lines appear, which is what *necessary and not sufficient* looks like
+written down on the page somebody actually reads.
+
+The gap was not theoretical: #618 merged on 2026-08-23 **because** an agent approved it, and
+its closing comment — *"Merged into `main` as `cb531615` by the beadcause merge queue.
+Straight through."* — said nothing whatever about a review having happened at all.
+
 **What the queue's report deliberately does not do is summarise the advocate's.** The two
 have different witnesses. The advocate knows the conflicts, which side it kept and why,
 and which suites it ran against which tree — and it writes that on the bead. The queue
@@ -19015,11 +19031,16 @@ per repo, per space, or globally as `pr.reviewRequired`. It is the one policy de
 that is dangerous the other way round: the gate *holds* a pull request until a verdict
 appears, so turning it on where nothing writes one does not slow the queue down, it stops it
 — every branch at once, quietly, each merge-bead saying only that nothing has reviewed it.
-Turning it on is a decision this file still leaves to you (bc-36xx.9): a window opens, a
-verdict gets written, and
-[the sweep now reads it back](#the-verdict-comes-home--the-sweep-folds-it-onto-the-block)
-onto the block this gate reads — but nothing here has yet watched that happen against a
-real pull request, and that is worth more than reading a diff before you flip it.
+**It is on in this repo now, and the loop has closed live.** `reviewRequiredPerWorkspace`
+gained `{"beadcause": true}` on 2026-08-23, and within the hour the whole thing ran against
+real pull requests without anybody watching it: #618 was reviewed, approved by
+`NeanderthalMan` at 16:11:58Z under a body that opens *"Approved on #618 by the
+ReviewAdvocate — an agent, not Adam"*, and merged six seconds later with both beads closed;
+#617 the same at 16:14:35Z. #539 took the other branch — a *changes* verdict with three
+comments, and the worker's window opened on it. That is every arrow in the table above
+drawn by the daemon rather than by a suite, and it is the evidence bc-36xx was waiting for.
+[The whole loop is also driven end to end in one suite](#the-whole-loop-in-one-suite--delivered-reviewed-answered-approved-merged),
+with the flag on, so the join stays pinned when nothing happens to be in the queue.
 
 ### One reviewer per pull request — the window the daemon opens
 
@@ -19213,6 +19234,54 @@ And the delivering worker is told all of this **before** it stops, in the paragr
 may be opened again on the same branch, and that answering is those three words. A session
 reopened on work it thought was finished, on a branch it does not remember, opens a second
 branch — and then there are two.
+
+### The whole loop in one suite — delivered, reviewed, answered, approved, merged
+
+Every suite named above pins one decision with the rest of the world held still: the gate
+judges a review block somebody wrote by hand, the fold translates a verdict nobody
+submitted, the answer checker checks answers to comments no reviewer ever raised, and the
+queue's own suite drives one tick at a time over a merge-bead handed to it pre-baked. Each
+is the right shape for what it covers, and **none of them can see the join** — whether the
+document one half writes is the document the other half reads, one round after another,
+with nothing in between putting the state right by hand.
+
+That is not a hypothetical failure here. It is exactly what bc-36xx.22 was: seven exported
+functions, every one of them unit-tested and correct, and no caller anywhere between the
+comment a reviewer wrote and the block the gate read. The loop was green in pieces and did
+not close.
+
+So `test/endtoend.mjs` is built the other way round from its neighbours: **one mutable
+world, and nothing reaches into it except the code under test.** The tracker is a map that
+really keeps what is written to it and hands back a *copy* each tick, so anything the sweep
+works out and does not write through `bd.update` is gone by the next one — which is the
+property the suite exists to hold. GitHub is an object that remembers what was submitted to
+it. Then four ticks run, with `reviewRequired` **on**, and between them the two agents are
+played straight — the reviewer by writing its verdict through `formatVerdict`, the worker by
+going through `beadcause-answer`'s own `checkAnswers` / `withAnswers` / `withReviewBlock`
+with only its argv and its `git rev-parse` taken off:
+
+| tick | what the world looks like | what the queue does |
+|---|---|---|
+| 1 | delivered, nothing has read it | opens a reviewer, no downmerge, no attempt spent |
+| 2 | a round-1 verdict with two comments on the bead | folds it onto the block, sends a real *request changes* review with both comments on their lines, opens the worker |
+| 3 | both comments answered, neither resolved | opens the reviewer again — settling is not the worker's |
+| 4 | a round-2 verdict approving | submits the approval, stamps the bead, merges, closes both beads |
+
+What it pins that nothing else can: that **the two records of the approval do not straddle a
+tick** — before tick 4 neither GitHub nor the bead has one, after it both do, and the merge
+is on the same pass. One landing without the other is the one way they go on to disagree: a
+review on GitHub the bead does not carry is a pull request the gate holds forever under a
+green tick, and a stamp with no review behind it is the queue merging on a review nobody can
+go and read.
+
+The rest is what the loop would be *wrong* about rather than what it cannot render. `severity`
+and `why` survive the round trip, because which comments are blocking is the one judgement the
+reopened worker has to make. A worker's answer moves the turn and settles nothing, so a
+`changed` goes back to the reviewer like a `declined` does. And the two gates stay in series
+end to end: with `requireApproval` on, the same fully-reviewed, green, clean pull request
+still does not merge — it comes to you as a card, no attempt spent, the agent's approval
+sitting on it — and it is your admission that releases it, after which both stamps are on the
+bead, each in its own block, neither having stood in for the other.
 
 ### The notification with nothing to answer
 
@@ -20237,6 +20306,18 @@ opened — `APPROVED` and nothing else counts, so *changes requested* and *revie
 both stop it — and the card says outright that a review is what is missing. Your **Merge**
 is that review. This is beadcause's own gate, not GitHub's: branch protection is free to
 require its own on top, and will refuse the merge in its own words if it does.
+
+**Its default was asked about once a reviewer existed, and it stays off.** The argument for
+flipping it was that "nobody is going to review it" stopped being true the moment a
+ReviewAdvocate read every pull request. The answer is that the reviewer that now exists is
+an *agent* and this flag is about the *human*: where a space asks for your approval the
+agent's is necessary and not sufficient, and everywhere else the agent's approval alone
+releases the pull request. So
+[the agent's review is a separate gate in series](#the-review-gate--nothing-reaches-the-merge-without-a-verdict)
+with this one rather than a replacement for it, and turning this on by default would start
+demanding your tap on every delivery in the repo — the opposite of what that epic is for.
+Recorded here and above the default in `lib/config.js` so the next reader can see it was
+settled rather than never considered.
 
 **Both are per space, and the global here is only the default.** `autoMerge` was one
 global answer for every repo in every space, which is wrong at both edges: a side project
