@@ -18156,9 +18156,9 @@ read five ranges across three files — `test/planbrief.mjs`, `test/epicqueue.mj
 for the `HERE`/`ROOT`/`LIB` block and `tail -12` for the ending. `bc-arf8` read
 `test/mergequeue.mjs` twice for its recording fake `bd`. `bc-5e85` approached it as a
 survey instead and established *by counting* that this repo does not use `node:test`.
-There is a house shape — 326 of the ~411 files under `test/` define their own
-`HERE`/`ROOT`/`LIB`/`check`/`ok` preamble — and it was written down nowhere, so "the house
-shape" meant whatever file the last person happened to open.
+There is a house shape — 352 of the 412 files under `test/` open with their own `const HERE
+= …` and 395 declare their own `failures` counter — and it was written down nowhere, so "the
+house shape" meant whatever file the last person happened to open.
 
 ```
 b7e-harness --kind lib  --for lib/prbase.js > test/prbase.mjs
@@ -18200,12 +18200,16 @@ one**, by `classifySuite`:
 | `lib` | a pure export out of `lib/`, imported and called directly | 232 |
 | `app` | a function lifted out of `public/app.js` and run in a `node:vm` | 17 |
 | `tick` | an advocate tick against a fake tracker, with `open` injected | 35 |
-| `bin` | a command under `bin/` driven end to end as a subprocess | 127 |
+| `bin` | a command under `bin/` driven end to end as a subprocess | 128 |
 
 The marker for `app` is the *lifting*, not the mention: a suite that merely reads
 `public/app.js` as text is a static read and wants a `lib` preamble. Widening it to the
 mention doubles the group with suites that share none of its shape, and `lift` — the one
-helper that kind cannot do without — then loses its majority to them.
+helper that kind cannot do without — then loses its majority to them. That marker is also
+the one thing read off the code with **strings** blanked as well as comments, because it is
+a call rather than a module name: `test/harness.mjs` asserts on the exact opener string
+`lift(APP, 'function p0RowHtml(card, row)')`, and read the lenient way it classified itself
+as an app suite and joined the corpus it was measuring.
 
 **The `app` kind owes one more thing, and it is the expensive half.** A function lifted out
 of `public/app.js` is listed in several suites at once, because each lift list is the

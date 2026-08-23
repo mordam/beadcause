@@ -228,7 +228,7 @@ for (const kind of KINDS) {
 }
 
 check(
-  'the HERE line is the one 192 lib suites write, character for character',
+  'the HERE line is the one nearly every lib suite writes, character for character',
   deriveShape(SUITES, 'lib').preamble.includes('const HERE = path.dirname(fileURLToPath(import.meta.url));'),
   deriveShape(SUITES, 'lib').preamble.join('\n      ')
 );
@@ -441,6 +441,18 @@ check(
   'a suite that merely reads public/app.js as text is not an app suite',
   classifySuite("const APP = read('public/app.js');\nassert.match(APP, /something/);") === 'lib',
   'widening the app test to the mention doubles the group with suites that share none of its shape'
+);
+
+check(
+  'and a suite that only quotes a lift call inside an assertion is not one either',
+  classifySuite(`assert.ok(src.includes("lift(APP, 'function p0RowHtml(card, row)')"));`) === 'lib',
+  'the marker is a call, so it is read with strings blanked — this file is the case, and read the lenient way it joins the corpus it is measuring'
+);
+
+check(
+  'which is why this suite is a bin suite',
+  SUITES.find((s) => s.file === 'harness.mjs')?.kind === 'bin',
+  `it is ${SUITES.find((s) => s.file === 'harness.mjs')?.kind}`
 );
 
 check(
