@@ -268,10 +268,19 @@
    * `loc` is for a test and for a document that is not this one; a page passes nothing.
    * Clearing it is the case worth the extra line: `location.hash = ''` leaves a bare `#`
    * hanging on the URL, which is then a *different* URL from the one the phone's home
-   * screen holds, so Home is cleared with `replaceState` instead — no history entry,
-   * because arriving at Home from a card is a dismissal rather than a step.
+   * screen holds, so a clear is always written with `pushState`/`replaceState` rather than
+   * by assignment.
+   *
+   * Which of the two depends on `dismiss` (bc-khoe.30.9). Setting a hash always pushes —
+   * that is what assigning `location.hash` does on its own — so the only place this was
+   * ever a question is *clearing* it, and clearing it means two different things today: a
+   * pill tap landing on Home is a *step* (one more view visited, so back should walk to
+   * the pane you came from) and a card closing back to Home is a *dismissal* (nothing new
+   * was visited, so back should still leave the app). `dismiss` is falsy by default because
+   * every caller so far — `panes.js`'s pill handler — is a step; pass `true` for the
+   * dismissal case once one exists.
    */
-  function go(hash, loc, hist) {
+  function go(hash, loc, hist, dismiss) {
     const l = loc || (typeof location === 'undefined' ? null : location);
     if (!l) return false;
     const next = String(hash == null ? '' : hash);
@@ -280,7 +289,12 @@
       return true;
     }
     const h = hist || (typeof history === 'undefined' ? null : history);
-    if (h?.replaceState) h.replaceState(null, '', `${l.pathname}${l.search}`);
+    const url = `${l.pathname}${l.search}`;
+    if (dismiss) {
+      if (h?.replaceState) h.replaceState(null, '', url);
+      else l.hash = '';
+    } else if (h?.pushState) h.pushState(null, '', url);
+    else if (h?.replaceState) h.replaceState(null, '', url);
     else l.hash = '';
     return true;
   }

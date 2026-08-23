@@ -7196,12 +7196,13 @@ say where it is should fail loudly. That asymmetry is also why a phone still hol
 previous cached `index.html` is fine: no tag, no panes, no panes object, and the row draws
 exactly what it drew before.
 
-**One wart, recorded rather than fixed.** Home's hash is the empty string and `route.go`
-clears it with `replaceState`, because a bare `#` left hanging would be a different URL from
-the one the phone's home screen holds. So moving *to* Home from another pane replaces the
-current history entry instead of pushing one, and the back button that would have walked you
-back to the pane you came from leaves the app instead. Moving between any two other panes
-pushes normally and back walks them.
+**A pill tap always pushes (bc-khoe.30.9).** Home's hash is the empty string, so `route.go`
+clears it with `pushState`/`replaceState` rather than by assignment — a bare `#` left hanging
+would be a different URL from the one the phone's home screen holds. It defaults to
+`pushState`, because every pill tap, Home included, is a step the back button should walk
+back through; `go` takes a `dismiss` argument for the one case that should still replace — a
+card closing back to Home rather than a view being visited — which nothing calls yet, since
+this shell has no card of its own.
 
 `node test/panes.mjs` runs both files in a `node:vm` against a hand-made document: which
 pane a hash lands on, that a pending one is never shown, that a scroll position survives a
