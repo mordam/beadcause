@@ -170,8 +170,21 @@ check('a rootboard with roots on it is not silently narrowed on the way through'
 check('a payload with none of the six still keeps cleanly — an old daemon is a miss, not a throw', () => {
   const { rootboard, tickets, cancelledTickets, strandedCancels, trouble, syncTrouble, ...rest } = PAYLOAD;
   const out = callKeep('human', rest);
+  // **These three go first, and they are what make the six below mean anything.**
+  // `out?.stored?.[field] === undefined` is equally true of a `keep()` that wrote
+  // nothing at all, so on its own the loop cannot tell "kept, without inventing the
+  // six" from "never kept". Every other check in this file asserts a field is present,
+  // and would go red on a `keep()` that stopped writing; this one is the only one that
+  // asserts a *behaviour*, and it is the one covering the mixed-fleet path the six
+  // `adopt` guards exist for — so vacuous here means a later `keep()` could drop
+  // old-daemon payloads on the floor and the file written to stop exactly that silence
+  // stays green. Verified against the mutation `if (!data.rootboard) return;` at the
+  // top of `keep()`, which left this suite 16/16 before these lines and fails on them.
+  assert.ok(out, 'keep() wrote nothing at all for a payload missing the six — an old daemon is not warm-kept');
+  assert.deepEqual(out.stored.questions, rest.questions, 'the payload did not round-trip through keep()');
+  assert.equal(out.seq, 41, 'the sequence number did not come through');
   for (const field of ['rootboard', 'tickets', 'cancelledTickets', 'strandedCancels', 'trouble', 'syncTrouble']) {
-    assert.equal(out?.stored?.[field], undefined, `${field} appeared from nowhere on a payload that never had it`);
+    assert.equal(out.stored[field], undefined, `${field} appeared from nowhere on a payload that never had it`);
   }
 });
 

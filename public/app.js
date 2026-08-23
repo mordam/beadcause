@@ -10633,9 +10633,24 @@
     // board" rather than as "ask the daemon". Leaving one of these out does not fail
     // loud: the field just does not draw until the next `/api/poll` happens to carry
     // it, which on a quiet tracker is minutes to hours. `rootboard`, `tickets`,
-    // `cancelledTickets`, `strandedCancels`, `trouble` and `syncTrouble` are exactly
-    // that set today; a field added to that list in `adopt` later has to be added here
+    // `cancelledTickets`, `strandedCancels`, `trouble` and `syncTrouble` are stored for
+    // that reason, and a field added to that list in `adopt` later has to be added here
     // too, or this comment goes stale the same way the one it replaced did.
+    //
+    // **Two more already carry the same guard and are deliberately still missing here.**
+    // `adopt` reads `data.consoles` and `data.me` on exactly this absent-means-an-old-
+    // server rule and neither is stored — that is bc-khoe.62, filed rather than folded
+    // in, because this bead's acceptance criteria named the board/tickets/trouble six.
+    // `me` is the one to be careful with: `adopt`'s own comment says keeping the last
+    // value is what stops a phone behind a cached service worker from calling your own
+    // questions somebody else's, and a warm boot has no last value to keep.
+    //
+    // **This overwrites the held entry, it does not merge into it** — so a payload from
+    // an older daemon that omits one of the six erases a newer daemon's copy of it,
+    // which is `adopt`'s rule inverted. Deliberate, and not settled here: public/
+    // monitor.js writes this same key with the whole payload untrimmed, so a merge in
+    // this function alone is undone by the next visit to /monitor. It is one policy for
+    // the key rather than a choice per writer, and it is bc-khoe.63.
     const {
       questions,
       requests,

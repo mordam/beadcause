@@ -1254,13 +1254,19 @@ try {
     await s.send('Emulation.setDeviceMetricsOverride', { ...SIZES[1], deviceScaleFactor: 2, mobile: true });
     await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/?t=viewbar-check-board` });
     await sleep(900);
-    /* And the warm payload with it, which is not tidiness. `keep()` in public/app.js
-       trims what it stores down to what `adopt` reads *of a list* — the board is not in
-       it — so a document that paints warm and then parks on `/api/poll` has no board
-       until a poll lands. Against this fixture that poll never lands (it is parked the
-       way the daemon parks it, so the run is over first), and the section would be
-       measuring the warm path rather than the render. A cold boot is the state this
-       check is about. */
+    /* And the warm payload with it, which is not tidiness. `BOARDED` was false for every
+       navigation above this line, so the entry `keep()` left behind holds *the boardless
+       fixture* — and a document that paints warm then parks on `/api/poll` does no
+       `/api/questions` fetch at all (`buildHome` is warm-boot-or-load). Against this
+       fixture that poll never lands (it is parked the way the daemon parks it, so the
+       run is over first), so the section would measure the previous fixture rather than
+       this one. A cold boot is the state this check is about.
+
+       It used to say `keep()` trims the board out of what it stores, and until
+       bc-khoe.51 that was both true and a second reason to clear. It is not true any
+       more — `keep()` now stores `rootboard` — and the reason above is the one that
+       survives: a check that changes its fixture mid-run has to clear the warm keys
+       before the navigation meant to see the change, whatever `keep()` stores. */
     await evalJs(
       s,
       `Object.keys(localStorage).filter((k) => k.startsWith('beadcause.warm:')).forEach((k) => localStorage.removeItem(k)),
