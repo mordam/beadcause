@@ -24933,6 +24933,15 @@ codes, where it is the last thing on the screen you walk away from. An https lin
 certificate, or a `baseUrl` you set yourself — prints nothing at all, because a line that
 appears on every run is a line nobody reads on the run that matters.
 
+The same discipline covers a notice this flag never asked for — bc-zjab.12. `lib/resolvers.js`
+prints its own line, once, at module load, when the last daemon left resolver windows
+behind; since every import in `bin/beadcause.js` has already run by the time `--url` is
+read, that line used to arrive on stdout ahead of the URL and land in `BASE_URL` in
+`scripts/build-android.sh` along with it. It is a boot notice, not a value, so it moved to
+stderr with everything else of that kind — still on the daemon's own console
+(`beadcause.log` captures both streams), just off the one stream a script trusts to be a
+bare address.
+
 **It is judged on the URL, not on the certificate**, and those are different questions. A
 `baseUrl` pointing at a reverse proxy or a real domain is pairable with no `tailscale
 cert` anywhere in sight. Loopback is exempt for the opposite reason: it is
