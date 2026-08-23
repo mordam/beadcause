@@ -21928,6 +21928,30 @@ screen with the old sound. `test/channels.mjs` is the suite that holds all of th
 class to its sound, every retired id to the delete list, and every sound to a file that
 actually ships.
 
+### One tap from the app to those settings
+
+The five channels above are where the options live, and that answer has one gap: nothing
+in the app points at it. Finding them means leaving the app and walking Settings → Apps →
+Beadcause → Notifications by hand. **Menu → Notification settings** (the gear at the top
+of every page) is the fix — one tap, from `MainActivity`'s `openNotificationSettings()`
+bridge method, to `Settings.ACTION_APP_NOTIFICATION_SETTINGS`.
+
+That lands on the whole-app notification screen rather than on one channel's own. The
+alternative — five deep links, `Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS` with a
+hardcoded `EXTRA_CHANNEL_ID` per row — would read more like a mixer at a glance, but it
+means five ids in `public/accountbar.js` that have to be kept in step with the ids in
+`Notifications.kt` by hand, forever, with no test that can catch a typo except a human
+tapping every row: a stale or misspelled id opens a settings screen on nothing rather than
+failing loudly. The whole-app screen already lists every channel as its own tappable row,
+so "one tap from the app" is satisfied by landing there, and there is nothing to keep in
+sync.
+
+The row is drawn hidden and revealed only by feature-detecting
+`window.BeadcauseNative?.openNotificationSettings`, the same way **Open in Chrome** reveals
+itself — a PWA running in a browser has nowhere for the tap to go, and a userAgent sniff
+would draw the row for a browser merely claiming to be one. An APK built before this
+shipped has no such method on its bridge, so the row stays hidden there too.
+
 ### Which arrival speaks in which voice, and what stops the loud one crying wolf
 
 Giving one class the only insistent voice is only safe while that class cannot be wrong,

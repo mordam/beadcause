@@ -147,6 +147,10 @@
         <span class="accountmenu-glyph" aria-hidden="true">⏸</span>
         <span class="accountmenu-label">Admin</span>
       </a>
+      <button type="button" class="accountmenu-row" id="account-notifications" role="menuitem" hidden>
+        <span class="accountmenu-glyph" aria-hidden="true">🔔</span>
+        <span class="accountmenu-label">Notification settings</span>
+      </button>
       <button type="button" class="accountmenu-row accountmenu-switch" id="account-switch" role="menuitem">
         <span class="accountmenu-glyph" aria-hidden="true">⇄</span>
         <span class="accountmenu-label">Switch account<span class="accountmenu-sub" id="account-who">…</span></span>
@@ -186,6 +190,7 @@
   const menu = el.querySelector('#account-menu');
   const actions = el.querySelector('#account-actions');
   const adminRow = el.querySelector('#account-admin');
+  const notificationsRow = el.querySelector('#account-notifications');
 
   /**
    * Move the page's own top-right buttons into the menu.
@@ -262,6 +267,25 @@
     const here = /^\/admin(\.html)?\/?$/.test(location.pathname);
     const already = actions.querySelector('a[href="/admin"], a[href="/admin.html"]');
     adminRow.hidden = Boolean(here || already);
+  }
+
+  /**
+   * Android's own per-channel notification settings, one tap from this menu.
+   *
+   * Hidden by default and revealed only by feature-detecting the bridge method, the
+   * same way public/app.js reveals **Open in Chrome** — a PWA in a browser has nowhere
+   * for this to go, and a userAgent sniff would draw the row on a browser that merely
+   * claims to be one. An APK built before this shipped has no `openNotificationSettings`
+   * on its `BeadcauseNative`, so the row stays hidden there too rather than doing
+   * nothing when tapped.
+   */
+  function notifications() {
+    if (typeof window.BeadcauseNative?.openNotificationSettings !== 'function') return;
+    notificationsRow.hidden = false;
+    notificationsRow.addEventListener('click', () => {
+      close();
+      window.BeadcauseNative.openNotificationSettings();
+    });
   }
 
   /* -------------------------------------------------------------------- the menu */
@@ -561,6 +585,7 @@
 
   hoist();
   admin();
+  notifications();
   paint();
   load();
 
