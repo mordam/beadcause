@@ -1,0 +1,146 @@
+#!/usr/bin/env node
+/**
+ * `b7e-grep` — search this repo's own files, with the roots and exclusions already
+ * decided, so nobody hand-writes `grep -rn <pat> --include=*.js ...` again and hits
+ * `(eval):1: no matches found: --include=*.js` — an unquoted glob in a *flag value*,
+ * killed by zsh before `grep` ever runs.
+ *
+ *     b7e-grep <pattern> [<pattern> ...]      OR'd together, ERE by default
+ *     b7e-grep <pattern> --in lib,test         only those roots
+ *     b7e-grep <pattern> --files               matching file paths only, like grep -l
+ *     b7e-grep <pattern> --count               a per-file count and a total, no lines
+ *     b7e-grep <pattern> --fixed               a literal string, not a regex
+ *     b7e-grep <pattern> -i                    case-insensitive
+ *     b7e-grep <pattern> --dir <root>          another tree — this is how it is tested
+ *
+ * bc-4r10.21 is a session-audit bead naming the same grep a sixth time: `bc-4r10.9`,
+ * `bc-eqn1.2`, `bc-4r10.1` (twice), `bc-ka5y.15.5`, `bc-7wwbb` and `bc-4r10.4` each
+ * hand-wrote it and each hit the same zsh footgun, then each guessed a different root set
+ * — one of them (`bc-eqn1.2`'s quoted retry, run from bare `.`) picked up a *sibling
+ * worktree's own copy* of the files it was searching and had to discount the extra hits
+ * by eye. `lib/repogrep.js` is the matching; this is the argv parsing and the printing
+ * around it, the same split as `bin/b7e-affected` and `lib/affected.js`. It never shells
+ * out to a system `grep`, so there is no `--include`/`--exclude` flag here for an
+ * unquoted glob to break — `--in` takes a fixed, closed set of names, never a pattern —
+ * and it never walks into `.claude/`, so a sibling worktree can never leak into a result.
+ *
+ * Exit codes: `0` at least one match. `1` none — including a well-formed search that
+ * simply found nothing, same reading `b7e-affected` gives an all-matched diff. `2` bad
+ * usage: an unrecognised flag, an unknown `--in` root, or a pattern that isn't a valid
+ * regex (only reachable without `--fixed`).
+ */
+import path from 'node:path';
+import { repoRoot, search, ROOT_KEYS } from '../lib/repogrep.js';
+
+const argv = process.argv.slice(2);
+
+const USAGE = `usage: b7e-grep <pattern> [<pattern> ...] [options]
+
+Search this repo's own files — lib/, bin/, test/, scripts/, public/, android/ and
+README.md — for any of the given patterns (OR'd together; ERE by default). Nothing from
+node_modules, .git, .claude/, public/vendor, .coverage, dist, android's own build output
+or the packaged APK. Prints matches grouped by file: path:line: text, a per-file count,
+and a total.
+
+  --in <keys>    comma-separated roots to search instead of all seven:
+                 ${ROOT_KEYS.join(', ')}
+  --files        matching file paths only, one per line (like grep -l)
+  --count        a per-file match count and a total, no matched lines (like grep -c)
+  --fixed        patterns are literal strings, not a regex (like grep -F)
+  -i             case-insensitive
+  --dir <root>   search another tree instead of this checkout — how this is tested
+
+Exit 0 with at least one match, 1 with none, 2 on a bad argument.`;
+
+const has = (...flags) => flags.some((f) => argv.includes(f));
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+if (has('--help', '-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+const leave = async (code) => {
+  await new Promise((r) => process.stdout.write('', r));
+  process.exit(code);
+};
+
+const FLAG_VALUES = new Set(['--dir', '--in']);
+const FLAG_BOOLS = new Set(['--files', '--count', '--fixed', '-i', '--help', '-h']);
+
+const patterns = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (FLAG_BOOLS.has(a)) continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1; // skip its value
+    continue;
+  }
+  if (a.startsWith('--dir=') || a.startsWith('--in=')) continue;
+  if (a.startsWith('-') && a !== '-') {
+    console.error(red(`unrecognised flag: ${a}`));
+    await leave(2);
+  }
+  patterns.push(a);
+}
+
+if (!patterns.length) {
+  console.error(USAGE);
+  await leave(2);
+}
+
+let keys = [];
+const inGiven = value('--in');
+if (inGiven) {
+  keys = inGiven.split(',').map((s) => s.trim()).filter(Boolean);
+  const bad = keys.filter((k) => !ROOT_KEYS.includes(k));
+  if (bad.length) {
+    console.error(red(`unknown --in root${bad.length === 1 ? '' : 's'}: ${bad.join(', ')}`));
+    console.error(dim(`known roots: ${ROOT_KEYS.join(', ')}`));
+    await leave(2);
+  }
+}
+
+const dirGiven = value('--dir');
+const ROOT = dirGiven ? path.resolve(dirGiven) : repoRoot(process.cwd());
+
+let result;
+try {
+  result = search(ROOT, patterns, { keys, fixed: has('--fixed'), ignoreCase: has('-i') });
+} catch (err) {
+  console.error(red(err.message));
+  await leave(2);
+}
+
+if (!result.results.length) await leave(1);
+
+const plural = (n, word) => `${n} ${n === 1 ? word : word === 'match' ? 'matches' : `${word}s`}`;
+const summary = dim(`${plural(result.total, 'match')} across ${plural(result.results.length, 'file')}`);
+
+if (has('--files')) {
+  for (const r of result.results) console.log(r.file);
+} else if (has('--count')) {
+  for (const r of result.results) console.log(`${r.file}: ${r.hits.length}`);
+  console.log(summary);
+} else {
+  for (const r of result.results) {
+    console.log(bold(`${r.file} (${plural(r.hits.length, 'match')})`));
+    for (const h of r.hits) console.log(`${r.file}:${h.line}: ${h.text}`);
+    console.log('');
+  }
+  console.log(summary);
+}
+
+await leave(0);
