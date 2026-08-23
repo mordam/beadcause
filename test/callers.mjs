@@ -427,10 +427,87 @@ console.log('\nCLI\n');
 
 console.log("\nthe real repo — bc-36xx.24's own acceptance\n");
 
-check('approvedReview: no non-comment caller, matching bc-36xx.22\'s grep evidence', () => {
+/*
+ * `approvedReview` and `plansFor` are two of the five acceptance cases, and both are
+ * checked here the same way — *not* by pinning the answer.
+ *
+ * An earlier version of this file asserted `verdict === 'mentioned only in comments'` for
+ * `approvedReview`, which was true of this tree on the day it was written and false eight
+ * hours later: `bc-36xx.22` landed and `lib/mergequeue.js:977` now calls it for real. That
+ * assertion was a fact about `lib/reviewadvocate.js`'s wiring, not about this tool, and it
+ * went red in CI on a branch whose own code was correct. `plansFor` has the same shape of
+ * rot already visible in the bead: `bc-zjab`'s "five suites" is a count from a three-symbol
+ * grep in 2026-08, and `plansFor` has since moved to a nested function inside
+ * `lib/advocate.js` with one caller — see the note recorded on `bc-36xx.24`.
+ *
+ * So what is asserted is what cannot rot: the tool finds every mention an independent
+ * word-boundary scan of the same files finds (the `bc-36xx.5` failure was a *silent miss*,
+ * a search scoped wrong that read as "nothing is there"), never shrugs about a name that
+ * demonstrably exists, and says a verdict its own occurrence list actually supports.
+ * Whichever way `lib/mergequeue.js` is wired next week, all three stay true.
+ */
+
+/** Every line of `files` under `root` where `\bname\b` occurs, as `file:line` strings. */
+function rawMentions(root, name, files) {
+  const re = new RegExp(`\\b${name}\\b`);
+  const hits = [];
+  for (const f of files) {
+    let text;
+    try {
+      text = fs.readFileSync(path.join(root, f), 'utf8');
+    } catch {
+      continue;
+    }
+    text.split('\n').forEach((line, i) => {
+      if (re.test(line)) hits.push(`${f}:${i + 1}`);
+    });
+  }
+  return hits;
+}
+
+/**
+ * The three properties above, for one real symbol on this real tree. `r` is a
+ * `findCallers` result; `files` is the file list it searched.
+ */
+function assertHonestAbout(name, r, files) {
+  assert.notEqual(
+    r.verdict,
+    'no reference found anywhere searched',
+    `${name} exists in this tree, so the shrug verdict is always wrong for it`,
+  );
+
+  // no silent miss: every raw mention is either reported or inside a definition's own span
+  const reported = new Set(r.occurrences.map((o) => `${o.file}:${o.line}`));
+  const inOwnBody = (ref) => {
+    const [file, line] = [ref.slice(0, ref.lastIndexOf(':')), Number(ref.slice(ref.lastIndexOf(':') + 1))];
+    return r.definitions.some((d) => d.file === file && line >= d.docStart && line <= d.endLine);
+  };
+  const missed = rawMentions(callers.REPO_ROOT, name, files).filter((ref) => !reported.has(ref) && !inOwnBody(ref));
+  assert.deepEqual(missed, [], `${name}: mentions no occurrence and no definition span accounts for`);
+
+  // the verdict is supported by the occurrences the tool itself reported
+  const ownFiles = new Set(r.definitions.map((d) => d.file));
+  const external = r.occurrences.filter((o) => o.kind === 'call' && !ownFiles.has(o.file));
+  if (external.length) assert.equal(r.verdict, `wired (${external.length} call site${external.length === 1 ? '' : 's'})`);
+  else assert.doesNotMatch(r.verdict, /^wired/, `${name}: claimed wired with no external call in its own occurrence list`);
+
+  // every occurrence called a `call` really is one, read back off the line it came from
+  for (const o of r.occurrences.filter((x) => x.kind === 'call')) {
+    assert.match(o.text, new RegExp(`\\b${name}\\b\\s*(\\?\\.)?\\s*\\(`), `${o.file}:${o.line} classified a call`);
+  }
+}
+
+check('approvedReview: every mention accounted for, and a verdict its own occurrences support', () => {
   const r = callers.findCallers(callers.REPO_ROOT, 'approvedReview', {});
-  assert.equal(r.verdict, 'mentioned only in comments');
-  assert.ok(!r.occurrences.some((o) => o.kind === 'call'), 'no real call site outside test/');
+  assert.ok(r.definitions.length >= 1, 'expected a definition of approvedReview');
+  const files = callers.listAllSourceFiles(callers.REPO_ROOT).filter((f) => !f.startsWith('test/'));
+  assertHonestAbout('approvedReview', r, files);
+});
+
+check('plansFor --tests: the fifth acceptance case, checked the same way', () => {
+  const r = callers.findCallers(callers.REPO_ROOT, 'plansFor', { tests: true });
+  assert.ok(r.definitions.length >= 1, 'expected a definition of plansFor');
+  assertHonestAbout('plansFor', r, callers.listAllSourceFiles(callers.REPO_ROOT));
 });
 
 check('openReviewAnswerSession: the lib/reviewanswer.js hit is classified a comment, not a call', () => {
