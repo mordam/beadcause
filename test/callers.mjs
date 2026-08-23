@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import * as acorn from 'acorn';
 import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -186,18 +187,30 @@ check('a { } quantifier inside a regex literal does not unbalance the brace coun
   assert.equal(defs[0].endLine, 3);
 });
 
-check('blankRegexLiterals spaces out a regex and leaves every other offset alone', () => {
-  const src = "const re = /a\"b/;\nconst s = \"keep\";\n";
-  const out = callers.blankRegexLiterals(src);
+check('blankForBraceWalk leaves the walk nothing but code punctuation, at the same offsets', () => {
+  const src = 'const re = /a"b/;\nconst s = "keep";\nconst t = `x${ f({ y: 1 }) }z`;\n// note\n';
+  const out = callers.blankForBraceWalk(src);
   assert.equal(out.length, src.length, 'must stay the same length or line numbers lie');
-  assert.equal(out.split('\n').length, src.split('\n').length);
-  assert.ok(!out.includes('/a'), 'the regex should be gone');
-  assert.ok(out.includes('"keep"'), 'strings are NOT blanked by this pass');
+  assert.equal(out.split('\n').length, src.split('\n').length, 'every newline stays put');
+  for (const gone of ['"', '`', '/a', 'keep', 'note', 'x$', 'z']) {
+    assert.ok(!out.includes(gone), `${JSON.stringify(gone)} should be blanked`);
+  }
+  assert.ok(out.includes('f({ y: 1 })'), 'a ${…} expression is real code and stays');
+  assert.equal(out.indexOf('f({'), src.indexOf('f({'), 'and stays at the same offset');
 });
 
-check('blankRegexLiterals hands back unparseable text unchanged', () => {
+check('blankForBraceWalk survives a nested template with escaped backticks', () => {
+  // The residual desync after the regex fix alone: `\`${x}\`` inside a template. 27 such
+  // spans were still disagreeing with acorn until the whole non-code range was blanked.
+  const src = 'function show(v) {\n  return `\\`${v}\\``;\n}\n\nfunction other() {\n  return show(1);\n}\n';
+  const defs = callers.definitionsFor('show', 'lib/a.js', src);
+  assert.equal(defs.length, 1);
+  assert.equal(defs[0].endLine, 3, `body ran to line ${defs[0].endLine}, swallowing the caller below it`);
+});
+
+check('blankForBraceWalk hands back unparseable text unchanged', () => {
   const src = 'function ( { this is not javascript\n';
-  assert.equal(callers.blankRegexLiterals(src), src);
+  assert.equal(callers.blankForBraceWalk(src), src);
 });
 
 /* ===================================================================== *
@@ -603,6 +616,42 @@ check('lib/session.js --imports: importing lib/advocate.js would close a cycle',
     report.wouldCloseCycleIfImported.includes('lib/advocate.js'),
     'lib/advocate.js already transitively imports lib/session.js, so the reverse edge would cycle',
   );
+});
+
+check('every top-level function in this repo gets the extent acorn gives it', () => {
+  // The whole-tree pin for the round-1 regex/template desync, and the check to run against
+  // ANY future port of the findBody/matchBrace walk: a hand-rolled scanner and a real
+  // parser must agree about where a function ends, or findCallers skips the wrong lines and
+  // answers "no reference found anywhere searched" about code with a caller in it.
+  const files = callers.listAllSourceFiles(callers.REPO_ROOT);
+  const wrong = [];
+  let checked = 0;
+  for (const f of files) {
+    const text = fs.readFileSync(path.join(callers.REPO_ROOT, f), 'utf8');
+    let ast;
+    try {
+      ast = acorn.parse(text, { ecmaVersion: 2022, sourceType: 'module', allowHashBang: true, locations: true });
+    } catch {
+      continue; // blankForBraceWalk falls back to the raw text here by design
+    }
+    for (const node of ast.body) {
+      const fn =
+        node.type === 'FunctionDeclaration'
+          ? node
+          : node.type === 'ExportNamedDeclaration' && node.declaration?.type === 'FunctionDeclaration'
+            ? node.declaration
+            : null;
+      if (!fn?.id) continue;
+      checked += 1;
+      const def = callers.definitionsFor(fn.id.name, f, text).find((d) => d.startLine === fn.loc.start.line);
+      if (!def) wrong.push(`${f}:${fn.loc.start.line} ${fn.id.name} not found at all`);
+      else if (def.endLine !== fn.loc.end.line) {
+        wrong.push(`${f}:${fn.loc.start.line} ${fn.id.name} endLine ${def.endLine} vs acorn ${fn.loc.end.line}`);
+      }
+    }
+  }
+  assert.ok(checked > 2000, `expected the whole tree, only checked ${checked}`);
+  assert.deepEqual(wrong.slice(0, 10), [], `${wrong.length} of ${checked} function extents disagree with acorn`);
 });
 
 check('never a shrug: a name nowhere in the tree says so plainly, exit 1', () => {
