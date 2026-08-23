@@ -11805,6 +11805,9 @@ without opening anything:
   makes you stop. It costs nothing: the provenance pass was already spending one `bd
   show` per row, and it spends `bd show --include-comments` instead — the same one spawn,
   which on this tracker is the entire cost model (see `showWithComments` in lib/bd.js).
+  It inherits that pass's bound as well as its cost, so on a queue at the sixty cap the
+  last twenty rows carry the 💬 count and not the quotation — the same trade the
+  provenance line already makes, and the reason the count stays.
 - **⚑ An open question names this bead**, with the question's id, its priority and what
   it asks, and a tap through to it. This one is bordered rather than merely coloured,
   because the failure it exists to stop is a thumb moving down a list of rows that all
