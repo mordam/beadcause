@@ -19366,13 +19366,28 @@ login that was never submitted, and `approvalUrl` stays empty as the tell that n
 GitHub answers for it. A recorded approval, never a refused one — `approvedReview`'s own
 distinction, now with a caller.
 
-**Left for later, on purpose: anchoring a comment to the GitHub review thread it became.**
-`reviewComment` has carried a `threadId` field since `#560` for exactly this — what would
-make `resolveThread` callable at all — and this fold does not write it. Submitting a review
-with inline comments does not hand back which thread each one became without a second
-GraphQL read to match them by path and line, and a guess here would be worse than the gap:
-a wrong anchor closes the wrong thread later. Filed as its own question rather than folded
-in unverified.
+**Anchoring a comment to the GitHub review thread it became — bc-36xx.31, the gap this
+section used to leave open.** `reviewComment` had carried a `threadId` field since `#560`
+for exactly this — what makes `resolveThread` callable at all — and nothing filled it in.
+Submitting a review with inline comments does not hand back which thread each one became,
+so `syncReviewVerdict` reads `reviewThreads(dir, number)` straight back once the review has
+gone out and `threadIdsFor` (`lib/reviewsync.js`) matches each comment to its thread by
+path, line and the exact text `inlineComments` sent — the one string GitHub hands back
+unchanged, and safer to match on than position: `reviewThreads(first: 100)` makes no
+promise about order. A comment GitHub has not caught up on yet, or a `reviewThreads` an
+outage turned into a null (see `threadsTransient` below), both come back simply unanchored
+rather than guessing — a wrong anchor would close the wrong thread later, which is worse
+than the gap this used to be.
+
+**And resolving one, the other half.** The comments a prior round anchored and the worker
+answered — `answer` set — that a fresh verdict does not carry forward are exactly the ones
+the reviewer read and accepted: `syncReviewVerdict` diffs the prior round's comment ids
+against the fresh verdict's own and calls `resolveThread(dir, threadId)` on every one that
+dropped out with an answer on it, before the block below replaces `state.comments`
+wholesale and they are gone from the bead for good. A comment nobody ever answered that a
+reviewer simply stops repeating is not "settled" by this — `answer` has to be set — so a
+reviewer rewording an unanswered objection does not read as the worker having won the
+argument.
 
 ### The worker answers — one window per round, and it may not resolve anything
 
@@ -20753,11 +20768,9 @@ pull request since one checkout answers for several; `resolveThread`'s answer ca
 `transient: true` instead, since it already returns an object rather than `null` on every
 failure and a second lookup would be one fact in two places.
 
-**What this does not yet do.** Nothing writes a verdict's inline comments through
-`submitReview`, and nothing reads `reviewThreads` back onto a merge-bead's review block to
-replace beadcause's own `id` with the real thread id it anchors to. That wiring — the
-worker answering a specific GitHub thread, the reviewer resolving the ones it accepts — is
-further up this epic, not here: this is the primitive the wiring calls.
+**What this does not yet do.** Nothing further — the wiring this section used to describe
+as left for later, anchoring a comment to its thread and resolving the ones a worker's
+answer settled, is folded in above (bc-36xx.31).
 
 ### What it does to the two things that were already here
 
