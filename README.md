@@ -14454,7 +14454,7 @@ session finished; with it, four endings stop looking alike:
 | the file appears and… | reading |
 |---|---|
 | the bead is closed | **done** — the slot frees, the attempt counter resets |
-| an open `pr-delivery` question names this bead | **delivered** — the work is in a pull request waiting on you; a documented ending, so it costs no attempt |
+| an open `pr-delivery` question **or an open `merge-queue` merge-bead** names this bead | **delivered** — the work is in a pull request; a documented ending, so it costs no attempt |
 | the bead carries `human` | **handed back to you** — a documented ending, so it costs no attempt |
 | neither | **exited unfinished** — costs an attempt, and the exit code is logged |
 
@@ -14462,6 +14462,22 @@ The delivered row is asked of the tracker rather than read off the bead, because
 bead blocked by a question is not distinguishable from a bead blocked by anything
 else — and the id of the question is worth having anyway. "Delivered" and "delivered,
 and here is what to go and answer" are different things to put on a card.
+
+**Both labels, because there are two things a delivery leaves behind.** `pr-delivery`
+was the whole of that row while a worker's delivery *was* a card in your inbox. Since
+bc-r941 it is not: a worker files a **merge-bead** — `merge-queue`, one per pull
+request, a blocker on the work bead by construction — and stops; a `pr-delivery` card
+is raised later, and only on the failure path, when the merge queue has tried three
+times and the merge has become yours. So on a repo whose workers take the queue route,
+asking for `pr-delivery` alone asks whether the merge *failed*, and a delivery that is
+going perfectly well answers no. That is not a labelling nicety: **delivered** is the
+ending that frees the slot and hands the window to the reaper, so without it a worker
+that had done everything right fell through every ending to `workerTimeoutMinutes` —
+two hours — holding a slot against `maxWorkers` and holding its window on the screen
+with `** BEAD WORK DONE ** CAN BE CLOSED **` sitting in it the whole time. That was
+most of the window pile bc-2uj4.5.4 was filed about: 204 `releasing the slot` lines in
+one daemon log, and every `delivered as a pull request` line in its whole history
+belonging to a repo still on the older route.
 
 Everything else really is inference, and is treated as such. Nothing on the Mac
 records which process is on which bead; an advocate knows it *opened a window* for
@@ -14988,6 +15004,36 @@ The waiting list survives a restart, alongside the workers and for the same reas
 the windows are still open, and a daemon that forgot them would leave the pile this
 was written to clear. An observer instance signals nothing at all.
 
+##### And which window a worker row is actually about
+
+Guard 2 above is only as good as the pid and session id on the row it is checking, and
+those are re-read on every tick — a worker is joined back to its window each pass, because
+a window opened seconds ago has not renamed itself yet and a daemon that has just come up
+adopted its slot list from a file. That join used to be made on the window's **name**: the
+first live session whose title carried the bead id. A name is a string the *session* writes
+about itself, and a reviewer, a resolver and an Epic Advocate all quote the bead they are
+about, so it cannot tell a worker's window from any of them. Measured here on 2026-08-23:
+the worker row for `bc-zjab.12` had re-bound onto `beadcause - review PR 617 (bc-zjab.12)`,
+the review window this daemon had opened itself on the pull request that worker delivered.
+
+A re-bind is three bugs at once. The reviewer's window becomes a window an advocate holds a
+slot for, so the [idle sweep](#parking--a-window-waiting-on-you-closes-and-your-answer-brings-it-back) steps over it and
+nothing ever closes it. The slot it occupies is one the repo cannot dispatch into. And when
+the bead does close, the closing record is written with the *reviewer's* pid **and session
+id** — so guard 2, whose entire job is "never signal a window that is not the one we
+launched", compares the reviewer against itself, agrees, and `SIGTERM`s a review halfway
+through.
+
+So the join is by **session id**, which `launch` mints before the window exists and Claude
+Code reports straight back off its own live-session record: this is the same conversation,
+or the conversation is gone. The name match survives as the adoption path and nothing else
+— a worker with no session id was adopted from an older daemon, and once one is found it is
+written down, so a row is adopted at most once. One question stays deliberately wide: *is
+anybody at all in a window about this bead*, which is what decides whether the claim is
+handed back. A window you opened by hand, on the same bead, after the daemon's own closed,
+is exactly what makes that claim true — asking it by identity is how one bead ends up with
+two windows.
+
 ##### The windows nobody is holding
 
 Everything above starts from a **worker**: a row on the slot list, carrying the pid the
@@ -15116,6 +15162,8 @@ park nothing can place is not a park to guess at.
 | this daemon **opened** it, and said so at the time | the register in `state.json` is keyed by **session id**, written by `launch` itself. Every earlier attempt to match a window to what opened it matched on the *name*, and a name is something the session writes about itself and can change; the id is chosen by the launcher and reported straight back off Claude Code's own live-session record, so the join is exact. A window you opened yourself is not in the register and cannot be reached |
 | it is not **busy** | the guard that is not about time at all. A window mid-turn is never closed, whatever else is true |
 | it has been **idle** for `parkIdleMinutes` (default 10) | minutes, not the 90 seconds a finished worker gets, because here the ending is *inferred from silence* rather than proved by a closed bead. Ten and not sixty: an hour's grace means the screen is full for an hour before anything helps, which is the state of affairs already |
+| if it is a **worker whose slot this advocate still holds**, it has been idle for `parkWorkerIdleMinutes` (default 20) | the sweep yields to `reconcile` first, because `reconcile` knows what the session was asked and can say "delivered as a pull request" where this can only say "it went quiet". What that yield did not have was an end, and `reconcile` has no clock shorter than `workerTimeoutMinutes` — so a worker whose ending it could not classify kept its window for **two hours**, and `timeout` is not an ending that closes anything, so the close came from this sweep anyway, two hours late. Forty ticks for a better sentence, and then the honest one beats a rectangle |
+| if its status is neither `idle` nor `busy`, it has stood there for `parkStuckMinutes` (default 60) | an unrecognised status used to answer `wait` **forever**, and a Claude Code record only moves when its session moves — so a window abandoned in a state nothing enumerates was invisible to every sweep on the Mac at once. One was measured at four days and sixteen hours in `shell`, holding a worktree lock. `busy` keeps its unconditional exemption: that is the one status that means an agent is mid-sentence |
 | its conversation is **written down** | an id that is really an id, and the directory it ran in. `--resume <id>` finds the conversation from anywhere — measured on Claude Code 2.1.x — so the directory is not what locates it; it is what supplies everything the transcript cannot, which is the branch, the uncommitted edits and the files every path in that agent's context points at. Resuming in the wrong tree gives an agent a perfect memory of files that are not there, and it will act on it |
 
 Two windows are exempt by their own door rather than by a guard: **Open a session** and a
@@ -15124,8 +15172,11 @@ not a window waiting on somebody.
 
 A worker that reaches one of its documented endings is parked by `finish` instead, which
 knows which ending it was and can say so: **handed back** — it asked a question, and
-answering the bead brings the session back — or **delivered** — a pull request is waiting on
-a tap, and the merge does. The other five endings park nothing, and the test is not "did
+answering the bead brings the session back — or **delivered** — a pull request is open, and
+the merge brings the session back. Delivered says *which* of the two delivery routes it
+took, because they end differently: a `merge-queue` merge-bead is the queue's to merge and
+nothing is waiting on you, while a `pr-delivery` card is a tap you owe. Saying "waiting on
+you" about the first would send you looking for a button that is not there. The other five endings park nothing, and the test is not "did
 this window stop" but *does a conversation with this agent still have somewhere to go*: a
 closed bead has nothing to answer, a stood-down window belongs to another Mac, and a session
 that timed out or went silent is not one to hand an answer to.
@@ -27225,6 +27276,8 @@ to be one.
 | `advocates.closeEmptyWindows` | [close the iTerm windows that have no tabs left in them](#the-windows-that-are-no-longer-windows) — the blank frames iTerm sometimes leaves behind when a session's last tab goes away (default `true`). There is no session in one, so this keeps none of the guards above; `false` leaves them on the desk for you to dismiss by hand |
 | `advocates.parkIdleWindows` | [park a window this daemon opened once it goes quiet](#parking--a-window-waiting-on-you-closes-and-your-answer-brings-it-back) — write its conversation down by session id, then close it, so an answer resumes the same agent rather than briefing a new one (default `true`). This is the one sweep that closes a window whose work is not provably anywhere else, so it has its own switch; `false` leaves them open and the resume never happens. `closeFinishedSessions: false` switches it off too |
 | `advocates.parkIdleMinutes` | how long quiet is long enough (default 10). Minutes rather than the 90 seconds a *finished* worker gets, because here the ending is inferred from silence rather than proved by a closed bead |
+| `advocates.parkWorkerIdleMinutes` | how long the sweep yields to `reconcile` over a window whose worker slot the advocate still holds (default 20, floored at `parkIdleMinutes`). `reconcile` can name the ending where this can only say "it went quiet" — but it has no clock shorter than `workerTimeoutMinutes`, so without a bound here a worker whose ending it could not classify kept its window for two hours |
+| `advocates.parkStuckMinutes` | how long a status that is neither `idle` nor `busy` may stand before it is read as stale rather than as a session doing something with no name here (default 60). It used to be `wait` forever, and a record only moves when its session does: one window sat four days in `shell`, holding a worktree lock, invisible to every sweep at once. `busy` is exempt — that is the status that means mid-sentence |
 | `advocates.maintenance` | [the nightly maintenance window](#the-nightly-window--stop-dispatching-empty-the-mac-collect-the-store): stop dispatching everywhere, let the open windows finish, close whatever is left, collect every workspace's Dolt store, resume (default `false`). **Off by default because it is the one sweep here that closes a window somebody may be typing into** — everything else in this table reads something. One line turns it on |
 | `advocates.maintenanceAt` | when dispatching ceases, local wall clock (default `"03:00"`). A typo switches the window off and says so, rather than firing at midnight |
 | `advocates.maintenanceDrainMinutes` | how long a window that is still working gets to finish on its own before it is forced (default 45). Forty-five rather than ten because a worker that has just been asked to wrap up has a debrief to write and a branch to deliver, and a grace period shorter than doing what was asked wastes the asking |
