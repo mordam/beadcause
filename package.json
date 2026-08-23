@@ -42,6 +42,7 @@
     "beadcause-crosswalk": "bin/crosswalk.js",
     "b7e-affected": "bin/b7e-affected",
     "b7e-apply": "bin/b7e-apply",
+    "b7e-base": "bin/b7e-base",
     "b7e-blame": "bin/b7e-blame",
     "b7e-brief": "bin/b7e-brief",
     "b7e-call": "bin/b7e-call",
