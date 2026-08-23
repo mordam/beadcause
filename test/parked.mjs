@@ -203,9 +203,31 @@ check('idle for long enough parks', () => {
   assert.match(d.why, /waiting on you/);
 });
 
-check('an unrecognised status waits — the safe direction is leaving it open', () => {
-  assert.equal(parkDecision(REC, live({ status: 'compacting' }), { now: NOW }).act, 'wait');
-  assert.equal(parkDecision(REC, live({ status: '' }), { now: NOW }).act, 'wait');
+check('an unrecognised status waits while it is fresh — the safe direction is leaving it open', () => {
+  const fresh = ago(5 * 60 * 1000);
+  assert.equal(parkDecision(REC, live({ status: 'compacting', at: fresh }), { now: NOW }).act, 'wait');
+  assert.equal(parkDecision(REC, live({ status: '', at: fresh }), { now: NOW }).act, 'wait');
+});
+
+check('an unrecognised status that has not moved in hours is stale, and parks', () => {
+  // The hole this closes: `wait` used to be the answer forever, and a Claude Code record
+  // only moves when its session moves. One was measured at four days in `shell`, holding a
+  // worktree lock, invisible to every sweep on the Mac at once.
+  const d = parkDecision(REC, live({ status: 'shell', at: ago(4 * 24 * 60 * 60 * 1000) }), {
+    stuckMinutes: 60,
+    now: NOW,
+  });
+  assert.equal(d.act, 'park');
+  assert.match(d.why, /"shell"/);
+});
+
+check('busy is exempt from the stale rule, however long it has stood', () => {
+  // The one status that means an agent is mid-sentence keeps its unconditional wait.
+  const d = parkDecision(REC, live({ status: 'busy', at: ago(4 * 24 * 60 * 60 * 1000) }), {
+    stuckMinutes: 60,
+    now: NOW,
+  });
+  assert.equal(d.act, 'wait');
 });
 
 check('a session that never said when it went quiet waits', () => {
