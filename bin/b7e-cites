@@ -1,0 +1,172 @@
+#!/usr/bin/env node
+/**
+ * `b7e-cites` — every bead id quoted in this repo's own tree, with what the tracker now
+ * says about it.
+ *
+ *   b7e-cites                     every citation under lib, bin, test, scripts, public,
+ *                                  android and README.md
+ *   b7e-cites <path> [<path> ...] only these files/directories
+ *   b7e-cites --stale             only the two definite cases: an unknown id, or a
+ *                                  pending phrase about a bead that has since closed
+ *   b7e-cites --bead bc-4r10.22   just this one id, everywhere it is quoted
+ *   b7e-cites --json              one object per line instead of the printed report
+ *   b7e-cites --dir <root>        another tree — this is how it is tested
+ *   b7e-cites -w, --workspace     which tracker to check against (default: this
+ *                                  checkout's own — see lib/claude.js `workspaceFor`)
+ *
+ * bc-4r10.22 is the session audit: four sessions each found a stale citation by accident
+ * (bc-4r10.9 grepping for one string, bc-4r10.4 while writing an unrelated bead,
+ * bc-eqn1.2 mid-edit of the paragraph itself, bc-4r10.1 sweeping for something else
+ * entirely) and none of them thought to sweep for the rest. `lib/cites.js` is the walk,
+ * the matching (via `lib/mentions.js`) and the "worth a second look" judgement; this is
+ * the argv parsing, the `bd` batching and the printing around it.
+ *
+ * Exit codes: `0` ran to completion, whether or not anything was found stale — an empty
+ * answer is "nothing to look at", not a failure. `2` bad usage. `4` `-w` named a
+ * workspace this Mac has no config for, or this checkout resolves to none and `-w` was
+ * not given.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { workspaceFor } from '../lib/claude.js';
+import { Bd } from '../lib/bd.js';
+import { prefixFor } from '../lib/beadref.js';
+import { repoRoot, collectFiles, citationsIn, withStatus, staleFilter, prefixOf } from '../lib/cites.js';
+
+const argv = process.argv.slice(2);
+const has = (...names) => names.some((n) => argv.includes(n));
+const value = (...names) => {
+  for (const n of names) {
+    const inline = argv.find((a) => a.startsWith(`${n}=`));
+    if (inline) return inline.slice(n.length + 1);
+    const at = argv.indexOf(n);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-cites [<path> ...] [--stale] [--bead <id>] [--json]
+                 [--dir <root>] [-w, --workspace <name>]
+
+Every bead id quoted in this repo's own tree, joined to what the tracker now says about
+it. No path scans the whole tree (lib, bin, test, scripts, public, android, README.md);
+one or more paths narrow it to just those files or directories.
+
+  --stale             only an id the tracker has no record of, or a pending phrase
+                       ("still to come", "are landing on", ...) about a bead that has
+                       since closed
+  --bead <id>         just this one id, everywhere it is quoted — ignores any paths
+  --json              one object per citation instead of the printed report
+  --dir <root>        run against another tree — this is how it is tested
+  -w, --workspace     which tracker to check against (default: this checkout's own)`;
+
+if (has('--help', '-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const FLAG_VALUES = new Set(['--dir', '--bead', '-w', '--workspace']);
+const paths = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--stale' || a === '--json') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--') && a.includes('=')) continue;
+  if (a.startsWith('-')) {
+    console.error(`\x1b[31mb7e-cites: unrecognised flag: ${a}\x1b[0m`);
+    console.error(USAGE);
+    process.exit(2);
+  }
+  paths.push(a);
+}
+
+const STALE = has('--stale');
+const JSON_MODE = has('--json');
+const beadId = value('--bead');
+const DIR_GIVEN = value('--dir');
+const ROOT = path.resolve(DIR_GIVEN || repoRoot());
+
+if (beadId && paths.length) {
+  console.error('b7e-cites: --bead and a path are two ways of narrowing the same search — pass one, not both');
+  process.exit(2);
+}
+
+const cfg = loadConfig();
+const wsName = value('-w', '--workspace') || workspaceFor(cfg, ROOT);
+const ws = wsName ? (cfg.workspaces || []).find((w) => w.name === wsName) : null;
+if (!ws) {
+  const known = (cfg.workspaces || []).map((w) => w.name).join(', ');
+  console.error(
+    wsName ? `b7e-cites: no workspace called ${wsName} — ${known}` : `b7e-cites: ${ROOT} resolves to no workspace on this Mac — name one with -w (${known})`
+  );
+  process.exit(4);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+/* -------------------------------------------------------------- which prefix, which id */
+
+let prefix;
+let only = null;
+if (beadId) {
+  only = beadId.toLowerCase();
+  prefix = prefixOf(beadId);
+  if (!prefix) {
+    console.error(`b7e-cites: ${beadId} doesn't look like a bead id`);
+    process.exit(2);
+  }
+} else {
+  prefix = await prefixFor(bd, ws);
+  if (!prefix) {
+    console.error(`b7e-cites: could not read a bead id prefix from ${ws.name} — is its tracker reachable?`);
+    process.exit(4);
+  }
+}
+
+/* --------------------------------------------------------------------------- the walk */
+
+const files = collectFiles(ROOT, paths.length ? paths : null);
+let rows = citationsIn(ROOT, files, prefix, { only });
+
+/* --------------------------------------------------------- one bd spawn for every id */
+
+const ids = [...new Set(rows.map((r) => r.id))];
+let statusById = new Map();
+if (ids.length) {
+  let found = [];
+  try {
+    found = await bd.json(ws, ['show', ...ids]);
+  } catch (err) {
+    if (!/no issues? found|not found/i.test(String(err?.message || ''))) {
+      console.error(`b7e-cites: could not read ${ws.name} — ${String(err?.message || err).split('\n')[0]}`);
+      process.exit(4);
+    }
+  }
+  for (const r of found || []) statusById.set(String(r.id).toLowerCase(), { status: r.status, title: r.title });
+}
+
+rows = withStatus(rows, statusById);
+if (STALE) rows = staleFilter(rows);
+
+/* ------------------------------------------------------------------------------ print */
+
+if (JSON_MODE) {
+  for (const r of rows) console.log(JSON.stringify(r));
+  process.exit(0);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const statusColor = (s) => (s === 'unknown' ? '\x1b[31m' : s === 'closed' ? '\x1b[32m' : '\x1b[33m');
+
+for (const r of rows) {
+  const title = r.title ? ` ${r.title}` : '';
+  console.log(`${r.file}:${r.line} ${statusColor(r.status)}${r.id} ${r.status}\x1b[0m${title}`);
+  console.log(dim(`  ${r.text}`));
+}
+
+if (!rows.length) console.error(STALE ? 'nothing stale' : 'no citations found');
+
+process.exit(0);
