@@ -20739,6 +20739,20 @@ return an ordinary `null` or `{ ..., reason }` rather than throwing on a one-log
 repo nobody here can see — every caller already has to handle that answer for `approve()`
 and `reviewerFor`, so nothing above this file learns a new failure shape.
 
+**GitHub answering with a shrug is told apart from GitHub actually answering — bc-36xx.26,**
+the same shape `probeTransient`/`noRepoMessage` fixed for the repo probe on the same API
+(measured 2026-08-17: `gh repo view` — GraphQL — 503'd on roughly four calls in five while
+`gh api /rate_limit` — REST — answered throughout). Neither function used to tell "GitHub
+never answered" apart from "there is genuinely nothing here": `reviewThreads` returned
+`null` either way, and `resolveThread` returned `{ resolved: false, reason: <gh's stderr> }`
+for a 503 exactly as it did for a thread that plainly does not exist. Both now retry a
+transient failure through `ghGraphql`, reusing `isTransientErr`/`PROBE_RETRIES`/
+`PROBE_BACKOFF_MS` rather than a second classifier for the same failure on the same API. If
+it still fails: `threadsTransient(dir, number)` is `probeTransient`'s counterpart, keyed by
+pull request since one checkout answers for several; `resolveThread`'s answer carries
+`transient: true` instead, since it already returns an object rather than `null` on every
+failure and a second lookup would be one fact in two places.
+
 **What this does not yet do.** Nothing writes a verdict's inline comments through
 `submitReview`, and nothing reads `reviewThreads` back onto a merge-bead's review block to
 replace beadcause's own `id` with the real thread id it anchors to. That wiring — the
