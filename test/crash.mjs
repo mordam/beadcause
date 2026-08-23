@@ -651,6 +651,13 @@ await check('every swallowed failure in the poll cycle reports', () => {
       // so what reaches this catch is `sweepStale`'s own dispatch loop failing, which is
       // a bug in the daemon rather than anything about the checkouts it is walking.
       'the session audit sweep',
+      // lib/rootclose.js. `createStrandWatch().sweep` lands an unreadable tracker and a
+      // refused comment in its outcome, and a graph that came back empty produces no
+      // strandings at all rather than the whole workspace at once — so what reaches this
+      // catch is the watcher's own bookkeeping. Reported rather than logged because the
+      // thing it exists to end is a bead going unworkable in silence, and a sweep that
+      // silently stopped running is that bug again wearing the fix's clothes.
+      'the stranded-bead sweep',
       // lib/strays.js, and the one entry in the list that signals other processes. Its
       // own guards — the age floor, the profile match, `mayReap` — decide what it may
       // touch, and every one of them answering "nothing" is the settled state rather

@@ -19497,6 +19497,55 @@ edges to one bead in bd's own words, so a bead filed while working a root has to
 land under it, and the inverse holds: take the parent out of `withDiscoveredFrom` and that
 check goes red.
 
+#### And when a root does close over open work, something now says so
+
+The rule above says a root closing is "the honest moment for what hangs off it to stop
+being work", and it is. What was wrong is that it happened *in silence*. A closed root is
+not a root — `rootsOf` in `lib/underroot.js` counts only open ones, and that file argues
+out why — so every still-open bead beneath it leaves the ready queue and is refused `409`
+at every launcher, while keeping its title, its priority, its labels and its place on
+every screen. Nothing distinguished it from ordinary work waiting its turn.
+
+Three beads reached that state and every one of them had been homed **correctly** at
+filing time: `bc-b4fs.1`, `bc-ysqd.1` (whose root closed on #489 four minutes after its
+own worker filed the child under it) and `bc-ibt8g.1` (root closed on #571). Each was
+found by an Epic Advocate running a census by hand off `bd export`; none of them would
+have been found otherwise. Since #402 fixed the other source — a daemon filing with no
+parent at all — this was the whole remaining inflow to the unsorted backlog.
+
+`lib/rootclose.js` is a sweep on the poll cycle that says it, and the two decisions in it
+are worth naming:
+
+**It is a sweep and not a hook on the close**, for `lib/epicdone.js`'s reason and about
+the identical event: a bead closes in four places and only one of them is this process — a
+tap on this app, `bd close` typed at a terminal, a worker session, or the same arriving
+over `bd dolt pull` — and bd has no pre-close hook. There is no call site to hook, only a
+row that changes.
+
+**It asks about state rather than about a transition**, which is the one place it departs
+from `lib/epicdone.js`. That file accepts losing an epic that closed while the daemon was
+down, because "a chime for something that finished yesterday is noise"; the opposite is
+true here, since a chime is over in a second and a stranded bead is permanent. So the
+question is *is this bead unworkable right now, and was a root closing what did it*,
+answerable from one cached graph read with no history — and the duplicate suppression a
+transition would have given for free is bought the way `lib/landed.js` buys it, by reading
+the thread for the sentence it is about to write again.
+
+What it writes is a comment on each stranded bead naming the root and the one edit that
+undoes it, a comment on the closing root listing what it left behind, and a `[stranded]`
+line in the log for each. Two beads it deliberately never mentions: one with **no
+ancestors at all** was never rooted, which is a different and already-decided question
+(such a bead stays parentless on purpose), and a **superseded** one is being tidied away
+rather than left behind. An `unendorsed` one *is* mentioned, and that is the case the
+whole thing is for — it never reaches the queue, so `heldByNoRoot` structurally cannot
+count it.
+
+The test is `hasRootAbove` itself, so what the sweep reports and what the dispatcher
+refuses can never disagree — including the fail-open, which is what makes a workspace with
+no open roots, or a graph that could not be read, produce silence rather than a comment on
+every bead in it. `test/rootclose.mjs` covers it, the acceptance case being the `bc-ysqd`
+shape verbatim.
+
 **`beadcause-propose` — a question first, a bead only if you say so.** Nothing is
 created until you press the button. That is the right shape when the bead itself is
 what is in doubt — a large piece of work an advocate wants a mandate for, or a batch you
