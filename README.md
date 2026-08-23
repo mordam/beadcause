@@ -19008,6 +19008,97 @@ report that failed to post is a comment nobody got; a report that threw into the
 path would strand a merged pull request with two open beads, which is the failure the
 whole close sequence is written to avoid.
 
+### A red check says what it said — not just that it was red
+
+The refusal a merge card carried used to be this, and it is the same sentence for every
+red pull request this repo has ever had:
+
+> 1 check failing (test). A merge queue will not merge over a check the branch broke — if
+> it is a flake, that is your call.
+
+There is one check here and it is called `test`, so `(test)` is not a fact about this
+branch. And the question it ends on is one the sentence has no way to answer: whether a
+red check is a flake or a real break is decided by what is *inside* the run, and the card
+names the run and stops. Every instance of it has cost somebody two commands and a trip to
+GitHub — `gh run view <id> --log-failed`, then twenty lines of scrolling — to find out
+whether to press Merge.
+
+**The second half is worse than the first, because the queue had already answered it.**
+`newlyFailing` in `lib/mergeadvocate.js` runs immediately above that sentence and its whole
+job is to separate what the branch broke from what it inherited from a red base. By the
+time the refusal is written, `fresh` is the names the branch is red on that the base is
+green on — the flake reading is the one thing the gate has just ruled out, and it was then
+offered unconditionally. On bc-n21dy (#543, 2026-08-21) taking it would have merged a bare
+`fs.rmSync` in a teardown, which `test/tmpadoption.mjs` enumerates every suite on disk to
+catch — so accepting the flake would have turned `main` red for everybody at 365 of 382.
+
+So two things changed, and the smaller one is the one worth reading twice.
+
+**The flake is offered only where it is still available.** Where the base was measured and
+is green on this check, the refusal says so — *"The base is green on it, so this failure
+came in with this branch"* — and stops there. Where the baseline could not be read, or
+where the base positively runs no checks at all, the old sentence stands unchanged, because
+in both of those the queue genuinely cannot tell. That distinction is the whole guard:
+a base with no CI reports no failures exactly as a green base does, so `baseHasChecks`
+has to be positively **true** before the queue is allowed to call it green. Saying less
+than it knows is what it costs to never say more than it knows.
+
+**And the card carries what the check said.** When the refusal is about a check the branch
+broke, the tick that refuses fetches the failing job's log, drops everything in it that
+reports something *passing*, and keeps the last twelve lines — capped at 160 characters
+each and 900 in all, because this is read on a phone. Dropping the passes is the whole of
+what makes it useful rather than merely short: a test runner's last screenful is
+overwhelmingly ticks, and on the run this was written against the failing assertion was
+twenty lines above the end. A plain tail names the suite; this reaches the assertion, the
+file, the line, the offending source and the remedy — 774 characters out of a log of
+16,149 lines.
+
+    ── [365/382] test/tmpadoption.mjs
+    removing a scratch config dir goes through test/helpers/tmp.mjs
+      ✗ 1 bare removal(s) of a scratch config dir
+          test/labelchip.mjs:136  (root: tmp)
+            fs.rmSync(tmp, { recursive: true, force: true });
+          Use test/helpers/tmp.mjs: `await cleanupTmp(dir)`, or `removeTreeSync(dir)`
+    1 of 13 failed
+    test/tmpadoption.mjs failed (exit 1) — stopped at 365 of 382
+
+**The log and not the annotations**, and that is a measurement rather than a preference.
+A check run's annotations are the obvious place to look and they are free of the download —
+on the run above they are two rows, one a Node deprecation warning and the other
+`Process completed with exit code 1.`, which is the same non-answer the refusal already
+gives. The answer is in the log or it is nowhere.
+
+**Read once per refusal, not once per tick.** The download is the whole failing job's log —
+about two megabytes here — so it is fetched only when the verdict names a check the branch
+broke (`broke`, which `gateVerdict` leaves empty on a conflict, a timeout and everything
+else GitHub refused), and only when the refusal has *changed* since the one already on the
+merge-bead. A refusal the queue is going to repeat verbatim for three ticks has nothing new
+inside it. Every failure along the way is an empty excerpt and a refusal exactly as it was
+before: a link that is not an Actions run, `gh` refusing, a timeout, an empty log. Nothing
+here may turn a merge into a failure.
+
+**It rides on the bead in its own field, beside the refusal and never inside it.** Two
+reasons, and both would be invisible if it were folded in. `record` in `lib/mergequeue.js`
+decides whether to spend an attempt by comparing this tick's refusal against the stored
+one, so an excerpt a network hiccup dropped for a single tick would read as a brand-new
+refusal and the pull request would sit at one attempt for ever, never reaching the three
+that turn it into a card. And the block collapses `refused` onto one line, which is exactly
+what a log tail must not be. `failure` is therefore a list of lines, which is the shape that
+round-trips through YAML without anything to be wrong about — and while fixing the
+comparison, `refusalKey` now cuts both sides the way the block cuts the stored one, so a
+refusal long enough to be truncated still ejects after three. That was latent before this
+and the new sentence is longer.
+
+The card draws it as an **indented** code block rather than a fenced one, because a card's
+options are a ```` ```decision ```` fence a phone parses into buttons, and a log line that
+happened to begin with three backticks would close a fence it never opened.
+
+`test/mergered.mjs` is the suite. It pins the two directions of the flake guard against
+each other, that `broke` stays empty on every refusal with no check behind it, that the
+excerpt reaches past twenty passing lines to the assertion, that it survives the round trip
+through the bead's notes, and that the log is read once and drawn from the bead rather than
+fetched again when the card is raised.
+
 ### When `main` itself is red — the queue holds, and something is put on the fix
 
 The gate above asks one question about every pull request: *did this branch break
