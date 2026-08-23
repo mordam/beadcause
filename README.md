@@ -14212,10 +14212,11 @@ even entered, and every one of them is a filter somebody added for its own incid
 - **it has no window open on this repo**, because an advocate that proposed new work
   while it was doing old work would be doing the easy half of its job;
 - **`bd ready` is empty** of anything it could take;
-- **and empty for no *reason*** — none of the ten holds fired. A queue emptied by a
+- **and empty for no *reason*** — none of the eleven holds fired. A queue emptied by a
   hold is not a clear one: `heldByChildren`, `heldByUndecided`, `heldByRepo`,
   `heldByTwin`, `heldByPr`,
-  `heldByLive`, `heldByLease`, `heldByClaim`, `heldByNoRoot` and `heldByPause` each stand
+  `heldByLive`, `heldByLease`, `heldByClaim`, `heldByNoRoot`, `heldByPause` and
+  `heldByOwed` each stand
   for work that *is* there and cannot be started yet, and an advocate that said "clear" over one and
   then filed new beads beside it would be burying the one sentence that says what to
   fix. This is the condition that does most of the stopping, and the card says which:
@@ -14299,19 +14300,19 @@ ten-minute agent. Both are allowed to fail, and a failure costs the paragraph it
 rather than the survey its run — `null` and `0` are kept apart all the way down, because
 *"nothing is waiting on you"* is a claim and *"I could not ask"* is not.
 
-**The ten holds get the opposite treatment: a promise rather than a list of zeros.** They
+**The eleven holds get the opposite treatment: a promise rather than a list of zeros.** They
 are always empty when a survey runs — that is the gate in the section above — so the brief says
 so in one sentence and tells the agent nothing is hiding behind them, which is worth more
-than ten lines reading `0`. It is derived rather than asserted: `queueBrief` reads the
+than eleven lines reading `0`. It is derived rather than asserted: `queueBrief` reads the
 lists, and a future caller reaching it without that gate would get the counts instead. The
 hold names live in one exported table, `QUEUE_HOLDS`, and `test/surveybrief.mjs` fails the
-repo for any `heldBy*` field of the agent record that has no row in it — so an eleventh hold
+repo for any `heldBy*` field of the agent record that has no row in it — so a twelfth hold
 filter is a red test rather than a hold the survey is silently never told about. The bead
 that asked for this said "eight"; `heldByPause` had been added in between, and the list in
 the section above still said `heldByNoP0` a rename later. `heldByUndecided` is the tenth
 (bc-jvt0.4) and the counts above were nine when it landed, which is the same drift a third
-time and the reason the *count* is the only part of those two paragraphs a reader should
-distrust.
+time. `heldByOwed` is the eleventh (bc-4r10.20), and the *count* remains the only part of
+these two paragraphs a reader should distrust.
 
 ### What you see, and where
 
