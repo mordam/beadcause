@@ -19014,10 +19014,11 @@ per repo, per space, or globally as `pr.reviewRequired`. It is the one policy de
 that is dangerous the other way round: the gate *holds* a pull request until a verdict
 appears, so turning it on where nothing writes one does not slow the queue down, it stops it
 — every branch at once, quietly, each merge-bead saying only that nothing has reviewed it.
-Turning it on is the last step of building this loop rather than the first, and the loop is
-not finished: a window opens and a verdict gets written, but
-[nothing reads that verdict back](#one-reviewer-per-pull-request--the-window-the-daemon-opens)
-onto the block this gate reads.
+Turning it on is a decision this file still leaves to you (bc-36xx.9): a window opens, a
+verdict gets written, and
+[the sweep now reads it back](#the-verdict-comes-home--the-sweep-folds-it-onto-the-block)
+onto the block this gate reads — but nothing here has yet watched that happen against a
+real pull request, and that is worth more than reading a diff before you flip it.
 
 ### One reviewer per pull request — the window the daemon opens
 
@@ -19070,12 +19071,70 @@ answers it was opened to read: the loop that never ends, arrived at by an off-by
 `nextReviewRound` in `lib/mergebead.js` is that arithmetic, named because getting it wrong
 is silent.
 
-**What is still missing, and it is the last piece.** A verdict is a comment; the gate reads
-a block. Nothing yet turns the first into the second — `verdictFrom`, `approve` and
-`approvedReview` all exist and none of them has a caller. So today a reviewer opens, reads,
-writes its verdict, and the next tick finds a pull request still waiting for one. That is
-bc-36xx.22, and it is why `reviewRequired` stays off everywhere: the gate holds a branch
-until a verdict *it can see* appears, and a verdict nothing reads back is not one.
+### The verdict comes home — the sweep folds it onto the block
+
+A verdict is a comment; the gate reads a block. Those used to be two different documents
+that nothing turned one into the other — `verdictFrom`, `approve` and `approvedReview` all
+existed, in lib/reviewadvocate.js, and none of them had a caller anywhere in either tree. A
+reviewer would open, read, write its verdict, and the next tick would find a pull request
+still waiting for one — for ever, one window at a time through the same registry, because
+`review` is exactly the state a delivered pull request returns to once the worker has
+answered everything. That was bc-36xx.22, and it is why `reviewRequired` stayed off
+everywhere: the gate holds a branch until a verdict *it can see* appears, and a verdict
+nothing reads back was not one.
+
+So the sweep reads its own comments back, in the same place it already asks whether a base
+is red: right before `judgeReview`, for every merge-bead the gate applies to. `bd comments`
+is the one call this always costs there — the durable record of whether a verdict is
+waiting is the comments themselves, in the same shape `holdFor` and the gate itself already
+cost a call apiece to answer their own questions — and most ticks land in between reviews,
+so most of those calls come back with nothing new to fold in.
+
+**"Fresh" is a round the block has not recorded, not "the newest comment."** A verdict
+carries its own round — the one it was opened under, `nextReviewRound` — and the block's
+`round` counts rounds *finished*, so a verdict is fresh exactly when its round is greater
+than that. Read this way round rather than "the last comment that parses," a tick that runs
+a second after the write does not fold the same verdict in twice, and a verdict `checkVerdict`
+cannot validate — two comments sharing an id, an unrecognised severity — is nothing fresh
+either: the same holding direction `reviewState` itself takes on a block it cannot parse, so
+a comment somebody hand-edited on a phone cannot move a gate on its own say-so.
+
+**Folded in one line above `judgeReview`, so a verdict that lands this tick is judged this
+tick** rather than costing a whole extra pass waiting for the sweep to notice its own write.
+`syncReviewVerdict` (lib/mergequeue.js) writes the tracker and hands back the state it just
+wrote; `judgeReview` reads that rather than re-parsing `issue.notes` a second time.
+
+**And the review actually goes out to GitHub, under `reviewerFor`'s identity** — the same
+second account `approve` and `submitReview` (lib/pr.js) always needed and, until now,
+nothing in this loop ever called. `approve()` for a bare approval with nothing to anchor to
+a line; `submitReview()` — general since `#533`, and it was not when bc-36xx.22 was filed —
+for anything that carries inline comments, approving or not, because `approve()` has no way
+to attach one. A `REQUEST_CHANGES` review with per-line comments is the ordinary shape a
+`changes` verdict takes now, where before this only an approval could ever reach GitHub at
+all.
+
+**Never `verdict: 'refused'`, whatever a comment says.** `REVIEW_VERDICTS` has three values
+and a ReviewAdvocate's own format can only ever produce two of them — `checkVerdict`
+validates `approved` as a boolean and, when it is false, `why`; there is no field for "and I
+will never approve this at all." The flat refusal is a state the round cap already reaches
+on its own (`reviewEscalation`, two `changes` rounds with no agreement) without the fold
+needing to invent a faster way to say it from a single comment.
+
+**A second GitHub account nobody promised is the ordinary case on this Mac, and the fold
+already handles it** — the same fallback `approve()` and `submitReview()` themselves take.
+`submitted: false` still writes the block: the verdict is recorded as approved (or as
+`changes`, with the reviewer's sentence), attributed to the agent kind rather than to a
+login that was never submitted, and `approvalUrl` stays empty as the tell that nothing on
+GitHub answers for it. A recorded approval, never a refused one — `approvedReview`'s own
+distinction, now with a caller.
+
+**Left for later, on purpose: anchoring a comment to the GitHub review thread it became.**
+`reviewComment` has carried a `threadId` field since `#560` for exactly this — what would
+make `resolveThread` callable at all — and this fold does not write it. Submitting a review
+with inline comments does not hand back which thread each one became without a second
+GraphQL read to match them by path and line, and a guess here would be worse than the gap:
+a wrong anchor closes the wrong thread later. Filed as its own question rather than folded
+in unverified.
 
 ### The worker answers — one window per round, and it may not resolve anything
 
