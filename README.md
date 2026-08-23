@@ -3848,8 +3848,9 @@ per run saying nothing the run did not print.
 ### Tier 3 — a repo one agent owns, and the experiment that is the point of it
 
 Tiers 1 and 2 settled durability. What they did not answer is what an agent does with
-a space nobody has designed. So three agents — the repo advocate, the Epic Advocate and the
-worker — are each given one:
+a space nobody has designed. So four agents — the repo advocate, the Epic Advocate, the
+worker and the reviewer (bc-36xx.23, once windows actually opened on it) — are each given
+one:
 
 ```
 ~/.config/beadcause/agents/<workspace>/<agent>/
@@ -3934,12 +3935,12 @@ here at all.
 Two rules fall out of that, and both are in `lib/agentrepo.js`:
 
 - **The numbers are read per agent and never pooled across them.** A worker editing
-  files for an hour, an Epic Advocate doing one turn of thinking and a repo advocate arguing
-  about a queue are three populations, and the worker outruns the other two by a wide
-  margin — a pooled `readFirst` would report the worker's behaviour under all three names.
-  `summary({agent})` narrows it and `summaryByAgent()` lays all three side by side.
-  Workspaces *are* pooled inside an agent, because `alternate` flips per workspace and
-  agent, so every workspace contributes to both arms in step.
+  files for an hour, an Epic Advocate doing one turn of thinking, a repo advocate arguing
+  about a queue and a reviewer reading a diff are four populations, and the worker outruns
+  the rest by a wide margin — a pooled `readFirst` would report the worker's behaviour
+  under all four names. `summary({agent})` narrows it and `summaryByAgent()` lays all four
+  side by side. Workspaces *are* pooled inside an agent, because `alternate` flips per
+  workspace and agent, so every workspace contributes to both arms in step.
 - **An arm with no runs prints a sentence, not a zero.** `readFirst 0` under `index` is
   the result the prediction expects *and* what an arm that has never run says. That
   ambiguity is exactly how four empty days went unnoticed, so `report` refuses to print a

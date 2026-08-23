@@ -186,11 +186,28 @@ check('a red check alone is not a refusal — only the tick may decide that', ()
   assert.equal(mergeStageOf(state(), red), 'gate');
 });
 
+check('a held branch is not a branch with a problem — main is what is red', () => {
+  // Both flags in one write, exactly as lib/mergequeue.js leaves the block.
+  const s = state({ held: true, refused: '`main` is red (test), so the merge queue is holding — bc-arf8 is the fix.' });
+  assert.equal(mergeStageOf(s, null), 'held');
+  // Even mid-ladder: the hold is decided before anything else, so it outranks a downmerge
+  // already in flight.
+  assert.equal(mergeStageOf(state({ downmerges: 2, held: true, refused: 'x' }), null), 'held');
+});
+
+check('a pull request nobody has reviewed is waiting, not resolving issues', () => {
+  const s = state({ reviewing: true, refused: 'waiting on a review: nothing has judged this yet' });
+  assert.equal(mergeStageOf(s, null), 'review');
+  assert.equal(mergeStageOf(state({ downmerges: 1, reviewing: true, refused: 'x' }), null), 'review');
+});
+
 check('every rung the ladder names is reachable, and no rung is named twice', () => {
-  assert.deepEqual(MERGE_STAGE_IDS, ['queued', 'downmerging', 'conflicts', 'gate', 'issues']);
+  assert.deepEqual(MERGE_STAGE_IDS, ['queued', 'held', 'review', 'downmerging', 'conflicts', 'gate', 'issues']);
   assert.equal(new Set(MERGE_STAGE_IDS).size, MERGE_STAGES.length);
   const reached = new Set([
     mergeStageOf(state(), null),
+    mergeStageOf(state({ held: true, refused: 'x' }), null),
+    mergeStageOf(state({ reviewing: true, refused: 'x' }), null),
     mergeStageOf(state({ downmerges: 1 }), null),
     mergeStageOf(state({ resolving: true, refused: 'x' }), null),
     mergeStageOf(state(), row({ state: 'OPEN', merged: false, checks: { state: 'pending' } })),
