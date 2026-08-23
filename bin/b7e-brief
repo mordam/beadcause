@@ -1,0 +1,183 @@
+#!/usr/bin/env node
+/**
+ * The standing brief a session gets instead of "read this repo's CLAUDE.md" — beadcause
+ * has none.
+ *
+ *   b7e-brief                    the whole brief
+ *   b7e-brief --section spec     just: no CLAUDE.md, README.md is the spec, its index
+ *   b7e-brief --section worktree just: what a fresh worktree needs before anything else
+ *   b7e-brief --section gate     just: how the suite is actually run here
+ *   b7e-brief --section owed     just: what a public/ change owes (the sw-cache question)
+ *   b7e-brief --dir <root>       another tree's README.md and suite list — testing only
+ *
+ * bc-ka5y.15 is the session audit naming the same first call eight times over: every
+ * worker brief says "read this repo's CLAUDE.md and follow it", and beadcause has never
+ * had one — README.md is the spec, and it is over 2MB. Eight sessions
+ * (bc-ka5y.15.5, bc-zjab.5, bc-khoe.30.6, bc-zjab.4, bc-ka5y.15.4, bc-khoe.30.7,
+ * bc-khoe.29, bc-khoe.30.4) each burned a call discovering the absence, no two the same
+ * way, and five of them burned a second call guessing at which memory-store keys held
+ * the facts they actually needed. This prints all of it in the one call those eight
+ * calls were reaching for.
+ *
+ * TWO KINDS OF FACT, ON PURPOSE. The README index (`spec`) is parsed out of README.md at
+ * run time — a retitled heading shows up in the next call with no edit here — using the
+ * same fence-aware heading scan `b7e-readme` and `test/anchors.mjs` already share
+ * (`lib/readme.js`), so a `#` at the start of a line inside a shell snippet is never
+ * mistaken for a heading (README.md carries plenty of those — a naive `grep -n "^# "`
+ * finds seven, of which six are comments inside example config fences, not real
+ * headings). Everything else quoted below — worktree setup, how the gate runs, the
+ * sw-cache-bump question — is read live off this repo's own memory store
+ * (`beadcause-memory notes`, agent `worker`, the agent that actually hits these), under
+ * a fixed set of keys named below. QUOTED, not summarised: a correction filed with
+ * `beadcause-memory note <key> "..."` changes this command's output on the next call, no
+ * edit to this file required. That set of keys is a hard-coded list — the honest
+ * alternative to "read every note this agent has ever written", most of which is about
+ * something else entirely — and a key that gets renamed or retired just drops out of the
+ * section it belonged to rather than printing an empty heading.
+ *
+ * WHY THIS DOES NOT ALSO PRINT THE "SHIPPING A NEW b7e-* COMMAND" CHECKLIST (two bin
+ * registrations, a grants classification, DEFAULT_TOOL_LIST, a README section, a
+ * test/<name>.mjs): that checklist is for the rare session extending the toolset, not
+ * the ordinary one using it, and bc-dgx7.2 is where it belongs. Baking it in here would
+ * make an unrelated session's brief longer for a case it is not in.
+ *
+ * Exit codes: `0` always, once argv parses — there is no "found nothing" here, only
+ * sections that are shorter because a key is not currently set. `2` bad usage
+ * (an unrecognised --section value).
+ */
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { analyze, readReadme, readmePath } from '../lib/readme.js';
+import { notes } from '../lib/memory.js';
+import { discoverSuites } from '../lib/gate.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
+
+const AGENT = 'worker';
+
+/** Which memory-store keys back which section — see the header for why this is a fixed
+ * list rather than "everything worker has ever noted". A key with no note today is
+ * silently skipped, never printed as an empty quote. */
+const STANDING_KEYS = {
+  spec: ['no-claude-md-readme-is-the-spec'],
+  worktree: ['worktree-setup', 'fresh-worktree-fails-pagealias-without-vendor'],
+  gate: ['the-gate-is-one-command-now-bin-b7e-gate', 'b7e-gate-is-the-gate-not-npm-test'],
+  owed: ['sw-cache-bump-rule', 'swbump-check-scope'],
+};
+
+const SECTION_TITLES = {
+  spec: 'There is no CLAUDE.md here — README.md is the spec',
+  worktree: 'A fresh worktree, before anything else',
+  gate: 'How the suite is actually run here',
+  owed: 'What a change under public/ owes',
+};
+
+const SECTIONS = ['spec', 'worktree', 'gate', 'owed'];
+
+/* ------------------------------------------------------------------------------ argv */
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? null : (argv[at + 1] ?? null);
+};
+
+const HELP = has('--help') || has('-h');
+const USAGE = [
+  'b7e-brief                     the whole brief',
+  'b7e-brief --section <name>    just one part: spec, worktree, gate, owed',
+  'b7e-brief --dir <root>        another tree — this is how it is tested',
+].join('\n');
+
+if (HELP) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const DIR = value('--dir');
+const SECTION = value('--section');
+if (SECTION !== null && !SECTIONS.includes(SECTION)) {
+  console.error(`--section must be one of: ${SECTIONS.join(', ')}\n\n${USAGE}`);
+  process.exit(2);
+}
+const wanted = SECTION ? [SECTION] : SECTIONS;
+
+const root = DIR ? path.resolve(DIR) : ROOT;
+
+/* ------------------------------------------------------------------------- house facts */
+
+/** The value under `key` in worker's notes on this repo, or `null` if there is none —
+ * `notes()` resolves the store from `process.cwd()` the same way every other reader of
+ * it does (see lib/memory.js), so this reflects whichever checkout the caller is
+ * standing in, worktree or main. */
+async function houseNote(key) {
+  try {
+    return await notes(AGENT, key);
+  } catch {
+    // Not standing in a git repo at all — nowhere for a note to live. Degrade to
+    // "nothing to quote" rather than take the whole brief down over it.
+    return null;
+  }
+}
+
+async function quotedFacts(keys) {
+  const found = [];
+  for (const key of keys) {
+    const value = await houseNote(key);
+    if (value) found.push(`[${key}]\n${value}`);
+  }
+  return found;
+}
+
+/* --------------------------------------------------------------------------- spec */
+
+function specBody() {
+  let text;
+  try {
+    text = readReadme(root);
+  } catch (err) {
+    return [`could not read ${readmePath(root)}: ${err.message}`];
+  }
+  const analysis = analyze(text);
+  const bytes = Buffer.byteLength(text, 'utf8');
+  const mb = (bytes / (1024 * 1024)).toFixed(2);
+  const top = analysis.headings.filter((h) => h.level <= 2);
+  const lines = [
+    'beadcause has no CLAUDE.md — not in the root, not anywhere. README.md is it: ' +
+      `${mb}MB, ${analysis.totalLines} lines, ${top.length} top-level (#/##) sections. ` +
+      'Never go hunting for a CLAUDE.md here; this is the whole of the answer.',
+    '',
+    'README.md index (line, heading), derived from the file just now:',
+    ...top.map((h) => `  ${String(h.line).padStart(6)}  ${'  '.repeat(h.level - 1)}${'#'.repeat(h.level)} ${h.title}`),
+  ];
+  return lines;
+}
+
+/* --------------------------------------------------------------------------- gate */
+
+function gateFacts() {
+  try {
+    const suites = discoverSuites(root);
+    return [`\`scripts/test.mjs --list\` finds ${suites.length} suites here right now (this repo grows a few a week, so this is counted, not remembered).`];
+  } catch (err) {
+    return [`(could not run \`scripts/test.mjs --list\` to count suites live: ${err.message})`];
+  }
+}
+
+/* --------------------------------------------------------------------------- render */
+
+async function renderSection(name) {
+  const out = [`## ${SECTION_TITLES[name]}`, ''];
+  if (name === 'spec') out.push(...specBody(), '');
+  if (name === 'gate') out.push(...gateFacts(), '');
+  const facts = await quotedFacts(STANDING_KEYS[name]);
+  if (facts.length) out.push(...facts.flatMap((f) => [f, '']));
+  else if (name !== 'spec' && name !== 'gate') out.push('(nothing standing noted under this section right now)', '');
+  return out;
+}
+
+const rendered = [];
+for (const name of wanted) rendered.push(...(await renderSection(name)));
+console.log(rendered.join('\n').replace(/\n+$/, '\n'));
