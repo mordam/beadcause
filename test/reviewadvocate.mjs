@@ -112,9 +112,9 @@ check('AND WHAT IT MAY NOT DO IS THE WHOLE ARGUMENT FOR IT BEING ONE', () => {
   assert.ok(tools.includes('Bash(gh pr diff:*)'), 'the reviewer cannot read the diff it is reviewing');
 });
 
-check('it edits nothing, so it holds no worktree and no repo of its own', () => {
+check('it owns a repo now — bc-36xx.23, once windows actually opened on it', () => {
   const b = baseline(REVIEW_ADVOCATE);
-  assert.equal(b.ownsRepo, false, 'an arm with no runs in it is an empty bucket in the tier-3 comparison');
+  assert.equal(b.ownsRepo, true, 're-entrant across rounds and pull requests, exactly as the merge advocate is');
   assert.equal(b.writes, true, 'its comment is its verdict — dispatch’s reading of this field');
 });
 
