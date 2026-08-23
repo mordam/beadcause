@@ -15314,6 +15314,18 @@ the end of the window. On a quiet night the whole thing costs the fleet about th
    period — a window still working after a 45-minute notice had its notice. It does not skip
    the check that the pid is still the session we launched, because a signal is the one act
    here with no undo and pids get recycled.
+5. **It happens once a night, and that took an incident to get right.** A verdict of `idle`
+   over a night that had already collected erased the only memory that it had — the caller
+   writes the phase straight back into its own state — so the next tick started the sequence
+   again from the top, and again, for the whole window. On 2026-08-21 that opened and tore
+   down 55 windows on two beads in six hours, every one archived with 0 commits, because
+   dispatch is live in the gap between each collection and the next re-entry into `closing`.
+   A finished night now stays `done` until the clock reaches the next one. Standing a window
+   down also **costs its bead an attempt** now, for the same incident: a window torn out
+   mid-turn reached none of its own endings, and 27 of bc-7qo.11's 28 launches logged
+   `attempt 1`, so `maxAttemptsPerBead` could not bite on the one loop that needed it. The
+   charge is visible on the console and `Forget attempts` re-arms it. See [three windows on
+   one bead](#three-windows-on-one-bead-and-the-daemon-reporting-two).
 
 **Every configured workspace is collected, not just the advocated ones** — the inbox sweeps
 all of them on every poll, so all of their stores are on the path of a phone read, and
@@ -16353,6 +16365,12 @@ bead that waits, named on the advocate's card with the pid of the window holding
 that window closes. `holdLiveSessions: false` switches it off. `node test/livequeue.mjs`
 covers it.
 
+**It is a filter, though, and a filter is never the guarantee.** The queue is not the only
+route into a launch, and a window that re-ran its own command line came through no route of
+this daemon's at all — three of them, on one bead, while this filter was on. The refusal at
+the door is [three windows on one
+bead](#three-windows-on-one-bead-and-the-daemon-reporting-two).
+
 ### The bead another Mac has claimed
 
 Every filter above reads something this laptop can see — a row in this tracker, a pull
@@ -16841,6 +16859,93 @@ turn every abandoned session into a bead nothing may ever pick up again. Blocked
 deferred are queue questions `bd ready` already answers, and answering them twice here would
 be a second opinion with no incident behind it. `node test/stillopen.mjs` covers both layers,
 including that the gate reads the tracker rather than the row it was handed.
+
+### Three windows on one bead, and the daemon reporting two
+
+The guard above refuses a bead because it is finished. This one refuses a bead because
+somebody is already in it — and it is the same subject as [the bead somebody is already
+sitting in](#the-bead-somebody-is-already-sitting-in), one layer further down, because
+that filter turned out not to be reachable from every route in.
+
+bc-7qo.19 is the incident and it is a worse shape than bc-vq78's two windows. At 10:56Z on
+2026-08-21 **three** live `claude` processes were carrying the identical worker brief for
+bc-7qo.11 — pids 84917, 85731 and 2693, in three worktrees, two of them editing
+`lib/server.js` in the same minute. bc-khoe.21 had three the same minute, and two of *its*
+three had independently written the same fix into two branches. The daemon knew about one:
+its log has a single `opened a session on bc-7qo.11` for the whole hour, `advocates.json`
+held one worker row, and at 11:01:20Z it was still printing `92 ready · at its limit of 2
+session(s)`.
+
+**None of the three was dispatched, and that is the part that matters.** Earlier the same
+morning their windows had been torn down mid-turn, and the *shells* survived — parent shells
+three hours older than the `claude` processes inside them — and re-ran the command they had
+been given. Nothing on that route passes through this daemon, so every counter it keeps was
+bypassed at once: the session cap, the per-bead attempt count, and the claim.
+
+**A claim cannot be the answer here, and it is worth being clear why.** Every window on this
+Mac writes as the same `bd` actor, so three `--claim`s all succeed and a lease renewed by
+three windows reads exactly like a lease renewed by one. `bd` cannot tell them apart because
+from where `bd` is standing they are not different. What *can* tell them apart is the
+process table: [`sessionCommand`](#how-a-session-starts--and-the-1024-bytes-a-tty-will-take)
+puts the whole brief on `claude`'s own command line, so the workspace-qualified bead id is on
+a window's argv from the instant the shell reaches it — before the session names itself,
+before it claims anything, before it has run a tool.
+
+Two layers, the same two the refusal above has:
+
+- **A refusal at the door** — `lib/onewindow.js`, in `openWorkSession`, `resumeWorkSession`
+  and `openPlanSession`. The queue filter one section up is the right thing and covers the
+  ordinary path, but it is a *filter*, it is switchable (`holdLiveSessions`), and the queue
+  is not the only way into those doors: a resumed conversation, the red-base sweep and the
+  console all arrive there having been past no filter at all. It fails **open** on purpose —
+  a process table that cannot be read leaves the launch alone rather than stopping the fleet
+  on an unreadable answer — and it signals nothing: whichever window is already there is
+  working, and the honest act is not to open a second one.
+- **A sentence in the brief**, because the refusal only covers the doors this daemon owns and
+  the three windows came through none of them. The brief no longer tells a session that
+  claiming the bead "stops a second session being opened on top of you", which was not true;
+  it gives the one command that answers the question instead:
+
+  ```
+  ps -Ao pid=,args= | grep 'beadcaus[e]/bc-7qo.19'
+  ```
+
+  Every line is a live window on that bead and one of them is yours, so two lines is the bug.
+  **The bracket is load-bearing** and it is why this is worth spelling out rather than left
+  to each session: `grep` finds its own argv in the process table and so does the shell around
+  the pipeline, so the unbracketed pattern answers at least two on a Mac with one window on
+  it. `grep -v grep` is the other idiom for that and it is wrong *here* specifically — a
+  worker's argv carries its whole memory store, and this repo's store discusses `grep` at
+  length, so filtering on the word drops the real window and keeps nothing.
+
+**And a third thing, because the refusal cannot cover the route the three windows took.**
+Nothing can stop a shell re-running its own command, so once a tick the daemon counts the
+live processes naming each bead it is holding a worker for, and **says** when there is more
+than one — with the pids, and with which of them it opened. That is one `ps` for the whole
+fleet, said once per spell rather than once per tick, and it holds and signals nothing:
+both windows are working, and choosing between two agents mid-turn on the strength of a
+process-table read is not a decision a sweep gets to make. What it replaces is a log that
+said `92 ready · at its limit of 2 session(s)` for an hour with three windows on one bead.
+
+**And the amplifier, which was in the nightly window rather than in dispatch at all.** The
+28 windows opened on bc-7qo.11 between 05:18Z and 09:55Z — every one archived with 0 commits
+— were not three windows racing; they were one loop. `decide` in `lib/maintenance.js` answered
+`idle` to a night that had already finished, the caller writes a verdict's phase straight back
+into its own state, and `idle` is indistinguishable from *nothing has run tonight* — so the
+next tick drained, forced every open window down, collected, and did it again, for the length
+of the window. Dispatch is live in the gap between each collection and the next re-entry into
+`closing`, which is a hole exactly wide enough for a launch. A finished night now stays
+`done`, and [the fifth thing the window will not
+bend](#the-nightly-window--stop-dispatching-empty-the-mac-collect-the-store) is that it
+happens once.
+
+`node test/livequeue.mjs` covers the counting — that it is said once per spell, that the
+pids are in the line, and that neither a subtask nor a memory note quoting a bare id is a
+second window. `node test/onewindow.mjs` covers both layers — including that deleting any of the three call
+sites turns it red, and that the pattern the brief hands out cannot match the command line
+carrying it. `node test/maintenance.mjs` and `node test/maintenancetick.mjs` cover the night
+that no longer restarts itself, driven over a run of ticks rather than one verdict, because
+the bug is in what the tick *after* reads.
 
 ### A standing root is furniture, not work
 
