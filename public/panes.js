@@ -126,13 +126,22 @@
    * to say when they are showable. A `data-pane` naming something that is not a view is
    * skipped rather than trusted — the hash grammar is a closed list and a pane outside it
    * would be a pane no hash could ever name.
+   *
+   * Scoped to `.pane`, not bare `[data-pane]` (bc-khoe.30.11): `data-pane` is also
+   * viewbar.js's word for a pill — a view pill's value is name-for-name the view id it
+   * switches to, which is exactly what this map is keyed by — and the advocate console's
+   * chip row reuses the same attribute again for the section a chip shows. Neither pill
+   * nor chip carries `.pane`. Today the only element this loop ever sees is scoped by
+   * script order (this file runs before viewbar.js draws the row), so the collision has
+   * never fired; the class scope is what keeps that true for a re-scan, a pane added at
+   * runtime, or any other caller that does not get to lean on load order.
    */
   const panes = new Map();
   /** Containers that exist but cannot be shown yet, by view id — see `data-pending`. */
   const pending = new Map();
-  for (const el of document.querySelectorAll('[data-pane]')) {
+  for (const el of document.querySelectorAll('.pane')) {
     const id = el.dataset.pane;
-    if (!known.has(id)) continue;
+    if (!id || !known.has(id)) continue;
     if (el.dataset.pending) pending.set(id, el.dataset.pending);
     else panes.set(id, el);
   }
