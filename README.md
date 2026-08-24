@@ -5866,7 +5866,7 @@ facts, none of them a new read:
 | `session` | the board's one sessions snapshot | whatever `advocate` says, passed through rather than recomputed, so the two cannot disagree |
 | `lastAt` | `advocated[id].at` in `advocates.json` | when a window last ran. "Idle since 09:40" and "idle since a fortnight ago" are the same card without it |
 | `hold` / `heldAt` | the re-entry sweep's own record | why no window is opening right now, **in the sweep's own words**, and when it decided that |
-| `finished` | `lib/finishedepic.js`'s ask marker | whether the sweep has already asked Adam if the theme is done |
+| `finished` | either of `lib/finishedepic.js`'s two ask markers | whether the sweep has already asked Adam if the theme is done |
 
 `hold` is **reported, not re-derived**, and that is the one decision in here worth stating.
 Three of the five reasons a window is held — the tick's one-window budget, a worker this
@@ -5891,7 +5891,7 @@ epic's own tab and the advocate sheet cannot disagree about which state an epic 
 | opening | a disabled button. There is no pid to link to for the minute before a window names itself, and the honest thing to do with a control that would 409 is say why it is not offered |
 | **assigned, idle** | who has it, **when its last window ran** — "last looked 3h ago" — and why one is not up right now if something is holding it. **Not** an offer to open a second one |
 | live | the anchor into `/session?pid=…`, unchanged, with the way into its history beside it |
-| **done** | every child closed and `lib/finishedepic.js` has already asked, so the card offers the close rather than leaving it to be found in the inbox |
+| **done** | `lib/finishedepic.js` has already asked whether this epic is finished — every child closed, or [worked as one job and that work is in `main`](#an-epic-worked-as-one-job-comes-back-as-a-card-that-says-it-is-done-with-close-as-the-tap) — so the card offers the close rather than leaving it to be found in the inbox |
 
 "Advocated" on its own is the same card whether the advocate looked twenty minutes ago or a
 fortnight ago, and only one of those is a problem — so the time is not decoration, it is the
@@ -13736,12 +13736,80 @@ cannot drift. `test/wholejob.mjs` drives the real `bin/plan.js` against a fake `
 three writes and their order; `test/epicqueue.mjs` pins the hold and every way out of it;
 `test/epicadvocate.mjs` pins one case per answer.
 
-**What is still owed after this.** An epic worked as one job is delivered by a pull request
-that merges, and the merge queue deliberately leaves an epic open — *an epic closes when its
-theme is done, not when a branch sharing its name merges*. For an epic with children that is
-right; for one that was its own single job there is no theme beyond the branch that just
-landed, so it comes back to the queue as apparently unworked. bc-jvt0.5 is that bead: the
-epic comes back as a card that says it is done, with Close as the tap.
+**And what happens when that job lands** is the section below: an epic worked as one job is
+delivered by a pull request that merges, and the merge queue deliberately leaves an epic open.
+
+### An epic worked as one job comes back as a card that says it is done, with Close as the tap
+
+The section above lets an advocate decide a childless epic is one job and dispatch it as
+itself. Nothing then closed it, and three separate rules — each right on its own — combined
+to make it invisible.
+
+`epicStaysOpen` in `bin/deliver.js`, and the identical carve-out in the merge queue, leave an
+epic **open over its own merge**: *an epic closes when its theme is done, not when a branch
+sharing its name merges*. That rule was written for the umbrella epic that claims twenty-three
+beads in prose and has no children bd knows about, and for that epic it is the difference
+between a theme and a coincidence. They also leave the **claim** on, deliberately: an epic
+left open *and unclaimed* is one the next tick hands to a second worker, to be refused the
+same way — closing it was the old way out of that loop and is the thing the rule exists to
+stop. And the sweep that asks
+whether an epic is finished walks `bd ready`, which is *"open, unblocked, nobody on it"*, and
+skips a bead with no children at all on purpose, because "no children" has until now meant a standing root nobody has filled
+in yet.
+
+So: the work merged, the epic sat open and claimed, and no queue, sweep or card had anything
+to say about it. It is the one shape in this system that fails by being **quiet** — a closed
+bead over unmerged work at least reads as wrong when somebody looks.
+
+**The fix is a second question in `lib/finishedepic.js`, and it is a second question rather
+than a widening of the first because every part of it differs.**
+
+| | every child closed | worked as one job |
+| --- | --- | --- |
+| where the rows come from | `bd ready` | `bd list --label whole-job` |
+| what makes it finished | no child of it is open | a branch it owns is in `main` |
+| its fingerprint | `beadcause:finishedepic` | `beadcause:wholeepic` |
+
+The population is the narrowest part and carries the whole of the safety. Only an advocate
+that read the epic and decided it does not want splitting writes `whole-job`, so no epic
+nobody has judged can ever be asked about this way — and it has to be a *label* query rather
+than the ready queue, because being claimed is the state this case is stuck in and `bd ready`
+is defined as excluding it.
+
+**The evidence is `landingMerge` from `lib/inmain.js`, imported rather than re-derived**, and
+the reason is the case it exists to reject: a fresh worktree branch is cut from `main`, so its
+tip *is* a `main` commit, so `merge-base --is-ancestor` says yes before a line has been written
+in it. What tells a real landing from that is whether some merge holds the tip as a **later**
+parent — main taking something in, rather than main carrying on — and a second implementation
+of that rule is how the two come to disagree. The branch itself comes from `worktreeBranches` +
+`ownsBranch` rather than from the bead's own text the way that sweep reads it: a delivering
+worker writes its branch into a **comment**, which is in none of the fields that sweep scans, so
+scanning this epic's prose would find nothing on precisely the beads this exists for.
+
+**None of this widens the rule that an epic is never offered a close on a merge.** That refusal
+lives in `closeOffer` and it stands untouched — it is about a branch name found in some prose on
+a bead that may hold a subtree, where closing takes the subtree with it. Here the epic *was* the
+work, by a decision recorded on the bead, with nothing open underneath it; the close is offered
+because those three facts together say the job is done, and any one of them alone would not.
+
+The card is the shape the file already emits — a line on the thread, a `decision` block appended
+to the notes, then the `human` label, in that order because the label *is* "it is in the inbox"
+and a card whose options had not been written yet would be a question with no answers. Two
+options: **Close it — the work is in main**, recommended, and **Keep it open — the one job was a
+first step**, which is a commission, so it drops the label and calls `reopenAbandoned` and the
+epic goes back to `bd ready` **unclaimed** — the one thing the delivery deliberately would not
+do. One card per bead either way: `alreadyAsked` reads both fingerprints, so a bead that
+acquired one question can never acquire the other.
+
+Both questions run on one switch (`flagFinishedEpics`) and one interval
+(`finishedEpicIntervalMinutes`), because they are two ways of establishing the same finding
+about the same kind of bead and emit the same card; a second flag would be a way to turn half
+of it off with no reason anybody could give for wanting to. The whole-job half runs **per
+checkout**, like the in-main sweep and for its reason — a branch is in the `main` of the repo it
+was cut from and in nobody else's — and a workspace with no checkout mapped to it skips that
+half and still runs the first. `test/finishedepic.mjs` covers both, with a real git repository
+under its tmp dir carrying a merged branch, an unmerged one, and an unstarted worktree branch,
+which is the case that makes the second-parent rule necessary rather than decorative.
 
 ### One card per advocate — an EpicAdvocate is not a fold inside the repo's card
 

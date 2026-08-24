@@ -6934,10 +6934,11 @@
   }
 
   /**
-   * Every child closed, and the close offered rather than left for you to notice.
+   * The epic is finished, and the close offered rather than left for you to notice.
    *
-   * `advocacy.finished` is lib/finishedepic.js's own fingerprint — that sweep has already
-   * asked the question, on the bead, with a `decision` block and the `human` label. So the
+   * `advocacy.finished` is lib/finishedepic.js's own fingerprint — either of them, since
+   * bc-jvt0.5 gave that sweep a second question — so it has already asked, on the bead,
+   * with a `decision` block and the `human` label. So the
    * only thing owed here is the way *in* to the card it wrote, and that is `p0-answer`:
    * the same one line `p0AnswerHtml` uses, opening the inbox card with its parsed options,
    * its arm-then-confirm and its submit queue rather than a second answer surface.
@@ -6999,9 +7000,11 @@
    *     up right now if something is holding it. **Not a button offering to make a second
    *     one**: the launch would be refused by `/api/bead/advocate`'s own rule, and an offer
    *     whose only outcome is a 409 is worse than no offer at all.
-   *   - **Done** — every child closed and lib/finishedepic.js has already asked. The close
-   *     is offered here rather than left to be noticed in the inbox, and the launch is not:
-   *     there is nothing left under this epic for an advocate to plan.
+   *   - **Done** — lib/finishedepic.js has already asked whether this epic is finished, by
+   *     either of its two questions: every child closed, or (bc-jvt0.5) worked as one job
+   *     with that work in `main`. The close is offered here rather than left to be noticed
+   *     in the inbox, and the launch is not: there is nothing left under this epic for an
+   *     advocate to plan.
    *   - **Nobody on it** — the offer, exactly as it was.
    *
    * The done offer and the advocate line are not exclusive with the two above them, which
