@@ -56,9 +56,19 @@ const SESSIONS = path.join(tmp, 'claude-sessions');
 fs.mkdirSync(SESSIONS, { recursive: true });
 
 const { createAdvocates } = await import(LIB('advocate.js'));
-const { decide, closingFor, namesBead, beadInName, saidDone, saidFinished, sweepCandidate, REAP_DEFAULTS } = await import(
-  LIB('reap.js')
-);
+const {
+  decide,
+  closingFor,
+  closingNeverStartedFor,
+  closeNeverStartedWindow,
+  decideNeverStarted,
+  namesBead,
+  beadInName,
+  saidDone,
+  saidFinished,
+  sweepCandidate,
+  REAP_DEFAULTS,
+} = await import(LIB('reap.js'));
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -740,6 +750,82 @@ await check('and a sweep that could not talk to iTerm does not take the tick wit
   assert.equal(card(advocates).closing.length, 1, 'the rest of the tick still happened');
   victim.kill('SIGKILL');
 });
+
+/* -------------------------------------- the window that opened and never ran anything */
+
+/*
+ * bc-xl7n.113.3. `finish` in lib/advocate.js already tells this bead's window apart from
+ * every one `closingFor` above closes — it comes in as the `never-started` kind, with no
+ * pid at all — so what is under test here is only the part that is new: the record built
+ * from `term` instead of a pid, and the decision made from a fresh read of the handle
+ * rather than a live-sessions lookup. End-to-end wiring through a tick is
+ * test/neverstarted.mjs, which already has the fixture for triggering the outcome; this
+ * file stays with the pure decision and the one real call that must send no Apple event.
+ */
+
+console.log('\nclosing a window that never ran anything\n');
+
+await check('no term handle, no closing record', () => {
+  assert.equal(closingNeverStartedFor({ id: 'al-1', title: 'a bead' }), null);
+  assert.equal(closingNeverStartedFor({ id: 'al-1', title: 'a bead', term: '' }), null);
+  assert.equal(closingNeverStartedFor(null), null);
+});
+
+await check('a term handle makes a record addressed by it, not by a pid', () => {
+  const rec = closingNeverStartedFor({ id: 'al-1', title: 'a bead', term: 'ITERM-SESS-1' });
+  assert.deepEqual(rec, { id: 'al-1', title: 'a bead', term: 'ITERM-SESS-1', at: rec.at });
+  assert.equal(closingNeverStartedFor({ id: 'al-1', term: 'x' }).title, 'al-1', 'falls back to the id');
+});
+
+await check('the window being gone is the ordinary, expected ending', () => {
+  assert.deepEqual(decideNeverStarted(entry(), null), { act: 'drop', why: 'the window is gone' });
+});
+
+await check('a tab that no longer names the bead is left alone — the term id is not enough on its own', () => {
+  const verdict = decideNeverStarted(entry(), { tty: '/dev/ttys011', name: 'Alpha - al-9 something else' });
+  assert.equal(verdict.act, 'drop');
+  assert.match(verdict.why, /no longer names al-1/);
+});
+
+await check('a claude process on its tty means it is not never-started any more', () => {
+  const tab = { tty: '/dev/ttys011', name: 'Alpha - al-1 a bead' };
+  assert.equal(decideNeverStarted(entry(), tab, { hasClaude: true }).act, 'drop');
+  // An unanswered question about whether an agent is there is never permission to close —
+  // same as `null` reading as `true` everywhere else this kind of guard appears.
+  assert.equal(decideNeverStarted(entry(), tab, { hasClaude: null }).act, 'drop');
+});
+
+await check('nothing running, tab still names the bead: close it', () => {
+  const tab = { tty: '/dev/ttys011', name: 'Alpha - al-1 a bead' };
+  const verdict = decideNeverStarted(entry(), tab, { hasClaude: false });
+  assert.equal(verdict.act, 'close');
+  const verdict2 = decideNeverStarted(entry(), tab);
+  assert.equal(verdict2.act, 'close', 'hasClaude defaults to false, not to "unknown"');
+});
+
+await check('the subtask/parent id trap applies here too', () => {
+  assert.equal(
+    decideNeverStarted(entry({ id: 'al-1' }), { tty: '/dev/ttys011', name: 'Alpha - al-1.2 the subtask' }).act,
+    'drop'
+  );
+  assert.equal(
+    decideNeverStarted(entry({ id: 'al-1.2' }), { tty: '/dev/ttys011', name: 'Alpha - al-1.2 the subtask' }).act,
+    'close'
+  );
+});
+
+await check(
+  'the real closer sends no Apple event inside a suite, and says why — this process may not close a window either',
+  async () => {
+    // No stubbing at all: this is the function lib/advocate.js calls for real.
+    // `mayLaunch` reads `startedByASuite` off `process.argv`, which for this process is
+    // `node test/reap.mjs` — the same gate `closeEmptyWindows` (lib/iterm.js) checks
+    // before its own osascript call, asked here first and before any of the three round
+    // trips a real close would otherwise make.
+    const verdict = await closeNeverStartedWindow({ id: 'al-1', title: 'a bead', term: 'ITERM-SESS-1' });
+    assert.deepEqual(verdict, { act: 'refused', why: 'this process may not send Apple events' });
+  }
+);
 
 /* ---------------------------------------------------------------------- out */
 
