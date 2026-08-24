@@ -84,6 +84,10 @@ const colorFor = (verdict) =>
 const { results, mainDir } = await runBlame(ROOT, suites, { timeoutOverrideMs: TIMEOUT_MS, keepWorktree: KEEP });
 if (mainDir) console.error(dim(`origin/main worktree kept at ${mainDir}`));
 
+// `process.exit(N)` right after this write used to drop whatever of a caller-sized
+// `--json` payload was still pending: stdout to a **pipe** is async, so it could cut at
+// the 64KB pipe buffer with a success status and no signal at all (bc-dgx7.45,
+// bc-dgx7.53). Falling off the end with `process.exitCode` set instead flushes.
 if (JSON_MODE) {
   for (const r of results) console.log(JSON.stringify(r));
 } else {
@@ -101,4 +105,4 @@ if (JSON_MODE) {
   }
 }
 
-process.exit(exitCodeFor(results));
+process.exitCode = exitCodeFor(results);
