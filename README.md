@@ -15423,6 +15423,16 @@ an empty frame belongs to no workspace: the session that could have said which o
 exactly what is gone from it. And it never runs from a test suite — the same gate that
 stops a suite *opening* a window on your Mac stops it closing one.
 
+It also has to prove it worked, which it did not used to. The first version counted a
+window as closed the moment `close` came back without raising, and iTerm accepts a close
+on one of these frames without raising *and without removing the window* — the same
+behaviour as the disabled ⌘W above, seen from the other side. So the daemon announced
+2,330 closures it had never performed, the same handful of ids on every tick, while the
+frames stayed on the desk; that is `bc-xl7n.110`. Each id is now re-queried after the
+close and only counted once it is genuinely absent, so `closed 2` means two frames went.
+Any that took the close and stayed get a line of their own — once each, not once a tick,
+because a window that will not go is in every sweep from then until you dismiss it.
+
 ##### Parking — a window waiting on you closes, and your answer brings it back
 
 Both sweeps above close a window that **finished**. Neither can touch the one there are
