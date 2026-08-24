@@ -456,9 +456,65 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Everything else: network-first, cache as the offline fallback.
-  e.respondWith(fetchAndStore(e.request).catch(() => fallback(e.request, url)));
+  // Everything else: network-first, cache as the offline fallback — where "the network
+  // did not answer" includes a server that answered *that it cannot answer*. See
+  // `cachedInstead`.
+  e.respondWith(
+    fetchAndStore(e.request)
+      .then((res) => (res.status < 500 ? res : cachedInstead(e.request, res)))
+      .catch(() => fallback(e.request, url))
+  );
 });
+
+/**
+ * A 5xx is not an answer, and until bc-l8ub this worker handed it to the page anyway.
+ *
+ * `fetchAndStore` rejects only when the *fetch* fails — a refused connection, a reset
+ * socket, a phone in a tunnel — and that path has always fallen back to the cache. A
+ * 502 or a 503 is a fulfilled promise, so it went straight through, and the one moment
+ * this app reliably produces them is the moment it is least able to survive them: every
+ * merge here self-deploys, bin/router.js holds the port across the swap, and for the
+ * second or two the new backend is not up yet it answers every request 503 (and 502 for
+ * one that is up but unreachable). A page loading through that window gets some of its
+ * scripts and not others.
+ *
+ * That is what filed bc-l8ub. `/console` loaded, `/hashroute.js` came back as an error
+ * page instead of a script, and `public/viewbar.js` — which reaches `route` flat, on
+ * purpose, because a page that cannot say where it is should fail loudly — threw
+ * `Cannot read properties of undefined (reading 'viewOfPath')` three minutes after
+ * bc-y8wf recorded the same daemon going away under `/api/poll`. The crash was the
+ * honest half. Serving a 503 body to a `<script src>` when the real file was sitting in
+ * the cache all along was not.
+ *
+ * **Narrower than `fallback` on purpose, and this is the whole reason it is its own
+ * function.** `fallback`'s last resort is `caches.match('/')` — the index page, answered
+ * to a request for something else, which is the right trade for an offline *navigation*
+ * and precisely the wrong one here: HTML served to a script tag is a `SyntaxError` and
+ * the same missing global, reached by a longer road. So this asks only whether the cache
+ * holds *this* address, and hands back the server's own error when it does not. No view
+ * hops, no index, no widening beyond the query string.
+ *
+ * 5xx alone. A 404 is a real answer — a file that was renamed is gone, and resurrecting
+ * a stale copy of it out of the cache would hide the rename for as long as that cache
+ * lived. A 401 or a 302 to `/login` is a real answer too, and `fetchAndStore` already
+ * refuses to *store* those; serving a cached page over one would sign a signed-out
+ * browser back in as far as the screen was concerned.
+ */
+function cachedInstead(request, res) {
+  return caches
+    .match(request)
+    // Same widening as `fallback`, and for the same reason (bc-nib3.11): no path in
+    // SHELL carries a query string, so `/history?status=closed` is a clean miss on the
+    // exact match above and would otherwise be answered with the 503 it came in with.
+    .then((hit) => hit || caches.match(request, { ignoreSearch: true }))
+    .then((hit) => hit || res)
+    // A cache that rejects is worth saying out loud — `fallback` says the same thing —
+    // but not at the cost of the response we already have in hand.
+    .catch((err) => {
+      report(`fetch — the cache could not answer ${new URL(request.url).pathname} while the server was refusing`, err);
+      return res;
+    });
+}
 
 /**
  * The addresses that name a **view** rather than a file, and where each one has to land
