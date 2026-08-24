@@ -1969,7 +1969,7 @@
    * binds: every advocate card already quotes it, in its stepper's tooltip and in the
    * amber "Held by globalMaxWorkers" note the tick writes when it is what stopped a
    * launch. Until now it was also the one number on this page you could not change
-   * without editing ~/.beadcause/config.json and restarting the daemon — so the page
+   * without editing ~/.config/beadcause/config.json and restarting the daemon — so the page
    * could tell you exactly which number was holding your work up and offer you nothing
    * to do about it.
    *

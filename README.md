@@ -994,7 +994,7 @@ two states this ships in and the pill row has to sit against the bar in both.
 
 ### Space details — every setting a space has, on a page of its own
 
-Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
+Every setting a space has is one you used to change by opening `~/.config/beadcause/config.json`
 in an editor, on the Mac, with the daemon running. That was fine while a space was two
 lines of quiet hours written once. It stopped being fine when a space became the unit
 that decides whether an unattended agent may answer a comment (`autoDispatch`), whether a
@@ -14210,9 +14210,13 @@ to a role on purpose.
 }
 ```
 
-Which department a bead belongs to is its own `dept:` label where it has one — that is the
-routing label `docs/APPROVAL_PIPELINE.md` defines, and the thing a person actually set — and
-otherwise the department that *staffs* the role. The difference is load-bearing for the
+Which department a bead belongs to is a label it carries that **is** a department key —
+`dept:story` is literally the key and literally the label, which is the routing label
+`docs/APPROVAL_PIPELINE.md` defines and the thing a person actually set — and otherwise the
+department that *staffs* the role. Read that first half exactly as written: nothing reads a
+prefix. `departmentOf` matches *any* label a bead carries against the department keys, so
+`dept:` is a convention rather than a rule, and it is enforced only where the keys stop
+being yours (below). The difference is load-bearing for the
 checkers who work across departments: clio is a Story agent, so an unlabelled bead assigned
 to clio is Story work, but a bead labelled `dept:design` and assigned to clio is Design work
 and gets Design's chain, palette on look included.
@@ -14227,6 +14231,50 @@ decide on its own whether the role is real.
 the batch and group sections and is asserted the same way — by comparing a relayed brief
 against an unrelayed one, so a section that leaked into an ordinary worker's page would be
 a failure rather than a thing somebody noticed later.
+
+### A repo's own definition — `.beadcause/relays.yaml`
+
+A definition in `config.json` is a definition on one Mac, changed by hand and reviewed by
+nobody. deluvia's departments are argued out in `docs/STUDIO_CHARTER.md` *inside its
+repo*; the code that reads them was outside it. And `relayFor` takes a workspace name and
+returns *the* definition, which is the wrong shape for sophab, where software-dev,
+marketing and engineering are three relays in one workspace — not a bigger entry, but a
+second question, **which relay**, that nothing was ever asked.
+
+So a checkout may carry `.beadcause/relays.yaml` (`.json` accepted), holding **named**
+relays and an optional `default:`. Each block is shape-identical to the `cfg` entry above,
+so migrating one is a copy. `lib/relaydefs.js`, `node test/relaydefs.mjs`.
+
+**Whole-definition replacement, never a merge.** A file that parses and validates replaces
+`relays.<workspace>` entirely; only an absent or refused file falls through to it. That is
+what makes an *empty* file meaningful — `relays: {}` says *no relay in this checkout*, the
+only off switch a repo has, the same sentence `"relays": {}` is for the config. An **absent**
+file is the opposite answer. The two are one typo apart, which is why `relaysIn` reports
+`defined` rather than leaving them to be told apart by their contents.
+
+**Two things a repo may not say, and they are the same line drawn twice.** The config is
+yours and is unvalidated; the repo file is *a branch's*, so it is checked against an
+allow-list and an unknown key refuses the whole file with the key named — a typo'd
+`deparments:` quietly skipped is a repo dispatching with no departments at all, which reads
+as working. On top of that: `packet:` is refused, because the `needs-approval`/`human` pair
+is what makes a review packet answerable from a lock screen and a repo that could restate it
+could file approvals that never reach the phone; and a department key that does not start
+with `dept:` is refused, because the key is matched against *every* label a bead carries, so
+an unprefixed `agent-filed` would sweep up every agent-filed bead in the checkout.
+
+**Which relay, first match wins:** a `relay:<name>` label naming a key in the file → the
+bead's department label, where exactly one relay declares it → the relay that staffs the
+assignee in `members` → the file's `default:` → nothing, and dispatch exactly as today. An
+unknown `relay:` name and a department two relays claim are **problems, not fallbacks**:
+falling back is how marketing work quietly dispatches as engineering.
+
+A refused file is never a hold — the bead dispatches as it does today, with a sentence
+somebody can act on. Nothing throws, and the ordinary answer for a repo with no
+`.beadcause/` at all costs one failed `stat`: no read, no parse, no directory listing, which
+is what lets the advocate ask per checkout on every tick.
+
+Reading the file is wired; *dispatching* off it is `bc-ogicx.5`, so until that lands a
+checkout's file is read and validated and the chain still comes from `relays` above.
 
 ### The relay journal — every step and handoff, on the bead and on the epic card
 
