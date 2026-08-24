@@ -32612,6 +32612,82 @@ register itself is a controlled document in `lib/documents.js`, on twelve months
 is approved there is the register — by the owner of this repository — and not the fifteen
 documents it tracks.
 
+### Eight risks, each with an owner, a treatment and a date it expires — `lib/risk.js`, `test/risk.mjs`
+
+Clause 6.1.2 of ISO/IEC 42001 does not ask for a list of risks. It asks for a *process*:
+criteria saying what counts as acceptable, written down **before** anything is rated
+against them, then identification, analysis, evaluation, and 6.1.3's treatment — with the
+residual left over accepted by somebody, by name. A register produced without the criteria
+is a page of worries, and an auditor asks for the date on the criteria for exactly that
+reason: criteria written afterwards are criteria drawn around the answers.
+
+Most of the register already existed. A risk here *is* a bead — an owner, work that treats
+it, a date to look again — and the tracker holds those three far better than a file would.
+What it cannot hold is the vocabulary. A likelihood spelled two ways is two likelihoods,
+an "acceptable" that means whatever the reader thinks is not a criterion, and a treatment
+naming a control nobody minted treats nothing. So this module holds the method, the
+criteria and the ratings, and cites the tracker where the work lives.
+
+**The chain is the point: risk → control → evidence.** Every risk names the 42001 controls
+it selects, the modules here that make the treatment real today, and the classes of record
+from [the evidence
+register](#nothing-is-kept-without-saying-for-how-long--libevidencejs-testevidencemjs)
+that an auditor could sample to see it operating. `chain()` returns the three together,
+which is what makes a Statement of Applicability *generatable* rather than argued —
+`bc-eqn1.14` reads `controlsClaimed()` and gets, for every control, the risks that selected
+it and the records that would show it working. An SoA whose justification column was typed
+by hand is one nobody can re-derive next year.
+
+**The ids are 42001's, and that is the opposite direction to the policy set.**
+[`lib/policies.js`](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+names SOC 2 criteria because a policy set answers a SOC 2 request list. Annex A of 42001 is
+a list of *treatments* and exists to be selected from, so a risk names 42001 ids and the
+SOC 2 half is walked off [the
+corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) by `alsoServes`. That
+is `bc-4r10.8`'s whole argument — CC3 and CC9 read off this one register rather than growing
+a second — and the suite greps the two data blocks to make sure no SOC 2 or 27001 id was
+ever written into them by hand.
+
+**Five likelihoods by five consequences, and the multiplication is a sort key rather than
+arithmetic.** "Possible × major" is not a number of dollars and two risks scoring 12 are
+not interchangeable; what the product buys is a stable order and a threshold that could be
+written down before the ratings were. The scales are anchored on something observable — a
+likelihood on this daemon's year, a consequence on what the consequence *is* — because this
+organisation has no loss figures and a dollar band would be the most quotable false thing in
+the file. Every one of the twenty-five scores lands in exactly one band, and the suite walks
+all of them to prove it.
+
+**Harm to whom is rated separately, which is ISO/IEC 23894's distinctive demand.** A
+register that scores every risk by its cost to the organisation is the register 23894 exists
+to refuse, so `harmTo` is a closed set — the organisation, individuals, society — and a
+consequence to individuals is never netted off against a benefit to the organisation. Most
+of this register is organisational, and the criteria say so out loud rather than leaving the
+imbalance to look like an oversight: it is a development tool run by one person on one Mac,
+and the three things that would change that are named as a re-rating of the whole register
+rather than an entry appended to it.
+
+**Nothing is accepted yet, and that is the honest state.** Seven of the eight residuals sit
+above the acceptable band and every one of them records that its acceptance is still owed,
+with a sentence saying what is missing. Writing an acceptor and a date anyway would produce
+a register that passes every check and is false in the one way that matters — the refusal
+`lib/policies.js` makes about fifteen unwritten policies, and `lib/documents.js` makes about
+an approver nobody asked. The rules bite in both directions: an accepted risk with no
+acceptor is refused, and an owed one carrying a date is refused just as hard. Who may sign
+is the criteria's answer, not the entry's — a medium residual is the AI system owner's, a
+high one top management's, and a critical residual may not be retained at all.
+
+**The eight process steps are 23894's own, and a missing one fails by name.** `METHOD` is
+written as the standard's list rather than as whatever this system happens to do, because
+the value of it is that a step nobody performs shows up as an empty one. Three of the eight
+admit to a gap today: nobody is consulted on a rating because there is nobody to consult,
+identification happened once and nothing prompts it again, and review is on a clock rather
+than on a trigger — nothing re-rates a risk because the code that treated it changed.
+
+The register is itself a controlled document in `lib/documents.js`, on six months rather
+than twelve, because a rating is a statement about a system on the day it was made and this
+one changes daily. What is approved there is the method and the register; not the residuals,
+every one of which separately says its acceptance is owed.
+
 ### Two commitments, owed to NYSERDA and TD until somebody reads the agreement — `lib/commitments.js`, `test/commitments.mjs`
 
 DC 200 asks a system description to state the principal service commitments the service
