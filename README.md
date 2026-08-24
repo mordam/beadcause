@@ -20063,6 +20063,71 @@ still does not merge — it comes to you as a card, no attempt spent, the agent'
 sitting on it — and it is your admission that releases it, after which both stamps are on the
 bead, each in its own block, neither having stood in for the other.
 
+### Merging over open findings — a review becomes work, not another round
+
+The loop above is correct and it is expensive. Reviews run at most two at a time here —
+`terminalMax` is 4 on this Mac and the other two slots are ordinary work — so review
+throughput sets the merge rate, and every round of back-and-forth on one pull request is a
+slot fifty-six others are queued behind. The queue's own sweep on 2026-08-24 signed off
+with *69 awaiting review against 75 open pull requests*, 57 of which had never been looked
+at.
+
+So the rule bc-9ntye changes is *a merge waits for an approval* → **a merge waits only for a
+reason it must not happen**. A `blocking` comment still holds a branch and still means what
+the reviewer's brief says it means — correctness, data loss, a security hole, a broken
+contract with a caller, a test that does not test what it claims. A `suggestion` or a
+`question` is meant to hold nothing.
+
+**Two halves, and this section is the second one.** Narrowing what holds a branch is the
+gate's own change (bc-9ntye.1, `lib/reviewgate.js`) and is described above; what is
+documented here is what happens to the findings a merge goes over, whichever way they got
+past the gate — today that is an approving verdict that still carries an unresolved
+suggestion, or a pull request you admitted yourself through `/merge`. They become **work of
+their own**: one follow-up bead per pull request per verdict round, with one child per
+finding, filed at the moment the branch merges (`lib/reviewfollowup.js`,
+`test/reviewfollowup.mjs`).
+
+What went wrong without it is the obvious thing and it is worth saying plainly: the merge
+closes the merge-bead, and the merge-bead's notes are where the reviewer's whole verdict
+lives. Everything a reviewer raised and nobody had settled went into a closed bead nothing
+reads. Turning the gate off would have drained the queue the same night by not reviewing at
+all; this keeps every review that is happening now and stops it costing a merge.
+
+Three things about it are decisions rather than implementation, and each is the sort that
+looks like a detail until it is wrong:
+
+- **It hangs off neither bead in front of it.** The merge-bead closes with the merge by
+  construction, and the work bead closes with it unless it is an epic. An open child of a
+  closed parent is [bc-rfnr.7's held-forever bead](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists):
+  under nothing, not parentless by any obvious query, and drawn on every screen as ordinary
+  open work. So the parent is the **root the work bead descends from** — `lib/homing.js`'s
+  ordinary answer — reached from the work bead's own parent rather than from the work bead,
+  because "a root is above itself" would otherwise answer *the P0 task closing this second*
+  for a work bead that happens to be a P0. An epic work bead is the one case that answers
+  itself, and it needs no special pleading: an epic stays open over a merge, so it is a
+  parent that survives.
+- **The key is the pull request *and the round*.** `finish` is best-effort from end to end
+  and the sweep re-reads the same review block every tick, so a crash between the filing and
+  the close brings the next tick back to exactly this state. A `review-followup:<repo>#<n>:r<round>`
+  label is asked about over **every** status, closed included — a follow-up that was filed,
+  worked and closed an hour ago is precisely the one a live-only lookup would answer *no*
+  about. The round is in the key because a pull request that goes round twice and merges over
+  what is left of round 2 has genuinely different findings from round 1's.
+- **A comment the worker already answered `changed` files nothing.** That change is on the
+  branch that just merged; filing it as work is the review loop reopened by the mechanism
+  meant to close it. A `declined` **does** file, with the worker's own words on the child and
+  a sentence saying that answer was never re-reviewed — it is context for whoever picks it
+  up, not a settlement.
+
+Every sentence the merge writes names the bead the findings went to: the report on the pull
+request, the merge-bead's close reason, and the comment on the work bead. A sentence saying
+"merged with open review findings" that does not say *where they went* is the same dead end
+as a comment claiming a bead closed when it had not. The **landed notification** is the one
+place that does not name it yet, and the reason is ordering rather than omission —
+`landedEvent` is emitted from the queue's `afterMerge` callback, which fires before the
+`finish` that files the follow-up, so the bead id does not exist yet when the card is built.
+That is bc-9ntye.5.
+
 ### The notification with nothing to answer
 
 Every other push from beadcause is a decision arriving. This one is a decision that has
