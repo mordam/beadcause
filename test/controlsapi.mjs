@@ -145,6 +145,17 @@ await acheck('the findings are lists with names in them, not counts', async () =
   assert(Array.isArray(body.forecastOnly) && Array.isArray(body.stale) && Array.isArray(body.orphans), 'a finding is not a list');
 });
 
+await acheck('and the corpus rides along, one row per control, named but not defined', async () => {
+  const { body } = await ask('');
+  assert(body.controls.length === size, `${body.controls.length} rows`);
+  const row = body.controls.find((r) => r.id === 'SOC2.CC6.1');
+  assert(row.title.length > 0 && row.kind === 'criterion', JSON.stringify(row));
+  assert(row.state === 'unevidenced' && row.edges === 0, JSON.stringify(row));
+  // Definitions are paragraphs and there are 192 of them: a payload that shipped the whole
+  // corpus on every paint would be most of a megabyte to say what `?id=` already says.
+  assert(body.controls.every((r) => !('definition' in r)), 'a definition rode along');
+});
+
 await acheck('and it says so in one sentence a person can read', async () => {
   const { body } = await ask('');
   assert(body.summary.includes(`of ${size} controls are proved by a merge`), body.summary);

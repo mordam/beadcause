@@ -26,7 +26,7 @@
 // 5. **An orphan is reported rather than hidden.** An id can leave the corpus long after
 //    edges were recorded against it, and hiding that would make a rename read as a control
 //    that was never exercised.
-import { coverage, describeCoverage, REVIEW_MONTHS } from '../lib/controlcoverage.js';
+import { coverage, describeCoverage, REVIEW_MONTHS, STATES } from '../lib/controlcoverage.js';
 import { corpus, FRAMEWORKS } from '../lib/controls.js';
 
 let failed = 0;
@@ -123,6 +123,35 @@ check(
   'and the four states account for every control exactly once',
   cov.totals.unevidenced + cov.totals.forecast + cov.totals.stale + cov.totals.current === size,
   JSON.stringify(cov.totals)
+);
+
+// The reason disjointness holds is structural rather than asserted: there is one row per
+// control with one `state` on it, and the four lists are that row-set filtered. A count
+// that disagreed with its own list is the specific way a compliance report stops being
+// believed, so the register and the findings are checked against each other here.
+console.log('\none row per control, and the findings are a view of it');
+
+check('there is a row for every control and no more', cov.controls.length === size, String(cov.controls.length));
+check('each carries exactly one state', cov.controls.every((r) => STATES.includes(r.state)));
+check(
+  'and every finding list is that register filtered',
+  cov.unevidenced.length === cov.controls.filter((r) => r.state === 'unevidenced').length &&
+    cov.stale.length === cov.controls.filter((r) => r.state === 'stale').length &&
+    cov.forecastOnly.length === cov.controls.filter((r) => r.state === 'forecast').length
+);
+check(
+  'a row carries the name a screen needs beside a finding',
+  cov.controls.every((r) => r.title.length > 0 && r.kind.length > 0),
+  JSON.stringify(cov.controls.find((r) => !r.title))
+);
+check(
+  'and not the definition, which is a paragraph 192 times over',
+  cov.controls.every((r) => !('definition' in r))
+);
+check(
+  'the per-control edge count is the graph, not a second tally',
+  cov.controls.find((r) => r.id === 'SOC2.CC6.1').edges === 1 &&
+    cov.controls.find((r) => r.id === 'SOC2.CC9.2').edges === 0
 );
 
 /* ----------------------------------------------------------------------- orphans */
