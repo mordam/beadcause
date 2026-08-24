@@ -390,9 +390,10 @@ check('every page that loads viewbar.js or app.js loads hashroute.js before it',
       assert.ok(mine < at(f), `public/${page} loads hashroute.js after ${f}, so the call on boot throws`);
     }
   }
-  // Eleven since bc-khoe.30.15 took public/history.html out of `public/` entirely — the
-  // ledger's pill is drawn by index.html now, which was already one of the eleven.
-  assert.equal(seen, 11, `expected the eleven pages that draw the pill row, found ${seen}`);
+  // Ten since bc-khoe.30.22 took public/releases.html out of `public/` entirely, as
+  // bc-khoe.30.15 did for public/history.html before it — both pills are drawn by
+  // index.html now, which was already one of the count.
+  assert.equal(seen, 10, `expected the ten pages that draw the pill row, found ${seen}`);
 });
 
 check('and the service worker precaches it, because both callers call it flat', () => {
