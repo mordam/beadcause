@@ -647,13 +647,13 @@ const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
 const port = await boundPort(servers);
 
-const post = (pathname, body) =>
+const post = (pathname, body, onPort = port) =>
   new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = http.request(
       {
         host: '127.0.0.1',
-        port,
+        port: onPort,
         path: pathname,
         method: 'POST',
         headers: {
@@ -733,9 +733,79 @@ await check('the endpoint is registered once, on POST', async () => {
   assert.ok(!routes.includes('GET /api/error'), 'and only on POST — a GET must not file anything');
 });
 
+/* ------------------------------------------------- whose board an unnamed report lands on */
+
+/**
+ * The workspace a page's error defaults to — bc-xl7n.130.
+ *
+ * Every check above runs against a daemon with exactly ONE workspace, where the first
+ * configured one and the daemon's own are the same graph and the routing cannot be
+ * observed at all. That is why this shipped broken: the endpoint defaulted to
+ * `workspaces[0]`, discovery sorts workspaces by name, and on a Mac whose own repo does
+ * not win the alphabet every browser-reported crash was filed onto a *different team's*
+ * tracker — by beadcause, at P0, under a personal identity.
+ *
+ * So the fixture is the fixture the bug needs: two workspaces, and the daemon's own is
+ * deliberately LAST. `sessionDirs` is what makes it the daemon's own — it is the question
+ * `ownWorkspace` asks, "which workspace's sessions open in this checkout".
+ */
+const otherDir = path.join(tmp, 'other', '.beads');
+const ownDir = path.join(tmp, 'own', '.beads');
+for (const d of [otherDir, ownDir]) fs.mkdirSync(d, { recursive: true });
+
+const OTHER = { name: 'aaa-somebody-else', dir: otherDir };
+const OWN = { name: 'zzz-this-app', dir: ownDir };
+
+const ownedCfg = {
+  ...cfg,
+  port: 0,
+  workspaces: [OTHER, OWN],
+  sessionDirs: { [OWN.name]: path.join(HERE, '..') },
+};
+const ownedApp = createApp(ownedCfg);
+const ownedServers = listen(ownedCfg, ownedApp.handler);
+const ownedPort = await boundPort(ownedServers);
+
+// The same two workspaces, and nothing tying either to this checkout — the install that
+// cannot answer the question at all.
+const rootlessCfg = { ...cfg, port: 0, workspaces: [OTHER, OWN], sessionDirs: {} };
+const rootlessApp = createApp(rootlessCfg);
+const rootlessServers = listen(rootlessCfg, rootlessApp.handler);
+const rootlessPort = await boundPort(rootlessServers);
+
+await check("an unnamed report goes to the daemon's own workspace, not the first configured one", async () => {
+  await reset();
+  const res = await post('/api/error', REPORT, ownedPort);
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.ok, true, JSON.stringify(res.json));
+  assert.match(
+    String(res.json.key),
+    new RegExp(`^${OWN.name}/`),
+    `a crash in this app must not be filed onto whichever tracker sorts first — got ${res.json.key}`
+  );
+});
+
+await check('a caller that does name a workspace is still obeyed', async () => {
+  await reset();
+  const res = await post('/api/error', { ...REPORT, workspace: OTHER.name }, ownedPort);
+  assert.equal(res.json.ok, true, JSON.stringify(res.json));
+  assert.match(String(res.json.key), new RegExp(`^${OTHER.name}/`), 'an explicit workspace outranks the default');
+});
+
+await check('a daemon that cannot name its own workspace still files, rather than refusing', async () => {
+  // Deliberately unlike POST /api/edits, which refuses when it cannot tell. An edit pass
+  // that is turned away is still on the screen to retype; a crash report that is turned
+  // away is gone. A bead on the wrong board can be moved — one never filed is not news.
+  await reset();
+  const res = await post('/api/error', REPORT, rootlessPort);
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.ok, true, 'a report is never dropped for want of a routing answer');
+  assert.match(String(res.json.key), new RegExp(`^${OTHER.name}/`), 'and it falls back to the first workspace');
+});
+
 /* -------------------------------------------------------------------- the result */
 
-for (const s of servers) s.close();
+for (const s of [...servers, ...ownedServers, ...rootlessServers]) s.close();
 await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);

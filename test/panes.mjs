@@ -376,9 +376,11 @@ await check('Home’s pane holds everything that belongs to Home, and nothing th
   const close = HTML.indexOf('<div class="pane" data-pane="history"');
   assert.ok(open > 0 && close > open, 'the panes are not where this suite thinks they are');
   const inside = HTML.slice(open, close);
-  // The list and its filter, and the three fixed things that float over them: a ＋ left
+  // The list and its filter, and the fixed things that float over them: a ＋ left
   // outside the pane would go on hovering over the History pane with nothing behind it.
-  for (const mark of ['id="filters"', 'id="list"', 'id="scrollpos"', 'class="compose-wrap"', 'id="editmode"']) {
+  // The ✏️ used to be one of them and is parked (bc-p49x.12) — asserted absent from the
+  // whole document by test/editmode.mjs, so there is nothing here to place.
+  for (const mark of ['id="filters"', 'id="list"', 'id="scrollpos"', 'class="compose-wrap"']) {
     assert.ok(inside.includes(mark), `${mark} is outside Home’s pane`);
   }
   // The app talking, rather than this view: both outlive a pane switch.
