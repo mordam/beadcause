@@ -11801,7 +11801,8 @@ asked whether an hour of unattended agent should go on this, and a decision made
 title is a rubber stamp with extra steps.
 
 Folded, the row carries the id, the workspace, the type, the priority, a **💬 count if
-anything has been said about it** — and **the bead
+anything has been said about it**, [**the newest comment and any open question that names
+it**](#and-what-was-learned-after-the-bead-was-filed) — and **the bead
 it was found under**, which is the one sentence a bead cannot say about itself and
 usually the thing that tells you whether this is a real discovery or a tangent. That
 line costs a `bd show` per row, because `bd list --json` carries every text field but
@@ -11814,6 +11815,101 @@ beads in it is a backlog to answer, not a list to page through, and a silent tru
 would read as "you have answered them all". A workspace whose `bd` fell over is named
 on the page for the same reason: an empty queue over a broken tracker is the one lie
 this screen could tell.
+
+### And what was learned after the bead was filed
+
+Everything above is the **filing agent's own words**, typed at the moment it found the
+work and before anybody had looked at it. That is most of what the queue is for, and it
+is also the hole: the evidence that a bead should *not* be endorsed is later than the
+bead by definition, and it lands in the two places this list did not read.
+
+**Measured, 2026-08-20.** bc-wi3s had been finished work for two days. The bc-xl7n epic
+advocate had run its suite, found it green, written that on the bead as a comment, and
+filed bc-xl7n.101 — a `human` bead, P1, open — recommending it be closed rather than
+endorsed. The endorse sweep took it anyway, in a batch of 56, and it went into a
+105-deep ready queue as ordinary work. Nothing on the row said a word about any of it.
+An advocate's instrument for *do not work this* is a card, and **a card loses a race with
+a bulk endorse that cannot see it** — so the card has to be on the row.
+
+Two lines, both on the **folded** row, because the press that misfires is the one made
+without opening anything:
+
+- **The newest comment**, quoted, muted, one line. The 💬 count says a thread exists; it
+  does not say whether the thread is a clarifying question or an advocate writing *I ran
+  the suite, this is green, close it.* The count is what makes you look; this is what
+  makes you stop. It costs nothing: the provenance pass was already spending one `bd
+  show` per row, and it spends `bd show --include-comments` instead — the same one spawn,
+  which on this tracker is the entire cost model (see `showWithComments` in lib/bd.js).
+  It inherits that pass's bound as well as its cost, so on a queue at the sixty cap the
+  last twenty rows carry the 💬 count and not the quotation — the same trade the
+  provenance line already makes, and the reason the count stays.
+- **⚑ An open question names this bead**, with the question's id, its priority and what
+  it asks, and a tap through to it. This one is bordered rather than merely coloured,
+  because the failure it exists to stop is a thumb moving down a list of rows that all
+  look alike.
+
+**A question names a bead by writing its id, and that is the whole of the join.** There
+is no edge to read — a `bd human` bead is a question put to you, and a decision block is
+prose with options in it — so lib/openquestion.js scans the title, description, notes
+(where `--append-notes` puts a block), design and acceptance of every open `human` bead
+for ids, and intersects what it finds with the ids already on the queue. Scanning against
+the ids in hand rather than against a pattern is deliberate: a bead-id regex is how
+`bc-xl7n.101` becomes `bc-xl7n`, which is [lib/beadref.js's bug twice
+over](#which-bead-a-pull-request-is-for), and a question about one child of an epic would
+flag the epic and every other child of it. Nothing here ever truncates, so it cannot.
+
+**A standing card is not a question, and excluding the two kinds of them is the whole of
+the precision.** A row that cries wolf is a row you learn to scroll past, which costs this
+whole section what it is for — so both exclusions were measured against live trackers
+rather than guessed at, and both are exclusions of a *class*: a card the machinery raises
+about its own progress, whose text names beads for bookkeeping.
+
+**A `human` *epic*.** Measured against the live beadcause tracker on 2026-08-23: 130 held
+beads, 17 open `human` beads, four of them P0/P2 epics — and those four produced *every*
+false positive there was, three unrelated held beads flagged because `bc-9d37`'s and
+`bc-rfnr.9`'s notes happen to mention them. That is not a tuning problem. A `human` epic is
+a **standing board card**: the epic *is* the work, the label is what puts it on the P0
+board, and its notes are an advocate's running log naming every bead it has touched this
+week. One line of exclusion took that measurement from four flags to one, and the one is
+true: bc-xl7n.77.1 on bc-xl7n.77.2.
+
+**And a `pr-delivery` card**, which the first measurement could not see because beadcause's
+own tracker had none open that day. It is a **merge** card — the queue relabels a merge-bead
+into one when it hands a pull request back — so what it asks is *should this branch merge*,
+never *should an hour of unattended agent be spent on this bead*, and its body is a
+`beadpr` block whose title and summary name every bead the branch touched. Measured against the configured `architecture` workspace on 2026-08-24:
+**77 held beads, 46 open `human` beads, 28 flagged rows — and every one of the 18 questions
+doing the flagging was a `pr-delivery` card.** `cl-ae8` (*Merge #569? cl-tcg*) alone named
+five further beads on the same root cause, so five held rows each drew *An open question
+names this bead* about a merge decision that was not about them. That is a third of one
+configured workspace's queue drawing a ⚑ that means nothing, on the first production sweep.
+With the exclusion the same measurement is **0**, and beadcause's own is unchanged.
+
+A `human` task, bug or decision that is neither of those is the other thing entirely —
+somebody asking about something, once, and naming what they mean.
+
+It is **one `bd human list` per workspace that has a row in the queue**, on the
+`questions:<workspace>` key [the inbox already keeps warm](#what-is-on-it-and-what-is-deliberately-not) —
+so on a running daemon this costs no spawn at all, and on a cold one it pays for a read
+the inbox was about to pay for anyway. A workspace whose read fails leaves the field
+`null` rather than `[]`, because `[]` is the sentence *nobody has asked about this bead*
+and saying that on the strength of a `bd` call that never came back is the exact failure
+the section is about. **A refresh that fell over is stale, not missing**: the cache layer's
+own rule is [last good beats
+empty](#the-shared-cache--past-the-window-nothing-waits-for-the-sweep), so a workspace
+whose list is *kept* and whose refresh failed keeps drawing the ⚑ it is holding — `null` is
+for a read with nothing at all behind it.
+
+**Endorse all counts them between its two taps** — *one of them has an open question ⚑ —
+worth reading before you do* — and does not refuse. A bead can carry a stale question for
+a month, and a bulk control that would not fire until you had cleared every one of them is
+a control you stop using, which quietly takes the meaning out of the hold in exactly the
+way [the section below](#endorse-all--the-tap-that-empties-it) is about. The rows say
+which; the header says how many, at the moment you are about to act on all of them at once.
+**And it is the one place the `null` is spent** — *one of them could not be checked for
+open questions* — because everywhere else `null` and `[]` correctly draw the same nothing
+(a folded row cannot usefully say *maybe*), while this press is the only control that acts
+on *nothing here has a question against it* for sixty beads at a time.
 
 ### Four verdicts per row, and a group tap above them
 
@@ -12094,7 +12190,33 @@ comes off the edge rather than the prose and that the edge beats the parent, tha
 two fields bd names differently arrive renamed, that the list is one list across
 workspaces, that a broken workspace is named and the rest still answer, that the cap is
 reported, and that a verdict drops the cache — so the laptop on its own poll stops
-drawing a bead the phone has just endorsed.
+drawing a bead the phone has just endorsed. Since bc-xl7n.76.2 it also covers the two
+fields nobody wrote at filing time: that a bead with a thread carries what was last said
+on it *and* its provenance off the one `bd show`, that an open `human` bead naming a
+queued bead lands on that row, that `aa-new.3` does not flag `aa-new`, that a question in
+one workspace never reaches a same-named id in another, and that a workspace whose `bd`
+fell over leaves `questions` null where a read that found nothing leaves `[]`.
+
+`node test/openquestion.mjs` is the join on its own, which is where every silent way to
+get it wrong lives: read too loosely and rows cry wolf until you learn to scroll past
+them, read too tightly and the screen draws nothing, which is indistinguishable from
+nobody having asked. It pins the dotted-child trap in both directions, that all five text
+fields are read, that a question naming only itself is about nothing, that several
+questions come loudest first and bounded, that neither a `human` epic nor a `pr-delivery`
+merge card ever flags a row while an ordinary task, bug or decision does — however the
+label is cased or padded, because bd does not normalise them — that only the workspaces
+with rows in the queue are asked at all, that a refresh which fell over keeps serving the
+list it is holding rather than blanking every ⚑ in the workspace, and that the answer is
+kept on the key `allQuestions()` writes.
+
+`node scripts/endorse-check.mjs` is the half only a browser can make, and it is the
+acceptance the bead was written with: that both lines are on the row **folded**, that the
+question names its id and what it asks, that the comment is quoted with whoever said it,
+that the rows nobody asked about carry nothing at all, that the armed *Endorse all* counts
+the beads somebody has asked about without refusing the press and says so when a repo's
+question list could not be read at all — and that all of it was drawn off
+the one sweep the page had already made, because a row that had to fetch its own thread
+would raise the flag a second after the thumb had gone.
 
 `node test/discuss.mjs` covers the conversation, and every assertion in it is a way the
 thread could quietly decide something: that the comment is the *only* write and the
@@ -17312,6 +17434,63 @@ creates and deletes around the call, never the real `~/.config/beadcause` and ne
 anything in the repo. That is what put `Bash(b7e-owes:*)` on `DEFAULT_TOOL_LIST` in
 `lib/toolbelt.js` beside `b7e-def` rather than behind an elevation.
 
+### Which test assertions are pinned to the exact words of a module's prose — `b7e-pinned`
+
+`bc-khoe.27.12` is the same shape breaking repeatedly rather than once. Three sessions
+(`bc-bmry.8`, `bc-bmry.7`, `bc-xl7n.99`) each edited a generated brief by hand — `lib/session.js`'s
+`workPromptFor`, `lib/epicadvocate.js`'s `epicAdvocatePrompt` — and each learned which of
+its words were load-bearing by breaking one and reading the failure: a guessed
+`grep -rn "a\|b\|c" …` that still shipped a red because a line wrap put a newline where
+`test/onelaw.mjs`'s own pattern had none, a count baked into a regex nobody remembered was
+there (`/three honest endings/`, now `/four honest endings/`, which will break again on the
+fifth), four corrective `Edit`s narrated "let me clean this up properly" to a suite whose
+substrings were found by trial rather than read off a list.
+
+```
+b7e-pinned lib/session.js               every export's output, across every suite that reads it
+b7e-pinned lib/session.js workPromptFor narrowed to one export's output
+b7e-pinned lib/session.js --json        one object instead of the printed report
+b7e-pinned --dir <root> lib/x.js        a different checkout, not this process's cwd
+```
+
+For every `test/*.mjs` suite that imports the module, it traces which *local names*
+actually hold the module's output — the module's own exports, plus, transitively, any
+local `const NAME = …` whose right-hand side calls one of them (the one-hop indirection
+`test/onelaw.mjs`'s own `briefFor` is over `workPromptFor`) or any destructured binding
+of one (the `for (const [name, brief] of […])` shape `test/land.mjs` walks its three
+endings with) — and reports every string or regex literal an `assert.match`/`equal`/
+`strictEqual`/`deepEqual`/`deepStrictEqual`, a bare `.test(`, or a bare `.includes(`
+checks one of those names against. Three flags per literal:
+
+- **`NOT IN SOURCE`** — the literal (or, for a regex, the pattern itself) does not
+  match the module's source text today. A stale pin, or wording this static a read
+  cannot trace through a `.push()`-built or interpolated string — either way, worth a
+  look before the words under it move again.
+- **`HAS-NEWLINE`** — a literal `\n` inside the pattern, so a rewrap of the source
+  breaks the assertion with nothing about the suite's own name to explain why. The
+  argument the bead itself was filed over: `test/planbrief.mjs`'s `/no path here by
+  which an agent endorses its own\nsubtree/` is exactly this shape.
+- **`HAS-NUMBER`** — a digit, or a spelled-out count (`one` through `twelve`) — a count
+  baked into a regex needs updating by hand every time the thing it counts changes, and
+  a plain `\d` check misses `/four honest endings/` entirely because there is no digit
+  in it at all.
+
+**What this does not do.** It is not a JS parser. Statements are split by
+`lib/harness.js`'s `statements()` — the same bracket-depth splitter the house test-shape
+tool already trusts — glued back across an arrow function's line break, and calls are
+found and their arguments split by a small hand-rolled tokenizer, not an AST. A local
+name is only ever traced by *name*, never by import alias — `const { workPromptFor: wpf
+}` would be missed, because nothing in this corpus renames an import that way today. A
+literal built across a ternary, a template expression, or a helper called three names
+deep will not be found either. That is the same bound `b7e-owes` documents for its own
+regexes, and it fails in the quiet direction: a literal it misses is one you still have
+to grep for by hand, not one it lies about.
+
+Exit code is a report's, not a gate's: `0` whether or not anything is found — a module
+nobody asserts prose on prints nothing and exits `0` — and `2` only for a module path
+that does not resolve to a file. Read-only by construction: every path through it is a
+`readFileSync` and a regex, and it never runs a suite or calls the module it reads.
+
 ### Agent prose goes into a bead or a memory from a file, never a shell argument — `b7e-say`
 
 `bc-gdub.2` is the third finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
@@ -19323,13 +19502,27 @@ it happened to be handed.
 `blocking`, `suggestion`, `question`, and nothing else — an unrecognised one is refused
 rather than coerced, since defaulting it to `blocking` lets a typo hold a branch for ever
 and defaulting it to `suggestion` waves a real objection through. `blocking` is a promise:
-the reviewer will not approve while it stands, so it belongs to correctness, data loss, a
-security hole, a broken contract with a caller, or a test that does not test what it claims.
-Style and taste are suggestions, and something wrong in the code the change landed *next
-to* is a bead, not a review comment. The brief spends its longest paragraph on that, because
-an agent asked to review a diff will find something to say about every hunk of it, and a
-review that raises eleven comments costs a worker eleven answers and the pull request a
-round it cannot get back.
+this branch must not merge as it stands, so it belongs to correctness, data loss, a security
+hole, a broken contract with a caller, or a test that does not test what it claims. Style and
+taste are suggestions, and something wrong in the code the change landed *next to* is a bead,
+not a review comment. The brief spends its longest paragraph on that, because an agent asked
+to review a diff will find something to say about every hunk of it, and a review that raises
+eleven comments costs somebody eleven answers — as a round, when they are blocking, and as a
+follow-up bead nobody can triage when they are not.
+
+**And since bc-9ntye that promise is the whole of the veto, which is what makes the brief's
+wording load-bearing rather than decorative.** A `blocking` comment is the only thing that
+holds a merge; a verdict carrying nothing but suggestions and questions merges on the sweep
+that reads it, and those comments are filed as work of their own instead of coming back as a
+round. So the brief has to carry both halves at once, because they fail in opposite
+directions: a reviewer that goes on calling taste `blocking` jams a queue dozens of pull
+requests deep exactly as before, and one that stops reaching for it on a real bug ships the
+bug, since nothing further down the path reads the diff. What it says now is that nothing is
+lost by not holding the branch — the point survives as a bead either way — and that
+`approved: false` is not a quiet veto, so what the reviewer means belongs in the severity
+rather than in the flag. The reviewer's foundation in `lib/foundation.js` says the same rule
+in its own words, because the brief is what the agent was asked this run and the foundation is
+what it is on every one — and an agent handed both rules at once picks whichever it read last.
 
 **The brief is not a thin wrapper around `/code-review`, and it does not skip it either.**
 Round one's instruction is to run the skill first, over the diff, and treat what it returns
@@ -24453,7 +24646,7 @@ properties:
 | `board:` | lib/prboard.js | 25s | The whole swept PR board — every repo, every rung |
 | `prs:<checkout>` | lib/prboard.js | 120s | One checkout's `gh` slug and pull requests |
 | `queue:<workspaces>` | lib/endorsequeue.js | 15s | Every held bead in the active account's repos, with provenance |
-| `questions:<workspace>` | lib/server.js | 10s | One `bd human list`, behind `allQuestions()` |
+| `questions:<workspace>` | lib/server.js, lib/openquestion.js | 10s | One `bd human list`, behind `allQuestions()` — and read *and filled* by the endorse row that draws the open question naming a bead, which serves the kept list when a refresh fails rather than blanking the flags |
 | `foundation:<workspace>` | lib/server.js | 10s | One `bd list --label`, the foundation channel on its own |
 | `agentbeads:<workspace>` | lib/server.js | 10s | One `bd list --exclude-label human` |
 | `work:<workspace>` | lib/work.js | 10s | The four `bd` calls behind one workspace's row on `/api/work` |
