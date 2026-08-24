@@ -1620,6 +1620,67 @@ await check('and every sentence the merge writes names the bead the findings wen
   );
 });
 
+/* --------------------------------- the landed card can name the follow-up (bc-9ntye.5) */
+
+await check('the landed card is told the follow-up bead, which afterMerge never sees', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  const cards = [];
+  await run(bd, prApi, {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    afterMerge: async () => {}, // present and empty: proves the card comes from a separate seam
+    announceLanding: async (spec, issue, { findings }) => cards.push({ bead: spec.bead, findings }),
+  });
+  const follow = bd.calls.created[0].id;
+  assert.equal(cards.length, 1, 'the card is announced exactly once');
+  assert.equal(cards[0].bead, 'zz-work');
+  assert.match(cards[0].findings, new RegExp(follow), 'the sentence names the bead the findings went to');
+});
+
+await check("a clean merge's card is unchanged", async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const cards = [];
+  await run(bd, fakePr(openPr()), { announceLanding: async (spec, issue, { findings }) => cards.push(findings) });
+  assert.deepEqual(cards, [''], 'nothing was owed, so the card says nothing was owed');
+});
+
+await check('announceLanding runs after afterMerge, in the order the two callbacks were named for', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const seen = [];
+  await run(bd, fakePr(openPr()), {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    afterMerge: async () => seen.push('afterMerge'),
+    announceLanding: async () => seen.push('announceLanding'),
+  });
+  // afterMerge fires before `finish`, and `finish` is where the follow-up bead this card
+  // wants to name is minted — so this order is not incidental, it is the whole fix.
+  assert.deepEqual(seen, ['afterMerge', 'announceLanding']);
+});
+
+await check('a card that fails to send does not stand between the merge and either close', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), {
+    announceLanding: async () => {
+      throw new Error('bus is down');
+    },
+  });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work']);
+});
+
+await check('a pull request merged outside the queue never rings the phone', async () => {
+  // The same door `markMerged` above proved is threaded to this path — `announceLanding`
+  // is deliberately not, for the reason in lib/server.js's own comment: a merge Adam did
+  // himself, from GitHub or the phone, is a tap of his and must not chime for it.
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const cards = [];
+  const prApi = fakePr(openPr({ state: 'MERGED', mergedAt: '2026-08-16T12:00:00Z', mergeCommit: 'a1b2c3d4e5' }));
+  await run(bd, prApi, { announceLanding: async () => cards.push('rang') });
+  assert.deepEqual(cards, []);
+});
+
 await check('the same verdict on the next tick files nothing a second time', async () => {
   // The failure this guards: `finish` is best-effort throughout, so a tick that died
   // between the filing and the close arrives back here at exactly this state.
