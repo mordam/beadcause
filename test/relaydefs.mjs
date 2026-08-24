@@ -159,10 +159,12 @@ check('an empty relays: {} IS a definition — a repo\'s only off switch', () =>
   assert.equal(read.problem, null);
 });
 
-check('a blank file is a definition too, and declares no relays', () => {
-  const read = relaysIn(checkout({ 'relays.yaml': '\n# nothing here yet\n' }));
-  assert.equal(read.defined, true);
-  assert.deepEqual(read.relays, {});
+check('a blank file, and a bare relays:, are definitions too and declare no relays', () => {
+  for (const body of ['\n# nothing here yet\n', 'relays:\n', 'relays:\n# and a default nobody wrote\n']) {
+    const read = relaysIn(checkout({ 'relays.yaml': body }));
+    assert.equal(read.defined, true, JSON.stringify(body));
+    assert.deepEqual(read.relays, {}, JSON.stringify(body));
+  }
 });
 
 check('the off switch replaces cfg entirely; the absent file falls through to it', () => {
