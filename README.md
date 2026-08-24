@@ -18855,6 +18855,74 @@ to a live process — a write with no undo — and the allowlist has no syntax t
 plain report while withholding that one flag from the same binary. `dispatch`, the one
 agent this list governs, has no gate of its own running and no branch to have started one
 on.
+### Before adding an import — is it exported, already here, colliding, or a cycle — `b7e-import`
+
+`bc-ka5y.30` is the session audit: four beads (`bc-ka5y.15.8`, `bc-ka5y.15.7`, `bc-xl7n.93`,
+`bc-36xx.18`) each edited an import block and answered the same five questions by hand, in
+a different order, with a different tool, and different failures. `bc-ka5y.15.7` ran four
+greps for `landedNewsEvents` and answered nothing until the fifth. `bc-xl7n.93` moved
+`clearAbandonedLocks` and `STALE_LOCK_MS` out of `lib/commonrepo.js` and had to disprove
+twelve `grep -rln` hits on `heldBy`/`held` by hand — every one a substring match, none of
+them the identifier actually being moved. `bc-36xx.18` checked a name collision with
+`node -e "import(...).then(...).catch(...)"` and two unrelated `SEVERITIES` exports that
+took opening both files to clear.
+
+```
+b7e-import <symbol> --into <file>                  where <symbol> exports from, is it
+                                                     already imported, where a new import
+                                                     would land, any collision, any cycle
+b7e-import <symbol> --into <file> --from <module>   disambiguate when <symbol> is exported
+                                                     from more than one place
+b7e-import --removing <symbol>... --into <file>     the other half: what dies in <file> if
+                                                     these leave it, and who elsewhere
+                                                     still references them
+b7e-import --dir <root>                             "this tree" is <root>
+b7e-import --json                                   one object instead of the printed report
+```
+
+**By identifier, not by text.** `lib/imports.js` reuses `lib/noundef.js`'s own
+`scanFiles`/`SCAN_DIRS` and its acorn/`eslint-scope` pipeline rather than walking the tree
+a second way with a regex. That is what makes the `heldBy`/`held` false positive
+structurally impossible rather than merely avoided by a tighter pattern: `eslint-scope`
+reports a *reference*, at a location, never a substring — `obj.heldBy` and the word `held`
+are different `Identifier` nodes, full stop.
+
+**Adding.** Answers, in one call: every file under `lib/`, `bin/` and `scripts/` that
+exports `<symbol>` (named, default, or a re-export, each with its own line — a name
+exported from two places is returned as two rows, never narrowed to a first guess); whether
+`<file>` already imports it, and under what local name; the line a fresh `import` would be
+appended at — one past the last existing import, because this repo's own import blocks are
+not alphabetised (`lib/advocate.js`'s ~90 lines are in the order they arrived, not sorted),
+so "where it belongs" is answered the way this tree actually answers it; whether the name
+already names something else at `<file>`'s top level — a local `const`/`function`/`class`,
+or an import of the same name from a *different* module than the one resolved above; and
+whether adding the import would close a cycle — `<module>` already (transitively) importing
+`<file>`, proven by walking relative imports the same way `lib/noundef.js`'s own scope walk
+does, not asked of Node's module loader.
+
+**Removing — the other half.** `--removing <symbol>...` takes names already declared at
+`<file>`'s top level and reports what becomes dead if they leave: an import or a local
+`const`/`function`/`class`, not itself among `<symbol>...`, every one of whose real
+references sits inside the declarations being removed — the `fs`/`path` imports in
+`bc-xl7n.93`'s own example, unused by anything left behind once `clearAbandonedLocks` and
+`STALE_LOCK_MS` are gone. A binding with no references *before* the removal is not
+reported; that is a pre-existing dead end, not one this removal causes. Alongside that,
+every other file under `lib/`, `bin/`, `scripts/` and `test/` whose AST still contains an
+`Identifier` named after one of `<symbol>...` — the cross-file check `bc-xl7n.93` did with
+`grep -rln` and twelve false hits to disprove; a name declared in `--removing` but not
+actually found at `<file>`'s top level is reported `missing` rather than silently answered
+as "nothing depends on it".
+
+Exit codes: `0` clean — nothing found that needs attention. `1` something does: the name is
+exported from more than one place and `--from` was not given, a local binding already uses
+the name, adding the import would close a cycle, the symbol is not exported anywhere in
+this tree, or (removing) a name is not actually declared in `--into`, or something else in
+the tree still references it. `2` refused — bad usage.
+
+Read-only in exactly the same construction as `b7e-def` above: it only ever reads
+`lib/`, `bin/` and `scripts/` off disk and prints what it finds — no `bd`, no `git`, no
+subprocess. `Bash(b7e-import:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` beside
+`b7e-def`, and `lib/grants.js` classifies it `read`.
 
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
 
@@ -20214,6 +20282,117 @@ a control and a control to its counterparts; it is not a copy of six copyrighted
 and must never grow into one, which `test/controls.mjs` enforces by failing any definition
 that has swollen into a block quote.
 
+
+## Control to evidence — `refs/beadcause/controls`
+
+The corpus above is a vocabulary. On its own it says which controls exist and which of them
+are the same control under three names; it says nothing about whether any of them has ever
+*happened here*. That gap is the whole of a compliance programme's failure mode: a policy
+document describes a control, an auditor asks for evidence that it operated, and the answer
+has to be produced afterwards from memory and a search of Slack.
+
+So a bead **declares the control it exercises**, and a merge is what promotes that claim
+from forecast to proof. The requirements graph
+[above](#which-requirement-a-change-was-for--refsbeadcauserequirements) is the model and
+the three pieces are the same three:
+
+| | Requirements | Controls |
+|---|---|---|
+| what a bead says | `lib/beadreqs.js` — ids **and candidates** | `lib/beadcontrols.js` — ids only |
+| what a merge writes | `requirements:` on `refs/notes/beadcause` | `controls:` on the same note |
+| the lookup | `refs/beadcause/requirements/<token>` | `refs/beadcause/controls/<framework>` |
+| the denominator | `lib/reqcoverage.js`, and it may be absent | `lib/controlcoverage.js`, and it never is |
+
+**There is no candidate list, and that is the one structural difference.** A requirement
+usually does not exist yet when a bead is filed, so that block has to be able to hold a
+proposal without letting it pass for a fact. A control cannot be proposed: `SOC2.CC6.1` is
+published by the AICPA, the corpus ships with beadcause rather than being loaded from a
+checkout that may be absent, and a "candidate control" would be an invented control with a
+queue behind it. An id that does not resolve is dropped on read and **named** in `dropped`,
+because an agent that is not told writes the same invented id every run and from outside
+that is indistinguishable from the feature not working.
+
+```bash
+beadcause-controls declare beadcause bc-x SOC2.CC6.1 ISO27001.A.8.3   # the forecast
+beadcause-controls show SOC2.CC6.1        # the record, both crosswalks, and every commit
+beadcause-controls files lib/auth.js      # the reverse lookup
+beadcause-controls coverage [--months=N]  # what is unevidenced, forecast-only, or stale
+beadcause-controls rebuild <repo>         # the repair, and the proof
+```
+
+### Forecast and proof are the same edge with a different word on it
+
+`declared` is a bead saying beforehand what it will exercise. `observed-from-diff` is a
+merge having done it. `human-confirmed` is somebody having looked. Nothing anywhere adds
+the first to the other two, and the summary line leads with the number that is actually
+worth something:
+
+```
+9 of 192 controls are proved by a merge (5%) · 3 forecast and not yet proved · 180 with no
+evidence at all · 2 whose newest proof is older than 12 months
+```
+
+A programme that counted intentions as evidence would read as complete on the morning of
+the audit and have nothing to show for any of it. That is why `lib/controlindex.js` keeps
+provenance per edge and only ever lets it get **stronger** on re-record: a merge proving
+what a bead forecast is new evidence, and the forecast arriving afterwards is not.
+
+**The write happens without anyone remembering to.** `notePending` in `lib/advocate.js` is
+the one place in the system that holds a merge commit and a bead at the same moment;
+`lib/controllanding.js` hangs off it, next to the requirements half. A bead that claims no
+control takes none of it and its landing note is byte-for-byte the note it always was.
+
+### Dated by the commit, not by the clock
+
+An edge's `at` is the **committer date of the merge**, which is a smaller decision than it
+looks and the one that makes the review period mean anything. A note carries no date, so a
+`rebuild` that stamped "now" would mark all 192 controls freshly evidenced on the day
+somebody ran a repair — indistinguishable from good news, and the one failure a staleness
+report cannot survive. Taking it from the commit also dates a landing noted late (the sweep
+retries until the merge commit is found, which can be hours) when it merged rather than
+when the daemon noticed. `test/controlindex.mjs` wipes the store, rebuilds from the notes,
+and asserts the clock came back with the same values.
+
+### What the internal-audit instrument actually asks
+
+`GET /api/controls` — and `beadcause-controls coverage`, which is the same four questions
+in a terminal. Each answer is a **list with names in it** rather than a count, because
+"137 unevidenced" is a statistic and `SOC2.CC6.1` is a task:
+
+- **`unevidenced`** — every control with no edge at all;
+- **`forecastOnly`** — a bead said it would, no merge has shown it did;
+- **`stale`** — proved, but the newest proof is older than the review period;
+- **`orphans`** — edges recorded against ids the corpus no longer has, which is the only
+  visible symptom of a control being renamed out from under its evidence.
+
+The four are disjoint **by construction** rather than by care, and that is worth a
+sentence. `lib/controlcoverage.js` computes one row per control with a single `state` on
+it — `controls[]` in the payload — and the four lists are that register filtered. A control
+cannot appear in two of them, and a count cannot disagree with its own list, which is the
+specific way a compliance report stops being believed. `test/controlcoverage.mjs` checks
+the register against the findings rather than the findings against each other.
+
+**The review period is one number and guidance has none.** `REVIEW_MONTHS` is twelve — the
+outside of what "operated throughout the period" means for a Type II observation window or
+an ISO surveillance year — and `?months=` measures a report over a shorter one. A period per
+record would be 192 numbers nobody chose, copied down a column. What actually decides it is
+already on the framework: ISO/IEC 23894, 42005 and 5338 are `certifiable: false`, nobody is
+certified against them, and a staleness finding on one would be a finding against a document
+that makes no claim.
+
+**Unlike `/api/requirements`, this route has no `{ corpus: null }` state.** That corpus
+lives in a checkout most Macs do not have, so its absence is a state to report; this one
+ships with beadcause and is built at import, so an unreadable control corpus is a failed
+build rather than a payload. The route can therefore always state a denominator — which is
+exactly what makes "180 controls have no evidence" a sentence anybody can act on rather
+than a shrug.
+
+**It is a hint and never a gate.** No dispatch, hold or edit path consults the index, and
+that is asserted at the import boundary in `test/controlindex.mjs` for the reason
+`test/requirements.mjs` asserts it of the other one: coverage here is partial by
+construction, so a graph that could withhold work would withhold it because nobody had
+written a block, which is not a compliance failure and is certainly not a reason to hold a
+bead.
 
 ## Landing work — a branch, a pull request, and a merge queue
 
@@ -25035,9 +25214,22 @@ the sentence is read on the screen that produced it. The same guard runs on the 
 proposal path — approving an advocate's block — where there is no screen to warn on, so
 what was dropped is commented on the question instead.
 
+That warning still only fires *after* you press **Create**, and until bc-xl7n.87 the Labels
+field on the card showed `unendorsed` or `superseded-by:bc-x` as an ordinary value in the
+meantime — the card and the bead it was about to become disagreed until the warning
+appeared underneath. So `lib/draft.js` now asks `daemonOnly` the same question while it
+normalises a bead — for an agent's proposal and for a phone's edit alike — and keeps the
+answer as `labelIssues`, keyed by the label. `public/console.js` reads that field rather
+than re-deriving the rule: it greys the label's pill with the reason as its title, and
+prints the same sentence in words under the Labels field, because a `title` is a tooltip
+and this screen is read on a phone. The warning after the create is unchanged — this is the
+earlier notice, not a replacement for it.
+
 `node test/proposedlabels.mjs` (in `npm test`) covers both refusals end to end, and its
 last section is a static read of `isProtectedLabel` itself: add a family there without
 deciding what a create should do with it, and this suite fails naming your label.
+`node test/labelchip.mjs` pins the earlier notice against the same `DAEMON_ONLY` list, so
+the two cannot drift apart either.
 
 ### A card that is already a bead says so — and still files
 
@@ -28217,6 +28409,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/claims` | `?regions=1` | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding. `regions=1` adds the changed line ranges to each collision and whether they overlap; opt-in, because it is several git spawns per collision and a list of names should not pay for them |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
 | GET | `/api/requirements` | `?id=` | `{corpus, dir, tokens[], totals, orphans[], graph, summary}` — the requirement graph and, first, how much of it is missing: how many of the corpus's requirements have any edge at all, how many of those a merge proved rather than an advocate forecast, and how many edges are recorded against ids the corpus no longer has. `?id=` returns one requirement and its edges instead. `{corpus: null}` and a 200 on an install with no architecture checkout, which is every personal one — a state, not an error. Read-only: promotion into the corpus is a proposal a human applies from `beadcause-requirements promote` |
+| GET | `/api/controls` | `?id=`, `?months=` | `{size, crosswalkEdges, reviewMonths, controls[], frameworks[], totals, unevidenced[], forecastOnly[], stale[], orphans[], graph, summary}` — [the control graph](#control-to-evidence--refsbeadcausecontrols) and, first, everything it cannot evidence: every control with no edge at all, the ones a bead forecast and no merge has proved, the ones whose newest proof is older than the review period, and edges recorded against ids the corpus no longer has. Each is a **list of ids**, not a count — a finding is a task with a name on it, and each is `controls` filtered by `state`, so a count can never disagree with its own list. `controls` is one row per control carrying its title, kind, group, edge count and state — enough to put a name beside every finding without a request per row, and deliberately not the definition, which is a paragraph 192 times over. `?id=` returns one control, both directions of its crosswalk, and its edges; an id the corpus does not have is a `404` rather than an empty answer, because an empty edge list is the ordinary state of almost every control here. `?months=` measures staleness against a shorter observation window. Unlike `/api/requirements` there is no `{corpus: null}` state — `lib/controls.js` ships with beadcause, so a denominator is always available. Read-only |
 | GET | `/api/skills` | `?workspace=` **or** `?space=`, and `&refresh=1` | `{library[], candidates:{counts, rows[]}, audit, checkouts[], untracked[], errors[]}` — [the Skills view](#whether-the-library-is-being-used--the-skills-view): the `b7e-*` commands that exist, every candidate bead with its state, and what the audit agent has read. Scoped exactly as `/api/history` is, with the same three refusals. **`untracked` is part of the answer, not an omission**: four of the six numbers the view was asked for need a record of a skill being called and nothing writes one yet, so each is returned named, explained, and carrying the bead that would measure it. Kept 30s per scope; `refresh=1` forces the read |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 | POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
