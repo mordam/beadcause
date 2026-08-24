@@ -25236,6 +25236,18 @@ properties:
   producer under a ceiling. The ceiling is about the *slot*, not the caller: a refresh that
   never settles must stop holding the single-flight entry, or that key is never refreshed
   again for the life of the process and the cache quietly becomes a permanent snapshot.
+- **And running out of ceiling is a different answer from a producer that failed.** The error
+  carries a flag, and `cache.timedOut(err)` is how a caller asks. It matters because the two
+  mean opposite things: a producer that threw means *this source is broken*, while a ceiling
+  means the source is fine, the Mac is busy, and the sweep is still out there and will very
+  likely land into the keep a few seconds later. Two callers act on it, and both of them are
+  behind `/api/queues`: `collectBoard` turns a ceiling into the same `unavailable` sentence a
+  missing `gh` produces, and `gatherMerges` turns it into an `errors[]` row per workspace —
+  because none of them was reached. Both shapes already existed for "this could not be read",
+  and every reader already draws them. That is what stopped `/api/prs` and `/api/queues`
+  answering **HTTP 500** on a busy morning and having the phone file a P0 incident bead about
+  a daemon that was working (bc-19vt). A producer that genuinely failed still throws, and
+  still gets its 500.
 
 ### What is on it, and what is deliberately not
 
