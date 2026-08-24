@@ -2428,15 +2428,27 @@
    * Worth doing rather than waiting for the next minute's sweep: an act on this screen
    * changes the row it acted on, and a lamp that goes on a minute late is a lamp you press
    * the button again over.
+   *
+   * And back into the warm entry, not only into memory — the same write `loadBoard` makes
+   * at its own sweep. Without this a live correction won by opening or acting on a card
+   * dies with the document: the next warm boot repaints from the held entry, still
+   * carrying whatever `fresh` just corrected. `/api/prs` is `holdOnly` (public/warm.js)
+   * precisely so a `gh` sweep never runs per page load, but this is not that sweep — it is
+   * the one read `ensurePrDetail` already paid for, going where `loadBoard`'s does.
    */
   function adoptBoardRow(fresh) {
+    let found = false;
     for (const repo of state.board?.repos || []) {
       // By the row's own key, which names the repo: matching on the workspace and the number
       // would put a freshly-read `athena-service` #1 into `architecture`'s #1 as well, and
       // both rows would then be drawn from the same read.
       const at = (repo.prs || []).findIndex((p) => p.key === fresh.key);
-      if (at !== -1) repo.prs[at] = fresh;
+      if (at !== -1) {
+        repo.prs[at] = fresh;
+        found = true;
+      }
     }
+    if (found) window.beadcause?.warm?.write?.('/api/prs', state.board);
   }
 
   /**
