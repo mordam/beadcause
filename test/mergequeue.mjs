@@ -49,6 +49,7 @@ const { MERGE_LABEL, MERGE_ASSIGNEE, MAX_ATTEMPTS, MAX_REVIEW_ROUNDS, mergeBeadB
   await import(LIB('mergebead.js'));
 const { MAX_DOWNMERGES } = await import(LIB('mergequeue.js'));
 const { formatVerdict } = await import(LIB('reviewadvocate.js'));
+const { raiseMergeCard } = await import(LIB('mergeraise.js'));
 
 let failures = 0;
 let ran = 0;
@@ -1247,6 +1248,75 @@ await check('and so does a second round that did not agree', async () => {
   });
   assert.deepEqual(out.raised, ['zz-merge']);
   assert.match(raised[0].why, /did not agree in 2 rounds/);
+});
+
+/* ------------------------------------------- a veto, with a queue behind it (bc-i9nz7)
+
+   Adam's instruction is two claims joined by "while": a veto is *dequeued and dealt with
+   separately* **while** *the merge queue continues to drain*. They fail independently, so
+   they are pinned independently — and the two above assert the raise with a spy, which
+   cannot tell an escalation that hands the bead over from one that merely says it did.
+
+   Here the real `raiseMergeCard` is wired in, so the dequeue under test is `merge-queue`
+   actually coming off the bead, and the veto sits at the *head* of the queue, which is
+   the arrangement where a `break` in place of the `continue` would look exactly like a
+   quiet afternoon.
+*/
+
+await check('A VETO IS DEQUEUED FOR REAL — THE LABEL COMES OFF THE BEAD', async () => {
+  const stuck = { round: MAX_REVIEW_ROUNDS, verdict: 'changes', comments: [{ id: 'c1', body: 'still not this' }] };
+  const bd = fakeBd({ rows: [reviewed(stuck)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), {
+    policy: REVIEW_ON,
+    raise: (entry, why, opts) => raiseMergeCard(bd, { name: 'demo' }, entry, why, opts),
+  });
+  assert.deepEqual(out.raised, ['zz-merge']);
+  const card = bd.calls.updates.find((u) => u.id === 'zz-merge' && u.removeLabels);
+  assert.ok(card, 'nothing took the queue label off, so the next tick picks it up again under the person reading it');
+  assert.deepEqual(card.removeLabels, [MERGE_LABEL]);
+  assert.ok(card.addLabels.includes('human'), 'it left the queue without landing anywhere a person looks');
+  assert.deepEqual(out.merged, [], 'a vetoed pull request merged anyway');
+});
+
+await check('AND THE QUEUE BEHIND IT STILL DRAINS IN THE SAME SWEEP', async () => {
+  // Three queued, the vetoed one first — `queued.sort` above orders the tick by bead id,
+  // so the name is what puts it at the head, and the head is where a `break` in place of
+  // the `continue` would cost the whole rest of the sweep. It costs its own pull request
+  // and nothing else's, and it does not spend one of the tick's merge slots either.
+  const stuck = { round: MAX_REVIEW_ROUNDS, verdict: 'changes', comments: [{ id: 'c1', body: 'still not this' }] };
+  const rows = [
+    bead({ id: 'zz-aveto' }, { number: 61, bead: 'zz-w61' }, withReviewBlock('', stuck)),
+    bead({ id: 'zz-m1' }, { number: 62, bead: 'zz-w62' }, withReviewBlock('', APPROVED)),
+    bead({ id: 'zz-m2' }, { number: 63, bead: 'zz-w63' }, withReviewBlock('', APPROVED)),
+  ];
+  const bd = fakeBd({
+    rows,
+    issues: {
+      'zz-w61': { id: 'zz-w61', issue_type: 'task' },
+      'zz-w62': { id: 'zz-w62', issue_type: 'task' },
+      'zz-w63': { id: 'zz-w63', issue_type: 'task' },
+    },
+  });
+  const prApi = fakePr(openPr());
+  const out = await run(bd, prApi, {
+    policy: REVIEW_ON,
+    raise: (entry, why, opts) => raiseMergeCard(bd, { name: 'demo' }, entry, why, opts),
+  });
+
+  assert.deepEqual(out.raised, ['zz-aveto']);
+  assert.deepEqual(out.merged, ['zz-m1', 'zz-m2'], 'the veto took the rest of the queue down with it');
+  assert.deepEqual(prApi.calls.merges.map((m) => m.n), [62, 63]);
+  assert.equal(prApi.calls.merges.length, MERGES_PER_TICK, 'the veto spent one of the tick’s merge slots');
+
+  // And the two behind it went all the way through, rather than being merged and left
+  // half-filed: a drain that stops short of the close is the failure this queue replaces.
+  assert.deepEqual(
+    bd.calls.closes.map((c) => c.id),
+    ['zz-m1', 'zz-w62', 'zz-m2', 'zz-w63']
+  );
+  // The vetoed bead is the one thing that did not close — it is a card now, and a card is
+  // open work by definition.
+  assert.equal(bd.calls.closes.some((c) => c.id === 'zz-aveto' || c.id === 'zz-w61'), false);
 });
 
 await check('THE WAITING SENTENCE IS TAKEN BACK THE MOMENT IT STOPS BEING TRUE', async () => {
