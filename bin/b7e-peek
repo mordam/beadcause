@@ -1,0 +1,180 @@
+#!/usr/bin/env node
+/**
+ * `b7e-peek` — what a sibling worktree is actually adding to a file, right now.
+ *
+ *     b7e-peek <worktree-or-branch> <path> [<path> ...]   that worktree's pending
+ *                                                          change to those files —
+ *                                                          committed and uncommitted
+ *                                                          together
+ *     b7e-peek <worktree-or-branch>                       every file it has touched
+ *     b7e-peek <worktree-or-branch> --stat                the same, `+N -M` only
+ *     b7e-peek --bead <id> [<path> ...]                   resolve the worktree from a
+ *                                                          bead's own live session first
+ *     b7e-peek --json <worktree-or-branch> ...             the same, machine-readable
+ *     b7e-peek --dir <root> ...                            another tree — this is how
+ *                                                          it is tested
+ *
+ * bc-dgx7.43: six sessions, handed a worktree name by a claim refusal, each worked out
+ * what that worktree was actually doing by hand and no two of them the same way — eight
+ * `git`/`gh` calls in one case, a `git diff main...<branch>` that silently answered
+ * empty against a sibling's entirely-uncommitted work in another, a `git -C <sibling>`
+ * refused outright in a third. This is the command that would have replaced all of
+ * them. lib/peek.js does the reading; this is the argv parsing and the printing around
+ * it, same split as `bin/b7e-siblings` and `lib/siblings.js`.
+ *
+ * Exit codes: `0` the worktree was found, whether or not it has touched anything named
+ * — an empty answer is the ordinary "nothing pending", not a failure. `2` bad usage.
+ * `4` the name (or `--bead`) named something this repo does not have.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import {
+  resolveWorktree,
+  mergeBaseFor,
+  aheadCount,
+  touchedFiles,
+  peekFile,
+  statOf,
+  openPRFor,
+  worktreeForBead,
+  BASE_REF,
+} from '../lib/peek.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-peek <worktree-or-branch> [<path> ...]
+       b7e-peek --bead <id> [<path> ...]
+
+What a worktree has pending against one or more files — committed and uncommitted
+together, read against the merge-base with ${BASE_REF} so a worktree that has fallen
+behind is not credited with someone else's landed work. With no path, every file the
+worktree has touched. Exit 0 once the worktree is found, whether or not it has touched
+anything named.
+
+  --bead <id>    resolve the worktree from a bead's own live session, not by name
+  --stat         file names and +N -M only, no diff body
+  --json         one object per file instead of the printed report
+  --dir <root>   run against another tree — this is how it is tested`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const DIR_GIVEN = value('--dir');
+const ROOT = path.resolve(DIR_GIVEN || process.cwd());
+const JSON_MODE = has('--json');
+const STAT_MODE = has('--stat');
+const beadId = value('--bead', '-b');
+
+const FLAG_VALUES = new Set(['--dir', '--bead', '-b']);
+const positional = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--json' || a === '--stat' || a === '--help' || a === '-h') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--') && a.includes('=')) continue; // an inline --flag=value already read above
+  if (a.startsWith('-')) {
+    console.error(`\x1b[31mb7e-peek: unrecognised flag: ${a}\x1b[0m`);
+    process.exit(2);
+  }
+  positional.push(a);
+}
+
+const nameArg = beadId ? null : positional[0];
+const paths = beadId ? positional : positional.slice(1);
+
+if (!beadId && !nameArg) {
+  console.error('b7e-peek: nothing to look up — pass a worktree name/branch, or --bead <id>');
+  console.error(USAGE);
+  process.exit(2);
+}
+
+let target;
+if (beadId) {
+  const cfg = loadConfig();
+  const cwd = worktreeForBead(cfg, beadId);
+  if (!cwd) {
+    console.error(`b7e-peek: no live session names ${beadId} — nothing to resolve --bead from`);
+    process.exit(4);
+  }
+  target = path.basename(cwd);
+} else {
+  target = nameArg;
+}
+
+const wt = await resolveWorktree(ROOT, target);
+if (!wt) {
+  console.error(`b7e-peek: no worktree or branch answers to ${beadId ? `--bead ${beadId}` : target}`);
+  process.exit(4);
+}
+
+const base = await mergeBaseFor(ROOT, wt.branch);
+if (!base) {
+  console.error(`b7e-peek: ${wt.branch} shares no history with ${BASE_REF} — nothing this can honestly say`);
+  process.exit(4);
+}
+
+const ahead = await aheadCount(ROOT, base, wt.branch);
+const files = paths.length ? paths : await touchedFiles(ROOT, wt, base);
+const pr = await openPRFor(ROOT, wt.branch);
+
+const results = [];
+for (const file of files) {
+  // eslint-disable-next-line no-await-in-loop -- one worktree, sequential is fine
+  const r = await peekFile(ROOT, wt, base, file);
+  if (r) results.push(r);
+}
+
+if (JSON_MODE) {
+  console.log(
+    JSON.stringify({
+      branch: wt.branch,
+      state: wt.exists ? 'live' : 'pruned',
+      locked: wt.locked,
+      ahead,
+      base: base.slice(0, 7),
+      pr: pr ? { number: pr.number, url: pr.url, state: pr.state } : null,
+      files: results.map((r) => ({ ...r, ...(STAT_MODE ? { diff: undefined } : {}), stat: statOf(r.diff) })),
+    })
+  );
+  process.exit(0);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+
+const state = wt.exists ? '' : dim(' [pruned — directory is gone]');
+const lock = wt.locked ? dim(' locked') : '';
+console.log(`${wt.branch}${state}${lock} — ${ahead} commit${ahead === 1 ? '' : 's'} ahead of ${BASE_REF}`);
+console.log(pr ? `pull request: #${pr.number} ${pr.url} (${pr.state})` : 'no open pull request');
+
+if (!results.length) {
+  console.log(dim(paths.length ? '\nnothing pending against the given path(s)' : '\nnothing pending'));
+  process.exit(0);
+}
+
+for (const r of results) {
+  const kind = r.newFile ? 'new file' : r.committed && r.uncommitted ? 'committed + uncommitted' : r.committed ? 'committed' : 'uncommitted';
+  console.log(`\n${r.file} (${kind})`);
+  if (STAT_MODE) {
+    const { add, del } = statOf(r.diff);
+    console.log(`  +${add} -${del}`);
+    continue;
+  }
+  console.log(r.diff.replace(/\n$/, ''));
+}
+
+process.exit(0);
