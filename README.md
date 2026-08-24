@@ -20207,6 +20207,117 @@ and must never grow into one, which `test/controls.mjs` enforces by failing any 
 that has swollen into a block quote.
 
 
+## Control to evidence — `refs/beadcause/controls`
+
+The corpus above is a vocabulary. On its own it says which controls exist and which of them
+are the same control under three names; it says nothing about whether any of them has ever
+*happened here*. That gap is the whole of a compliance programme's failure mode: a policy
+document describes a control, an auditor asks for evidence that it operated, and the answer
+has to be produced afterwards from memory and a search of Slack.
+
+So a bead **declares the control it exercises**, and a merge is what promotes that claim
+from forecast to proof. The requirements graph
+[above](#which-requirement-a-change-was-for--refsbeadcauserequirements) is the model and
+the three pieces are the same three:
+
+| | Requirements | Controls |
+|---|---|---|
+| what a bead says | `lib/beadreqs.js` — ids **and candidates** | `lib/beadcontrols.js` — ids only |
+| what a merge writes | `requirements:` on `refs/notes/beadcause` | `controls:` on the same note |
+| the lookup | `refs/beadcause/requirements/<token>` | `refs/beadcause/controls/<framework>` |
+| the denominator | `lib/reqcoverage.js`, and it may be absent | `lib/controlcoverage.js`, and it never is |
+
+**There is no candidate list, and that is the one structural difference.** A requirement
+usually does not exist yet when a bead is filed, so that block has to be able to hold a
+proposal without letting it pass for a fact. A control cannot be proposed: `SOC2.CC6.1` is
+published by the AICPA, the corpus ships with beadcause rather than being loaded from a
+checkout that may be absent, and a "candidate control" would be an invented control with a
+queue behind it. An id that does not resolve is dropped on read and **named** in `dropped`,
+because an agent that is not told writes the same invented id every run and from outside
+that is indistinguishable from the feature not working.
+
+```bash
+beadcause-controls declare beadcause bc-x SOC2.CC6.1 ISO27001.A.8.3   # the forecast
+beadcause-controls show SOC2.CC6.1        # the record, both crosswalks, and every commit
+beadcause-controls files lib/auth.js      # the reverse lookup
+beadcause-controls coverage [--months=N]  # what is unevidenced, forecast-only, or stale
+beadcause-controls rebuild <repo>         # the repair, and the proof
+```
+
+### Forecast and proof are the same edge with a different word on it
+
+`declared` is a bead saying beforehand what it will exercise. `observed-from-diff` is a
+merge having done it. `human-confirmed` is somebody having looked. Nothing anywhere adds
+the first to the other two, and the summary line leads with the number that is actually
+worth something:
+
+```
+9 of 192 controls are proved by a merge (5%) · 3 forecast and not yet proved · 180 with no
+evidence at all · 2 whose newest proof is older than 12 months
+```
+
+A programme that counted intentions as evidence would read as complete on the morning of
+the audit and have nothing to show for any of it. That is why `lib/controlindex.js` keeps
+provenance per edge and only ever lets it get **stronger** on re-record: a merge proving
+what a bead forecast is new evidence, and the forecast arriving afterwards is not.
+
+**The write happens without anyone remembering to.** `notePending` in `lib/advocate.js` is
+the one place in the system that holds a merge commit and a bead at the same moment;
+`lib/controllanding.js` hangs off it, next to the requirements half. A bead that claims no
+control takes none of it and its landing note is byte-for-byte the note it always was.
+
+### Dated by the commit, not by the clock
+
+An edge's `at` is the **committer date of the merge**, which is a smaller decision than it
+looks and the one that makes the review period mean anything. A note carries no date, so a
+`rebuild` that stamped "now" would mark all 192 controls freshly evidenced on the day
+somebody ran a repair — indistinguishable from good news, and the one failure a staleness
+report cannot survive. Taking it from the commit also dates a landing noted late (the sweep
+retries until the merge commit is found, which can be hours) when it merged rather than
+when the daemon noticed. `test/controlindex.mjs` wipes the store, rebuilds from the notes,
+and asserts the clock came back with the same values.
+
+### What the internal-audit instrument actually asks
+
+`GET /api/controls` — and `beadcause-controls coverage`, which is the same four questions
+in a terminal. Each answer is a **list with names in it** rather than a count, because
+"137 unevidenced" is a statistic and `SOC2.CC6.1` is a task:
+
+- **`unevidenced`** — every control with no edge at all;
+- **`forecastOnly`** — a bead said it would, no merge has shown it did;
+- **`stale`** — proved, but the newest proof is older than the review period;
+- **`orphans`** — edges recorded against ids the corpus no longer has, which is the only
+  visible symptom of a control being renamed out from under its evidence.
+
+The four are disjoint **by construction** rather than by care, and that is worth a
+sentence. `lib/controlcoverage.js` computes one row per control with a single `state` on
+it — `controls[]` in the payload — and the four lists are that register filtered. A control
+cannot appear in two of them, and a count cannot disagree with its own list, which is the
+specific way a compliance report stops being believed. `test/controlcoverage.mjs` checks
+the register against the findings rather than the findings against each other.
+
+**The review period is one number and guidance has none.** `REVIEW_MONTHS` is twelve — the
+outside of what "operated throughout the period" means for a Type II observation window or
+an ISO surveillance year — and `?months=` measures a report over a shorter one. A period per
+record would be 192 numbers nobody chose, copied down a column. What actually decides it is
+already on the framework: ISO/IEC 23894, 42005 and 5338 are `certifiable: false`, nobody is
+certified against them, and a staleness finding on one would be a finding against a document
+that makes no claim.
+
+**Unlike `/api/requirements`, this route has no `{ corpus: null }` state.** That corpus
+lives in a checkout most Macs do not have, so its absence is a state to report; this one
+ships with beadcause and is built at import, so an unreadable control corpus is a failed
+build rather than a payload. The route can therefore always state a denominator — which is
+exactly what makes "180 controls have no evidence" a sentence anybody can act on rather
+than a shrug.
+
+**It is a hint and never a gate.** No dispatch, hold or edit path consults the index, and
+that is asserted at the import boundary in `test/controlindex.mjs` for the reason
+`test/requirements.mjs` asserts it of the other one: coverage here is partial by
+construction, so a graph that could withhold work would withhold it because nobody had
+written a block, which is not a compliance failure and is certainly not a reason to hold a
+bead.
+
 ## Landing work — a branch, a pull request, and a merge queue
 
 An advocate opens sessions on ready work. What happens to that work afterwards has now
@@ -28209,6 +28320,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/claims` | `?regions=1` | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding. `regions=1` adds the changed line ranges to each collision and whether they overlap; opt-in, because it is several git spawns per collision and a list of names should not pay for them |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
 | GET | `/api/requirements` | `?id=` | `{corpus, dir, tokens[], totals, orphans[], graph, summary}` — the requirement graph and, first, how much of it is missing: how many of the corpus's requirements have any edge at all, how many of those a merge proved rather than an advocate forecast, and how many edges are recorded against ids the corpus no longer has. `?id=` returns one requirement and its edges instead. `{corpus: null}` and a 200 on an install with no architecture checkout, which is every personal one — a state, not an error. Read-only: promotion into the corpus is a proposal a human applies from `beadcause-requirements promote` |
+| GET | `/api/controls` | `?id=`, `?months=` | `{size, crosswalkEdges, reviewMonths, controls[], frameworks[], totals, unevidenced[], forecastOnly[], stale[], orphans[], graph, summary}` — [the control graph](#control-to-evidence--refsbeadcausecontrols) and, first, everything it cannot evidence: every control with no edge at all, the ones a bead forecast and no merge has proved, the ones whose newest proof is older than the review period, and edges recorded against ids the corpus no longer has. Each is a **list of ids**, not a count — a finding is a task with a name on it, and each is `controls` filtered by `state`, so a count can never disagree with its own list. `controls` is one row per control carrying its title, kind, group, edge count and state — enough to put a name beside every finding without a request per row, and deliberately not the definition, which is a paragraph 192 times over. `?id=` returns one control, both directions of its crosswalk, and its edges; an id the corpus does not have is a `404` rather than an empty answer, because an empty edge list is the ordinary state of almost every control here. `?months=` measures staleness against a shorter observation window. Unlike `/api/requirements` there is no `{corpus: null}` state — `lib/controls.js` ships with beadcause, so a denominator is always available. Read-only |
 | GET | `/api/skills` | `?workspace=` **or** `?space=`, and `&refresh=1` | `{library[], candidates:{counts, rows[]}, audit, checkouts[], untracked[], errors[]}` — [the Skills view](#whether-the-library-is-being-used--the-skills-view): the `b7e-*` commands that exist, every candidate bead with its state, and what the audit agent has read. Scoped exactly as `/api/history` is, with the same three refusals. **`untracked` is part of the answer, not an omission**: four of the six numbers the view was asked for need a record of a skill being called and nothing writes one yet, so each is returned named, explained, and carrying the bead that would measure it. Kept 30s per scope; `refresh=1` forces the read |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 | POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
