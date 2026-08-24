@@ -7150,7 +7150,7 @@ hash. Home is one pane among them rather than the document everything else depar
   <body>                       ← one viewport tall, clipped, a flex column
     <header class="topbar">    ← flex: none
     <nav class="viewbar">      ← flex: none, inserted at load by viewbar.js
-    <div class="pane" data-pane="epics">      ← flex: 1 — the filter, the list, ＋, ✏️
+    <div class="pane" data-pane="epics">      ← flex: 1 — the filter, the list, ＋
     <div class="pane" data-pane="history"     hidden>
     <div class="pane" data-pane="advocates"   hidden>
     <div id="toast">  <dialog id="setup">     ← the app talking, not a view
@@ -8563,8 +8563,10 @@ gap or a duplicate, or if a version block reappears as prose inside `sw.js`.
 A change to this webapp has always started the same way: describing a screen, in words,
 to a chat that cannot see it — from the phone the screen is on. The screen is right
 there and is the best description of itself. **Edit mode** (bc-p49x) is the state that
-lets it be used that way: tap ✏️, and the inbox stops being a list you answer and becomes
-a surface you point at.
+lets it be used that way: turn it on, and the inbox stops being a list you answer and
+becomes a surface you point at. Turning it on is `beadcause.editMode.toggle()` and nothing
+else — the ✏️ that used to do it is [parked](#where-the-button-was-and-why-it-is-parked)
+(bc-p49x.12).
 
 It is built end to end. The screen holds still and every element on it traces back to the
 line of source that drew it (bc-p49x.1, widened to every writer of the screen rather than
@@ -8599,7 +8601,7 @@ otherwise replace the list you were pointing at with an error message.
 
 A frozen inbox and a quiet one are the same picture, so the mode says which: a fixed
 banner across the top — **Edit mode — the screen is frozen** — with a **Done** beside it,
-a tint on the page, and the ✏️ filled. Without that, a screen that had silently stopped
+and a tint on the page. Without that, a screen that had silently stopped
 updating reads as an app that has hung, and the reflex is to reload it, which is the one
 action that both fixes it and throws away whatever was being pointed at.
 
@@ -8610,7 +8612,7 @@ thing on this screen that runs on its own every twenty-five seconds. It is not t
 thing that writes to it. Three paths in `public/app.js` write to the DOM on clocks of
 their own and never through `render()`. Two of them need a deliberate tap in the seconds
 *just before* the mode is entered — which is exactly the sequence somebody reaching for
-the ✏️ is in the middle of — and the third needs nothing but a poll. bc-p49x.5 is where
+edit mode is in the middle of — and the third needs nothing but a poll. bc-p49x.5 is where
 each was decided.
 
 **The six arm timers.** Merge, ship, dismiss, a proposal's two bulk buttons, a JIRA
@@ -8737,26 +8739,49 @@ the title you are pointing at is not in it, and a bead title comes back `unknown
 refused, and one step from being filed. The screen and the set of strings it is drawing
 are frozen together and thaw together.
 
-### Where the button is, and why not the top bar
+### Where the button was, and why it is parked
 
-✏️ sits at the bottom left of the inbox, mirroring ＋ across the foot of the screen: the
+✏️ sat at the bottom left of the inbox, mirroring ＋ across the foot of the screen: the
 other thumb, the same height, and the same z-index bargain — over the list, under an open
 card. It was not a fifth icon in the top bar because that bar was full at four, which was
 measured rather than assumed: `scripts/topbar-check.mjs` put a fifth `.icon-btn` at 216px
 of `.sheet-actions` against a 133px brand, wrapping `.topbar` to three rows at both 360
-and 393 (bc-qsj6.1).
+and 393 (bc-qsj6.1). That bar has room now — bc-khoe.5 emptied it into the mark's menu —
+and the control still could not have gone in it, for a reason that outlives the
+arithmetic: **edit mode freezes the screen**, and inside it a tap points at an element
+rather than acting on it. Nothing behind a tap-to-open menu can be reached from in there,
+so the way *into* the mode would have worked and the way *out* of it would not.
 
-That bar has room now — bc-khoe.5 emptied it into the mark's menu — and this control still
-does not go in it, for a reason that outlives the arithmetic: **edit mode freezes the
-screen**, and inside it a tap points at an element rather than acting on it. Nothing behind
-a tap-to-open menu can be reached from in there, so the way *into* the mode would work and
-the way *out* of it would not. It stays a button on the page.
+**bc-p49x.12 took it off the screen.** Not because any of that was wrong, but because of
+what the arithmetic leaves out: a fixed 44px circle over the list, on the one screen this
+app is mostly looked at, all day, for a mode most sessions never touch. A control earns
+its corner by being reached; this one was not.
 
-The button is in `public/index.html` rather than built by the module, because where it
-goes is a question about *that page's* layout and not about the mode. A page that never
-adds one still gets the whole of `beadcause.editMode`, which is how the checks drive it —
-and a page served without `editmode.js` answers `frozen()` false and behaves exactly as
-the inbox always did.
+**Parked, not removed, and the distinction is the whole shape of the change.**
+`public/editmode.js` carries no code change at all — two comments, and nothing else — and
+the inbox still loads it. `wireButton` already returned early on a page with no button — the button was always the *page's*, because
+where it goes is a question about that page's layout and not about the mode — so a missing
+element is a path the module was written for rather than one it now tolerates. The mode is
+entered, left and read through `window.beadcause.editMode`, which is what the console and
+both browser checks drive it by, and `.editmode` with its badge is still in the stylesheet.
+Bringing it back is one element in `public/index.html` and nothing else, and
+`public/index.html` says so at the spot it used to occupy.
+
+Two things are genuinely lost, and both were accepted rather than overlooked:
+
+- **There is no gesture into edit mode from a phone.** A phone has a console only in the
+  sense that a laptop is nearby, so in practice the mode is now reached from a laptop or
+  not at all. Nothing replaces the button — a hidden long-press or a shake would be a new
+  entry gesture to design, test and explain, which is a different bead from taking one
+  away.
+- **The unsaved-change count has nowhere to land once the mode has ended.** That badge was
+  the difference between "nothing was applied yet" and "it lost my edits"; see the
+  paragraph on the pass below for what is left of the guarantee. `paintCount` writes it
+  only `if (btn)`, so with the button gone it simply writes nothing and the badge CSS is
+  unused — no exception, and no new home for the count in this pass.
+
+A page served without `editmode.js` at all still answers `frozen()` false and behaves
+exactly as the inbox always did; that has not changed either.
 
 ### One press, and three ways to say what should change
 
@@ -8807,15 +8832,20 @@ note is dropped for you** — it is a finger that slipped rather than an edit, a
 full of "something about this card" is worse than an empty one, so `Add` stays refused
 while the box is empty.
 
-The list outlives leaving the mode; the visuals do not. Hitting ✏️ twice is not a decision
-to throw a pass away, and the record of what you asked for is the only thing here that
-cannot be reconstructed from the screen afterwards. What empties it is Save.
+The list outlives leaving the mode; the visuals do not. Leaving and coming straight back
+is not a decision to throw a pass away, and the record of what you asked for is the only
+thing here that cannot be reconstructed from the screen afterwards. What empties it is
+Save.
 
-**So the ✏️ carries the count once the banner has gone.** Leaving the mode puts the whole
-screen back the way the app has it — which is the truth, and is also exactly what a save
-that failed would look like. A badge on the way back in, and the same number in the
-button's label, is the difference between "nothing was applied yet, and here is what you
-said" and "it lost my edits".
+**The ✏️ used to carry the count once the banner had gone**, and while the button is
+parked (bc-p49x.12) nothing does. Leaving the mode puts the whole screen back the way the
+app has it — which is the truth, and is also exactly what a save that failed would look
+like. A badge on the way back in, and the same number in the button's label, was the
+difference between "nothing was applied yet, and here is what you said" and "it lost my
+edits". With no way back in on the screen there is nowhere to put either, so the pass is
+now only readable from `beadcause.editMode.changes()` — which is where whoever entered the
+mode already is. `paintCount` still writes the badge the moment a button exists, so the
+guarantee comes back with the element rather than needing to be rebuilt.
 
 `beadcause.editMode` exposes the pass as `changes()` — JSON, holding the anchor, the kind,
 the note or the two strings, and for a point the element it landed against — plus
@@ -8990,7 +9020,9 @@ shape, and is checked as behaviour in `test/spacebar.mjs`, which runs the real
 while frozen, `state` takes it anyway, and the next `adopt()` after the thaw draws it.
 
 `node scripts/editmode-check.mjs` is bc-p49x.1's acceptance **and bc-p49x.5's**, in a
-headless Chrome the size of a phone. Its first case is the control and is the reason the
+headless Chrome the size of a phone, entered through `beadcause.editMode.toggle()` since
+bc-p49x.12 parked the button — and asserting on the way past that there is indeed no ✏️
+left to have pressed. Its first case is the control and is the reason the
 rest means anything: with the mode **off**, a poll carrying a changed bead replaces the
 very nodes the frozen case then keeps. Without it, a check that stamped every node and
 found the stamps intact would pass just as happily against a page that never polled at all.
@@ -9012,7 +9044,10 @@ re-entering the mode, pressing Save with a thumb and reading what left the phone
 is the epic's acceptance end to end: three things changed on a 393-point screen with no
 keyboard and no chat, and one post carrying the anchors, the lines and the filters they
 were said under. Every case in it is driven as
-actual touches through `Input.dispatchTouchEvent`. That is not thoroughness for its own
+actual touches through `Input.dispatchTouchEvent`. Every case except *entering the mode*,
+which since bc-p49x.12 is `beadcause.editMode.toggle()` because the ✏️ is parked and there
+is nothing on the inbox to aim at — and a tap on a fixed 44px circle was never one of the
+three gestures this check exists to prove. That is not thoroughness for its own
 sake: a tap, a hold and a scroll are the same three events until you time them, Chrome is
 the thing that decides which one a finger made, and what a drop lands on is a question
 about where things are on a 393-point screen. A suite that fires `pointerdown` and moves

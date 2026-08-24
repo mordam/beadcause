@@ -7473,7 +7473,15 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
    the tint is a colour on a pseudo-element rather than a border on anything real. */
 
 /* The way in, mirroring ＋ across the foot of the screen. Left because that is the other
-   thumb, and the same height because the two are peers: one creates, one edits. */
+   thumb, and the same height because the two are peers: one creates, one edits.
+
+   Parked (bc-p49x.12): nothing wears this any more. The button was taken out of
+   `public/index.html` because it sat over the inbox all day for a mode most sessions
+   never touch, and edit mode is now entered through `beadcause.editMode.toggle()` alone.
+   These three rules stay because the parking is meant to be reversible — put the element
+   back and the control is exactly what it was, badge included. Same for
+   `.editmode[data-changes]::after` further down, which is styling a count that currently
+   has nowhere to land. */
 .editmode {
   position: fixed;
   z-index: 24;
@@ -7629,7 +7637,11 @@ body.editing::after {
    Leaving edit mode puts the whole screen back the way the app has it — which is the
    truth, and is also exactly what a save that failed would look like. This badge is the
    difference: the way back in says how many edits are waiting, so a reverted screen reads
-   as "nothing was applied yet" rather than as "it lost them". */
+   as "nothing was applied yet" rather than as "it lost them".
+
+   Unused while the ✏️ is parked (bc-p49x.12) — there is no way back in to hang it on.
+   `paintCount` still writes `data-changes` whenever a button exists, so this comes back
+   with the element and needs nothing else. */
 .editmode[data-changes]::after {
   content: attr(data-changes);
   position: absolute;
