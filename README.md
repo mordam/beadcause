@@ -11823,18 +11823,35 @@ the ids in hand rather than against a pattern is deliberate: a bead-id regex is 
 over](#which-bead-a-pull-request-is-for), and a question about one child of an epic would
 flag the epic and every other child of it. Nothing here ever truncates, so it cannot.
 
-**A `human` *epic* is not a question, and it is the one thing excluded.** Measured against
-the live beadcause tracker on 2026-08-23: 130 held beads, 17 open `human` beads, four of
-them P0/P2 epics — and those four produced *every* false positive there was, three
-unrelated held beads flagged because `bc-9d37`'s and `bc-rfnr.9`'s notes happen to mention
-them. That is not a tuning problem. A `human` epic is a **standing board card**: the epic
-*is* the work, the label is what puts it on the P0 board,
-and its notes are an advocate's running log naming every bead it has touched this week. A
-`human` task, bug or decision is the other thing entirely — somebody asking about
-something, once, and naming what they mean. One line of exclusion took the same
-measurement from four flags to one, and the one is true: bc-xl7n.77.1 on bc-xl7n.77.2. The
-difference matters more than it sounds, because a row that cries wolf is a row you learn to
-scroll past, which costs this whole section what it is for.
+**A standing card is not a question, and excluding the two kinds of them is the whole of
+the precision.** A row that cries wolf is a row you learn to scroll past, which costs this
+whole section what it is for — so both exclusions were measured against live trackers
+rather than guessed at, and both are exclusions of a *class*: a card the machinery raises
+about its own progress, whose text names beads for bookkeeping.
+
+**A `human` *epic*.** Measured against the live beadcause tracker on 2026-08-23: 130 held
+beads, 17 open `human` beads, four of them P0/P2 epics — and those four produced *every*
+false positive there was, three unrelated held beads flagged because `bc-9d37`'s and
+`bc-rfnr.9`'s notes happen to mention them. That is not a tuning problem. A `human` epic is
+a **standing board card**: the epic *is* the work, the label is what puts it on the P0
+board, and its notes are an advocate's running log naming every bead it has touched this
+week. One line of exclusion took that measurement from four flags to one, and the one is
+true: bc-xl7n.77.1 on bc-xl7n.77.2.
+
+**And a `pr-delivery` card**, which the first measurement could not see because beadcause's
+own tracker had none open that day. It is a **merge** card — the queue relabels a merge-bead
+into one when it hands a pull request back — so what it asks is *should this branch merge*,
+never *should an hour of unattended agent be spent on this bead*, and its body is a
+`beadpr` block whose title and summary name every bead the branch touched. Measured against the configured `architecture` workspace on 2026-08-24:
+**77 held beads, 46 open `human` beads, 28 flagged rows — and every one of the 18 questions
+doing the flagging was a `pr-delivery` card.** `cl-ae8` (*Merge #569? cl-tcg*) alone named
+five further beads on the same root cause, so five held rows each drew *An open question
+names this bead* about a merge decision that was not about them. That is a third of one
+configured workspace's queue drawing a ⚑ that means nothing, on the first production sweep.
+With the exclusion the same measurement is **0**, and beadcause's own is unchanged.
+
+A `human` task, bug or decision that is neither of those is the other thing entirely —
+somebody asking about something, once, and naming what they mean.
 
 It is **one `bd human list` per workspace that has a row in the queue**, on the
 `questions:<workspace>` key [the inbox already keeps warm](#what-is-on-it-and-what-is-deliberately-not) —
@@ -11842,7 +11859,11 @@ so on a running daemon this costs no spawn at all, and on a cold one it pays for
 the inbox was about to pay for anyway. A workspace whose read fails leaves the field
 `null` rather than `[]`, because `[]` is the sentence *nobody has asked about this bead*
 and saying that on the strength of a `bd` call that never came back is the exact failure
-the section is about.
+the section is about. **A refresh that fell over is stale, not missing**: the cache layer's
+own rule is [last good beats
+empty](#the-shared-cache--past-the-window-nothing-waits-for-the-sweep), so a workspace
+whose list is *kept* and whose refresh failed keeps drawing the ⚑ it is holding — `null` is
+for a read with nothing at all behind it.
 
 **Endorse all counts them between its two taps** — *one of them has an open question ⚑ —
 worth reading before you do* — and does not refuse. A bead can carry a stale question for
@@ -11850,6 +11871,10 @@ a month, and a bulk control that would not fire until you had cleared every one 
 a control you stop using, which quietly takes the meaning out of the hold in exactly the
 way [the section below](#endorse-all--the-tap-that-empties-it) is about. The rows say
 which; the header says how many, at the moment you are about to act on all of them at once.
+**And it is the one place the `null` is spent** — *one of them could not be checked for
+open questions* — because everywhere else `null` and `[]` correctly draw the same nothing
+(a folded row cannot usefully say *maybe*), while this press is the only control that acts
+on *nothing here has a question against it* for sixty beads at a time.
 
 ### Four verdicts per row, and a group tap above them
 
@@ -12142,14 +12167,19 @@ get it wrong lives: read too loosely and rows cry wolf until you learn to scroll
 them, read too tightly and the screen draws nothing, which is indistinguishable from
 nobody having asked. It pins the dotted-child trap in both directions, that all five text
 fields are read, that a question naming only itself is about nothing, that several
-questions come loudest first and bounded, that a `human` epic never flags a row while a
-task, bug or decision does, that only the workspaces with rows in the queue are asked at
-all, and that the answer is kept on the key `allQuestions()` writes.
+questions come loudest first and bounded, that neither a `human` epic nor a `pr-delivery`
+merge card ever flags a row while an ordinary task, bug or decision does — however the
+label is cased or padded, because bd does not normalise them — that only the workspaces
+with rows in the queue are asked at all, that a refresh which fell over keeps serving the
+list it is holding rather than blanking every ⚑ in the workspace, and that the answer is
+kept on the key `allQuestions()` writes.
 
 `node scripts/endorse-check.mjs` is the half only a browser can make, and it is the
 acceptance the bead was written with: that both lines are on the row **folded**, that the
 question names its id and what it asks, that the comment is quoted with whoever said it,
-that the rows nobody asked about carry nothing at all — and that all of it was drawn off
+that the rows nobody asked about carry nothing at all, that the armed *Endorse all* counts
+the beads somebody has asked about without refusing the press and says so when a repo's
+question list could not be read at all — and that all of it was drawn off
 the one sweep the page had already made, because a row that had to fetch its own thread
 would raise the flag a second after the thumb had gone.
 
@@ -24334,7 +24364,7 @@ properties:
 | `board:` | lib/prboard.js | 25s | The whole swept PR board — every repo, every rung |
 | `prs:<checkout>` | lib/prboard.js | 120s | One checkout's `gh` slug and pull requests |
 | `queue:<workspaces>` | lib/endorsequeue.js | 15s | Every held bead in the active account's repos, with provenance |
-| `questions:<workspace>` | lib/server.js, lib/openquestion.js | 10s | One `bd human list`, behind `allQuestions()` — and read again by the endorse row that draws the open question naming a bead |
+| `questions:<workspace>` | lib/server.js, lib/openquestion.js | 10s | One `bd human list`, behind `allQuestions()` — and read *and filled* by the endorse row that draws the open question naming a bead, which serves the kept list when a refresh fails rather than blanking the flags |
 | `foundation:<workspace>` | lib/server.js | 10s | One `bd list --label`, the foundation channel on its own |
 | `agentbeads:<workspace>` | lib/server.js | 10s | One `bd list --exclude-label human` |
 | `work:<workspace>` | lib/work.js | 10s | The four `bd` calls behind one workspace's row on `/api/work` |

@@ -633,6 +633,16 @@ try {
     /2 in alpha/.test(allArmed) && /1 in beta/.test(allArmed),
     allArmed.slice(0, 220)
   );
+  // And the reason this control exists at all: the queue it is about to endorse in one
+  // press has a bead somebody has an open question about, and the hint counts it. A
+  // *count and not a refusal* — a stale question must not be able to jam Endorse all
+  // shut — so the assertion is on the sentence, not on the button being disabled.
+  check(
+    'the armed hint counts the beads somebody has asked about',
+    /One of them has an open question/.test(allArmed),
+    allArmed.slice(0, 320)
+  );
+  check('and it does not refuse the press', await evalJs(`document.querySelector('.eq-all').disabled === false`));
   await shot('all-armed');
 
   await press('.eq-all');
@@ -683,6 +693,35 @@ try {
     JSON.stringify(BEADS.map((b) => b.id))
   );
   await shot('all-scoped');
+
+  /* ---- `questions: null` is a repo that could not be asked, and says so ---- */
+
+  // The distinction lib/openquestion.js keeps and every other reader collapses. `[]` is
+  // *nobody has asked about this bead*; `null` is *this workspace's `bd human list` did
+  // not come back*, and drawing them the same here would be the one press in the app that
+  // acts on "nothing has a question against it" doing so on the strength of a call that
+  // never happened. Everywhere else they are correctly identical — the folded row draws
+  // no ⚑ for either, because a row cannot usefully say *maybe*.
+  await evalJs(`window.beadcause.space.set({ space: 'all', workspace: 'all' })`);
+  BEADS = seed().map((b) => (b.workspace === 'beta' ? { ...b, questions: null } : b));
+  await press('#eq-refresh');
+  await waitFor(`document.querySelectorAll('.eq-bead').length === 3`);
+  check(
+    'a row whose questions could not be read draws no flag of its own',
+    await evalJs(`document.querySelectorAll('[data-row="beta/bb-mid"] .eq-ask').length === 0`)
+  );
+  await press('.eq-all');
+  await sleep(400);
+  const unknownArmed = await text();
+  check(
+    'but the press that acts on all of them says the queue was not fully checked',
+    /One of them could not be checked for open questions/.test(unknownArmed),
+    unknownArmed.slice(0, 360)
+  );
+  await shot('all-unknown');
+  await press('.eq-all');
+  await sleep(1400);
+  await waitFor(`document.querySelectorAll('.eq-bead').length === 0`);
 
   /* ---- a group where one bead did not go through says which ---- */
 

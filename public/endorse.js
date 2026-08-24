@@ -652,9 +652,21 @@
       .join(', ');
     const elsewhere = Math.max(0, (state.data?.counts?.total || shown) - shown);
     const asked = rows().filter((b) => (b.questions || []).length).length;
+    // **And the rows whose questions could not be read at all.** `questions` is `null`
+    // rather than `[]` when a workspace's `bd human list` never came back — the whole
+    // reason lib/openquestion.js keeps the two apart — and this is the one press where
+    // that distinction is worth a sentence. Everywhere else `[]` and `null` draw the same
+    // nothing, correctly: a folded row cannot usefully say *maybe*, and sixty rows each
+    // hedging about one repo's failed read is the noise the ⚑ exists to stay clear of.
+    // Here it is different, because `[]` is precisely the sentence *it is safe to endorse
+    // all of these* and this button is the only place that sentence gets acted on.
+    const unknown = rows().filter((b) => !Array.isArray(b.questions)).length;
     const rest = [
       asked
         ? `${asked === 1 ? 'One of them has' : `${asked} of them have`} an open question ⚑ — worth reading before you do.`
+        : '',
+      unknown
+        ? `${unknown === 1 ? 'One of them could not be checked' : `${unknown} of them could not be checked`} for open questions — a repo's question list did not answer, so a ⚑ may be missing.`
         : '',
       elsewhere ? `${plural(elsewhere, 'bead')} in another space ${elsewhere === 1 ? 'stays' : 'stay'} held.` : '',
       state.data?.truncated

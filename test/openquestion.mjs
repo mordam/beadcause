@@ -25,11 +25,17 @@
  *    advocate console actually produces.
  * 3. **A question that names only itself is not about anything else.** A held bead can carry
  *    `human`, which puts it in both lists at once.
- * 4. **A `human` epic is a board card, not a question.** Measured against the live tracker:
- *    four of seventeen open `human` beads were epics, and those four produced *every* false
- *    positive, because an epic's notes are an advocate's running log naming every bead it
- *    has touched. One line of exclusion took the same measurement from four flags to one
- *    true one.
+ * 4. **A standing card is not a question, and there are two of them.** A `human` **epic**:
+ *    measured against the live beadcause tracker, four of seventeen open `human` beads were
+ *    epics, and those four produced *every* false positive, because an epic's notes are an
+ *    advocate's running log naming every bead it has touched. And a **`pr-delivery`** merge
+ *    card, which the first measurement could not see because beadcause had none open that
+ *    day: measured against the configured `architecture` workspace on 2026-08-24, **28 of
+ *    77 held rows were flagged and every one of the 18 questions doing it was a
+ *    `pr-delivery` card** — `cl-ae8` (*Merge #569? cl-tcg*) alone naming five further beads
+ *    on the same root cause. Excluding the class takes that measurement to **0** and leaves
+ *    beadcause's own true flag standing. A row that cries wolf is a row you learn to scroll
+ *    past, which costs the feature everything it is for.
  * 5. **Loudest first, and bounded.** A row is a row.
  * 6. **A workspace that could not be read leaves `null`, never `[]`.** `[]` is the sentence
  *    *nobody has asked about this bead*, and saying it over a `bd` call that never came back
@@ -164,6 +170,53 @@ await check('a human epic is a board card and never flags a row', async () => {
   assert.deepEqual(rows[0].questions, [], 'a row that cries wolf is a row you learn to scroll past');
 });
 
+await check('a pr-delivery merge card asks about a branch, and never flags a row', async () => {
+  cache.clear();
+  const rows = [row('alpha', 'aa-one'), row('alpha', 'aa-two')];
+  // The shape lib/mergeraise.js produces when the queue hands a pull request back: `human`
+  // and `pr-delivery`, a *task*, titled after the merge and carrying a `beadpr` block whose
+  // summary names every bead the branch touched. Measured against the configured
+  // `architecture` workspace on 2026-08-24 before this exclusion existed: 77 held beads, 46
+  // open `human` beads, 28 flagged rows — and all 28 came from cards of exactly this shape.
+  // `cl-ae8` (*Merge #569? cl-tcg*) named five further beads on the same root cause, so five
+  // held rows each drew "An open question names this bead" about a merge that was not about
+  // them. The same measurement with the exclusion is 0.
+  const bd = fakeBd({
+    alpha: [
+      ask('aa-card', {
+        issue_type: 'task',
+        labels: ['human', 'pr-delivery'],
+        title: 'Merge #569? aa-one: the lint job is broken',
+        description: 'Also on this root cause: aa-two.',
+      }),
+    ],
+  });
+  await addOpenQuestions(bd, [ALPHA], rows);
+  assert.deepEqual(rows[0].questions, [], 'the bead the branch is *for* is not a bead somebody is asking about');
+  assert.deepEqual(rows[1].questions, [], 'and neither are the ones its summary happens to name');
+});
+
+await check('the label is matched however it is cased or padded', async () => {
+  cache.clear();
+  const rows = [row('alpha', 'aa-one')];
+  // bd does not normalise labels, so the exclusion cannot assume they arrive tidy.
+  const bd = fakeBd({ alpha: [ask('aa-card', { labels: [' PR-Delivery '], description: 'about aa-one' })] });
+  await addOpenQuestions(bd, [ALPHA], rows);
+  assert.deepEqual(rows[0].questions, []);
+});
+
+await check('a question carrying other labels is still a question', async () => {
+  cache.clear();
+  const rows = [row('alpha', 'aa-one')];
+  // The exclusion is of two named classes, not of anything that happens to be labelled:
+  // most real questions carry `human` plus an addressee and whatever else filed them.
+  const bd = fakeBd({
+    alpha: [ask('aa-q', { labels: ['human', 'for:someone@example.com', 'ran:opus'], description: 'about aa-one?' })],
+  });
+  await addOpenQuestions(bd, [ALPHA], rows);
+  assert.equal(rows[0].questions.length, 1);
+});
+
 await check('but a task, bug or decision carrying human is a question and does flag', async () => {
   for (const kind of ['task', 'bug', 'decision', undefined]) {
     cache.clear();
@@ -242,6 +295,33 @@ await check('a workspace whose bd fell over leaves null, and the others still an
     null,
     '`[]` would be this screen saying "nobody has asked" on the strength of a call that never came back'
   );
+});
+
+await check('a refresh that fell over serves the last good list, and does not blank the flags', async () => {
+  cache.clear();
+  // lib/cache.js's own rule is *last good beats empty*: a producer that throws over a key
+  // that already has a value leaves the value readable and puts the failure on the
+  // envelope. Treating the envelope's `error` as fatal threw that list away and answered
+  // `null` for every row in the workspace — which is this screen going quiet about a
+  // question it is *still holding*, for one transient `bd human list`.
+  let fell = false;
+  const bd = {
+    calls: [],
+    async listHuman(ws) {
+      bd.calls.push(ws.name);
+      if (fell) throw new Error('dolt: could not read');
+      return [ask('aa-q', { description: 'about aa-one' })];
+    },
+  };
+  const first = [row('alpha', 'aa-one')];
+  await addOpenQuestions(bd, [ALPHA], first, { now: () => 0 });
+  assert.equal(first[0].questions.length, 1, 'the warm read that fills the key');
+
+  fell = true;
+  const after = [row('alpha', 'aa-one')];
+  await addOpenQuestions(bd, [ALPHA], after, { now: () => 0, refresh: true });
+  assert.equal(cache.peek('questions:alpha')?.error, 'dolt: could not read', 'the failure is on the envelope');
+  assert.equal(after[0].questions.length, 1, 'and the flag it is holding stays on the row');
 });
 
 await check('the answer is kept on the key the inbox already keeps warm', async () => {
