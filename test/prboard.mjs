@@ -598,5 +598,80 @@ check(
   JSON.stringify(build)
 );
 
+/* ---------------------------------------------------- a sweep that ran out of ceiling */
+
+/* bc-19vt. The only reader that ever waits on this cache is one arriving on a key with
+   nothing kept, and on a busy Mac that wait can reach the ceiling — 82 child processes and
+   46 minutes of `bd` work behind one board sweep, measured on 2026-08-23. It used to throw,
+   which reached the route's catch-all as **HTTP 500**, which public/report.js reads as *the
+   daemon is failing* and files a P0 incident bead about. It is not failing; it is busy. So
+   the ceiling — and only the ceiling — becomes the `unavailable` sentence a missing `gh`
+   already produces, and every caller's existing handling of that is the whole of the fix.
+
+   Driven by seeding the cache's own key with a producer that will not settle, rather than by
+   slowing the sweep down: what is under test is which of two failures collectBoard is looking
+   at, and the ceiling is shrunk to milliseconds because the real one is 150 seconds. */
+
+console.log('\nwhen the board sweep does not come back in time');
+
+const cachelib = await import(path.join(ROOT, 'lib', 'cache.js'));
+const hushed = async (fn) => {
+  const was = console.error;
+  console.error = () => {};
+  try {
+    return await fn();
+  } finally {
+    console.error = was;
+  }
+};
+
+{
+  cachelib.drop('board:');
+  let release;
+  const held = cachelib.read('board:', () => new Promise((resolve) => (release = resolve)), {
+    freshMs: 10_000,
+    ceilingMs: 5_000,
+  });
+  held.catch(() => {});
+
+  const stuck = await hushed(() => collectBoard(bd, cfg, { boot: null, deploys: [], ceilingMs: 30 }));
+  check(
+    'a cold sweep past its ceiling is `unavailable`, not a throw — a 500 here files a P0 incident bead',
+    /did not finish within/.test(String(stuck.unavailable)),
+    JSON.stringify(stuck.unavailable)
+  );
+  check(
+    '  — with no repos and its counts taken over them, so it cannot read as a board with nothing on it',
+    stuck.repos.length === 0 && stuck.counts.owed === 0,
+    JSON.stringify(stuck.counts)
+  );
+  check('  — and no kept age, because nothing was kept to be old', stuck.kept === null, JSON.stringify(stuck.kept));
+
+  release({ unavailable: null, repos: [], build: null, counts: {}, at: '' });
+  await held.catch(() => {});
+  cachelib.drop('board:');
+}
+
+{
+  cachelib.drop('board:');
+  // The other half: a producer that fell over is a real failure and still throws, because
+  // softening *that* into "the Mac is busy" would hide a broken `gh` behind a busy one.
+  const failing = cachelib.read(
+    'board:',
+    () => new Promise((_resolve, reject) => setTimeout(() => reject(new Error('gh fell over')), 20)),
+    { freshMs: 10_000, ceilingMs: 5_000 }
+  );
+  failing.catch(() => {});
+
+  let threw = null;
+  try {
+    await hushed(() => collectBoard(bd, cfg, { boot: null, deploys: [], ceilingMs: 2_000 }));
+  } catch (err) {
+    threw = err;
+  }
+  check('a producer that failed for its own reasons still throws', /gh fell over/.test(String(threw?.message)), String(threw));
+  cachelib.drop('board:');
+}
+
 console.log(failures ? `\n${failures} failed` : '\nall ok');
 process.exit(failures ? 1 : 0);
