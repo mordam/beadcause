@@ -93,6 +93,19 @@ check('both owners point at the module that parses it and writes its brief', () 
   assert.ok(fs.existsSync(path.join(ROOT, b.briefOwner)), 'the bead an argument lands on would name a file that is not there');
 });
 
+check('ITS ROLE CARRIES THE NEW RULE, BECAUSE THE FOUNDATION IS EVERY RUN AND THE BRIEF IS ONE', () => {
+  // bc-9ntye.4. The brief below is what the reviewer is asked this time; this is what it
+  // is on every run, and the two saying different things about what a block means is the
+  // agent being handed both rules at once. The old wording — "you will not approve while
+  // it stands" — is the one that has to be gone rather than merely joined, because a
+  // reviewer that reads it goes on treating a withheld approval as a veto.
+  const role = baseline(REVIEW_ADVOCATE).role || '';
+  assert.match(role, /only thing that holds a\s+merge/, 'the role does not say a block is the whole of the veto');
+  assert.match(role, /must not merge as it stands/);
+  assert.match(role, /becomes work rather than a round/, 'the role never says where a non-blocking comment goes');
+  assert.ok(!/will not approve while/.test(role), 'the role still defines blocking as a withheld approval');
+});
+
 check('AND WHAT IT MAY NOT DO IS THE WHOLE ARGUMENT FOR IT BEING ONE', () => {
   // This agent judges work other agents did. Every entry below is something it would be
   // able to do to the branch it is reviewing, and `writes: true` alone would not say so:
@@ -354,7 +367,56 @@ check('IT SAYS WHAT A GOOD REVIEW COMMENT IS, BECAUSE NOTHING ELSE WILL', () => 
   assert.match(text, /`blocking` is a promise/i, 'nothing in the brief says what may be a blocking comment');
   assert.match(text, /Style, naming, structure and taste/, 'a reviewer that blocks on taste burns a round for nothing');
   assert.match(text, /Few and real beats many and plausible/);
-  assert.match(text, /is a bead, not a\n*\s*review comment/, 'nothing stops the review widening into the file around the diff');
+  assert.match(text, /is not this pull\n*\s*request’s problem/, 'nothing stops the review widening into the file around the diff');
+  assert.match(text, /a bead nobody asked\n*\s*for/, 'widening now costs a bead as well as a round, and the brief does not say so');
+});
+
+check('BLOCKING IS THE ONLY THING THAT HOLDS THE MERGE, AND THE BRIEF SAYS SO BEFORE ANYTHING ELSE', () => {
+  // bc-9ntye.4, and the reason this bead exists at all. The rule changed under the
+  // reviewer: a verdict carrying only suggestions and questions merges, and those comments
+  // are filed as work instead of coming back as a round. A brief that did not say so would
+  // hand the agent the old rule in new machinery.
+  const text = reviewAdvocatePrompt('beadcause', ISSUE, SPEC);
+  assert.match(text, /Only a `blocking` comment holds this branch/, 'the brief never states the rule');
+  assert.match(text, /becomes work rather than\s+a round/, 'nothing says where a suggestion goes instead of a round');
+  assert.match(text, /follow-up bead/, 'the brief does not say a non-blocking comment survives as filed work');
+  assert.ok(!/will not approve while it stands/.test(text), 'the brief still defines blocking as a withheld approval');
+});
+
+check('AND IT NAMES BOTH WAYS THE NEW RULE FAILS, BECAUSE THEY ARE OPPOSITE', () => {
+  // The two failures the epic must avoid, and a brief that names only one produces the
+  // other: a reviewer that keeps calling taste blocking jams the queue exactly as before,
+  // and one that stops using it for real bugs ships them.
+  const text = reviewAdvocatePrompt('beadcause', ISSUE, SPEC);
+  assert.match(text, /Reaching for `blocking` to be sure of being heard/, 'nothing warns against inflating a suggestion');
+  assert.match(text, /Declining\s+to use it on something real/, 'nothing warns against under-using the one veto left');
+  // And the veto is still pinned to the same five things — narrowing what holds a merge is
+  // not the same as narrowing what a block is for.
+  assert.match(text, /correctness, data loss, a security hole, a broken contract/);
+  assert.match(text, /a test that does\s+not test what it claims/);
+});
+
+check('A WITHHELD APPROVAL IS NOT A QUIET VETO, AND THE BRIEF HAS TO SAY THAT OUT LOUD', () => {
+  // The gate's condition is a verdict with no blocking comment standing, not `approved`.
+  // A reviewer that did not know would use `approved: false` as a soft block and get a
+  // merge anyway — which reads, from its side, as the gate ignoring it.
+  const text = reviewAdvocatePrompt('beadcause', ISSUE, SPEC);
+  assert.match(text, /`approved: false` is not a veto on its own/);
+  assert.match(text, /a refusal carrying only suggestions merges anyway/);
+  // Approving when nothing blocking is left is still the thing to do — the flag did not
+  // stop meaning anything, it stopped being the gate.
+  assert.match(text, /still what to write\s+when none does/);
+});
+
+check('a later round exists only because something blocked, and the cap says so too', () => {
+  const state = {
+    round: 2,
+    comments: [{ id: 'c1', file: 'lib/fetch.js', line: 88, severity: 'blocking', what: 'no ceiling on the retry', answer: 'the caller times out at 30s' }],
+  };
+  const text = reviewAdvocatePrompt('beadcause', ISSUE, SPEC, state, { maxRounds: 2, owner: 'Adam' });
+  assert.match(text, /because a `blocking` comment stood/, 'round two never says why it is happening');
+  assert.match(text, /Nothing you write this round holds the branch unless it is `blocking`/);
+  assert.match(text, /A round only ever happens over a `blocking` comment/, 'the cap paragraph still reads as though any comment costs a round');
 });
 
 check('and it says exactly how to write the verdict down', () => {
@@ -362,7 +424,7 @@ check('and it says exactly how to write the verdict down', () => {
   assert.ok(text.includes(VERDICT_OPEN) && text.includes(VERDICT_CLOSE), 'the markers are not in the brief');
   for (const s of SEVERITIES) assert.ok(text.includes(s), `${s} is not named in the brief`);
   assert.match(text, /"pr": 383/, 'the example block is not this pull request');
-  assert.match(text, /approves while carrying a blocking comment is refused/, 'the one contradiction is not explained');
+  assert.match(text, /approves while carrying a blocking\n*\s*comment is refused/, 'the one contradiction is not explained');
 });
 
 check('A LATER ROUND IS ABOUT THE ANSWERS, NOT A SECOND FIRST REVIEW', () => {
