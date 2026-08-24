@@ -410,7 +410,14 @@ check('and the service worker version moved, or a cached phone has the pill and 
   // already in it, so the version is what makes the row and the page it points at arrive
   // together. A shell one version behind draws no Config pill at all, which is the
   // honest failure; the version is what keeps it to that.
-  assert.ok(/const CACHE = 'beadcause-v(7[7-9]|[89]\d)'/.test(read('public/sw.js')), 'CACHE was not bumped past v76');
+  // Read as a number and compared, rather than matched against a hand-rolled
+  // alternation of the digits that were plausible when this was written. The four
+  // suites that did it the other way (this one, spacedetails, warm, termdoor) all
+  // spelled a two-digit range and so stopped matching the moment the cache reached
+  // v100 — reporting "CACHE was not bumped" about a version three higher than the one
+  // they were asking for. Every other suite here already captures `(\d+)`.
+  const version = Number(read('public/sw.js').match(/const CACHE = 'beadcause-v(\d+)'/)?.[1]);
+  assert.ok(version > 76, `CACHE was not bumped past v76 — it reads v${version}`);
   const sw = read('public/sw.js');
   for (const p of ["'/config'", "'/settings'", "'/config.html'", "'/config.js'"]) {
     assert.ok(sw.includes(p), `${p} is not precached, so the pill only works with a signal`);

@@ -138,27 +138,30 @@ try {
 
 const statuses = statusArg ? statusArg.split(',').map((s) => s.trim()).filter(Boolean) : null;
 
+// `process.exit(0)` after any of the writes below used to drop whatever was still
+// pending: stdout to a **pipe** is async, so a big report — `--json` rows, or `--values`
+// counts across a busy tracker — could cut at the 64KB pipe buffer with a success status
+// and no signal at all (bc-dgx7.45). The if/else chain below is what stands in for the
+// early return `process.exit` used to give; falling off the end with `process.exitCode`
+// set instead flushes.
 if (valuesPrefix != null) {
   const counts = valuesOf(index, valuesPrefix, { statuses });
   const names = [...counts.keys()].sort();
   for (const name of names) console.log(`${name}\t${counts.get(name)}`);
-  process.exit(0);
-}
+  process.exitCode = 0;
+} else {
+  const rows = census(index, { labels, notLabels, statuses, blockedByLabel });
 
-const rows = census(index, { labels, notLabels, statuses, blockedByLabel });
-
-if (countMode) {
-  console.log(rows.length);
-  process.exit(0);
+  if (countMode) {
+    console.log(rows.length);
+  } else if (jsonMode) {
+    for (const row of rows) console.log(JSON.stringify(row));
+  } else {
+    const truncate = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+    for (const row of rows) {
+      console.log(`${row.id}\t${row.status}\t${(row.labels || []).join(',')}\t${truncate(row.title || '', 60)}`);
+    }
+    console.log(`${rows.length} bead${rows.length === 1 ? '' : 's'} matched`);
+  }
+  process.exitCode = 0;
 }
-
-if (jsonMode) {
-  for (const row of rows) console.log(JSON.stringify(row));
-  process.exit(0);
-}
-
-const truncate = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-for (const row of rows) {
-  console.log(`${row.id}\t${row.status}\t${(row.labels || []).join(',')}\t${truncate(row.title || '', 60)}`);
-}
-console.log(`${rows.length} bead${rows.length === 1 ? '' : 's'} matched`);

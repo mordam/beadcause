@@ -48,6 +48,17 @@
  * folded row carries a 💬 count for the same reason: a bead you asked three questions
  * about last night must never read as one nobody has opened.
  *
+ * **The row also carries what was learned after it was filed.** Every other line on a
+ * folded row — title, type, priority, the provenance note — is the *filing agent's* own
+ * words, written at the moment it found the work and before anybody had looked at it. The
+ * evidence that a bead should not be endorsed is by definition later than that, and it
+ * lands in two places: the bead's own comment thread, and a separate `human` bead asking
+ * about it. So the newest comment rides on the folded row (`latestHtml`), and an open
+ * question that names this bead by id draws a ⚑ line of its own (`questionsHtml`). bc-wi3s
+ * had both — an advocate's "I ran the suite, it is green, close it" and an open P1
+ * recommending exactly that — and was endorsed anyway in a batch of 56, because a card in
+ * an inbox loses a race with a bulk press that cannot see it.
+ *
  * **What happened is pinned to the row, never toasted.** These calls change real work
  * — a bead that is now workable, a bead that is now closed — and "did that go through?"
  * must not be a question you answer by opening a laptop. A group answers per bead: the
@@ -247,7 +258,7 @@
    * an agent filed it *while working something else*, and that something else is
    * usually what tells you whether this is a real discovery or a tangent. `null` is a
    * state and it is drawn as one — the daemon may not have been able to read the edge
-   * (see `addProvenance`), and "found under nothing" would be a claim it never made.
+   * (see `addShowFields`), and "found under nothing" would be a claim it never made.
    */
   function fromHtml(b) {
     if (!b.from) return '';
@@ -255,6 +266,58 @@
     return `<span class="eq-from">${esc(word)} <a class="pill id" href="${esc(
       graphUrl(b.workspace, b.from.id)
     )}">${esc(b.from.id)}</a>${b.from.title ? ` <span class="eq-from-title">${esc(b.from.title)}</span>` : ''}</span>`;
+  }
+
+  /**
+   * The open questions that name this bead — the loudest thing a row can say.
+   *
+   * Every other line on this row is what the *filing agent* wrote before anybody had
+   * looked at the work. This one is what somebody concluded afterwards, and it is
+   * always the reason not to endorse: an advocate's instrument for "do not work this"
+   * is a `human` bead, and a card in an inbox loses a race with a bulk endorse that
+   * cannot see it. bc-wi3s was endorsed in a batch of 56 with an open P1 naming it by
+   * id, and no row in this app said a word about that.
+   *
+   * On the **folded** row, deliberately, and not tucked into the open one: the press
+   * that misfires is the one made without opening anything.
+   */
+  function questionsHtml(b) {
+    const qs = Array.isArray(b.questions) ? b.questions : [];
+    if (!qs.length) return '';
+    const each = qs
+      .map(
+        (q) =>
+          `<a class="pill id" href="${esc(graphUrl(q.workspace, q.id))}">${esc(q.id)}</a>` +
+          (q.priority != null ? `<span class="pill p${esc(q.priority)}">P${esc(q.priority)}</span>` : '') +
+          ` <span class="eq-ask-title">${esc(q.title)}</span>`
+      )
+      .join('<span class="eq-ask-sep">·</span>');
+    return `<span class="eq-ask">⚑ ${esc(
+      qs.length === 1 ? 'An open question names this bead' : `${qs.length} open questions name this bead`
+    )} ${each}</span>`;
+  }
+
+  /**
+   * The last thing anybody said about this bead, in one line.
+   *
+   * The 💬 pill beside the id says a thread exists; it does not say whether the thread
+   * is a clarifying question or an advocate writing "I ran the suite, this is already
+   * green, close it rather than endorsing it" — which is what was on bc-wi3s the
+   * morning it got endorsed anyway. The count is what makes you look; this is what
+   * makes you stop. It rides on the same `bd show` the provenance line already costs
+   * (`addShowFields` in lib/endorsequeue.js), so it is free.
+   *
+   * Collapsed to a single line here and never wrapped: the whole thread is one tap away
+   * on **Discuss**, and a row that grew to four lines because somebody pasted an
+   * evidence dump would push the next bead off the screen.
+   */
+  function latestHtml(b) {
+    const c = b.latestComment;
+    const text = String(c?.text || '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    return `<span class="eq-last">💬 ${
+      c.author ? `<span class="eq-last-who">${esc(c.author)}</span> ` : ''
+    }<span class="eq-last-text">${esc(text)}${c.truncated ? '…' : ''}</span></span>`;
   }
 
   /** The pills that say what kind of work this claims to be, at a glance. */
@@ -483,6 +546,8 @@
             <span class="work-title">${esc(b.title)}</span>
             <span class="work-sub">${pillsHtml(b)}</span>
             ${fromHtml(b) ? `<span class="work-sub">${fromHtml(b)}</span>` : ''}
+            ${latestHtml(b) ? `<span class="work-sub">${latestHtml(b)}</span>` : ''}
+            ${questionsHtml(b) ? `<span class="work-sub">${questionsHtml(b)}</span>` : ''}
           </span>
           <time>${esc(age(b.createdAt))}</time>
           <span class="chev" aria-hidden="true">›</span>
@@ -564,6 +629,16 @@
    * so one workspace's rows always fit the single POST `post()` makes for it — but a
    * queue of a hundred and one endorsing sixty under the word *all* would be the
    * truncation lying twice, so the overflow is named too.
+   *
+   * **And it counts the beads somebody has an open question about, between the taps.**
+   * This is the press bc-xl7n.76.2 was filed about: a bulk endorse of 56 took a bead an
+   * advocate had filed a P1 asking to close instead, because nothing on the page could
+   * see the question. It is a *count and not a refusal* — a bead can carry a stale
+   * question for a month, and a control that would not fire until you had cleared every
+   * one of them is a control you stop using, which quietly takes the meaning out of the
+   * hold in exactly the way the paragraph above is about. The rows say which ones
+   * (`questionsHtml`); this says how many, at the moment you are about to act on all of
+   * them at once.
    */
   function allHtml() {
     const shown = rows().length;
@@ -576,7 +651,23 @@
       .map((n) => `${by[n]} in ${esc(n)}`)
       .join(', ');
     const elsewhere = Math.max(0, (state.data?.counts?.total || shown) - shown);
+    const asked = rows().filter((b) => (b.questions || []).length).length;
+    // **And the rows whose questions could not be read at all.** `questions` is `null`
+    // rather than `[]` when a workspace's `bd human list` never came back — the whole
+    // reason lib/openquestion.js keeps the two apart — and this is the one press where
+    // that distinction is worth a sentence. Everywhere else `[]` and `null` draw the same
+    // nothing, correctly: a folded row cannot usefully say *maybe*, and sixty rows each
+    // hedging about one repo's failed read is the noise the ⚑ exists to stay clear of.
+    // Here it is different, because `[]` is precisely the sentence *it is safe to endorse
+    // all of these* and this button is the only place that sentence gets acted on.
+    const unknown = rows().filter((b) => !Array.isArray(b.questions)).length;
     const rest = [
+      asked
+        ? `${asked === 1 ? 'One of them has' : `${asked} of them have`} an open question ⚑ — worth reading before you do.`
+        : '',
+      unknown
+        ? `${unknown === 1 ? 'One of them could not be checked' : `${unknown} of them could not be checked`} for open questions — a repo's question list did not answer, so a ⚑ may be missing.`
+        : '',
       elsewhere ? `${plural(elsewhere, 'bead')} in another space ${elsewhere === 1 ? 'stays' : 'stay'} held.` : '',
       state.data?.truncated
         ? `The ${esc(state.data.truncated)} over the cap are not in this tap — answer these and the rest arrive.`

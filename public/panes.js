@@ -115,8 +115,16 @@
 (() => {
   const route = window.beadcause.route;
 
-  /** Every view id the grammar knows, so a stray `data-pane` cannot invent one. */
-  const known = new Set(route.VIEWS.map((v) => v.id));
+  /**
+   * Every view id the grammar knows, so a stray `data-pane` cannot invent one.
+   *
+   * Asked per call rather than snapshotted into a `Set` at load, because the grammar is no
+   * longer fixed by the time this file has finished running: a repo's own views are
+   * admitted by `route.add` after `/api/views` answers, which is several hundred
+   * milliseconds later (public/viewhost.js). A snapshot taken here would say no to every
+   * one of them, and the pane they had just built would be a pane nothing could show.
+   */
+  const known = (id) => route.VIEWS.some((v) => v.id === id);
 
   /**
    * The panes this document can actually show, in the order they appear in the markup.
@@ -141,7 +149,7 @@
   const pending = new Map();
   for (const el of document.querySelectorAll('.pane')) {
     const id = el.dataset.pane;
-    if (!id || !known.has(id)) continue;
+    if (!id || !known(id)) continue;
     if (el.dataset.pending) pending.set(id, el.dataset.pending);
     else panes.set(id, el);
   }
@@ -197,6 +205,33 @@
   sync();
   addEventListener('hashchange', sync);
 
+  /**
+   * Register a container that was not in the markup — a repo's own view.
+   *
+   * Every pane above was parsed with the document, which is right for the five views this
+   * app *is*: they are known before the page exists, so their containers can be. A repo
+   * view is not known until `/api/views` answers, so its container is built at that point
+   * and handed here (public/viewhost.js).
+   *
+   * What it must not do is disturb what is already up. A pane adopted while you are
+   * reading Home has to arrive hidden and stay hidden, and the `sync` at the end is what
+   * covers the one case where it must not: landing directly on `#deluvia.studio` from a
+   * home-screen shortcut, where the hash named this pane before the pane existed and
+   * `show` had already fallen back to Home. That fall-back is correct at the moment it is
+   * taken — a hash naming nothing is Home — and this is the moment it stops being true.
+   *
+   * Refuses an id the grammar does not know, exactly as the markup loop does, so the
+   * order is forced: `route.add` first, then this. A container registered under a name no
+   * hash can ever produce would be a pane with no way in.
+   */
+  function adopt(view, el) {
+    if (!el || !known(view) || panes.has(view) || pending.has(view)) return false;
+    el.hidden = true;
+    panes.set(view, el);
+    sync();
+    return true;
+  }
+
   window.beadcause = window.beadcause || {};
   window.beadcause.panes = {
     /**
@@ -216,6 +251,8 @@
     },
     /** Can this document show that view without a document load? */
     has: (view) => panes.has(view),
+    /** Register a container built after the page was parsed. See `adopt` above. */
+    adopt,
     /** Which pane is up, or `null` before the first sync. */
     showing: () => current,
     /** Every view this document can show, in markup order. */

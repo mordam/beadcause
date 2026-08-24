@@ -60,6 +60,12 @@ const die = (msg) => {
  */
 const observeHere = () => observe({ cwd: root, store: CONFIG_DIR });
 
+// Each branch below used to end with `process.exit(N)`, which drops whatever of the
+// write above is still pending: stdout to a **pipe** is async in Node, so a `--json | jq`
+// run would cut at the 64KB pipe buffer with a success status and no signal at all (see
+// bc-dgx7.45). Setting `process.exitCode` and letting the branch fall off the end of the
+// if/else-if chain flushes instead — the else-if is what stands in for the early return
+// `process.exit` used to give, so only one branch's code ever runs.
 if (verb === 'posture') {
   const p = await observeHere();
   const at = now();
@@ -70,20 +76,16 @@ if (verb === 'posture') {
     console.log(`\n${verdictOf(p, { at }).toUpperCase()}`);
     for (const line of unbacked(p, { at })) console.log(`  · ${line}`);
   }
-  process.exit(0);
-}
-
-if (verb === 'record') {
+  process.exitCode = 0;
+} else if (verb === 'record') {
   const p = await observeHere();
   // Always a genesis record, and it says so by its seq. Reading the previous record off
   // the chain would mean opening the common repository, which this command may not do —
   // what links a posture onto a chain is `recordPosture` in lib/publication.js, and this
   // one is for looking at the posture rather than for publishing it.
   console.log(JSON.stringify(attest(null, p, { instance: flag('instance') || 'unenrolled' }), null, 2));
-  process.exit(0);
-}
-
-if (verb === 'verify') {
+  process.exitCode = 0;
+} else if (verb === 'verify') {
   const file = rest.find((a) => !a.startsWith('--')) || null;
   if (!file) die('beadcause-attest verify <file|-> — an export of published records, or - for stdin');
   let text;
@@ -114,15 +116,15 @@ if (verb === 'verify') {
   const rep = report(records, { from: flag('from'), to: flag('to') });
   if (has('json')) console.log(JSON.stringify(rep, null, 2));
   else console.log(render(rep).join('\n'));
-  process.exit(rep.verdict === 'verified' ? 0 : 2);
+  process.exitCode = rep.verdict === 'verified' ? 0 : 2;
+} else {
+  die(
+    [
+      'beadcause-attest posture [--json]              what this deployment observes about itself',
+      'beadcause-attest record  [--instance <token>]  that posture as a record for the chain',
+      'beadcause-attest verify <file|-> [--from <t>] [--to <t>] [--json]',
+      '',
+      'verify exits 0 when the interval may be claimed and 2 when it may not.',
+    ].join('\n')
+  );
 }
-
-die(
-  [
-    'beadcause-attest posture [--json]              what this deployment observes about itself',
-    'beadcause-attest record  [--instance <token>]  that posture as a record for the chain',
-    'beadcause-attest verify <file|-> [--from <t>] [--to <t>] [--json]',
-    '',
-    'verify exits 0 when the interval may be claimed and 2 when it may not.',
-  ].join('\n')
-);
