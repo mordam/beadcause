@@ -694,19 +694,40 @@ const ws2 = { name: 'demo2', dir: path.join(tmp, 'ws2', '.beads') };
 fs.mkdirSync(ws2.dir, { recursive: true });
 const bd2 = new Bd({ bin: FAKE_BD2, actor: 'beadcause-test' });
 
-await check('a batch that is entirely root-shaped beads gets no false claim at all', async () => {
-  // An epic and a P0 crash report both need nothing above them (`isRoot`) — the same
-  // false claim `/api/bead/create` used to make about one such bead (bc-xl7n.115),
-  // made here about a whole batch that is nothing but self-sufficient beads.
+await check('a batch of epics at the ordinary floor gets no false claim at all', async () => {
+  // **The arm a real caller can actually reach.** Neither production caller passes a
+  // `floor` (bin/file.js, lib/sessionaudit.js), so `clampPriority` cannot return 0 here
+  // and `isRoot` can only ever be true by `type`. Nothing in this batch asks for a
+  // priority at all — both land at the P2 floor — so `isEpic` is the whole of what
+  // suppresses the warning, and hard-coding `type: 'task'` into the gate (i.e. deleting
+  // the epic half outright) reds exactly this check and nothing else.
   const warnings = [];
   const res = await fileBeads(
     bd2,
     ws2,
-    [{ title: 'A second epic, decided on its own', type: 'epic' }, { title: 'Urgent, and nothing above it yet', priority: 0 }],
+    [{ title: 'A second epic, decided on its own', type: 'epic' }, { title: 'Another programme nobody has to adopt', type: 'epic' }],
+    { onWarn: (w) => warnings.push(w) }
+  );
+  assert.equal(res.filed.length, 2, JSON.stringify(res));
+  assert.equal(res.filed[0].priority, 2, 'and it is the epic-ness carrying this, not a P0 the floor let through');
+  assert.equal(res.filed[1].priority, 2, 'both of them — neither is root by isP0');
+  assert.deepEqual(warnings, [], 'nothing in this batch needs a home, so nothing should say it does not have one');
+});
+
+await check('a batch that is entirely P0 gets no false claim either, floor permitting', async () => {
+  // The other half of `isRoot`, and the one no caller reaches today — `floor: 0` is
+  // what makes a P0 survive `clampPriority` at all. Defensive, and what pins the
+  // `floor` being threaded into the judgement rather than the raw asked-for priority
+  // being read: drop the `floor` argument from the gate and this check reds.
+  const warnings = [];
+  const res = await fileBeads(
+    bd2,
+    ws2,
+    [{ title: 'Urgent, and nothing above it yet', priority: 0 }, { title: 'So is this one', priority: 0 }],
     { onWarn: (w) => warnings.push(w), floor: 0 }
   );
   assert.equal(res.filed.length, 2, JSON.stringify(res));
-  assert.deepEqual(warnings, [], 'nothing in this batch needs a home, so nothing should say it does not have one');
+  assert.deepEqual(warnings, [], 'a P0 is workable with nothing above it, whatever its type');
 });
 
 await check('one ordinary bead in the batch still gets the warning, beside a root-shaped one', async () => {
