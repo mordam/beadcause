@@ -165,7 +165,7 @@ async function tick({ ready = [], sessions = [], planted = [], overrides = {}, p
     psLines,
   });
   await advocates.tick();
-  return { opened, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
+  return { opened, advocates, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
 }
 
 const heldIds = (card) => card.heldByLive.map((h) => h.id);
@@ -325,6 +325,68 @@ await check('an empty queue says why it is empty', async () => {
 
   assert.match(card.note, /session already open/, card.note);
   assert.doesNotMatch(card.note, /clear/, card.note);
+});
+
+/**
+ * And the other half of bc-7qo.19: the daemon noticing a window it did not open.
+ *
+ * The refusal in lib/onewindow.js stops *this daemon* adding to a pile. Nothing can stop a
+ * shell that outlived its own `claude` and re-ran the command, which is where the three
+ * windows on bc-7qo.11 came from — so the second guarantee is that the pile is *said*,
+ * rather than a log that reads "at its limit of 2 session(s)" with three windows on one
+ * bead.
+ *
+ * Driven over two ticks, because a duplicate is only visible once the daemon has a worker
+ * to compare against: the first tick opens the window with an empty process table, the
+ * second one runs with two live processes naming its bead.
+ */
+await check('a bead with two live windows on it is reported, once, naming the pids', async () => {
+  let table = [];
+  const { opened, advocates } = await tick({ ready: [bead('x-1', 'a')], psLines: async () => table });
+  assert.deepEqual(opened, ['x-1'], 'the first tick opened the window it is about to find two of');
+
+  table = [
+    { pid: 4242, args: 'claude -- You are working bead **alpha/x-1**, opened automatically' },
+    { pid: 4243, args: 'claude -- You are working bead **alpha/x-1**, opened automatically' },
+  ];
+  const said = [];
+  const realError = console.error;
+  console.error = (...args) => said.push(args.join(' '));
+  try {
+    await advocates.tick();
+    await advocates.tick();
+  } finally {
+    console.error = realError;
+  }
+
+  const lines = said.filter((l) => /has 2 live windows/.test(l));
+  assert.equal(lines.length, 1, `said once per spell, not once per tick — got ${said.length} error line(s)`);
+  assert.match(lines[0], /x-1/);
+  assert.match(lines[0], /pid 4242, 4243/, 'the pids, because that is what a reader has to go on');
+});
+
+await check('and one window on it is not two, however much prose the argv carries', async () => {
+  let table = [];
+  const { advocates } = await tick({ ready: [bead('x-1', 'a')], psLines: async () => table });
+  table = [
+    { pid: 4242, args: 'claude -- You are working bead **alpha/x-1**, opened automatically' },
+    // The false positive `linesNameBead` exists for: a brief carries its whole memory
+    // store, and a memory note quotes bead ids as examples.
+    { pid: 4243, args: 'claude -- a memory note that mentions x-1 and other/x-1 in passing' },
+    { pid: 4244, args: 'claude -- You are working bead **alpha/x-1.2**, opened automatically' },
+  ];
+  const said = [];
+  const realError = console.error;
+  console.error = (...args) => said.push(args.join(' '));
+  try {
+    await advocates.tick();
+  } finally {
+    console.error = realError;
+  }
+  assert.deepEqual(
+    said.filter((l) => /live windows/.test(l)),
+    []
+  );
 });
 
 /** Off is off. */

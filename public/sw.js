@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v98';
+const CACHE = 'beadcause-v99';
 const SHELL = [
   '/',
   '/index.html',
@@ -116,8 +116,10 @@ const SHELL = [
   '/inboxfilter.js',
   // Edit mode: the freeze and the anchor. In the shell because the inbox now asks it on
   // every repaint whether it may paint at all — a cached page without it answers false
-  // and behaves exactly as it did before, which is survivable, where a page that has the
-  // ✏️ in its markup and not the file behind it has a control that does nothing.
+  // and behaves exactly as it did before, which is survivable. It used to be here for a
+  // second reason too, that a page carrying the ✏️ in its markup and not the file behind
+  // it has a control that does nothing; bc-p49x.12 parked the button, so the module is
+  // now the only way into the mode and a cached page without it has no edit mode at all.
   '/editmode.js',
   // One pull request, drawn once, for the inbox's cards and the board's rows. In the
   // shell because the inbox is: a cached inbox without it draws no PR cards at all, and
