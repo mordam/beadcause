@@ -391,5 +391,23 @@ check('and the queue reaches that door rather than the worker-reach one', () => 
   assert.match(body, /resolveFor\(/, 'nothing stops a second window opening on the same pull request');
 });
 
+/**
+ * And the other end of that door — bc-5mdsw.
+ *
+ * The closure is inline in `createApp` and cannot be imported, so this is a static read of
+ * the source, the same shape as the check above. What it pins is the part that is easy to
+ * get subtly wrong: the sweep spends an attempt on a `false` here, so every reading that
+ * is not *definitely nobody* has to answer `true`.
+ */
+check('and it can tell whether that window is still there', () => {
+  const src = fs.readFileSync(path.join(HERE, '..', 'lib', 'server.js'), 'utf8');
+  const from = src.indexOf('resolverOn: async (entry)');
+  assert.ok(from > 0, 'the queue no longer asks whether a resolver is still on a branch — re-point this check');
+  const body = src.slice(from, from + 700);
+  assert.match(body, /findResolver\(/, 'the live half of the registry is not asked');
+  assert.match(body, /pendingResolvers\(/, 'a branch merely waiting for one of the two slots would read as one nothing is on');
+  assert.match(body, /if \(!unit\) return true/, 'a question nobody could answer reads as "nobody is on it", and that spends an attempt');
+});
+
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
 process.exit(failures ? 1 : 0);
