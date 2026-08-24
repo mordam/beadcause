@@ -291,9 +291,12 @@ await check('bin/relaystep.js checks --role against the union, in the workspaceâ
     path.join(configDir, 'config.json'),
     JSON.stringify(
       {
-        // No roots, or discovery finds every real workspace on this Mac and the command
-        // under test answers about one of those instead. `workspaceDirs` names the only
-        // one this check is about â€” see lib/workspaceroots.js.
+        // `workspaces: []` **explicitly**, not merely omitted: `loadConfig` spreads the
+        // file over `defaults()`, whose `workspaces` is already `discoverWorkspaces()` run
+        // against the real `~/beads`, so an omitted key leaks every real workspace on this
+        // Mac into a fixture that then answers about one of those. Empty roots stop the
+        // scan and `workspaceDirs` pins the only workspace this check is about.
+        workspaces: [],
         workspaceRoots: [],
         workspaceDirs: { demo: dir },
         sessionDirs: { demo: dir },
