@@ -29,11 +29,12 @@
   mark's menu (public/accountbar.js), so the first row is a mark and a picker and the bar
   is one row on every page again: 43px of sticky chrome back on the one screen a phone has.
 
-  The cost is paid by the label rather than by the bar. What is drawn is at most twelve
-  characters — see `shorten` below — so a long repo name is cut instead of pushing the bar
-  wider or wrapping it. The dropdown is untouched: every row in it is the whole name, which
-  is where the whole name is actually needed. `scripts/topbar-check.mjs` measures both
-  halves and fails the repo for a second row.
+  The cost is paid by the label rather than by the bar, and it is paid in CSS. What you
+  read is the select's own selected option, capped by a `max-width` and cut by the layout
+  where it does not fit — see `.spacepick` in public/style.css — so a long repo name is
+  ellipsised instead of pushing the bar wider or wrapping it. The dropdown is untouched:
+  every row in it is the whole name, which is where the whole name is actually needed.
+  `scripts/topbar-check.mjs` measures both halves and fails the repo for a second row.
 
   ## What it selects, and why the two levels stay
 
@@ -280,31 +281,42 @@
   /* ------------------------------------------------------------------ the control */
 
   /*
-    The control is a `<select>` with a span drawn where its text would be, and the select
-    itself laid over the whole thing at `opacity: 0` — see `.spacepick` in
-    public/style.css. That is not decoration, and it is not the usual reason for a custom
-    select either: the picker shares the top row with the mark now (bc-khoe.5), so its
-    *width* is part of the bar's budget, and a native select shows whatever its selected
-    option says. `climative-platform` on that row is a bar with no room left on it.
+    The control is the `<select>` itself, with a caret drawn over its right-hand padding —
+    see `.spacepick` in public/style.css. It was three boxes until bc-ka5y.34: a span
+    holding a cut-down label, the caret, and the select laid over both of them at
+    `opacity: 0`. That was not decoration. The picker shares the top row with the mark
+    (bc-khoe.5), so its *width* is part of the bar's budget, and a native select draws its
+    selected option whole — `climative-platform` on that row is a bar with no room left on
+    it. Worse, an auto-width select sizes to its *widest* option rather than its selected
+    one, so a bare one is over budget even while a short repo is picked.
 
-    So what is shown is `shorten(label())` — at most `SHOWN_MAX` characters, and past that
-    the first `SHOWN_KEEP` with an ellipsis — while every row in the dropdown keeps its
-    full name. Truncating the option text instead would have been one line and would have
-    truncated the list you are choosing *from*, which is the one place the whole name is
-    the point.
+    Both of those are width, and width is what CSS is for. The cap is a `max-width` on the
+    select with `overflow: hidden` and `text-overflow: ellipsis`, so the cut is made by the
+    layout at whatever the font actually measures rather than by a character count here,
+    and the option list is left alone — every row in the dropdown stays whole, which is the
+    one place the whole name is the point.
 
-    The select keeps the tap, the keyboard and the accessible name; it is invisible rather
-    than absent, so a phone still gets its native wheel and a laptop still gets a real
-    menu, and none of the outside-click handling a hand-built dropdown would owe exists
-    here at all.
+    What deleting the span buys is that bc-ka5y.32 cannot come back. The visible text was a
+    *second* reading of the selection, written by `paint()`, while the value under it is
+    moved by the browser with no line of ours involved — on the pick itself and on a form
+    restore after a back navigation. Two readings and one writer is a control that can
+    contradict itself, and it did: the bar said one repo while the dropdown held another
+    until the page was reloaded. There is one reading now, and the browser is what keeps it
+    in step.
+
+    The select keeps the tap, the keyboard and the accessible name it always had, so a
+    phone still gets its native wheel and a laptop still gets a real menu, and none of the
+    outside-click handling a hand-built dropdown would owe exists here at all.
   */
   const el = document.createElement('div');
   el.className = 'spacebar';
   el.hidden = true;
+  /* The caret after the select rather than before it: it is drawn over the select's own
+     right-hand padding, and a positioned box paints above a static one either way, but the
+     order the two are read in should be the order they are stacked in. */
   el.innerHTML = `<div class="spacepick">
-      <span class="spacepick-shown" id="space-shown" aria-hidden="true"></span>
-      <span class="spacepick-caret" aria-hidden="true">▾</span>
       <select id="space-pick" aria-label="Which space to show — everything outside it is hidden"></select>
+      <span class="spacepick-caret" aria-hidden="true">▾</span>
     </div>`;
   /* Directly after the brand, not at the end of the bar. It used to be a row of its own so
      the order of the bar's children did not matter; on a shared row it does — /monitor
@@ -316,25 +328,6 @@
   else bar.append(el);
 
   const sel = el.querySelector('#space-pick');
-  const shownEl = el.querySelector('#space-shown');
-
-  /* Twelve through, nine and an ellipsis past that. Twelve is what fits beside the mark
-     at 360px with the bar's padding and the caret paid for — measured, not guessed, and
-     `scripts/topbar-check.mjs` fails the repo if the bar ever needs a second row again.
-
-     Nine rather than eleven is the part worth a sentence: it makes the *cut* form
-     narrower than the widest uncut one, so a long repo name costs the bar less than a
-     borderline one rather than more, and the ellipsis is a visible third of the label
-     rather than a hairline at the end of a box that already looks full. What a cut label
-     has to say is "there is more of this name", and at eleven-and-a-dot it does not. */
-  const SHOWN_MAX = 12;
-  const SHOWN_KEEP = 9;
-
-  /** What the bar shows for a selection. The dropdown never sees this. */
-  const shorten = (text) => {
-    const s = String(text ?? '');
-    return s.length > SHOWN_MAX ? `${s.slice(0, SHOWN_KEEP)}…` : s;
-  };
 
   /** The rows as they were last written, so an unchanged paint touches no DOM. */
   let drawn = null;
@@ -502,20 +495,19 @@
       The label said one repo, the dropdown held another, and it stayed that way until the
       page was reloaded, which is what was reported from the phone.
 
-      One assignment, and only when they disagree — the same shape as the two lines below,
-      and for the same reason: agreeing is the normal case, and touching a `<select>` a
-      phone has open is what the guard above exists to avoid.
+      One assignment, and only when they disagree — the same shape as the line below, and
+      for the same reason: agreeing is the normal case, and touching a `<select>` a phone
+      has open is what the guard above exists to avoid.
+
+      It matters more since bc-ka5y.34 deleted the span, not less. The value is now the
+      only reading of the selection the bar draws, so a paint that failed to write it would
+      not leave two readings disagreeing — it would leave the *one* reading wrong, over a
+      list the page has really filtered.
     */
     if (sel.value !== now) sel.value = now;
 
-    // What the bar itself says, which is not what the dropdown says — see `shorten`.
-    // Written on every paint rather than only on a change: it is one string assignment
-    // against a `<select>` rebuild the paint above already guards, and the selection can
-    // move without the rows moving at all.
-    const shown = shorten(label());
-    if (shownEl.textContent !== shown) shownEl.textContent = shown;
-    // The whole name, for the thumb that hovers and for anybody who cannot see the
-    // dropdown open. The control is the select's accessible name either way.
+    // The whole name, for a name the `max-width` has cut and for anybody who cannot see
+    // the dropdown open. The control is the select's accessible name either way.
     if (sel.title !== label()) sel.title = label();
 
     // One repo and one space is not a choice. Drawn from the configured list rather
@@ -689,8 +681,6 @@
     },
     matches,
     label,
-    /** The same label the bar draws — cut to fit beside the mark. Prose wants `label()`. */
-    shortLabel: () => shorten(label()),
     spaceOf,
     /** Configured workspaces inside the selection — what a page offers when it has to
      *  pick one repo itself (the agents screen, the chat launcher's ＋). */
