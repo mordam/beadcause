@@ -30,6 +30,11 @@
  * 5. **A refusal.** `toast(msg, 'refused')` is red because the app declined what you
  *    typed. "Give it a name" is not a bug.
  * 6. **A loop.** A render that throws on every frame, capped rather than uncapped.
+ * 7. **One failure of the long poll.** `/api/poll` is parked almost all of the time, so
+ *    every momentary loss of the connection lands on it and nothing else — and the app
+ *    recovers on its own while the staleness banner says so. That is bc-y8wf. The second
+ *    failure with nothing answering in between is still filed, because that one is a
+ *    poll that never came back.
  *
  * The last two checks are static reads of the pages, because the wiring is not something
  * a stub can see: that every page loads the file at all, and that each of the four copied
@@ -226,7 +231,10 @@ await check('no token reaches the body of a report', () => {
 await check('a fetch abandoned by a navigation is not reported', async () => {
   const app = load({ respond: () => Promise.reject(err('Failed to fetch')) });
   app.fire('pagehide', {});
-  await app.window.fetch('/api/poll').catch(() => {});
+  // An ordinary path on purpose. `/api/poll` would be silent here whether or not the
+  // shutter worked, because the parked rule below swallows a first failure of it — and a
+  // check that passes for a reason other than the one it names is no check at all.
+  await app.window.fetch('/api/questions').catch(() => {});
   assert.deepEqual(app.reports(), [], 'a tab tap filed a bead');
   // And nothing else gets through either, for as long as the page is leaving.
   app.fire('error', { message: 'boom on the way out' });
@@ -235,6 +243,10 @@ await check('a fetch abandoned by a navigation is not reported', async () => {
 
 await check('an aborted fetch is not reported', async () => {
   const app = load({ respond: () => Promise.reject(Object.assign(err('The operation was aborted'), { name: 'AbortError' })) });
+  // Twice, because a first failure of the long poll is dropped by the parked rule too —
+  // and once the second one would file, only the abort guard can still be keeping this
+  // quiet. Same reason in the check below.
+  await app.window.fetch('/api/poll').catch(() => {});
   await app.window.fetch('/api/poll').catch(() => {});
   assert.deepEqual(app.reports(), [], 'tearing down the long poll filed a bead');
 });
@@ -242,6 +254,7 @@ await check('an aborted fetch is not reported', async () => {
 await check('an aborted fetch is not reported when the error forgot to say so', async () => {
   const controller = { aborted: true };
   const app = load({ respond: () => Promise.reject(err('Failed to fetch')) });
+  await app.window.fetch('/api/poll', { signal: controller }).catch(() => {});
   await app.window.fetch('/api/poll', { signal: controller }).catch(() => {});
   assert.deepEqual(app.reports(), []);
 });
@@ -267,6 +280,66 @@ await check('a cross-origin fetch is not reported', async () => {
   const app = load({ respond: () => Promise.reject(err('Failed to fetch')) });
   await app.window.fetch('https://api.github.com/repos/x/y').catch(() => {});
   assert.deepEqual(app.reports(), [], "somebody else's URL reached a bead");
+});
+
+/* ------------------------------------------------- the poll, which is always out */
+
+/**
+ * A stub whose long poll is broken and whose every other endpoint — the report endpoint
+ * included — answers. `down` is read per call so a check can bring the poll back.
+ */
+const polling = () => {
+  const state = { down: true };
+  const app = load({
+    respond: (input) => {
+      if (!String(input).startsWith('/api/poll')) return Promise.resolve({ status: 200, ok: true });
+      return state.down ? Promise.reject(err('Failed to fetch')) : Promise.resolve({ status: 200, ok: true });
+    },
+  });
+  return { app, state, poll: () => app.window.fetch('/api/poll?since=12&wait=25').catch(() => {}) };
+};
+
+await check('one failure of the long poll is a blip, and files nothing', async () => {
+  const { app, poll } = polling();
+  await poll();
+  assert.deepEqual(app.reports(), [], 'bc-y8wf: a phone waking up filed a P0');
+});
+
+await check('a long poll that fails twice running is reported', async () => {
+  const { app, poll } = polling();
+  await poll();
+  await poll();
+  const [r] = app.reports();
+  assert.ok(r, 'a poll that never came back must still file');
+  assert.equal(r.body.kind, 'fetch');
+  assert.equal(r.body.message, 'GET /api/poll failed — Failed to fetch');
+  assert.equal(r.body.source, '/api/poll');
+});
+
+await check('an answered poll between two failures is two blips, not an incident', async () => {
+  const { app, state, poll } = polling();
+  await poll();
+  state.down = false;
+  await poll();
+  state.down = true;
+  await poll();
+  assert.deepEqual(app.reports(), [], 'the connection came back in between, so neither failure stood');
+});
+
+await check('a 500 from the poll is an answer, and is filed at once', async () => {
+  // The parked rule counts reachability, not health: a 500 is the daemon failing and is
+  // worth a bead the first time, and it also proves the connection is there.
+  const app = load({ respond: (input) => Promise.resolve(String(input).startsWith('/api/poll') ? { status: 500, ok: false } : { status: 200, ok: true }) });
+  await app.window.fetch('/api/poll?since=12');
+  const [r] = app.reports();
+  assert.ok(r, 'a 500 on the poll was swallowed');
+  assert.equal(r.body.message, 'GET /api/poll failed — HTTP 500');
+});
+
+await check('an ordinary path still files the first time it fails', async () => {
+  const app = load({ respond: (input) => (String(input) === '/api/error' ? Promise.resolve({ status: 200, ok: true }) : Promise.reject(err('Failed to fetch'))) });
+  await app.window.fetch('/api/questions').catch(() => {});
+  assert.equal(app.reports().length, 1, 'the parked rule widened past the poll');
 });
 
 await check('the same error twice in a row is reported once', () => {
