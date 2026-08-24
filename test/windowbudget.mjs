@@ -89,8 +89,16 @@ const resolving = (number) => remember('beadcause', number, { branch: `worktree-
  * `globalMaxWorkers` is the whole subject, so it is the one knob every case sets. Three
  * per-repo workers so the per-repo cap is never what binds — a case that passed because
  * `maxWorkers` ran out would prove nothing about the global one.
+ *
+ * `psLines` defaults to an empty read, the same idiom test/livequeue.mjs uses for the
+ * same reason: without it every case here would take its `ps -Ao` from the real Mac
+ * this suite happens to run on, and `unattendedWorkers` (bc-2uj4.13) looks at *every*
+ * live process's own brief rather than at one id it already knows to look for — on
+ * Adam's own laptop that is dozens of real worker windows the fixture's fictional
+ * `alpha/bc-1` has no way to account for. A case testing that subtraction hands its own
+ * lines in.
  */
-async function tick({ ready = [], globalMaxWorkers = 2 } = {}) {
+async function tick({ ready = [], globalMaxWorkers = 2, psLines = async () => [], overrides = {} } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // `quiesce` + `removeTree` rather than a bare recursive `rmSync`: every write of
   // advocates.json schedules a common-repo commit 2000ms out whose `git init` lands in
@@ -123,6 +131,7 @@ async function tick({ ready = [], globalMaxWorkers = 2 } = {}) {
       flagInMain: false,
       holdOpenPrs: false,
       sessionLog: false,
+      ...overrides,
     },
   };
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(cfg, null, 2));
@@ -144,6 +153,7 @@ async function tick({ ready = [], globalMaxWorkers = 2 } = {}) {
       return { dir: REPO, mode: 'test', term: null };
     },
     prs: async () => ({ ok: true, reason: '', checked: 0, beads: new Map() }),
+    psLines,
   });
   await advocates.tick();
   return { opened, advocates, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
@@ -229,6 +239,120 @@ await check('one resolver and a cap of one is a held card, not a silent empty qu
   const { opened, card } = await tick({ ready: [bead('bc-1')], globalMaxWorkers: 1 });
   assert.deepEqual(opened, []);
   assert.match(card.note, /1 of them is a session resolving a pull request/, card.note);
+});
+
+/* --------------- and the windows nobody kept a record of at all (bc-2uj4.13) */
+
+/** A live process whose own argv is a coding window's brief — no id lookup needed to find it. */
+const workerLine = (workspace, id, pid = 1) => ({
+  pid,
+  args: `claude -- You are working bead **${workspace}/${id}**, opened automatically by the ${workspace}`,
+});
+
+await check('a live worker window this daemon has no row for still takes a seat', async () => {
+  const { opened } = await tick({
+    ready: [bead('bc-1'), bead('bc-2')],
+    globalMaxWorkers: 2,
+    psLines: async () => [workerLine('alpha', 'bc-999')],
+  });
+  assert.deepEqual(opened, ['bc-1'], 'the unaccounted window is a real session on this Mac, so only one more fits beside it');
+});
+
+await check('and the card names it, the way it already names a resolver', async () => {
+  const { opened, card } = await tick({
+    ready: [bead('bc-1')],
+    globalMaxWorkers: 1,
+    psLines: async () => [workerLine('alpha', 'bc-999')],
+  });
+  assert.deepEqual(opened, []);
+  assert.match(card.note, /held by globalMaxWorkers \(1\)/, card.note);
+  assert.match(
+    card.note,
+    /1 more window is open that this daemon has no record of/,
+    'without this the note quotes a cap of 1 over zero live sessions, exactly the arithmetic bc-7qo.19 caught'
+  );
+});
+
+await check('a session this daemon opened moments ago is not double-counted on the next tick either', async () => {
+  await quiesce();
+  const dir = process.env.BEADCAUSE_CONFIG_DIR;
+  for (const f of fs.readdirSync(dir)) await removeTree(path.join(dir, f));
+  const cfg = {
+    projectRoot: path.join(tmp, 'projects'),
+    fallbackWorkspace: 'other',
+    claudeSessionsDir: SESSIONS,
+    spaces: [],
+    workspaces: [{ name: 'alpha', dir: path.join(os.homedir(), 'beads', 'alpha', '.beads') }],
+    sessionDirs: { alpha: REPO },
+    advocates: {
+      enabled: true,
+      workspaces: '*',
+      maxWorkers: 3,
+      globalMaxWorkers: 2,
+      settleSeconds: 0,
+      launchCooldownSeconds: 0,
+      propose: false,
+      tidyWorktrees: false,
+      respectQuietHours: false,
+      reconcileLanded: false,
+      askSuperseded: false,
+      flagInMain: false,
+      holdOpenPrs: false,
+      sessionLog: false,
+    },
+  };
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(cfg, null, 2));
+  const opened = [];
+  let dispatchedBc1 = false;
+  const bd = {
+    ready: async () => [bead('bc-1')],
+    listLabel: async () => [],
+    show: async (_ws, id) => ({ id, status: 'in_progress' }),
+    children: async () => [],
+    listStatus: async () => [],
+  };
+  const advocates = createAdvocates(cfg, {
+    bd,
+    bus: { emit() {} },
+    open: async (_cfg, _ws, b) => {
+      opened.push(b.id);
+      if (b.id === 'bc-1') dispatchedBc1 = true;
+      return { dir: REPO, mode: 'test', term: null };
+    },
+    prs: async () => ({ ok: true, reason: '', checked: 0, beads: new Map() }),
+    // bc-1's own window cannot name itself on the process table before this daemon has
+    // actually opened it — a real `claude` process cannot exist before it is launched —
+    // so the line only appears once `open` has fired, exactly as it would on a real Mac.
+    psLines: async () => (dispatchedBc1 ? [workerLine('alpha', 'bc-1')] : []),
+  });
+  await advocates.tick();
+  assert.deepEqual(opened, ['bc-1']);
+  bd.ready = async () => [bead('bc-2')];
+  await advocates.tick();
+  assert.deepEqual(opened, ['bc-1', 'bc-2'], 'bc-1 is on the roster now — its own live line must stop counting as unattended');
+});
+
+await check('a window that is not a coding window at all — a planner, a resolver, an Epic Advocate — is not counted', async () => {
+  const { opened } = await tick({
+    ready: [bead('bc-1')],
+    globalMaxWorkers: 1,
+    psLines: async () => [
+      { pid: 2, args: 'claude -- You are the **epic worker** for **alpha/bc-998**, opened automatically' },
+      { pid: 3, args: 'claude -- You are the Epic Advocate for **alpha/bc-997** in `alpha`' },
+      { pid: 4, args: 'claude -- You are the MergeAdvocate for **alpha/bc-996** in `alpha`: pull request #1' },
+    ],
+  });
+  assert.deepEqual(opened, ['bc-1'], 'none of these three compete for globalMaxWorkers');
+});
+
+await check('holdLiveSessions: false turns this census off too, the same switch as the rest of the family', async () => {
+  const { opened } = await tick({
+    ready: [bead('bc-1')],
+    globalMaxWorkers: 1,
+    psLines: async () => [workerLine('alpha', 'bc-999')],
+    overrides: { holdLiveSessions: false },
+  });
+  assert.deepEqual(opened, ['bc-1'], 'the switch that turns off the rest of this family turns this reading off too');
 });
 
 /* ------------------------------------ the resolver half: it yields as well */

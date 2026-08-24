@@ -6449,6 +6449,37 @@ button.viewpill { cursor: pointer; }
    a line of its own, where it read as a second fact about this bead. */
 .eq-from-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* The last thing anybody said about this bead. Muted and truncated to one line: it is a
+   reason to open the thread, not the thread. Italic so it reads as a quotation rather
+   than as another field of the bead — everything above it is the bead's own words.
+   `.eq-last`, not `.eq-said`: that name is taken, by the sticky line further up that
+   says what a verdict did. Two unrelated things on one page called "said" is how a
+   stylesheet starts lying, and test/css.mjs refuses the second declaration outright. */
+.eq-last {
+  display: flex; align-items: baseline; gap: 5px; min-width: 0;
+  font-size: 12px; color: var(--muted);
+}
+.eq-last-who { flex: none; font-weight: 600; }
+.eq-last-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+
+/* An open question naming this bead — the one line on the row that is an argument
+   *against* the tap beside it, so it is the one line that is not muted. Bordered rather
+   than merely coloured, because the whole failure it exists to stop is a thumb moving
+   down a list of rows that all look alike. */
+.eq-ask {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; min-width: 0;
+  margin-top: 2px; padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 12px; font-weight: 600; color: var(--text);
+}
+/* The question's own title wraps where everything else on the row truncates. It is the
+   sentence the row exists to make you read, and an ellipsis in the middle of "is this
+   already finished work?" is the row keeping the secret it was added to give up. */
+.eq-ask-title { min-width: 0; font-weight: 400; color: var(--prose); overflow-wrap: anywhere; }
+.eq-ask-sep { color: var(--muted); }
+
 /* The agent's own words, headed so the three of them do not run together into one
    grey wall. pre-wrap because a filed description is plain prose out of YAML and its
    line breaks are the only formatting it has. */

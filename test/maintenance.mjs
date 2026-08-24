@@ -162,10 +162,54 @@ console.log('\nonce a night, and not once a tick\n');
 
 await check(() => {
   const v = m.decide({ phase: 'done', night: '2026-08-17' }, { o: ON, now: at(3, 30), live: 0 });
-  assert.equal(v.phase, 'idle');
+  assert.equal(v.phase, 'done');
   assert.equal(v.act, 'none');
   assert.equal(m.holdsDispatch(v), false);
 }, 'after tonight’s collection the window is over and dispatching is free');
+
+/**
+ * bc-7qo.19. The caller writes the verdict's phase back into its own state, so a
+ * verdict of `idle` over a finished night erases the fact that it happened — and the
+ * next tick starts the whole sequence again. Driven as a *sequence* rather than as one
+ * call, because a single verdict cannot show it: the bug is in what the next tick reads.
+ */
+await check(() => {
+  const seen = runOver(ON, [
+    [at(3, 20), 0], // nothing running — collect at once
+    [at(3, 21), 0], // the collection is in flight
+    [at(3, 22), 0], // the caller reports back: done (below)
+  ]);
+  assert.deepEqual(
+    seen.map((v) => v.act),
+    ['collect', 'none', 'none']
+  );
+  // And from `done`, however many ticks later, with windows open again.
+  let prev = { phase: 'done', night: '2026-08-17' };
+  for (const [now, live] of [
+    [at(3, 30), 2],
+    [at(3, 50), 2],
+    [at(4, 10), 2],
+    [at(4, 40), 2],
+  ]) {
+    const v = m.decide(prev, { o: ON, now, live });
+    assert.equal(v.phase, 'done', `phase at ${now} was ${v.phase}`);
+    assert.equal(v.act, 'none', `act at ${now} was ${v.act}`);
+    assert.equal(m.holdsDispatch(v), false);
+    prev = { phase: v.phase, night: v.night };
+  }
+}, 'a finished night never re-enters the drain — it stays done until the next one');
+
+await check(() => {
+  // Past the bound, the same way: `resume` once, and then nothing forever.
+  let prev = { phase: 'closing', night: '2026-08-17' };
+  const acts = [];
+  for (const now of [at(5, 1), at(5, 2), at(5, 3), at(9, 30)]) {
+    const v = m.decide(prev, { o: ON, now, live: 2 });
+    acts.push(v.act);
+    prev = { phase: v.phase, night: v.night };
+  }
+  assert.deepEqual(acts, ['resume', 'none', 'none', 'none']);
+}, 'and past the bound it says "dispatching resumes" once rather than on every tick');
 
 await check(() => {
   const v = m.decide({ phase: 'done', night: '2026-08-17' }, { o: ON, now: at(3, 5, 18), live: 0 });

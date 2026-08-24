@@ -98,10 +98,27 @@ const bead = (over = {}, spec = {}, notes = '') => ({
  * lets one close fail the way bd's close gate fails — which is the only way to reach the
  * `oweClose` path without a real tracker.
  */
-function fakeBd({ rows = [], issues = {}, refuse = null, comments = {} } = {}) {
-  const calls = { closes: [], comments: [], updates: [], reads: [] };
+function fakeBd({ rows = [], issues = {}, refuse = null, comments = {}, followups = [], graph = null } = {}) {
+  const calls = { closes: [], comments: [], updates: [], reads: [], created: [], labelReads: [] };
   return {
     calls,
+    /**
+     * The two writes a merge over open review findings costs — bc-9ntye.2. Both are on
+     * every fake tracker here rather than on the two scenarios about them, because
+     * `finish` reaches them from the ordinary merge path and a fake missing one would
+     * fail a suite that is about something else entirely.
+     */
+    listLabelAny: async (ws, label) => {
+      calls.labelReads.push(label);
+      return followups;
+    },
+    create: async (ws, issue) => {
+      const id = `zz-f${calls.created.length + 1}`;
+      calls.created.push({ id, ...issue });
+      return id;
+    },
+    /** The shape `homeIn` climbs to find a follow-up's parent. Empty is "no root anywhere". */
+    graph: async () => graph || { beads: new Map(), parents: new Map(), adopts: new Map(), edges: new Map() },
     listAgent: async () => rows,
     show: async (ws, id) => issues[id] || null,
     close: async (ws, id, reason) => {
@@ -136,7 +153,7 @@ const fakePr = (
   } = {}
 ) => {
   const calls = { merges: [], updates: [], comments: [], approvals: [], reviews: [] };
-  return {
+  const api = {
     calls,
     view: async () => view,
     baseChecks: async () => base,
@@ -172,6 +189,24 @@ const fakePr = (
       return submitReview;
     },
   };
+  /**
+   * `mergeability`, lib/pr.js — one `view` at `timeoutMs: 0`, plus the one thing the raw
+   * read cannot say: whether GitHub has answered at all. That reading is what the queue's
+   * resolving sweep now turns on (bc-5mdsw), so a fake without it would leave every
+   * scenario below asserting the old behaviour.
+   *
+   * Through `api.view` rather than the row closed over above, so a scenario that replaces
+   * `view` — the rate-limited read further down — replaces both.
+   */
+  api.mergeability = async (dir, n) => {
+    const pr = await api.view(dir, n);
+    return {
+      pr,
+      waited: 0,
+      unresolved: String(pr.state || '').toUpperCase() === 'OPEN' && String(pr.mergeable || '').toUpperCase() === 'UNKNOWN',
+    };
+  };
+  return api;
 };
 
 const GREEN = { failed: [], failing: 0, pending: 0, total: 3, state: 'passing' };
@@ -475,6 +510,115 @@ await check('a conflict with nowhere to open a window is a refusal that says so'
   assert.deepEqual(out.refused, ['zz-merge']);
   const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
   assert.match(queueState({ notes: written.notes }).refused, /conflicts with/);
+});
+
+/* --------------------------------- the resolver that ends without resolving */
+
+/**
+ * bc-5mdsw, and the two halves of one loop.
+ *
+ * A conflict a resolver *declines* is the honest ending its brief offers it — both sides
+ * load-bearing, only Adam can say which wins — and until this landed the queue could not
+ * tell that ending apart from work in progress. `resolving` came off only when the branch
+ * stopped conflicting, a resolver spent no attempt, so a branch that never stopped
+ * conflicting had no route to `MAX_ATTEMPTS` and no route to the card. #488 collected nine
+ * windows on byte-identical state and escaped only because its conflict eventually turned
+ * into a red check, which is a different path and one that does record.
+ */
+await check('A BRANCH GITHUB HAS NOT ANSWERED ABOUT YET IS NOT ONE ITS RESOLVER FIXED', async () => {
+  // The read that produced eight "no longer conflicts" lines for one branch that kept
+  // conflicting: GitHub answers UNKNOWN for every open pull request for a window right
+  // after a merge lands, which is exactly when this sweep runs.
+  const unknown = openPr({ mergeable: 'UNKNOWN', mergeState: 'UNKNOWN' });
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 1, resolving: true }) })] });
+  const prApi = fakePr(unknown);
+  const out = await run(bd, prApi, { resolverOn: async () => false });
+  assert.deepEqual(out.reclaimed, [], 'a non-answer was read as the resolver having finished');
+  assert.deepEqual(out.refused, [], 'a non-answer was read as the resolver having given up');
+  assert.equal(prApi.calls.merges.length, 0);
+  assert.equal(bd.calls.updates.length, 0, 'it rewrote the state block over an answer it never got');
+});
+
+await check('A RESOLVER THAT ENDED WITHOUT RESOLVING SPENDS AN ATTEMPT', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 0, resolving: true, refused: 'the branch conflicts with its base' }) })] });
+  const asked = [];
+  const out = await run(bd, fakePr(dirty), { resolverOn: async (entry) => (asked.push(entry.spec.number), false) });
+  assert.deepEqual(asked, [42], 'the registry was never asked whether a window is still on it');
+  assert.deepEqual(out.refused, ['zz-merge']);
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  const state = queueState({ notes: written.notes });
+  assert.equal(state.attempts, 1, 'the stand-down still spent nothing, so nothing carries it to a card');
+  assert.equal(state.declined, true);
+  assert.equal(state.resolving, false);
+  // Factual, and the same sentence every tick — `record` counts the *same* refusal, so a
+  // sentence that varied would restart the three attempts on each one.
+  assert.match(state.refused, /still conflicts with .main. and no resolver is on it any more/);
+});
+
+await check('and one a resolver is still on is left exactly where it is', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 1, resolving: true }) })] });
+  const out = await run(bd, fakePr(dirty), { resolverOn: async () => true });
+  assert.deepEqual(out.refused, []);
+  assert.equal(bd.calls.updates.length, 0, 'it spent an attempt over a window that is still open');
+});
+
+await check('and with nothing wired up to ask, the flag stays exactly as it did before', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 1, resolving: true }) })] });
+  const out = await run(bd, fakePr(dirty));
+  // Not knowing whether a window is open must never be read as knowing that none is.
+  assert.deepEqual(out.refused, []);
+  assert.equal(bd.calls.updates.length, 0);
+});
+
+await check('A CONFLICT ONE RESOLVER DECLINED IS NOT HANDED ANOTHER, AND EACH TICK COSTS AN ATTEMPT', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  let opened = 0;
+  const opts = { openResolver: async () => (opened += 1, true), resolverOn: async () => false };
+
+  // Tick one: the stand-down is noticed off the registry and the door is shut.
+  const first = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: 0, resolving: true }) })] });
+  await run(first, fakePr(dirty), opts);
+  const after = first.calls.updates.find((u) => u.id === 'zz-merge').notes;
+  assert.equal(queueState({ notes: after }).attempts, 1);
+
+  // Tick two, on what tick one actually wrote — which is the only honest way to assert
+  // that the sentence is stable, and a sentence that varied would restart the count.
+  const second = fakeBd({ rows: [bead({ notes: after })] });
+  const out = await run(second, fakePr(dirty), opts);
+  assert.equal(opened, 0, 'a second window re-derives the same hand-back at the cost of a whole session');
+  assert.deepEqual(out.raised, []);
+  assert.deepEqual(out.refused, ['zz-merge']);
+  const state = queueState({ notes: second.calls.updates.find((u) => u.id === 'zz-merge').notes });
+  assert.equal(state.attempts, 2, 'the sentence is the same one, so the count carries');
+  assert.equal(state.declined, true);
+});
+
+await check('and three of those is the card the stand-down should have produced', async () => {
+  const dirty = openPr({ mergeable: 'CONFLICTING', mergeState: 'DIRTY' });
+  const spent = bead({ notes: withQueueBlock('', { attempts: MAX_ATTEMPTS, declined: true, refused: 'the branch still conflicts' }) });
+  const bd = fakeBd({ rows: [spent] });
+  const raised = [];
+  const out = await run(bd, fakePr(dirty), { raise: async (entry, why) => (raised.push(why), 'zz-card') });
+  assert.deepEqual(out.stuck, ['zz-merge']);
+  assert.equal(raised.length, 1, 'the loop this bead is named for still has no exit');
+});
+
+await check('and the flag comes off the moment the branch stops conflicting', async () => {
+  const bd = fakeBd({
+    rows: [bead({ notes: withQueueBlock('', { attempts: 1, declined: true, refused: 'the branch still conflicts' }) })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(openPr());
+  await run(bd, prApi);
+  // Adam resolved it himself, or `main` moved so that it no longer collides. Left standing,
+  // the flag would refuse a resolver to a *new* conflict months later.
+  assert.equal(prApi.calls.merges.length, 1);
+  const written = bd.calls.updates.filter((u) => u.id === 'zz-merge');
+  assert.ok(written.length, 'nothing took the sentence back');
+  assert.equal(queueState({ notes: written[0].notes }).declined, false);
 });
 
 /* ------------------------------------------- the window that delivered it */
@@ -1362,6 +1506,82 @@ await check('mergeReport invents nothing when it knows nothing', () => {
   assert.match(text, /Straight through/);
   assert.doesNotMatch(text, /\battempts\b/, 'it reported an attempt count it was never given');
   assert.doesNotMatch(text, /from reaching the queue/, 'it timed a passage with no start');
+});
+
+/* -------------------------------------- merging over open review findings (bc-9ntye.2) */
+
+/**
+ * An approval that still carries an unresolved suggestion — the state bc-9ntye makes
+ * ordinary. The gate lets it through (approved is approved) and the findings have to
+ * land somewhere; before bc-9ntye.2 they were closed with the merge-bead and gone.
+ */
+const APPROVED_WITH_OPEN = {
+  ...APPROVED,
+  comments: [
+    { id: 'c1', path: 'lib/example.js', line: 42, body: 'this could be a Set', severity: 'suggestion' },
+    { id: 'c2', body: 'why is the retry four', severity: 'question' },
+  ],
+};
+
+await check('a merge over open findings files one follow-up with one child each', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.equal(bd.calls.created.length, 3, 'one follow-up and one child per finding');
+  assert.equal(bd.calls.created[1].parent, bd.calls.created[0].id);
+  assert.match(bd.calls.labelReads[0], /^review-followup:/, 'and it asked whether this round was already filed');
+});
+
+await check('and every sentence the merge writes names the bead the findings went to', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  await run(bd, prApi, { policy: REVIEW_ON, autoEndorse: true });
+  const follow = bd.calls.created[0].id;
+  // The pull request page, the merge-bead's close reason and the work bead's comment —
+  // the three places somebody finds out about this, and the epic asks for all three.
+  assert.match(prApi.calls.comments.at(-1).text, new RegExp(follow), 'the report on the pull request');
+  assert.ok(
+    bd.calls.closes.some((c) => c.id === 'zz-merge' && new RegExp(follow).test(c.reason)),
+    "the merge-bead's own close reason"
+  );
+  assert.ok(
+    bd.calls.comments.some((c) => c.id === 'zz-work' && new RegExp(follow).test(c.text)),
+    'and the comment on the work bead'
+  );
+});
+
+await check('the same verdict on the next tick files nothing a second time', async () => {
+  // The failure this guards: `finish` is best-effort throughout, so a tick that died
+  // between the filing and the close arrives back here at exactly this state.
+  const bd = fakeBd({
+    rows: [reviewed(APPROVED_WITH_OPEN)],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    followups: [{ id: 'zz-already', status: 'open' }],
+  });
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true });
+  assert.deepEqual(bd.calls.created, [], 'it filed a second copy of a whole review');
+  assert.ok(
+    bd.calls.closes.some((c) => c.id === 'zz-merge' && /zz-already/.test(c.reason)),
+    'and it still named the one that exists'
+  );
+  assert.deepEqual(bd.calls.labelReads, ['review-followup:acme/widgets#42:r1'], 'keyed on the pull request and the round');
+});
+
+await check('a clean approval files nothing and costs no lookup at all', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true });
+  assert.deepEqual(bd.calls.created, []);
+  assert.deepEqual(bd.calls.labelReads, [], 'the guard is before the tracker, which is what keeps it off every merge');
+});
+
+await check('a tracker that will not file leaves the merge and both closes exactly as they were', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  bd.create = async () => {
+    throw new Error('dolt: database is locked');
+  };
+  const out = await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work'], 'a lost follow-up must not cost a close');
 });
 
 /* ------------------------------------------------------------------------ done */
