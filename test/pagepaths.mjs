@@ -286,6 +286,17 @@ const GONE = ['/work.js'];
 const NEVER_MADE = [
   { path: '/mirror', why: 'the mirror is a pane on /monitor, not a page (bc-3xb)' },
   { path: '/mirror.html', why: 'and there is no document behind it to serve' },
+  // The root of the repo-view family (bc-cft6f). `/v/<workspace>/<id>` is a real address
+  // — it hops to `#<workspace>.<id>` exactly as `/history` hops — but the bare prefix
+  // names no view and never will: there is no such thing as "all repo views", and a page
+  // listing them would be a second, worse Config screen. It 404s, and it is here so that
+  // the registry gate in bin/b7e-owes.js can see the family is accounted for.
+  //
+  // The addresses under it are asserted in test/repoviews.mjs rather than here, because
+  // they only exist for a workspace whose checkout declares a manifest — that suite builds
+  // one in a temporary directory and drives the real server against it, which is not
+  // something this file's fixture has or should grow.
+  { path: '/v', why: 'the repo-view prefix names no view; /v/<workspace>/<id> does (bc-cft6f)' },
 ];
 
 console.log('\npage paths\n');
