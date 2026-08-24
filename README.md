@@ -18000,9 +18000,18 @@ same way `b7e-blame`'s `suitesFromGateLog` already does. The third is the shape 
 the six sessions above actually left behind, predating `b7e-gate` entirely: a shell
 transcript, one suite run per its own Bash call, each announced by a `$ node <suite>` (or
 bare `node <suite>`) line — the block between one announcement and the next (or EOF) is
-read for a named `FAIL` line exactly as `lib/blame.js`'s `extractFailures` already reads
-any suite's own output. A log matching none of the three contributes no suites; it is not
-counted as partial evidence that a run happened.
+read for its verdict. A named `FAIL` line is `lib/blame.js`'s `extractFailures`, reused
+as-is; but a **missing** one is not a pass. `lib/blame.js` is explicit that no `FAIL`
+line means "cannot be compared by name", never "zero failures", and it only ever asks
+after it already knows the suite's exit status — which a transcript does not carry. So a
+block is green only on positive evidence that the check convention ran (an `ok <name>`
+line, a `N checks passed` tally), red on a failure or on Node's own death rattle (an
+error headline, a stack frame, a `throw`), and otherwise `unknown` — counted as neither
+passed nor red, and named as unreadable in the line. That last distinction is
+`bc-36xx.18` itself: a missing `node_modules` symlink killed the suite with
+`ERR_MODULE_NOT_FOUND` before its first check, so it printed no `FAIL` line at all. A log
+matching none of the three shapes contributes no suites; it is not counted as partial
+evidence that a run happened.
 
 **Auto-discovery is one source, not a scan of `os.tmpdir()`.** With no logs named, this
 worktree's most recent `lib/gaterun.js` run (`latestRunFor`) is read if there is one —
@@ -18023,8 +18032,15 @@ what those words actually mean.
 
 **Diff coverage is best-effort, and says so.** `git diff --name-only <since>...HEAD`
 names what changed; a changed file is reported as uncovered if its own path (or
-basename) is not a substring of any suite's own source among the suites this run named —
-not a real import-graph trace. A file reached through an indirection this cannot see (a
+basename) is not a substring of any suite's own source among the suites that **actually
+ran** — not among the suites a run merely planned to run, and not a real import-graph
+trace. The distinction is load-bearing rather than pedantic: a `lib/gaterun.js` record
+names its whole plan on line one and fills in results as it goes, and `latestRunFor`
+returns unfinished runs, so auto-discovery reads a partial run by default. Crediting a
+touched file to a suite that has not started yet would be a false coverage claim from the
+one command whose whole job is to stop false `--tests` claims. A run that is still going
+says so in its own line, with how many of its planned suites have reported so far.
+A file reached through an indirection this cannot see (a
 second `import` hop, a path built at runtime) can still be silently reported uncovered;
 it is a lead worth checking by hand, not proof either way.
 

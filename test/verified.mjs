@@ -113,8 +113,56 @@ check('a bare "node <suite>" line with no leading $ is recognised the same way',
   assert.deepEqual(verified.parseLogText(log), [{ suite: 'test/a.mjs', status: 'ok' }]);
 });
 
-check('a suite mentioned twice keeps its LAST verdict', () => {
+// The two halves of this pair are the SAME two lines in the opposite order, which is
+// the only thing that can tell "last verdict in the file" from "last parser to run".
+// Asserting just the first half passes either way — the fold used to concatenate
+// jsonLines, then plainLines, then transcript, so the transcript reader (the one shape
+// with no exit code behind it) silently won both orderings.
+check('a suite mentioned twice keeps its LAST verdict — transcript written last', () => {
   const log = ['[1/1] FAIL test/a.mjs 0.1s', '$ node test/a.mjs', '  ok   fine the second time'].join('\n');
+  assert.deepEqual(verified.parseLogText(log), [{ suite: 'test/a.mjs', status: 'ok' }]);
+});
+
+check('a suite mentioned twice keeps its LAST verdict — gate log written last', () => {
+  const log = ['$ node test/a.mjs', '  ok   fine the first time', '[1/1] FAIL test/a.mjs 0.1s'].join('\n');
+  assert.deepEqual(verified.parseLogText(log), [{ suite: 'test/a.mjs', status: 'fail' }]);
+});
+
+// bc-36xx.18's actual failure, as a transcript: a missing node_modules symlink killed
+// the suite with ERR_MODULE_NOT_FOUND before its first check, so it printed no `FAIL`
+// line at all. lib/blame.js's own docblock is explicit that no FAIL line means "cannot
+// be compared by name", never "zero failures" — reading it as a pass is the exact
+// mistake this command is named for.
+check('a block that crashed before its first check is NOT a pass', () => {
+  const log = [
+    '$ node test/approval.mjs',
+    'node:internal/modules/esm/resolve:275',
+    '    throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base));',
+    '          ^',
+    'Error [ERR_MODULE_NOT_FOUND]: Cannot find package \'chalk\' imported from test/approval.mjs',
+    '    at packageResolve (node:internal/modules/esm/resolve:275:9)',
+    '    at moduleResolve (node:internal/modules/esm/resolve:943:20)',
+  ].join('\n');
+  assert.deepEqual(verified.parseLogText(log), [{ suite: 'test/approval.mjs', status: 'fail' }]);
+});
+
+check('a block that states nothing either way is "unknown", not a pass', () => {
+  const log = ['$ node test/quiet.mjs', 'some incidental chatter', ''].join('\n');
+  assert.deepEqual(verified.parseLogText(log), [{ suite: 'test/quiet.mjs', status: 'unknown' }]);
+});
+
+check('a pass still needs only this repo\'s ordinary check output', () => {
+  assert.deepEqual(verified.parseLogText(['$ node test/a.mjs', '  ok   a check', '1 check passed'].join('\n')), [
+    { suite: 'test/a.mjs', status: 'ok' },
+  ]);
+  // A losing tally is a failure even with no named FAIL line.
+  assert.deepEqual(verified.parseLogText(['$ node test/a.mjs', '1/2 checks passed'].join('\n')), [
+    { suite: 'test/a.mjs', status: 'fail' },
+  ]);
+});
+
+check('ANSI colour codes in a transcript do not change the verdict', () => {
+  const log = ['$ node test/a.mjs', '  \x1b[32mok\x1b[0m   a check', '1 check passed'].join('\n');
   assert.deepEqual(verified.parseLogText(log), [{ suite: 'test/a.mjs', status: 'ok' }]);
 });
 
@@ -241,6 +289,46 @@ await checkAsync('a lib/gaterun.js run record, by extension and by content', asy
   fs.copyFileSync(file, renamed);
   const src2 = verified.readLogSource(renamed);
   assert.equal(src2.attempted, 2);
+});
+
+// A run record is written AS the run goes: the whole plan is on line one, the results
+// arrive one at a time. latestRunFor happily returns a run still being written, so
+// auto-discovery reads an unfinished one by default — and taking the roster off the
+// start line credits the diff to suites that have not started. That is a false
+// coverage claim in the one command whose job is to stop false --tests claims.
+await checkAsync('an UNFINISHED run credits coverage only to suites that actually ran', async () => {
+  const work = makeRepo('partialrun', {
+    'test/covers-a.mjs': passing(),
+    'test/covers-b.mjs': passing(),
+  });
+  const { file } = await gaterun.startRun(work, { suites: ['test/covers-a.mjs', 'test/covers-b.mjs'] });
+  gaterun.appendResult(file, { suite: 'test/covers-a.mjs', status: 'ok', elapsed: 0.1 });
+  // No result for covers-b.mjs, and no endRun — this is a run one suite into two.
+
+  const src = verified.readLogSource(file);
+  assert.equal(src.running, true);
+  assert.equal(src.attempted, 1);
+  assert.equal(src.planned, 2, 'the plan is still reported, so the line can say how partial this is');
+  assert.deepEqual(src.suites, ['test/covers-a.mjs'], 'the roster is what RAN, never what was planned');
+
+  // The file only the unrun suite would have covered is uncovered, and says so.
+  assert.deepEqual(verified.uncoveredFiles(work, ['lib/only-b-touches.js'], src.suites), [
+    'lib/only-b-touches.js',
+  ]);
+
+  // ...and the line names the partiality rather than reading as a finished 1/1 gate.
+  const line = verified.formatLine({
+    sources: [src],
+    attempted: 1,
+    passed: 1,
+    blamed: [],
+    unknown: [],
+    since: 'main',
+    diffFiles: [],
+    uncovered: [],
+  });
+  assert.match(line, /still running/);
+  assert.match(line, /1 of 2 suites so far/);
 });
 
 /* ============================================================ 5. discoverLogPaths */
