@@ -23698,6 +23698,64 @@ a deferred bead finished would be the count inventing a fact.
 `test/epicdone.mjs` covers it, including a real `Bd` against a stub `bd` binary, so the
 suppression is proved through the funnel rather than by reading a line of `lib/bd.js`.
 
+### How many beads has this tracker filed under nothing? — counted, at last
+
+The [filing gate](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists)
+and `withoutOrphans` (the ready queue's own filter) both already know, one bead at a
+time, whether anything has decided a given bead should happen. Neither counts. bc-xl7n.83
+is the number that grew to **53 unnoticed** on 2026-08-17 before a P0 advocate measured it
+by hand — and the four passes that followed each hand-wrote the same three-line script
+over `bd export`, one of them wrongly enough to report 42 where the real answer was 11.
+`lib/orphancensus.js` is that script, written once.
+
+**And it is not the same population `withoutOrphans` sees.** That filter only ever runs
+over beads that have already reached the ready queue — a bead carrying `unendorsed`,
+`human`, `container` or `ship`, or one that is blocked, deferred or already in progress,
+is never offered to it, so an unrooted bead in any of those states is counted by nothing
+at all, for as long as it stays that way. `bc-ysqd.1` was exactly this: filed under a live
+P0 that closed an hour later, carrying `unendorsed`, invisible to `withoutOrphans` and to
+every log line it writes. `orphanCensus` runs over every non-closed bead in the export —
+the whole population the bead is asking about, not only the slice a launcher would act on
+today.
+
+**Two traps, both paid for by an epic-advocate pass before this file existed, and both
+worth stating rather than re-deriving.** A bead must be tested for root-ness itself,
+before its ancestors are walked — skip that and every root in the tracker reads as
+unrooted, which is how one hand-rolled census reported 42 where the honest number was 11.
+And the walk has to cross a *closed* parent rather than stop there, because a root that
+closed over a still-open child is precisely the shape
+[the filing gate](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists)
+was built to catch, and stopping at a closed bead would make that child invisible to the
+one thing counting it.
+
+**The Merge #NNN genre is unrooted on purpose, and the census has to agree.** The merge
+queue files those cards with no parent at all and works them without a root above them —
+that is what keeps them out of dispatch by the same mechanism this file measures, so
+counting them as a defect would make the number swing on nothing but delivery traffic.
+Excluded by what they *are* — the `merge-queue` label (`lib/mergebead.js`) or the
+`pr-delivery` label (`lib/delivery.js`) — never by matching a title, which a card that
+merely mentions "Merge" in its own title would otherwise be caught by.
+
+**Logged once per bead per spell of being an ordinary orphan, not once per cycle.** The
+same restraint `withoutOrphans` and the adoption sweep's own refusal log already use: a
+bead that stays unrooted for a week would otherwise be the same line every cycle for as
+long as the daemon runs, which teaches nobody to read it. What that buys is exactly what
+the bead asks for — a rise is still noticeable, because every bead that newly becomes an
+ordinary orphan produces one `[census]` line the moment it does, whether the workspace
+already had none or already had fifty. Unlike `lib/epicdone.js`'s watcher, there is no
+quiet first pass: a restart is not a milestone that would chime falsely, and the whole
+point of this file is that the count was otherwise invisible, so naming every ordinary
+orphan already on the tracker the first time the daemon looks is the feature working, not
+a false alarm.
+
+Runs on the cycle's ordinary slow clock beside `sweepEpicsDone`, for the same reason:
+`bd.graph` is one `bd export` per workspace, cached for a minute and shared with the
+inbox's own board, so a pass here costs nothing a repaint was not already going to pay.
+
+`test/orphancensus.mjs` covers it — the pure count, both traps, the merge-genre
+exclusion, and the watcher's own once-per-spell logging and fail-open on a workspace it
+could not read.
+
 ### Noticing in five seconds — and not sweeping to find out
 
 The park above is only as quick as the daemon behind it, and for a long time the daemon
