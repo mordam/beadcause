@@ -56,6 +56,8 @@ const {
 } = await import(LIB('reviewadvocate.js'));
 const { AGENTS, baseline, mark } = await import(LIB('foundation.js'));
 const { AGENT_ACCESS } = await import(LIB('access.js'));
+const { reviewGated, reviewRefusal } = await import(LIB('reviewgate.js'));
+const { MAX_REVIEW_ROUNDS } = await import(LIB('mergebead.js'));
 
 let failures = 0;
 let ran = 0;
@@ -123,6 +125,23 @@ check('AND WHAT IT MAY NOT DO IS THE WHOLE ARGUMENT FOR IT BEING ONE', () => {
   // all: its verdict is a comment on the merge-bead.
   assert.ok(tools.includes('Bash(bd comment:*)'), 'the reviewer cannot write its verdict anywhere');
   assert.ok(tools.includes('Bash(gh pr diff:*)'), 'the reviewer cannot read the diff it is reviewing');
+});
+
+check('THE BASELINE DOES NOT UNDERSTATE ITS OWN CONTROLS — bc-9ntye.6', () => {
+  // `affects` and `oversight` are read by the system card, so a "not yet wired" left in
+  // after the wiring landed reports the agent as weaker than it is, in the one field that
+  // exists to say what holds it. Pin both the stale wording gone and the real controls
+  // named present, so the next round of drift fails loud rather than sitting in prose
+  // nobody re-reads.
+  const b = baseline(REVIEW_ADVOCATE);
+  for (const stale of [/not yet wired/, /cannot actually hold/, /not enforced in code/, /agent is told rather than a control/]) {
+    assert.ok(!stale.test(b.affects) && !stale.test(b.oversight), `the baseline still calls a wired control unwired: ${stale}`);
+  }
+  assert.match(b.affects, /reviewgate\.js/, 'affects no longer says which file makes a verdict binding');
+  assert.match(b.oversight, /MAX_REVIEW_ROUNDS/, 'oversight no longer names the control that caps rounds');
+  assert.equal(typeof reviewGated, 'function', 'the gate the baseline claims is wired is not there');
+  assert.equal(typeof reviewRefusal, 'function');
+  assert.equal(typeof MAX_REVIEW_ROUNDS, 'number', 'the cap the baseline claims is enforced is not exported');
 });
 
 check('it owns a repo now — bc-36xx.23, once windows actually opened on it', () => {

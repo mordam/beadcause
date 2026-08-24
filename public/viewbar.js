@@ -471,10 +471,54 @@
     reveal();
   });
 
+  /**
+   * Append a pill for a view a **repo** declared about itself.
+   *
+   * The nine above are what this app is, and they are argued for one at a time in the
+   * block comments beside them — position included, because position is the argument. A
+   * repo view has no such argument available to it here: this file cannot know whether
+   * deluvia's studio board is read more often than the ledger. So every one of them goes
+   * to the **end of the row**, after Config, in the order `/api/views` answered — which is
+   * the order of the configured workspaces, so it is stable across restarts.
+   *
+   * That is not a placeholder for a better rule. The row scrolls sideways and the current
+   * pill is scrolled into view on load, so "at the end" costs a repo view nothing it would
+   * gain from being third; and the alternative — a `position` field in the manifest — is a
+   * repo asserting a claim about a row it shares with every other repo, which is the one
+   * thing a plug-in must not get to do.
+   *
+   * Redraws, because the row is already on screen by the time `/api/views` answers. It is
+   * the same `draw()` the pane switch calls, so the lit pill and the three shapes are
+   * decided exactly as they always are and nothing here is a second opinion about them.
+   */
+  function add(pill) {
+    const id = String(pill?.id || '');
+    if (!id || PILLS.some((p) => p.id === id)) return false;
+    PILLS.push({
+      id,
+      icon: String(pill?.icon || '🧩'),
+      label: String(pill?.label || id),
+      // The address for the eleven pages that have no panes, and for a home-screen
+      // shortcut. `hrefOf` reads it; on the shell `panes.has(id)` is true and the pill is
+      // a button before the href is ever consulted.
+      // Defaulted to the view's own hash on Home rather than left empty, because `hrefOf`
+      // falls back to `/?kind=<id>` for a pill with no href — right for the five that *are*
+      // narrowings of Home, and a link to nothing for one that is not. A caller that gives
+      // no address gets the one address that is always true.
+      href: String(pill?.href || `/${route.hashFor(id) || ''}`),
+      repo: true,
+    });
+    draw();
+    reveal();
+    return true;
+  }
+
   window.beadcause = window.beadcause || {};
   window.beadcause.views = {
     /** The row's own list, for anything that has to agree with it. */
     pills: PILLS,
+    /** Append a pill for a repo's own view, at the end of the row. See `add` above. */
+    add,
     /** Which pill is lit right now. */
     lit,
     /**
