@@ -76,6 +76,29 @@ function writeStandIn() {
 
 const STANDIN = writeStandIn();
 
+/**
+ * The same stand-in, except that it ignores `SIGTERM` — so the only thing that ends it is
+ * the `SIGKILL` `killAll` escalates to, and `killAll` returns on the line after sending
+ * that one. This is the only way to exercise what the CLI does in the moment right after
+ * the escalation, which is where both halves of its report are decided.
+ */
+function writeStubbornStandIn() {
+  const p = path.join(tmp, 'stubborn-chrome');
+  fs.writeFileSync(p, "#!/usr/bin/env node\nprocess.on('SIGTERM', () => {});\nsetInterval(() => {}, 1000);\n");
+  fs.chmodSync(p, 0o755);
+  return p;
+}
+
+/** Wait out the window in which a killed child of this run is still a reapable zombie. */
+async function goneWithin(pid, ms) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (!alive(pid)) return true;
+    await sleep(25);
+  }
+  return false;
+}
+
 /** Real, live PID — no ps involved — for `kill(pid, 0)`-style liveness assertions. */
 function alive(pid) {
   try {
@@ -93,11 +116,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * table (via a plain `listChromes` import) to actually see it — spawning is not
  * synchronous with the process table gaining a row, and every case below depends on it
  * being there before the CLI is asked to look.
+ *
+ * `under` puts the profile somewhere other than directly under the root, which is what
+ * `scripts/checks.mjs` actually produces: one `beadcause-checkrun-XXXXXX` per run, a
+ * `TMPDIR` per check inside it, and the profile inside that. Every Chrome nested that way
+ * shares one `owns`, and `owns` is the unit removed — so the two cases that matter most
+ * here cannot be built without it.
  */
-async function startStandIn(sandboxRoot) {
-  const profile = fs.mkdtempSync(path.join(sandboxRoot, `${PREFIX}b7echrometest-`));
+async function startStandIn(sandboxRoot, { under = sandboxRoot, name = `${PREFIX}b7echrometest-`, exe = STANDIN } = {}) {
+  const profile = fs.mkdtempSync(path.join(under, name));
   const proc = spawn(
-    STANDIN,
+    exe,
     ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', 'about:blank'],
     { stdio: 'ignore' },
   );
@@ -161,6 +190,31 @@ await check('--older-than without --reap is refused, not silently ignored', () =
 await check('a non-numeric or negative --older-than is exit 2', () => {
   assert.equal(cli(['--reap', '--older-than', 'soon'], tmp).code, 2);
   assert.equal(cli(['--reap', '--older-than', '-1'], tmp).code, 2);
+});
+
+await check('an --older-than given no value is refused, and reaps nothing', async () => {
+  // `Number('')` is 0, and a 0 here means "every Chrome at every age". Both spellings of
+  // "no value" have to land on the refusal rather than on that, and the proof is a live
+  // stand-in seconds old still being alive afterwards — the exit code alone would not
+  // distinguish "refused" from "refused after killing something".
+  const root = fs.mkdtempSync(path.join(tmp, 'root-novalue-'));
+  const { pid, profile } = await startStandIn(root);
+  started.push(pid);
+
+  for (const args of [['--reap', '--older-than='], ['--reap', '--older-than']]) {
+    const r = cli(args, root);
+    assert.equal(r.code, 2, `${args.join(' ')} → ${r.out}`);
+    assert.match(r.err, /--older-than must be a number of minutes/, r.err);
+    assert.ok(alive(pid), `${args.join(' ')} must not have reaped anything`);
+    assert.ok(fs.existsSync(profile), `${args.join(' ')} must not have removed a profile`);
+  }
+
+  // And a trailing `--older-than` must still trip the requires---reap check, rather than
+  // being an `undefined` that both guards skip.
+  assert.equal(cli(['--older-than'], root).code, 2);
+
+  await reapAll([pid]);
+  fs.rmSync(profile, { recursive: true, force: true });
 });
 
 await check('a settled sandbox lists and reaps nothing, and exits 0 either way', () => {
@@ -242,6 +296,90 @@ await check('a second call afterwards finds nothing — the settled state', asyn
   assert.equal(r.code, 0, r.err);
   assert.equal(r.out, '', r.out);
   fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+});
+
+/* ------------------------------------------- guard 3, over a shared run directory */
+
+console.log('\nthe directory a live Chrome is still on, whatever else was under it');
+
+await check('reaping the old Chrome in a run directory leaves the young one and its run intact', async () => {
+  // The shape scripts/checks.mjs makes and test/strays.mjs pins: one run directory, a
+  // per-check TMPDIR inside it, a profile inside that. Both Chromes therefore have the
+  // *same* `owns` — and `owns` is what gets removed — so a reap that decides by pid alone
+  // deletes the live check's profile, and the run directory around it, out from under it.
+  // This is the likeliest use of --older-than there is: an agent ending the Chrome its own
+  // check just leaked while the rest of the run is still going.
+  const root = fs.mkdtempSync(path.join(tmp, 'root-shared-'));
+  const run = fs.mkdtempSync(path.join(root, `${PREFIX}checkrun-`));
+  const oldScratch = fs.mkdtempSync(path.join(run, 'old-check-'));
+  const youngScratch = fs.mkdtempSync(path.join(run, 'young-check-'));
+
+  const older = await startStandIn(root, { under: oldScratch, name: `${PREFIX}old-` });
+  started.push(older.pid);
+  // Real processes, so the age gap has to be a real one. `etime` counts whole seconds and
+  // --older-than below is 3s, which leaves this either side of it by a clear margin.
+  await sleep(5000);
+  const younger = await startStandIn(root, { under: youngScratch, name: `${PREFIX}young-` });
+  started.push(younger.pid);
+
+  const r = cli(['--reap', '--older-than', '0.05'], root);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, new RegExp(`^${older.pid}\\s.*reaped`, 'm'), r.out);
+  assert.doesNotMatch(r.out, new RegExp(`^${younger.pid}\\s`, 'm'), 'the young one was never a target');
+
+  assert.ok(alive(younger.pid), 'the young Chrome must not have been signalled');
+  assert.ok(fs.existsSync(younger.profile), 'and its profile must still be there');
+  assert.ok(fs.existsSync(run), 'nor may the run directory around it be removed');
+
+  await reapAll([older.pid, younger.pid]);
+});
+
+/* -------------------------------------------------- what the tag column names */
+
+await check('a nested profile is tagged by the check that made it, not only by the run', async () => {
+  // `owns` is the run, and every check of one run shares it — so a column that prints only
+  // `basename(owns)` says the same word about all of them. The bead asks for "the prefix and
+  // therefore which check left it", and that is the profile's own name.
+  const root = fs.mkdtempSync(path.join(tmp, 'root-tag-'));
+  const run = fs.mkdtempSync(path.join(root, `${PREFIX}checkrun-`));
+  const scratch = fs.mkdtempSync(path.join(run, 'space-check-'));
+  const { pid, profile } = await startStandIn(root, { under: scratch, name: `${PREFIX}space-` });
+  started.push(pid);
+
+  const r = cli([], root);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, new RegExp(path.basename(profile)), r.out);
+  assert.match(r.out, new RegExp(path.basename(run)), r.out);
+
+  await reapAll([pid]);
+  fs.rmSync(run, { recursive: true, force: true });
+});
+
+/* --------------------------------------- reporting the one that needed a SIGKILL */
+
+await check('a Chrome that only SIGKILL could end is reported reaped, and its profile goes', async () => {
+  // `killAll` waits out its grace, sends the SIGKILL and returns immediately — so the
+  // confirming read of the process table happens in the moment a just-killed process can
+  // still hold a `ps` row. Reading it there costs twice, and both costs are visible from
+  // outside: the line says it refused a signal it did not refuse, and its profile is held
+  // back from the removal pass and left on disk. The timing is a race and this does not
+  // pretend to force it — pre-fix it fails often and not always. What it pins either way
+  // is the outcome, which with the settle in place does not depend on the timing at all.
+  const root = fs.mkdtempSync(path.join(tmp, 'root-stubborn-'));
+  const { pid, profile } = await startStandIn(root, { exe: writeStubbornStandIn() });
+  started.push(pid);
+
+  const r = cli(['--reap', '--older-than', '0'], root);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, new RegExp(`^${pid}\\s.*reaped`, 'm'), r.out);
+  assert.doesNotMatch(r.out, /refused the signal/, r.out);
+  assert.equal(fs.existsSync(profile), false, 'the profile of something that did go must go with it');
+  // Polled, not asserted flat: this run spawned the stand-in, so between the SIGKILL
+  // landing and this process reaping the child it is a zombie, and `kill(pid, 0)` says yes
+  // to a zombie. That is a fact about who its parent is and not about the CLI.
+  assert.ok(await goneWithin(pid, 3000), 'and it really did go — the SIGKILL landed');
+
+  await reapAll([pid]);
 });
 
 /* -------------------------------------------------------------------- the end */

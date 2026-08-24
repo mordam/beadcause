@@ -15717,8 +15717,12 @@ the profile, not the process name; the age floor; never a directory a live Chrom
 
 Listing takes no age filter at all — the report itself is most of the value, and a check
 that died thirty seconds ago is exactly as interesting as one still running from
-yesterday. Each line names the pid, its age, the `beadcause-*` directory it owns (and so
-which check left it), and whether that profile is still on disk.
+yesterday. Each line names the pid, its age, the `beadcause-*` directory it belongs to,
+and whether that profile is still on disk. That third column is two names when a profile
+is nested, `run/profile`, because `scripts/checks.mjs` gives every check of one run a
+`TMPDIR` inside a single `beadcause-checkrun-XXXXXX` — the top-level directory names the
+run and would print identically for all of them, while the profile's own name is what
+`launchChrome`'s prefix exists to carry, and so is what says which check left it.
 
 `--reap` is the one place this can go wrong, so it defaults to `FLOOR_HOURS` — the same
 hour the daemon's own sweep will never go under, Adam's ruling on this bead: "a check
@@ -15730,6 +15734,16 @@ Getting this wrong is not a shrug: killing a live Chrome out from under a runnin
 is the exact incident this file exists around — macOS counts a headless instance as a
 running `com.google.Chrome`, so once one is orphaned, opening Chrome.app only
 *activates* it, with no window and Cmd-Q apparently ignored.
+
+The third guard is `--reap`'s, as much as it is the daemon's: **a top-level directory a
+live Chrome is still on is never removed**, whatever the age of whatever else was under
+it. That is not the same question as which processes to signal, because one
+`beadcause-checkrun-XXXXXX` holds every check of a run — so the likeliest use of
+`--older-than` there is, an agent ending the Chrome its own check just leaked, is
+precisely the case where a sibling check is still live in the same directory. The
+Chromes still on the process table after the reap are what say which directories those
+are, and they are held back from the removal pass whether they were too young to target
+or refused the signal outright.
 
 Deliberately narrow: it ends Chromes and the profile each one owned, and nothing else —
 the general scratch-directory sweep in the table above is the daemon's job, on its own

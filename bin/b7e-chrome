@@ -54,7 +54,12 @@ const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--reap') reap = true;
-  else if (a === '--older-than') olderThanRaw = argv[++i];
+  // `?? ''` rather than the bare read: `--older-than` as the last argument yields
+  // `undefined`, and an `undefined` that stays `undefined` is `!= null` false — which
+  // skips the requires-`--reap` check *and* the numeric one, and falls through to the
+  // floor as though the flag had never been given. An empty string is what was actually
+  // typed, and it is refused a few lines down like any other non-number.
+  else if (a === '--older-than') olderThanRaw = argv[++i] ?? '';
   else if (a.startsWith('--older-than=')) olderThanRaw = a.slice('--older-than='.length);
   else if (a === '-h' || a === '--help') {
     console.log(USAGE);
@@ -66,10 +71,16 @@ if (olderThanRaw != null && !reap) die('--older-than only means something alongs
 
 let olderThanMin = null;
 if (olderThanRaw != null) {
-  olderThanMin = Number(olderThanRaw);
-  if (!Number.isFinite(olderThanMin) || olderThanMin < 0) {
-    die(`--older-than must be a number of minutes, got: ${olderThanRaw}`);
+  // One condition, and it is on the string rather than on what `Number` makes of it.
+  // `Number('')` is 0, so `--older-than=` and `--older-than` with nothing after it both
+  // sail past a finite-and-non-negative check and reap every Chrome at every age,
+  // silently, exit 0 — while `soon` and `-1` are refused. This is the only override on
+  // the only command here with no undo, so what it accepts is spelled out: digits.
+  const raw = String(olderThanRaw).trim();
+  if (!/^\d+(\.\d+)?$/.test(raw)) {
+    die(`--older-than must be a number of minutes, got: ${raw === '' ? '(nothing)' : olderThanRaw}`);
   }
+  olderThanMin = Number(raw);
 }
 
 /** `ms` as the shortest of `Xm`, `XhYm` or `XdYh` — this runs in minutes, not days. */
@@ -83,11 +94,44 @@ function fmtAge(ms) {
 
 /** One reported line: pid, age, the prefix (and so which check), and the profile's fate. */
 function describe(c, outcome) {
-  const tag = path.basename(c.owns);
+  // `owns` alone answers the wrong question whenever a profile is nested. `scripts/checks.mjs`
+  // gives every check of one run a `TMPDIR` inside a single `beadcause-checkrun-XXXXXX`, so
+  // the top-level directory names the *run* and prints identically for all of them — while
+  // the profile's own basename is precisely the thing `launchChrome`'s `prefix` exists to
+  // carry ("so a leaked one is traceable to the check that leaked it"). Print both when they
+  // differ, and the one when they do not.
+  const top = path.basename(c.owns);
+  const leaf = path.basename(c.profile);
+  const tag = leaf === top ? top : `${top}/${leaf}`;
   const disk = fs.existsSync(c.profile) ? 'profile on disk' : 'profile already gone';
   const bits = [String(c.pid), fmtAge(c.ageMs), tag, disk];
   if (outcome) bits.push(outcome);
   return bits.join('  ');
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * The process table once it has stopped changing under us.
+ *
+ * `killAll` waits out its own grace before the `SIGKILL` and then returns on the next
+ * line (lib/strays.js), so a process that has this instant been killed can still hold a
+ * `ps` row when we look. Reading the table in that moment costs twice: the pid lands in
+ * `stillThere`, so it is held out of `gone` and **its profile is left on disk**, and the
+ * line printed about it says it refused a signal it did not refuse — from the one command
+ * whose whole job is reporting this accurately. So re-read until none of the ones we
+ * aimed at are left, or until a second has gone by. In the ordinary case they went on the
+ * `SIGTERM` long before this and the first read already answers, which is why this is a
+ * poll and not a fixed wait.
+ */
+async function settled(root, aimedAt) {
+  const deadline = Date.now() + 1000;
+  let now = await listChromes({ root });
+  while (now.some((c) => aimedAt.has(c.pid)) && Date.now() < deadline) {
+    await sleep(100);
+    now = await listChromes({ root });
+  }
+  return now;
 }
 
 try {
@@ -109,13 +153,22 @@ try {
   if (!targeted.length) process.exit(0);
 
   await reapChromes({ olderThanMs, root });
-  const stillThere = new Set((await listChromes({ root })).map((c) => c.pid));
+  const after = await settled(root, new Set(targeted.map((c) => c.pid)));
+  const stillThere = new Set(after.map((c) => c.pid));
 
-  // Only the profiles of things that actually went — a directory still holding a live
-  // Chrome, however old, is never on this list at all (see reapChromes' `keep`, which is
-  // exactly the set `stillThere` reconstructs here).
+  // Guard 3, which this file owes as much as the daemon does: **a top-level directory a
+  // live Chrome is still on is never removed**, whatever the age of whatever else was
+  // under it. `targeted` is a set of *processes* and `owns` is a directory several of
+  // them share — one `beadcause-checkrun-XXXXXX` holds every check of a run — so a set of
+  // pids cannot express this, and reaping the old Chrome in one would take the run
+  // directory out from under a sibling check still running inside it. That is the exact
+  // shape the likeliest use of `--older-than` makes: an agent reaping the Chrome its own
+  // check just leaked, while the rest of the run is live. The Chromes still on the table
+  // after the reap are what say which directories those are.
+  const busy = new Set(after.map((c) => c.owns));
   const gone = targeted.filter((c) => !stillThere.has(c.pid));
   for (const dir of new Set(gone.map((c) => c.owns))) {
+    if (busy.has(dir)) continue;
     try {
       await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 3 });
     } catch {
