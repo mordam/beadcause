@@ -5,7 +5,7 @@
  *
  *     b7e-inflight                        every open PR in this checkout's repo
  *     b7e-inflight 433                     one PR by number
- *     b7e-inflight --bead bc-x             the PRs naming this bead (open or not)
+ *     b7e-inflight --bead bc-x             the PRs naming this bead (open + recently merged)
  *     b7e-inflight --files public/a.js public/b.js   PRs whose diff touches either path
  *     b7e-inflight --files public/a.js --since 30     …and widen the merged window
  *     b7e-inflight -w sophab               a workspace other than this checkout's own
@@ -71,8 +71,8 @@ and how far behind its base it is right now — a STALE marker instead of a bare
 when the check predates the base it would actually be judged against today.
 
   <number>          one PR, by number, in this checkout's repo
-  --bead <id>       only PRs naming this bead (any state, not just open)
-  --files <path...> only PRs whose diff touches one of these paths (any state)
+  --bead <id>       only PRs naming this bead (open + merged in the window below)
+  --files <path...> only PRs whose diff touches one of these paths (same sweep)
   -w, --workspace   which tracker's beads to resolve against (default: this checkout's own)
   --dir <root>      run against another tree — this is how it is tested
   --since <days>    how far back the merged half of --bead/--files reaches (default ${DEFAULT_SINCE_DAYS})

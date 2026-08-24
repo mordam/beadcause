@@ -18377,7 +18377,7 @@ it to a command.
 ```
 b7e-inflight                        every open PR in this checkout's repo
 b7e-inflight 433                     one PR by number
-b7e-inflight --bead bc-x             the PRs naming this bead (any state, not just open)
+b7e-inflight --bead bc-x             the PRs naming this bead (open + recently merged)
 b7e-inflight --files public/a.js public/b.js   PRs whose diff touches either path
 b7e-inflight --files public/a.js --since 30    …reaching 30 days back instead of 14
 b7e-inflight -w sophab               a workspace other than this checkout's own
