@@ -26,7 +26,7 @@
  *    *only* in that position, so a red check still refuses a merge with an approval on it.
  * 5. **The reset stops at the queue's own block.** bc-36xx.2 puts a second block in the
  *    same `notes` field for the review loop, and an admitted pull request has not
- *    un-reviewed itself — so the write bin/merge.js makes is asserted to zero the
+ *    un-reviewed itself — so the write `admitToQueue` makes is asserted to zero the
  *    attempts and leave the round count, the reviewer's comments and the worker's answers
  *    exactly as they were. That is the one assertion a review folded into `queueState`
  *    would fail, and nothing else here would.
@@ -38,7 +38,9 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
 
-const { admitPlan, admittedState, approvedState, beadsAbout, admitComment, HUMAN_LABEL } = await import(LIB('mergeadmit.js'));
+const { admitPlan, admitToQueue, admittedState, approvedState, beadsAbout, admitComment, HUMAN_LABEL } = await import(
+  LIB('mergeadmit.js')
+);
 const { MAX_ATTEMPTS, MERGE_ASSIGNEE, MERGE_LABEL, mergeBeadBody, queueState, withQueueBlock, reviewState, withReviewBlock } =
   await import(LIB('mergebead.js'));
 const { gateVerdict, queueFor } = await import(LIB('mergeadvocate.js'));
@@ -154,7 +156,7 @@ check('a raised merge-bead is re-armed with exactly the labels the raise moved',
 check('and the bead that comes out of it is one the queue will actually pick up', () => {
   const row = raisedBead(withQueueBlock('', { attempts: 3, refused: 'lint', resolving: true }));
   const plan = admitPlan([row], about);
-  // The row as it is after the writes bin/merge.js makes from the plan.
+  // The row as it is after the writes `admitToQueue` makes from the plan.
   const admitted = {
     ...row,
     labels: [...row.labels.filter((l) => !plan.removeLabels.includes(l)), ...plan.addLabels],
@@ -274,7 +276,7 @@ check('an admission resets the queue block and leaves the review block untouched
   const row = raisedBead(notes);
   const plan = admitPlan([row], about);
 
-  // The write bin/merge.js makes, verbatim: it cuts the queue block by its markers and
+  // The write `admitToQueue` makes, verbatim: it cuts the queue block by its markers and
   // leaves the rest of the field alone. That is what carries the review through.
   const after = withQueueBlock(row.notes || '', plan.state);
 
@@ -393,6 +395,182 @@ check('an ordinary queued bead is untouched by all of this', () => {
   const plan = admitPlan([queuedBead()], about);
   assert.equal(plan.action, 'approve');
   assert.deepEqual(plan.removeLabels, []);
+});
+
+/* ------------------------------------------------------------------ the writes */
+
+/**
+ * `admitToQueue` — the executor, which has two callers since bc-02ldo.
+ *
+ * It was `bin/merge.js`'s own code until the app's Merge button had to do the same thing;
+ * a second copy of a sequence whose *order* is its safety is two copies that drift, so it
+ * moved beside the plan it executes. What is asserted here is exactly what the move made
+ * worth asserting: that the order is the order, and that the split between a failure which
+ * fails the admission and one which only warns is the split the two callers rely on.
+ *
+ * `bd` and the pull request are stubs, which is the point of them being injected — the
+ * whole sequence runs with no tracker, no checkout and no GitHub.
+ */
+console.log('\nthe writes it makes\n');
+
+const acheck = async (name, fn) => {
+  ran += 1;
+  try {
+    await fn();
+    console.log(`  ok   ${name}`);
+  } catch (err) {
+    failures += 1;
+    console.log(`  FAIL ${name}`);
+    console.log(`       ${String(err.message).split('\n').slice(0, 6).join('\n       ')}`);
+  }
+};
+
+/** A `bd` that records what it was asked to do, and fails whichever call is named. */
+const stubBd = ({ fail = null } = {}) => {
+  const calls = [];
+  const step = (what, value) => {
+    calls.push(what);
+    if (fail === what) return Promise.reject(new Error(`${what} refused\nand a second line nobody should see`));
+    return Promise.resolve(value);
+  };
+  return {
+    calls,
+    create: () => step('create', 'zz-new'),
+    assign: () => step('assign'),
+    addDep: () => step('addDep'),
+    comment: () => step('comment'),
+    update: () => step('update'),
+  };
+};
+
+const WS = { name: 'demo' };
+const VIEW = { number: 42, url: SPEC.url, title: 'a widget', branch: SPEC.branch, base: SPEC.base };
+
+await acheck('filing one writes the bead, then the assignee, then the records — in that order', async () => {
+  const bd = stubBd();
+  const said = [];
+  const out = await admitToQueue(bd, WS, admitPlan([], about), {
+    view: VIEW,
+    repo: 'acme/widgets',
+    bead: 'zz-work',
+    by: 'Adam',
+    prComment: (n, text) => {
+      said.push([n, text]);
+      return Promise.resolve();
+    },
+  });
+  assert.deepEqual(out, { action: 'file', id: 'zz-new', filed: true, queued: true, comment: out.comment });
+  // The assignee immediately after the create, because `queueFor` selects on it and a
+  // bead with the label and the wrong owner is invisible in a way that reads as queued.
+  assert.deepEqual(bd.calls, ['create', 'assign', 'addDep', 'comment']);
+  assert.equal(said.length, 1);
+  assert.match(said[0][1], /merge queue as zz-new/);
+});
+
+await acheck('and nothing is parked behind it when no work bead was named', async () => {
+  const bd = stubBd();
+  await admitToQueue(bd, WS, admitPlan([], about), { view: VIEW, repo: 'acme/widgets', bead: null });
+  assert.ok(!bd.calls.includes('addDep'), 'a dependency was made on a bead nobody named');
+});
+
+await acheck('a create that fails fails the admission, with the exit code the command uses', async () => {
+  const bd = stubBd({ fail: 'create' });
+  await assert.rejects(
+    () => admitToQueue(bd, WS, admitPlan([], about), { view: VIEW, repo: 'acme/widgets' }),
+    (err) => {
+      assert.equal(err.code, 5);
+      assert.equal(err.status, 500);
+      // One line: the caller puts this in front of a user, and bd's stack is not it.
+      assert.ok(!err.message.includes('\n'), err.message);
+      return true;
+    }
+  );
+});
+
+await acheck('so does an assignee that fails — a filed bead the queue cannot see is not queued', async () => {
+  const bd = stubBd({ fail: 'assign' });
+  await assert.rejects(
+    () => admitToQueue(bd, WS, admitPlan([], about), { view: VIEW, repo: 'acme/widgets' }),
+    (err) => {
+      assert.equal(err.code, 5);
+      assert.match(err.message, /the queue will not see it/);
+      return true;
+    }
+  );
+});
+
+await acheck('a record that fails only warns — the admission has already taken effect', async () => {
+  const warned = [];
+  const bd = stubBd({ fail: 'comment' });
+  const out = await admitToQueue(bd, WS, admitPlan([], about), {
+    view: VIEW,
+    repo: 'acme/widgets',
+    bead: 'zz-work',
+    onWarn: (m) => warned.push(m),
+    prComment: () => Promise.reject(new Error('gh is not logged in')),
+  });
+  assert.equal(out.queued, true);
+  assert.equal(warned.length, 2, warned.join(' | '));
+  assert.match(warned.join('\n'), /took no comment/);
+  assert.match(warned.join('\n'), /could not comment on #42/);
+});
+
+await acheck('re-arming an existing bead updates it, assigns it, and tells the pull request', async () => {
+  const bd = stubBd();
+  const said = [];
+  const row = raisedBead();
+  const out = await admitToQueue(bd, WS, admitPlan([row], about), {
+    view: VIEW,
+    repo: 'acme/widgets',
+    rows: [row],
+    prComment: (n, text) => {
+      said.push(text);
+      return Promise.resolve();
+    },
+  });
+  assert.equal(out.action, 'admit');
+  assert.equal(out.id, 'zz-merge');
+  assert.equal(out.queued, true);
+  assert.deepEqual(bd.calls, ['update', 'assign', 'comment']);
+  assert.match(said[0], /back on the beadcause merge queue as zz-merge/);
+});
+
+await acheck('and a plan executed against rows that do not hold its bead is refused, not defaulted', async () => {
+  // `withQueueBlock` rewrites the whole `notes` field. Given no row it would keep nothing
+  // — and what is in there beside the queue block is bc-36xx.2's review state.
+  const bd = stubBd();
+  const row = raisedBead();
+  await assert.rejects(
+    () => admitToQueue(bd, WS, admitPlan([row], about), { view: VIEW, repo: 'acme/widgets', rows: [] }),
+    (err) => {
+      assert.match(err.message, /cannot be rewritten without losing/);
+      return true;
+    }
+  );
+  assert.deepEqual(bd.calls, [], 'it wrote something before noticing');
+});
+
+await acheck('and approving one that is already moving writes the record and nothing else', async () => {
+  const bd = stubBd();
+  const said = [];
+  const row = queuedBead();
+  const out = await admitToQueue(bd, WS, admitPlan([row], about), {
+    view: VIEW,
+    repo: 'acme/widgets',
+    rows: [row],
+    prComment: (n, text) => {
+      said.push(text);
+      return Promise.resolve();
+    },
+  });
+  assert.equal(out.action, 'approve');
+  // `queued` is false, which is the whole of what a caller reports differently: nothing
+  // was moved, so a phone saying "queued" would be claiming a move nobody made.
+  assert.equal(out.queued, false);
+  assert.ok(!bd.calls.includes('assign'), 'a bead already assigned to the queue was re-assigned');
+  // No second opinion on the pull request either: a queue that was already moving does
+  // not need re-approving out loud.
+  assert.deepEqual(said, []);
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);

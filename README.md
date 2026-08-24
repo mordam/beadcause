@@ -1789,7 +1789,7 @@ Adam happens to merge that way:
 | door | what happens now |
 |---|---|
 | a tap on a delivery card (`lib/server.js`) | merges, notes the merge on the epic, leaves it open, owes nothing |
-| the PR board's Merge (`lib/server.js`) | the same — both go through `finishWorkBead` |
+| the PR board's **Queue to merge** (`lib/server.js`) | it does not close anything: since bc-02ldo the tap admits the pull request to the queue, and the queue's own close is the merge-queue row below |
 | a worker's own `beadcause-deliver` | merges, prints `landed #n`, comments, and says on stderr that the epic stays open |
 | the sweep that notices a merge on github.com (`lib/landed.js`) | reports the epic as a skip, and writes nothing to it |
 
@@ -8971,8 +8971,9 @@ none of them is that window's to merge.
 
 That is the whole of it, because the merge queue is the only
 [door into `main`](#landing-work--a-branch-a-pull-request-and-a-merge-queue) that nobody
-taps: the delivery card, the PR board's **Merge**, and a merge made on github.com are all
-already you. An in-app edit never reaches the queue at all — `bin/deliver.js` files the
+taps: the delivery card, the PR board's **Queue to merge** — which since bc-02ldo hands
+its pull request to that same queue rather than merging beside it — and a merge made on
+github.com are all already you. An in-app edit never reaches the queue at all — `bin/deliver.js` files the
 card instead, whatever the space says. The pull request says why it is sitting there, and so does the bead's
 thread — a green pull request open for two days with nothing on it to explain itself is
 the state this whole fallback exists not to be mysterious about.
@@ -9834,7 +9835,7 @@ page](#the-board-is-a-pane-too), is where you act on one. Both draw the row from
 renderer, `public/prcard.js`; there were two before that bead, and a fact added to one
 screen was a fact missing from the other.
 
-A row on the board folds open to what you can *do* — Merge & push, Ship, Comment, and
+A row on the board folds open to what you can *do* — Queue to merge, Ship, Comment, and
 **Full view**, which is a link into the inbox's own full-screen sheet for that pull request
 rather than a second copy of it. The status sub-filter widens itself when that link names a
 rung it is hiding (`revealPr` in `public/app.js`): the board's whole subject is what has
@@ -9885,7 +9886,7 @@ It carries what a merge decision needs and nothing else:
   goes through — it is the only text on the screen that came from outside this Mac;
 - **the branch and base, the bead, the authoring agent, and the datetimes** — opened, last
   touched, merged where there is one, and the merge commit;
-- **Merge & push**, **Close it** and **Comment on GitHub**;
+- **Queue #N to merge**, **Close it** and **Comment on GitHub**;
 - and, where GitHub reports a conflict, **Resolve conflicts** and **Cancel** in place of
   merge.
 
@@ -10045,9 +10046,11 @@ four ways into `main` here:
 
 - a tap on a **delivery card** in the inbox, which is how work a worker could not merge
   itself lands;
-- a tap on **Merge** on the [PR board](#where-you-read-it-an-inbox-card-and-the-board);
 - **the merge queue**, which is how most work lands — a worker files a merge-bead as its
-  last act and the daemon merges it (`lib/mergequeue.js`);
+  last act and the daemon merges it (`lib/mergequeue.js`), and since bc-02ldo the
+  [PR board's **Queue to merge**](#the-three-buttons) sends its own here rather than
+  merging on the spot;
+- **a worker's own merge**, `beadcause-deliver` in a space with no queue in front of it;
 - the **merge button on github.com**, from a phone browser or from somebody else, which
   nothing here performs and `reconcileLanded` notices afterwards.
 
@@ -10893,19 +10896,38 @@ says **no bead named** rather than borrowing one.
 
 ### The three buttons
 
-- **Merge & push** — `gh pr merge`, with lib/pr.js's own preflight in front of it, so
-  an already-merged, closed or conflicting PR is refused *here* with a sentence that
-  says which. GitHub's merge puts the commit on `origin/<base>` itself, so the work is
-  off the laptop the moment it lands; the "& push" half is bringing this Mac's own
-  `<base>` up with it, and it **will not touch a checkout with edited work in
-  it** — it says so instead, naming the paths in the way. Untracked residue it steps
-  past, and says so
-  ([why](#landing-work--a-branch-a-pull-request-and-a-merge-queue)). Both halves are always reported separately: a merge that
-  landed and a fast-forward refused because you have files open is a good outcome, and
-  one flat word over the pair would send you to the Mac to find out which happened.
+- **Queue to merge** — hands the pull request to the [merge queue](#landing-work--a-branch-a-pull-request-and-a-merge-queue),
+  and does not merge it. It is `beadcause-merge` from the phone: the same `admitPlan`
+  decides which bead this pull request already *is* — a merge-bead the queue handed back,
+  a delivery card asking about it, one already queued, or nothing open at all — and the
+  same `admitToQueue` writes the approval into the queue's own block in `notes`, where
+  `gateVerdict` reads it. Then every gate still applies: the base comes into the branch,
+  the checks are judged against what the base is already failing, one merge per repo at a
+  time, and a branch that broke something comes back as a card with the approval still on
+  it. A draft, a closed pull request, or one already merged is refused *here* with a
+  sentence saying which.
+
+  **It used to merge, and that was the bug** (bc-02ldo). The tap was `gh pr merge`
+  straight through — no downmerge, no baseline comparison, no one-at-a-time, and no
+  record in the tracker that anybody had decided anything. deluvia merged three pull
+  requests on one afternoon in August 2026: #53 and #54 went through `/merge` and each
+  left a merge-bead closed with the commit it landed as, #55 went through this button and
+  its approval exists nowhere. Two doors into `main` that disagreed about what merging
+  was, while the `/merge` skill named this endpoint by path as the thing not to do.
+
+  **The cost is that it stops being instant, and it is the reason the button no longer
+  says "Merge".** The queue's "is anything waiting" read is cached, so the merge lands a
+  minute or two later; a button still promising a merge would look broken for exactly
+  that long, which is what made the same pull request get tapped three times. What comes
+  back names the bead the queue will act on, says it is *not* merged yet, and names any
+  other open bead about the same pull request — two of those is a work bead that cannot
+  close, and the phone has no stderr to print them to.
+
   It takes **two taps**, with the consequence written into the button between them —
   the same arming pattern as the destructive control on /admin, and for the same
-  reason: a `confirm()` on a phone is a system sheet you dismiss by reflex.
+  reason: a `confirm()` on a phone is a system sheet you dismiss by reflex. The arming
+  survived the change on its own argument: what the second tap makes is the *approval*,
+  which the queue then acts on unattended.
 - **Ship** — **runs this repo's declared deploy** ([below](#deploying-a-repo-when-it-says-how))
   where there is one, and opens an iTerm session with a deploy-only brief where there is
   not. Which of the two it will do is on the button before you press it — *Ship* against
@@ -19087,7 +19109,7 @@ Nine things follow, and they are the whole of the change:
   reliably did. In between, every new worktree branched from before the delivery, and the
   session that got it paid with a downmerge of work it had never heard of. So a delivery
   ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
-  cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
+  cannot move anyway — and it is the same `landLocally` the merge queue's own `afterMerge` uses,
   refusal and all: *a checkout with edited work in it is not touched*, it says so on
   the bead instead, and Adam's open files are worth more than a tidy `main`. **It names
   the paths that stopped it.**
@@ -26506,7 +26528,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. One card per **repo** — `key` is `beadcause` or `climative/athena-service`, and it is what every row and every button below is addressed by, because a pull request number is only unique inside a repo. `workspace` is still accepted everywhere `key` is and means the same thing for a workspace that is one repo; see [why](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them). Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
-| POST | `/api/pr/merge` | `{key, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. Only *edited* files refuse it: untracked residue is stepped past and named, because this checkout is shared with every session on the Mac and one stray `.DS_Store` used to stop all of them. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
+| POST | `/api/pr/merge` | `{key, number, method?}` | **admits it to the merge queue — it does not merge** (bc-02ldo). `admitPlan` picks the bead this pull request already is (a merge-bead the queue handed back, a delivery card asking about it, one already queued, or nothing open at all) and `admitToQueue` writes `approved`/`approvedBy` into the queue block in its `notes`, where `gateVerdict` reads it — the same two functions `beadcause-merge` calls, because two copies of that sequence is two copies that drift. Answers `{queued, action, id, bead, why, others, warnings}`: `queued` is false on `approve` (it was already on the queue and moving, and claiming a move nothing made is the one thing this must not do) and `others` names any second open bead about the same pull request, which is a work bead that cannot close. A pull request already merged is `{alreadyMerged: true}` and a 200, because "it is already in" is the outcome the tap wanted; a draft or a closed one is a 409. **It used to merge, fast-forward this Mac's base and retire the inbox card** — all three now happen on the queue path, where `afterMerge` does the first two the moment the merge lands and the card is *converted* into the queue entry rather than closed behind it |
 | POST | `/api/pr/ship` | `{key, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | GET | `/api/queues` | `?refresh=1` | [the two queues](#the-two-queues-and-where-a-bead-is-in-either), keyed by repo: `{at, repos[], orphans[], counts, unavailable, errors[], observing}`. Each repo carries `merge[]` — one entry per bead with an unmerged branch, from the moment its PR joined the queue — and `release[]`, one per merged PR in the batch it will ship with. Every entry names its bead, its pull request and its `stage`, plus `rungs[]`: the whole ladder with each rung `done` · `now` · `pending` · **`untracked`**, which is what the three stages nothing records yet come back as and is never `done`. A repo with no declared deploy and no visible build returns merge entries and **no release entries**. A release entry is kept one release past the one that made it live (`ago`), then it is gone. Reads nothing of its own: the 25-second board `/api/prs` shares, the deploy journal, and merge-beads kept 20s behind the same `bd.graph()` gate the queue's own tick uses |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
