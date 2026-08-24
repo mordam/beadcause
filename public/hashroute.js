@@ -268,10 +268,19 @@
    * `loc` is for a test and for a document that is not this one; a page passes nothing.
    * Clearing it is the case worth the extra line: `location.hash = ''` leaves a bare `#`
    * hanging on the URL, which is then a *different* URL from the one the phone's home
-   * screen holds, so Home is cleared with `replaceState` instead — no history entry,
-   * because arriving at Home from a card is a dismissal rather than a step.
+   * screen holds, so a clear is always written with `pushState`/`replaceState` rather than
+   * by assignment.
+   *
+   * Which of the two depends on `dismiss` (bc-khoe.30.9). Setting a hash always pushes —
+   * that is what assigning `location.hash` does on its own — so the only place this was
+   * ever a question is *clearing* it, and clearing it means two different things today: a
+   * pill tap landing on Home is a *step* (one more view visited, so back should walk to
+   * the pane you came from) and a card closing back to Home is a *dismissal* (nothing new
+   * was visited, so back should still leave the app). `dismiss` is falsy by default because
+   * every caller so far — `panes.js`'s pill handler — is a step; pass `true` for the
+   * dismissal case once one exists.
    */
-  function go(hash, loc, hist) {
+  function go(hash, loc, hist, dismiss) {
     const l = loc || (typeof location === 'undefined' ? null : location);
     if (!l) return false;
     const next = String(hash == null ? '' : hash);
@@ -280,8 +289,48 @@
       return true;
     }
     const h = hist || (typeof history === 'undefined' ? null : history);
-    if (h?.replaceState) h.replaceState(null, '', `${l.pathname}${l.search}`);
+    const url = `${l.pathname}${l.search}`;
+    if (dismiss) {
+      if (h?.replaceState) h.replaceState(null, '', url);
+      else l.hash = '';
+    } else if (h?.pushState) h.pushState(null, '', url);
+    else if (h?.replaceState) h.replaceState(null, '', url);
     else l.hash = '';
+    return true;
+  }
+
+  /**
+   * Admit one more view to the grammar, at runtime (bc — repo views).
+   *
+   * The list above is closed and stays closed: those five are what *this app* is, they
+   * are in the service worker's precache, and a sixth appearing there would be a change
+   * to beadcause. What this adds is a different kind of view — one a **repo** declares
+   * about itself, discovered from `/api/views` after boot and gone again when that repo
+   * leaves the account. See public/viewhost.js and lib/repoviews.js.
+   *
+   * It is the same grammar and not a second one, which is the whole point: a repo view is
+   * named by a hash, falls back to Home when it is not there, carries a query like any
+   * other view, and is opened by `panes.go` through `hashFor`. Nothing downstream learns
+   * a new word.
+   *
+   * **The id is `<workspace>.<id>` and the hash is that id verbatim.** A dot rather than
+   * a slash or a colon, because decision 1 reads both of those as the shape of a bead card
+   * key — a view hashed `#deluvia/studio` would parse as a card, and the pill would open
+   * the inbox looking for a bead that does not exist. A bare word with a dot in it is not
+   * a card under any of the three shapes, and `parse` consults `NAMED` before `isCardKey`
+   * either way, so the two halves still cannot collide.
+   *
+   * Answers whether it took it. A duplicate is refused rather than replacing what is
+   * there — the built-in five are the ones that would be shadowed, and a repo that could
+   * take the name `history` could take the ledger off the row.
+   */
+  function add(view) {
+    const id = String(view?.id || '');
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*\.[a-z0-9][a-z0-9-]*$/.test(id)) return false;
+    if (VIEWS.some((v) => v.id === id)) return false;
+    const paths = (Array.isArray(view?.paths) ? view.paths : []).map((x) => String(x));
+    VIEWS.push({ id, hash: `#${id}`, paths, repo: true });
+    NAMED.set(id, id);
     return true;
   }
 
@@ -296,5 +345,9 @@
     hashForCard,
     viewOfPath,
     go,
+    /** Admit a repo's own view to the grammar. See `add` above. */
+    add,
+    /** Every view a repo declared, as opposed to the five this app is. */
+    repoViews: () => VIEWS.filter((v) => v.repo).map((v) => v.id),
   };
 })();

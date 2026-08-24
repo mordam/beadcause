@@ -69,6 +69,7 @@ const {
   ITERM_BUNDLE_ID,
   parseClosedWindows,
   closeEmptyWindows,
+  unreportedStuck,
 } = iterm;
 
 let failures = 0;
@@ -343,22 +344,72 @@ check(() => {
 /* ------------------------------------------------- the windows nothing is left in */
 
 check(() => {
-  assert.deepEqual(parseClosedWindows('0'), { closed: 0, ids: [] });
-  assert.deepEqual(parseClosedWindows('2 42590 42729'), { closed: 2, ids: ['42590', '42729'] });
+  assert.deepEqual(parseClosedWindows('0'), { closed: 0, ids: [], stuck: [] });
+  assert.deepEqual(parseClosedWindows('2 42590 42729'), { closed: 2, ids: ['42590', '42729'], stuck: [] });
   // The real script prints a trailing newline, and osascript is entitled to pad it.
-  assert.deepEqual(parseClosedWindows('  1 42590 \n'), { closed: 1, ids: ['42590'] });
+  assert.deepEqual(parseClosedWindows('  1 42590 \n'), { closed: 1, ids: ['42590'], stuck: [] });
 }, 'the empty-window sweep reads back a count and the ids it closed');
+
+check(() => {
+  // bc-xl7n.110. The script used to count a window as closed the moment `close` did not
+  // raise, and on one of these iTerm accepts the close and keeps the window — so the
+  // daemon announced 2,330 closures it had never performed. The script verifies by
+  // re-querying the id now, and the ones that stayed come back on their own line. This
+  // is the shape that has to survive: a refused close is `0`, never `1`.
+  assert.deepEqual(parseClosedWindows('0\nstuck 47768 47792'), {
+    closed: 0,
+    ids: [],
+    stuck: ['47768', '47792'],
+  });
+  // Both halves at once — some went, some did not — which is the ordinary case once a
+  // frame that will not close is sitting beside one that will.
+  assert.deepEqual(parseClosedWindows('1 42590\nstuck 47768'), {
+    closed: 1,
+    ids: ['42590'],
+    stuck: ['47768'],
+  });
+  // The line is absent when nothing refused, rather than present and empty.
+  assert.deepEqual(parseClosedWindows('1 42590').stuck, []);
+}, 'and reports separately the windows that took a close and stayed');
+
+check(() => {
+  // A window that will not close is in every sweep from now until it is dismissed by hand,
+  // so the whole value of naming it is lost if it is named 2,330 times — which is the shape
+  // of the bug this all comes from. Said once, and then not again while it is there.
+  const seen = new Set();
+  assert.deepEqual(unreportedStuck(seen, ['47768', '47792']), ['47768', '47792']);
+  assert.deepEqual(unreportedStuck(seen, ['47768', '47792']), [], 'the same pile says nothing');
+  // A newcomer beside them is its own report, and the old ones stay quiet.
+  assert.deepEqual(unreportedStuck(seen, ['47768', '47792', '48037']), ['48037']);
+  // Forgotten as soon as it stops coming back — and reported again if it returns, because
+  // iTerm reuses window ids and a number that went quiet and came back is a fresh frame.
+  // Holding ids for the life of the daemon would swallow that one silently.
+  assert.deepEqual(unreportedStuck(seen, []), []);
+  assert.deepEqual(unreportedStuck(seen, ['47768']), ['47768'], 'a returning id is a new window');
+  // The ordinary case, every tick on a tidy Mac: nothing stuck, nothing said, nothing kept.
+  assert.deepEqual(unreportedStuck(seen, []), []);
+  assert.equal(seen.size, 0, 'and the memory is bounded by the desk, not by uptime');
+  assert.deepEqual(unreportedStuck(new Set()), [], 'a sweep with no stuck list at all is quiet');
+}, 'and says each stuck window once rather than once a tick');
 
 check(() => {
   // Every one of these is "the script said something this does not understand", and the
   // answer to all of them is the same as finding nothing — never a throw, and never a
   // number invented from half a line.
   for (const bad of ['', null, undefined, 'missing', 'iTerm got an error: -1743', '-3 x']) {
-    assert.deepEqual(parseClosedWindows(bad), { closed: 0, ids: [] }, `on ${JSON.stringify(bad)}`);
+    assert.deepEqual(parseClosedWindows(bad), { closed: 0, ids: [], stuck: [] }, `on ${JSON.stringify(bad)}`);
   }
   // A count that outruns its own list is read as far as the list goes rather than
   // padded with undefined, so the log cannot print a window id that was never there.
-  assert.deepEqual(parseClosedWindows('3 42590'), { closed: 3, ids: ['42590'] });
+  assert.deepEqual(parseClosedWindows('3 42590'), { closed: 3, ids: ['42590'], stuck: [] });
+  // A garbled first line voids the stuck list too. One rule rather than two: output this
+  // could not read is a sweep whose result is unknown, and half an unknown result
+  // reported as a finding is how the version this replaced got believed.
+  assert.deepEqual(parseClosedWindows('iTerm got an error: -1743\nstuck 47768'), {
+    closed: 0,
+    ids: [],
+    stuck: [],
+  });
 }, 'and reads anything it cannot understand as having closed nothing');
 
 await checkAsync(async () => {
@@ -387,10 +438,52 @@ check(() => {
   // Collect, then close by id. Closing inside the enumeration renumbers `windows` under
   // the loop and iTerm answers -1719 partway through — after it has closed some of them.
   const collect = emptyScript.indexOf('repeat with w in windows');
-  const close = emptyScript.indexOf('close (first window whose id is theId)');
+  const close = emptyScript.indexOf('close (first window whose id is (item i of doomed))');
   assert.ok(collect > 0 && close > collect, 'the ids are collected before anything is closed');
-  assert.match(emptyScript, /repeat with theId in doomed/, 'and closed by id rather than by index');
+  assert.match(emptyScript, /repeat with i from 1 to \(count of doomed\)/, 'and closed by id rather than by index');
 }, 'and does it in two passes, because closing renumbers the collection it is walking');
+
+check(() => {
+  // bc-xl7n.110, and the reason this file is worth a static check at all: the close is
+  // not its own evidence. iTerm accepts `close` on a tabless window without raising and
+  // without removing it, so the `try` that used to be the whole test proved only that no
+  // error came back. A window reaches `closedIds` after a re-query says it is gone, and
+  // nowhere else — if this assertion is failing because the re-query was taken out, the
+  // sweep is back to announcing closures it never performed.
+  const close = emptyScript.indexOf('close (first window whose id is (item i of doomed))');
+  const verify = emptyScript.indexOf('if (count of (every window whose id is wid)) is 0 then set stillThere to false');
+  const record = emptyScript.indexOf('set end of closedIds to (wid as text)');
+  assert.ok(verify > close, 'the windows are re-queried after the closes, not before');
+  assert.ok(record > verify, 'and nothing is recorded as closed until that re-query has answered');
+  // The other half: what stayed is named rather than dropped, so the daemon can say so
+  // once instead of reporting the same frames as closed on every tick for four days.
+  assert.match(emptyScript, /set end of stuckIds to \(\(item i of pending\) as text\)/);
+  assert.match(emptyScript, /"stuck " & \(stuckIds as text\)/, 'and printed on a line of its own');
+  // `stillThere` starts true, so a re-query that itself fails reports the window as stuck.
+  // The conservative direction is the whole point: never claim a departure nothing saw.
+  assert.match(emptyScript, /set stillThere to true\n\t+try/);
+}, 'and counts a window as closed only after re-querying it, never because close did not raise');
+
+check(() => {
+  // The re-query is a poll rather than one settle, and that is load-bearing rather than
+  // decorative. Measured on 2026-08-23 against iTerm 3.6.11: a window that really is going
+  // still answers `1` when re-queried in the same tell block with no wait, and goes at
+  // around 50ms. So a settle that is too short reports every real closure as stuck — this
+  // bead's own bug with the sign reversed — and there is no constant that is safe on a Mac
+  // running a full suite beside two worker windows. The loop leaves as soon as nothing is
+  // pending, so the ordinary sweep pays one step and a slow one gets eight before it calls
+  // anything stuck. If the bound ever grows, check it against the caller's 5s timeout in
+  // `closeEmptyWindows`: measured end to end, the all-stuck case takes ~1.7s.
+  const poll = emptyScript.indexOf('repeat 8 times');
+  const settle = emptyScript.indexOf('tell current application to delay 0.15');
+  const leave = emptyScript.indexOf('if (count of pending) is 0 then exit repeat');
+  assert.ok(poll > 0, 'the re-query is bounded rather than open-ended');
+  assert.ok(settle > poll, 'and waits inside the loop rather than once before it');
+  assert.ok(leave > poll && leave < settle, 'and drops out before waiting when nothing is pending');
+  // `delay` is not iTerm's term, so this has to be addressed to the current application —
+  // a bare `delay` inside the tell block is a runtime error, not a compile one.
+  assert.doesNotMatch(emptyScript, /^\t+delay /m, 'the settle is not a bare `delay` inside the tell block');
+}, 'and polls for the departure rather than guessing a settle that is long enough');
 
 check(() => {
   assert.match(emptyScript, /if not \(application id "com\.googlecode\.iterm2" is running\) then return "0"/);

@@ -43,6 +43,9 @@ const TEMPLATED = [
   /^p[0-4]$/,              // pill p${priority}
   /^st-[a-z_]+$/,          // pill st-${status}, pr-stage st-${stage}
   /^pick-(yes|no)$/,       // prop-row pick-${choice}
+  /^statuss$/,             // chip-row ${g.id}s where g.id is the PR-status sub-filter's
+                           // own id, 'status' (filtermenu.js/filterpills.js) — the
+                           // segmented-switch plural convention, not a typo
 ];
 
 // Matching inside any string literal, not just a whole one: the app appends state with
@@ -95,7 +98,7 @@ const MUST = [
      bc-khoe.1 made every page an app shell: the bar is a row of a flex column now, and
      there is nothing left for it to stick to. */
   ['chrome/topbar.html', /\.topbar \{[^}]*flex: none/],
-  ['chrome/pulse.html', /@keyframes pulse/],
+  ['chrome/pulse.html', /@keyframes orbit-run/],
   ['workrows/work-row.html', /\.work-row\b/],
   ['monitor/service.html', /\.svc\.bad\b/],
   ['filters/chips.html', /\.chip\b/],

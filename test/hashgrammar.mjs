@@ -390,7 +390,10 @@ check('every page that loads viewbar.js or app.js loads hashroute.js before it',
       assert.ok(mine < at(f), `public/${page} loads hashroute.js after ${f}, so the call on boot throws`);
     }
   }
-  assert.equal(seen, 12, `expected the twelve pages that draw the pill row, found ${seen}`);
+  // Ten since bc-khoe.30.22 took public/releases.html out of `public/` entirely, as
+  // bc-khoe.30.15 did for public/history.html before it — both pills are drawn by
+  // index.html now, which was already one of the count.
+  assert.equal(seen, 10, `expected the ten pages that draw the pill row, found ${seen}`);
 });
 
 check('and the service worker precaches it, because both callers call it flat', () => {
@@ -408,21 +411,43 @@ check('setting a view hash writes it', () => {
   assert.equal(loc.hash, '#history', 'the card that was in the slot should be gone — one slot, last write wins');
 });
 
-check('clearing it leaves no bare # on the URL', () => {
+check('clearing it as a step leaves no bare # on the URL, and pushes (bc-khoe.30.9)', () => {
   // `location.hash = ''` leaves a `#` hanging, and `${baseUrl}/#` is a different URL from
-  // the `${baseUrl}/` a phone's home screen holds.
+  // the `${baseUrl}/` a phone's home screen holds. A step — the default, and what every
+  // pill tap is — pushes, so the back button can walk back to the pane it came from.
   const loc = { hash: '#history', pathname: '/', search: '' };
-  let wrote = null;
-  route.go(route.hashFor('epics'), loc, { replaceState: (_s, _t, url) => (wrote = url) });
-  assert.equal(wrote, '/', 'Home was not written with replaceState');
-  assert.equal(loc.hash, '#history', 'replaceState is what clears it; the hash must not also be assigned');
+  let pushed = null;
+  let replaced = null;
+  route.go(route.hashFor('epics'), loc, {
+    pushState: (_s, _t, url) => (pushed = url),
+    replaceState: (_s, _t, url) => (replaced = url),
+  });
+  assert.equal(pushed, '/', 'Home was not written with pushState');
+  assert.equal(replaced, null, 'a step must not also replace');
+  assert.equal(loc.hash, '#history', 'pushState is what clears it; the hash must not also be assigned');
 });
 
 check('and a query survives being sent Home', () => {
   const loc = { hash: '#history', pathname: '/', search: '?kind=pr' };
   let wrote = null;
-  route.go('', loc, { replaceState: (_s, _t, url) => (wrote = url) });
+  route.go('', loc, { pushState: (_s, _t, url) => (wrote = url) });
   assert.equal(wrote, '/?kind=pr');
+});
+
+check('clearing it as a dismissal replaces instead (bc-khoe.30.9)', () => {
+  // The fourth argument is what a card closing back to Home passes: nothing was visited,
+  // so back should still leave the app rather than walk to the card.
+  const loc = { hash: '#beadcause%2Fbc-x', pathname: '/', search: '' };
+  let pushed = null;
+  let replaced = null;
+  route.go(
+    '',
+    loc,
+    { pushState: (_s, _t, url) => (pushed = url), replaceState: (_s, _t, url) => (replaced = url) },
+    true
+  );
+  assert.equal(replaced, '/', 'a dismissal was not written with replaceState');
+  assert.equal(pushed, null, 'a dismissal must not also push');
 });
 
 check('with nowhere to write, it says so rather than throwing', () => {
