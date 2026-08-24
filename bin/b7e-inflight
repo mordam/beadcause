@@ -7,6 +7,7 @@
  *     b7e-inflight 433                     one PR by number
  *     b7e-inflight --bead bc-x             the PRs naming this bead (open or not)
  *     b7e-inflight --files public/a.js public/b.js   PRs whose diff touches either path
+ *     b7e-inflight --files public/a.js --since 30     …and widen the merged window
  *     b7e-inflight -w sophab               a workspace other than this checkout's own
  *     b7e-inflight --json                  one object per row, for a caller
  *     b7e-inflight --dir <root>            another tree — this is how it is tested
@@ -33,7 +34,7 @@ import path from 'node:path';
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
 import { available } from '../lib/pr.js';
-import { inflightRows, describeChecks } from '../lib/prsurvey.js';
+import { inflightRows, describeChecks, describeScope, DEFAULT_SINCE_DAYS } from '../lib/prsurvey.js';
 import { workspaceFor } from '../lib/claude.js';
 import { resolveSessionDir } from '../lib/session.js';
 
@@ -74,7 +75,12 @@ when the check predates the base it would actually be judged against today.
   --files <path...> only PRs whose diff touches one of these paths (any state)
   -w, --workspace   which tracker's beads to resolve against (default: this checkout's own)
   --dir <root>      run against another tree — this is how it is tested
-  --json            one object per row instead of the printed report`;
+  --since <days>    how far back the merged half of --bead/--files reaches (default ${DEFAULT_SINCE_DAYS})
+  --json            one object per row instead of the printed report
+
+--bead and --files sweep every OPEN pull request plus everything merged inside that
+window, and the report's first line says what was actually searched — an empty answer
+means something different under a complete sweep than under one GitHub cut off.`;
 
 if (has('--help') || has('-h')) {
   console.log(USAGE);
@@ -87,8 +93,24 @@ const JSON_MODE = has('--json');
 const beadId = value('--bead');
 const files = values('--files');
 const wsName = value('-w', '--workspace');
+const sinceGiven = value('--since');
 
-const FLAG_VALUES = new Set(['--dir', '--bead', '-w', '--workspace']);
+// **A narrowing that quietly did not happen is worse than a refusal.** `--files` with
+// no paths after it — `b7e-inflight --files --json`, which is how it gets typed — used
+// to yield an empty list, become `null` downstream, and print every open pull request
+// as if that had been the question. Same family as the truncated sweep this round
+// fixed, and the same answer as the two refusals below it.
+if (has('--files') && !files.length) {
+  console.error(`b7e-inflight: --files needs at least one path\n\n${USAGE}`);
+  process.exit(2);
+}
+if (sinceGiven !== undefined && !/^\d+$/.test(String(sinceGiven))) {
+  console.error(`b7e-inflight: --since takes a number of days — got ${sinceGiven}\n\n${USAGE}`);
+  process.exit(2);
+}
+const sinceDays = sinceGiven === undefined ? DEFAULT_SINCE_DAYS : Number(sinceGiven);
+
+const FLAG_VALUES = new Set(['--dir', '--bead', '-w', '--workspace', '--since']);
 let number = null;
 for (let i = 0; i < argv.length; i += 1) {
   const a = argv[i];
@@ -167,7 +189,7 @@ if (beadId && bd) {
   }
 }
 
-const result = await inflightRows(dir, { number, beadId, files: files.length ? files : null, bd, ws, available });
+const result = await inflightRows(dir, { number, beadId, files: files.length ? files : null, sinceDays, bd, ws, available });
 
 if (!result.reachable) {
   console.error(`b7e-inflight: could not ask gh — ${result.reason}`);
@@ -176,12 +198,19 @@ if (!result.reachable) {
 }
 
 if (JSON_MODE) {
+  // The scope goes out too, and first: a caller reading this stream has exactly the
+  // same right as a reader of the report to know that an empty answer was an empty
+  // *sweep* rather than a truncated one.
+  console.log(JSON.stringify({ scope: result.scope }));
   for (const row of result.rows) console.log(JSON.stringify(row));
   process.exit(0);
 }
 
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
+
+const scopeLine = describeScope(result.scope);
+if (scopeLine) console.log(result.scope?.complete === false ? yellow(scopeLine) : dim(scopeLine));
 
 if (!result.rows.length) {
   console.log('(nothing matches)');
@@ -192,7 +221,8 @@ for (const row of result.rows) {
   const beads = row.beads.length ? row.beads.map((b) => b.id).join(', ') : dim('no bead named');
   const draft = row.draft ? ' [draft]' : '';
   console.log(`#${row.number}${draft}  ${beads}  ${row.branch}`);
-  console.log(`  ${row.state}  ${row.mergeState || 'UNKNOWN'}  ${row.headSha.slice(0, 8)}`);
+  const merged = row.mergedAt ? dim(`  merged ${String(row.mergedAt).slice(0, 10)}`) : '';
+  console.log(`  ${row.state}  ${row.mergeState || 'UNKNOWN'}  ${row.headSha ? row.headSha.slice(0, 8) : dim('sha unknown')}${merged}`);
   const checkLine = describeChecks(row);
   console.log(row.stale ? `  ${yellow(checkLine)}` : `  ${checkLine}`);
   if (row.filesUnknown) console.log(yellow('  could not fetch this PR\'s diff — files touched is UNKNOWN, not "no"'));

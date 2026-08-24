@@ -18379,6 +18379,7 @@ b7e-inflight                        every open PR in this checkout's repo
 b7e-inflight 433                     one PR by number
 b7e-inflight --bead bc-x             the PRs naming this bead (any state, not just open)
 b7e-inflight --files public/a.js public/b.js   PRs whose diff touches either path
+b7e-inflight --files public/a.js --since 30    …reaching 30 days back instead of 14
 b7e-inflight -w sophab               a workspace other than this checkout's own
 b7e-inflight --json                  one object per row, for a caller
 ```
@@ -18410,10 +18411,45 @@ catches a PR from a worktree that has already been retired, the `bc-khoe.30.6` c
 PR whose diff could not be fetched is **kept**, flagged `filesUnknown`, never silently
 dropped — dropping it would read exactly like "confirmed not to touch these files".
 
-`--bead` and `--files` both search every state, not only `open`, because a bead or a path
-collision can matter about a PR that already merged — the same reasoning `lib/landed.js`
-gives for asking `lib/beadref.js`'s `beadsFor` the identical question. Passing a bare PR
-number is its own narrowing and refuses to combine with either flag.
+`--bead` and `--files` both reach past `open`, because a bead or a path collision can
+matter about a PR that already merged — the same reasoning `lib/landed.js` gives for
+asking `lib/beadref.js`'s `beadsFor` the identical question. Passing a bare PR number is
+its own narrowing and refuses to combine with either flag, and `--files` with no paths
+after it refuses too rather than quietly widening back to everything.
+
+**A sweep says how wide it was, because an empty answer means nothing without that.**
+The first version of this asked `gh pr list --state all --limit 100` and printed the page
+it got back. On this repo that page stops at #562 of 661, so `--files public/monitor.js`
+listed five pull requests and silently omitted `#433` — the collision `bc-khoe.30.6` was
+actually hunting — while `--bead` on anything older printed `(nothing matches)` and
+exited `0`. A truncated sweep read exactly like a complete one. So the sweep is now two
+calls whose coverage can be checked and is reported: every `open` pull request (at a
+ceiling of 400, and a full page is treated as evidence of more rather than as the
+answer), plus everything merged inside a window — `listMergedSince`, which already
+bisects its own date range and already reports `complete`/`cap`. Every run leads with the
+line, and `--json` leads with the same thing as a `{ scope }` object:
+
+```
+searched 45 open + 612 merged in the last 14 days (since 2026-08-10)
+```
+
+Fourteen days because a `--files` sweep costs one `gh pr diff` per candidate and 278
+pull requests merged here in the week to 2026-08-23; `--since` widens or narrows it, and
+whichever number is used is printed. That default is not free — `--files
+public/monitor.js` over 45 open + 612 merged took 1m39s on 2026-08-23 — and the trade is
+deliberate: it is the price of an answer that contains `#433` rather than a fast one that
+does not. When something *does* cap the sweep, the line says `INCOMPLETE` and which
+number bit, rather than letting a short list pass for a whole one. Open plus merged is
+also not literally every state: a pull request closed *without* merging is in neither
+half, which is allowed only because the scope line says so on every run — ask for one of
+those by number.
+
+The behind-count comes off GitHub's `compare` endpoint, and **`total_commits` is the
+count while `.commits` is a page of at most 250**. Reading the array's length — which is
+what the first version did — printed `250 commits behind main` for every branch 250 or
+more behind, so the `593` in the example above could not be produced by the binary at
+all. Measured on this repo: `compare/4ea4b599...main` answers `{returned: 250,
+total_commits: 348}`, and `b7e-inflight 323` now says 348.
 
 `Bash(b7e-inflight:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
 `lib/grants.js` — it only ever asks `gh` (`pr list`/`view`/`diff`, all reads) and `bd
