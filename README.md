@@ -22530,7 +22530,10 @@ the reason `lib/boundary.js` gives about its CUEC gap: a gate nobody can ever pa
 somebody deletes. A caller may hand in a record for those four, held to the same bar as
 everything else, where every entry names where the fact is written down. It is deliberately
 not reachable from the command line: a flag would put a hand-written section one step away,
-which is the thing the whole file refuses.
+which is the thing the whole file refuses. One of the four now has a register behind the
+seam — [`lib/commitments.js`](#two-commitments-owed-to-nyserda-and-td-until-somebody-reads-the-agreement--libcommitmentsjs-testcommitmentsmjs),
+which `bin/description.js` supplies from — and it is still owed, so the section still
+prints `unavailable` until somebody reads the actual agreements.
 
 **No criterion is described twice.** The control-environment section is the description of
 CC1 to CC5, and those are common criteria, so they are already stated in full — with their
@@ -32300,6 +32303,38 @@ it, so the set belongs to the service organisation rather than to this daemon. T
 register itself is a controlled document in `lib/documents.js`, on twelve months, and what
 is approved there is the register — by the owner of this repository — and not the fifteen
 documents it tracks.
+
+### Two commitments, owed to NYSERDA and TD until somebody reads the agreement — `lib/commitments.js`, `test/commitments.mjs`
+
+DC 200 asks a system description to state the principal service commitments the service
+organisation made its user entities — availability, confidentiality, processing and
+privacy promises — and the system requirements those promises impose. **The commitment is
+not the control.** A control that keeps a promise is evidence the promise is kept; it is
+not the promise, and `lib/gapassessment.js`'s own `SOC2.CC2.3` row already says why nothing
+here can state one: "a system description cannot state service commitments that nobody has
+read out of a contract." The executed NYSERDA and TD agreements are not in this repository.
+
+So this is a register of two commitment *categories* — availability and confidentiality,
+because processing integrity and privacy are not elected (`bc-yfgo`) — each owed to the two
+user entities [the boundary](#the-system-boundary-as-data--beadcause-boundary) names and
+measured against the criteria it bears on, and `owed` for the same reason all fifteen
+policies are: writing plausible SLA numbers in would produce a register that passes every
+check and describes a promise nobody made. It reuses `lib/policies.js`'s exact split —
+`ADOPTION_FIELDS` absent on an owed entry, refused on it if present, required on an adopted
+one — for the same reason `lib/policies.js` gives: the dangerous failure is not the missing
+approval, it is the one that reads as though somebody had given it.
+
+**It feeds [the description](#the-system-description-generated--beadcause-description)'s
+supplied-record seam, and only from the CLI.** `suppliable` hands back only the categories
+that are actually `adopted`, in the exact shape `lib/systemdescription.js` wants — an owed
+category contributes nothing, which is the honest answer for a promise nobody has read out
+loud yet. `bin/description.js` is what assembles it, not `lib/systemdescription.js` itself:
+its import list is pinned to three files in its own suite, and this stays a fourth leaf
+rather than a fourth import. Today the whole register is owed, so `beadcause-description
+sections` still shows `commitments` as `unavailable` and the assertion draft still lists it
+among the reasons it may not be signed — the seam is built and wired; reading the actual
+agreements and transcribing what they say is a separate piece of work, because it is a fact
+about a contract and not a fact this repository can derive.
 
 ### Two branches that renumber the wizard merge clean — `test/wizardnumbers.mjs`
 
