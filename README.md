@@ -30398,6 +30398,27 @@ A sweep does four things, in this order.
 4. **Sends whatever the far end has not witnessed**, through `publishQuietly` — the door that
    cannot throw, cannot reject and cannot hang.
 
+**A transition typed with no bead is published as `'none'`, not skipped (bc-3muu.21).**
+`setManagement` in `lib/management.js` takes a bead and defaults it to null on purpose — a
+manual `beadcause-management on`/`off` at a terminal is not always done for a piece of
+work — while the `transition` kind in `lib/publishable.js` requires all three of its
+fields, `bead` among them. The two disagreed, and the disagreement landed in the worst
+place: the transitions are what say whether the compliance layer was on at all, so a
+transition the publisher could not carry was a hole in exactly the record an auditor reads
+for the window's own boundary. The fix widens `TYPES.bead` rather than the CLI or
+`setManagement`: `'none'` is a sentinel, the same shape `since`'s `'never'`, `origin`'s
+`'unknown'` and `retention`'s `'permanent'` already take, and it is a fact an auditor can
+act on — "this transition named no bead" — rather than an absent field standing in for it.
+Making `bead` mandatory at write time was rejected: it would still do nothing for the
+transitions already on `refs/beadcause/management` on any install before this landed, since
+none of those can retroactively acquire a bead either way, and it would refuse the ordinary
+case of a manual toggle with no ticket behind it. Widening the kind to carry `reason` and
+`by` instead, and dropping `bead` to optional, was rejected too — `reason` is prose, and
+publishing prose is exactly what this table exists to refuse. `lib/publishsweep.js`'s
+`transitionsOwed` publishes every transition with a commit on the ref now, whatever its
+bead; `test/publishsweep.mjs` and `test/publishable.mjs` both pin a bead-less transition
+through the whole path — table, chain, sweep — and assert it links.
+
 **Which refs get a head is a table with a crosswalk under it.** `PUBLISHED_REFS` names seven,
 each of them a *chained* evidence class in `lib/evidence.js`'s register that lives at one fixed
 ref, and the suite checks every entry against that register by literal id. Two kinds of class
