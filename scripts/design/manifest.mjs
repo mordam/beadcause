@@ -158,9 +158,22 @@ const CORE = [
         name: 'Pulse dot',
         subtitle: 'Idle and busy',
         viewport: { width: 420, height: 160 },
-        note: `Nine pixels of "the daemon is alive". At rest it is a flat accent circle; while a request is in flight <b>.busy</b> runs a 1.1s ring out of it. It is the only always-on liveness signal in the chrome, which is why it sits left of the mark rather than in a corner.`,
+        note: `Nine pixels of "the daemon is alive". At rest it is a flat accent circle; while a request is in flight <b>.busy</b> grows an orbit of beads out of it (public/orbit.js) rather than the ring this used to be — the old <b>.dot.busy</b> class still works, it just draws a different picture now. It is the only always-on liveness signal in the chrome, which is why it sits left of the mark rather than in a corner.`,
         extraClasses: ['busy'],
-        markup: `<div class="brand"><span class="dot"></span><span class="dot busy"></span></div>`,
+        markup: `<div class="brand"><span class="dot"></span><span class="dot busy">
+    <span class="orbit far" aria-hidden="true">
+      <span class="orbit-string"></span>
+      <span class="orbit-bead" style="--i:0"></span>
+      <span class="orbit-bead" style="--i:1"></span>
+      <span class="orbit-bead" style="--i:2"></span>
+    </span>
+    <span class="orbit near" aria-hidden="true">
+      <span class="orbit-string"></span>
+      <span class="orbit-bead" style="--i:0"></span>
+      <span class="orbit-bead" style="--i:1"></span>
+      <span class="orbit-bead" style="--i:2"></span>
+    </span>
+  </span></div>`,
       },
       {
         path: 'chrome/icon-buttons.html',
