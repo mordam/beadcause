@@ -643,11 +643,13 @@ try {
 
   /* ------------------------------------------------- and the same view, as a pane */
 
-  // Everything above drove `/releases`, the document. Since bc-khoe.30.14 the same file
-  // also draws a pane of the shell, and the four claims below are the ones a vm cannot
-  // make: that the pill stopped being a link, that a tap costs no document load, that the
-  // scroll position survives the round trip, and that the chip did not end up in a top bar
-  // shared with every other view.
+  // Everything above already drove the pane — `/releases` has been a 302 into `/#releases`
+  // since bc-khoe.30.14, and public/releases.html is gone from disk since bc-khoe.30.22 —
+  // so the first navigation above and this one land on the same document, arrived at two
+  // different ways. The four claims below are the ones a vm cannot make: that the pill
+  // stopped being a link, that a tap costs no document load, that the scroll position
+  // survives the round trip, and that the chip did not end up in a top bar shared with
+  // every other view.
   console.log('\nthe same view, as a pane of the shell');
 
   // Land on Home first, so the Releases pill is one you are *not* on — the pill for the
@@ -660,7 +662,7 @@ try {
   // container carried `data-pending`, and answers differently the moment this bead lands.
   ok(
     (await evalJs(s, `document.querySelector('.viewbar [data-pane="releases"]')?.tagName`)) === 'BUTTON',
-    'from Home, the Releases pill is a control rather than a link to a document this page already has open'
+    'from Home, the Releases pill is a control rather than a link to a document'
   );
   ok(
     !(await evalJs(s, `!!document.querySelector('.viewbar a[href="/releases"]')`)),

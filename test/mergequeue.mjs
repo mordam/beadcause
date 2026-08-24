@@ -975,6 +975,22 @@ await check('the line it hands the card says what happened, or nothing at all', 
   assert.match(describeMergeQueue({ ok: false, reason: 'bd list failed' }), /bd list failed/);
 });
 
+await check('and it tells a review that is happening from one that is only owed, and names what is in line', async () => {
+  const bare = { ok: true, merged: [], updated: [], refused: [], raised: [], waiting: [] };
+  // bc-xl7n.129. `awaiting` is true of a pull request a reviewer is reading right now and
+  // of one nothing has ever looked at, so on its own the line cannot say which.
+  assert.match(describeMergeQueue({ ...bare, reviewing: ['a'] }), /1 being reviewed/);
+  assert.match(describeMergeQueue({ ...bare, answering: ['a', 'b'] }), /2 being answered/);
+  // And the wait this bead is about: a window asked for and not opened, which for three
+  // hours was reported as a window that had been.
+  const line = describeMergeQueue({ ...bare, inLine: [539, 626, 627] });
+  assert.match(line, /3 in line for a window \(#539, #626, #627\)/, line);
+  const long = describeMergeQueue({ ...bare, inLine: [539, 626, 627, 629, 631] });
+  assert.match(long, /5 in line for a window \(#539, #626, #627 and 2 more\)/, long);
+  // Optional, for `held`'s reason: a caller predating the fields hands this a plain object.
+  assert.equal(describeMergeQueue(bare), '');
+});
+
 /* ============================================================== the review gate
 
    bc-36xx.4. test/reviewgate.mjs pins the decision as a pure function; these are the
@@ -1210,6 +1226,21 @@ await check('comments waiting on the worker open the worker’s window', async (
   // No flag is written for it: whether the window is owed is the review block itself —
   // a comment with no answer on it — and it stops being true when the worker writes one.
   assert.match(bd.calls.updates.at(-1).notes, /waiting on the worker/);
+});
+
+await check('a window the Mac was too full to open is counted as in line, not as opened', async () => {
+  // bc-xl7n.129. The door returns `'queued'` when `resolveFor` put the pull request in
+  // line rather than opening a window — still truthy, so nothing that only asks yes-or-no
+  // changed, and counted apart so the card can say what is waiting. Before this a queued
+  // window and a live one were the same number, which is why 25 pull requests could sit in
+  // line for three hours with every log line on the path reading as success.
+  const rev = { round: 1, verdict: 'changes', reviewedSha: HEAD, comments: [{ id: 'c1', body: 'this leaks a handle' }] };
+  const bd = fakeBd({ rows: [reviewed(rev)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), { policy: REVIEW_ON, openAnswer: async () => 'queued' });
+  assert.deepEqual(out.answering, [], 'a window that never went up must not be reported as one that did');
+  assert.deepEqual(out.inLine, [42], 'the pull request number, because the card names them and bead ids are not what is in line');
+  assert.deepEqual(out.awaiting, ['zz-merge'], 'and it is still waiting on the worker either way');
+  assert.match(describeMergeQueue(out), /1 in line for a window \(#42\)/, describeMergeQueue(out));
 });
 
 await check('a refusal becomes a card, without waiting out the round cap', async () => {
@@ -1618,6 +1649,67 @@ await check('and every sentence the merge writes names the bead the findings wen
     bd.calls.comments.some((c) => c.id === 'zz-work' && new RegExp(follow).test(c.text)),
     'and the comment on the work bead'
   );
+});
+
+/* --------------------------------- the landed card can name the follow-up (bc-9ntye.5) */
+
+await check('the landed card is told the follow-up bead, which afterMerge never sees', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  const cards = [];
+  await run(bd, prApi, {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    afterMerge: async () => {}, // present and empty: proves the card comes from a separate seam
+    announceLanding: async (spec, issue, { findings }) => cards.push({ bead: spec.bead, findings }),
+  });
+  const follow = bd.calls.created[0].id;
+  assert.equal(cards.length, 1, 'the card is announced exactly once');
+  assert.equal(cards[0].bead, 'zz-work');
+  assert.match(cards[0].findings, new RegExp(follow), 'the sentence names the bead the findings went to');
+});
+
+await check("a clean merge's card is unchanged", async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const cards = [];
+  await run(bd, fakePr(openPr()), { announceLanding: async (spec, issue, { findings }) => cards.push(findings) });
+  assert.deepEqual(cards, [''], 'nothing was owed, so the card says nothing was owed');
+});
+
+await check('announceLanding runs after afterMerge, in the order the two callbacks were named for', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const seen = [];
+  await run(bd, fakePr(openPr()), {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    afterMerge: async () => seen.push('afterMerge'),
+    announceLanding: async () => seen.push('announceLanding'),
+  });
+  // afterMerge fires before `finish`, and `finish` is where the follow-up bead this card
+  // wants to name is minted — so this order is not incidental, it is the whole fix.
+  assert.deepEqual(seen, ['afterMerge', 'announceLanding']);
+});
+
+await check('a card that fails to send does not stand between the merge and either close', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), {
+    announceLanding: async () => {
+      throw new Error('bus is down');
+    },
+  });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work']);
+});
+
+await check('a pull request merged outside the queue never rings the phone', async () => {
+  // The same door `markMerged` above proved is threaded to this path — `announceLanding`
+  // is deliberately not, for the reason in lib/server.js's own comment: a merge Adam did
+  // himself, from GitHub or the phone, is a tap of his and must not chime for it.
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const cards = [];
+  const prApi = fakePr(openPr({ state: 'MERGED', mergedAt: '2026-08-16T12:00:00Z', mergeCommit: 'a1b2c3d4e5' }));
+  await run(bd, prApi, { announceLanding: async () => cards.push('rang') });
+  assert.deepEqual(cards, []);
 });
 
 await check('the same verdict on the next tick files nothing a second time', async () => {
