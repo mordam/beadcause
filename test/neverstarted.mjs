@@ -151,6 +151,16 @@ async function arena({
   cards = [],
   overrides = {},
   launchState = 'never-started',
+  // The iTerm handle `open`/`openPlan` report back — null by default, matching every
+  // launch before bc-xl7n.113.2 existed and every case above this one that does not ask
+  // about closing the window. Set it to exercise `closingNeverStartedFor`.
+  term = null,
+  // The closer lib/advocate.js's `reapNeverStarted` calls once a `never-started` window
+  // is queued — the real one by default, which refuses to send an Apple event inside a
+  // suite (`mayLaunch`) and reports why, exactly like every other case here that never
+  // touches iTerm. Overridden by the cases that want to assert on the *decision* rather
+  // than on the refusal.
+  closeNeverStarted,
 } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   await quiesce();
@@ -220,13 +230,14 @@ async function arena({
     open: async (_cfg, _ws, b) => {
       const launchFiles = mint(launchState);
       opened.push({ id: b.id, launchFiles });
-      return { dir: REPO, mode: 'test', term: null, launchFiles };
+      return { dir: REPO, mode: 'test', term, launchFiles };
     },
     openPlan: async (_cfg, _ws, b) => {
       const launchFiles = mint(launchState);
       opened.push({ id: b.id, launchFiles });
-      return { dir: REPO, mode: 'test', term: null, launchFiles };
+      return { dir: REPO, mode: 'test', term, launchFiles };
     },
+    ...(closeNeverStarted ? { closeNeverStarted } : {}),
   });
 
   return {
@@ -317,6 +328,117 @@ await check('a window that never ran its command is finished, not left to the ti
   // `reconcile` runs before the survey, so the slot and the bead come back on the same
   // tick rather than thirty seconds later.
   assert.deepEqual(r2.opened.map((o) => o.id), ['x-1'], 'and it went straight back out to a window');
+});
+
+/* -------------------------------------- and the window left on screen (bc-xl7n.113.3) */
+
+/**
+ * `finish` recording `never-started` is the trigger; what happens to the window itself
+ * is `reapNeverStarted` in lib/advocate.js, queued from `term` rather than a pid because
+ * no `claude` ever started — see `closingNeverStartedFor` in lib/reap.js. Queueing and
+ * closing land in the same tick here because `reapNeverStarted` runs right after
+ * `reconcile`, in the same `tickOne`.
+ */
+
+/** The two-tick dance every case above this uses, with a `term` handle threaded through. */
+async function agedWorker({ term }) {
+  const r = await arena({ beads: [bead('x-1')], term });
+  await r.tick();
+  const dir = process.env.BEADCAUSE_CONFIG_DIR;
+  const state = JSON.parse(fs.readFileSync(path.join(dir, 'advocates.json'), 'utf8'));
+  state.alpha.workers[0].at = secondsAgo(60);
+  fs.writeFileSync(path.join(dir, 'advocates.json'), JSON.stringify(state));
+  return state.alpha.workers;
+}
+
+await check('a term handle is queued to close once the window is confirmed never-started', async () => {
+  const workers = await agedWorker({ term: 'ITERM-SESS-1' });
+  let asked = null;
+  const r2 = await arena({
+    beads: [bead('x-1')],
+    workers,
+    launchState: 'finished',
+    term: 'ITERM-SESS-1',
+    closeNeverStarted: async (rec) => {
+      asked = rec;
+      return { act: 'close', why: 'stub says it is safe' };
+    },
+  });
+  await r2.tick();
+  assert.deepEqual(r2.outcomes('x-1').slice(0, 1), ['never-started']);
+  assert.deepEqual(asked, { id: 'x-1', title: 'x-1', term: 'ITERM-SESS-1', at: asked.at }, 'the record it was asked about');
+  // Queued and closed in the same tick: `reapNeverStarted` runs right after `reconcile`.
+  assert.equal(r2.card().closingWindows.length, 0, 'the injected closer said close, and it was taken off the list');
+  assert.ok(r2.events.some((e) => e.action === 'closed' && e.id === 'x-1'), 'and the close is on the bus');
+});
+
+await check('no term handle: nothing is queued, and the closer is never asked — the acceptance criterion', async () => {
+  const workers = await agedWorker({ term: null });
+  let asked = false;
+  const r2 = await arena({
+    beads: [bead('x-1')],
+    workers,
+    launchState: 'finished',
+    closeNeverStarted: async () => {
+      asked = true;
+      return { act: 'close', why: 'should never be reached' };
+    },
+  });
+  await r2.tick();
+  assert.deepEqual(r2.outcomes('x-1').slice(0, 1), ['never-started']);
+  assert.equal(r2.card().closingWindows.length, 0, 'nothing to queue with no handle');
+  assert.equal(asked, false, 'a session with no term handle is left alone');
+});
+
+await check('with no closer injected, the real one refuses inside a suite and the window stays queued', async () => {
+  const workers = await agedWorker({ term: 'ITERM-SESS-2' });
+  // No `closeNeverStarted` override: this is `closeNeverStartedWindow` for real, and
+  // `mayLaunch` reads this process as a suite (argv[1] is `test/neverstarted.mjs`), so it
+  // must not reach an Apple event — proven the same way test/reap.mjs proves it for the
+  // function on its own, and here through the whole tick that would call it.
+  const r2 = await arena({ beads: [bead('x-1')], workers, launchState: 'finished', term: 'ITERM-SESS-2' });
+  await r2.tick();
+  assert.deepEqual(r2.outcomes('x-1').slice(0, 1), ['never-started']);
+  assert.equal(r2.card().closingWindows.length, 1, 'refused, not dropped — nothing was actually asked of iTerm');
+  assert.equal(r2.card().closingWindows[0].term, 'ITERM-SESS-2');
+  // And it is what a restart would find too — persisted with the workers, for the same
+  // reason `closing` is.
+  const dir = process.env.BEADCAUSE_CONFIG_DIR;
+  const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'advocates.json'), 'utf8'));
+  assert.equal((onDisk.alpha.closingWindows || []).length, 1, 'on disk, not only in memory');
+});
+
+await check('a closer that says the window is already gone clears the queue quietly', async () => {
+  const workers = await agedWorker({ term: 'ITERM-SESS-3' });
+  const r2 = await arena({
+    beads: [bead('x-1')],
+    workers,
+    launchState: 'finished',
+    term: 'ITERM-SESS-3',
+    closeNeverStarted: async () => ({ act: 'drop', why: 'the window is gone' }),
+  });
+  await r2.tick();
+  assert.equal(r2.card().closingWindows.length, 0, 'dropped, not left forever');
+  assert.equal(r2.events.some((e) => e.action === 'closed'), false, 'nothing was actually closed');
+});
+
+await check('and the same, for a name mismatch or a live claude process — dropped, never closed', async () => {
+  for (const verdict of [
+    { act: 'drop', why: 'that iTerm session no longer names x-1 — leaving it alone' },
+    { act: 'drop', why: 'a claude process is running there now — it is no longer never-started' },
+  ]) {
+    const workers = await agedWorker({ term: 'ITERM-SESS-4' });
+    const r2 = await arena({
+      beads: [bead('x-1')],
+      workers,
+      launchState: 'finished',
+      term: 'ITERM-SESS-4',
+      closeNeverStarted: async () => verdict,
+    });
+    await r2.tick();
+    assert.equal(r2.card().closingWindows.length, 0, verdict.why);
+    assert.equal(r2.events.some((e) => e.action === 'closed'), false, verdict.why);
+  }
 });
 
 await check('and it costs no attempt, three times over', async () => {
