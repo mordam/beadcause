@@ -8044,6 +8044,173 @@ stylesheet's fallback is the two-row bar, so a page that somehow loses that scri
 wrong by 43px in the uncommon case rather than by a whole bar in the common one, and
 `scripts/topbar-check.mjs` fails on either.
 
+## Repo views — a screen a repo declares about itself
+
+Every view above is about **beads**: the inbox, the ledger, the advocate console, the
+release board. That is the right spine and it is not the whole of what a repo needs in
+order to manage itself.
+
+deluvia is the case that made it obvious. It is not a codebase, it is a production
+company — five gates, three production lines, nineteen agents, a canon change log — and
+none of that is derivable from the issue graph. It already had the answer: a script,
+`scripts/studio_board.py`, that reads the beads *and* the trunk's first-parent history
+*and* two markdown documents and renders one page. What that page could never be was
+**live**. To read it on a phone it had to be published as an Artifact, which is a
+snapshot with a timestamp on it — and the question the board exists to answer, *what is
+waiting on you right now*, is the one question a snapshot answers worst.
+
+The general shape: **the repo knows something about itself that this app cannot know, and
+the phone is where it needs to be read.** So the app stops trying to know and starts
+hosting.
+
+### What a repo declares
+
+One file in the checkout, `.beadcause/views.json`:
+
+```json
+{
+  "views": [
+    {
+      "id": "studio",
+      "label": "Studio",
+      "icon": "🎬",
+      "script": "studio.js",
+      "style": "studio.css",
+      "data": { "run": ["python3", "scripts/studio_board.py", "--json"], "ttl": 180 }
+    }
+  ]
+}
+```
+
+| Field | | |
+|---|---|---|
+| `id` | required | lowercase, digits and hyphens. Becomes `<workspace>.<id>` everywhere |
+| `label`, `icon` | | the pill. Both fall back rather than refusing — a view with no label is a pill that says its id |
+| `script` | required | the JS this app loads into the pane, relative to `.beadcause/`. **This is the view** |
+| `style` | | a stylesheet beside it. Optional, because the pane already inherits `public/style.css` |
+| `data.run` | | an **argv** — never a shell string — run in the checkout root, whose stdout is JSON |
+| `data.ttl` | | seconds the payload is held. Default 120 |
+| `want` | | `"questions"` if the view needs the inbox off the shared poll. Default is the free park |
+
+That is the whole of the configuration. There is nothing to add to `config.json` and
+nothing to restart: a repo gains a view by landing a commit, which is what "pluggable"
+has to mean to be worth having.
+
+**The manifest is in the checkout and not in the config**, for the reason `repos` reads a
+service token out of a repo rather than restating it — one source of truth, moving with
+the commit that changes it. A branch that renames `scripts/studio_board.py` renames it in
+the manifest too, in the same diff, and there is no JSON file on one Mac left saying
+otherwise. The cost is the same cost: the manifest is a fact about a checkout on disk, so
+it can be missing, unparseable, or name a script that is not there. All three are reported
+in `problems` on `/api/views` and none is guessed at — a view that cannot be built is a
+sentence saying why, never a silent absence, and one bad entry never withholds the good
+ones beside it.
+
+### What it gets for free
+
+A repo view is a **view**, not a page in a frame. It joins the same grammar every other
+view is in, so it arrives with:
+
+* **an address** — `/v/<workspace>/<id>`, which hops to `#<workspace>.<id>` exactly the
+  way `/history` hops to `#history`, so a phone's home screen can hold it;
+* **a pane** — its scroll position survives switching away and back, and it is built once
+  and never rebuilt (`public/panes.js`);
+* **a pill**, at the end of the one row of chrome this app has;
+* **the stylesheet** — a `.card` a repo view draws is the card the inbox draws, and it
+  follows the phone's light and dark scheme without knowing either exists;
+* **the poll** — the document's one long poll, fanned out per pane, rather than a socket
+  per view (`public/panestage.js`);
+* **bead ids that are tappable.**
+
+That last one is the argument for hosting the view here rather than letting it be a page
+somewhere. `ctx.bead.link(id)` builds the exact hash a notification carries, so a board
+full of bead ids stops being something you read and then go and act on somewhere else: the
+tap opens the real card, with its thread and its answer box, in the app you are already
+in. deluvia's board draws 139 of them.
+
+### The SDK
+
+The script calls `define` once and is handed a context:
+
+```js
+window.beadcause.view.define({
+  build(ctx) { ctx.el.innerHTML = draw(ctx.data); },
+  wake(ctx, { data, events }) { /* an answered poll */ },
+});
+```
+
+| On `ctx` | |
+|---|---|
+| `el`, `pane` | where to draw, and the whole pane if you want the header |
+| `data`, `meta` | the last payload, and `{at, age, stale, problem}` about it |
+| `onData(fn)`, `refresh()` | a new payload landed; go and get a fresh one |
+| `api(path, opts)` | the daemon, with the credential on it — `/api/questions` and everything else |
+| `bead.link(id, text)`, `bead.open(id)`, `bead.href(id)` | the workspace is pre-bound |
+| `space.filter`, `space.onChange(fn)` | what the picker has selected |
+| `esc(s)`, `md(text)` | escape, and sanitised markdown through the app's own two libraries |
+| `asset(rel)`, `note(text, kind)` | another declared file; one line above the board |
+
+`build` is called once, when the first payload has landed **or failed to** — never before.
+A view whose `build` had to cope with `data === null` would make every view author write
+the same empty state, and the chrome already draws the waiting and the failure.
+
+### What a badly-behaved view can and cannot take down
+
+Three containments, one per failure:
+
+* a **script that fails to load** leaves its pill drawn and its pane holding the reason.
+  Not removed: a pill that vanishes is indistinguishable from a repo that never had a
+  view, and the one thing worth knowing is that it is broken.
+* a **`build` that throws** takes its own pane and nothing else, rethrown out of a timer
+  so the P0 filer still files it.
+* a **generator that fails does not blank the board.** The daemon hands back the last good
+  payload with `stale: true` and the reason, and the pane draws that reason above a board
+  that is merely old. A board with a timestamp on it is worth a great deal more than an
+  empty pane with an error in it.
+
+### The trust position, said out loud
+
+A repo view's script runs on this app's origin with this app's DOM, and `data.run` spawns
+a process the repo chose. Neither is sandboxed and neither is going to be. The manifest
+lives in a checkout this daemon already runs test suites, deploy scripts and unattended
+Claude Code sessions inside — a repo that can make this Mac run its tests can already make
+it run anything — so an iframe here would cost the theme, the card-opening and the offline
+behaviour to prevent nothing.
+
+What *is* enforced is **reach**, and it is enforced rather than assumed:
+
+* only a workspace this daemon is already configured for, resolved through the same
+  `resolveSessionDir` that decides where a session opens;
+* only under that checkout's `.beadcause/`, with every path resolved through `realpath`
+  and re-checked against the resolved prefix — which is what catches a symlink, where a
+  string check cannot;
+* only the files the manifest itself named. A view directory may hold a generator, a
+  fixture, notes; "inside `.beadcause/`" is a weaker claim than "this view said this was
+  one of its files", and the manifest is the allowlist;
+* `run` is an argv, so nothing in it is word-split, globbed or substituted;
+* a 30-second timeout and an 8MB output cap, because a generator that hangs must not take
+  the poll down with it.
+
+`test/repoviews.mjs` drives all of that against a real temporary checkout with a real
+symlink in it, because a suite that checked the regex would have passed on the day the
+symlink case was written wrong.
+
+### Where the code is
+
+| | |
+|---|---|
+| `lib/repoviews.js` | discovery, the manifest, path resolution, the generator and its cache |
+| `public/viewhost.js` | the host and the SDK — pane, pill, address, script loading |
+| `public/hashroute.js` | `route.add()`, which admits a repo view to the grammar at runtime |
+| `public/panes.js` | `panes.adopt()`, for a container built after the document was parsed |
+| `public/viewbar.js` | `views.add()`, which appends the pill |
+
+A repo view's id is `<workspace>.<id>` and its hash is that id verbatim. The dot is
+load-bearing: the hash grammar reads a `/` or a `pr:`/`jira:` prefix as the shape of a
+bead card key, so `#deluvia/studio` would parse as a bead nobody has and the pill would
+switch to the inbox and hunt for it. A bare word with a dot in it is not a card under any
+of the three shapes.
+
 ## Loaded once, and kept — what a tab tap actually costs
 
 Five standing views, five documents. Tapping a tab is a navigation: the page you were
@@ -26564,6 +26731,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/jira/beadify` | `{workspace, key}` | the reverse: lifts the earmark, **reopens** the epic that was closed with it, drops the filer's memory of the workspace so the next sweep re-reads, and drops the *ingester's* memory of this one ticket so a reading that had failed is tried again rather than remembered forever. Reopening rather than re-filing is what makes it one epic and not two — the `external_ref` survives a close, so a fresh sweep would find the closed bead and raise nothing. A ticket that was never cancelled is `restored: false`, not an error |
 | POST | `/api/jira/forget` | `{workspace, key}` | drops a cancel record whose ticket the poller can no longer find, and **leaves its closed epic closed** — see [the records with no ticket left](#the-records-with-no-ticket-left). Not beadify: nothing is being put back, so reopening the epic would leave a held bead for a ticket nobody is assigned. The only route here that does not resolve `workspace` against the config, because a workspace that has left the config is the commonest way to strand a record; the name is taken as stored and validated only for being non-empty and slash-free. A ticket the current sweep still returns is a `409` naming beadify — that is the rule that a drop can never un-cancel a live ticket. A record already gone is `forgotten: false`, not an error. Nothing is written to JIRA |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
+| GET | `/api/views` | — | `{views[], problems[], held}` — the screens the **repos** declare about themselves, read from each checkout's `.beadcause/views.json`. Each row carries its `view` id (`<workspace>.<id>`), label, icon, the URLs of its script and stylesheet, its address, and `generated` — whether it has a payload behind it. Cheap by construction: it reads a JSON file per workspace and stats what it names, and runs no generator. `problems` is a sentence per malformed entry rather than an error, so one bad view never withholds the good ones. The payload itself is a sibling path this table cannot spell — `/api/views/<workspace>/<id>/data`, `?refresh=1` to spend a real run rather than the held one. See [Repo views](#repo-views--a-screen-a-repo-declares-about-itself) |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
 | POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
