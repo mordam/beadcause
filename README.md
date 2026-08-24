@@ -25987,22 +25987,35 @@ properties:
   `ledger:sophab`, `prs:/Users/x/repo`, `board:` for a thing there is one of — so a write that
   changed one kind of thing can drop every scope of it by prefix without knowing which routes
   cached what. Nothing builds a key out of anything a request carries.
-- **The cold miss is the only wait, and it is bounded.** A key with nothing kept awaits the
-  producer under a ceiling. The ceiling is about the *slot*, not the caller: a refresh that
-  never settles must stop holding the single-flight entry, or that key is never refreshed
-  again for the life of the process and the cache quietly becomes a permanent snapshot.
-- **And running out of ceiling is a different answer from a producer that failed.** The error
-  carries a flag, and `cache.timedOut(err)` is how a caller asks. It matters because the two
-  mean opposite things: a producer that threw means *this source is broken*, while a ceiling
-  means the source is fine, the Mac is busy, and the sweep is still out there and will very
-  likely land into the keep a few seconds later. Two callers act on it, and both of them are
-  behind `/api/queues`: `collectBoard` turns a ceiling into the same `unavailable` sentence a
-  missing `gh` produces, and `gatherMerges` turns it into an `errors[]` row per workspace —
-  because none of them was reached. Both shapes already existed for "this could not be read",
-  and every reader already draws them. That is what stopped `/api/prs` and `/api/queues`
-  answering **HTTP 500** on a busy morning and having the phone file a P0 incident bead about
-  a daemon that was working (bc-19vt). A producer that genuinely failed still throws, and
-  still gets its 500.
+- **The cold miss is the only wait, and it is bounded — by two numbers, not one
+  (bc-19vt.1).** `ceilingMs` is about the *slot*: a refresh that never settles must stop
+  holding the single-flight entry, or that key is never refreshed again for the life of
+  the process and the cache quietly becomes a permanent snapshot — 150 seconds, past
+  `bd`'s own 120-second ceiling with room to spare. `waitMs` is about the *caller*: how
+  long *this* `Promise.race` will wait on that slot before it is told "not yet", and it
+  defaults to `ceilingMs` so a caller that never asked for the split sees no change. A
+  caller with somewhere honest to land "not yet" can pass a much smaller `waitMs` — the
+  slot still holds for the full 150 seconds and the sweep already running still lands
+  into the keep, but the request that arrived on the cold key stops inheriting a wait
+  that was never about it. Before the split, a phone landing on a cold `board:` key on a
+  busy Mac hung for the whole 150 seconds even though the ⟳ behind it was going to answer
+  "unavailable" either way — waiting bought it nothing.
+- **And running out of the wait is a different answer from a producer that failed.** The
+  error carries a flag, and `cache.timedOut(err)` is how a caller asks. It matters because
+  the two mean opposite things: a producer that threw means *this source is broken*, while
+  running out of `waitMs` means the source is fine, the Mac is busy, and the sweep is still
+  out there and will very likely land into the keep a few seconds later. Two callers act on
+  it, and both of them are behind `/api/prs` and `/api/queues`: `collectBoard` turns it into
+  the same `unavailable` sentence a missing `gh` produces, and `gatherMerges` turns it into
+  an `errors[]` row per workspace — because none of them was reached. Both shapes already
+  existed for "this could not be read", and every reader already draws them. That combination
+  — the shape *and*, since bc-19vt.1, the short `waitMs` those two routes actually pass — is
+  what stopped `/api/prs` and `/api/queues` answering **HTTP 500** on a busy morning and
+  having the phone file a P0 incident bead about a daemon that was working, and then stopped
+  the phone hanging for two and a half minutes to get there. An acting call (Ship, Merge)
+  does not pass the short `waitMs` — it needs the real answer rather than a fast one, so it
+  keeps waiting the full 150 seconds exactly as before. A producer that genuinely failed
+  still throws, and still gets its 500.
 
 ### What is on it, and what is deliberately not
 

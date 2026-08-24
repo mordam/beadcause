@@ -673,5 +673,32 @@ const hushed = async (fn) => {
   cachelib.drop('board:');
 }
 
+/* bc-19vt.1. The two blocks above shrink `ceilingMs` alone, which shrinks the *slot* and
+   this call's own wait together — the shape the suite always needed. `/api/prs` and
+   `/api/queues` shrink neither: they pass `waitMs` on its own and leave `ceilingMs` at
+   `collectBoard`'s real default, so the sweep the slot is holding still gets the full 150
+   seconds while this one caller gives up in a few. Proven the same way — seed the key with
+   a producer that will not settle, then read it back with only `waitMs` shrunk. */
+{
+  cachelib.drop('board:');
+  let release;
+  const held = cachelib.read('board:', () => new Promise((resolve) => (release = resolve)), {
+    freshMs: 10_000,
+    ceilingMs: 5_000,
+  });
+  held.catch(() => {});
+
+  const stuck = await hushed(() => collectBoard(bd, cfg, { boot: null, deploys: [], waitMs: 30 }));
+  check(
+    'a short `waitMs` alone gives up in seconds, with `ceilingMs` left at collectBoard\'s real default',
+    /did not finish within/.test(String(stuck.unavailable)),
+    JSON.stringify(stuck.unavailable)
+  );
+
+  release({ unavailable: null, repos: [], build: null, counts: {}, at: '' });
+  await held.catch(() => {});
+  cachelib.drop('board:');
+}
+
 console.log(failures ? `\n${failures} failed` : '\nall ok');
 process.exit(failures ? 1 : 0);
