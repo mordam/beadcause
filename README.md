@@ -20631,13 +20631,23 @@ looks like a detail until it is wrong:
   up, not a settlement.
 
 Every sentence the merge writes names the bead the findings went to: the report on the pull
-request, the merge-bead's close reason, and the comment on the work bead. A sentence saying
-"merged with open review findings" that does not say *where they went* is the same dead end
-as a comment claiming a bead closed when it had not. The **landed notification** is the one
-place that does not name it yet, and the reason is ordering rather than omission —
-`landedEvent` is emitted from the queue's `afterMerge` callback, which fires before the
-`finish` that files the follow-up, so the bead id does not exist yet when the card is built.
-That is bc-9ntye.5.
+request, the merge-bead's close reason, and the comment on the work bead — and, since
+bc-9ntye.5, the **landed notification** too. It was the one place that did not, and the
+reason was ordering rather than omission: `landedEvent` used to be built and emitted from
+the queue's `afterMerge` callback, which fires *before* the `finish` that files the
+follow-up — so the bead id did not exist yet at the moment the card was assembled.
+
+The fix keeps `afterMerge`'s own ordering (its comment argues for firing it early on grounds
+that have nothing to do with this — the sweep and the local `main` want to happen while the
+merge is still fresh) rather than moving it below `finish`. Instead the card moved: a new
+`announceLanding(spec, issue, { landed, findings })` callback is called from inside `finish`
+itself, right after `followUpFor` mints the bead and `findings` names it, so `landedEvent`'s
+`owed` field can carry the same sentence the other three writes already do. `afterMerge`
+keeps the sweep and the local `main`; it no longer builds or emits anything. Wired only to
+the call `finish` takes from the queue path — a pull request merged outside the queue (from
+GitHub or the phone) still gets no card either way, unchanged: that is a tap of yours, and
+the comment on `announceLanding`'s own wiring says why it must not chime for it.
+(`test/mergequeue.mjs`.)
 
 ### The notification with nothing to answer
 
