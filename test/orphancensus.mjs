@@ -13,9 +13,12 @@
  *
  * 1. **A root counts itself, not its absence.** `underAnyOf` puts a root in its own set;
  *    a census that forgot would report every P0 and every epic as unrooted.
- * 2. **A closed parent is walked through, not stopped at.** The shape bc-rfnr.7's own
- *    comment names: an epic that closed over a still-open child. Not parentless by any
- *    obvious query — the walk is what finds it.
+ * 2. **A closed parent is walked through, not stopped at.** Two halves, and the suite
+ *    needs both because only the second one tells the two readings apart. The shape
+ *    bc-rfnr.7's own comment names is an epic that closed over a still-open child: not
+ *    parentless by any obvious query — the walk is what finds it. The half that
+ *    discriminates is an **open** root above a **closed** middle, where a walk that
+ *    stopped at the first closed ancestor would call a perfectly rooted bead an orphan.
  * 3. **A tracker with no roots at all reports no orphans.** The fail-open `hasRootAbove`
  *    already documents, at the scale of a whole workspace rather than one bead.
  * 4. **The Merge #NNN genre is excluded by label, not by title.** Counted into `unrooted`
@@ -71,8 +74,9 @@ const parentEdge = (child, parent) => ({ issue_id: child, depends_on_id: parent,
 
 /**
  * A tracker with one root of each kind this bead has to get right: a P0, an epic at a
- * non-urgent priority (bc-htoy), a root that closed over an open child, a Merge #NNN
- * card of each genre, and two beads nothing has ever decided.
+ * non-urgent priority (bc-htoy), a root that closed over an open child, an open root
+ * with a *closed* bead between it and its grandchild, a Merge #NNN card of each genre,
+ * and two beads nothing has ever decided.
  */
 const build = () =>
   indexFrom(
@@ -83,6 +87,12 @@ const build = () =>
       row('zz-epic.1', { dependencies: [parentEdge('zz-epic.1', 'zz-epic')] }),
       row('zz-shut', { status: 'closed' }),
       row('zz-shut.1', { dependencies: [parentEdge('zz-shut.1', 'zz-shut')] }),
+      // The only shape in this file where "walk through a closed parent" and "stop at the
+      // first closed one" disagree: an OPEN root, a closed bead beneath it, and an open
+      // bead beneath that. See the check that reads it.
+      row('zz-live', { priority: 0 }),
+      row('zz-live.1', { status: 'closed', dependencies: [parentEdge('zz-live.1', 'zz-live')] }),
+      row('zz-live.1.1', { dependencies: [parentEdge('zz-live.1.1', 'zz-live.1')] }),
       row('zz-orphan'),
       row('zz-orphan2'),
       row('zz-orphan-closed', { status: 'closed' }),
@@ -113,6 +123,16 @@ await check('A CLOSED PARENT IS WALKED THROUGH, NOT STOPPED AT', () => {
   // zz-shut itself is closed, so it is not in the non-closed population at all — its
   // closedness is what makes it not a root, not a reason to count it as an orphan too.
   assert.equal(c.ordinary.includes('zz-shut'), false);
+  // And the half that actually discriminates, which everything above this line does not:
+  // zz-shut is closed *and* P2, so it is not a root under either reading and zz-shut.1 is
+  // an ordinary orphan whether the walk stops at a closed parent or goes through it.
+  // zz-live.1.1's only route to a root runs *through* the closed zz-live.1 and ends at
+  // the open P0 zz-live — so an implementation that stopped at the first closed ancestor
+  // would report a perfectly rooted bead as an orphan, which is the refactor the module
+  // header names as one of the two traps this suite exists to hold. Measured on
+  // 2026-08-24: that mutation leaves this file at 25/25 without this assertion.
+  assert.equal(c.ordinary.includes('zz-live.1.1'), false);
+  assert.equal(c.ordinary.includes('zz-live'), false);
 });
 
 await check('a closed bead is never counted, orphaned or not', () => {
@@ -136,8 +156,9 @@ await check('THE MERGE #NNN GENRE IS UNROOTED BUT NEVER ORDINARY', () => {
 
 await check('nonClosed is every open/in-progress bead, orphan or not', () => {
   const c = orphanCensus(build());
-  // Every row above except the two explicitly closed ones (zz-shut, zz-orphan-closed).
-  assert.equal(c.nonClosed, 9);
+  // Every row above except the three explicitly closed ones (zz-shut, zz-orphan-closed,
+  // zz-live.1).
+  assert.equal(c.nonClosed, 11);
 });
 
 await check('excluded by the label, never by pattern-matching the title', () => {
