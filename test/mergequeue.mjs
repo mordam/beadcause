@@ -1654,6 +1654,104 @@ await check('a tracker that will not file leaves the merge and both closes exact
   assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work'], 'a lost follow-up must not cost a close');
 });
 
+/* ------------------------- telling the root's advocate about it (bc-9ntye.3) */
+
+/**
+ * A filed follow-up is open, unclaimed work under a root — which is already what
+ * `bd ready` and the re-entry sweep mean. The one case neither covers is a root whose Epic
+ * Advocate window is **live**: the sweep will not open a second one, and the live one read
+ * `bd children` at the top of its turn and will not read them again. So the queue tells it.
+ *
+ * What these four pin is mostly the *silence*: told when there is an advocate, nothing at
+ * all when there is not, never twice, and never in a way that could reach the two closes.
+ */
+const ADVOCATED = {
+  beads: new Map([
+    ['zz-epic', { id: 'zz-epic', issue_type: 'epic', status: 'open', title: 'a theme', labels: ['owner:someone@example.com', 'advocate-assigned'] }],
+    ['zz-work', { id: 'zz-work', issue_type: 'task', priority: 2, status: 'open' }],
+  ]),
+  parents: new Map([['zz-work', 'zz-epic']]),
+  adopts: new Map(),
+  edges: new Map(),
+};
+
+await check('a follow-up under an advocated root tells that root\'s advocate, once', async () => {
+  const asked = [];
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } }, graph: ADVOCATED });
+  const out = await run(bd, fakePr(openPr()), {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    tellAdvocate: async (ask) => {
+      asked.push(ask);
+      return { state: 'told' };
+    },
+  });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.equal(asked.length, 1, 'the advocate was told once, or not at all');
+  assert.equal(asked[0].root, 'zz-epic', 'it told the root the follow-up was parented onto');
+  assert.equal(asked[0].title, 'a theme', "and named the epic, not only its id");
+  assert.equal(asked[0].followUp.id, bd.calls.created[0].id);
+});
+
+await check('a root nothing advocates is told nothing — an open bead under it is already bd ready', async () => {
+  const asked = [];
+  const bare = {
+    ...ADVOCATED,
+    // Open, owned, a root: `wantsAdvocate` says yes and there is still no advocate on it.
+    beads: new Map([...ADVOCATED.beads].map(([id, row]) => [id, id === 'zz-epic' ? { ...row, labels: ['owner:someone@example.com'] } : row])),
+  };
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } }, graph: bare });
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true, tellAdvocate: async (a) => asked.push(a) });
+  assert.equal(bd.calls.created.length, 3, 'the follow-up is filed either way');
+  assert.deepEqual(asked, [], 'it typed into a window about an epic that has no advocate');
+});
+
+await check('a merge that filed nothing reads no graph and tells nobody', async () => {
+  const asked = [];
+  const bd = fakeBd({ rows: [reviewed(APPROVED)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } }, graph: ADVOCATED });
+  let graphs = 0;
+  const graph = bd.graph;
+  bd.graph = async (...a) => {
+    graphs += 1;
+    return graph(...a);
+  };
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true, tellAdvocate: async (a) => asked.push(a) });
+  assert.deepEqual(asked, []);
+  assert.equal(graphs, 0, 'a clean approval paid for a graph read it had no use for');
+});
+
+await check('a follow-up an earlier tick filed is not announced a second time', async () => {
+  // The same guard `finish`'s own idempotence has, one step out: a tick that died between
+  // the filing and the close arrives back here, and the advocate has already been told.
+  const asked = [];
+  const bd = fakeBd({
+    rows: [reviewed(APPROVED_WITH_OPEN)],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    graph: ADVOCATED,
+    followups: [{ id: 'zz-already', status: 'open' }],
+  });
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true, tellAdvocate: async (a) => asked.push(a) });
+  assert.deepEqual(bd.calls.created, []);
+  assert.deepEqual(asked, [], 'it typed the same paragraph into a window that had already acted on it');
+});
+
+await check('an advocate that could not be reached costs neither the merge nor a close', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } }, graph: ADVOCATED });
+  const out = await run(bd, fakePr(openPr()), {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    tellAdvocate: async () => {
+      throw new Error('Not authorised to send Apple events to iTerm2.');
+    },
+  });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work'], 'an unreachable window must not cost a close');
+  assert.ok(
+    bd.calls.closes.some((c) => c.id === 'zz-merge' && new RegExp(bd.calls.created[0].id).test(c.reason)),
+    'and the merge still named where the findings went'
+  );
+});
+
 /* ------------------------------------------------------------------------ done */
 
 await cleanupTmp(tmp);
