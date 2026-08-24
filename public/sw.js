@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v99';
+const CACHE = 'beadcause-v101';
 const SHELL = [
   '/',
   '/index.html',
@@ -73,6 +73,13 @@ const SHELL = [
   // beside panes.js and for the same reason — it runs on boot on the one page that is the
   // app, and a page cached without it is a page whose panes never get built at all.
   '/panestage.js',
+  // The host for the views the repos declare about themselves. In the shell because it
+  // is loaded on the one page that is the app and because the panes it adopts are the
+  // only way to reach those views at all — a page cached without it is a page where a
+  // repo's board is not merely stale but absent, with no pill saying it ever existed.
+  // What it hosts is *not* precached: a repo's script and its payload come from that
+  // repo's checkout, which only the daemon can read.
+  '/viewhost.js',
   // The pill row across the top of every page. Every one of them is useless without it
   // — it is the only way off a page — so it belongs in the shell rather than being
   // fetched once per page over a phone link.
@@ -116,8 +123,10 @@ const SHELL = [
   '/inboxfilter.js',
   // Edit mode: the freeze and the anchor. In the shell because the inbox now asks it on
   // every repaint whether it may paint at all — a cached page without it answers false
-  // and behaves exactly as it did before, which is survivable, where a page that has the
-  // ✏️ in its markup and not the file behind it has a control that does nothing.
+  // and behaves exactly as it did before, which is survivable. It used to be here for a
+  // second reason too, that a page carrying the ✏️ in its markup and not the file behind
+  // it has a control that does nothing; bc-p49x.12 parked the button, so the module is
+  // now the only way into the mode and a cached page without it has no edit mode at all.
   '/editmode.js',
   // One pull request, drawn once, for the inbox's cards and the board's rows. In the
   // shell because the inbox is: a cached inbox without it draws no PR cards at all, and
@@ -568,17 +577,21 @@ function fallback(request, url) {
     // Then the same path with its query string set aside (bc-nib3.11).
     //
     // `Cache.match` keys on the *whole* URL, and no path in SHELL has ever had a query
-    // string on it — so every URL in this app that carries its state in the query was a
-    // clean miss here and fell through to the index page below. That is the History
-    // tab's four filters (bc-nib3.3) and every shortcut built on them: a phone opening
-    // `/history?status=closed&priority=P0` with no signal got the inbox, silently, which
-    // is the one moment that page is most worth having.
+    // string on it — so a request that carries its state in the query, at the same
+    // pathname a bare entry was precached under, was a clean miss here and fell through
+    // to the index page below. That is the terminal's own id (`/terminal?id=…`, term.js):
+    // a phone opening one with no signal got the shell with nothing steerable, silently,
+    // which is the one moment that page is most worth having.
     //
     // `ignoreSearch` compares the two sides on path alone, so the request resolves to
-    // the cached `/history.html` and the page reads its own filters off
-    // `location.search` exactly as it does online. The exact match above still goes
-    // first, because a cache holding both `/history` and `/history?status=closed` should
-    // answer the URL that was asked for rather than whichever went in first.
+    // the cached `/terminal` and the page reads its own id off `location.search` exactly
+    // as it does online. The exact match above still goes first, because a cache holding
+    // both `/terminal` and `/terminal?id=…` should answer the URL that was asked for
+    // rather than whichever went in first.
+    //
+    // This is also what `/history?status=closed&priority=P0` used to fall back through,
+    // before bc-khoe.30.7 turned it into a hop (`VIEW_HOPS` below) rather than a document
+    // with a bare alias to ignoreSearch onto.
     //
     // It cannot serve the login page, for the reason that page is never in the cache at
     // all: `fetchAndStore` refuses to store a redirected response or `/login` itself, so

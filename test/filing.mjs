@@ -629,5 +629,131 @@ await check('fileBeads reports both halves, so a caller can say what it got', as
   assert.match(res.failed[0].error, /locked/, 'and the reason survives to whoever has to report it');
 });
 
+/* --------------------------------------- bc-xl7n.128: the warning judged per bead */
+
+/**
+ * A second, minimal tracker — one open epic root, and deliberately no `unsorted`
+ * label — because `zz-root` above already carries one, and this warning only ever
+ * fires on a workspace that has roots but no pile to catch what falls through
+ * (`home.gated && !home.parent`). No `--from` is passed in any of the checks below,
+ * so `homeFor`'s `overFrom` arm never applies either — the graph's only root is
+ * exactly what `gated` is answering about.
+ */
+const WORLD2 = path.join(tmp, 'world2.json');
+const FAKE_BD2 = path.join(tmp, 'bd2');
+fs.writeFileSync(
+  FAKE_BD2,
+  `#!/usr/bin/env node
+const fs = require('fs');
+const args = process.argv.slice(2);
+const w = JSON.parse(fs.readFileSync(${JSON.stringify(WORLD2)}, 'utf8'));
+const save = () => fs.writeFileSync(${JSON.stringify(WORLD2)}, JSON.stringify(w, null, 2));
+const all = () => Object.values(w.issues);
+const one = (n, d) => { const i = args.indexOf(n); return i === -1 ? d : args[i + 1]; };
+const many = (n) => { const out = []; for (let i = 0; i < args.length; i++) if (args[i] === n) out.push(...String(args[i + 1] || '').split(',')); return out.filter(Boolean); };
+
+if (args[0] === 'create') {
+  const id = 'w2-n' + (Object.keys(w.issues).length + 1);
+  w.issues[id] = {
+    id,
+    title: one('--title', ''),
+    status: 'open',
+    issue_type: one('--type', 'task'),
+    priority: Number(one('--priority', '2')),
+    labels: many('--label'),
+    parent: one('--parent', ''),
+    dependencies: [],
+  };
+  save();
+  process.stdout.write(JSON.stringify({ id }));
+  process.exit(0);
+}
+if (args[0] === 'export') {
+  const lines = all().map((i) =>
+    JSON.stringify({
+      ...i,
+      dependencies: i.parent ? [{ issue_id: i.id, depends_on_id: i.parent, type: 'parent-child' }] : [],
+    })
+  );
+  process.stdout.write(lines.join('\\n'));
+  process.exit(0);
+}
+process.stdout.write('[]');
+`,
+  { mode: 0o755 }
+);
+fs.writeFileSync(
+  WORLD2,
+  JSON.stringify(
+    { issues: { 'w2-root': issue('w2-root', { title: 'An open epic, no unsorted label', issue_type: 'epic', priority: 1 }) } },
+    null,
+    2
+  )
+);
+const ws2 = { name: 'demo2', dir: path.join(tmp, 'ws2', '.beads') };
+fs.mkdirSync(ws2.dir, { recursive: true });
+const bd2 = new Bd({ bin: FAKE_BD2, actor: 'beadcause-test' });
+
+await check('a batch of epics at the ordinary floor gets no false claim at all', async () => {
+  // **The arm a real caller can actually reach.** Neither production caller passes a
+  // `floor` (bin/file.js, lib/sessionaudit.js), so `clampPriority` cannot return 0 here
+  // and `isRoot` can only ever be true by `type`. Nothing in this batch asks for a
+  // priority at all — both land at the P2 floor — so `isEpic` is the whole of what
+  // suppresses the warning, and hard-coding `type: 'task'` into the gate (i.e. deleting
+  // the epic half outright) reds exactly this check and nothing else.
+  const warnings = [];
+  const res = await fileBeads(
+    bd2,
+    ws2,
+    [{ title: 'A second epic, decided on its own', type: 'epic' }, { title: 'Another programme nobody has to adopt', type: 'epic' }],
+    { onWarn: (w) => warnings.push(w) }
+  );
+  assert.equal(res.filed.length, 2, JSON.stringify(res));
+  assert.equal(res.filed[0].priority, 2, 'and it is the epic-ness carrying this, not a P0 the floor let through');
+  assert.equal(res.filed[1].priority, 2, 'both of them — neither is root by isP0');
+  assert.deepEqual(warnings, [], 'nothing in this batch needs a home, so nothing should say it does not have one');
+});
+
+await check('a batch that is entirely P0 gets no false claim either, floor permitting', async () => {
+  // The other half of `isRoot`, and the one no caller reaches today — `floor: 0` is
+  // what makes a P0 survive `clampPriority` at all. Defensive, and what pins the
+  // `floor` being threaded into the judgement rather than the raw asked-for priority
+  // being read: drop the `floor` argument from the gate and this check reds.
+  const warnings = [];
+  const res = await fileBeads(
+    bd2,
+    ws2,
+    [{ title: 'Urgent, and nothing above it yet', priority: 0 }, { title: 'So is this one', priority: 0 }],
+    { onWarn: (w) => warnings.push(w), floor: 0 }
+  );
+  assert.equal(res.filed.length, 2, JSON.stringify(res));
+  assert.deepEqual(warnings, [], 'a P0 is workable with nothing above it, whatever its type');
+});
+
+await check('one ordinary bead in the batch still gets the warning, beside a root-shaped one', async () => {
+  const warnings = [];
+  const res = await fileBeads(
+    bd2,
+    ws2,
+    [{ title: 'A third epic, also fine alone' }, { title: 'An ordinary find with nowhere to go' }].map((b, i) => ({
+      ...b,
+      type: i === 0 ? 'epic' : 'task',
+    })),
+    { onWarn: (w) => warnings.push(w) }
+  );
+  assert.equal(res.filed.length, 2, JSON.stringify(res));
+  assert.equal(warnings.length, 1, 'the batch still has a genuine orphan in it, so the warning still has to fire');
+  assert.match(warnings[0], /nothing to hang this under/);
+});
+
+await check('a batch of ordinary beads alone still gets the warning — unchanged from before', async () => {
+  const warnings = [];
+  const res = await fileBeads(bd2, ws2, [{ title: 'Just an ordinary orphan, nothing root-shaped here' }], {
+    onWarn: (w) => warnings.push(w),
+  });
+  assert.equal(res.filed.length, 1, JSON.stringify(res));
+  assert.equal(warnings.length, 1);
+});
+
 console.log(`\n${failures ? `${failures} of ${ran} failed` : `all ${ran} checks passed`}`);
 process.exit(failures ? 1 : 0);
