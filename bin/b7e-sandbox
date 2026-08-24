@@ -1,0 +1,151 @@
+#!/usr/bin/env node
+/**
+ * `b7e-sandbox` — a disposable beadcause install and tracker, printed as one env prefix.
+ *
+ *   b7e-sandbox --workspace alpha --seed plan-fixture.yaml
+ *   BEADCAUSE_CONFIG_DIR=/tmp/beadcause-sandbox/default/config \
+ *   BEADS_DIR=/tmp/beadcause-sandbox/default/workspaces/alpha/.beads \
+ *     node bin/plan.js -w alpha -b zz-1 -f plan.yaml
+ *
+ * bc-zjab.6, filed by the session audit against bc-zjab.1, bc-y3qk.1, bc-bmry.4 and
+ * bc-bmry.3 — four sessions that each hand-built a throwaway `BEADCAUSE_CONFIG_DIR` and a
+ * `bd` workspace that was not the live one, and each built a different half of it. See
+ * lib/sandbox.js for what this actually does; this file is the argv around it.
+ *
+ * Nothing here ever writes under the real `~/.config/beadcause` or `~/beads` — see the
+ * assertions in lib/sandbox.js. Everything lives under `os.tmpdir()/beadcause-sandbox/<name>`,
+ * and a second call with the same `--name` tears the first down first, unless it was `--keep`.
+ *
+ * Flags:
+ *   --name <slug>                  sandbox name (default: "default")
+ *   --bd fake|real                 fake (default): a small JS stand-in, no `bd` needed.
+ *                                  real: an actual `bd init` workspace — needs `bd` on PATH.
+ *   --workspace <name>[=<dir>]     repeatable; a checkout dir after "=" pins where a tool
+ *                                  like resolveSessionDir would open (default: an empty
+ *                                  directory made inside the sandbox). At least one is used
+ *                                  even with none given — see DEFAULT_WORKSPACE below.
+ *   --seed <file.yaml>             pre-populate the tracker(s) — see lib/sandbox.js for the
+ *                                  two shapes this accepts (flat `beads:`, or `workspaces:`
+ *                                  keyed by name).
+ *   --keep                         refuse rather than delete on a later run of this name.
+ *   --json                         print the result as one JSON object instead of lines.
+ *
+ * Exit codes: 0 on success, 1 on a bad argv, 2 if building the sandbox itself failed
+ * (a workspace directory that does not exist, `bd` not found for `--bd real`, a bad seed).
+ */
+import { createSandbox } from '../lib/sandbox.js';
+
+const USAGE = `usage: b7e-sandbox [--name <slug>] [--bd fake|real] [--workspace <name>[=<dir>]]... [--seed <file.yaml>] [--keep] [--json]`;
+
+const DEFAULT_WORKSPACE = 'sandbox';
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let name = 'default';
+let bdMode = 'fake';
+let seedPath = null;
+let keep = false;
+let jsonMode = false;
+const workspaceArgs = [];
+
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  const next = () => argv[(i += 1)];
+  switch (a) {
+    case '--name':
+      name = next();
+      break;
+    case '--bd':
+      bdMode = next();
+      break;
+    case '--workspace':
+      workspaceArgs.push(next());
+      break;
+    case '--seed':
+      seedPath = next();
+      break;
+    case '--keep':
+      keep = true;
+      break;
+    case '--json':
+      jsonMode = true;
+      break;
+    default:
+      console.error(`b7e-sandbox: unrecognised argument "${a}"`);
+      console.error(USAGE);
+      process.exit(1);
+  }
+}
+
+if (!name) {
+  console.error('b7e-sandbox: --name needs a value');
+  process.exit(1);
+}
+if (bdMode !== 'fake' && bdMode !== 'real') {
+  console.error(`b7e-sandbox: --bd must be "fake" or "real", not "${bdMode}"`);
+  process.exit(1);
+}
+
+const workspaces = (workspaceArgs.length ? workspaceArgs : [DEFAULT_WORKSPACE]).map((spec) => {
+  const eq = spec.indexOf('=');
+  if (eq === -1) return { name: spec, checkoutDir: null };
+  return { name: spec.slice(0, eq), checkoutDir: spec.slice(eq + 1) };
+});
+
+const seen = new Set();
+for (const w of workspaces) {
+  if (!w.name) {
+    console.error(`b7e-sandbox: "--workspace ${w.name}=..." names no workspace`);
+    process.exit(1);
+  }
+  if (seen.has(w.name)) {
+    console.error(`b7e-sandbox: --workspace ${w.name} named twice`);
+    process.exit(1);
+  }
+  seen.add(w.name);
+}
+
+let result;
+try {
+  result = createSandbox({ name, bdMode, workspaces, seedPath, keep });
+} catch (err) {
+  console.error(`b7e-sandbox: ${err.message}`);
+  process.exit(2);
+}
+
+// `process.exit(0)` right after either write below used to drop whatever of it was
+// still pending: stdout to a **pipe** is async, so a caller-sized report — many seeded
+// beads, many workspaces — could cut at the 64KB pipe buffer with a success status and
+// no signal at all (bc-dgx7.45, bc-dgx7.53). The if/else is what stands in for the
+// early return `process.exit` used to give; falling off the end with
+// `process.exitCode` set instead flushes.
+if (jsonMode) {
+  console.log(
+    JSON.stringify(
+      {
+        dir: result.dir,
+        configDir: result.configDir,
+        bdMode: result.bdMode,
+        env: result.env,
+        workspaces: result.workspaces,
+        seeded: result.seeded,
+      },
+      null,
+      2
+    )
+  );
+  process.exitCode = 0;
+} else {
+  console.log(result.dir);
+  console.log(result.env);
+  for (const w of result.workspaces) console.log(`  workspace ${w.name}: tracker ${w.dir}, checkout ${w.checkoutDir}`);
+  if (result.seeded.length) {
+    console.log(`seeded ${result.seeded.length} bead${result.seeded.length === 1 ? '' : 's'}:`);
+    for (const b of result.seeded) console.log(`  ${b.id}${b.ref ? ` (${b.ref})` : ''} — ${b.title} [${b.workspace}]`);
+  }
+  process.exitCode = 0;
+}

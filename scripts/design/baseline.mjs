@@ -17,11 +17,14 @@
 // Reading the cascade back out of the page instead is deterministic by construction, and
 // it diffs far better: pixels can only say a card moved, where this says
 // `.primary.danger color: rgb(255,255,255) → rgb(43,13,13)`.
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { serveBundle, openPage, cardList } from './harness.mjs';
 
 const PORT = 4580;
-const FILE = 'design-shots/baseline.json';
+// Deliberately NOT under design-shots/: shots.mjs clears that whole directory before
+// every render (it is disposable by design), and the baseline explicitly is not — see
+// bc-ka5y.24. Keeping it here means shots.mjs never has to know this file exists.
+const FILE = 'design-baseline.json';
 const save = process.argv.includes('--save');
 const filter = process.argv.slice(2).find((a) => !a.startsWith('--'));
 
@@ -41,9 +44,12 @@ const FINGERPRINT = `(() => {
   ];
   const out = [];
   for (const el of document.querySelectorAll('body *')) {
+    // The card frame is this bundle's furniture, not the app's — see build.mjs. closest()
+    // rather than testing the element's own class, because .ds-note prose's children
+    // (<b>, <code>, <i>) carry no class of their own and were being fingerprinted as app
+    // — see bc-ka5y.28. contrast.mjs already does the ancestor check this way.
+    if (el.closest('[class*="ds-"]')) continue;
     const cls = typeof el.className === 'string' ? el.className.trim() : '';
-    // The card frame is this bundle's furniture, not the app's — see build.mjs.
-    if (/(^|\\s)ds-/.test(cls)) continue;
     const cs = getComputedStyle(el);
     if (cs.display === 'none') continue;
     const r = el.getBoundingClientRect();
@@ -78,8 +84,6 @@ for (const card of cards) {
 page.close();
 server.close();
 console.log('\n');
-
-mkdirSync('design-shots', { recursive: true });
 
 if (save) {
   writeFileSync(FILE, JSON.stringify({ at: new Date().toISOString(), shots: now }));

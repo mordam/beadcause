@@ -1,0 +1,161 @@
+#!/usr/bin/env node
+/**
+ * `b7e-harness` — print the house test harness for the kind of thing being tested.
+ *
+ *     b7e-harness --kind lib  --for lib/prbase.js > test/prbase.mjs
+ *     b7e-harness --kind tick --for lib/advocate.js
+ *     b7e-harness --kind app  --for p0RelayHtml
+ *     b7e-harness --kind bin  --for bin/deliver.js
+ *     b7e-harness --like test/plansurface.mjs --for lib/beadfiles.js
+ *     b7e-harness --kinds
+ *
+ * bc-zjab.11: six sessions wrote a suite in this repo and all six began by opening a
+ * neighbouring one to copy its preamble — a different neighbour each time, between two and
+ * five reads each. There *is* a house shape and it is written down nowhere, so this prints
+ * it. See lib/harness.js for how it is computed; this file is argv parsing and printing.
+ *
+ * **Nothing here is a template.** The shape is voted for by the suites in `test/`, slot by
+ * slot, so it cannot drift from them — if the convention moves, the output moves with it.
+ * `--kinds` prints what the vote found without generating anything.
+ *
+ * The skeleton goes to **stdout** and everything else to **stderr**, so `> test/x.mjs` is
+ * the whole workflow and the notice still reaches you. The one part of the notice worth
+ * reading twice is the app kind's: a function lifted out of `public/app.js` is listed in
+ * several suites at once, and this names them before you find out by watching them fail.
+ *
+ * Exit codes: `0` printed something. `2` bad usage. `4` the tree has no `test/`, or `--like`
+ * named a suite that is not there.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { harness, readSuites, countKinds, KINDS, KIND_BLURB, deriveShape, seedSuites } from '../lib/harness.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-harness --kind <lib|app|tick|bin> [--for <file or symbol>] [options]
+       b7e-harness --like test/<suite>.mjs [--for <file or symbol>] [options]
+       b7e-harness --kinds
+
+Print a suite skeleton in this repo's house shape — shebang, docblock with its run lines,
+the HERE/ROOT/LIB preamble, the check/ok/bad helper and the pass-count ending — computed
+from test/ itself rather than from a template. It runs green with zero assertions.
+
+  --kind <k>       lib | app | tick | bin (default: lib)
+  --like <suite>   copy one existing suite's shape instead of the majority of its kind
+  --for <what>     what is under test: a path (lib/x.js, bin/x.js) or, for --kind app,
+                   the name of a function in public/app.js
+  --name <stem>    the suite's name; derived from --for when not given
+  --dir <root>     a different checkout to read the corpus from (default: this one)
+  --kinds          print what the corpus holds, and the seed suites, and stop
+  --json           the machine-readable form instead of the skeleton
+`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+function fail(msg, code = 2) {
+  console.error(`b7e-harness: ${msg}`);
+  process.exit(code);
+}
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(value('--dir') || path.join(HERE, '..'));
+if (!fs.existsSync(path.join(root, 'test'))) fail(`${root} has no test/ to read the shape from`, 4);
+
+const JSON_MODE = has('--json');
+
+// `process.exit(0)` right after either write below used to drop whatever of it was still
+// pending: stdout to a **pipe** is async, so a `--json` skeleton (unbounded — it carries
+// the whole generated suite text) could cut at the 64KB pipe buffer with a success status
+// and no signal at all (bc-dgx7.45). The if/else below is what stands in for the early
+// return `process.exit` used to give; falling off the end with `process.exitCode` set
+// instead flushes.
+if (has('--kinds')) {
+  const suites = readSuites(root);
+  const counts = countKinds(suites);
+  if (JSON_MODE) {
+    const out = {};
+    for (const kind of KINDS) {
+      out[kind] = { suites: counts[kind], is: KIND_BLURB[kind], seeds: seedSuites(suites, deriveShape(suites, kind)).map((s) => `test/${s.file}`) };
+    }
+    console.log(JSON.stringify(out, null, 2));
+  } else {
+    console.log(`${suites.length} suites under ${path.relative(process.cwd(), path.join(root, 'test')) || 'test'}\n`);
+    for (const kind of KINDS) {
+      const seeds = seedSuites(suites, deriveShape(suites, kind)).map((s) => `test/${s.file}`);
+      console.log(`  ${kind.padEnd(5)} ${String(counts[kind]).padStart(3)}  ${KIND_BLURB[kind]}`);
+      console.log(`        ${' '.repeat(3)}  nearest: ${seeds.join(', ')}`);
+    }
+  }
+  process.exitCode = 0;
+} else {
+  const kind = value('-k', '--kind');
+  const like = value('--like');
+  const target = value('-f', '--for');
+  const name = value('--name');
+
+  if (kind && !KINDS.includes(kind)) fail(`unknown kind: ${kind} (one of ${KINDS.join(', ')})\n${USAGE}`);
+  if (kind && like) fail('--kind and --like are two ways to ask the same question; pass one');
+
+  let answer;
+  try {
+    answer = harness(root, { kind, like, target, name });
+  } catch (err) {
+    fail(err.message, 4);
+  }
+
+  if (JSON_MODE) {
+    console.log(
+      JSON.stringify(
+        {
+          kind: answer.shape.kind,
+          basis: answer.shape.basis,
+          sampleSize: answer.shape.sampleSize,
+          suite: `test/${answer.stem}.mjs`,
+          seeds: answer.seeds.map((s) => `test/${s.file}`),
+          completed: answer.added,
+          unresolved: answer.missing,
+          siblings: answer.siblings,
+          text: answer.text,
+        },
+        null,
+        2
+      )
+    );
+  } else {
+    process.stdout.write(answer.text);
+
+    /* ------------------------------------------------------ the notice, on stderr */
+
+    const note = [];
+    note.push(
+      `test/${answer.stem}.mjs — ${answer.shape.kind} shape` +
+        (answer.shape.basis === 'like'
+          ? `, copied from test/${answer.shape.like}`
+          : `, the majority of ${answer.shape.sampleSize} suite${answer.shape.sampleSize === 1 ? '' : 's'}`)
+    );
+    if (answer.seeds.length) note.push(`  nearest finished suites: ${answer.seeds.map((s) => `test/${s.file}`).join(', ')}`);
+    if (answer.added.length) note.push(`  pulled in so it runs: ${answer.added.join(', ')}`);
+    if (answer.missing.length) note.push(`  left undeclared (nothing in test/ declares them): ${answer.missing.join(', ')}`);
+    if (answer.siblings?.owed?.length) {
+      note.push('');
+      note.push(`  ${answer.siblings.owed.length} suite(s) must gain a lift of \`${answer.siblings.symbol}\` or they will fail:`);
+      for (const file of answer.siblings.owed) note.push(`    test/${file}`);
+    }
+    console.error(note.join('\n'));
+  }
+  process.exitCode = 0;
+}

@@ -103,6 +103,10 @@ import fs from 'node:fs';
 import YAML from 'yaml';
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
+// A binary, not a lib module — lib/advocate.js never imports bin/plan.js, so unlike
+// lib/session.js (which lib/advocate.js *does* import, and so must spell this prefix out
+// rather than import it — see the comment there) this can just import the real constant.
+import { DISPATCHED_PREFIX } from '../lib/advocate.js';
 import {
   formatPlan,
   formatWhole,
@@ -182,15 +186,28 @@ if (epic.type && epic.type !== 'epic') {
 /**
  * The ids the plan is allowed to name.
  *
- * `bd children` is direct children only, which is the same reach `batchesFor` settles for
- * and for the same reason: a grandchild is a level deeper than anything here dispatches,
- * and recursing would be a `bd` call per level to police a shape nobody has filed. A plan
- * naming a grandchild is refused with "no child by that id", which is a true sentence
- * about what this can check rather than a claim the bead does not exist.
+ * **Two reads, because one level is not the reach a plan needs — bc-khoe.33.** `bd children`
+ * is direct children only, and until this bead that was the whole of the check: a plan naming
+ * a grandchild was refused with "no child by that id". That sentence was true about what this
+ * could check and false about what the rest of the machinery does. `unplanned` walks the whole
+ * subtree by parent edges, so a *ready grandchild* is a bead the epic's plan is required to
+ * cover — and the planner opened to cover it was then refused, twice, before the fuse blew and
+ * the beads went out one window each. bc-khoe carried eleven of them.
  *
- * A `bd` that will not answer means the ids cannot be checked at all — and that is a
- * refusal, not a shrug. The alternative is writing a plan that dispatches windows against
- * beads nobody confirmed are there.
+ * So the export's parent edges are read as well, and `validatePlan` prefers them: they answer
+ * "under this epic" at any depth, they see a bead adopted in with `bd update --parent`, and
+ * they refuse one that was reparented out however much its id still looks like a member. One
+ * `bd export` in a CLI a person is watching, once, against a check that otherwise disagrees
+ * with the sweep that re-opens this window.
+ *
+ * A `bd` that will not answer about the **children** means the ids cannot be checked at all —
+ * and that is a refusal, not a shrug. The alternative is writing a plan that dispatches windows
+ * against beads nobody confirmed are there. A **graph** that will not answer is the milder
+ * failure and falls back rather than refusing: the narrow check still holds every plan the old
+ * one held, so the cost is that this one run cannot name a grandchild, which is said out loud
+ * rather than left to be discovered as a refusal nobody can act on. An index with an `error` is
+ * an export that has never succeeded and its empty `parents` would admit every id-shaped
+ * guess — the permissive direction — so it is treated as no graph at all.
  */
 let children;
 try {
@@ -251,9 +268,31 @@ if (wantsWhole) {
   process.exit(0);
 }
 
+/**
+ * And the graph, read here rather than beside `children` above: a whole-job decision has no
+ * groups, so it has nothing to check ids against and must not pay for an export to find that
+ * out. Everything from this line down is the plan path. See the note on `children`.
+ */
+let parents = null;
+const narrow = (why) => warn(`could not read ${ws.name}'s shape (${why}) — this plan may only name ${epicId}'s direct children`);
+try {
+  const index = await bd.graph(ws);
+  // Two ways an index is not an answer, and both have to fall back rather than be believed.
+  // `error` is an export that has never succeeded. The other is quieter and is the one that
+  // matters here: an index with no row for **the epic being planned** did not read this
+  // tracker, and its empty `parents` makes `isUnder` fall back to the id for every bead —
+  // which would admit every id-shaped guess and take the `children` check off at the same
+  // time. A root epic legitimately has no parent *edge*, so the question is about its row.
+  if (index?.error) narrow(index.error);
+  else if (!index?.beads?.has?.(epicId)) narrow(`the export has no row for ${epicId}`);
+  else parents = index.parents;
+} catch (err) {
+  narrow(err.message.split('\n')[0]);
+}
+
 let plan;
 try {
-  plan = validatePlan(spec, { epic: epicId, children: children || [] });
+  plan = validatePlan(spec, { epic: epicId, children: children || [], parents });
 } catch (err) {
   warn(err.message);
   process.exit(4);
@@ -341,3 +380,10 @@ try {
 const prs = plan.groups.reduce((n, g) => n + g.prs.length, 0);
 console.log(`planned ${epicId} — ${plan.groups.length} ${plan.groups.length === 1 ? 'group' : 'groups'}, ${prs} pull ${prs === 1 ? 'request' : 'requests'}`);
 for (const g of plan.groups) console.log(`  ${g.name}: ${g.beads.join(', ')} → ${g.prs.length} in ${g.prs[0].repo}`);
+
+// This is as far as this window can see — bc-zjab.8. The plan is filed and the label is
+// on, but whether the advocate actually opens a window per group is a later tick's call,
+// not this one's, and every surface this process can print looks identical whichever way
+// that goes. Say so, and name the one place it shows up afterwards.
+console.log(`  filed, not dispatched — a later tick decides whether these groups actually open`);
+console.log(`  check back with: bd show ${epicId} (one \`${DISPATCHED_PREFIX}<group>\` label lands per group that did)`);

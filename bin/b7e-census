@@ -1,0 +1,167 @@
+#!/usr/bin/env node
+/**
+ * `b7e-census` — which beads in a real tracker match a label or dependency predicate,
+ * over `bd export`, without writing a program for it.
+ *
+ *   b7e-census -w deluvia --label gate --count
+ *   b7e-census -w deluvia --label gate --label needs-approval --count
+ *   b7e-census -w deluvia --not-label gate:G0
+ *   b7e-census -w deluvia --values gate:
+ *   b7e-census -w deluvia --blocked-by-label pr-delivery --status in_progress
+ *   b7e-census -w deluvia --label gate --json
+ *
+ * `bc-bmry.12`, filed by the session audit against `bc-bmry.2`, `bc-bmry.5` and
+ * `bc-xl7n.98` — three sessions that each needed the same thing, "which beads carry a
+ * label or edge", and each hand-rolled its own one-off pipeline (an inline `node -e`
+ * over `bd list --json`, a saved JSON file plus a scratch `.mjs`, `bd export` plus three
+ * separate `python3` heredocs). `lib/census.js` is the matching, over the parsed shape
+ * `lib/ancestry.js`'s `indexFrom` already builds from a `bd export` — this is the argv
+ * parsing and the printing around it.
+ *
+ * One `bd export`, whichever combination of flags is given — there is no way to ask `bd`
+ * itself for "carries this label AND is blocked by a bead carrying that one", so this
+ * pulls the whole graph once and filters in process, the same trade `lib/ancestry.js`
+ * already made for a cheaper question.
+ *
+ * Exit codes: `0` the call answered (however many rows matched, zero included). `1` a
+ * bad predicate or missing workspace. `2` `bd export` itself failed.
+ */
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { indexFrom } from '../lib/ancestry.js';
+import { census, valuesOf } from '../lib/census.js';
+
+const USAGE = `usage: b7e-census -w <workspace> [predicate] [output]
+
+predicate (all optional; a bead must satisfy every one given):
+  --label <name>              exact label match, repeatable — ANDed, never a prefix
+  --not-label <name>          bead must NOT carry this label, repeatable
+  --status <s>[,<s>...]       only these bd statuses (default: every status, closed included)
+  --blocked-by-label <name>   blocked by a still-open bead carrying this label exactly
+
+output (pick at most one; default is one line per bead plus a trailing count):
+  --count                     the number of matching beads, alone
+  --values <prefix>           distinct label values in the "<prefix>"/"<prefix>:*" family,
+                               with how many (post-predicate) beads carry each
+  --json                      the matching rows, unformatted, one JSON object per line`;
+
+const rawArgv = process.argv.slice(2);
+if (rawArgv.includes('--help') || rawArgv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let wsName = null;
+let countMode = false;
+let jsonMode = false;
+let valuesPrefix = null;
+const labels = [];
+const notLabels = [];
+let statusArg = null;
+let blockedByLabel = null;
+
+const FLAG_VALUES = new Set(['-w', '--workspace', '--label', '--not-label', '--status', '--blocked-by-label', '--values']);
+
+for (let i = 0; i < rawArgv.length; i += 1) {
+  const a = rawArgv[i];
+  const next = () => {
+    const v = rawArgv[i + 1];
+    i += 1;
+    return v;
+  };
+  switch (a) {
+    case '-w':
+    case '--workspace':
+      wsName = next();
+      break;
+    case '--label':
+      labels.push(next());
+      break;
+    case '--not-label':
+      notLabels.push(next());
+      break;
+    case '--status':
+      statusArg = next();
+      break;
+    case '--blocked-by-label':
+      blockedByLabel = next();
+      break;
+    case '--count':
+      countMode = true;
+      break;
+    case '--json':
+      jsonMode = true;
+      break;
+    case '--values':
+      valuesPrefix = next();
+      break;
+    default:
+      console.error(`b7e-census: unrecognised argument "${a}"`);
+      console.error(USAGE);
+      process.exit(1);
+  }
+}
+
+if (!wsName) {
+  console.error('b7e-census: -w/--workspace is required');
+  console.error(USAGE);
+  process.exit(1);
+}
+
+if (countMode && (jsonMode || valuesPrefix != null)) {
+  console.error('b7e-census: --count cannot be combined with --json or --values');
+  process.exit(1);
+}
+if (jsonMode && valuesPrefix != null) {
+  console.error('b7e-census: --json cannot be combined with --values');
+  process.exit(1);
+}
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  console.error(`b7e-census: no workspace named "${wsName}"`);
+  console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+  process.exit(1);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let index;
+try {
+  const out = await bd.run(ws, ['export']);
+  index = indexFrom(out);
+} catch (err) {
+  console.error(`b7e-census: ${err.message}`);
+  process.exit(2);
+}
+
+const statuses = statusArg ? statusArg.split(',').map((s) => s.trim()).filter(Boolean) : null;
+
+// `process.exit(0)` after any of the writes below used to drop whatever was still
+// pending: stdout to a **pipe** is async, so a big report — `--json` rows, or `--values`
+// counts across a busy tracker — could cut at the 64KB pipe buffer with a success status
+// and no signal at all (bc-dgx7.45). The if/else chain below is what stands in for the
+// early return `process.exit` used to give; falling off the end with `process.exitCode`
+// set instead flushes.
+if (valuesPrefix != null) {
+  const counts = valuesOf(index, valuesPrefix, { statuses });
+  const names = [...counts.keys()].sort();
+  for (const name of names) console.log(`${name}\t${counts.get(name)}`);
+  process.exitCode = 0;
+} else {
+  const rows = census(index, { labels, notLabels, statuses, blockedByLabel });
+
+  if (countMode) {
+    console.log(rows.length);
+  } else if (jsonMode) {
+    for (const row of rows) console.log(JSON.stringify(row));
+  } else {
+    const truncate = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+    for (const row of rows) {
+      console.log(`${row.id}\t${row.status}\t${(row.labels || []).join(',')}\t${truncate(row.title || '', 60)}`);
+    }
+    console.log(`${rows.length} bead${rows.length === 1 ? '' : 's'} matched`);
+  }
+  process.exitCode = 0;
+}

@@ -57,6 +57,26 @@ if (has('--install-hook')) {
   // `--git-path` rather than `<root>/.git/hooks`: in a worktree `.git` is a *file*
   // pointing elsewhere, and this resolves to the shared hooks directory either way.
   const hooks = path.resolve(process.cwd(), git(['rev-parse', '--git-path', 'hooks']));
+
+  // `core.hooksPath` can redirect that resolution anywhere, including a directory
+  // nothing else manages — bc-y3qk.13 was exactly that: it named `.beads/hooks` in a
+  // checkout with no `.beads` directory at all, git ran no hook and warned nobody, and
+  // `mkdirSync` below would have happily created that path and reported success,
+  // leaving the guard live only until something next deletes the directory it invented.
+  // A hooks path under the repo's own git directory does not have that failure mode —
+  // it is `rm -rf .git`, which is a different class of accident — so this only fires
+  // for a path `core.hooksPath` sent somewhere else.
+  const commonDir = path.resolve(process.cwd(), git(['rev-parse', '--git-common-dir']));
+  const owned = hooks === commonDir || hooks.startsWith(commonDir + path.sep);
+  if (!owned) {
+    console.error(`${red('✗')} core.hooksPath points outside this repo's git directory: ${hooks}`);
+    console.error(`  Installing there would work only for as long as that directory happens to exist —`);
+    console.error(`  nothing else creates or protects it. Unset the override and re-run:\n`);
+    console.error(`      git config --local --unset core.hooksPath`);
+    console.error(`      node ${path.relative(process.cwd(), fileURLToPath(import.meta.url))} --install-hook\n`);
+    process.exit(1);
+  }
+
   fs.mkdirSync(hooks, { recursive: true });
   const file = path.join(hooks, 'pre-commit');
   const marker = 'beadcause conflict-check';

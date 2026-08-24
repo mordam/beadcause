@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+/**
+ * `b7e-siblings` — which live worktrees are already changing the files a bead is about.
+ *
+ *     b7e-siblings lib/server.js public/app.js   # paths, taken as given
+ *     b7e-siblings --bead bc-bmry.11              # the files that bead declares
+ *     b7e-siblings --bead bc-bmry.11 -w sophab     # a workspace this checkout is not in
+ *     b7e-siblings --json lib/server.js            # one object per row, for a caller
+ *     b7e-siblings --dir <root> ...                # another tree — this is how it is tested
+ *
+ * bc-bmry.11: four sessions on 2026-08-18 each worked this out by hand against
+ * `lib/server.js`, with six `git` calls, a loop with branch names typed in, or nothing at
+ * all until the Edit tool refused. lib/siblings.js is the matching; this is the argv
+ * parsing and the printing around it, same split as `bin/b7e-affected` and lib/affected.js.
+ *
+ * Neither `--bead` nor a path is taken from stdin or inferred — a survey run before the
+ * first edit is exactly the moment a session has not yet decided what it is about to
+ * touch, so guessing here would answer a question nobody asked yet. `--bead` reads the
+ * `beadfiles` block (or the guessed paths in its text — lib/beadfiles.js `declaredFiles`)
+ * off `bd show`; bare paths are trusted as given.
+ *
+ * Exit codes: `0` ran to completion, whether or not anything collided — an empty answer is
+ * the ordinary "nothing holds this", not a failure (see lib/siblings.js). `2` bad usage.
+ * `4` `--bead` or `-w` named something this checkout's tracker does not have.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { declaredFiles } from '../lib/beadfiles.js';
+import { siblingsFor, BASE_REF } from '../lib/siblings.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-siblings <path> [<path> ...]
+       b7e-siblings --bead <id> [-w <workspace>]
+
+Which live worktrees have already changed the given files, or the files a bead declares
+(lib/beadfiles.js). One row per colliding worktree: branch, bead and session if a live one
+is on it, locked state, the line ranges it has touched in each file, and its commits ahead
+of ${BASE_REF} that touch them. Prints nothing and exits 0 when nothing collides.
+
+  --bead <id>       read the files from this bead instead of naming them
+  -w, --workspace   which tracker --bead is read from (default: this checkout's own)
+  --dir <root>      run against another tree — this is how it is tested
+  --json            one object per row instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const DIR_GIVEN = value('--dir');
+const ROOT = path.resolve(DIR_GIVEN || process.cwd());
+const JSON_MODE = has('--json');
+const beadId = value('--bead', '-b');
+
+const FLAG_VALUES = new Set(['--dir', '--bead', '-b', '-w', '--workspace']);
+const paths = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--json' || a === '--help' || a === '-h') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--') && a.includes('=')) continue; // an inline --flag=value already read above
+  if (a.startsWith('-')) {
+    console.error(`\x1b[31mb7e-siblings: unrecognised flag: ${a}\x1b[0m`);
+    process.exit(2);
+  }
+  paths.push(a);
+}
+
+if (Boolean(beadId) === paths.length > 0) {
+  console.error(
+    beadId
+      ? 'b7e-siblings: --bead and a path are two ways of saying the same thing — pass one, not both'
+      : 'b7e-siblings: nothing to check — pass one or more paths, or --bead <id>'
+  );
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const cfg = loadConfig();
+
+let files = paths;
+if (beadId) {
+  const wsName = value('-w', '--workspace');
+  const ws = wsName ? cfg.workspaces.find((w) => w.name === wsName) : cfg.workspaces.find((w) => path.resolve(w.dir) === path.resolve(ROOT)) || cfg.workspaces[0];
+  if (!ws) {
+    console.error(`b7e-siblings: no workspace ${wsName ? `named ${wsName}` : 'resolves for this checkout'} — pass -w explicitly`);
+    process.exit(4);
+  }
+  const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+  const row = await bd.show(ws, beadId);
+  if (!row) {
+    console.error(`b7e-siblings: ${ws.name} has no bead ${beadId}`);
+    process.exit(4);
+  }
+  files = declaredFiles(row);
+  if (!files.length) {
+    console.error(`b7e-siblings: ${beadId} declares no files — nothing to check against`);
+    process.exit(0);
+  }
+}
+
+const rows = await siblingsFor(ROOT, files, { cfg });
+
+// `process.exit(0)` right after either write below used to drop whatever of it was still
+// pending: stdout to a **pipe** is async, so a `--json` run over many colliding worktrees
+// could cut at the 64KB pipe buffer with a success status and no signal at all
+// (bc-dgx7.45). Falling off the end with `process.exitCode` set instead flushes.
+if (JSON_MODE) {
+  for (const row of rows) console.log(JSON.stringify(row));
+} else {
+  const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+  const yellow = (s) => `\x1b[33m${s}\x1b[0m`;
+
+  for (const row of rows) {
+    const who = row.bead
+      ? `${row.bead}${row.session ? `, pid ${row.session.pid}` : ''}`
+      : row.session
+        ? `pid ${row.session.pid}, no bead in its name`
+        : 'no live session found';
+    const lock = row.locked ? (row.lockLive ? ', locked (live)' : ', locked (stale — no live session in it)') : '';
+    const state = row.state === 'pruned' ? yellow(' [pruned — directory is gone]') : '';
+    console.log(`${row.branch} (${who})${lock}${state}`);
+    for (const f of row.files) console.log(`  ${f.file}: ${f.ranges}`);
+    if (row.commits.length) {
+      const more = row.commitsOverflow ? `, +${row.commitsOverflow} more` : '';
+      console.log(dim(`  ${row.commits.length} commit${row.commits.length === 1 ? '' : 's'} ahead of ${BASE_REF} touching these files${more}:`));
+      for (const c of row.commits) console.log(dim(`    ${c.sha} ${c.subject}`));
+    }
+  }
+}
+
+process.exitCode = 0;

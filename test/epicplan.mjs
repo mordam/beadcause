@@ -33,7 +33,16 @@ import { fileURLToPath } from 'node:url';
 import { quiesce, removeTree } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
+
+/** Comments blanked to spaces, so prose describing the wording is not read as the wording. */
+function code(file) {
+  const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p) => p + m.slice(p.length).replace(/./g, ' '));
+}
 
 // Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load, and
 // the daemon's own advocates.json is not this suite's to read or to write.
@@ -355,6 +364,48 @@ await check('a child is under its epic by the graph, not only by its id', () => 
   assert.equal(isUnder('x-1', 'x-1', parents), false, 'an epic is not under itself here — a group naming it is refused');
 });
 
+/**
+ * And the move the other way, which is bc-36xx.29. A reparent renumbers nothing either
+ * direction, so a bead that has **left** goes on being called `x-1.4` — and the prefix went
+ * on saying it was under x-1 after the tracker had given it to y-2. Where the graph has the
+ * bead, the graph is the answer; where it has never heard of it, the id still is.
+ */
+await check('a bead reparented out of an epic is not under it any more, whatever it is called', () => {
+  const parents = new Map([
+    ['x-1.4', 'y-2'],
+    ['x-1.4.1', 'x-1.4'],
+    ['x-1.1', 'x-1'],
+    ['z-9', 'x-1'],
+  ]);
+  assert.equal(isUnder('x-1.4', 'x-1'), true, 'with no graph the id is all there is, and it is unchanged');
+  assert.equal(isUnder('x-1.4', 'x-1', parents), false, 'with one, the edge outranks the id it kept');
+  assert.equal(isUnder('x-1.4.1', 'x-1', parents), false, 'and everything under it left with it');
+  assert.equal(isUnder('x-1.4', 'y-2', parents), true, 'it is under where it actually went');
+  assert.equal(isUnder('x-1.1', 'x-1', parents), true, 'a created child the graph agrees about is untouched');
+  assert.equal(isUnder('z-9', 'x-1', parents), true, 'and so is the adopted one, which only the graph can see');
+  assert.equal(isUnder('x-1.7', 'x-1', parents), true, 'a bead the graph has no row for falls back to the id');
+  assert.equal(isUnder('x-1.4', 'x-1', new Map()), true, 'and so does every bead when the export failed and the index is empty');
+});
+
+/**
+ * The two ends of this file, on one bead. `validatePlan` treats the tracker's children as
+ * primary and refuses to name a departed bead; `unplanned` used to report the same bead as
+ * loose, which freezes every group under the epic — so the epic could neither name it nor
+ * leave it out, and no plan a planner could write cleared it. They have to answer alike.
+ */
+await check('validatePlan and unplanned agree about a bead that has left', () => {
+  const parents = new Map([['x-1.4', 'y-2']]);
+  const kids = [bead('x-1.1')];
+  assert.throws(
+    () => validatePlan(planSpec([group('one', ['x-1.1', 'x-1.4'])]), { epic: 'x-1', children: kids }),
+    /names x-1\.4, which x-1 has no child by/,
+    'the plan cannot name it — the tracker says it is not a child'
+  );
+  const plan = validatePlan(planSpec([group('one', ['x-1.1'])]), { epic: 'x-1', children: kids });
+  assert.deepEqual(unplanned(plan, [bead('x-1.4')], parents).map((b) => b.id), [], 'and leaving it out is not loose work');
+  assert.deepEqual(unplanned(plan, [bead('x-1.4')]).map((b) => b.id), ['x-1.4'], 'with no graph the old answer stands');
+});
+
 await check('a plan may name an adopted child, and unplanned can see one', () => {
   const parents = new Map([['z-9', 'x-1']]);
   const plan = validatePlan(planSpec([group('one', ['z-9'])]), { epic: 'x-1', children: [bead('z-9')] });
@@ -362,6 +413,83 @@ await check('a plan may name an adopted child, and unplanned can see one', () =>
   const bare = validatePlan(planSpec([group('one', ['x-1.1'])]), { epic: 'x-1', children: null });
   assert.deepEqual(unplanned(bare, [bead('z-9')]).map((b) => b.id), [], 'no graph, no adopted child — the old answer');
   assert.deepEqual(unplanned(bare, [bead('z-9')], parents).map((b) => b.id), ['z-9'], 'with one, it is ungrouped work');
+});
+
+/**
+ * **bc-khoe.33 — a plan reaches the whole subtree, not one level.**
+ *
+ * `bd children` answers about direct children and nothing else, and that was the whole of
+ * what `validatePlan` checked against — so a group naming a grandchild was refused with "no
+ * child by that id". Meanwhile `unplanned` walks the parent edges at any depth, so a *ready*
+ * grandchild was a bead the epic's plan was required to cover and forbidden to name: the
+ * planner was re-opened to fix something it was not allowed to fix, twice, and then the fuse
+ * blew and the beads went out one window each. bc-khoe carried eleven of them.
+ *
+ * The fix is to give `validatePlan` the same graph `unplanned` already gets. These assert the
+ * two ends answering alike at depth, which is the property the whole thing turns on.
+ */
+await check('a plan may name a grandchild when it is given the graph', () => {
+  const parents = new Map([
+    ['x-1.3', 'x-1'],
+    ['x-1.3.1', 'x-1.3'],
+    ['x-1.3.1.1', 'x-1.3.1'],
+    ['z-9', 'x-1.3'],
+  ]);
+  const kids = [bead('x-1.3')];
+  const plan = validatePlan(planSpec([group('one', ['x-1.3.1', 'z-9'])]), { epic: 'x-1', children: kids, parents });
+  assert.deepEqual(plan.groups[0].beads, ['x-1.3.1', 'z-9'], 'a grandchild by id and one adopted in are both nameable');
+  const deep = validatePlan(planSpec([group('one', ['x-1.3.1.1'])]), { epic: 'x-1', children: kids, parents });
+  assert.deepEqual(deep.groups[0].beads, ['x-1.3.1.1'], 'and it is any depth, not two levels');
+  assert.throws(
+    () => validatePlan(planSpec([group('one', ['y-7.2'])]), { epic: 'x-1', children: kids, parents }),
+    /names y-7\.2, which is not under x-1/,
+    "somebody else's bead is still refused"
+  );
+});
+
+await check('the graph outranks the one-level answer in both directions', () => {
+  // The bead left, and its id did not. `children` cannot see that a departed bead is gone
+  // any more than it can see that a grandchild is there — it simply does not list either.
+  const parents = new Map([['x-1.4', 'y-2'], ['x-1.4.1', 'x-1.4']]);
+  assert.throws(
+    () => validatePlan(planSpec([group('one', ['x-1.4'])]), { epic: 'x-1', children: [bead('x-1.1')], parents }),
+    /names x-1\.4, which is not under x-1/,
+    'a reparented-out bead is refused even though the id still reads as a member'
+  );
+  assert.throws(
+    () => validatePlan(planSpec([group('one', ['x-1.4.1'])]), { epic: 'x-1', children: [bead('x-1.1')], parents }),
+    /is not under x-1/,
+    'and so is everything that went with it'
+  );
+});
+
+await check('without a graph the narrow check is unchanged, and says which question it asked', () => {
+  // Deliberately still a refusal. `bd children` reaches one level, so "a grandchild" and "a
+  // bead that does not exist" are the same silence to it — admitting both would be the
+  // permissive direction on the one check that stops a group being written against a bead
+  // nobody confirmed is there. The refusal names the question that was actually asked.
+  assert.throws(
+    () => validatePlan(planSpec([group('one', ['x-1.9'])]), { epic: 'x-1', children: [bead('x-1.1')] }),
+    /names x-1\.9, which x-1 has no child by/,
+    'the tracker answered about one level and that is what the sentence says'
+  );
+  assert.throws(
+    () => validatePlan(planSpec([group('one', ['y-9.1'])]), { epic: 'x-1', children: null }),
+    /not under x-1/,
+    'and with neither, the id is all there is'
+  );
+});
+
+await check('validatePlan and unplanned agree about a grandchild', () => {
+  // The property the fix exists for, stated as one bead: whatever `unplanned` calls loose
+  // work under this epic, a plan must be able to name. Before bc-khoe.33 these two lines
+  // disagreed, and a planner could not write a plan that cleared the hold.
+  const parents = new Map([['x-1.3', 'x-1'], ['x-1.3.1', 'x-1.3']]);
+  const kids = [bead('x-1.3')];
+  const bare = validatePlan(planSpec([group('one', ['x-1.3'])]), { epic: 'x-1', children: kids, parents });
+  assert.deepEqual(unplanned(bare, [bead('x-1.3.1')], parents).map((b) => b.id), ['x-1.3.1'], 'ungrouped, at depth');
+  const whole = validatePlan(planSpec([group('one', ['x-1.3', 'x-1.3.1'])]), { epic: 'x-1', children: kids, parents });
+  assert.deepEqual(unplanned(whole, [bead('x-1.3.1')], parents).map((b) => b.id), [], 'and naming it is what clears it');
 });
 
 /* --------------------------------------------------------------- the advocate */
@@ -513,6 +641,28 @@ await check('an adopted bead nobody grouped re-opens the planner too', async () 
   assert.match(heldWhy(r.card, 'z-9'), /waiting on x-1's plan, which is being revised/);
 });
 
+/**
+ * The freeze, and the half of it nobody had measured: it holds **both** epics. The loop that
+ * arms a replan puts every queue bead `isUnder` claims into `awaiting`, so a bead that had
+ * been reparented away was held by an epic it was no longer part of — and the epic it had
+ * gone to had no plan, was not replanning, and had done nothing. Both halves are this one
+ * predicate, so one bead here checks both: x-1.5 is genuinely loose and freezes the subtree,
+ * and x-1.4 belongs to y-2 now and must be worked straight through it.
+ */
+await check('a bead that left is neither loose under its old epic nor held by its replan', async () => {
+  const plan = validatePlan(planSpec([group('router', ['x-1.1'])]), { epic: 'x-1', children: null });
+  const r = await tick({
+    ready: [epic('x-1', { priority: 1, labels: [PLANNED_LABEL] }), bead('x-1.4'), bead('x-1.5')],
+    comments: { 'x-1': [{ text: formatPlan(plan) }] },
+    parents: [['x-1.4', 'y-2'], ['x-1.5', 'x-1']],
+  });
+  assert.deepEqual(r.planned.map((p) => p.id), ['x-1'], 'the one bead still under it re-opens the planner');
+  assert.deepEqual(r.planned[0].kids, ['x-1.5'], 'and the departed bead is not something x-1 has to group');
+  assert.match(heldWhy(r.card, 'x-1.5'), /waiting on x-1's plan, which is being revised/);
+  assert.equal(heldWhy(r.card, 'x-1.4'), '', 'the other epic\'s bead is not held by a replan it has nothing to do with');
+  assert.deepEqual(openedIds(r), ['x-1.4'], 'it is worked, as ordinary ready work under wherever it went');
+});
+
 await check('and it is released rather than held for ever once planning has run out', async () => {
   const plan = validatePlan(planSpec([group('router', ['x-1.1'])]), { epic: 'x-1', children: null });
   const r = await tick({
@@ -651,6 +801,22 @@ await check('a `planned` label with no plan behind it changes nothing', async ()
   });
   assert.deepEqual(r.created, [], 'nothing promoted off a plan that is not there');
   assert.deepEqual(r.planned.map((p) => p.id), ['x-1'], 'and it is planned like any other unplanned epic');
+});
+
+/**
+ * bc-zjab.8. A planner reads "planned <epic> — N groups, N pull requests" and exit 0 as
+ * the plan having taken effect — it has not, since whether the daemon actually dispatches
+ * those groups is a later tick's call. bin/plan.js has to say so itself, beside the group
+ * summary, and name the one command that answers it afterwards.
+ */
+await check('bin/plan.js says, beside the group summary, that dispatch is not confirmed and where to check', () => {
+  const src = code('bin/plan.js');
+  assert.match(src, /filed, not dispatched/, 'says plainly that a filed plan is not yet a dispatched one');
+  assert.match(src, /bd show \$\{epicId\}/, 'names the one command to check afterwards');
+  // Imported, not spelt out — bin/plan.js is a binary lib/advocate.js never imports, so
+  // unlike lib/session.js's brief it can name the real mark rather than guess its spelling.
+  assert.match(src, /import\s*\{\s*DISPATCHED_PREFIX\s*\}\s*from\s*'\.\.\/lib\/advocate\.js'/, 'names the real mark, not a guess at its spelling');
+  assert.match(src, /\$\{DISPATCHED_PREFIX\}/, 'and actually prints it');
 });
 
 /* ---------------------------------------------------------------------- done */

@@ -1,0 +1,100 @@
+#!/usr/bin/env node
+/**
+ * `b7e-triage` — re-run a sweep's failures alone, serially, and say which are real.
+ *
+ *     b7e-triage <suite>...           re-run each: flake, needs vendor, or real
+ *     b7e-triage --from <gate-log>    take every failure out of a b7e-gate log, or a
+ *                                     hand-rolled one — see lib/triage.js's parseFailures
+ *     b7e-triage --dir <root>         "this tree" is <root>, not the tree this file is in
+ *     b7e-triage --timeout <s>        per-run seconds, overriding lib/gate.js's own default
+ *     b7e-triage --json               one object per suite instead of the printed report
+ *
+ * bc-ka5y.15.16: four sessions each took a `b7e-gate`-shaped (or, before it existed,
+ * hand-rolled) list of failed suite names and triaged it by hand, differently — two
+ * lists were pure noise, two hid real reds, and no session could tell without
+ * re-running. `lib/triage.js` carries the parsing and the re-run; this file is the argv
+ * parsing and the printing around it, the same split every other `b7e-*` command uses.
+ *
+ * Exit codes: `0` every failure given was explained away (a flake, or fixed by
+ * `scripts/vendor.js`); `1` at least one is still `real`, or could not be resolved to a
+ * suite in this tree at all; `2` refused — bad usage, or nothing to triage.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { REPO_ROOT, parseFailures, triage, resultLine, triageSummaryLine, exitCodeFor } from '../lib/triage.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-triage <suite>...           re-run each: flake, needs vendor, or real',
+      'b7e-triage --from <gate-log>    take every failure out of a b7e-gate log, or a hand-rolled one',
+      'b7e-triage --dir <root>         "this tree" is <root>, not the tree this file is in',
+      'b7e-triage --timeout <s>        per-run seconds, overriding lib/gate.js\'s own default',
+      'b7e-triage --json               one object per suite instead of the printed report',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const JSON_MODE = has('--json');
+const TIMEOUT_ARG = value('--timeout', null);
+const TIMEOUT_MS = TIMEOUT_ARG == null ? null : Math.max(0, Number(TIMEOUT_ARG) || 0) * 1000;
+const FROM = value('--from', null);
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+let failures = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--dir' && argv[i - 1] !== '--timeout' && argv[i - 1] !== '--from');
+
+if (FROM) {
+  let logText;
+  try {
+    logText = fs.readFileSync(path.resolve(FROM), 'utf8');
+  } catch (err) {
+    console.error(red(`could not read ${FROM} — ${err.message}`));
+    process.exit(2);
+  }
+  failures = failures.concat(parseFailures(logText));
+}
+failures = [...new Set(failures)];
+
+if (!failures.length) {
+  console.error(red('nothing to triage — give one or more suite paths, or --from <gate-log>'));
+  process.exit(2);
+}
+
+const colorFor = (verdict) => (verdict === 'flake' || verdict === 'needs vendor' ? amber : verdict === 'real' ? red : verdict === 'unresolved' ? red : green);
+
+const results = await triage(ROOT, failures, { timeoutOverrideMs: TIMEOUT_MS });
+
+// `process.exit(N)` right after this write used to drop whatever of a caller-sized
+// `--json` payload was still pending: stdout to a **pipe** is async, so it could cut at
+// the 64KB pipe buffer with a success status and no signal at all (bc-dgx7.45,
+// bc-dgx7.53). Falling off the end with `process.exitCode` set instead flushes.
+if (JSON_MODE) {
+  for (const r of results) console.log(JSON.stringify(r));
+  console.log(JSON.stringify({ summary: true, line: triageSummaryLine(results) }));
+} else {
+  for (const r of results) {
+    console.log(colorFor(r.verdict)(resultLine(r)));
+    if (r.verdict === 'real' && r.tail) {
+      for (const line of r.tail.split('\n')) console.log(dim(`  ${line}`));
+    }
+  }
+  console.log('');
+  console.log(exitCodeFor(results) ? red(triageSummaryLine(results)) : green(triageSummaryLine(results)));
+}
+
+process.exitCode = exitCodeFor(results);

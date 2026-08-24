@@ -155,7 +155,10 @@ function serve() {
     if (rel === '/prs' || rel === '/pulls' || rel === '/prs.html') rel = '/monitor.html';
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/endorse') rel = '/endorse.html';
-    if (rel === '/releases' || rel === '/deploys') rel = '/releases.html';
+    // Releases (bc-khoe.7) is a pane of the shell now (bc-khoe.30.14), and
+    // public/releases.html is gone from disk (bc-khoe.30.22) — so this lands on the same
+    // document '/' does, the way '/prs' lands on '/monitor.html' above.
+    if (rel === '/releases' || rel === '/deploys') rel = '/index.html';
     if (rel === '/foundations') rel = '/foundations.html';
     // The selected space's settings (bc-khoe.10). Here because it carries the space
     // picker, which is the row of the bar this check exists to measure the cost of.

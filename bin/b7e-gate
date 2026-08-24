@@ -18,6 +18,15 @@
  * timeout, or whether `scripts/test-swap.js` should run at all. `lib/gate.js` carries the
  * one answer; this file is the argv parsing and the printing around it.
  *
+ * It also writes a machine-readable run record (`lib/gaterun.js`, one JSONL line per
+ * suite) to `.claude/gate-runs` in the main checkout, so `bin/b7e-watch` (bc-gdub.3) can
+ * answer "how far has it got, and what's red" without a caller ever reading this log —
+ * that half of the same six-sessions problem is what backgrounding this run and polling
+ * it by hand cost every one of them. Best-effort: a `--dir` that is not a git checkout
+ * (every fabricated tree `test/gate.mjs` drives this CLI against) records nothing rather
+ * than throwing, because a suite runner refusing to run over a bookkeeping failure would
+ * be a worse bug than the one this exists to fix.
+ *
  * Exit codes: `0` every suite passed, `1` at least one failed or timed out, `2` refused —
  * bad usage, or another `b7e-gate` on this same tree is already running.
  */
@@ -33,6 +42,7 @@ import {
   summaryLine,
   toJsonRecord,
 } from '../lib/gate.js';
+import { appendResult, endRun, startRun } from '../lib/gaterun.js';
 import { onExit } from '../lib/teardown.js';
 
 const argv = process.argv.slice(2);
@@ -87,6 +97,15 @@ if (!lock.ok) {
 }
 const releaseLock = onExit(lock.release);
 
+/**
+ * `record` is `null` when nothing could be started (a non-git `--dir`, most likely) —
+ * every use below is guarded by that, so a run record failing to start never stops the
+ * gate itself from running.
+ */
+const SELECTED = selectSuites(discoverSuites(ROOT), { only: ONLY, skip: SKIP });
+const record = await startRun(ROOT, { suites: SELECTED }).catch(() => null);
+const wallStart = Date.now();
+
 const logPath = path.resolve(value('--log', path.join(fs.realpathSync(os.tmpdir()), `beadcause-gate-${process.pid}.log`)));
 const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 const logLine = (plain) => logStream.write(`${plain}\n`);
@@ -102,6 +121,11 @@ const closeLog = () => new Promise((resolve) => logStream.end(resolve));
 const plainStatus = (r) => (r.status === 'ok' ? 'ok' : r.status === 'TIMEOUT' ? 'TIMEOUT' : 'FAIL');
 
 const onResult = (r, done, total) => {
+  if (record) {
+    const tail =
+      r.status !== 'ok' ? String(r.out || '').trim().split('\n').slice(-15).join('\n') : undefined;
+    appendResult(record.file, { suite: r.suite, status: r.status === 'ok' ? 'ok' : 'fail', elapsed: r.ms / 1000, tail });
+  }
   if (JSON_MODE) {
     const line = toJsonRecord(r, done, total);
     console.log(JSON.stringify(line));
@@ -125,7 +149,11 @@ const onResult = (r, done, total) => {
   }
 };
 
-if (!JSON_MODE) console.log(dim(`log: ${logPath}\n`));
+if (!JSON_MODE) {
+  console.log(dim(`log: ${logPath}`));
+  if (record) console.log(dim(`run: ${record.runId} — \`b7e-watch\` reports on it while this runs and after`));
+  console.log('');
+}
 
 let result;
 try {
@@ -142,10 +170,13 @@ try {
 }
 
 if (!result.total) {
+  if (record) endRun(record.file, { status: 'fail', elapsed: (Date.now() - wallStart) / 1000 });
   console.log(red(ONLY.length ? `nothing matches --only ${ONLY.join(', ')}` : 'no suites found'));
   await closeLog();
   await leave(1);
 }
+
+if (record) endRun(record.file, { status: result.ok ? 'ok' : 'fail', elapsed: (Date.now() - wallStart) / 1000 });
 
 const line = summaryLine(result);
 if (JSON_MODE) {

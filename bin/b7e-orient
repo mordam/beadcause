@@ -1,0 +1,295 @@
+#!/usr/bin/env node
+/**
+ * `b7e-orient` — one call for the opening of a session: the bead, its family, its
+ * thread and what earlier runs left, instead of six guesses in a different order.
+ *
+ *     b7e-orient -w beadcause -b bc-zjab.9
+ *     b7e-orient -w beadcause -b bc-zjab.9 --json
+ *
+ * bc-zjab.9. A session audit found the same four questions opened nine sessions by
+ * hand, in nine different orders and with nine different sets of calls — nine of
+ * twelve spent a Bash call on a repo `CLAUDE.md` that does not exist, four never ran
+ * `bd comments`, and five never asked for a prior debrief at all. See the bead for
+ * the full accounting; this is the command it asked for.
+ *
+ * **The CLAUDE.md line prints first, unconditionally, whichever way it answers.** That
+ * is deliberate: it is the one thing every session so far has independently
+ * rediscovered by hand, and the fix is to say it before anyone goes looking. It checks
+ * the git checkout `lib/session.js`'s `resolveSessionDir` resolves for this workspace —
+ * never `ws.dir`, which is the *tracker's* directory (`~/beads/<name>/.beads`) and
+ * never where a `CLAUDE.md` would live. A single-repo workspace resolves before the
+ * first `bd` call; a multi-repo one needs the bead's own repo label and resolves right
+ * after it, still ahead of everything else this command reads.
+ *
+ * **The four remaining questions cost three or four `bd` spawns, not one per bead.**
+ *
+ *   1. The bead and its thread — `bd.showWithComments`, one spawn (or two on an
+ *      older `bd` with no `--include-comments`; see lib/bd.js).
+ *   2. Its family — one `bd export` (`Bd.graph`, cached 60s already), parsed with
+ *      lib/ancestry.js's `childrenFrom`. This is the one spawn that answers "parent
+ *      epic" and "every sibling, with status and holder" at once, because the raw
+ *      export row already carries `assignee` — unlike `Bd.children`, which narrows
+ *      it away (see the bead's own notes on that trap).
+ *   3. Its plan group — `bd comments` on the epic, once, parsed with lib/plan.js's
+ *      `planFrom`. If the bead's own tracker parent carries no matching plan and the
+ *      bead's id has a dotted prefix of its own (`bc-zjab.9` also answers to
+ *      `bc-zjab`), that is tried too — one more spawn, and only if the first came up
+ *      empty. This bead is the reason for the second try: its tracker parent is
+ *      `bc-dgx7` (filed there by `homeLabel`, see `beadcause-memory notes
+ *      filing-a-bead-under-a-parent`), but the plan that actually names it lives on
+ *      `bc-zjab`, its `discovered-from` ancestor's own parent and its id's own dotted
+ *      prefix. Neither of those is the same question as "family" above, so this is a
+ *      second read rather than a reuse of the first.
+ *   4. What earlier runs at this bead or its siblings left — no `bd` spawn at all;
+ *      tier 4 lives in git refs (lib/sessionlog.js, lib/memory.js's `debriefFamily`
+ *      and `debriefBrief`, which the daemon's own worker brief already uses).
+ *
+ * **`debriefFamily` narrows a bead with no tracker parent to itself alone** — a root
+ * epic, or a bead this workspace never gave a home. An empty debrief section there
+ * would read as "nobody has ever worked this family"; it means something narrower,
+ * and this prints which.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { childrenFrom } from '../lib/ancestry.js';
+import { planFrom } from '../lib/plan.js';
+import { debriefFamily, debriefBrief } from '../lib/memory.js';
+import { debriefBeads, readDebriefs } from '../lib/sessionlog.js';
+import { resolveSessionDir } from '../lib/session.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-orient -w <workspace> -b <bead> [--json]
+
+One block: the bead (status, priority, labels, assignee, acceptance), its comment
+thread, its parent epic and siblings with each one's status and holder, the epic's
+plan group if it has one, the debriefs any earlier run at this bead or its siblings
+left, and one line naming whether this workspace has a CLAUDE.md.
+
+  -w, --workspace <name>   which tracker (required; one of the configured workspaces)
+  -b, --bead <id>          the bead to orient on (required)
+  --json                   the machine-readable form instead of the printed report`;
+
+function fail(msg, code = 2) {
+  console.error(`b7e-orient: ${msg}`);
+  process.exit(code);
+}
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const beadId = value('-b', '--bead');
+const JSON_MODE = has('--json');
+
+if (!wsName) fail(`-w/--workspace is required\n${USAGE}`);
+if (!beadId) fail(`-b/--bead is required\n${USAGE}`);
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
+}
+
+/* --------------------------------------------------- the dead read, answered first */
+
+// `ws.dir` is the *tracker's* directory — `~/beads/<name>/.beads` for a personal
+// workspace — which is never the git checkout a `CLAUDE.md` or a session archive
+// would live in (bc-zjab.9's own notes: `resolveSessionDir`, lib/session.js, is the
+// answer lib/foundation.js already computes for every worker it opens). For a
+// single-repo workspace that needs no bead to resolve, so it is tried before the
+// first `bd` call; a multi-repo workspace needs the bead's own repo label and is
+// retried once `row` is in hand, below.
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let dir = null;
+let dirErr = null;
+try {
+  dir = resolveSessionDir(cfg, ws);
+} catch (err) {
+  dirErr = err;
+}
+
+function claudeMdLine() {
+  if (!dir) return `could not tell which checkout of ${ws.name} to look in yet (${String(dirErr?.message || dirErr).split('\n')[0]}) — resolved once the bead names a repo, below.`;
+  const claudeMdPath = path.join(dir, 'CLAUDE.md');
+  return fs.existsSync(claudeMdPath)
+    ? `${ws.name} HAS a CLAUDE.md, at ${claudeMdPath} — read it before anything else; it is this repo's own rules and it overrides everything below.`
+    : `${ws.name} has NO CLAUDE.md anywhere in ${dir} — do not spend a call looking for one. Its README (or other docs) is the spec instead.`;
+}
+
+/* --------------------------------------------------------------- 1. bead + thread */
+
+let row;
+try {
+  row = await bd.showWithComments(ws, beadId);
+} catch (err) {
+  fail(`${ws.name} has no bead ${beadId}: ${String(err?.message || err).split('\n')[0]}`, 4);
+}
+if (!row) fail(`${ws.name} has no bead ${beadId}`, 4);
+
+if (!dir) {
+  try {
+    dir = resolveSessionDir(cfg, ws, row);
+  } catch (err) {
+    dirErr = err;
+  }
+}
+
+/* --------------------------------------------------------------------- 2. family */
+
+const index = await bd.graph(ws);
+const parentId = row.parent || index.parents.get(beadId) || null;
+
+let epic = null;
+let siblings = [];
+if (parentId) {
+  epic = index.beads.get(parentId) || { id: parentId, title: '', status: 'unknown', assignee: '', labels: [] };
+  const kids = childrenFrom(index.parents).get(parentId) || [];
+  siblings = kids
+    .filter((id) => id !== beadId)
+    .map((id) => index.beads.get(id) || { id, title: '', status: 'unknown', assignee: '', labels: [] })
+    .sort((a, b) => (a.status === 'closed') - (b.status === 'closed') || a.id.localeCompare(b.id, undefined, { numeric: true }));
+}
+
+/* ---------------------------------------------------------------- 3. plan group */
+
+async function planGroupOn(epicId) {
+  if (!epicId) return null;
+  let comments;
+  try {
+    comments = await bd.comments(ws, epicId);
+  } catch {
+    return null;
+  }
+  const plan = planFrom(comments);
+  if (!plan) return null;
+  const group = (plan.groups || []).find((g) => (g.beads || []).includes(beadId));
+  return group ? { epic: epicId, group } : null;
+}
+
+let plan = await planGroupOn(parentId);
+const dotAt = beadId.indexOf('.');
+const prefixId = dotAt > 0 ? beadId.slice(0, dotAt) : null;
+if (!plan && prefixId && prefixId !== parentId && prefixId !== beadId) {
+  plan = await planGroupOn(prefixId);
+}
+
+/* ------------------------------------------------------------------- 4. debriefs */
+
+const family = dir ? debriefFamily(await debriefBeads(dir), row) : [];
+const debriefs = family.length ? await readDebriefs(dir, family) : [];
+const debriefNoParent = !row.parent;
+
+/* --------------------------------------------------------------------- --json */
+
+// `process.exit(0)` right after either write below used to drop whatever of it was
+// still pending: stdout to a **pipe** is async, so a caller-sized report — the whole
+// family, thread and debrief history — could cut at the 64KB pipe buffer with a success
+// status and no signal at all (bc-dgx7.45, bc-dgx7.53). The if/else is what stands in
+// for the early return `process.exit` used to give; falling off the end with
+// `process.exitCode` set instead flushes.
+if (JSON_MODE) {
+  console.log(
+    JSON.stringify(
+      {
+        workspace: ws.name,
+        claudeMd: { dir, note: claudeMdLine() },
+        bead: row,
+        family: {
+          parent: parentId,
+          epic,
+          siblings,
+        },
+        plan,
+        debriefs: { family, noParent: debriefNoParent, entries: debriefs },
+      },
+      null,
+      2
+    )
+  );
+  process.exitCode = 0;
+} else {
+  /* ------------------------------------------------------------------ printed form */
+
+  const holder = (r) => (r.assignee ? r.assignee : r.status === 'closed' ? '' : 'unassigned');
+  const rowLine = (r) =>
+    `  ${r.id.padEnd(14)} [${(r.status || 'open').padEnd(11)}${holder(r) ? `, ${holder(r)}` : ''}]  ${r.title || '(untitled)'}`;
+
+  console.log(`b7e-orient ${beadId} · ${ws.name}\n`);
+  console.log(claudeMdLine());
+
+  console.log(`\n## Bead`);
+  console.log(`${row.id} — ${row.title || '(untitled)'}`);
+  console.log(
+    `status: ${row.status}   priority: ${row.priority ?? '(none)'}   type: ${row.issue_type || '(none)'}   assignee: ${row.assignee || '(unassigned)'}`
+  );
+  if ((row.labels || []).length) console.log(`labels: ${row.labels.join(', ')}`);
+  const acceptance = row.acceptance_criteria || row.acceptance || '';
+  if (acceptance) console.log(`\nAcceptance:\n${acceptance.split('\n').map((l) => `  ${l}`).join('\n')}`);
+
+  const comments = row.comments || [];
+  console.log(`\n## Thread (${comments.length} comment${comments.length === 1 ? '' : 's'})`);
+  if (!comments.length) console.log('(no comments)');
+  for (const c of comments) {
+    console.log(`\n${c.author || 'unknown'} · ${c.created_at || 'unknown time'}`);
+    console.log(String(c.text || '').trim());
+  }
+
+  console.log(`\n## Family`);
+  if (!parentId) {
+    console.log('This bead has no tracker parent — nothing above it, and no siblings to list.');
+  } else {
+    console.log(`parent ${epic.id} (${epic.status}${epic.assignee ? `, ${epic.assignee}` : ''}) — ${epic.title || '(untitled)'}`);
+    if (!siblings.length) {
+      console.log('No other children under that parent.');
+    } else {
+      const CAP = 40;
+      console.log(`${siblings.length} sibling${siblings.length === 1 ? '' : 's'}:`);
+      for (const s of siblings.slice(0, CAP)) console.log(rowLine(s));
+      if (siblings.length > CAP) console.log(`  … and ${siblings.length - CAP} more — pass --json to see the rest`);
+    }
+  }
+
+  console.log(`\n## Plan group`);
+  if (!plan) {
+    console.log(
+      parentId || prefixId
+        ? `No plan on ${[parentId, prefixId].filter(Boolean).join(' or ')} names ${beadId}.`
+        : 'No epic to check — this bead has no tracker parent and no dotted id prefix.'
+    );
+  } else {
+    const g = plan.group;
+    const prs = g.prs || [];
+    console.log(`${plan.epic}'s plan names this bead in group "${g.name}" (${prs.length} pull ${prs.length === 1 ? 'request' : 'requests'}):`);
+    for (const p of prs) console.log(`  ${p.repo}${p.title ? ` — ${p.title}` : ''}`);
+    if (g.prompt) console.log(`\nWhat the epic worker wrote for this group:\n${g.prompt.split('\n').map((l) => `  > ${l}`.trimEnd()).join('\n')}`);
+  }
+
+  console.log(`\n## Debriefs`);
+  if (!dir) {
+    console.log(`could not resolve a checkout for ${ws.name} to read debriefs from (${String(dirErr?.message || dirErr).split('\n')[0]}).`);
+  } else {
+    if (debriefNoParent) {
+      console.log('This bead has no tracker parent, so only ITS OWN prior runs are covered here — not any siblings\'.');
+    }
+    const past = debriefBrief(debriefs, row);
+    console.log(past ? past.trim() : 'Nothing archived for this bead or its family.');
+  }
+
+  process.exitCode = 0;
+}

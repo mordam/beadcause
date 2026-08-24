@@ -165,6 +165,33 @@ check('AN UNKNOWN BASELINE FALLS BACK TO THE STRICT RULE, NOT TO A GREEN ONE', (
   assert.deepEqual(v.baseline, [], 'an unknown baseline was reported as something merged over');
 });
 
+/* ------------------------------------------------------- bc-ysqd.1: zero checks */
+
+const none = { failed: [], failing: 0, pending: 0, total: 0, state: 'none' };
+
+check('ZERO CHECKS ON A COMMIT WHOSE BASE HAS CHECKS REFUSES, IN ADAM\'S OWN WORDS', () => {
+  // #480, 2026-08-18: a push authored with the Actions/Copilot token does not trigger a
+  // pull_request workflow, so the head commit it left behind carried zero check runs —
+  // and the queue read that the same as green.
+  const v = gateVerdict({ checks: none, baseline: ['test/reenter.mjs'], baseHasChecks: true });
+  assert.equal(v.merge, false);
+  assert.match(v.refused, /nothing ran on this commit at all/);
+});
+
+check('AND AN UNKNOWN BASELINE FALLS BACK TO REFUSING IT TOO', () => {
+  // `baseHasChecks` is null when the caller never asked or could not — the same direction
+  // as an unknown `baseline` above: guessing "this base has no checks" is the guess that
+  // would have let #480 through.
+  const v = gateVerdict({ checks: none, baseline: null, baseHasChecks: null });
+  assert.equal(v.merge, false);
+  assert.match(v.refused, /nothing ran on this commit at all/);
+});
+
+check('a CI-less workspace never wedges — zero checks on both sides merges', () => {
+  const v = gateVerdict({ checks: none, baseline: [], baseHasChecks: false });
+  assert.equal(v.merge, true, 'a base that also runs no checks is the ordinary state of a CI-less space');
+});
+
 check('a conflict is not a verdict — it is the thing a resolver fixes', () => {
   const v = gateVerdict({ checks: green, baseline: [], mergeable: 'CONFLICTING' });
   assert.equal(v.merge, false);
@@ -362,6 +389,24 @@ check('and the queue reaches that door rather than the worker-reach one', () => 
   // And through the registry that allows one window per pull request — the reason
   // lib/mergesweep.js records a merge rather than sweeping it.
   assert.match(body, /resolveFor\(/, 'nothing stops a second window opening on the same pull request');
+});
+
+/**
+ * And the other end of that door — bc-5mdsw.
+ *
+ * The closure is inline in `createApp` and cannot be imported, so this is a static read of
+ * the source, the same shape as the check above. What it pins is the part that is easy to
+ * get subtly wrong: the sweep spends an attempt on a `false` here, so every reading that
+ * is not *definitely nobody* has to answer `true`.
+ */
+check('and it can tell whether that window is still there', () => {
+  const src = fs.readFileSync(path.join(HERE, '..', 'lib', 'server.js'), 'utf8');
+  const from = src.indexOf('resolverOn: async (entry)');
+  assert.ok(from > 0, 'the queue no longer asks whether a resolver is still on a branch — re-point this check');
+  const body = src.slice(from, from + 700);
+  assert.match(body, /findResolver\(/, 'the live half of the registry is not asked');
+  assert.match(body, /pendingResolvers\(/, 'a branch merely waiting for one of the two slots would read as one nothing is on');
+  assert.match(body, /if \(!unit\) return true/, 'a question nobody could answer reads as "nobody is on it", and that spends an attempt');
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);

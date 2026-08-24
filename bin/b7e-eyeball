@@ -1,0 +1,380 @@
+#!/usr/bin/env node
+/**
+ * `b7e-eyeball` — render a page against a fixture and hand back the pixels *and* the geometry.
+ *
+ *     b7e-eyeball /monitor --measure '.brand,.observing' --width 360
+ *     b7e-eyeball /skills --payload full.json --payload empty.json --width 393
+ *     b7e-eyeball --mount /filtermenu.js --call 'mod.render(mount, payload.groups)' --payload groups.json
+ *     b7e-eyeball / --baseline --width 393 --theme dark      # the before-shot, with no git stash
+ *     b7e-eyeball /monitor --json | jq '.overflow'
+ *
+ * bc-khoe.45 (folded with sophab's `sp-6bt.10`): six sessions each hand-built this rig in a
+ * scratchpad — a fixture server over `public/`, a headless Chrome, a rect or two, a PNG —
+ * and no two built the same one. `lib/eyeball.js` carries the one answer and every trap
+ * that cost one of the six real time; this file is the argv parsing, the Chrome, and the
+ * printing around it.
+ *
+ * Chrome is the only part that lives here rather than in `lib/`. That is deliberate: this
+ * repo's suite does not depend on a browser, so the line between the two files is drawn
+ * exactly where the testable part stops.
+ *
+ * Exit codes: `0` every cell clean. `1` a cell overflowed, never loaded, threw, or had a
+ * `--measure` selector match nothing (`--strict` adds console/network problems). `2`
+ * refused — bad usage, or no Chrome.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import {
+  DEFAULT_HEIGHT,
+  DEFAULT_THEMES,
+  DEFAULT_WIDTHS,
+  REPO_ROOT,
+  TOKEN,
+  createFixtureServer,
+  measureExpression,
+  planCells,
+  readPayload,
+  runEyeball,
+  summaryLine,
+} from '../lib/eyeball.js';
+import { CHROME, launchChrome } from '../scripts/helpers/chrome.mjs';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+/** Every occurrence of `--flag value` or `--flag=value` — several of these repeat. */
+const multi = (f) => {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === f && argv[i + 1] !== undefined) out.push(argv[++i]);
+    else if (argv[i].startsWith(`${f}=`)) out.push(argv[i].slice(f.length + 1));
+  }
+  return out;
+};
+const value = (f, fallback = null) => {
+  const all = multi(f);
+  return all.length ? all[all.length - 1] : fallback;
+};
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+/** `process.exit` does not drain a pipe — flush before handing back the code. */
+const leave = async (code) => {
+  await new Promise((r) => process.stdout.write('', r));
+  process.exit(code);
+};
+
+const refuse = async (msg) => {
+  console.error(red(msg));
+  await leave(2);
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-eyeball <path>... [flags]        a page of the working tree, measured and photographed',
+      'b7e-eyeball --mount <module>...      a module mounted on a generated fixture instead',
+      '',
+      '  --width 360,393        repeatable or comma-separated (default both)',
+      '  --theme dark,light     repeatable or comma-separated (default both)',
+      '  --payload <file.json>  repeatable — top-level "/..." keys are served as routes,',
+      '                         the whole file reaches a fixture as `payload`',
+      '  --measure <sel,sel>    repeatable — rect, colour, children, lines, clipping per match',
+      '  --mount <module>       repeatable — a public/ module the fixture imports',
+      '  --call <js>            run after the imports, with mount/payload/mod/mods in scope',
+      '  --html <file>          markup to put inside the fixture mount',
+      '  --stylesheet <href>    repeatable (default /style.css)',
+      '  --body-class <c>       fixture <body> class (default doc-body)',
+      '  --mount-class <c>      fixture <main> class (default work)',
+      '  --wait <sel>           wait for this selector before measuring',
+      '  --settle <ms>          wait this long after load (default 1200)',
+      '  --out <dir>            where the PNGs go (default .claude/shots)',
+      '  --baseline             serve public/ from HEAD — the before-shot, no git stash',
+      '  --strict               console errors and 4xx fail the run too',
+      '  --json                 one JSON record per cell and nothing else on stdout',
+      '  --dir <root>           another tree — this is how it is tested',
+    ].join('\n')
+  );
+  await leave(0);
+}
+
+/* ------------------------------------------------------------------- argv */
+
+const VALUED = new Set([
+  '--width',
+  '--theme',
+  '--payload',
+  '--measure',
+  '--mount',
+  '--call',
+  '--html',
+  '--stylesheet',
+  '--body-class',
+  '--mount-class',
+  '--wait',
+  '--settle',
+  '--out',
+  '--dir',
+]);
+const KNOWN_FLAGS = new Set(['--baseline', '--strict', '--json', '--help', '-h']);
+
+const positional = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (VALUED.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--') && [...VALUED].some((f) => a.startsWith(`${f}=`))) continue;
+  if (KNOWN_FLAGS.has(a)) continue;
+  if (a.startsWith('-')) await refuse(`unrecognised flag: ${a}`);
+  positional.push(a);
+}
+
+/** `--width 360,393` and `--width 360 --width 393` are the same ask; an agent writes both. */
+const list = (flag, fallback) => {
+  const given = multi(flag).flatMap((v) => v.split(',')).map((v) => v.trim()).filter(Boolean);
+  return given.length ? given : fallback;
+};
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const WIDTHS = list('--width', DEFAULT_WIDTHS.map(String)).map(Number);
+const THEMES = list('--theme', DEFAULT_THEMES);
+const SELECTORS = list('--measure', []);
+const MOUNTS = list('--mount', []);
+const CALL = value('--call', '');
+const HTML_FILE = value('--html', null);
+const STYLESHEETS = list('--stylesheet', ['/style.css']);
+const WAIT_SEL = value('--wait', null);
+const SETTLE = Number(value('--settle', 1200)) || 0;
+const OUT = path.resolve(value('--out', path.join(ROOT, '.claude', 'shots')));
+const BASELINE = has('--baseline');
+const STRICT = has('--strict');
+const JSON_MODE = has('--json');
+
+if (WIDTHS.some((w) => !Number.isFinite(w) || w < 120 || w > 4000)) await refuse(`--width takes pixels: ${multi('--width').join(' ')}`);
+for (const t of THEMES) if (t !== 'dark' && t !== 'light') await refuse(`--theme is dark or light, not ${t}`);
+if (!fs.existsSync(path.join(ROOT, 'public'))) await refuse(`${ROOT} has no public/ to serve`);
+
+const IS_FIXTURE = MOUNTS.length > 0 || !!CALL || !!HTML_FILE;
+// A page path and a fixture are two different runs, and guessing which one was meant is
+// how a session ends up measuring something it did not ask for.
+if (IS_FIXTURE && positional.length) await refuse('a page path and --mount/--call/--html are two different runs — pass one or the other');
+if (!IS_FIXTURE && !positional.length) await refuse('nothing to render: give a page path, or --mount/--html for a fixture');
+
+let payloads = [null];
+try {
+  const files = multi('--payload');
+  if (files.length) payloads = files.map((f) => readPayload(path.resolve(f)));
+} catch (err) {
+  await refuse(err.message);
+}
+
+if (!fs.existsSync(CHROME)) await refuse(`Google Chrome not found at ${CHROME} — set CHROME_PATH`);
+
+const fixture = IS_FIXTURE
+  ? {
+      html: HTML_FILE ? fs.readFileSync(path.resolve(HTML_FILE), 'utf8') : '',
+      mounts: MOUNTS,
+      call: CALL,
+      stylesheets: STYLESHEETS,
+      bodyClass: value('--body-class', 'doc-body'),
+      mountClass: value('--mount-class', 'work'),
+    }
+  : null;
+
+const cells = planCells({
+  targets: IS_FIXTURE ? ['fixture'] : positional,
+  widths: WIDTHS,
+  themes: THEMES,
+  payloads,
+  outDir: OUT,
+});
+
+/* ----------------------------------------------------------- the browser */
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const partText = (a) => a.value ?? a.description ?? (a.preview ? a.preview.description : null) ?? a.unserializableValue ?? '';
+const pathOf = (u) => {
+  try {
+    return new URL(u).pathname;
+  } catch {
+    return u;
+  }
+};
+
+/**
+ * One Chrome for the whole run, re-emulated per cell.
+ *
+ * Problems are collected per cell rather than per run and deduped by text, because one
+ * broken fetch inside a render loop says the same thing forty times and a wall of it
+ * buries the other three — `scripts/shot.mjs`'s argument, and the reason console errors
+ * are output here rather than decoration: a screenshot shows a blank panel and not the
+ * 401 behind it, which is exactly when a picture on its own actively misleads.
+ */
+async function chromeDriver() {
+  const { s, close, port } = await launchChrome('beadcause-eyeball-');
+  await s.send('Page.enable');
+  await s.send('Runtime.enable');
+  await s.send('Network.enable');
+
+  let problems = new Map();
+  let docFailed = null;
+  let loaded = null;
+  const note = (kind, text) => {
+    if (!text) return;
+    const key = `${kind} ${text}`;
+    problems.set(key, { kind, text, n: (problems.get(key)?.n || 0) + 1 });
+  };
+  s.on((method, p) => {
+    if (method === 'Page.loadEventFired') loaded?.(true);
+    else if (method === 'Runtime.consoleAPICalled' && p.type === 'error')
+      note('console.error', (p.args || []).map(partText).filter(Boolean).join(' ').trim().slice(0, 300));
+    else if (method === 'Runtime.exceptionThrown')
+      note('pageerror', ((p.exceptionDetails || {}).exception?.description || p.exceptionDetails?.text || 'uncaught exception').split('\n')[0].slice(0, 300));
+    else if (method === 'Network.loadingFailed' && !p.canceled) {
+      note('request failed', `${p.errorText} (${p.type || 'request'})`);
+      if (p.type === 'Document') docFailed = p.errorText;
+    } else if (method === 'Network.responseReceived' && p.response.status >= 400)
+      note('http', `${p.response.status} ${pathOf(p.response.url)}`);
+  });
+
+  // The pairing step, before any of the page's own scripts on every document — a page
+  // that refuses an unpaired device otherwise photographs as a sign-in screen. Dotted
+  // key, which is the one public/graph.js reads.
+  await s.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `try { localStorage.setItem('beadcause.token', ${JSON.stringify(TOKEN)}); } catch (e) {}`,
+  });
+
+  const evalJs = async (expr) => {
+    const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
+    if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description?.split('\n')[0] || 'evaluate failed');
+    return r.result.value;
+  };
+
+  return {
+    port,
+    async shoot({ url, cell, selectors }) {
+      problems = new Map();
+      docFailed = null;
+      await s.send('Emulation.setDeviceMetricsOverride', {
+        width: cell.width,
+        height: DEFAULT_HEIGHT,
+        deviceScaleFactor: 2,
+        mobile: true,
+        screenWidth: cell.width,
+        screenHeight: DEFAULT_HEIGHT,
+      });
+      await s.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      // Reduced motion is pinned so two runs a week apart differ only where the app does;
+      // an animation caught mid-flight is a diff every single time.
+      await s.send('Emulation.setEmulatedMedia', {
+        features: [
+          { name: 'prefers-color-scheme', value: cell.theme },
+          { name: 'prefers-reduced-motion', value: 'reduce' },
+        ],
+      });
+
+      const load = new Promise((resolve) => {
+        loaded = resolve;
+      });
+      await s.send('Page.navigate', { url });
+      // `load`, never an idle network: the app holds a WebSocket open, so an idle wait
+      // times out on every page that rendered perfectly.
+      await Promise.race([load, sleep(20_000)]);
+
+      if (WAIT_SEL) {
+        let found = false;
+        for (let i = 0; i < 60 && !found; i++) {
+          found = (await evalJs(`!!document.querySelector(${JSON.stringify(WAIT_SEL)})`)) === true;
+          if (!found) await sleep(250);
+        }
+        if (!found) note('wait', `--wait ${WAIT_SEL} never appeared (15s)`);
+      }
+      await sleep(SETTLE);
+
+      let measure = null;
+      let failed = docFailed;
+      try {
+        measure = await evalJs(measureExpression(selectors));
+      } catch (err) {
+        failed = failed || `could not measure: ${err.message}`;
+      }
+      let png = null;
+      try {
+        const shot = await s.send('Page.captureScreenshot', { format: 'png' });
+        png = Buffer.from(shot.data, 'base64');
+      } catch {
+        /* a page that cannot be photographed is still worth its numbers */
+      }
+      return { measure, problems: [...problems.values()], failed, png };
+    },
+    close,
+  };
+}
+
+/* ------------------------------------------------------------------- run */
+
+const server = await createFixtureServer({ root: ROOT, baseline: BASELINE });
+const driver = await chromeDriver();
+
+const printCell = (r) => {
+  if (JSON_MODE) return void console.log(JSON.stringify(r));
+  const mark = r.ok ? green('ok') : red('FAIL');
+  console.log(`${mark} ${r.target} ${r.width}px ${r.theme}${r.payload ? ` ${r.payload}` : ''}`);
+  console.log(`  ${r.shot ? path.relative(process.cwd(), r.png) : '(no screenshot)'}`);
+  console.log(
+    dim(
+      `  viewport ${r.viewport.w}${r.mountWidth != null ? ` · mount ${r.mountWidth}` : ''} · scrollWidth ${r.overflow.scrollWidth} · ${
+        r.overflow.ok ? 'no horizontal overflow' : 'OVERFLOWS'
+      }`
+    )
+  );
+  for (const o of r.overflow.offenders) console.log(amber(`  past the edge: ${o.sel} right ${o.right} (+${o.over})`));
+  for (const [sel, m] of Object.entries(r.measured)) {
+    if (!m.n) {
+      console.log(red(`  ${sel}: matched nothing`));
+      continue;
+    }
+    for (const n of m.nodes) {
+      console.log(
+        `  ${sel}${m.n > 1 ? ` (${m.n})` : ''}: ${JSON.stringify({
+          x: n.x, y: n.y, w: n.w, h: n.h, children: n.children, lines: n.lines, color: n.color, clipped: n.clipped, past: n.past,
+        })}`
+      );
+    }
+  }
+  for (const p of r.problems) console.log(amber(`  ${p.kind}: ${p.text}${p.n > 1 ? `  (x${p.n})` : ''}`));
+  if (!r.ok) for (const why of r.reasons) console.log(red(`  ↳ ${why}`));
+};
+
+if (!JSON_MODE) console.log(dim(`serving ${ROOT}/public on 127.0.0.1:${server.port}${BASELINE ? ' from HEAD' : ''}\n`));
+
+let result;
+try {
+  result = await runEyeball({
+    root: ROOT,
+    cells,
+    fixture,
+    selectors: SELECTORS,
+    strict: STRICT,
+    server,
+    driver,
+    onCell: printCell,
+  });
+} finally {
+  driver.close();
+  await server.close();
+}
+
+const line = summaryLine(result.records);
+if (JSON_MODE) {
+  console.log(JSON.stringify({ summary: true, port: result.port, cells: result.records.length, ok: result.ok, line }));
+} else {
+  console.log('');
+  console.log(result.ok ? green(line) : red(line));
+}
+
+await leave(result.ok ? 0 : 1);

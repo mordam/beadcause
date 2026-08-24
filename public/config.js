@@ -134,7 +134,7 @@
      may be worked before you have read it — joined them after that, and `autoShip` joined
      them with the release queue that deploys a merge without being tapped. Editing them
      meant opening
-     `~/.beadcause/config.json` on the Mac — which is exactly the wrong place, because
+     `~/.config/beadcause/config.json` on the Mac — which is exactly the wrong place, because
      the moment you know a setting is wrong is the moment you are looking at what it
      did, on a phone, at the weekend.
 

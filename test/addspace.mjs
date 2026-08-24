@@ -362,7 +362,11 @@ console.log('addspace: the wiring');
 const read = (rel) => fs.readFileSync(path.join(HERE, '..', rel), 'utf8');
 
 await check('every page with the picker also loads the dialog behind its last row', async () => {
-  const pages = ['index.html', 'monitor.html', 'console.html', 'foundations.html', 'config.html', 'endorse.html', 'history.html', 'releases.html'];
+  // history.html (bc-khoe.30.15) and releases.html (bc-khoe.30.22) were in this list until
+  // both pages were deleted and their views became panes in the shell. The list is still a
+  // hand-written one, so a NEW page that draws the picker escapes this check until someone
+  // adds it here.
+  const pages = ['index.html', 'monitor.html', 'console.html', 'foundations.html', 'config.html', 'endorse.html'];
   const missing = pages.filter((p) => read(`public/${p}`).includes('/spacebar.js') && !read(`public/${p}`).includes('/addspace.js'));
   assert.deepEqual(missing, []);
 });

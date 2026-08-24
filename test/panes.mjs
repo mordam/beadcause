@@ -172,11 +172,21 @@ function boot(panes, { hash = '', pathname = '/' } = {}) {
 
   const location = { pathname, search: '', hash };
   const listeners = new Map();
+  /** Every `history.pushState`/`replaceState` call `route.go` made, in order. */
+  const historyCalls = [];
+  const setFromUrl = (url) => {
+    location.hash = String(url).includes('#') ? String(url).slice(String(url).indexOf('#')) : '';
+  };
   const ctx = {
     location,
     history: {
+      pushState(_s, _t, url) {
+        historyCalls.push('push');
+        setFromUrl(url);
+      },
       replaceState(_s, _t, url) {
-        location.hash = String(url).includes('#') ? String(url).slice(String(url).indexOf('#')) : '';
+        historyCalls.push('replace');
+        setFromUrl(url);
       },
     },
     document: {
@@ -200,7 +210,7 @@ function boot(panes, { hash = '', pathname = '/' } = {}) {
     for (const fn of listeners.get('hashchange') || []) fn();
   };
   const run = (file) => vm.runInContext(read(`public/${file}`), ctx, { filename: file });
-  return { ctx, body, topbar, navigate, run, panes: () => ctx.window.beadcause.panes };
+  return { ctx, body, topbar, navigate, run, historyCalls, panes: () => ctx.window.beadcause.panes };
 }
 
 /** Every pill the row emitted, as `{ id, tag, href, pane, kind, current }`. */
@@ -366,9 +376,11 @@ await check('Home’s pane holds everything that belongs to Home, and nothing th
   const close = HTML.indexOf('<div class="pane" data-pane="history"');
   assert.ok(open > 0 && close > open, 'the panes are not where this suite thinks they are');
   const inside = HTML.slice(open, close);
-  // The list and its filter, and the three fixed things that float over them: a ＋ left
+  // The list and its filter, and the fixed things that float over them: a ＋ left
   // outside the pane would go on hovering over the History pane with nothing behind it.
-  for (const mark of ['id="filters"', 'id="list"', 'id="scrollpos"', 'class="compose-wrap"', 'id="editmode"']) {
+  // The ✏️ used to be one of them and is parked (bc-p49x.12) — asserted absent from the
+  // whole document by test/editmode.mjs, so there is nothing here to place.
+  for (const mark of ['id="filters"', 'id="list"', 'id="scrollpos"', 'class="compose-wrap"']) {
     assert.ok(inside.includes(mark), `${mark} is outside Home’s pane`);
   }
   // The app talking, rather than this view: both outlive a pane switch.
@@ -503,10 +515,31 @@ await check('a pending pane is never shown, and its hash falls to Home', () => {
   assert.deepEqual({ ...b.panes().pending() }, { history: 'bc-khoe.30.5', advocates: 'bc-khoe.4' });
 });
 
+await check('a pill sharing a pane’s id cannot displace it in the map — bc-khoe.30.11', () => {
+  // A view pill's own `data-pane` is name-for-name the view id it switches to — the exact
+  // thing this map is keyed by — so an unscoped `[data-pane]` scan would let whichever
+  // element the query visits last win the id, real pane or not. The pill row is drawn
+  // after the panes today, so a scan that trusted script order would happen to be fine;
+  // this decoy is placed last on purpose, the one position an order-trusting scan would
+  // get wrong, to prove the fix does not lean on that order at all.
+  const history = pane('history');
+  history.hidden = true; // what the real markup starts with — see index.html
+  const decoy = new El('button');
+  decoy.className = 'viewpill';
+  decoy.setAttribute('data-pane', 'history');
+  decoy.hidden = true;
+  const b = boot([pane('epics'), history, pane('advocates'), pane('releases'), pane('config'), decoy], {
+    hash: '#history',
+  });
+  b.run('panes.js');
+  assert.equal(history.hidden, false, 'the decoy pill won the id in the map and the real pane stayed hidden');
+  assert.equal(decoy.hidden, true, 'panes.js touched an element that carries the attribute but is not a pane');
+});
+
 await check('go() writes the hash and switches — including Home, which fires no hashchange', () => {
-  // `route.go('')` clears Home's hash with replaceState so the URL stays the one the
-  // phone's home screen holds, and replaceState does not fire `hashchange`. A row that
-  // only wrote the URL would leave the Home pill dead from every other pane.
+  // `route.go('')` clears Home's hash with pushState so the URL stays the one the phone's
+  // home screen holds, and pushState does not fire `hashchange`. A row that only wrote the
+  // URL would leave the Home pill dead from every other pane.
   const b = boot(whenBuilt());
   b.run('panes.js');
   b.panes().go('history');
@@ -515,6 +548,18 @@ await check('go() writes the hash and switches — including Home, which fires n
   b.panes().go('epics');
   assert.equal(b.ctx.location.hash, '', 'a bare # was left hanging on the URL');
   assert.equal(b.panes().showing(), 'epics', 'the Home pill is dead from every other pane');
+});
+
+await check('moving to Home from another pane pushes, so back walks it (bc-khoe.30.9)', () => {
+  const b = boot(whenBuilt());
+  b.run('panes.js');
+  b.panes().go('history');
+  b.panes().go('epics');
+  assert.deepEqual(
+    b.historyCalls,
+    ['push'],
+    'Home was not reached with pushState — the entry for History would be gone and back would leave the app'
+  );
 });
 
 await check('onShow says which pane arrived, once per move', () => {

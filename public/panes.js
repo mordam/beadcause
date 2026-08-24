@@ -104,20 +104,27 @@
   pane of `/` is bc-khoe.30.7. Until then those addresses are still their own documents,
   which is also why the two panes above are pending.
 
-  **One wart, recorded rather than fixed.** `route.go` clears Home's hash with
-  `replaceState` — Home is the empty hash, and a bare `#` left hanging would be a
-  different URL from the one the phone's home screen holds. So moving *to* Home from
-  another pane replaces the current history entry instead of pushing one, and the back
-  button that would have walked you back to the pane you came from takes you out of the
-  app instead. Moving between any two other panes pushes normally and back walks them.
-  Changing that means changing what bc-khoe.30.2 decided about the one line in this app
-  that writes the URL, which is not this bead's to change.
+  **A pill tap is always a step (bc-khoe.30.9).** `route.go` clears Home's hash with
+  `pushState` rather than by assignment, for the same reason every other pill tap writes
+  a new history entry: assigning `location.hash` pushes on its own, so leaving *only* the
+  clear-to-Home case on `replaceState` would have been the one transition in this row that
+  the back button could not walk. `go`'s `dismiss` argument is what a card closing back to
+  Home would pass instead — nothing here does yet, since a card in this shell is not
+  bc-khoe.30.9's to build.
 */
 (() => {
   const route = window.beadcause.route;
 
-  /** Every view id the grammar knows, so a stray `data-pane` cannot invent one. */
-  const known = new Set(route.VIEWS.map((v) => v.id));
+  /**
+   * Every view id the grammar knows, so a stray `data-pane` cannot invent one.
+   *
+   * Asked per call rather than snapshotted into a `Set` at load, because the grammar is no
+   * longer fixed by the time this file has finished running: a repo's own views are
+   * admitted by `route.add` after `/api/views` answers, which is several hundred
+   * milliseconds later (public/viewhost.js). A snapshot taken here would say no to every
+   * one of them, and the pane they had just built would be a pane nothing could show.
+   */
+  const known = (id) => route.VIEWS.some((v) => v.id === id);
 
   /**
    * The panes this document can actually show, in the order they appear in the markup.
@@ -127,13 +134,22 @@
    * to say when they are showable. A `data-pane` naming something that is not a view is
    * skipped rather than trusted — the hash grammar is a closed list and a pane outside it
    * would be a pane no hash could ever name.
+   *
+   * Scoped to `.pane`, not bare `[data-pane]` (bc-khoe.30.11): `data-pane` is also
+   * viewbar.js's word for a pill — a view pill's value is name-for-name the view id it
+   * switches to, which is exactly what this map is keyed by — and the advocate console's
+   * chip row reuses the same attribute again for the section a chip shows. Neither pill
+   * nor chip carries `.pane`. Today the only element this loop ever sees is scoped by
+   * script order (this file runs before viewbar.js draws the row), so the collision has
+   * never fired; the class scope is what keeps that true for a re-scan, a pane added at
+   * runtime, or any other caller that does not get to lean on load order.
    */
   const panes = new Map();
   /** Containers that exist but cannot be shown yet, by view id — see `data-pending`. */
   const pending = new Map();
-  for (const el of document.querySelectorAll('[data-pane]')) {
+  for (const el of document.querySelectorAll('.pane')) {
     const id = el.dataset.pane;
-    if (!known.has(id)) continue;
+    if (!id || !known(id)) continue;
     if (el.dataset.pending) pending.set(id, el.dataset.pending);
     else panes.set(id, el);
   }
@@ -189,13 +205,40 @@
   sync();
   addEventListener('hashchange', sync);
 
+  /**
+   * Register a container that was not in the markup — a repo's own view.
+   *
+   * Every pane above was parsed with the document, which is right for the five views this
+   * app *is*: they are known before the page exists, so their containers can be. A repo
+   * view is not known until `/api/views` answers, so its container is built at that point
+   * and handed here (public/viewhost.js).
+   *
+   * What it must not do is disturb what is already up. A pane adopted while you are
+   * reading Home has to arrive hidden and stay hidden, and the `sync` at the end is what
+   * covers the one case where it must not: landing directly on `#deluvia.studio` from a
+   * home-screen shortcut, where the hash named this pane before the pane existed and
+   * `show` had already fallen back to Home. That fall-back is correct at the moment it is
+   * taken — a hash naming nothing is Home — and this is the moment it stops being true.
+   *
+   * Refuses an id the grammar does not know, exactly as the markup loop does, so the
+   * order is forced: `route.add` first, then this. A container registered under a name no
+   * hash can ever produce would be a pane with no way in.
+   */
+  function adopt(view, el) {
+    if (!el || !known(view) || panes.has(view) || pending.has(view)) return false;
+    el.hidden = true;
+    panes.set(view, el);
+    sync();
+    return true;
+  }
+
   window.beadcause = window.beadcause || {};
   window.beadcause.panes = {
     /**
      * Move to a view: write the hash, then show what the hash now says.
      *
      * Both halves, rather than trusting `hashchange` to arrive: Home's hash is the empty
-     * string and `route.go` clears it with `replaceState`, which does **not** fire
+     * string and `route.go` clears it with `pushState`, which does **not** fire
      * `hashchange` — so a row that only wrote the URL would leave the Home pill dead from
      * every other pane. `sync` is idempotent, so the redundant call on every other
      * transition costs a map lookup and an early return.
@@ -208,6 +251,8 @@
     },
     /** Can this document show that view without a document load? */
     has: (view) => panes.has(view),
+    /** Register a container built after the page was parsed. See `adopt` above. */
+    adopt,
     /** Which pane is up, or `null` before the first sync. */
     showing: () => current,
     /** Every view this document can show, in markup order. */
