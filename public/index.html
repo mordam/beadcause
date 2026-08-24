@@ -690,5 +690,11 @@
   <!-- Graph and doc links open over this tab instead of navigating away from it.
        Last, and needing nothing from app.js: it works on the anchors, not the app. -->
   <script src="/drawer.js"></script>
+  <!-- The views the repos declare about themselves — one pill, one pane and one script
+       each, discovered from /api/views after this document is already on screen. Last,
+       after every pane script above it, because it adopts panes into the same column and
+       appends pills to the same row: everything it extends has to exist first. See the
+       header of public/viewhost.js. -->
+  <script src="/viewhost.js"></script>
 </body>
 </html>

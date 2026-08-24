@@ -8061,6 +8061,173 @@ stylesheet's fallback is the two-row bar, so a page that somehow loses that scri
 wrong by 43px in the uncommon case rather than by a whole bar in the common one, and
 `scripts/topbar-check.mjs` fails on either.
 
+## Repo views — a screen a repo declares about itself
+
+Every view above is about **beads**: the inbox, the ledger, the advocate console, the
+release board. That is the right spine and it is not the whole of what a repo needs in
+order to manage itself.
+
+deluvia is the case that made it obvious. It is not a codebase, it is a production
+company — five gates, three production lines, nineteen agents, a canon change log — and
+none of that is derivable from the issue graph. It already had the answer: a script,
+`scripts/studio_board.py`, that reads the beads *and* the trunk's first-parent history
+*and* two markdown documents and renders one page. What that page could never be was
+**live**. To read it on a phone it had to be published as an Artifact, which is a
+snapshot with a timestamp on it — and the question the board exists to answer, *what is
+waiting on you right now*, is the one question a snapshot answers worst.
+
+The general shape: **the repo knows something about itself that this app cannot know, and
+the phone is where it needs to be read.** So the app stops trying to know and starts
+hosting.
+
+### What a repo declares
+
+One file in the checkout, `.beadcause/views.json`:
+
+```json
+{
+  "views": [
+    {
+      "id": "studio",
+      "label": "Studio",
+      "icon": "🎬",
+      "script": "studio.js",
+      "style": "studio.css",
+      "data": { "run": ["python3", "scripts/studio_board.py", "--json"], "ttl": 180 }
+    }
+  ]
+}
+```
+
+| Field | | |
+|---|---|---|
+| `id` | required | lowercase, digits and hyphens. Becomes `<workspace>.<id>` everywhere |
+| `label`, `icon` | | the pill. Both fall back rather than refusing — a view with no label is a pill that says its id |
+| `script` | required | the JS this app loads into the pane, relative to `.beadcause/`. **This is the view** |
+| `style` | | a stylesheet beside it. Optional, because the pane already inherits `public/style.css` |
+| `data.run` | | an **argv** — never a shell string — run in the checkout root, whose stdout is JSON |
+| `data.ttl` | | seconds the payload is held. Default 120 |
+| `want` | | `"questions"` if the view needs the inbox off the shared poll. Default is the free park |
+
+That is the whole of the configuration. There is nothing to add to `config.json` and
+nothing to restart: a repo gains a view by landing a commit, which is what "pluggable"
+has to mean to be worth having.
+
+**The manifest is in the checkout and not in the config**, for the reason `repos` reads a
+service token out of a repo rather than restating it — one source of truth, moving with
+the commit that changes it. A branch that renames `scripts/studio_board.py` renames it in
+the manifest too, in the same diff, and there is no JSON file on one Mac left saying
+otherwise. The cost is the same cost: the manifest is a fact about a checkout on disk, so
+it can be missing, unparseable, or name a script that is not there. All three are reported
+in `problems` on `/api/views` and none is guessed at — a view that cannot be built is a
+sentence saying why, never a silent absence, and one bad entry never withholds the good
+ones beside it.
+
+### What it gets for free
+
+A repo view is a **view**, not a page in a frame. It joins the same grammar every other
+view is in, so it arrives with:
+
+* **an address** — `/v/<workspace>/<id>`, which hops to `#<workspace>.<id>` exactly the
+  way `/history` hops to `#history`, so a phone's home screen can hold it;
+* **a pane** — its scroll position survives switching away and back, and it is built once
+  and never rebuilt (`public/panes.js`);
+* **a pill**, at the end of the one row of chrome this app has;
+* **the stylesheet** — a `.card` a repo view draws is the card the inbox draws, and it
+  follows the phone's light and dark scheme without knowing either exists;
+* **the poll** — the document's one long poll, fanned out per pane, rather than a socket
+  per view (`public/panestage.js`);
+* **bead ids that are tappable.**
+
+That last one is the argument for hosting the view here rather than letting it be a page
+somewhere. `ctx.bead.link(id)` builds the exact hash a notification carries, so a board
+full of bead ids stops being something you read and then go and act on somewhere else: the
+tap opens the real card, with its thread and its answer box, in the app you are already
+in. deluvia's board draws 139 of them.
+
+### The SDK
+
+The script calls `define` once and is handed a context:
+
+```js
+window.beadcause.view.define({
+  build(ctx) { ctx.el.innerHTML = draw(ctx.data); },
+  wake(ctx, { data, events }) { /* an answered poll */ },
+});
+```
+
+| On `ctx` | |
+|---|---|
+| `el`, `pane` | where to draw, and the whole pane if you want the header |
+| `data`, `meta` | the last payload, and `{at, age, stale, problem}` about it |
+| `onData(fn)`, `refresh()` | a new payload landed; go and get a fresh one |
+| `api(path, opts)` | the daemon, with the credential on it — `/api/questions` and everything else |
+| `bead.link(id, text)`, `bead.open(id)`, `bead.href(id)` | the workspace is pre-bound |
+| `space.filter`, `space.onChange(fn)` | what the picker has selected |
+| `esc(s)`, `md(text)` | escape, and sanitised markdown through the app's own two libraries |
+| `asset(rel)`, `note(text, kind)` | another declared file; one line above the board |
+
+`build` is called once, when the first payload has landed **or failed to** — never before.
+A view whose `build` had to cope with `data === null` would make every view author write
+the same empty state, and the chrome already draws the waiting and the failure.
+
+### What a badly-behaved view can and cannot take down
+
+Three containments, one per failure:
+
+* a **script that fails to load** leaves its pill drawn and its pane holding the reason.
+  Not removed: a pill that vanishes is indistinguishable from a repo that never had a
+  view, and the one thing worth knowing is that it is broken.
+* a **`build` that throws** takes its own pane and nothing else, rethrown out of a timer
+  so the P0 filer still files it.
+* a **generator that fails does not blank the board.** The daemon hands back the last good
+  payload with `stale: true` and the reason, and the pane draws that reason above a board
+  that is merely old. A board with a timestamp on it is worth a great deal more than an
+  empty pane with an error in it.
+
+### The trust position, said out loud
+
+A repo view's script runs on this app's origin with this app's DOM, and `data.run` spawns
+a process the repo chose. Neither is sandboxed and neither is going to be. The manifest
+lives in a checkout this daemon already runs test suites, deploy scripts and unattended
+Claude Code sessions inside — a repo that can make this Mac run its tests can already make
+it run anything — so an iframe here would cost the theme, the card-opening and the offline
+behaviour to prevent nothing.
+
+What *is* enforced is **reach**, and it is enforced rather than assumed:
+
+* only a workspace this daemon is already configured for, resolved through the same
+  `resolveSessionDir` that decides where a session opens;
+* only under that checkout's `.beadcause/`, with every path resolved through `realpath`
+  and re-checked against the resolved prefix — which is what catches a symlink, where a
+  string check cannot;
+* only the files the manifest itself named. A view directory may hold a generator, a
+  fixture, notes; "inside `.beadcause/`" is a weaker claim than "this view said this was
+  one of its files", and the manifest is the allowlist;
+* `run` is an argv, so nothing in it is word-split, globbed or substituted;
+* a 30-second timeout and an 8MB output cap, because a generator that hangs must not take
+  the poll down with it.
+
+`test/repoviews.mjs` drives all of that against a real temporary checkout with a real
+symlink in it, because a suite that checked the regex would have passed on the day the
+symlink case was written wrong.
+
+### Where the code is
+
+| | |
+|---|---|
+| `lib/repoviews.js` | discovery, the manifest, path resolution, the generator and its cache |
+| `public/viewhost.js` | the host and the SDK — pane, pill, address, script loading |
+| `public/hashroute.js` | `route.add()`, which admits a repo view to the grammar at runtime |
+| `public/panes.js` | `panes.adopt()`, for a container built after the document was parsed |
+| `public/viewbar.js` | `views.add()`, which appends the pill |
+
+A repo view's id is `<workspace>.<id>` and its hash is that id verbatim. The dot is
+load-bearing: the hash grammar reads a `/` or a `pr:`/`jira:` prefix as the shape of a
+bead card key, so `#deluvia/studio` would parse as a bead nobody has and the pill would
+switch to the inbox and hunt for it. A bare word with a dot in it is not a card under any
+of the three shapes.
+
 ## Loaded once, and kept — what a tab tap actually costs
 
 Five standing views, five documents. Tapping a tab is a navigation: the page you were
@@ -14962,6 +15129,73 @@ on it is.
 the temp files, the same bead dispatched three times without the counter moving, and
 delivered and handed-back sessions coming out unchanged.
 
+#### The window that disappeared — and the conversation that comes back into the next one
+
+The section above is a window that never started. This is the opposite end: a window that
+started, worked for an hour, and then **went away** — closed by hand, killed, or lost with
+its terminal.
+
+Until bc-y7l2m nothing noticed. There was no ending for it, so the window fell through to
+`workerTimeoutMinutes`: the slot was held for **two hours**, then the bead was charged an
+attempt and its claim forced off, and the next window was briefed from scratch. Measured on
+2026-08-24, both windows on this Mac that died that morning stopped writing at 10:47 and
+were written down as having timed out at 11:55 and 12:22 — four hours of held slots between
+them, and two full transcripts sitting unread on disk the entire time.
+
+**The whole fix rests on one distinction: a window that is *gone* is not a window that is
+*quiet*.** `silent`, `timeout` and `lapsed` are all read off a window still sitting on the
+screen, and the note beside `parkWorker` is right about them — an agent that stopped
+answering may be wedged mid-turn, and resuming it would resume the wedge. A window whose
+live-session row is *absent* stopped answering for a reason that says nothing about the
+agent at all. Somebody hit ⌘W.
+
+So `reconcile` now watches for the absence, and what follows is the ordinary parking
+machinery pointed at a new ending:
+
+| | |
+|---|---|
+| **noticing** | a worker with a session id whose row is not in Claude Code's live-session list, on a Mac where *other* rows still are, for `goneMinutes` (default 3) of consecutive ticks. Three minutes and not one tick because the evidence is an absence: a list being rewritten can be read a moment short, and concluding from one miss would take a working agent's slot, force its claim off and hand its bead to a second window — [which is the worst failure this file has](#a-tracker-two-macs-share) |
+| **the ending** | `gone`, and it fires long before the two-hour timeout. The slot comes back, `handBack` puts the claim back in the queue, and **the bead is charged no attempt** — the same argument as `silent`, only stronger. A window vanishing is evidence about the window; `maxAttemptsPerBead` is 2, so charging a closed terminal would retire beads for something no session did wrong |
+| **the park** | the conversation is written down exactly as a handed-back one is — session id, directory, and now the **ending** that put it there, because that is what decides which turn it wakes up to |
+| **the other sensor** | pressing **Reclaim sessions** asks iTerm about each window by id, and `missing` is the same fact measured a stronger way — that one needs no clock, and it now reaches the same ending rather than the older `reclaimed`. The `!term` branch beside it stays `reclaimed`: a slot freed *without asking* measured nothing, so there is nothing to conclude about the conversation |
+| **the resume** | the next dispatch through `launch` finds the park and opens that conversation instead of briefing a stranger, in the worktree it was standing in. Usually the same tick: the hand-back happens at the end of `reconcile`, and the survey a few lines later reads a bead that is ready again |
+
+The turn it wakes up to is **not** the one an answered question gets. `resumePrompt` opens
+with "Adam answered", and handing that to an agent whose window was merely closed sends it
+hunting through the bead, the comments and its own transcript for a decision nobody made —
+the one failure here that the agent cannot detect for itself. `interruptedPrompt` says the
+opposite in its first line: your window disappeared, **nothing was answered**, do not start
+over. Then the two facts its transcript cannot contain, because both happened after its last
+line — its claim was forced off and it has to take it back, and time has passed so `main` has
+probably moved. The two turns are chosen off the recorded `ending` and never off whether an
+answer happens to be in hand, because a perfectly ordinary handback whose question was filed
+as its own bead has no answer under that key either.
+
+**And it does not loop.** `maxResumes` (default 1) is the guard. The first disappearance is
+an accident, repaired for free. A conversation whose *resumed* window also disappears is not
+an accident any more — something about that agent, that worktree or that bead is killing
+windows — so that one is charged an attempt, nothing is parked, and the bead falls through
+to the fresh brief the attempt counter was always arranging. Two counters, deliberately:
+`resumes` bounds how many times a **conversation** is carried over, `attempts` bounds how
+many times a **bead** is tried. The trip count rides on the worker record between one park
+and the next, because the resume *drops* the park — a record left behind is a conversation
+two dispatches would both try to bring back.
+
+One quiet consequence, in `archiveFinished`: the salvage comment that tells a handed-back
+bead ["what its dead window built"](#and-the-hand-back-tells-the-bead-what-its-dead-window-built) is suppressed for a
+conversation parked for resume. Every word of that comment's justification is "the next
+window opens a fresh worktree", and here the same agent comes back to the same tree holding
+the same commits — the note would be telling it, about its own live branch, that it was
+abandoned. The archive under `refs/beadcause/sessions/<bead>` is still written either way;
+that is the record, and the comment was only ever a courtesy to a stranger who is not
+coming.
+
+`test/gonewindow.mjs` is the check: the ending inside the grace, the attempt not charged,
+the park and its ending, the resume into the parked tree wearing the interrupted turn, the
+trip count surviving into the next window and stopping the second one, and the four things
+that are never called gone — a window merely idle, a worker matched by name rather than by
+id, a Mac whose session list came back empty, and one tick of absence on its own.
+
 #### A bead it has given up on says so
 
 `maxAttemptsPerBead` is a floor nothing decrements. The counter is cleared on the four
@@ -18055,6 +18289,67 @@ construction — `git worktree list`, `git diff`/`git log` against refs, a `bd s
 `lib/grants.js` beside the other four. `lib/siblings.js` does the survey; `bin/b7e-siblings`
 is the argv shell around it.
 
+### Will this branch and a sibling actually merge, and does the result still pass — `b7e-premerge`
+
+`bc-dgx7.52` is the session audit agent naming a sixth shape of the question `b7e-siblings`
+just above answers only half of: knowing a sibling is on the same file is not knowing
+whether the two of you will actually merge. Three sessions on 2026-08-24 hit real
+collisions and each resolved "does this merge?" a different way. `bc-3rjan` did the whole
+thing by hand — `git merge-tree --write-tree HEAD <branch>`, `git show <tree>:<file>` to
+read the conflict markers back out, a `sed`/python heredoc to resolve them, then `cp` the
+result over its own working copy to run the suite, eleven calls with the trial running
+*inside* the branch it was about to deliver. `bc-dgx7.37` asked only after it had already
+committed, discovering a collision it could no longer avoid rather than one it could still
+plan around. `bc-dgx7.41` was told twice by the claim guard's own refusal message and did
+nothing with it.
+
+```
+b7e-premerge                              every colliding worktree lib/siblings.js finds
+b7e-premerge --against <branch|worktree>  a specific counterparty, repeatable
+b7e-premerge --bead <id>                  the files that bead declares, instead of this branch's own diff
+b7e-premerge --tree                       also extract each merge under os.tmpdir()
+b7e-premerge --json                       one object per counterparty, for a caller
+b7e-premerge --dir <root>                 another tree — this is how it is tested
+```
+
+One block per counterparty: `clean`, with the merged tree's oid, or `conflicted`, with
+each conflicting path's line range and a few lines of context read straight off the
+merged (marker-laden) blob — the same rendering `lib/regions.js` gives a claim refusal.
+Exits `0` when every counterparty merges clean, `1` if any conflicts or names a ref this
+could not resolve at all, `2` for bad usage.
+
+**`git merge-tree --write-tree` never touches the caller's working tree or index.** That
+is the entire point of the plumbing `bc-3rjan` reached for by hand: it computes the merge
+of two commit-ish refs and writes the resulting tree straight into the object database,
+the same way `lib/gitref.js`'s `hashObject`/`commitToRef` write a session's own ref
+without a checkout ever happening. Nothing here runs `git checkout`, `git merge` or `git
+stash` — `test/premerge.mjs` asserts the caller's worktree is byte-identical before and
+after every call, including the one that finds a conflict.
+
+**Discovery reuses `lib/siblings.js` rather than re-implementing it.** With no
+`--against`, the counterparties are whichever live worktrees `siblingsFor` already finds
+touching the files this branch has changed since `main` — committed and uncommitted
+alike. `--bead` swaps in a bead's declared files for that same survey, mirroring
+`b7e-siblings`' own `--bead` exactly; `--against` skips discovery and merges against
+exactly the refs named, resolving a worktree path to its branch the same way
+`lib/siblings.js` reads `git worktree list --porcelain`.
+
+**`--tree` replaces, never accumulates.** `git archive <tree> | tar -x` unpacks the
+merge's content — conflict markers baked in where there are any — into a directory under
+`os.tmpdir()` keyed by the two ref names, so a second call for the same pair overwrites
+rather than piling up. `node_modules` is symlinked in from the caller's own checkout,
+never copied — the same borrow `bin/b7e-worktree` and `lib/blame.js`'s
+`makeMainWorktree` already do for a granted read tool — so `node test/<suite>.mjs` runs
+there without the caller linking anything, which is what `bc-3rjan`'s manual `cp` back
+into its own working copy was standing in for.
+
+Granted on `DEFAULT_TOOL_LIST` despite writing: the write lands only in the object
+database (never a working tree or index) and, with `--tree`, a scratch directory outside
+the repo — never the repo itself, and nothing here spawns a long-running process the way
+`b7e-gate`/`b7e-blame` do, which is the actual reason those two are withheld. `lib/premerge.js`
+does the simulation; `bin/b7e-premerge` is the argv shell around it, same split as
+`bin/b7e-siblings` and `lib/siblings.js`.
+
 ### Is this branch based on current main, and what has landed under it since — `b7e-base`
 
 `bc-36xx.25` is the session audit agent naming a fifth question nine sessions each
@@ -20706,13 +21001,23 @@ looks like a detail until it is wrong:
   up, not a settlement.
 
 Every sentence the merge writes names the bead the findings went to: the report on the pull
-request, the merge-bead's close reason, and the comment on the work bead. A sentence saying
-"merged with open review findings" that does not say *where they went* is the same dead end
-as a comment claiming a bead closed when it had not. The **landed notification** is the one
-place that does not name it yet, and the reason is ordering rather than omission —
-`landedEvent` is emitted from the queue's `afterMerge` callback, which fires before the
-`finish` that files the follow-up, so the bead id does not exist yet when the card is built.
-That is bc-9ntye.5.
+request, the merge-bead's close reason, and the comment on the work bead — and, since
+bc-9ntye.5, the **landed notification** too. It was the one place that did not, and the
+reason was ordering rather than omission: `landedEvent` used to be built and emitted from
+the queue's `afterMerge` callback, which fires *before* the `finish` that files the
+follow-up — so the bead id did not exist yet at the moment the card was assembled.
+
+The fix keeps `afterMerge`'s own ordering (its comment argues for firing it early on grounds
+that have nothing to do with this — the sweep and the local `main` want to happen while the
+merge is still fresh) rather than moving it below `finish`. Instead the card moved: a new
+`announceLanding(spec, issue, { landed, findings })` callback is called from inside `finish`
+itself, right after `followUpFor` mints the bead and `findings` names it, so `landedEvent`'s
+`owed` field can carry the same sentence the other three writes already do. `afterMerge`
+keeps the sweep and the local `main`; it no longer builds or emits anything. Wired only to
+the call `finish` takes from the queue path — a pull request merged outside the queue (from
+GitHub or the phone) still gets no card either way, unchanged: that is a tap of yours, and
+the comment on `announceLanding`'s own wiring says why it must not chime for it.
+(`test/mergequeue.mjs`.)
 
 ### The notification with nothing to answer
 
@@ -27645,6 +27950,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/jira/beadify` | `{workspace, key}` | the reverse: lifts the earmark, **reopens** the epic that was closed with it, drops the filer's memory of the workspace so the next sweep re-reads, and drops the *ingester's* memory of this one ticket so a reading that had failed is tried again rather than remembered forever. Reopening rather than re-filing is what makes it one epic and not two — the `external_ref` survives a close, so a fresh sweep would find the closed bead and raise nothing. A ticket that was never cancelled is `restored: false`, not an error |
 | POST | `/api/jira/forget` | `{workspace, key}` | drops a cancel record whose ticket the poller can no longer find, and **leaves its closed epic closed** — see [the records with no ticket left](#the-records-with-no-ticket-left). Not beadify: nothing is being put back, so reopening the epic would leave a held bead for a ticket nobody is assigned. The only route here that does not resolve `workspace` against the config, because a workspace that has left the config is the commonest way to strand a record; the name is taken as stored and validated only for being non-empty and slash-free. A ticket the current sweep still returns is a `409` naming beadify — that is the rule that a drop can never un-cancel a live ticket. A record already gone is `forgotten: false`, not an error. Nothing is written to JIRA |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
+| GET | `/api/views` | — | `{views[], problems[], held}` — the screens the **repos** declare about themselves, read from each checkout's `.beadcause/views.json`. Each row carries its `view` id (`<workspace>.<id>`), label, icon, the URLs of its script and stylesheet, its address, and `generated` — whether it has a payload behind it. Cheap by construction: it reads a JSON file per workspace and stats what it names, and runs no generator. `problems` is a sentence per malformed entry rather than an error, so one bad view never withholds the good ones. The payload itself is a sibling path this table cannot spell — `/api/views/<workspace>/<id>/data`, `?refresh=1` to spend a real run rather than the held one. See [Repo views](#repo-views--a-screen-a-repo-declares-about-itself) |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
 | POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
@@ -28763,6 +29069,8 @@ to be one.
 | `advocates.workerTimeoutMinutes` | how long a session may hold its slot with no ending reached before the slot is released and the bead charged an attempt (default 120) |
 | `advocates.checkinMinutes` | how long a session asked to check in has to answer before its slot goes back (default 10) — long enough for a turn in flight to land and run the command, short enough that pressing Reclaim sessions is worth doing at all |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
+| `advocates.goneMinutes` | how long a worker's window has to be **missing** from Claude Code's live-session list before it is finished as `gone` rather than left to `workerTimeoutMinutes` (default 3). Then the slot comes back, the claim is handed back, **no attempt is charged** and the conversation is parked so the next dispatch [brings the same agent back](#the-window-that-disappeared--and-the-conversation-that-comes-back-into-the-next-one) instead of briefing a stranger. Minutes rather than one tick because the evidence is an *absence*: one missed read is a list being rewritten, six in a row is a fact. `0` or `false` restores the two-hour wait |
+| `advocates.maxResumes` | how many times one conversation may be carried over into a new window after its own disappeared (default 1). The first disappearance is an accident and is repaired for free; a *resumed* window that also disappears is a pattern, so that one is charged an attempt and the next window gets the fresh brief. `0` keeps the `gone` ending and never carries a conversation over |
 | `advocates.neverStartedSeconds` | how long a window is given to get past line 3 of its command before [the launch's own temp files are read as proof it never started](#the-window-that-opened-and-never-ran-its-command) (default 45). Then the slot comes back, the files are cleaned up, the claim is handed back and **no attempt is charged** — a launch that never ran is not an attempt at the work. Seconds rather than minutes because the point is answering before `workerTimeoutMinutes`; `0` or `false` asks nothing and restores the two-hour wait |
 | `advocates.batchEpicChildren` | [hand an epic's ready children to one worker as a batch](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window), instead of holding the epic back and letting each child take its own window on its own tick (default `true`). `false` falls back to `heldByChildren`'s suppression, which is what this did before |
 | `advocates.maxBatchBeads` | how many of an epic's ready children one worker is briefed on at once (default 5) — the overflow waits rather than racing its own siblings in a second window |
