@@ -52,6 +52,7 @@
     "b7e-eyeball": "bin/b7e-eyeball",
     "b7e-fixture": "bin/b7e-fixture",
     "b7e-gate": "bin/b7e-gate",
+    "b7e-handback": "bin/b7e-handback",
     "b7e-harness": "bin/b7e-harness",
     "b7e-known": "bin/b7e-known",
     "b7e-orient": "bin/b7e-orient",
