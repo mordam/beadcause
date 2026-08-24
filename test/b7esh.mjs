@@ -47,7 +47,27 @@ console.log('\nverifyScript allows scripts that stay inside the roots\n');
   check('cd out and back stays inside', verifyScript('cd sub\ncd ..\necho hi\n', roots).ok);
   check('git -C into the root itself', verifyScript('git -C /repo/worktree status\n', roots).ok);
   check('a comment naming an outside path is not code', verifyScript('# see /etc/passwd for reference\necho hi\n', roots).ok);
-  check('redirection to /dev/null', verifyScript('some-command 2>/dev/null\n', roots).ok);
+
+  // Both spellings, because the attached one used to pass without ALWAYS_ALLOWED ever
+  // being consulted — `2>/dev/null` was one token that did not start with `/`, so
+  // substituting `/etc/passwd` for `/dev/null` passed identically (bc-4hg1a c4).
+  check('redirection to /dev/null, spaced', verifyScript('some-command 2> /dev/null\n', roots).ok);
+  check('redirection to /dev/null, attached', verifyScript('some-command 2>/dev/null\n', roots).ok);
+  check(
+    'and the attached form really is examined — /etc/passwd there is refused',
+    !verifyScript('some-command 2>/etc/passwd\n', roots).ok,
+  );
+
+  // A leading `/` in an *expression* is not a path, and refusing it refuses the command's
+  // own motivating use case — bc-ka5y.19's loop is a sed address away from this (c2).
+  check('a sed address is an expression, not a path', verifyScript("sed -i '' '/^debug/d' f.txt\n", roots).ok);
+  check('a sed address, GNU -i spelling', verifyScript("sed -i '/^debug/d' f.txt\n", roots).ok);
+  check('the common sed address+substitute form', verifyScript("sed -i '' '/^check(/s/a/b/' f.mjs\n", roots).ok);
+  check('an awk program', verifyScript("awk '/^foo/ {print}' f.txt\n", roots).ok);
+  check('a grep pattern that looks like a path', verifyScript("grep '/api/v1' f.txt\n", roots).ok);
+  check('a grep pattern behind flags with values', verifyScript("grep -m 5 '/api/v1' f.txt\n", roots).ok);
+  check('sed -e expressions', verifyScript("sed -e '/^a/d' -e '/^b/d' f.txt\n", roots).ok);
+  check('arithmetic is division, not the root directory', verifyScript('echo $((10 / 2))\n', roots).ok);
   check(
     'a named --allow root (a mktemp dir, say) is honoured',
     verifyScript('mkdir -p /tmp/some-scratch-dir\n', [...roots, '/tmp/some-scratch-dir']).ok,
@@ -92,6 +112,75 @@ console.log('\nverifyScript refuses the three shapes bc-ka5y.29 names\n');
   }
 }
 
+/* ============================== 2b. the other spellings of the same outside path (c1) */
+
+// A worktree here lives at `<repo>/.claude/worktrees/<name>`, so `../../..` *is* the
+// shared checkout the acceptance criterion names for `git -C`. Refusing that escape by
+// one spelling and permitting it by another is the criterion failing on its own target.
+console.log('\nverifyScript refuses an outside path however it is spelled\n');
+
+{
+  const roots = ['/repo/wt'];
+
+  {
+    const v = verifyScript("sed -i '' 's/real/PWNED/' ../../../lib/server.js\n", roots);
+    check('a relative path that walks out is refused', !v.ok);
+    check('names where it lands, not what was typed', v.target === '/lib/server.js', JSON.stringify(v));
+  }
+  check(
+    'a relative path that walks out mid-way is refused',
+    !verifyScript('cat sub/../../../lib/server.js\n', roots).ok,
+  );
+  check('an attached redirect is refused', !verifyScript('echo hi >/abs/outside/x\n', roots).ok);
+  check('a spaced redirect is refused', !verifyScript('echo hi > /abs/outside/x\n', roots).ok);
+  check('an appending redirect is refused', !verifyScript('echo hi >>/abs/outside/x\n', roots).ok);
+  check('a redirect that walks out is refused', !verifyScript('echo hi > ../../../lib/server.js\n', roots).ok);
+  check('--flag=<abs> is refused', !verifyScript('tar --directory=/etc -cf x.tar .\n', roots).ok);
+  check('git --git-dir=<abs> is refused', !verifyScript('git --git-dir=/repo/other/.git log\n', roots).ok);
+  check('git --git-dir <abs> is refused', !verifyScript('git --git-dir /repo/other/.git log\n', roots).ok);
+  check('a VAR=<abs> prefix is refused', !verifyScript('GIT_DIR=/repo/other/.git git log\n', roots).ok);
+  check('a path built from a variable is refused', !verifyScript('cat $HOME/.ssh/id_rsa\n', roots).ok);
+  check('a quoted path built from a variable is refused', !verifyScript('mkdir -p "$OUT/sub"\n', roots).ok);
+  check('rm -rf / is refused', !verifyScript('rm -rf /\n', roots).ok);
+
+  // The expression exemption is one quoted operand of a named command, and no wider:
+  // unquoted, or behind a -f that says the operands are files, it is a path again.
+  check('an unquoted /etc/passwd in pattern position is still a path', !verifyScript('grep /etc/passwd f.txt\n', roots).ok);
+  check('sed -f naming an outside program is refused', !verifyScript('sed -f /etc/prog.sed f.txt\n', roots).ok);
+  check('a cd that walks out one line at a time is refused', !verifyScript('cd ..\ncd ..\ntouch x\n', roots).ok);
+}
+
+/* ============================ 2c. a symlinked root names the same directory (c5) */
+
+// macOS puts /tmp behind a symlink to /private/tmp, and the two things --allow exists for
+// — a mktemp dir and the session scratchpad — are the two most likely to be typed in the
+// other spelling. Built here with a real symlink rather than /tmp, so this means the same
+// thing on a Linux CI runner, where /tmp is not a symlink at all.
+console.log('\nverifyScript compares directories, not strings\n');
+
+{
+  const linkTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-b7esh-link-'));
+  const real = path.join(linkTmp, 'real');
+  const link = path.join(linkTmp, 'link');
+  fs.mkdirSync(real);
+  fs.symlinkSync(real, link);
+
+  check(
+    'a root named through a symlink contains its target',
+    verifyScript(`cat ${path.join(real, 'f')}\n`, [link]).ok,
+  );
+  check(
+    'and a root named directly contains the symlinked spelling',
+    verifyScript(`cat ${path.join(link, 'f')}\n`, [real]).ok,
+  );
+  check(
+    'a sibling directory is still outside either way',
+    !verifyScript(`cat ${path.join(linkTmp, 'other', 'f')}\n`, [link]).ok,
+  );
+
+  fs.rmSync(linkTmp, { recursive: true, force: true });
+}
+
 /* ============================================================ 3. CLI — fixture tree */
 
 console.log('\nb7e-sh CLI, spawned for real\n');
@@ -131,6 +220,19 @@ const run = (args, opts = {}) => spawnSync(process.execPath, [BIN, ...args], { e
 }
 
 {
+  // The escape the reviewer actually ran against a fixture shaped like a worktree here:
+  // `<repo>/.claude/worktrees/<name>/../../..` is the shared checkout, and a relative
+  // `sed -i` into it rewrote the real file with exit 0 (bc-4hg1a c1a).
+  const script = path.join(worktree, 'relative-escape.sh');
+  const victim = path.join(tmp, 'victim.txt');
+  fs.writeFileSync(victim, 'real\n');
+  fs.writeFileSync(script, "sed -i '' 's/real/PWNED/' ../victim.txt\n");
+  const r = run([script]);
+  check('exit code 2 on a relative path that walks out', r.status === 2, JSON.stringify(r));
+  check('the file one level up was never touched', fs.readFileSync(victim, 'utf8') === 'real\n');
+}
+
+{
   const script = path.join(worktree, 'allowed-outside.sh');
   fs.writeFileSync(script, `echo one\ncat ${JSON.stringify(path.join(outside, 'secret.txt'))}\n`);
   const r = run([script, '--allow', outside]);
@@ -167,6 +269,51 @@ const run = (args, opts = {}) => spawnSync(process.execPath, [BIN, ...args], { e
 {
   const r = run(['does-not-exist.sh']);
   check('a missing script path is refused (exit 2)', r.status === 2, JSON.stringify(r));
+}
+
+/* ------------------------------------- option values are values, not the next flag (c3) */
+
+// `--dry` is the one flag whose whole contract is "verify and run nothing". `--allow`
+// used to consume it as a directory name and then run the script, exiting 0, so nothing
+// downstream could tell (bc-4hg1a c3).
+{
+  const script = path.join(worktree, 'c3.sh');
+  const mark = path.join(worktree, 'c3-mark.txt');
+  fs.writeFileSync(script, 'touch c3-mark.txt\necho it ran\n');
+
+  {
+    fs.rmSync(mark, { force: true });
+    const r = run([script, '--allow', '--dry']);
+    check('--allow --dry is refused, not swallowed (exit 2)', r.status === 2, JSON.stringify(r));
+    check('and the script did not run', !fs.existsSync(mark));
+  }
+
+  {
+    fs.rmSync(mark, { force: true });
+    const r = run([script, '--allow']);
+    check('--allow with no value is refused (exit 2)', r.status === 2, JSON.stringify(r));
+    check('with a sentence, not a stack trace', !/ERR_INVALID_ARG_TYPE|at Object\./.test(r.stderr), r.stderr);
+    check('and the script did not run', !fs.existsSync(mark));
+  }
+
+  {
+    const r = run([script, '--cwd']);
+    check('--cwd with no value is refused, not ignored (exit 2)', r.status === 2, JSON.stringify(r));
+  }
+
+  {
+    const r = run([script, '-c']);
+    check('-c with no value is refused (exit 2)', r.status === 2, JSON.stringify(r));
+  }
+
+  {
+    fs.rmSync(mark, { force: true });
+    const r = run([script, '--Dry']);
+    check('a mistyped flag is refused rather than run (exit 2)', r.status === 2, JSON.stringify(r));
+    check('and the script did not run', !fs.existsSync(mark));
+  }
+
+  fs.rmSync(mark, { force: true });
 }
 
 /* ---------------------------------------------------------------- verdict */

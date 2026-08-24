@@ -18491,16 +18491,44 @@ check".** The fix is not a wider Bash allowance; it is moving the complexity int
 to one short, plain invocation of this command. That only holds if what runs the file is
 actually held to the bound the refusal was protecting, so `lib/shguard.js` reads the
 whole script before a single line of it runs and refuses anything that would touch
-outside `--cwd` or a named `--allow` root — the same three shapes `bc-ka5y.29`'s own
-evidence names: an absolute path outside the allowed roots, a `git -C` into the shared
-checkout, a `cd` that walks out past them. It is a heuristic over the script's *text*,
-not a sandbox — it does not stop a script from doing something destructive *inside* the
-roots it is given, and a target built from a shell variable (`cd "$SOME_VAR"`) cannot be
-resolved ahead of time, so it is refused too, on the same "cannot verify where it goes"
-reasoning, rather than waved through as a false negative. Nothing is auto-allowed beyond
-the roots given and a handful of special files (`/dev/null` and its siblings) — a
-`mktemp` directory needs its own `--allow`, exactly as the acceptance criteria asks for,
-because a session's scratch directory changes every run and this cannot guess it.
+outside `--cwd` or a named `--allow` root — **in every spelling of a path, not just the
+one the shapes are usually written in**. `bc-ka5y.29`'s evidence names three (an absolute
+path, a `git -C` into the shared checkout, a `cd` that walks out), but a worktree here
+lives at `<repo>/.claude/worktrees/<name>`, so `../../../lib/server.js` is that same
+shared checkout by another name; so is a redirection target attached to its operator
+(`>/etc/x`, which is one token, not two), and so is a path riding on an option
+(`--git-dir=/repo/other/.git`), and so is one built out of a variable (`"$HOME/.ssh"`).
+Each of those is resolved and checked, and a refusal by one spelling and a pass by
+another would make the guarantee worth nothing.
+
+Two things keep that from being a `/`-shaped regex that refuses honest work:
+
+- **A program text is not a filename.** `sed -i '' '/^debug/d' f.txt`, `awk '/^foo/
+  {print}'` and `grep '/api/v1'` all hand a leading `/` to a command whose first operand
+  is an expression — and refusing those refuses `bc-ka5y.19`'s `sed` loop, the case this
+  command exists for. `EXPRESSION_COMMANDS` names that handful of commands and where the
+  expression sits. The exemption is one *quoted* operand and no wider: it lapses when a
+  `-e`/`-f` says the operands are files, an unquoted `/etc/passwd` in the same position is
+  a path again, and every other token on the line — redirection targets included — is
+  checked as usual.
+- **Two spellings of one directory are one directory.** macOS puts `/tmp` behind a symlink
+  to `/private/tmp`, and the two things `--allow` exists for are exactly the two most
+  likely to disagree about it: `mktemp -d` prints `/var/folders/…` and a session
+  scratchpad is `/private/tmp/claude-501/…`. Containment is tried textually first and then
+  with both sides run through `realpath`, which only ever widens what is allowed — a root
+  or target that does not exist yet (the `mkdir -p` case) falls back to the textual answer.
+
+It is a heuristic over the script's *text*, not a sandbox — it does not stop a script from
+doing something destructive *inside* the roots it is given, and a target built from a shell
+variable (`cd "$SOME_VAR"`, `"$dir/f"`) cannot be resolved ahead of time, so it is refused
+too, on the same "cannot verify where it goes" reasoning, rather than waved through as a
+false negative. Nothing is auto-allowed beyond the roots given and a handful of special
+files (`/dev/null` and its siblings) — a `mktemp` directory needs its own `--allow`,
+exactly as the acceptance criteria asks for, because a session's scratch directory changes
+every run and this cannot guess it. `--allow` and `--cwd` require a value that is not
+itself an option, and an unknown flag is refused rather than taken for the script path,
+because `--allow --dry` silently *running* the script is the one failure this command
+cannot have.
 
 A refusal names the line and the path that leaves the roots, not just an exit code:
 
