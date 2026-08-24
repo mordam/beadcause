@@ -10962,6 +10962,45 @@ the record that a merge is sitting unshipped is worth more than the home nothing
 repo when nobody has looked at the board recently, and "this merged and has not shipped"
 keeps for five minutes.
 
+**Closing asks the tracker what is open; only filing asks the board.** The two halves of
+the sweep look opposite ways, and until bc-xl7n.108 both looked the same way. The board is
+trimmed to the **twelve** most recently settled rows per repo (`RECENT_MAX` in
+lib/prboard.js) because a board is a screen; the sweep then looped over exactly those rows
+and found each one's bead by number, which quietly made a display decision the rule for
+what could ever close. A merge pushed off the twelve by later merges was never visited
+again — not that tick and not any tick after it — and nothing logged a line, because
+there was no loop it could have fallen out of. On 2026-08-17 nine pull requests merged
+between 23:47 and 23:49, thirteen more merged by 23:54, and the nine sat open for four
+days until they were closed by hand. Thirteen is greater than twelve; that is the whole
+mechanism, and this repo merges in batches, so it is the ordinary case rather than a race.
+
+So each sweep now also walks the ship beads the tracker still has **open** and subtracts
+the numbers the board accounted for. Whatever is left is asked about directly — one
+`gh pr view` apiece, newest first, at most twenty per repo per tick and at most once every
+half hour per repo — and closed on exactly the evidence a board row is closed on. Three
+things about that are deliberate:
+
+- **Both bounds are on the asking, never on the answer, and the slice moves.** What does
+  not fit this tick is named on the sweep's `skipped` lines and taken by the *next* one,
+  starting below the number this one stopped at — a tick that left a backlog does not wait
+  out the half hour, and a cycle runs until the cursor falls off the end of the list, so a
+  long tail costs minutes and not beads. That the slice moves is the half worth saying out
+  loud: a ship bead is open precisely because its merge is not live yet, so a head that
+  does not close is the ordinary case rather than a corner, and a fixed top slice would
+  have re-asked those twenty every tick forever while never reaching the tail at all —
+  which is the bug being fixed with a `skipped` line over it rather than a fix. The half
+  hour between cycles is there because that answer changes when somebody deploys rather
+  than every five minutes; a bounded, stated delay is what this bug did not have.
+- **A row off the board can close a bead and cannot start a deploy.** Ship's queue is
+  `owedFor`, which counts board rows, so a batch that quietly carried a merge the queue
+  never counted would deploy a number the screen it came from does not show. Such a merge
+  is not stranded by that: it goes out with the next batch like anything else, and this
+  closes it when it does.
+- **The lookup is injected, not imported** — lib/prboard.js imports lib/release.js, so it
+  is passed in from lib/server.js, and a caller that passes none never asks GitHub about
+  anything. The close line says which side of the join found it, so the next four-day
+  silence is one `grep` rather than one census.
+
 **And the sweep says when it did not run.** On the morning of 2026-08-14 the queue filed
 nothing for roughly three hours while eight pull requests merged, and then caught the
 whole backlog up in one pass — six beads and one settle window, all at 09:23. The
@@ -17712,6 +17751,72 @@ by `merge-advocate` alone, on the argument that "nothing about run the tests is 
 `dispatch`, the one agent this list actually governs, has no branch of its own and no
 suite run to doubt.
 
+### Re-run a sweep's failures alone, and say which are real — `b7e-triage`
+
+`bc-ka5y.15.16` names four sessions (`bc-ka5y.15.5`, `bc-khoe.29`, `bc-khoe.30.4`,
+`bc-r2b5.2`) that each took a wide sweep's list of failed suite names and triaged it by
+hand, differently. Two lists were pure noise — a flake, a suite that only needed
+`scripts/vendor.js` — and two hid a real red inside the same-looking list; no session
+could tell without re-running, and every one did the re-run itself a different way. That
+split is the whole argument: the list alone is not readable, and the re-run is
+mechanical.
+
+```
+b7e-triage <suite>...           re-run each: flake, needs vendor, or real
+b7e-triage --from <gate-log>    take every failure out of a b7e-gate log, or a hand-rolled one
+b7e-triage --dir <root>         "this tree" is <root>, not the tree this file is in
+b7e-triage --timeout <s>        per-run seconds, overriding lib/gate.js's own default
+b7e-triage --json               one object per suite instead of the printed report
+```
+
+**Not `b7e-gate`.** `b7e-gate` (above) runs the whole sweep concurrently and reports
+what failed; this starts from that report and finishes what those four sessions did by
+hand — re-running each failure alone, serially, one at a time, never beside another,
+because removing the concurrent load the first sweep ran under is the entire point of a
+triage step. `test/slowstart.mjs` cannot even be compared against a concurrent run — it
+fails only there. `runSuite` and `timeoutMsFor` (`lib/gate.js`) are reused rather than
+reimplemented, and this never shells out to `bin/b7e-gate` itself: that command takes its
+own per-tree lock, and triage happens right after a sweep, so a caller doing that would
+be refused mid-triage for doubling a load that has already finished.
+
+**Three verdicts.** `real` — still fails alone; the report includes the last few lines
+of its output. `flake` — passes alone, first try. `needs vendor` — fails alone only
+because `public/vendor` (gitignored) had never been built in this tree; running
+`scripts/vendor.js` and re-running turns it green. `test/pagealias.mjs` is the suite this
+is already written down for, but the check is generic rather than hardcoded to that one
+name — any suite this tree adds that reads `public/vendor` gets the same answer for the
+same reason, and `scripts/vendor.js` is attempted at most once per run, lazily, the first
+time a re-run actually needs it. It always runs as `<root>/scripts/vendor.js` — the
+target tree's own copy, never a path resolved through this file's own location — because
+`scripts/vendor.js` roots itself from where it is *run from*, not from `--dir`, and a
+tool that got that wrong would build vendor for the wrong tree while printing a
+normal-looking success line.
+
+**Parsing a log nobody agreed the shape of.** `b7e-gate` did not exist when three of the
+four sessions above ran, so each wrote its own throwaway runner and none of their logs
+looked alike: `[n/t] FAIL <suite>` off a hand-rolled pool, `FAIL <suite> (NNms)` off a
+`grep` of one, a bare suite name off `grep -l`, a `==== FAILURES: N ====` header.
+`b7e-blame`'s `suitesFromGateLog` already covers `b7e-gate`'s own two *per-suite* log
+shapes and is reused here; `b7e-gate`'s own final tally line (`P/T passed, F failed: a,
+b, c`) — the shape most future sweeps will actually hand this command — and the four
+looser shapes above are read on top of that. A name with no directory in it
+(`pagealias.mjs` rather than `test/pagealias.mjs`) is resolved against the tree's own
+suite list by basename; a name that resolves to none, or to more than one, is reported as
+`unresolved` rather than silently dropped — a triage tool that drops a failure is worse
+than none, and is treated the same as a `real` one for the exit code.
+
+Exit codes: `0` every failure given was explained away (a flake, or fixed by
+`scripts/vendor.js`); `1` at least one is still `real`, or could not be resolved to a
+suite in this tree at all; `2` refused — bad usage, or nothing to triage.
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the same reason as `b7e-gate` and
+`b7e-blame` rather than the read-only shape of `b7e-def`/`b7e-owes`/`b7e-affected`: it
+re-runs a suite, which `lib/grants.js` already classifies as a write — `Bash(npm
+test:*)` is held by `merge-advocate` alone, on the argument that "nothing about run the
+tests is a read" — and on a suite it decides needs it, writes to the tree via
+`scripts/vendor.js`. `dispatch`, the one agent this list actually governs, has no sweep
+of its own to triage and no branch to have run one on.
+
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
 
 `test/swbump.mjs` (above) answers *whether* a branch owes a bump. Nothing answered
@@ -18415,6 +18520,83 @@ it reads README.md and this repo's own memory store and prints a brief. The one
 subprocess it spawns is `node scripts/test.mjs --list`, and only ever `--list` — never a
 suite, never `b7e-gate` — which that flag's own header comment already guarantees
 "creates nothing". See `bin/b7e-brief` and `test/b7e-brief.mjs`.
+
+
+### Say whether the memory store already holds this — `b7e-known`
+
+`bc-xl7n.112`. Three sessions each checked, by hand, whether an insight was already on
+file before writing it down — and no two of them did it the same way, which is exactly
+the state of a search nothing can actually answer. `bc-xl7n.83` dumped the whole store
+and grepped it (`beadcause-memory notes 2>&1 | grep -i "fail-open|rootless|withRoot|
+hasRootAbove"`), got back one adjacent note, read it, decided it was a different fact,
+and filed a new key. `bc-ywiy` guessed keys, twice over — `recall focus`, `recall
+dispatchKeyEvent`, `notes "p0-full"`, `notes "keydown"` — five empty answers in a row
+from a store that, by the end of that same run, held both a `focus` and a `keydown`
+note. `bc-khoe.18` searched the wrong store entirely: `grep -rl "too complex"` over the
+*personal* memory directory rather than any of beadcause's own three refs, found
+nothing, and filed a fact specific to a beadcause worktree as a `remember` — the tier
+that follows an agent into every other repo — rather than a `note`.
+
+`lib/memory.js` already had the scorer for this question. `relevantNotes` ranks a
+repo's notes against a *bead*, built to hand a session the ones worth reading before it
+starts; nothing on the *write* side ever called it, which is why `notes <key>` and
+`recall <key>` only ever answer a key the session has to guess.
+
+```
+b7e-known -w beadcause -b bc-xl7n.112 <<< 'the prose about to become a note'
+b7e-known -w beadcause --file insight.md            no bead: note/remember only
+b7e-known -w beadcause -b bc-xl7n.112 --json
+```
+
+**The prose comes from stdin or `--file`, never a shell argument** — the same reason
+`b7e-say` exists: a backtick or `$(...)` inside a multi-line insight would otherwise be
+resolved by the shell before the command ever saw it.
+
+**Two of the three stores are checked unconditionally; the third needs `-b`, and that
+omission is deliberate rather than a smaller version of the same search.**
+`note`/`remember` are checked by `lib/memory.js`'s new `nearestEntries` — the same
+tokenizer, the same `similarity`, the same validated floor (`RELEVANT`, 1.6) that
+`relevantNotes` already proved against this repo's own store: an unrelated pair tops
+out near 1.0, a real match scores 2.0–4.7. A key's own words count as part of its text
+the way a note's key already does for `relevantNotes`, so a key like
+`sw-cache-version-conflicts` is found even when the checked prose never quotes the
+value verbatim. Tier 4 has no such search: `debriefFamily`'s own header in
+`lib/memory.js` is explicit that a debrief's relevance to a bead is graph-distance —
+self, parent, siblings — never vocabulary, because a report on one attempt at a bead is
+not a belief that generalises the way a note or a remember does. So without `-b` there
+is no honest scope to check a debrief against, and this checks none; with `-b`, it
+checks the debrief entries already on file for that bead and its family, the same
+family `beadcause-memory debriefs` reads.
+
+**`-b` can be inherited rather than typed, and the two are not treated the same.** With
+no `-b` on the command line, `$BEADCAUSE_BEAD` supplies one — every agent session
+already has it stamped, and `whichBead()` in `bin/beadcause-memory` reads it the same
+way, so a session that types no `-b` still gets the debrief scope its own `-b <bead>`
+would have given it. An *explicit* `-b` naming something this tracker does not have is
+a hard `4`: the caller asked for that scope and did not get it. An *inherited* one that
+does not resolve — a cross-workspace call, a bead since renamed, a `bd` that would not
+answer against the shared Dolt DB — is not a failure at all; it is one fewer store
+checked, said on stderr, with `note`/`remember` still answered and the exit still `0`.
+Neither of those two needs a bead, and this command gates nothing.
+
+**What comes back, per hit: the store, the key (or, for a debrief, which bead and
+whether it is still only staged), the score, the first line, and the exact command
+that updates it in place** — `b7e-say -w <ws> -b <bead> --note <key>` or `--remember
+<key>`. A debrief has no key to update; the line for one instead names `--debrief`,
+because a report on a run appends rather than overwrites. `--json` carries all of that
+plus each hit's whole stored `value`, so a debrief hit is no less identifiable there
+than in the printed form. Nothing found prints one line saying so and exits `0`
+— this answers a question, it does not gate anything, and "safe to file a new
+key" is as real an answer as a hit.
+
+**Never opens a path under the personal memory directory** bc-khoe.18 searched instead
+— the only imports here are `lib/memory.js` and `lib/sessionlog.js`, neither of which
+takes one, and `test/known.mjs` asserts the source names no such path.
+
+`Bash(b7e-known:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`: every path through it is `bd show` (only when `-b` is given) plus the
+three memory-store reads above, nothing that writes anywhere. See `bin/b7e-known`,
+`lib/memory.js`'s `nearestEntries` and `test/known.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
