@@ -125,5 +125,110 @@ check(
 
 fs.rmSync(tmp, { recursive: true, force: true });
 
+/* ------------------------------------------------------------ who paid, and who waited */
+
+/**
+ * bc-1kwl.34 — a plain (non-`refresh`) join, and what each caller's timing record says.
+ *
+ * `PARENT_INFLIGHT` above is exactly the single-flight map lib/cache.js's `running` is
+ * for the cold path, and a caller that finds a job already there and *joins* it (every
+ * case except `refresh: true`, which chains rather than joins — see above) spawns
+ * nothing of its own. Without `timing.joining()` beside `PARENT_INFLIGHT.get(key)`, that
+ * caller comes back `no subprocess, all ours`, the same false reading bc-1kwl.33 fixed
+ * for lib/cache.js's `running` map. The pair here mirrors test/cache.mjs's: one reader
+ * starts the export, one joins it, and the assertions are that the starter still owns
+ * the child and the joiner's record names the wait instead of hiding it as idle time.
+ */
+console.log('\nwhat a request that joins a bd export already in flight is filed as\n');
+
+{
+  const timing = await import('../lib/timing.js');
+  const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-graphjoin2-'));
+  const tally2 = path.join(tmp2, 'calls');
+  const calls2 = () => (fs.existsSync(tally2) ? fs.readFileSync(tally2, 'utf8').length : 0);
+
+  const bin2 = path.join(tmp2, 'bd-slow-then-fast');
+  fs.writeFileSync(
+    bin2,
+    `#!/usr/bin/env node
+const fs = require('node:fs');
+const { execSync } = require('node:child_process');
+const tally = ${JSON.stringify(tally2)};
+const before = fs.existsSync(tally) ? fs.readFileSync(tally, 'utf8').length : 0;
+fs.appendFileSync(tally, 'x');
+const call = before + 1;
+if (call === 1) execSync('sleep 0.3');
+process.stdout.write(JSON.stringify({ id: 'xx-work', title: 'call ' + call, issue_type: 'task', status: 'open' }) + '\\n');
+`,
+    { mode: 0o755 }
+  );
+
+  const bd2 = new Bd({ bin: bin2, actor: 'beadcause-test' });
+  const ws2 = { name: 'graphjoin2', dir: tmp2 };
+
+  // A fresh async resource per request, the way test/cache.mjs's `inRequest` isolates
+  // one `timing.begin` from another — `enterWith` persists for the rest of the resource
+  // it is called on, so two records opened side by side in this file's top-level context
+  // would silently be the same record.
+  const inRequest = (key, fn) =>
+    new Promise((resolve, reject) => {
+      setImmediate(() => {
+        const rec = timing.begin(key);
+        Promise.resolve()
+          .then(fn)
+          .then(
+            (value) => resolve({ closed: timing.end(rec, 200), value }),
+            (err) => {
+              timing.end(rec, 500);
+              reject(err);
+            }
+          );
+      });
+    });
+
+  timing.reset();
+  timing.configure({ slowMs: 1000 });
+
+  const starter = inRequest('GET /api/beads', () => bd2.graph(ws2));
+  // Long enough for `graph`'s synchronous `PARENT_INFLIGHT.set` to have already happened
+  // inside the starter's export — the same margin test/cache.mjs gives its own join.
+  await new Promise((r) => setTimeout(r, 10));
+  const joiner = inRequest('GET /api/prs', () => bd2.graph(ws2));
+
+  const first = await starter;
+  const second = await joiner;
+
+  check('two joined readers of one workspace still produce one export', calls2() === 1, `bd was invoked ${calls2()} time(s)`);
+  check(
+    'and the joiner gets exactly the index the starter got — a join, not a chain',
+    second.value === first.value,
+    'the joiner resolved to a different index object than the starter'
+  );
+
+  check('the reader that started the export is charged its child process', first.closed.wallMs > 0, `wallMs ${first.closed.wallMs}`);
+  check('and nothing as a wait, because it was not waiting on anybody', first.closed.joinedMs === 0, `joinedMs ${first.closed.joinedMs}`);
+
+  check('the reader that joined is charged no child process — the export was not its fan-out', second.closed.wallMs === 0, `wallMs ${second.closed.wallMs}`);
+  check(
+    'and the wait is recorded as its own figure instead of vanishing into idle time',
+    second.closed.joinedMs > 0,
+    `joinedMs ${second.closed.joinedMs}`
+  );
+
+  const rows = timing.snapshot().routes;
+  check(
+    'the joining route counts the join, which is what keeps it out of `starved`',
+    rows.find((r) => r.route === 'GET /api/prs')?.joins === 1,
+    `joins=${rows.find((r) => r.route === 'GET /api/prs')?.joins}`
+  );
+  check(
+    "and the starting route's own record carries none",
+    rows.find((r) => r.route === 'GET /api/beads')?.joins === 0,
+    `joins=${rows.find((r) => r.route === 'GET /api/beads')?.joins}`
+  );
+
+  fs.rmSync(tmp2, { recursive: true, force: true });
+}
+
 console.log(failures ? `\n${failures}/${ran} failed\n` : `\n${ran}/${ran} passed\n`);
 process.exit(failures ? 1 : 0);
