@@ -12,6 +12,8 @@
 // repo's own real tier-1 store and its real acceptance-criteria bead, the same call
 // test/affected.mjs makes for its own two concrete cases: the point of `test/landcheck.mjs`
 // finding `landcheck-outruns-a-300s-suite-timeout` is that it holds here, not in a fixture.
+// Those last two skip on a checkout that has no such store — a CI runner or a fresh clone,
+// neither of which is given the refs — for the reasons written out at section 7.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -26,6 +28,7 @@ const BIN = path.join(ROOT, 'bin', 'b7e-notes');
 
 const b7enotes = await import(path.join(ROOT, 'lib', 'b7enotes.js'));
 const memory = await import(path.join(ROOT, 'lib', 'memory.js'));
+const sessionlog = await import(path.join(ROOT, 'lib', 'sessionlog.js'));
 
 let failures = 0;
 const ok = (name) => console.log(`  \x1b[32m✓\x1b[0m ${name}`);
@@ -472,9 +475,33 @@ console.log("\nagainst this repo's real notes store — bc-khoe.43's own accepta
 // worktree of it — the point of the case below is that it holds in THIS repo, not a
 // fabricated stand-in for it. See test/affected.mjs's own final section for the
 // precedent.
-const realNotes = await memory.notesIn(ROOT, 'worker');
+//
+// WHICH IS WHY BOTH CHECKS SKIP WHEN THE STORE IS EMPTY, and test/affected.mjs's
+// precedent stops short of here: that suite's real-repo section reads the file TREE,
+// which every checkout has. These two read refs the checkout HOLDS — tier-1 notes on
+// `refs/beadcause/agents/worker`, tier-4 debriefs on the session refs beside them — and
+// those are never pushed anywhere (`git ls-remote origin 'refs/beadcause/*'` comes back
+// empty). `actions/checkout` fetches the branch and nothing else, so on a CI runner, and
+// in any fresh clone, both stores are simply absent and these two assertions fail for a
+// reason that has nothing to do with the code under test. Same shape as
+// test/closegatereal.mjs skipping when there is no `bd` on PATH.
+//
+// Keyed on the store being EMPTY rather than on $CI deliberately: "this checkout cannot
+// be asked" is the real precondition, and it is as true of a colleague's fresh clone as
+// of a runner. On a machine that does have the store — where the acceptance criteria are
+// actually provable — both still run and still have to pass.
+const skip = (name, why) => console.log(`  \x1b[33m—\x1b[0m ${name}\n      skipped: ${why}`);
+const NEVER_PUSHED = 'the beadcause refs are local to a checkout and are never pushed';
 
-check("test/landcheck.mjs alone finds landcheck-outruns-a-300s-suite-timeout, without the bead being named", () => {
+const realNotes = await memory.notesIn(ROOT, 'worker');
+const debriefedBeads = await sessionlog.debriefBeads(ROOT);
+
+// `notesIn` answers a key→text OBJECT, not a list — `.length` on it is `undefined`, which
+// is falsy, which would skip this check on every machine including the ones that can
+// actually prove it. Count the keys.
+const LANDCHECK_CASE = 'test/landcheck.mjs alone finds landcheck-outruns-a-300s-suite-timeout, without the bead being named';
+if (!Object.keys(realNotes).length) skip(LANDCHECK_CASE, `no tier-1 notes store in this checkout — ${NEVER_PUSHED}`);
+else check(LANDCHECK_CASE, () => {
   const out = b7enotes.notesForPaths(realNotes, ['test/landcheck.mjs'], { root: ROOT });
   assert.ok(
     out.some((n) => n.key === 'landcheck-outruns-a-300s-suite-timeout'),
@@ -482,7 +509,9 @@ check("test/landcheck.mjs alone finds landcheck-outruns-a-300s-suite-timeout, wi
   );
 });
 
-await check("gather() against the real repo pulls bc-khoe's own debrief history for a bc-khoe.* sibling", async () => {
+const FAMILY_CASE = "gather() against the real repo pulls bc-khoe's own debrief history for a bc-khoe.* sibling";
+if (!debriefedBeads.size) skip(FAMILY_CASE, `no tier-4 debrief store in this checkout — ${NEVER_PUSHED}`);
+else await check(FAMILY_CASE, async () => {
   const result = await b7enotes.gather(ROOT, { id: 'bc-khoe.999-does-not-exist', parent: 'bc-khoe', title: 'x' }, ['README.md']);
   assert.ok(result.debriefs.length > 0, 'expected at least one debrief from the bc-khoe family');
 });
