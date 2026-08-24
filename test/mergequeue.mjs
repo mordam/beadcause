@@ -98,10 +98,27 @@ const bead = (over = {}, spec = {}, notes = '') => ({
  * lets one close fail the way bd's close gate fails — which is the only way to reach the
  * `oweClose` path without a real tracker.
  */
-function fakeBd({ rows = [], issues = {}, refuse = null, comments = {} } = {}) {
-  const calls = { closes: [], comments: [], updates: [], reads: [] };
+function fakeBd({ rows = [], issues = {}, refuse = null, comments = {}, followups = [], graph = null } = {}) {
+  const calls = { closes: [], comments: [], updates: [], reads: [], created: [], labelReads: [] };
   return {
     calls,
+    /**
+     * The two writes a merge over open review findings costs — bc-9ntye.2. Both are on
+     * every fake tracker here rather than on the two scenarios about them, because
+     * `finish` reaches them from the ordinary merge path and a fake missing one would
+     * fail a suite that is about something else entirely.
+     */
+    listLabelAny: async (ws, label) => {
+      calls.labelReads.push(label);
+      return followups;
+    },
+    create: async (ws, issue) => {
+      const id = `zz-f${calls.created.length + 1}`;
+      calls.created.push({ id, ...issue });
+      return id;
+    },
+    /** The shape `homeIn` climbs to find a follow-up's parent. Empty is "no root anywhere". */
+    graph: async () => graph || { beads: new Map(), parents: new Map(), adopts: new Map(), edges: new Map() },
     listAgent: async () => rows,
     show: async (ws, id) => issues[id] || null,
     close: async (ws, id, reason) => {
@@ -1362,6 +1379,82 @@ await check('mergeReport invents nothing when it knows nothing', () => {
   assert.match(text, /Straight through/);
   assert.doesNotMatch(text, /\battempts\b/, 'it reported an attempt count it was never given');
   assert.doesNotMatch(text, /from reaching the queue/, 'it timed a passage with no start');
+});
+
+/* -------------------------------------- merging over open review findings (bc-9ntye.2) */
+
+/**
+ * An approval that still carries an unresolved suggestion — the state bc-9ntye makes
+ * ordinary. The gate lets it through (approved is approved) and the findings have to
+ * land somewhere; before bc-9ntye.2 they were closed with the merge-bead and gone.
+ */
+const APPROVED_WITH_OPEN = {
+  ...APPROVED,
+  comments: [
+    { id: 'c1', path: 'lib/example.js', line: 42, body: 'this could be a Set', severity: 'suggestion' },
+    { id: 'c2', body: 'why is the retry four', severity: 'question' },
+  ],
+};
+
+await check('a merge over open findings files one follow-up with one child each', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.equal(bd.calls.created.length, 3, 'one follow-up and one child per finding');
+  assert.equal(bd.calls.created[1].parent, bd.calls.created[0].id);
+  assert.match(bd.calls.labelReads[0], /^review-followup:/, 'and it asked whether this round was already filed');
+});
+
+await check('and every sentence the merge writes names the bead the findings went to', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  await run(bd, prApi, { policy: REVIEW_ON, autoEndorse: true });
+  const follow = bd.calls.created[0].id;
+  // The pull request page, the merge-bead's close reason and the work bead's comment —
+  // the three places somebody finds out about this, and the epic asks for all three.
+  assert.match(prApi.calls.comments.at(-1).text, new RegExp(follow), 'the report on the pull request');
+  assert.ok(
+    bd.calls.closes.some((c) => c.id === 'zz-merge' && new RegExp(follow).test(c.reason)),
+    "the merge-bead's own close reason"
+  );
+  assert.ok(
+    bd.calls.comments.some((c) => c.id === 'zz-work' && new RegExp(follow).test(c.text)),
+    'and the comment on the work bead'
+  );
+});
+
+await check('the same verdict on the next tick files nothing a second time', async () => {
+  // The failure this guards: `finish` is best-effort throughout, so a tick that died
+  // between the filing and the close arrives back here at exactly this state.
+  const bd = fakeBd({
+    rows: [reviewed(APPROVED_WITH_OPEN)],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    followups: [{ id: 'zz-already', status: 'open' }],
+  });
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true });
+  assert.deepEqual(bd.calls.created, [], 'it filed a second copy of a whole review');
+  assert.ok(
+    bd.calls.closes.some((c) => c.id === 'zz-merge' && /zz-already/.test(c.reason)),
+    'and it still named the one that exists'
+  );
+  assert.deepEqual(bd.calls.labelReads, ['review-followup:acme/widgets#42:r1'], 'keyed on the pull request and the round');
+});
+
+await check('a clean approval files nothing and costs no lookup at all', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true });
+  assert.deepEqual(bd.calls.created, []);
+  assert.deepEqual(bd.calls.labelReads, [], 'the guard is before the tracker, which is what keeps it off every merge');
+});
+
+await check('a tracker that will not file leaves the merge and both closes exactly as they were', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  bd.create = async () => {
+    throw new Error('dolt: database is locked');
+  };
+  const out = await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work'], 'a lost follow-up must not cost a close');
 });
 
 /* ------------------------------------------------------------------------ done */
