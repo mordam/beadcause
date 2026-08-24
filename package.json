@@ -48,6 +48,7 @@
     "b7e-census": "bin/b7e-census",
     "b7e-def": "bin/b7e-def",
     "b7e-eyeball": "bin/b7e-eyeball",
+    "b7e-fixture": "bin/b7e-fixture",
     "b7e-gate": "bin/b7e-gate",
     "b7e-harness": "bin/b7e-harness",
     "b7e-orient": "bin/b7e-orient",
