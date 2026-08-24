@@ -24593,40 +24593,44 @@ Three surfaces, and they answer different questions.
 
 | | for | |
 |---|---|---|
-| `Server-Timing` on every response | one request, in isolation | `curl -sD- …` prints `total;dur=10264.0, bd;dur=16701.4, children;dur=10243.4, cache;desc=cold` — the per-binary sums, then the union under `children`, which is the one that can be subtracted from `total`. Browser devtools draws it in the waterfall |
-| a line in the log | the slow one you did not go looking for | `[beadcause] slow GET /api/questions 10264ms cold — 10243ms of it waiting on 9 child process(es) (bd 16701ms of work), ours 21ms`, at `slowRequestMs` (default 1000, the budget itself) |
+| `Server-Timing` on every response | one request, in isolation | `curl -sD- …` prints `total;dur=87430.9, gh;dur=15353.4, git;dur=158.2, bd;dur=1150905.3, children;dur=87230.5, joined;dur=191.7, loop;dur=4520.9, cache;desc=cold` — the per-binary sums, then the union under `children`; `joined` sits beside it and is present only when the request actually waited on somebody else's producer (bc-1kwl.33), the same way `children` is absent when nothing was spawned; `loop` is last, before the cache descriptor, and is how long the event loop was unavailable while the request was open (bc-1kwl.30). Browser devtools draws it in the waterfall |
+| a line in the log | the slow one you did not go looking for | `[beadcause] slow GET /api/questions 2026ms stale — 1980ms of it waiting on 8 child process(es) (bd 3039ms of work), ours 46ms; loop busy 89ms`, at `slowRequestMs` (default 1000, the budget itself). A request that joined somebody else's sweep gets its own clause in the middle instead — real, off the same log, both kinds of waiting at once: `slow GET /api/queues 87431ms cold — 87230ms of it waiting on 116 child process(es) (gh 15353ms + git 158ms + bd 1150905ms of work) and 192ms of it waiting on a sweep already running, ours 9ms; loop busy 4521ms` |
 | `GET /api/timings` | every route, warm and cold, since the daemon started | what `npm run timings` prints as a table, and the only one of the three the **phone** can be measured through — a phone cannot show you a response header |
 
-Off the running daemon, 2026-08-21 14:32 ADT — the first sample taken since `#471`
-(bc-1kwl.22) made the three columns honest, rather than hand-widening the older
-two-column table that used to sit here. Trimmed to the three routes that make the point;
-the rest of what it was asked for that morning was deploy/claim/timings plumbing, all warm:
+Off the running daemon, 2026-08-23 21:39 ADT — the first sample taken since `#570`
+(bc-1kwl.33) put `loop` and `join` on the table beside the three columns `#471`
+(bc-1kwl.22) made honest. Trimmed to the three routes that make the point; the daemon
+had been up 5.5 hours and the rest of the table was ordinary warm asset requests:
 
 ```
 $ npm run timings
 
-beadcause request timings — 36 requests over 5m  ·  budget 1000ms  ·  slow log at 1000
+beadcause request timings — 1451 requests over 5.5h  ·  budget 1000ms  ·  slow log at 1000
 
-                                                     —— cold ——            —— stale ——             —— warm ——
-route                     n     p50     p95     max  sub%     ×      n     p50     p95      n     p50     p95
-GET /api/prs              1   39.7s   39.7s   39.7s  1.00 13.6×      ·       ·       ·      1   104ms   104ms
-GET /api/questions        ·       ·       ·       ·     ·     ·      2    1.2s    1.6s      1   691ms   691ms
-GET /api/work             ·       ·       ·       ·     ·     ·      2    81ms    99ms      ·       ·       ·
+                                                                  —— cold ——            —— stale ——             —— warm ——
+route                  loop  join      n     p50     p95     max  sub%     ×      n     p50     p95      n     p50     p95
+GET /api/queues        0.06  0.02      6   37.7s   87.4s   87.4s  0.98 11.4×      ·       ·       ·      ·       ·       ·
+GET /api/questions     0.05     ·      ·       ·       ·       ·     ·     ·      1    2.0s    2.0s      1   729ms   729ms
+GET /api/work          0.95     ·      ·       ·       ·       ·     ·     ·      2    36ms    60ms      ·       ·       ·
 
 over budget — p95 past 1000ms, cold or warm:
-  GET /api/prs
+  GET /api/queues
   GET /api/questions
 ```
 
+`loop` and `join` are the two new columns (bc-1kwl.30, bc-1kwl.33), and each prints `·`
+rather than `0.00` on a route that never had one — the same convention the temperature
+blocks already use, so a blank column reads as *never happened* rather than *happened for
+zero milliseconds*. `GET /api/queues` above spent 6% of its wall clock with the loop
+unavailable and 2% of it queued behind another request's sweep; both are real and neither
+crosses the half-of-wall-clock share that would put the route on the `blocked behind the
+loop` or `waiting on a sweep already running` block below the table — the two log lines
+quoted above are where each one actually fires.
+
 `GET /api/questions` above has **no cold samples at all** and is still over budget — its
-two stale reads, at a 1.6s p95, are what crossed the line, while its one warm read
-(691ms) sits comfortably inside it. That is not a fluke of one sample; it is the exact
-shape the next section explains. And a table taken this soon after `#471` reads *colder*
-than older figures quoted elsewhere on this epic, on purpose, not as a regression: a
-request is now filed as cold as its coldest read, so samples that used to be mislabelled
-`stale` — including a forced `refresh: true`, which pays for a producer and so is
-rightly filed cold even when everything else the request read was warm — are filed
-`cold` now. That relabelling is the fix bc-1kwl.22 made, not a new slowdown.
+one stale read, at a 2.0s p95, is what crossed the line, while its one warm read (729ms)
+sits comfortably inside it. That is not a fluke of one sample; it is the exact shape the
+next section explains.
 
 That last block is the point of the whole thing: **the routes that miss the budget are
 named**, rather than left to be read off a table. `--json` gives the snapshot as it comes
@@ -26953,7 +26957,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
 | WS | `/ws/terminal` | `?id=`, subprotocols `beadcause.term.v1` + `tok.<token>` | binary frames both ways are pty bytes; JSON carries `hello` · `ready` · `exit` in, `input` · `resize` · `close` out |
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
-| GET | `/api/timings` | — | `{since, uptimeMs, budgetMs, slowMs, requests, routes[], overBudget[], background, overflow}` — what every route has cost, worst first, **warm and cold counted apart** and the `bd`/`gh`/`git` share broken out of each. `overBudget` names the routes whose p95 misses `budgetMs` on **either** side of the cache — the worse of the two, so a route that only ever answers warm and still takes a second is named — which is the question the whole thing exists to answer; `background` is the subprocess time the daemon spent on nobody's request. The long-polls carry `parked: true` and are in neither list. Read as a table by `npm run timings`, and cheap enough to poll — two fixed-size buckets per route, in memory, nothing persisted. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
+| GET | `/api/timings` | — | `{since, uptimeMs, budgetMs, slowMs, requests, routes[], overBudget[], starved[], joined[], background, overflow}` — what every route has cost, worst first, **warm and cold counted apart** and the `bd`/`gh`/`git` share broken out of each. `overBudget` names the routes whose p95 misses `budgetMs` on **either** side of the cache — the worse of the two, so a route that only ever answers warm and still takes a second is named — which is the question the whole thing exists to answer. `starved` narrows that to the routes that spawned nothing and had no join either, and still spent at least half their wall clock with the event loop unavailable — queued behind a busy loop with no explanation on offer (bc-1kwl.30). `joined` narrows it the other way: routes that spent at least half their wall clock waiting on a producer another request had already started — a queue with an ordinary explanation, which is why `starved` requires zero joins too (bc-1kwl.33). `background` is the subprocess time the daemon spent on nobody's request. The long-polls carry `parked: true` and are in neither list. Read as a table by `npm run timings`, and cheap enough to poll — two fixed-size buckets per route, in memory, nothing persisted. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
 | GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
