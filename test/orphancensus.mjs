@@ -26,6 +26,10 @@
  *    noticeable without being a line every thirty seconds for as long as it holds.
  * 6. **It is wired.** The sweep exists, the cycle calls it, and it reports its own
  *    failure like every other sweep beside it.
+ * 7. **A fall is logged too, and a quiet cycle is not** — bc-xl7n.132.2. A bead-naming
+ *    line can only ever fire on a rise, which made the last `[census]` line in the log a
+ *    high-water mark; `changed` on each counts row is what says an orphan was adopted.
+ *    It must not key on the denominator, or a working day is a line every cycle.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -43,7 +47,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-orphancensus-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { orphanCensus, describeOrphan, createOrphanWatch } = await import(LIB('orphancensus.js'));
+const { orphanCensus, describeOrphan, describeCensus, createOrphanWatch } = await import(LIB('orphancensus.js'));
 const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 const { NO_ROOT_ABOVE } = await import(LIB('underroot.js'));
 const { MERGE_LABEL } = await import(LIB('mergebead.js'));
@@ -188,6 +192,27 @@ await check('nothing to say about a row with no id', () => {
   assert.equal(describeOrphan({}), '');
 });
 
+await check('describeCensus gives the standing number with no bead named', () => {
+  const line = describeCensus({ workspace: 'zz', ordinary: 3, unrooted: 5, mergeGenre: 2, nonClosed: 40 });
+  assert.equal(line, '3 ordinary orphans, of 5 unrooted bead(s) across 40 non-closed');
+});
+
+await check('AND SAYS THE COUNT REACHED ZERO, WHICH NO BEAD-NAMING LINE CAN', () => {
+  // The whole reason this second describer exists: `describeOrphan` needs a bead, and
+  // the interesting fall is the one that leaves no bead to name.
+  assert.equal(describeCensus({ ordinary: 0, unrooted: 0, mergeGenre: 0, nonClosed: 40 }),
+    'no ordinary orphans, of 0 unrooted bead(s) across 40 non-closed');
+  assert.equal(describeCensus({ ordinary: 1, unrooted: 1, mergeGenre: 0, nonClosed: 9 }),
+    '1 ordinary orphan, of 1 unrooted bead(s) across 9 non-closed');
+});
+
+await check('a counts row and a newOrphans row are the same shape, so neither describer can be handed the wrong one', () => {
+  // `orphanCensus` returns `ordinary` as an array; both describers take it as a number,
+  // and a row that carried the array would print "[object Array] ordinary orphans".
+  assert.equal(describeCensus(null), '');
+  assert.match(describeCensus({ ordinary: 2, unrooted: 2, nonClosed: 2 }), /^2 ordinary orphans,/);
+});
+
 /* ------------------------------------------------------------------ 5. the watch */
 
 console.log('\nthe watch logs a new orphan once, not once per cycle\n');
@@ -285,6 +310,89 @@ await check("an index carrying `.error` — bd.graph's own fail-open — is the 
   assert.deepEqual(recovered.newOrphans, []);
 });
 
+/* ------------------------------- 7. a fall is logged too, and a quiet cycle is not */
+
+console.log('\nand the standing number moves in both directions, not only up\n');
+
+await check('the first pass after a restart is a change, so the standing number is said once', async () => {
+  const idx = withRoot(row('zz-orphan'));
+  const watch = createOrphanWatch({ bd: graphSeq(idx) });
+  const out = await watch.sweep([{ name: 'zz' }]);
+  assert.equal(out.counts[0].changed, true);
+  // Shaped like a newOrphans row — a count, with the ids beside it rather than in place
+  // of it, so either row can be handed to either describer.
+  assert.equal(out.counts[0].ordinary, 1);
+  assert.deepEqual(out.counts[0].ids, ['zz-orphan']);
+});
+
+await check('a cycle where nothing moved says nothing at all', async () => {
+  const idx = withRoot(row('zz-orphan'));
+  const watch = createOrphanWatch({ bd: graphSeq(idx) });
+  await watch.sweep([{ name: 'zz' }]);
+  const out = await watch.sweep([{ name: 'zz' }]);
+  assert.equal(out.counts[0].changed, false);
+  assert.deepEqual(out.newOrphans, []);
+});
+
+await check('AN ORPHAN ADOPTED IS A CHANGE, THOUGH THERE IS NO BEAD LEFT TO NAME', async () => {
+  // The gap this bead is about. `newOrphans` is empty on the fall — it always is — so
+  // without `changed` the last [census] line in the log stays the high-water mark.
+  const orphaned = withRoot(row('zz-x'));
+  const rooted = withRoot(row('zz-x', { dependencies: [parentEdge('zz-x', 'zz-root')] }));
+  const watch = createOrphanWatch({ bd: graphSeq(orphaned, rooted) });
+  await watch.sweep([{ name: 'zz' }]);
+  const out = await watch.sweep([{ name: 'zz' }]);
+  assert.deepEqual(out.newOrphans, []);
+  assert.equal(out.counts[0].changed, true);
+  assert.equal(out.counts[0].ordinary, 0);
+  assert.equal(describeCensus(out.counts[0]), 'no ordinary orphans, of 0 unrooted bead(s) across 2 non-closed');
+});
+
+await check('THE DENOMINATOR MOVING ON ITS OWN IS NOT A CHANGE', async () => {
+  // Somebody filed an ordinary rooted bead. `nonClosed` rises and the orphan picture is
+  // untouched — key on that and a working day is one line per workspace per cycle, which
+  // is the failure the once-per-spell rule above already exists to avoid.
+  const before = withRoot(row('zz-orphan'));
+  const after = withRoot(row('zz-orphan'), row('zz-fine', { dependencies: [parentEdge('zz-fine', 'zz-root')] }));
+  const watch = createOrphanWatch({ bd: graphSeq(before, after) });
+  const first = await watch.sweep([{ name: 'zz' }]);
+  const out = await watch.sweep([{ name: 'zz' }]);
+  assert.equal(out.counts[0].nonClosed, first.counts[0].nonClosed + 1, 'the denominator did move');
+  assert.equal(out.counts[0].changed, false);
+});
+
+await check('a merge-genre orphan arriving moves the total, and is a change even though `ordinary` does not move', async () => {
+  // `unrooted` is in the signature too, so the honest total is not silently stale.
+  const before = withRoot(row('zz-orphan'));
+  const after = withRoot(row('zz-orphan'), row('zz-merge-card', { labels: [MERGE_LABEL] }));
+  const watch = createOrphanWatch({ bd: graphSeq(before, after) });
+  await watch.sweep([{ name: 'zz' }]);
+  const out = await watch.sweep([{ name: 'zz' }]);
+  assert.equal(out.counts[0].ordinary, 1);
+  assert.equal(out.counts[0].unrooted, 2);
+  assert.equal(out.counts[0].changed, true);
+});
+
+await check('a workspace it could not read leaves its last shape alone, so the next good pass is not a change', async () => {
+  // The same trap the fail-open check above pays for, one field over: a failed pass must
+  // not make the recovered one look like the count moved.
+  const idx = withRoot(row('zz-orphan'));
+  let calls = 0;
+  const bd = {
+    graph: async () => {
+      calls += 1;
+      if (calls === 2) throw new Error('bd export timed out');
+      return idx;
+    },
+  };
+  const watch = createOrphanWatch({ bd });
+  await watch.sweep([{ name: 'zz' }]);
+  const failed = await watch.sweep([{ name: 'zz' }]);
+  assert.deepEqual(failed.counts, []);
+  const recovered = await watch.sweep([{ name: 'zz' }]);
+  assert.equal(recovered.counts[0].changed, false);
+});
+
 /* ---------------------------------------------------------------------- 6. the wiring */
 
 console.log('\nthe sweep is called, and reports its own failure like every sweep beside it\n');
@@ -300,6 +408,12 @@ console.log('\nthe sweep is called, and reports its own failure like every sweep
   );
   await check('a workspace it could not read is logged, not swallowed', () =>
     assert.match(server, /\[census\] \$\{bad\.workspace\}: could not read the tracker/)
+  );
+  await check('THE STANDING NUMBER IS PRINTED OFF `counts`, WHICH NOTHING READ BEFORE', () =>
+    assert.match(server, /for \(const row of out\.counts\) \{/)
+  );
+  await check('and only when it moved, and not twice for a workspace a bead-naming line already spoke for', () =>
+    assert.match(server, /if \(!row\.changed \|\| named\.has\(row\.workspace\)\) continue;/)
   );
 
   const { createApp } = await import(LIB('server.js'));

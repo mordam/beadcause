@@ -24643,13 +24643,29 @@ point of this file is that the count was otherwise invisible, so naming every or
 orphan already on the tracker the first time the daemon looks is the feature working, not
 a false alarm.
 
+**But a bead-naming line can only ever fire on a rise, so the count also gets a standing
+line when it *falls*.** An orphan adopted, or a root filed above a whole subtree, leaves
+no bead for `describeOrphan` to name and so produced nothing at all — which made the most
+recent `[census]` line in the log a high-water mark rather than the current count, and
+made reading the standing number depend on a recent rise or a recent daemon restart
+(bc-xl7n.132.2). Each per-workspace census row now carries `changed`, and one
+`describeCensus` line per workspace goes out whenever the orphan picture moved in either
+direction — including the fall to `no ordinary orphans`, the one number the old line could
+not express. **Keyed on `unrooted` and the ordinary ids, never on `nonClosed`**: the
+denominator moves every time anybody files or closes anything, so keying on it would put
+a line in the log on nearly every cycle of a working day, which is the same "teaches
+nobody to read it" failure the once-per-spell rule above exists to avoid. A workspace
+already spoken for by a bead-naming line this pass is skipped, since that line carries the
+same numbers — a rise stays one line, not two.
+
 Runs on the cycle's ordinary slow clock beside `sweepEpicsDone`, for the same reason:
 `bd.graph` is one `bd export` per workspace, cached for a minute and shared with the
 inbox's own board, so a pass here costs nothing a repaint was not already going to pay.
 
 `test/orphancensus.mjs` covers it — the pure count, both traps, the merge-genre
-exclusion, and the watcher's own once-per-spell logging and fail-open on a workspace it
-could not read.
+exclusion, the watcher's own once-per-spell logging and fail-open on a workspace it could
+not read, and the standing line in both directions: an adoption is a change, a moved
+denominator on its own is not.
 
 ### Noticing in five seconds — and not sweeping to find out
 
