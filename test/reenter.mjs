@@ -29,6 +29,10 @@
  *    halves have to be held apart from each other *and* from a window that really did die
  *    (bc-xl7n.98). Getting this wrong is not visible either: it is an unattended window
  *    opened on a bead nothing was wrong with.
+ * 5. **And a child epic's `in_progress` is not a worker's claim at all.** It is what
+ *    pressing Start on the root board writes, or what an advocate of its own leaves while
+ *    it runs — so reporting it as a stall points the brief's prescription (`--status open
+ *    --assignee ""`) points it straight at the root board (bc-xl7n.118).
  *
  * The tick half injects `openAdvocate`, so a case that would have opened an iTerm window
  * pushes a record onto an array instead. No iTerm, no `bd`, no agent, and nothing written
@@ -55,9 +59,8 @@ const REPO = path.join(tmp, 'projects', 'alpha');
 fs.mkdirSync(SESSIONS, { recursive: true });
 fs.mkdirSync(REPO, { recursive: true });
 
-const { advocatedRoots, handedBack, reentryFor, waitingOnMerge, waitingOnMergeCard, REENTER_DEFAULTS } = await import(
-  LIB('reenter.js')
-);
+const { advocatedRoots, handedBack, reentryFor, supervised, waitingOnMerge, waitingOnMergeCard, REENTER_DEFAULTS } =
+  await import(LIB('reenter.js'));
 const { pairKey } = await import(LIB('ancestry.js'));
 const { ADVOCATE_LABEL, WAITING_OPEN, WAITING_CLOSE, forgetAdvocateOpened } = await import(LIB('epicadvocate.js'));
 const { leaseLabel } = await import(LIB('lease.js'));
@@ -393,6 +396,39 @@ await check('a delivered child is not a stall — its pull request is waiting on
     /`x-1\.2` has been in progress for over 1h/,
     'an answered delivery holds nothing'
   );
+});
+
+await check('a child epic with an advocate of its own is not a stall — bc-xl7n.118', () => {
+  // The third shape, and the only one where reporting it does damage rather than costing
+  // a window. `in_progress` on a **root** is not a worker's claim: `boardMove` writes it
+  // when Adam presses Start, deliberately in the tracker so the board is the same fact on
+  // every device, and nothing takes it off but a close or a second Start. So a
+  // board-started sub-epic has no worker, no lease, no `human` label and no delivery — the
+  // three exclusions above all miss it — and the brief's prescription for a stall,
+  // `bd update <id> --status open --assignee ""`, is that write's exact inverse.
+  //
+  // Measured on bc-xl7n.113, started from the board 2026-08-21T11:14:24Z and reported in
+  // every `bc-xl7n` re-entry reason from 16:27:37Z on, four sweeps and counting, while its
+  // own advocate ran it correctly the whole time.
+  const supervisedKid = () =>
+    subtree({ 'x-1.2': { status: 'in_progress', issue_type: 'epic', labels: [OWNER, ADVOCATE_LABEL] } });
+  assert.equal(twoSweeps(supervisedKid).reason, null, 'somebody else is looking after it');
+  assert.deepEqual(twoSweeps(supervisedKid).record.stalls, {}, 'and it is not on the clock either');
+
+  // Free off the same row the sweep already holds, exactly like `handedBack`: one label,
+  // no read. The label is what every route stamps — the board start, the sweep's own
+  // launch and `POST /api/bead/advocate` all leave it behind — which is why the wider
+  // class (any supervised sub-epic, however it got there) is the one excluded rather than
+  // "is it on the board", a fact the tracker records nowhere but the status.
+  assert.equal(supervised({ labels: [ADVOCATE_LABEL] }), true);
+  assert.equal(supervised({ labels: [OWNER] }), false);
+  assert.equal(supervised({}), false);
+
+  // And the asymmetry that keeps the sweep honest: take the advocate off and nobody is
+  // watching it but this epic, so the clock starts again.
+  const unassigned = () =>
+    subtree({ 'x-1.2': { status: 'in_progress', issue_type: 'epic', labels: [OWNER] } });
+  assert.match(twoSweeps(unassigned).reason, /`x-1\.2` has been in progress for over 1h/);
 });
 
 await check('a dead window with no pull request and no question is still reported', () => {

@@ -6449,6 +6449,37 @@ button.viewpill { cursor: pointer; }
    a line of its own, where it read as a second fact about this bead. */
 .eq-from-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* The last thing anybody said about this bead. Muted and truncated to one line: it is a
+   reason to open the thread, not the thread. Italic so it reads as a quotation rather
+   than as another field of the bead — everything above it is the bead's own words.
+   `.eq-last`, not `.eq-said`: that name is taken, by the sticky line further up that
+   says what a verdict did. Two unrelated things on one page called "said" is how a
+   stylesheet starts lying, and test/css.mjs refuses the second declaration outright. */
+.eq-last {
+  display: flex; align-items: baseline; gap: 5px; min-width: 0;
+  font-size: 12px; color: var(--muted);
+}
+.eq-last-who { flex: none; font-weight: 600; }
+.eq-last-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+
+/* An open question naming this bead — the one line on the row that is an argument
+   *against* the tap beside it, so it is the one line that is not muted. Bordered rather
+   than merely coloured, because the whole failure it exists to stop is a thumb moving
+   down a list of rows that all look alike. */
+.eq-ask {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; min-width: 0;
+  margin-top: 2px; padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 12px; font-weight: 600; color: var(--text);
+}
+/* The question's own title wraps where everything else on the row truncates. It is the
+   sentence the row exists to make you read, and an ellipsis in the middle of "is this
+   already finished work?" is the row keeping the secret it was added to give up. */
+.eq-ask-title { min-width: 0; font-weight: 400; color: var(--prose); overflow-wrap: anywhere; }
+.eq-ask-sep { color: var(--muted); }
+
 /* The agent's own words, headed so the three of them do not run together into one
    grey wall. pre-wrap because a filed description is plain prose out of YAML and its
    line breaks are the only formatting it has. */
@@ -7473,7 +7504,15 @@ a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-i
    the tint is a colour on a pseudo-element rather than a border on anything real. */
 
 /* The way in, mirroring ＋ across the foot of the screen. Left because that is the other
-   thumb, and the same height because the two are peers: one creates, one edits. */
+   thumb, and the same height because the two are peers: one creates, one edits.
+
+   Parked (bc-p49x.12): nothing wears this any more. The button was taken out of
+   `public/index.html` because it sat over the inbox all day for a mode most sessions
+   never touch, and edit mode is now entered through `beadcause.editMode.toggle()` alone.
+   These three rules stay because the parking is meant to be reversible — put the element
+   back and the control is exactly what it was, badge included. Same for
+   `.editmode[data-changes]::after` further down, which is styling a count that currently
+   has nowhere to land. */
 .editmode {
   position: fixed;
   z-index: 24;
@@ -7629,7 +7668,11 @@ body.editing::after {
    Leaving edit mode puts the whole screen back the way the app has it — which is the
    truth, and is also exactly what a save that failed would look like. This badge is the
    difference: the way back in says how many edits are waiting, so a reverted screen reads
-   as "nothing was applied yet" rather than as "it lost them". */
+   as "nothing was applied yet" rather than as "it lost them".
+
+   Unused while the ✏️ is parked (bc-p49x.12) — there is no way back in to hang it on.
+   `paintCount` still writes `data-changes` whenever a button exists, so this comes back
+   with the element and needs nothing else. */
 .editmode[data-changes]::after {
   content: attr(data-changes);
   position: absolute;

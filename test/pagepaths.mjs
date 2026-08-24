@@ -142,6 +142,28 @@ const PAGES = [
   // waiting to become one. No pill claims either, which is the recorded decision in
   // public/viewbar.js for a page you read when you are arguing about the system.
   { what: 'the skills view', marker: '/skills.js', paths: ['/skills', '/candidates', '/skills.html'] },
+  // The foundations register — the standing document behind the app's own design
+  // decisions. It carries no pill and loads no /viewbar.js at all, unlike the two
+  // entries below it: the `‹` anchor at the top of the page (id="back") is its only way
+  // back to the inbox, and it is deliberately the one place left in public/ that still
+  // has one — deleting it strands the page.
+  { what: 'the foundations page', marker: '/foundations.js', paths: ['/foundations', '/foundations.html'] },
+  // The map (bc-34i0). Not a pill on the row — a page you read when you are new to the
+  // system or arguing about it, not one you check. It draws the row anyway, with
+  // nothing on it current, because it is one of the eight pages the deleted bottom bar
+  // used to be the only way off (bc-khoe.1). `/map` as well as `/flow` because both
+  // are what somebody types.
+  { what: 'the map page', marker: '/flow.js', paths: ['/flow', '/map', '/flow.html'] },
+  // The requirement graph and its coverage (bc-fvmx.8). Two paths, because the page is
+  // reached both by what it holds — requirements — and by what a reader actually goes
+  // there to check, which is how much of the corpus is covered. No pill claims it
+  // either, for the same reason /skills has none — it draws the row anyway, with
+  // nothing on it current.
+  {
+    what: 'the requirements page',
+    marker: '/requirements.js',
+    paths: ['/requirements', '/coverage', '/requirements.html'],
+  },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
