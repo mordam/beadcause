@@ -975,6 +975,22 @@ await check('the line it hands the card says what happened, or nothing at all', 
   assert.match(describeMergeQueue({ ok: false, reason: 'bd list failed' }), /bd list failed/);
 });
 
+await check('and it tells a review that is happening from one that is only owed, and names what is in line', async () => {
+  const bare = { ok: true, merged: [], updated: [], refused: [], raised: [], waiting: [] };
+  // bc-xl7n.129. `awaiting` is true of a pull request a reviewer is reading right now and
+  // of one nothing has ever looked at, so on its own the line cannot say which.
+  assert.match(describeMergeQueue({ ...bare, reviewing: ['a'] }), /1 being reviewed/);
+  assert.match(describeMergeQueue({ ...bare, answering: ['a', 'b'] }), /2 being answered/);
+  // And the wait this bead is about: a window asked for and not opened, which for three
+  // hours was reported as a window that had been.
+  const line = describeMergeQueue({ ...bare, inLine: [539, 626, 627] });
+  assert.match(line, /3 in line for a window \(#539, #626, #627\)/, line);
+  const long = describeMergeQueue({ ...bare, inLine: [539, 626, 627, 629, 631] });
+  assert.match(long, /5 in line for a window \(#539, #626, #627 and 2 more\)/, long);
+  // Optional, for `held`'s reason: a caller predating the fields hands this a plain object.
+  assert.equal(describeMergeQueue(bare), '');
+});
+
 /* ============================================================== the review gate
 
    bc-36xx.4. test/reviewgate.mjs pins the decision as a pure function; these are the
@@ -1210,6 +1226,21 @@ await check('comments waiting on the worker open the worker’s window', async (
   // No flag is written for it: whether the window is owed is the review block itself —
   // a comment with no answer on it — and it stops being true when the worker writes one.
   assert.match(bd.calls.updates.at(-1).notes, /waiting on the worker/);
+});
+
+await check('a window the Mac was too full to open is counted as in line, not as opened', async () => {
+  // bc-xl7n.129. The door returns `'queued'` when `resolveFor` put the pull request in
+  // line rather than opening a window — still truthy, so nothing that only asks yes-or-no
+  // changed, and counted apart so the card can say what is waiting. Before this a queued
+  // window and a live one were the same number, which is why 25 pull requests could sit in
+  // line for three hours with every log line on the path reading as success.
+  const rev = { round: 1, verdict: 'changes', reviewedSha: HEAD, comments: [{ id: 'c1', body: 'this leaks a handle' }] };
+  const bd = fakeBd({ rows: [reviewed(rev)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), { policy: REVIEW_ON, openAnswer: async () => 'queued' });
+  assert.deepEqual(out.answering, [], 'a window that never went up must not be reported as one that did');
+  assert.deepEqual(out.inLine, [42], 'the pull request number, because the card names them and bead ids are not what is in line');
+  assert.deepEqual(out.awaiting, ['zz-merge'], 'and it is still waiting on the worker either way');
+  assert.match(describeMergeQueue(out), /1 in line for a window \(#42\)/, describeMergeQueue(out));
 });
 
 await check('a refusal becomes a card, without waiting out the round cap', async () => {

@@ -10496,6 +10496,54 @@ advocate · 2 resolving pull requests` — for the same reason the advocate's no
 both directions, and that a Mac nobody has described still caps resolvers at
 `maxResolvers` on its own.
 
+#### And a queue for that budget presses on it
+
+Sharing the budget made a resolver *wait* for a full Mac. Nothing made the dispatcher
+notice it waiting, and that turned out to be the whole of a second bug. Every window the
+merge queue opens for itself — the resolver on a conflicting branch, the reviewer on a
+delivered one, the worker answering what a reviewer said — goes through the same
+registry, so a full Mac puts all three **in line**. The advocate's arithmetic subtracted
+the resolvers that were *live* and read the line behind them nowhere at all. A slot freed
+by a worker closing was handed straight back to a new bead; the drain that would have
+taken it runs on a twenty-second timer, and lost the race almost every time.
+
+It compounds, because the pipeline being starved is the one that *finishes* work. A merge
+gives a worktree, a bead and a slot back. A dispatch costs all three. So the queue grew
+and the dispatcher kept filling the gaps: on the day this was filed the line went from 8
+to 25 over three hours and moved exactly once — when a window happened to close in a tick
+the dispatcher had nothing ready for. Five delivered pull requests were waiting on a
+worker at the same moment, one of them for seven hours. That is bc-xl7n.129.
+
+**One window is kept back while anything is in line.** `globalFree` is
+`globalMaxWorkers - workers - resolvers - reserved`, and `reserved` is 1 whenever the
+queue has something in it — renewed every tick for as long as it is still owed, so the
+queue takes the freed slot rather than racing a timer for it. One rather than the whole
+line, because the drain opens entries one at a time and reserving twenty-five would empty
+the Mac of workers for as long as anything waited. And **nothing at all when the line is
+held by `maxResolvers` rather than by the Mac** — a queue that cannot take a worker's slot
+would hold one open for ever, which is the same bug pointed the other way.
+
+The card says so, for the reason it names the resolvers: *"held by globalMaxWorkers (4) ·
+1 of them is a session resolving a pull request · 1 more is being kept for the 25 pull
+requests in line for a window"*. Otherwise a cap of four over three live windows reads as
+arithmetic that does not add up, and the fourth is not a window at all.
+
+The reservation is subtracted in `lib/advocate.js` and **nowhere else** — `globals()` in
+particular must not learn about it. That object is what the daemon hands the registry
+through `accountAgainst`, so a reservation folded into its `live` would tell the queue the
+Mac is fuller than it is and make it refuse the very window the reservation is holding
+open. It would cancel itself, silently, while the card went on saying the slot was kept.
+
+The wait is sayable now, too, which it was not: the queue's own line counts the windows it
+opened for itself apart from the ones it asked for and could not get, and names them —
+*"merge queue: 1 being reviewed · 5 in line for a window (#539, #626, #627 and 2 more)"*.
+Before this, a door that queued and a door that opened returned the same `true`, so a pull
+request whose window never went up was counted beside one whose had, and the only trace of
+the wait anywhere was a count in the resolver's own log that named nothing.
+
+`node test/windowbudget.mjs` covers the reservation, the release, and the bound that keeps
+it from deadlocking; `node test/mergequeue.mjs` covers the reporting.
+
 #### One card for the whole sweep, amended as the windows close
 
 A sweep opens two windows and queues a third, and then says nothing for twenty minutes,
