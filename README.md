@@ -10496,6 +10496,54 @@ advocate · 2 resolving pull requests` — for the same reason the advocate's no
 both directions, and that a Mac nobody has described still caps resolvers at
 `maxResolvers` on its own.
 
+#### And a queue for that budget presses on it
+
+Sharing the budget made a resolver *wait* for a full Mac. Nothing made the dispatcher
+notice it waiting, and that turned out to be the whole of a second bug. Every window the
+merge queue opens for itself — the resolver on a conflicting branch, the reviewer on a
+delivered one, the worker answering what a reviewer said — goes through the same
+registry, so a full Mac puts all three **in line**. The advocate's arithmetic subtracted
+the resolvers that were *live* and read the line behind them nowhere at all. A slot freed
+by a worker closing was handed straight back to a new bead; the drain that would have
+taken it runs on a twenty-second timer, and lost the race almost every time.
+
+It compounds, because the pipeline being starved is the one that *finishes* work. A merge
+gives a worktree, a bead and a slot back. A dispatch costs all three. So the queue grew
+and the dispatcher kept filling the gaps: on the day this was filed the line went from 8
+to 25 over three hours and moved exactly once — when a window happened to close in a tick
+the dispatcher had nothing ready for. Five delivered pull requests were waiting on a
+worker at the same moment, one of them for seven hours. That is bc-xl7n.129.
+
+**One window is kept back while anything is in line.** `globalFree` is
+`globalMaxWorkers - workers - resolvers - reserved`, and `reserved` is 1 whenever the
+queue has something in it — renewed every tick for as long as it is still owed, so the
+queue takes the freed slot rather than racing a timer for it. One rather than the whole
+line, because the drain opens entries one at a time and reserving twenty-five would empty
+the Mac of workers for as long as anything waited. And **nothing at all when the line is
+held by `maxResolvers` rather than by the Mac** — a queue that cannot take a worker's slot
+would hold one open for ever, which is the same bug pointed the other way.
+
+The card says so, for the reason it names the resolvers: *"held by globalMaxWorkers (4) ·
+1 of them is a session resolving a pull request · 1 more is being kept for the 25 pull
+requests in line for a window"*. Otherwise a cap of four over three live windows reads as
+arithmetic that does not add up, and the fourth is not a window at all.
+
+The reservation is subtracted in `lib/advocate.js` and **nowhere else** — `globals()` in
+particular must not learn about it. That object is what the daemon hands the registry
+through `accountAgainst`, so a reservation folded into its `live` would tell the queue the
+Mac is fuller than it is and make it refuse the very window the reservation is holding
+open. It would cancel itself, silently, while the card went on saying the slot was kept.
+
+The wait is sayable now, too, which it was not: the queue's own line counts the windows it
+opened for itself apart from the ones it asked for and could not get, and names them —
+*"merge queue: 1 being reviewed · 5 in line for a window (#539, #626, #627 and 2 more)"*.
+Before this, a door that queued and a door that opened returned the same `true`, so a pull
+request whose window never went up was counted beside one whose had, and the only trace of
+the wait anywhere was a count in the resolver's own log that named nothing.
+
+`node test/windowbudget.mjs` covers the reservation, the release, and the bound that keeps
+it from deadlocking; `node test/mergequeue.mjs` covers the reporting.
+
 #### One card for the whole sweep, amended as the windows close
 
 A sweep opens two windows and queues a third, and then says nothing for twenty minutes,
@@ -17974,6 +18022,79 @@ nobody asserts prose on prints nothing and exits `0` — and `2` only for a modu
 that does not resolve to a file. Read-only by construction: every path through it is a
 `readFileSync` and a regex, and it never runs a suite or calls the module it reads.
 
+### What a new bin/ command still owes before an agent can call it — `b7e-enroll`
+
+`bc-khoe.27.11` is the same shape breaking repeatedly rather than once, for a *command*
+rather than a route or a config key: six sessions (`bc-khoe.27.6`, `bc-khoe.27.7`,
+`bc-gdub.2`, `bc-gdub.3`, `bc-bmry.7`, `bc-zjab`) each independently re-derived the same
+handful of places a new `bin/` entry incurs debt in — grepping `lib/toolbelt.js` and
+`lib/grants.js` by hand, reading the same two memory notes every time, and at least once
+(`bc-khoe.27.6`) paying for the gap with a full 369-suite parallel gate that ended on
+`test/grants.mjs: dispatch grants Bash(b7e-apply:*), which nothing classified`. `b7e-owes`
+above already does this for routes, config keys, the evidence register and page aliases;
+this is the same idea, for the registries a command owes rather than a route.
+
+```
+b7e-enroll                    every command in bin/ against every registry, right now
+b7e-enroll b7e-x               just that one command's registrations
+b7e-enroll bin/b7e-x.js        the command a brand-new file in bin/ would be named,
+                               checked the same way, before it is registered anywhere
+```
+
+Seven checks, but only two are universal — any `bin/` command owes them:
+
+1. **`package.json`'s `bin` map** has an entry for the name.
+2. **`package-lock.json`'s `packages[""].bin`** agrees with it — `test/lockfile.mjs` is
+   pinned first in the sweep, so a lock that disagrees stops every later suite.
+
+The other five are specifically the `b7e-*` "skill" checklist — `bc-dgx7.2`'s own
+definition of a skill is `b7e-<verb>` on `PATH`, on the allowlist, tested and
+documented — and the worker-only `beadcause-*` commands (`bin/deliver.js`,
+`bin/ask.js`, …) owe none of it: a worker's
+Bash is already unrestricted, so they are run by absolute path (`node bin/deliver.js`),
+need no exec bit (most are plain `-rw-r--r--`), no dedicated README section, and no
+`DEFAULT_TOOL_LIST` entry. `bc-bmry.7` lived this split for real, on a non-`b7e-`
+command: it checked exactly `package.json` and `package-lock.json`, found nothing else
+owed, and went looking for a different registry (`lib/sessionaudit.js`) instead.
+
+3. **`bin/<name>` itself** exists, is executable, and starts with a node shebang — the
+   *extensionless* file, for a name not registered yet: `lib/foundation.js` puts the
+   main checkout's `bin/` on `PATH`, so a command resolves by the name it is typed as,
+   and a `package.json` rename resolves only after an `npm link` this install has never
+   had. Once a name is already registered, this trusts whatever file `package.json`
+   already points to, `.js` suffix and all — `b7e-owes` and `b7e-say` both still have
+   one, and relitigating an *existing* mismatch belongs to `bc-jlop`/`bc-dgx7.2`, not
+   here.
+4. **Some file under `test/`** actually spawns it —
+   `path.join(ROOT, 'bin', '<name>')` (with or without `.js`) appearing anywhere under
+   `test/`, not a fixed filename: the family's own test files disagree with each other
+   on that (`test/b7e-say.mjs` keeps the dash, `test/b7eowes.mjs` drops it,
+   `test/eyeball.mjs` is named for neither `b7e-eyeball` nor any dash-dropped spelling
+   of it).
+5. **`README.md` has a `###` heading** naming it, backtick-quoted — a feature is not
+   finished here until the README says it exists.
+6. **`lib/toolbelt.js`'s `DEFAULT_TOOL_LIST`** either grants `Bash(<name>:*)` to the
+   restricted `dispatch` agent, or the array's own comments name it and say why not —
+   nine of the family are deliberately not granted, each with a paragraph explaining
+   what it writes or spawns, and that decision is exactly as real as being on the list.
+   It is only unpaid when neither is true.
+7. **If (6) grants it, `lib/grants.js` classifies `Bash(<name>:*)`** — `test/grants.mjs`
+   fails the moment something is on `DEFAULT_TOOL_LIST` unclassified, "deny by default"
+   being the whole design of that file.
+
+Run with no argument against main as this was written, it named exactly one thing:
+`b7e-say` has neither a `DEFAULT_TOOL_LIST` entry nor a comment saying why not — the
+same gap `bc-gdub.2`'s own retrospective describes shipping everything else and then
+"neither" of this pair. It also found a second, previously uncaught one the same way —
+`b7e-sandbox` — filed as its own bead rather than fixed here, on the same argument
+`b7e-owes` makes for its own five-page pagepaths gap: deciding whether to grant it is a
+real decision, not a registration to paper over in a tool's own diff.
+
+Exit code is a linter's: `0` when nothing is owed, `1` when something is. Read-only by
+construction in the same sense `b7e-def`/`b7e-owes`/`b7e-affected` are — it only ever
+calls `fs.readdirSync`/`readFileSync`/`statSync` over the files above and prints what
+it found — which is what put `Bash(b7e-enroll:*)` on `DEFAULT_TOOL_LIST` beside them.
+
 ### Agent prose goes into a bead or a memory from a file, never a shell argument — `b7e-say`
 
 `bc-gdub.2` is the third finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
@@ -18670,6 +18791,62 @@ test:*)` is held by `merge-advocate` alone, on the argument that "nothing about 
 tests is a read" — and on a suite it decides needs it, writes to the tree via
 `scripts/vendor.js`. `dispatch`, the one agent this list actually governs, has no sweep
 of its own to triage and no branch to have run one on.
+
+### Which gate runners are on this Mac, whose worktree each is, and ending only mine — `b7e-gates`
+
+`bc-khoe.55` names four sessions (`bc-4r10.13`, `bc-khoe.4`, `bc-khoe.30.14`,
+`bc-khoe.53`) that each worked out, unaided, which long-running `scripts/test.mjs` or
+`scripts/coverage.mjs` process was *theirs*, on a machine where dozens of worktrees of
+this repo can be live at once and several may be running one at the same time. No two of
+the four used the same method, and two got it wrong first — `bc-khoe.30.14`'s `pkill -f
+'scripts/test.mjs'` reported success and killed nothing; the child a `spawnSync` had
+started survived its parent's death and kept running, ownerless. Only `lsof -a -p <pid>
+-d cwd -Fn` ever actually answered "whose worktree is this pid in", and it took each
+session three to five calls to arrive there by trial.
+
+```
+b7e-gates                      every runner: pid, kind, worktree, MINE or whose it is
+b7e-gates --mine                only runners in this worktree
+b7e-gates --others              only runners NOT in this worktree
+b7e-gates --end-mine            end every runner in this worktree, verified
+b7e-gates --end-mine --stale    more than one mine: spare the newest, end the rest
+b7e-gates --match <re>          also match this against a process's whole command line
+b7e-gates --dir <path>          "this worktree" is <path>, not the caller's own cwd
+b7e-gates --json                one object per runner instead of the printed report
+```
+
+**Two ways a runner is found, cheapest first.** `b7e-gate` (`bc-khoe.39`, above) already
+writes a lock file per tree holding `{ pid, startedAt }`; `lib/gate.js`'s
+`gateLockStatus` reads it back, keyed by the worktree root itself, so for any run that
+went through it "which worktree is this pid in" is one file read — no `lsof`, no false
+hit from an agent process whose own prompt text happens to contain the words `scripts/
+coverage.mjs`. That does not cover a direct `npm test` or `node scripts/coverage.mjs`,
+which take no lock — every process-table match not already accounted for by a lock falls
+back to `lsof`, and each runner in the report says which of the two (`lock` or `pgrep`)
+told it.
+
+**Fails closed.** `lsof` returning "I could not tell" — no binary, or a refusal it did
+not explain — is reported `unresolved`, never guessed at as mine or silently dropped;
+`--end-mine` never signals an unresolved runner. `BEADCAUSE_LSOF` names one binary and
+skips the search, the same override `lib/gitref.js`'s own lock-owner check uses.
+
+**Ending one is verified, not assumed.** `bc-khoe.30.14`'s trap — a signal to the parent
+does not reliably take a `spawnSync`'d child down with it — is closed by snapshotting the
+*whole* descendant tree of a runner's pid before sending anything, so a child that would
+otherwise be orphaned mid-signal is signalled directly rather than left to a cascade that
+may not happen. SIGTERM every pid in the snapshot, wait, SIGKILL whatever is still there,
+wait once more, then report which are still alive. A runner is `ended` only when nothing
+in its tree survived; a survivor is named, never silently written off. Exit `1` when
+`--end-mine` leaves one, and also — the acceptance criterion for the plain report —
+when more than one runner is mine at once, the same concurrent-gate hazard this repo's
+own notes already name as a source of false reds; `--end-mine --stale` is what to run in
+that case, sparing the newest.
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`. `--end-mine` sends `SIGTERM`/`SIGKILL`
+to a live process — a write with no undo — and the allowlist has no syntax to grant the
+plain report while withholding that one flag from the same binary. `dispatch`, the one
+agent this list governs, has no gate of its own running and no branch to have started one
+on.
 
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
 
@@ -19722,6 +19899,77 @@ the whole point of the command is that it reaches whatever the caller points it 
 own single `bd comment`; granting this there would let a one-shot comment-answerer run an
 arbitrary shell script against a tree it does not own. See `bin/b7e-sh`, `lib/shguard.js`
 and `test/b7esh.mjs`.
+
+
+### Every bead id quoted in the tree, with what the tracker now says — `b7e-cites`
+
+This repo argues in its own comments and cites beads by id, and the citations go stale
+silently the moment the bead they name settles. `bc-4r10.9` grepped for one string across
+three files and found `lib/incident.js:41` — "(bc-228x has not settled whose boundary
+this is)" — long after `bc-228x` had closed with the Energy Navigator / Insights answer,
+and found it only because it had just read `bc-228x` for another reason entirely.
+`bc-4r10.4` found `lib/policies.js` still crediting itself with work it no longer owned,
+and filed a bead about it rather than fixing it in place. `bc-eqn1.2` hit a doc comment
+saying some clauses were "still to come" while it was in the middle of writing those
+clauses. `bc-4r10.1`, sweeping for something unrelated, found `test/servicescope.mjs:25`
+still saying two files "are landing on" main, read unchanged by three later sessions
+after both had. `bc-4r10.22` is the session audit naming all four as one shape: nothing
+ever swept the tree for the rest.
+
+```
+b7e-cites                     every citation under lib, bin, test, scripts, public,
+                                android and README.md
+b7e-cites <path> [<path> ...] only these files/directories
+b7e-cites --stale             only the two definite cases: an unknown id, or a pending
+                                phrase about a bead that has since closed
+b7e-cites --bead bc-4r10.22   just this one id, everywhere it is quoted
+b7e-cites --json              one object per line instead of the printed report
+b7e-cites --dir <root>        another tree — this is how it is tested
+```
+
+`lib/mentions.js` already had the id matcher — built for prose, over bead fields, for
+`scripts/relate-sweep.mjs` — and `lib/bd.js` already had the status; this joins them over
+the working tree instead of over a bead's own description. `citationsIn` (`lib/cites.js`)
+calls `mentionsIn` once per line rather than once per file, which is what turns "this id
+is mentioned somewhere" into "this id is mentioned *here*" — `path:line` is the whole
+point of a citation, and every id found is batched into a single `bd show` spawn rather
+than one per id (spawn count is the whole cost on this tracker — see the note on `graph`
+in `lib/bd.js`).
+
+**The file walk duplicates `lib/repogrep.js` (`bin/b7e-grep`, `bc-4r10.21`) rather than
+importing it.** That command settled the same roots and exclusions — skip
+`node_modules`, `.git`, `.claude` (so a sibling worktree's own copy of a file is never a
+second hit), `.coverage`, `dist`, `.gradle`, `.idea`, `build` — two hours before this bead
+was picked up, and its pull request was still on the merge queue, not yet on `main`, when
+this was written. Depending on it would have made this branch's own tests only pass in
+whichever order the two happened to merge; ~30 duplicated lines costs nothing that a
+later consolidation can't undo, and importing an unmerged sibling's module costs a build
+that works by luck.
+
+**`--stale`'s pending-phrase list is a reconstruction, not a recovered quote.** The
+originating bead's own acceptance text was truncated mid-word — "...is landing, ha" — in
+the *stored* description itself (checked with `bd show --json`, not just the wrapped
+terminal view), so the closed list in `lib/cites.js` (`PENDING_PHRASES`) is built from the
+three citations actually quoted above ("has not settled", "still to come", "are landing
+on") plus the natural variant the truncation was reaching for ("has not landed"). A
+phrase alone is never a verdict: `lib/cites.js`'s `staleFilter` only flags a pending
+phrase when the bead it names has **since closed** — the same sentence about a bead still
+genuinely open is not wrong yet, and is not reported.
+
+**What it does not know.** An id shaped like a real one but never filed — `bc-swr`,
+`bc-q1`, a typo, a deliberate placeholder in a sentence explaining what a fake id looks
+like — reports as `unknown`, same as a genuine stale reference; there is no way from the
+text alone to tell "this was never real" from "this used to be real". And it only checks
+this checkout's own tracker's prefix (`bc`, via `lib/beadref.js`'s `prefixFor`) — an
+example id from another workspace quoted in passing (this file uses a few, illustrating
+what another tracker's ids look like) is never resolved, by design: resolving it would
+need a live `bd` call against a tracker this Mac may not even have configured.
+
+`Bash(b7e-cites:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`, the same shape as `b7e-def`/`b7e-siblings`/`b7e-census` above: its file
+walk never leaves the fixed roots, and the only `bd` verbs it spawns — `list --limit 1`
+(to learn this tracker's own prefix) and one batched `show` — are both reads. See
+`bin/b7e-cites`, `lib/cites.js` and `test/cites.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
@@ -20989,6 +21237,25 @@ looks like a detail until it is wrong:
   meant to close it. A `declined` **does** file, with the worker's own words on the child and
   a sentence saying that answer was never re-reviewed — it is context for whoever picks it
   up, not a settlement.
+
+**And the epic's advocate is told, when there is one listening** (bc-9ntye.3,
+`lib/followupnudge.js`, `test/followupnudge.mjs`). Filing the bead is usually the whole
+job: it is open, unclaimed, under a root, which is what `bd ready` means, and the re-entry
+sweep opens an Epic Advocate on the *filed* event without being asked. The case neither
+covers is the likely one — the root's advocate window is **already live**, because a merge
+under an epic is usually an epic that had a worker out. `reenter` will not open a second
+window on a root a session already names, and the live one read `bd children` at the top of
+its turn and will not read them again; so without a word from the queue the follow-up waits
+for that window to end *and* for the three-hour re-entry cooldown. The queue types one
+paragraph into it instead, through the same `messageSession` channel a pause uses. "An
+advocated epic" is `wantsAdvocate` **and** `isEnrolled` — the pair `advocatedRoots` queues
+on, reused rather than re-derived, because `wantsAdvocate` alone is true of every open owned
+root including the many nothing has ever advocated, and typing into one of those is a
+paragraph about somebody else's epic in an ordinary worker's window. No advocate, no root,
+no window, an iTerm that refuses: all of them are silence, and none of them can reach the
+two closes. It also lives in `finish` rather than in `afterMerge`, which is what the bead
+asked for and is a variant of the ordering below — `afterMerge` fires before the follow-up
+exists, so there is no bead id to hand anybody.
 
 Every sentence the merge writes names the bead the findings went to: the report on the pull
 request, the merge-bead's close reason, and the comment on the work bead — and, since
@@ -32686,6 +32953,82 @@ it, so the set belongs to the service organisation rather than to this daemon. T
 register itself is a controlled document in `lib/documents.js`, on twelve months, and what
 is approved there is the register — by the owner of this repository — and not the fifteen
 documents it tracks.
+
+### Eight risks, each with an owner, a treatment and a date it expires — `lib/risk.js`, `test/risk.mjs`
+
+Clause 6.1.2 of ISO/IEC 42001 does not ask for a list of risks. It asks for a *process*:
+criteria saying what counts as acceptable, written down **before** anything is rated
+against them, then identification, analysis, evaluation, and 6.1.3's treatment — with the
+residual left over accepted by somebody, by name. A register produced without the criteria
+is a page of worries, and an auditor asks for the date on the criteria for exactly that
+reason: criteria written afterwards are criteria drawn around the answers.
+
+Most of the register already existed. A risk here *is* a bead — an owner, work that treats
+it, a date to look again — and the tracker holds those three far better than a file would.
+What it cannot hold is the vocabulary. A likelihood spelled two ways is two likelihoods,
+an "acceptable" that means whatever the reader thinks is not a criterion, and a treatment
+naming a control nobody minted treats nothing. So this module holds the method, the
+criteria and the ratings, and cites the tracker where the work lives.
+
+**The chain is the point: risk → control → evidence.** Every risk names the 42001 controls
+it selects, the modules here that make the treatment real today, and the classes of record
+from [the evidence
+register](#nothing-is-kept-without-saying-for-how-long--libevidencejs-testevidencemjs)
+that an auditor could sample to see it operating. `chain()` returns the three together,
+which is what makes a Statement of Applicability *generatable* rather than argued —
+`bc-eqn1.14` reads `controlsClaimed()` and gets, for every control, the risks that selected
+it and the records that would show it working. An SoA whose justification column was typed
+by hand is one nobody can re-derive next year.
+
+**The ids are 42001's, and that is the opposite direction to the policy set.**
+[`lib/policies.js`](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+names SOC 2 criteria because a policy set answers a SOC 2 request list. Annex A of 42001 is
+a list of *treatments* and exists to be selected from, so a risk names 42001 ids and the
+SOC 2 half is walked off [the
+corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) by `alsoServes`. That
+is `bc-4r10.8`'s whole argument — CC3 and CC9 read off this one register rather than growing
+a second — and the suite greps the two data blocks to make sure no SOC 2 or 27001 id was
+ever written into them by hand.
+
+**Five likelihoods by five consequences, and the multiplication is a sort key rather than
+arithmetic.** "Possible × major" is not a number of dollars and two risks scoring 12 are
+not interchangeable; what the product buys is a stable order and a threshold that could be
+written down before the ratings were. The scales are anchored on something observable — a
+likelihood on this daemon's year, a consequence on what the consequence *is* — because this
+organisation has no loss figures and a dollar band would be the most quotable false thing in
+the file. Every one of the twenty-five scores lands in exactly one band, and the suite walks
+all of them to prove it.
+
+**Harm to whom is rated separately, which is ISO/IEC 23894's distinctive demand.** A
+register that scores every risk by its cost to the organisation is the register 23894 exists
+to refuse, so `harmTo` is a closed set — the organisation, individuals, society — and a
+consequence to individuals is never netted off against a benefit to the organisation. Most
+of this register is organisational, and the criteria say so out loud rather than leaving the
+imbalance to look like an oversight: it is a development tool run by one person on one Mac,
+and the three things that would change that are named as a re-rating of the whole register
+rather than an entry appended to it.
+
+**Nothing is accepted yet, and that is the honest state.** Seven of the eight residuals sit
+above the acceptable band and every one of them records that its acceptance is still owed,
+with a sentence saying what is missing. Writing an acceptor and a date anyway would produce
+a register that passes every check and is false in the one way that matters — the refusal
+`lib/policies.js` makes about fifteen unwritten policies, and `lib/documents.js` makes about
+an approver nobody asked. The rules bite in both directions: an accepted risk with no
+acceptor is refused, and an owed one carrying a date is refused just as hard. Who may sign
+is the criteria's answer, not the entry's — a medium residual is the AI system owner's, a
+high one top management's, and a critical residual may not be retained at all.
+
+**The eight process steps are 23894's own, and a missing one fails by name.** `METHOD` is
+written as the standard's list rather than as whatever this system happens to do, because
+the value of it is that a step nobody performs shows up as an empty one. Three of the eight
+admit to a gap today: nobody is consulted on a rating because there is nobody to consult,
+identification happened once and nothing prompts it again, and review is on a clock rather
+than on a trigger — nothing re-rates a risk because the code that treated it changed.
+
+The register is itself a controlled document in `lib/documents.js`, on six months rather
+than twelve, because a rating is a statement about a system on the day it was made and this
+one changes daily. What is approved there is the method and the register; not the residuals,
+every one of which separately says its acceptance is owed.
 
 ### Two commitments, owed to NYSERDA and TD until somebody reads the agreement — `lib/commitments.js`, `test/commitments.mjs`
 
