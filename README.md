@@ -15129,6 +15129,73 @@ on it is.
 the temp files, the same bead dispatched three times without the counter moving, and
 delivered and handed-back sessions coming out unchanged.
 
+#### The window that disappeared — and the conversation that comes back into the next one
+
+The section above is a window that never started. This is the opposite end: a window that
+started, worked for an hour, and then **went away** — closed by hand, killed, or lost with
+its terminal.
+
+Until bc-y7l2m nothing noticed. There was no ending for it, so the window fell through to
+`workerTimeoutMinutes`: the slot was held for **two hours**, then the bead was charged an
+attempt and its claim forced off, and the next window was briefed from scratch. Measured on
+2026-08-24, both windows on this Mac that died that morning stopped writing at 10:47 and
+were written down as having timed out at 11:55 and 12:22 — four hours of held slots between
+them, and two full transcripts sitting unread on disk the entire time.
+
+**The whole fix rests on one distinction: a window that is *gone* is not a window that is
+*quiet*.** `silent`, `timeout` and `lapsed` are all read off a window still sitting on the
+screen, and the note beside `parkWorker` is right about them — an agent that stopped
+answering may be wedged mid-turn, and resuming it would resume the wedge. A window whose
+live-session row is *absent* stopped answering for a reason that says nothing about the
+agent at all. Somebody hit ⌘W.
+
+So `reconcile` now watches for the absence, and what follows is the ordinary parking
+machinery pointed at a new ending:
+
+| | |
+|---|---|
+| **noticing** | a worker with a session id whose row is not in Claude Code's live-session list, on a Mac where *other* rows still are, for `goneMinutes` (default 3) of consecutive ticks. Three minutes and not one tick because the evidence is an absence: a list being rewritten can be read a moment short, and concluding from one miss would take a working agent's slot, force its claim off and hand its bead to a second window — [which is the worst failure this file has](#a-tracker-two-macs-share) |
+| **the ending** | `gone`, and it fires long before the two-hour timeout. The slot comes back, `handBack` puts the claim back in the queue, and **the bead is charged no attempt** — the same argument as `silent`, only stronger. A window vanishing is evidence about the window; `maxAttemptsPerBead` is 2, so charging a closed terminal would retire beads for something no session did wrong |
+| **the park** | the conversation is written down exactly as a handed-back one is — session id, directory, and now the **ending** that put it there, because that is what decides which turn it wakes up to |
+| **the other sensor** | pressing **Reclaim sessions** asks iTerm about each window by id, and `missing` is the same fact measured a stronger way — that one needs no clock, and it now reaches the same ending rather than the older `reclaimed`. The `!term` branch beside it stays `reclaimed`: a slot freed *without asking* measured nothing, so there is nothing to conclude about the conversation |
+| **the resume** | the next dispatch through `launch` finds the park and opens that conversation instead of briefing a stranger, in the worktree it was standing in. Usually the same tick: the hand-back happens at the end of `reconcile`, and the survey a few lines later reads a bead that is ready again |
+
+The turn it wakes up to is **not** the one an answered question gets. `resumePrompt` opens
+with "Adam answered", and handing that to an agent whose window was merely closed sends it
+hunting through the bead, the comments and its own transcript for a decision nobody made —
+the one failure here that the agent cannot detect for itself. `interruptedPrompt` says the
+opposite in its first line: your window disappeared, **nothing was answered**, do not start
+over. Then the two facts its transcript cannot contain, because both happened after its last
+line — its claim was forced off and it has to take it back, and time has passed so `main` has
+probably moved. The two turns are chosen off the recorded `ending` and never off whether an
+answer happens to be in hand, because a perfectly ordinary handback whose question was filed
+as its own bead has no answer under that key either.
+
+**And it does not loop.** `maxResumes` (default 1) is the guard. The first disappearance is
+an accident, repaired for free. A conversation whose *resumed* window also disappears is not
+an accident any more — something about that agent, that worktree or that bead is killing
+windows — so that one is charged an attempt, nothing is parked, and the bead falls through
+to the fresh brief the attempt counter was always arranging. Two counters, deliberately:
+`resumes` bounds how many times a **conversation** is carried over, `attempts` bounds how
+many times a **bead** is tried. The trip count rides on the worker record between one park
+and the next, because the resume *drops* the park — a record left behind is a conversation
+two dispatches would both try to bring back.
+
+One quiet consequence, in `archiveFinished`: the salvage comment that tells a handed-back
+bead ["what its dead window built"](#and-the-hand-back-tells-the-bead-what-its-dead-window-built) is suppressed for a
+conversation parked for resume. Every word of that comment's justification is "the next
+window opens a fresh worktree", and here the same agent comes back to the same tree holding
+the same commits — the note would be telling it, about its own live branch, that it was
+abandoned. The archive under `refs/beadcause/sessions/<bead>` is still written either way;
+that is the record, and the comment was only ever a courtesy to a stranger who is not
+coming.
+
+`test/gonewindow.mjs` is the check: the ending inside the grace, the attempt not charged,
+the park and its ending, the resume into the parked tree wearing the interrupted turn, the
+trip count surviving into the next window and stopping the second one, and the four things
+that are never called gone — a window merely idle, a worker matched by name rather than by
+id, a Mac whose session list came back empty, and one tick of absence on its own.
+
 #### A bead it has given up on says so
 
 `maxAttemptsPerBead` is a floor nothing decrements. The counter is cleared on the four
@@ -18222,6 +18289,67 @@ construction — `git worktree list`, `git diff`/`git log` against refs, a `bd s
 `lib/grants.js` beside the other four. `lib/siblings.js` does the survey; `bin/b7e-siblings`
 is the argv shell around it.
 
+### Will this branch and a sibling actually merge, and does the result still pass — `b7e-premerge`
+
+`bc-dgx7.52` is the session audit agent naming a sixth shape of the question `b7e-siblings`
+just above answers only half of: knowing a sibling is on the same file is not knowing
+whether the two of you will actually merge. Three sessions on 2026-08-24 hit real
+collisions and each resolved "does this merge?" a different way. `bc-3rjan` did the whole
+thing by hand — `git merge-tree --write-tree HEAD <branch>`, `git show <tree>:<file>` to
+read the conflict markers back out, a `sed`/python heredoc to resolve them, then `cp` the
+result over its own working copy to run the suite, eleven calls with the trial running
+*inside* the branch it was about to deliver. `bc-dgx7.37` asked only after it had already
+committed, discovering a collision it could no longer avoid rather than one it could still
+plan around. `bc-dgx7.41` was told twice by the claim guard's own refusal message and did
+nothing with it.
+
+```
+b7e-premerge                              every colliding worktree lib/siblings.js finds
+b7e-premerge --against <branch|worktree>  a specific counterparty, repeatable
+b7e-premerge --bead <id>                  the files that bead declares, instead of this branch's own diff
+b7e-premerge --tree                       also extract each merge under os.tmpdir()
+b7e-premerge --json                       one object per counterparty, for a caller
+b7e-premerge --dir <root>                 another tree — this is how it is tested
+```
+
+One block per counterparty: `clean`, with the merged tree's oid, or `conflicted`, with
+each conflicting path's line range and a few lines of context read straight off the
+merged (marker-laden) blob — the same rendering `lib/regions.js` gives a claim refusal.
+Exits `0` when every counterparty merges clean, `1` if any conflicts or names a ref this
+could not resolve at all, `2` for bad usage.
+
+**`git merge-tree --write-tree` never touches the caller's working tree or index.** That
+is the entire point of the plumbing `bc-3rjan` reached for by hand: it computes the merge
+of two commit-ish refs and writes the resulting tree straight into the object database,
+the same way `lib/gitref.js`'s `hashObject`/`commitToRef` write a session's own ref
+without a checkout ever happening. Nothing here runs `git checkout`, `git merge` or `git
+stash` — `test/premerge.mjs` asserts the caller's worktree is byte-identical before and
+after every call, including the one that finds a conflict.
+
+**Discovery reuses `lib/siblings.js` rather than re-implementing it.** With no
+`--against`, the counterparties are whichever live worktrees `siblingsFor` already finds
+touching the files this branch has changed since `main` — committed and uncommitted
+alike. `--bead` swaps in a bead's declared files for that same survey, mirroring
+`b7e-siblings`' own `--bead` exactly; `--against` skips discovery and merges against
+exactly the refs named, resolving a worktree path to its branch the same way
+`lib/siblings.js` reads `git worktree list --porcelain`.
+
+**`--tree` replaces, never accumulates.** `git archive <tree> | tar -x` unpacks the
+merge's content — conflict markers baked in where there are any — into a directory under
+`os.tmpdir()` keyed by the two ref names, so a second call for the same pair overwrites
+rather than piling up. `node_modules` is symlinked in from the caller's own checkout,
+never copied — the same borrow `bin/b7e-worktree` and `lib/blame.js`'s
+`makeMainWorktree` already do for a granted read tool — so `node test/<suite>.mjs` runs
+there without the caller linking anything, which is what `bc-3rjan`'s manual `cp` back
+into its own working copy was standing in for.
+
+Granted on `DEFAULT_TOOL_LIST` despite writing: the write lands only in the object
+database (never a working tree or index) and, with `--tree`, a scratch directory outside
+the repo — never the repo itself, and nothing here spawns a long-running process the way
+`b7e-gate`/`b7e-blame` do, which is the actual reason those two are withheld. `lib/premerge.js`
+does the simulation; `bin/b7e-premerge` is the argv shell around it, same split as
+`bin/b7e-siblings` and `lib/siblings.js`.
+
 ### Is this branch based on current main, and what has landed under it since — `b7e-base`
 
 `bc-36xx.25` is the session audit agent naming a fifth question nine sessions each
@@ -20798,13 +20926,23 @@ looks like a detail until it is wrong:
   up, not a settlement.
 
 Every sentence the merge writes names the bead the findings went to: the report on the pull
-request, the merge-bead's close reason, and the comment on the work bead. A sentence saying
-"merged with open review findings" that does not say *where they went* is the same dead end
-as a comment claiming a bead closed when it had not. The **landed notification** is the one
-place that does not name it yet, and the reason is ordering rather than omission —
-`landedEvent` is emitted from the queue's `afterMerge` callback, which fires before the
-`finish` that files the follow-up, so the bead id does not exist yet when the card is built.
-That is bc-9ntye.5.
+request, the merge-bead's close reason, and the comment on the work bead — and, since
+bc-9ntye.5, the **landed notification** too. It was the one place that did not, and the
+reason was ordering rather than omission: `landedEvent` used to be built and emitted from
+the queue's `afterMerge` callback, which fires *before* the `finish` that files the
+follow-up — so the bead id did not exist yet at the moment the card was assembled.
+
+The fix keeps `afterMerge`'s own ordering (its comment argues for firing it early on grounds
+that have nothing to do with this — the sweep and the local `main` want to happen while the
+merge is still fresh) rather than moving it below `finish`. Instead the card moved: a new
+`announceLanding(spec, issue, { landed, findings })` callback is called from inside `finish`
+itself, right after `followUpFor` mints the bead and `findings` names it, so `landedEvent`'s
+`owed` field can carry the same sentence the other three writes already do. `afterMerge`
+keeps the sweep and the local `main`; it no longer builds or emits anything. Wired only to
+the call `finish` takes from the queue path — a pull request merged outside the queue (from
+GitHub or the phone) still gets no card either way, unchanged: that is a tap of yours, and
+the comment on `announceLanding`'s own wiring says why it must not chime for it.
+(`test/mergequeue.mjs`.)
 
 ### The notification with nothing to answer
 
@@ -28856,6 +28994,8 @@ to be one.
 | `advocates.workerTimeoutMinutes` | how long a session may hold its slot with no ending reached before the slot is released and the bead charged an attempt (default 120) |
 | `advocates.checkinMinutes` | how long a session asked to check in has to answer before its slot goes back (default 10) — long enough for a turn in flight to land and run the command, short enough that pressing Reclaim sessions is worth doing at all |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
+| `advocates.goneMinutes` | how long a worker's window has to be **missing** from Claude Code's live-session list before it is finished as `gone` rather than left to `workerTimeoutMinutes` (default 3). Then the slot comes back, the claim is handed back, **no attempt is charged** and the conversation is parked so the next dispatch [brings the same agent back](#the-window-that-disappeared--and-the-conversation-that-comes-back-into-the-next-one) instead of briefing a stranger. Minutes rather than one tick because the evidence is an *absence*: one missed read is a list being rewritten, six in a row is a fact. `0` or `false` restores the two-hour wait |
+| `advocates.maxResumes` | how many times one conversation may be carried over into a new window after its own disappeared (default 1). The first disappearance is an accident and is repaired for free; a *resumed* window that also disappears is a pattern, so that one is charged an attempt and the next window gets the fresh brief. `0` keeps the `gone` ending and never carries a conversation over |
 | `advocates.neverStartedSeconds` | how long a window is given to get past line 3 of its command before [the launch's own temp files are read as proof it never started](#the-window-that-opened-and-never-ran-its-command) (default 45). Then the slot comes back, the files are cleaned up, the claim is handed back and **no attempt is charged** — a launch that never ran is not an attempt at the work. Seconds rather than minutes because the point is answering before `workerTimeoutMinutes`; `0` or `false` asks nothing and restores the two-hour wait |
 | `advocates.batchEpicChildren` | [hand an epic's ready children to one worker as a batch](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window), instead of holding the epic back and letting each child take its own window on its own tick (default `true`). `false` falls back to `heldByChildren`'s suppression, which is what this did before |
 | `advocates.maxBatchBeads` | how many of an epic's ready children one worker is briefed on at once (default 5) — the overflow waits rather than racing its own siblings in a second window |
