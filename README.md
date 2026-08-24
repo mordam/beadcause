@@ -13332,6 +13332,19 @@ there. Every tick reads it fresh, which is what makes the dispatch self-healing:
 group is first in this tick's queue, so a group whose window ended picks its remaining
 work back up on the next one, and a live window anywhere in a group holds all of it.
 
+**A group member the queue never reaches is still named, and told why — bc-ogicx.12.**
+`dispatchable` used to render only the beads this tick's queue actually held, so a bead
+the plan named that the queue did not reach was silently missing from the brief: no line,
+not even "and one more you cannot see." A P4 member is the sharp case, not an unlucky one
+— the advocate's own priority floor (`minPriority`) drops it before the queue is even
+built, so it is invisible to `dispatchable` on *every* tick, forever, not on the one the
+plan happened to be written on. The brief now carries the plan's whole membership: a
+member sitting only below the priority floor is offered as more work — nothing is in its
+way, so the window should simply do it too — while every other absence (`unendorsed`,
+`human`, already closed, or the residual case that only an unclosed dependency explains)
+is named without a `bd show` to run, because that is a bead nobody has cleared for this
+window to touch.
+
 **Nothing is supervised by a window that stays open.** There is exactly one event that
 re-opens a planner: a bead comes up ready under the epic that no group names — in
 practice, work a child-worker filed and you have since endorsed. The planner is re-entered

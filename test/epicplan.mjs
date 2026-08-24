@@ -311,6 +311,62 @@ await check('a group does not cross checkouts at dispatch either', () => {
 });
 
 /**
+ * bc-ogicx.12. A group member the queue never reached used to be dropped from the brief
+ * with no trace — `here = group.beads.filter(id => ready.has(id))` and the brief rendered
+ * only `here`, so a member outside it was simply never mentioned. A P4 member is the sharp
+ * case, not an edge case: `survey` (lib/advocate.js) drops anything below the priority
+ * floor *before* the queue is built, so a P4 group member is missing from `queue` on every
+ * tick there is, never only the one this test would otherwise be about. `absent` is what
+ * makes that member visible again — and `'priority'` is the one reason that means "nothing
+ * is stopping this, only the floor is" rather than "somebody else has to clear this first".
+ */
+await check("a P4 group member is absent from every tick's queue, not one, and the brief says why", () => {
+  const plan = validatePlan(planSpec([group('one', ['x-1.1', 'x-1.2', 'x-1.10'])]), { epic: 'x-1', children: null });
+  const rows = new Map([
+    ['x-1.1', bead('x-1.1')],
+    ['x-1.2', bead('x-1.2')],
+    ['x-1.10', bead('x-1.10', { title: 'the P4 one', priority: 4 })],
+  ]);
+  // Not one tick — the same absence holds however many times the queue is rebuilt, because
+  // nothing about x-1.10 ever changes and `survey` cuts it before `queue` exists at all.
+  for (const queue of [[bead('x-1.1'), bead('x-1.2')], [bead('x-1.1'), bead('x-1.2')]]) {
+    const r = dispatchable(plan, { queue, workers: [], beads: rows });
+    const g = r.groupOf.get('x-1.1');
+    assert.deepEqual(g.beads.map((b) => b.id), ['x-1.2'], 'the ready sibling is unaffected');
+    assert.deepEqual(
+      g.absent,
+      [{ id: 'x-1.10', title: 'the P4 one', reason: 'priority' }],
+      'named, and marked actionable — nothing is in its way but the floor'
+    );
+  }
+});
+
+await check('the other kinds of absence are told apart from a priority cut, and from each other', () => {
+  const plan = validatePlan(planSpec([group('one', ['x-1.1', 'x-1.2', 'x-1.3', 'x-1.4', 'x-1.5', 'x-1.6'])]), {
+    epic: 'x-1',
+    children: null,
+  });
+  const rows = new Map([
+    ['x-1.1', bead('x-1.1')],
+    ['x-1.2', bead('x-1.2', { status: 'closed' })],
+    ['x-1.3', bead('x-1.3', { labels: ['unendorsed'] })],
+    ['x-1.4', bead('x-1.4', { labels: ['human'] })],
+    // x-1.5: no row at all, same as a cold or failed `bd export`.
+    // x-1.6: a row that is ready by every field it carries — open, P2, no held label — yet
+    // the queue never offered it. `bd ready`'s own semantics leave one thing that explains
+    // that: an unclosed dependency.
+    ['x-1.6', bead('x-1.6')],
+  ]);
+  const r = dispatchable(plan, { queue: [bead('x-1.1')], workers: [], beads: rows });
+  const reason = Object.fromEntries(r.groupOf.get('x-1.1').absent.map((a) => [a.id, a.reason]));
+  assert.equal(reason['x-1.2'], 'closed');
+  assert.equal(reason['x-1.3'], 'unendorsed');
+  assert.equal(reason['x-1.4'], 'human');
+  assert.equal(reason['x-1.5'], 'unknown', 'no tracker row is we-cannot-say, same as `isClosed`');
+  assert.equal(reason['x-1.6'], 'blocked', 'ready by every field beadcause can see — only a dependency explains the rest');
+});
+
+/**
  * bc-4bet.2. This used to read "done means nothing ready and nothing running", and that is
  * the bug: the queue it was reading is the survey's, which excludes `unendorsed`, and a bead
  * blocked behind a dependency is not in `bd ready` either. Both are open work that has never
