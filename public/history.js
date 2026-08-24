@@ -81,43 +81,44 @@
  * list that reordered itself while your thumb was travelling towards a row would not be.
  *
  * **Nothing here writes.** No token is spent, no bead is touched, and there is no
- * control on this page that reaches the Mac — which is also why it carries no
- * `⦿ observing` chip. See public/history.html.
+ * control on this pane that reaches the Mac — which is also why it carries no
+ * `⦿ observing` chip.
  *
- * ## A page and a pane, out of one file (bc-khoe.30.5)
+ * ## A pane, not a page (bc-khoe.30.5, bc-khoe.30.15)
  *
- * The ledger is a **pane of the shell** now: a `[data-pane="history"]` container in
+ * The ledger is a **pane of the shell**: a `[data-pane="history"]` container in
  * public/index.html that a pill tap shows with a `display: none` swap, no document
- * fetched and nothing rebuilt. But `/history` is still a document and still answers —
- * home screens hold it, `/closed` and `/done` redirect to it, and landing those on the
- * pane is bc-khoe.30.7 rather than this — so this one file has to be both, and it decides
- * which by asking whether the document it is in has panes at all.
+ * fetched and nothing rebuilt. `/history` still answers — a home screen, an old
+ * notification — but as a redirect into `/#history` (bc-khoe.30.7), not a document. This
+ * file drew both for a while, deciding which by asking whether the document it was in had
+ * panes at all; the page half and that question went away with bc-khoe.30.15, once nothing
+ * could reach it any more, and public/history.html went with it.
  *
- * Three things differ between the two, and they are the whole of the difference:
+ * Two things are worth knowing about what the page used to do differently, because they
+ * are still visible in the shape of this file:
  *
- * **Where the filters are written.** On the page, the query string, which is where the
- * ledger's filters have always lived and what `/closed` turns into. In the shell, the
- * **hash** — `/#history?status=closed`, decision 5 in public/hashroute.js — because in one
- * document `location.search` outlives the view that wrote it: narrow History, tap Home,
- * and the address the phone's home screen holds is `/?status=P0`, carrying a filter for a
- * view you are not on. In the hash it is part of the name of the view, so leaving is what
- * drops it. Everything above about the URL being the state still holds; only the slot
- * moved.
- *
- * **When it is built.** public/panestage.js builds the landed-on pane first and the rest
- * after the first paint, so `build` below is offered to it and called by hand when there
- * is no stager to take it — a document, or a service worker cache from before that file
- * existed. Nothing at all happens at load in the shell if you landed on Home: one script
- * parse, no request.
+ * **The filters are written to the hash, not the query string.** `/#history?status=closed`
+ * — decision 5 in public/hashroute.js — because in one document `location.search` outlives
+ * the view that wrote it: narrow History, tap Home, and the address the phone's home
+ * screen holds is `/?status=P0`, carrying a filter for a view you are not on. In the hash
+ * it is part of the name of the view, so leaving is what drops it. Everything above about
+ * the URL being the state still holds; only the slot moved. The page kept its filters in
+ * the query string instead, which is why `readUrl`/`writeUrl` below go through one small
+ * `address` object rather than `location.search` directly — there used to be two of them.
  *
  * **What ⟳ means, and what keeps it honest.** The page had a ⟳ of its own; the shell has
  * one for the whole app, so this file takes it only while its pane is the one showing
  * (public/app.js does the same in the other direction). And because a pane is built once
  * rather than fetched on every visit, a ledger you come back to an hour later would be an
- * hour old with nothing saying so. So this pane does now listen to the shell's one poll —
- * not to fetch on an event, which would be a `bd` sweep per wake against a record of the
- * past, but to remember that **something moved**, and re-read once, quietly, on the next
- * time you look at it. It declares no `want`, so the poll it rides is the free park.
+ * hour old with nothing saying so. So this pane listens to the shell's one poll — not to
+ * fetch on an event, which would be a `bd` sweep per wake against a record of the past,
+ * but to remember that **something moved**, and re-read once, quietly, on the next time
+ * you look at it. It declares no `want`, so the poll it rides is the free park.
+ *
+ * **When it is built.** public/panestage.js builds the landed-on pane first and the rest
+ * after the first paint, so `build` below is offered to it and called by hand when there
+ * is no stager to take it — a service worker cache from before that file existed. Nothing
+ * at all happens at load in the shell if you landed on Home: one script parse, no request.
  */
 (() => {
   'use strict';
@@ -133,29 +134,13 @@
   /** The view id this file draws, in public/hashroute.js's vocabulary. */
   const VIEW = 'history';
 
-  const panes = (window.beadcause && window.beadcause.panes) || null;
-  const route = (window.beadcause && window.beadcause.route) || null;
-
-  /**
-   * Is this the shell's History pane, or the `/history` document it also still is?
-   *
-   * Asked of the *document* rather than of a flag, and asked of `panes` rather than of the
-   * path: the eleven pages that are not the shell have no `window.beadcause.panes` at all,
-   * and a pane still marked `data-pending` answers `has()` false — which is exactly the
-   * state this bead's own container was in until it was filled. So one question covers
-   * both "am I a page" and "is my container live yet".
-   */
-  const inShell = Boolean(panes && typeof panes.has === 'function' && panes.has(VIEW) && route);
+  const panes = window.beadcause.panes;
+  const route = window.beadcause.route;
 
   const out = document.getElementById('hist-list');
-  /* The brand dot. Left alone in the shell: it is the whole document's there, driven off
-     public/report.js's count of what is in flight, and a second writer toggling `busy` on
-     it would clear it under a fetch of the inbox's that is still out. */
-  const pulse = inShell ? null : document.getElementById('pulse');
-  /* ⟳. The page's own on the document; the app's, shared with every other view, in the
-     shell — which is why the handler asks whether this pane is the one showing before it
-     does anything. */
-  const refreshBtn = document.getElementById(inShell ? 'refresh' : 'hist-refresh');
+  /* ⟳. The app's, shared with every other view, so the handler asks whether this pane is
+     the one showing before it does anything. */
+  const refreshBtn = document.getElementById('refresh');
   const filterHost = document.getElementById('hist-filters');
 
   /* One screenful and a bit, which is one request. The server pages over a list it has
@@ -320,52 +305,31 @@
   const canonPriority = (raw) => (/^[pP]?[0-9]$/.test(raw) ? `P${raw.replace(/^[pP]/, '')}` : raw);
 
   /**
-   * The slot the four filters are kept in — and it is not the same slot in the two
-   * documents this file runs in. See the header: the query string on `/history`, the
-   * hash's own query on the shell's History pane.
+   * The slot the four filters are kept in — the hash's own query, `#history?status=…`. See
+   * the header for why: `location.search` outlives the view that wrote it, and the hash is
+   * part of the name of this one.
    *
-   * An adapter rather than an `if` at each of the three call sites, because the two halves
-   * have to agree about *both* directions: a reader that took the hash and a writer that
-   * wrote the search would be a filter bar that could not be reloaded into, and it would
-   * look exactly like a filter bar that worked.
+   * Its own object rather than the two calls inlined at each of the three call sites, since
+   * this used to be one of two — a page kept the same four filters in `location.search`,
+   * and the object was an adapter picking between them. The page went with bc-khoe.30.15.
    *
-   * `replaceState` in both, and for the reason the page always had: a filter chip is not
-   * a place you go back *to*, and a panel of them would otherwise fill the back stack with
-   * steps between you and the screen you arrived from.
+   * `replaceState`, because a filter chip is not a place you go back *to*, and a panel of
+   * them would otherwise fill the back stack with steps between you and the screen you
+   * arrived from.
    */
-  const address = inShell
-    ? {
-        read: () => new URLSearchParams(route.parse(location.hash).query),
-        write(mine) {
-          // Only while this pane is the one showing. The staged boot builds this
-          // container while Home is on screen, and a filter written into the hash from
-          // behind a pane nobody is looking at would move the address out from under the
-          // view that owns it.
-          if (panes.showing() !== VIEW) return;
-          const next = location.pathname + location.search + route.hashFor(VIEW, mine);
-          if (next !== location.pathname + location.search + location.hash) {
-            history.replaceState(null, '', next);
-          }
-        },
+  const address = {
+    read: () => new URLSearchParams(route.parse(location.hash).query),
+    write(mine) {
+      // Only while this pane is the one showing. The staged boot builds this container
+      // while Home is on screen, and a filter written into the hash from behind a pane
+      // nobody is looking at would move the address out from under the view that owns it.
+      if (panes.showing() !== VIEW) return;
+      const next = location.pathname + location.search + route.hashFor(VIEW, mine);
+      if (next !== location.pathname + location.search + location.hash) {
+        history.replaceState(null, '', next);
       }
-    : {
-        read: () => new URLSearchParams(location.search),
-        write(mine) {
-          // Every other parameter on the address is kept, and `t` is the one dropped —
-          // the token is picked up into localStorage by spacebar.js before this file runs,
-          // and a filter link is a thing you send to a phone rather than a credential.
-          const q = new URLSearchParams(location.search);
-          for (const k of ['status', 'priority', 'provenance', 'id', 't']) q.delete(k);
-          for (const [k, v] of new URLSearchParams(mine)) q.set(k, v);
-          const search = q.toString();
-          const next = location.pathname + (search ? `?${search}` : '') + location.hash;
-          // Only when it actually moved. A no-op replaceState is harmless but it is also
-          // a lie in a debugger, and the picker announcing itself on load calls here.
-          if (next !== location.pathname + location.search + location.hash) {
-            history.replaceState(null, '', next);
-          }
-        },
-      };
+    },
+  };
 
   /** The filters off the address, whichever slot this document keeps them in. Called once
    *  as this view is built — neither document ever has two sources for them. */
@@ -769,9 +733,9 @@
   }
 
   function paint() {
-    // `busy`, which is the class the stylesheet actually animates — see `.dot.busy`.
-    if (pulse) pulse.classList.toggle('busy', state.loading);
-
+    // The brand dot is left alone here: it is the whole document's, driven off
+    // public/report.js's count of what is in flight, and this pane writing `busy` on it
+    // would clear it under a fetch of the inbox's that is still out.
     if (!token) {
       out.innerHTML = `<div class="empty"><strong>This device is not paired.</strong>Open the inbox first — it is where a token is set.</div>`;
       return;
@@ -879,11 +843,11 @@
 
   if (refreshBtn) {
     refreshBtn.addEventListener('click', () => {
-      // In the shell this is the app's one ⟳, shared with every other view, so the first
-      // question is whether it is this pane's press at all. public/app.js asks the mirror
-      // of it before reloading the inbox, which is what keeps one tap from sweeping `bd`
-      // twice for two views and drawing only one of them.
-      if (inShell && panes.showing() !== VIEW) return;
+      // This is the app's one ⟳, shared with every other view, so the first question is
+      // whether it is this pane's press at all. public/app.js asks the mirror of it before
+      // reloading the inbox, which is what keeps one tap from sweeping `bd` twice for two
+      // views and drawing only one of them.
+      if (panes.showing() !== VIEW) return;
       // Deliberately not `follow()`: the selection has not moved, so `follow` would
       // decide there was nothing to do. ⟳ means "read it again" whatever the picker
       // says — and `refresh=1` with it, because the daemon holds the sweep for ten
@@ -947,9 +911,10 @@
   /**
    * Everything this view does on the way up, in one function so the shell can time it.
    *
-   * It was the last dozen lines of this IIFE and it still is on the document; what the
-   * stager buys is the other case — a load that lands on Home builds this after the first
-   * paint, and a load that lands on `/#history` builds it first and the inbox after.
+   * It used to be the last dozen lines of this IIFE, run unconditionally on the page; what
+   * the stager buys now is the load that lands on Home, which builds this after the first
+   * paint rather than before it — a load that lands on `/#history` still builds it first
+   * and the inbox after.
    */
   function build() {
     /* The address first, and before anything is drawn or asked for: the very first
@@ -987,11 +952,10 @@
   }
 
   /*
-    Offered to the stager, and built here when there is no stager to take it — the
-    `/history` document, or a service worker cache from before public/panestage.js existed.
-    `register` answering false has to leave this file exactly as it was, which is why
-    `build` is the function it would have called on its own rather than something only
-    reachable through the shell.
+    Offered to the stager, and built here when there is no stager to take it — a service
+    worker cache from before public/panestage.js existed. `register` answering false has to
+    leave this file exactly as it was, which is why `build` is the function it would have
+    called on its own rather than something only reachable through the shell.
 
     No `want` beside the `wake`: `wake` never fetches, so the widest thing this pane needs
     from the shell's one request is that it happens at all. `'presence'` — the default for
@@ -999,5 +963,5 @@
     questions to carry a flag would be a `bd` sweep per event for a boolean.
   */
   if (!window.beadcause?.stage?.register?.(VIEW, { build, wake })) build();
-  if (inShell) panes.onShow((view) => view === VIEW && shown());
+  panes.onShow((view) => view === VIEW && shown());
 })();

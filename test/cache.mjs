@@ -237,6 +237,9 @@ cache.clear();
     threw = err;
   }
   await check(() => assert.match(String(threw?.message), /no such workspace/), 'but a failure with nothing kept is a throw — the caller has an error path and it must be reachable');
+  // The other half of bc-19vt's distinction: a producer that fell over is not a ceiling,
+  // and a caller keying off `timedOut` must not soften a real failure into "not yet".
+  await check(() => assert.equal(cache.timedOut(threw), false), 'and it is not flagged as a ceiling — the producer failed, which is a different answer');
 }
 
 /* -------------------------------------------------------------------- the ceiling */
@@ -255,6 +258,10 @@ cache.clear();
       threw = err;
     }
     await check(() => assert.match(String(threw?.message), /did not answer within/), 'a cold read on a hung producer is bounded, not parked forever');
+    // bc-19vt. The board's route answers `unavailable` for this one and 500s for every
+    // other throw, and the difference has to be visible without matching on prose.
+    await check(() => assert.equal(cache.timedOut(threw), true), 'and the ceiling error says it is the ceiling, so a caller can answer "not yet" instead of "broken"');
+    await check(() => assert.equal(threw?.ceilingMs, 30), 'carrying the ceiling it ran out of, so the caller can say how long it waited');
     await new Promise((r) => setTimeout(r, 20));
     p.hang = false;
     p.value = 'landed';

@@ -57,6 +57,8 @@ const {
   MERGE_STAGE_IDS,
   RELEASE_STAGES,
   RELEASE_STAGE_IDS,
+  forgetMerges,
+  gatherMerges,
   mergeEntry,
   mergeStageOf,
   queues,
@@ -579,6 +581,55 @@ check('an empty board is an empty answer rather than a throw', () => {
   assert.deepEqual(out.repos, []);
   assert.deepEqual(out.counts, { merge: 0, release: 0 });
 });
+
+/* ------------------------------------------------ a merge sweep that ran out of ceiling */
+
+/* bc-19vt. `sweepMerges` cannot throw — it catches per workspace — but the wait on a *cold*
+   key can still hit lib/cache.js's ceiling, and nine `bd export`s queued behind a single-
+   writer Dolt is how that happens on a real morning. That throw reached the route's catch-all
+   as HTTP 500, which public/report.js reads as *the daemon is failing* and files a P0 incident
+   bead about. `errors[]` is the shape this already has for a queue that could not be read.
+
+   Seeded through the cache's own key rather than by slowing the sweep down: what is under
+   test is which of two failures `gatherMerges` is looking at, and the real ceiling is 150s. */
+
+console.log('\nwhen the merge sweep does not come back in time\n');
+
+const cachelib = await import('../lib/cache.js');
+{
+  forgetMerges();
+  let release;
+  const held = cachelib.read('queues:merges', () => new Promise((resolve) => (release = resolve)), {
+    freshMs: 10_000,
+    ceilingMs: 5_000,
+  });
+  held.catch(() => {});
+
+  const was = console.error;
+  console.error = () => {};
+  let out;
+  try {
+    out = await gatherMerges({}, { workspaces: [{ name: 'beadcause' }, { name: 'sophab' }] }, { ceilingMs: 30 });
+  } finally {
+    console.error = was;
+  }
+
+  check('a cold merge sweep past its ceiling answers rather than throwing', () => {
+    assert.deepEqual(out.merges, []);
+    assert.match(out.errors[0]?.error || '', /did not answer within/);
+  });
+  check('  — with every workspace in errors[], because none of them was reached', () =>
+    assert.deepEqual(
+      out.errors.map((e) => e.workspace),
+      ['beadcause', 'sophab']
+    )
+  );
+  check('  — and no kept age, because nothing was kept to be old', () => assert.equal(out.kept, null));
+
+  release({ merges: [], errors: [] });
+  await held.catch(() => {});
+  forgetMerges();
+}
 
 /* ------------------------------------------------------------ against the real server */
 

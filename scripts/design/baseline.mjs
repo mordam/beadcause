@@ -44,9 +44,12 @@ const FINGERPRINT = `(() => {
   ];
   const out = [];
   for (const el of document.querySelectorAll('body *')) {
+    // The card frame is this bundle's furniture, not the app's — see build.mjs. closest()
+    // rather than testing the element's own class, because .ds-note prose's children
+    // (<b>, <code>, <i>) carry no class of their own and were being fingerprinted as app
+    // — see bc-ka5y.28. contrast.mjs already does the ancestor check this way.
+    if (el.closest('[class*="ds-"]')) continue;
     const cls = typeof el.className === 'string' ? el.className.trim() : '';
-    // The card frame is this bundle's furniture, not the app's — see build.mjs.
-    if (/(^|\\s)ds-/.test(cls)) continue;
     const cs = getComputedStyle(el);
     if (cs.display === 'none') continue;
     const r = el.getBoundingClientRect();

@@ -259,6 +259,32 @@ await check('the oldest entry is the one given up — the one nothing has restam
   assert.ok(warm.read('/api/consoles'));
 });
 
+await check('a same-millisecond tie breaks on write order, not on Map enumeration order', () => {
+  // bc-ibt8g.1: `at` is `Date.now()`, millisecond resolution — two writes in the same
+  // tick can tie on it. Pin both entries to the exact same `at` by hand (rather than
+  // hoping two real `Date.now()` calls collide, which is the flaky way to prove this)
+  // and re-insert them into the Map in the OPPOSITE order a naive "whichever `keys()`
+  // yields first" fallback would need to get this right by accident — so this only
+  // passes if `wseq`, not enumeration order, is what `evict` actually reads.
+  const { warm, bag } = load({ quota: 2 });
+  warm.write('/api/prs', { repos: [] }); // written first — lower wseq
+  warm.write('/api/admin', { scopes: [] }); // written second — higher wseq
+  const prsKey = [...bag.keys()].find((k) => k.endsWith('/api/prs'));
+  const adminKey = [...bag.keys()].find((k) => k.endsWith('/api/admin'));
+  const prs = JSON.parse(bag.get(prsKey));
+  const admin = JSON.parse(bag.get(adminKey));
+  const tied = admin.at;
+  prs.at = tied;
+  admin.at = tied;
+  bag.delete(prsKey);
+  bag.delete(adminKey);
+  bag.set(adminKey, JSON.stringify(admin)); // the later write, re-inserted first
+  bag.set(prsKey, JSON.stringify(prs)); // the earlier write, re-inserted second
+  warm.write('/api/consoles', { consoles: [] });
+  assert.equal(warm.read('/api/prs'), null, 'the earlier write (lower wseq) is the one to lose, tie or not');
+  assert.ok(warm.read('/api/admin'), 'the later write survives even though it was re-inserted into the map first');
+});
+
 await check('a full store gives up the inbox last, whatever its age', () => {
   const { warm } = load({ quota: 2 });
   // Written first, so it is the *oldest* entry in the store — which is exactly what the
