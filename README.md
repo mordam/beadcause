@@ -19502,13 +19502,27 @@ it happened to be handed.
 `blocking`, `suggestion`, `question`, and nothing else — an unrecognised one is refused
 rather than coerced, since defaulting it to `blocking` lets a typo hold a branch for ever
 and defaulting it to `suggestion` waves a real objection through. `blocking` is a promise:
-the reviewer will not approve while it stands, so it belongs to correctness, data loss, a
-security hole, a broken contract with a caller, or a test that does not test what it claims.
-Style and taste are suggestions, and something wrong in the code the change landed *next
-to* is a bead, not a review comment. The brief spends its longest paragraph on that, because
-an agent asked to review a diff will find something to say about every hunk of it, and a
-review that raises eleven comments costs a worker eleven answers and the pull request a
-round it cannot get back.
+this branch must not merge as it stands, so it belongs to correctness, data loss, a security
+hole, a broken contract with a caller, or a test that does not test what it claims. Style and
+taste are suggestions, and something wrong in the code the change landed *next to* is a bead,
+not a review comment. The brief spends its longest paragraph on that, because an agent asked
+to review a diff will find something to say about every hunk of it, and a review that raises
+eleven comments costs somebody eleven answers — as a round, when they are blocking, and as a
+follow-up bead nobody can triage when they are not.
+
+**And since bc-9ntye that promise is the whole of the veto, which is what makes the brief's
+wording load-bearing rather than decorative.** A `blocking` comment is the only thing that
+holds a merge; a verdict carrying nothing but suggestions and questions merges on the sweep
+that reads it, and those comments are filed as work of their own instead of coming back as a
+round. So the brief has to carry both halves at once, because they fail in opposite
+directions: a reviewer that goes on calling taste `blocking` jams a queue dozens of pull
+requests deep exactly as before, and one that stops reaching for it on a real bug ships the
+bug, since nothing further down the path reads the diff. What it says now is that nothing is
+lost by not holding the branch — the point survives as a bead either way — and that
+`approved: false` is not a quiet veto, so what the reviewer means belongs in the severity
+rather than in the flag. The reviewer's foundation in `lib/foundation.js` says the same rule
+in its own words, because the brief is what the agent was asked this run and the foundation is
+what it is on every one — and an agent handed both rules at once picks whichever it read last.
 
 **The brief is not a thin wrapper around `/code-review`, and it does not skip it either.**
 Round one's instruction is to run the skill first, over the diff, and treat what it returns
