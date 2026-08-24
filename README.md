@@ -17974,6 +17974,79 @@ nobody asserts prose on prints nothing and exits `0` — and `2` only for a modu
 that does not resolve to a file. Read-only by construction: every path through it is a
 `readFileSync` and a regex, and it never runs a suite or calls the module it reads.
 
+### What a new bin/ command still owes before an agent can call it — `b7e-enroll`
+
+`bc-khoe.27.11` is the same shape breaking repeatedly rather than once, for a *command*
+rather than a route or a config key: six sessions (`bc-khoe.27.6`, `bc-khoe.27.7`,
+`bc-gdub.2`, `bc-gdub.3`, `bc-bmry.7`, `bc-zjab`) each independently re-derived the same
+handful of places a new `bin/` entry incurs debt in — grepping `lib/toolbelt.js` and
+`lib/grants.js` by hand, reading the same two memory notes every time, and at least once
+(`bc-khoe.27.6`) paying for the gap with a full 369-suite parallel gate that ended on
+`test/grants.mjs: dispatch grants Bash(b7e-apply:*), which nothing classified`. `b7e-owes`
+above already does this for routes, config keys, the evidence register and page aliases;
+this is the same idea, for the registries a command owes rather than a route.
+
+```
+b7e-enroll                    every command in bin/ against every registry, right now
+b7e-enroll b7e-x               just that one command's registrations
+b7e-enroll bin/b7e-x.js        the command a brand-new file in bin/ would be named,
+                               checked the same way, before it is registered anywhere
+```
+
+Seven checks, but only two are universal — any `bin/` command owes them:
+
+1. **`package.json`'s `bin` map** has an entry for the name.
+2. **`package-lock.json`'s `packages[""].bin`** agrees with it — `test/lockfile.mjs` is
+   pinned first in the sweep, so a lock that disagrees stops every later suite.
+
+The other five are specifically the `b7e-*` "skill" checklist — `bc-dgx7.2`'s own
+definition of a skill is `b7e-<verb>` on `PATH`, on the allowlist, tested and
+documented — and the worker-only `beadcause-*` commands (`bin/deliver.js`,
+`bin/ask.js`, …) owe none of it: a worker's
+Bash is already unrestricted, so they are run by absolute path (`node bin/deliver.js`),
+need no exec bit (most are plain `-rw-r--r--`), no dedicated README section, and no
+`DEFAULT_TOOL_LIST` entry. `bc-bmry.7` lived this split for real, on a non-`b7e-`
+command: it checked exactly `package.json` and `package-lock.json`, found nothing else
+owed, and went looking for a different registry (`lib/sessionaudit.js`) instead.
+
+3. **`bin/<name>` itself** exists, is executable, and starts with a node shebang — the
+   *extensionless* file, for a name not registered yet: `lib/foundation.js` puts the
+   main checkout's `bin/` on `PATH`, so a command resolves by the name it is typed as,
+   and a `package.json` rename resolves only after an `npm link` this install has never
+   had. Once a name is already registered, this trusts whatever file `package.json`
+   already points to, `.js` suffix and all — `b7e-owes` and `b7e-say` both still have
+   one, and relitigating an *existing* mismatch belongs to `bc-jlop`/`bc-dgx7.2`, not
+   here.
+4. **Some file under `test/`** actually spawns it —
+   `path.join(ROOT, 'bin', '<name>')` (with or without `.js`) appearing anywhere under
+   `test/`, not a fixed filename: the family's own test files disagree with each other
+   on that (`test/b7e-say.mjs` keeps the dash, `test/b7eowes.mjs` drops it,
+   `test/eyeball.mjs` is named for neither `b7e-eyeball` nor any dash-dropped spelling
+   of it).
+5. **`README.md` has a `###` heading** naming it, backtick-quoted — a feature is not
+   finished here until the README says it exists.
+6. **`lib/toolbelt.js`'s `DEFAULT_TOOL_LIST`** either grants `Bash(<name>:*)` to the
+   restricted `dispatch` agent, or the array's own comments name it and say why not —
+   nine of the family are deliberately not granted, each with a paragraph explaining
+   what it writes or spawns, and that decision is exactly as real as being on the list.
+   It is only unpaid when neither is true.
+7. **If (6) grants it, `lib/grants.js` classifies `Bash(<name>:*)`** — `test/grants.mjs`
+   fails the moment something is on `DEFAULT_TOOL_LIST` unclassified, "deny by default"
+   being the whole design of that file.
+
+Run with no argument against main as this was written, it named exactly one thing:
+`b7e-say` has neither a `DEFAULT_TOOL_LIST` entry nor a comment saying why not — the
+same gap `bc-gdub.2`'s own retrospective describes shipping everything else and then
+"neither" of this pair. It also found a second, previously uncaught one the same way —
+`b7e-sandbox` — filed as its own bead rather than fixed here, on the same argument
+`b7e-owes` makes for its own five-page pagepaths gap: deciding whether to grant it is a
+real decision, not a registration to paper over in a tool's own diff.
+
+Exit code is a linter's: `0` when nothing is owed, `1` when something is. Read-only by
+construction in the same sense `b7e-def`/`b7e-owes`/`b7e-affected` are — it only ever
+calls `fs.readdirSync`/`readFileSync`/`statSync` over the files above and prints what
+it found — which is what put `Bash(b7e-enroll:*)` on `DEFAULT_TOOL_LIST` beside them.
+
 ### Agent prose goes into a bead or a memory from a file, never a shell argument — `b7e-say`
 
 `bc-gdub.2` is the third finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
@@ -18670,6 +18743,62 @@ test:*)` is held by `merge-advocate` alone, on the argument that "nothing about 
 tests is a read" — and on a suite it decides needs it, writes to the tree via
 `scripts/vendor.js`. `dispatch`, the one agent this list actually governs, has no sweep
 of its own to triage and no branch to have run one on.
+
+### Which gate runners are on this Mac, whose worktree each is, and ending only mine — `b7e-gates`
+
+`bc-khoe.55` names four sessions (`bc-4r10.13`, `bc-khoe.4`, `bc-khoe.30.14`,
+`bc-khoe.53`) that each worked out, unaided, which long-running `scripts/test.mjs` or
+`scripts/coverage.mjs` process was *theirs*, on a machine where dozens of worktrees of
+this repo can be live at once and several may be running one at the same time. No two of
+the four used the same method, and two got it wrong first — `bc-khoe.30.14`'s `pkill -f
+'scripts/test.mjs'` reported success and killed nothing; the child a `spawnSync` had
+started survived its parent's death and kept running, ownerless. Only `lsof -a -p <pid>
+-d cwd -Fn` ever actually answered "whose worktree is this pid in", and it took each
+session three to five calls to arrive there by trial.
+
+```
+b7e-gates                      every runner: pid, kind, worktree, MINE or whose it is
+b7e-gates --mine                only runners in this worktree
+b7e-gates --others              only runners NOT in this worktree
+b7e-gates --end-mine            end every runner in this worktree, verified
+b7e-gates --end-mine --stale    more than one mine: spare the newest, end the rest
+b7e-gates --match <re>          also match this against a process's whole command line
+b7e-gates --dir <path>          "this worktree" is <path>, not the caller's own cwd
+b7e-gates --json                one object per runner instead of the printed report
+```
+
+**Two ways a runner is found, cheapest first.** `b7e-gate` (`bc-khoe.39`, above) already
+writes a lock file per tree holding `{ pid, startedAt }`; `lib/gate.js`'s
+`gateLockStatus` reads it back, keyed by the worktree root itself, so for any run that
+went through it "which worktree is this pid in" is one file read — no `lsof`, no false
+hit from an agent process whose own prompt text happens to contain the words `scripts/
+coverage.mjs`. That does not cover a direct `npm test` or `node scripts/coverage.mjs`,
+which take no lock — every process-table match not already accounted for by a lock falls
+back to `lsof`, and each runner in the report says which of the two (`lock` or `pgrep`)
+told it.
+
+**Fails closed.** `lsof` returning "I could not tell" — no binary, or a refusal it did
+not explain — is reported `unresolved`, never guessed at as mine or silently dropped;
+`--end-mine` never signals an unresolved runner. `BEADCAUSE_LSOF` names one binary and
+skips the search, the same override `lib/gitref.js`'s own lock-owner check uses.
+
+**Ending one is verified, not assumed.** `bc-khoe.30.14`'s trap — a signal to the parent
+does not reliably take a `spawnSync`'d child down with it — is closed by snapshotting the
+*whole* descendant tree of a runner's pid before sending anything, so a child that would
+otherwise be orphaned mid-signal is signalled directly rather than left to a cascade that
+may not happen. SIGTERM every pid in the snapshot, wait, SIGKILL whatever is still there,
+wait once more, then report which are still alive. A runner is `ended` only when nothing
+in its tree survived; a survivor is named, never silently written off. Exit `1` when
+`--end-mine` leaves one, and also — the acceptance criterion for the plain report —
+when more than one runner is mine at once, the same concurrent-gate hazard this repo's
+own notes already name as a source of false reds; `--end-mine --stale` is what to run in
+that case, sparing the newest.
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`. `--end-mine` sends `SIGTERM`/`SIGKILL`
+to a live process — a write with no undo — and the allowlist has no syntax to grant the
+plain report while withholding that one flag from the same binary. `dispatch`, the one
+agent this list governs, has no gate of its own running and no branch to have started one
+on.
 
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
 
@@ -19732,6 +19861,77 @@ the whole point of the command is that it reaches whatever the caller points it 
 own single `bd comment`; granting this there would let a one-shot comment-answerer run an
 arbitrary shell script against a tree it does not own. See `bin/b7e-sh`, `lib/shguard.js`
 and `test/b7esh.mjs`.
+
+
+### Every bead id quoted in the tree, with what the tracker now says — `b7e-cites`
+
+This repo argues in its own comments and cites beads by id, and the citations go stale
+silently the moment the bead they name settles. `bc-4r10.9` grepped for one string across
+three files and found `lib/incident.js:41` — "(bc-228x has not settled whose boundary
+this is)" — long after `bc-228x` had closed with the Energy Navigator / Insights answer,
+and found it only because it had just read `bc-228x` for another reason entirely.
+`bc-4r10.4` found `lib/policies.js` still crediting itself with work it no longer owned,
+and filed a bead about it rather than fixing it in place. `bc-eqn1.2` hit a doc comment
+saying some clauses were "still to come" while it was in the middle of writing those
+clauses. `bc-4r10.1`, sweeping for something unrelated, found `test/servicescope.mjs:25`
+still saying two files "are landing on" main, read unchanged by three later sessions
+after both had. `bc-4r10.22` is the session audit naming all four as one shape: nothing
+ever swept the tree for the rest.
+
+```
+b7e-cites                     every citation under lib, bin, test, scripts, public,
+                                android and README.md
+b7e-cites <path> [<path> ...] only these files/directories
+b7e-cites --stale             only the two definite cases: an unknown id, or a pending
+                                phrase about a bead that has since closed
+b7e-cites --bead bc-4r10.22   just this one id, everywhere it is quoted
+b7e-cites --json              one object per line instead of the printed report
+b7e-cites --dir <root>        another tree — this is how it is tested
+```
+
+`lib/mentions.js` already had the id matcher — built for prose, over bead fields, for
+`scripts/relate-sweep.mjs` — and `lib/bd.js` already had the status; this joins them over
+the working tree instead of over a bead's own description. `citationsIn` (`lib/cites.js`)
+calls `mentionsIn` once per line rather than once per file, which is what turns "this id
+is mentioned somewhere" into "this id is mentioned *here*" — `path:line` is the whole
+point of a citation, and every id found is batched into a single `bd show` spawn rather
+than one per id (spawn count is the whole cost on this tracker — see the note on `graph`
+in `lib/bd.js`).
+
+**The file walk duplicates `lib/repogrep.js` (`bin/b7e-grep`, `bc-4r10.21`) rather than
+importing it.** That command settled the same roots and exclusions — skip
+`node_modules`, `.git`, `.claude` (so a sibling worktree's own copy of a file is never a
+second hit), `.coverage`, `dist`, `.gradle`, `.idea`, `build` — two hours before this bead
+was picked up, and its pull request was still on the merge queue, not yet on `main`, when
+this was written. Depending on it would have made this branch's own tests only pass in
+whichever order the two happened to merge; ~30 duplicated lines costs nothing that a
+later consolidation can't undo, and importing an unmerged sibling's module costs a build
+that works by luck.
+
+**`--stale`'s pending-phrase list is a reconstruction, not a recovered quote.** The
+originating bead's own acceptance text was truncated mid-word — "...is landing, ha" — in
+the *stored* description itself (checked with `bd show --json`, not just the wrapped
+terminal view), so the closed list in `lib/cites.js` (`PENDING_PHRASES`) is built from the
+three citations actually quoted above ("has not settled", "still to come", "are landing
+on") plus the natural variant the truncation was reaching for ("has not landed"). A
+phrase alone is never a verdict: `lib/cites.js`'s `staleFilter` only flags a pending
+phrase when the bead it names has **since closed** — the same sentence about a bead still
+genuinely open is not wrong yet, and is not reported.
+
+**What it does not know.** An id shaped like a real one but never filed — `bc-swr`,
+`bc-q1`, a typo, a deliberate placeholder in a sentence explaining what a fake id looks
+like — reports as `unknown`, same as a genuine stale reference; there is no way from the
+text alone to tell "this was never real" from "this used to be real". And it only checks
+this checkout's own tracker's prefix (`bc`, via `lib/beadref.js`'s `prefixFor`) — an
+example id from another workspace quoted in passing (this file uses a few, illustrating
+what another tracker's ids look like) is never resolved, by design: resolving it would
+need a live `bd` call against a tracker this Mac may not even have configured.
+
+`Bash(b7e-cites:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`, the same shape as `b7e-def`/`b7e-siblings`/`b7e-census` above: its file
+walk never leaves the fixed roots, and the only `bd` verbs it spawns — `list --limit 1`
+(to learn this tracker's own prefix) and one batched `show` — are both reads. See
+`bin/b7e-cites`, `lib/cites.js` and `test/cites.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
