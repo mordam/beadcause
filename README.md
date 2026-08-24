@@ -5966,6 +5966,23 @@ bead should be able to stall again. A dead window with no pull request and no qu
 untouched by either: that is the real failure, and it still fires. Fifteen `in_progress`
 beads on this tracker were sitting behind an open delivery card the day this landed.
 
+**And a third exclusion, which is not a worker's ending at all.** On a *root*,
+`in_progress` is not a claim a dispatcher wrote — it is what pressing **Start** on the
+board writes, deliberately into the tracker rather than as a pin on one screen, so the
+board is the same fact on every device. Nothing takes it off again but closing the epic or
+a second Start. A board-started sub-epic therefore has no worker, no lease, no `human`
+label and no delivery, and it trips the clock for as long as it is on the board — `bc-xl7n`
+carried `bc-xl7n.113` in its re-entry reason for four sweeps and counting while that epic's
+own advocate ran it perfectly. **The cost is not the wasted window, it is what the brief
+then tells the advocate to do**: the stall paragraph prescribes `bd update <id> --status
+open --assignee ""`, which is that write's exact inverse, and running it would silently
+take the epic off your board. So a child carrying [`advocate-assigned`](#the-tap-is-the-assignment--what-the-epic-carries-and-what-takes-it-off)
+is excluded — the wider and cheaper question, since a row with a supervisor of its own is
+that supervisor's business whatever route put it there, and the label is one every route
+stamps. It is annotated in the child list rather than hidden (*supervised by an advocate of
+its own, not stalled*), the brief now forbids the release in as many words, and taking the
+advocate off starts the clock again.
+
 **What bounds it**, since this spends unattended windows that file beads:
 
 | bound | default | why |
