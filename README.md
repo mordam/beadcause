@@ -12320,7 +12320,7 @@ filing one bug forty times:
 |---|---|
 | a fetch abandoned by a **navigation** | a tap on the tab bar rejects every request in flight. Without this, one "Failed to fetch" per open poll, every time you changed screens. `pagehide` closes the shutter — `pagehide` and not `unload`, which makes a page ineligible for the back/forward cache merely by being listened for |
 | an **`AbortError`** | the long poll being torn down on purpose. Bookkeeping, not a failure |
-| **one** failure of the **long poll** | `/api/poll` is parked almost all of the time, so it is what every momentary loss of the connection lands on — a phone waking, a tailnet reconnecting, an extension that wraps `fetch` and drops one in passing. The app recovers on its own and the staleness banner says so meanwhile. The **second** failure with nothing answering in between is still filed, because that one is a poll that never came back — see below |
+| a **moment's** failure of the **long poll** | `/api/poll` is parked almost all of the time, so it is what every momentary loss of the connection lands on — a phone waking, a tailnet reconnecting, an extension that wraps `fetch` and drops one in passing. The app recovers on its own and the staleness banner says so meanwhile. A failure of a poll that has been failing for **half a minute** with nothing answering in between is still filed, because that one never came back — see below |
 | a **4xx** | the daemon declining on purpose: a 409 close gate, a 403 for a feature switched off in the config, a 401 that means sign in again. `>= 500` is the line, because a 500 is the daemon failing rather than answering |
 | the report's **own request** | a report that reports the failure of reporting is a loop with no floor. `report.js` keeps the `fetch` the page was born with and sends on that, so its traffic cannot reach its own wrapper |
 | the **echo** of a failure already reported | a failed fetch is reported here *and* toasted by the caller a moment later. One incident, one bead — and the same rule collapses "every endpoint is unreachable" onto one bead instead of twelve |
@@ -12344,8 +12344,9 @@ is red and files nothing. `node test/reporter.mjs` fails the repo on a `toast('s
 message', true)`, because a fixed message is the shape of a validation notice and there
 is no other way to tell one from a caught error at runtime.
 
-**The long poll is the one refusal that counts rather than decides**, and it is worth the
-paragraph because it is the only place this file keeps state about a *sequence* of events.
+**The long poll is the one refusal that times rather than decides**, and it is worth the
+paragraph because it is the only place this file keeps state about anything but the
+moment it is in.
 `/api/poll` parks for twenty-five seconds at a time, continuously, for the whole life of
 every open page — which makes it the one request in the app that is nearly always in
 flight, and therefore the one that catches every blip in the connection whether or not
@@ -12354,20 +12355,34 @@ repeated in the two days it stayed open, filed from a stack whose top two frames
 browser extension's request interceptor. A P0, an advocate, and a window opened on it,
 for a Wi-Fi handover.
 
-Nothing is lost by staying quiet the first time, and that is an argument rather than a
+Nothing is lost by staying quiet through a blip, and that is an argument rather than a
 hope. `public/stream.js` retries on a backoff and `public/freshness.js` raises the
 staleness banner, so the screen already says so to the person who can act on it — this
 file staying silent changes what the *tracker* hears, not what the reader sees. And a poll
-that stays broken is not silenced: the second failure with nothing answering in between is
-reported, which is the case the blips were drowning out — a proxy that kills long
-connections, a daemon answering every short request and no park. So a bead about the poll
-now carries a stronger claim than it used to: it failed twice running, with nothing
-answering in between. The counter is cleared by **any** response at all, whatever its
-status, because a 500 is the daemon failing *and* proof the connection is there, and
-reachability is the only thing being counted. It is narrower than the pair the in-flight
-count ignores — `/api/presence` is a short request on a timer, only ever caught by an
-outage a dozen other requests are catching too, and the echo rule already folds those onto
-one bead.
+that stays broken is not silenced: a failure of one that has been failing for half a
+minute with nothing answering in between is reported, which is the case the blips were
+drowning out — a proxy that kills long connections, a daemon answering every short request
+and no park. So a bead about the poll now carries a stronger claim than it used to: it had
+been failing for half a minute, and nothing had answered on it in that time. The clock is
+cleared by **any** response at all, whatever its status, because a 500 is the daemon
+failing *and* proof the connection is there, and reachability is the only thing being
+counted.
+
+**What is counted is the span, not the number of failures**, and that is what makes the
+claim survive contact with the page. One blip fails more than one request: on any page
+carrying a *standby* mount, the ordinary mount's failure runs `arbitrate` in
+`public/stream.js`'s `finally`, nothing is following by then, so every standby is started
+on the spot and issues its own `/api/poll` into the same dead connection milliseconds
+later. `public/index.html` is such a page — `public/panestage.js` mounts the standby the
+panes ride — and it is the page bc-y8wf was filed from, so a rule counting occurrences
+would have filed the very bead it exists to stop. Half a minute is a park (twenty-five
+seconds) plus stream.js's first retry (five), the shortest stretch in which the poll has
+had a turn, failed, waited, and had another. A standing failure older than three minutes
+is forgotten rather than counted against, because a gap that long is a poll that was not
+being made — a stood-down mount, a hidden tab — and the same reasoning clears the clock
+outright on a `visibilitychange`. It is narrower than the pair the in-flight count ignores
+— `/api/presence` is a short request on a timer, only ever caught by an outage a dozen
+other requests are catching too, and the echo rule already folds those onto one bead.
 
 **And a ceiling**: eight reports per page per minute, and the same error not twice inside
 thirty seconds. A render loop that throws on every frame files a handful and stops. The

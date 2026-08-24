@@ -30,11 +30,12 @@
  * 5. **A refusal.** `toast(msg, 'refused')` is red because the app declined what you
  *    typed. "Give it a name" is not a bug.
  * 6. **A loop.** A render that throws on every frame, capped rather than uncapped.
- * 7. **One failure of the long poll.** `/api/poll` is parked almost all of the time, so
- *    every momentary loss of the connection lands on it and nothing else — and the app
- *    recovers on its own while the staleness banner says so. That is bc-y8wf. The second
- *    failure with nothing answering in between is still filed, because that one is a
- *    poll that never came back.
+ * 7. **A moment's failure of the long poll.** `/api/poll` is parked almost all of the
+ *    time, so every momentary loss of the connection lands on it and nothing else — and
+ *    the app recovers on its own while the staleness banner says so. That is bc-y8wf. A
+ *    poll that has been failing for half a minute with nothing answering in between is
+ *    still filed, because that one never came back. The span and not the count: one blip
+ *    fails every mount on the page at once, standbys included.
  *
  * The last two checks are static reads of the pages, because the wiring is not something
  * a stub can see: that every page loads the file at all, and that each of the four copied
@@ -87,7 +88,7 @@ async function check(name, fn) {
  * both: it is the only way to prove the report's own request does not go back through
  * the wrapper.
  */
-function load({ pathname = '/', respond = null, throwOnFetch = false } = {}) {
+function load({ pathname = '/', respond = null, throwOnFetch = false, now = null } = {}) {
   const listeners = new Map();
   const calls = [];
   const window = {
@@ -110,6 +111,12 @@ function load({ pathname = '/', respond = null, throwOnFetch = false } = {}) {
     },
   };
   const ctx = vm.createContext({ window, URL, setTimeout, clearTimeout, console });
+  // A clock the check can move, for the one rule in the file that is about a span of time
+  // rather than a sequence of events. Patched as a static in the context — the same line
+  // test/freshness.mjs uses against this shape — rather than shadowing the constructor,
+  // because report.js's one `Date.parse` is on a real ISO string from the daemon and has
+  // to keep parsing it.
+  if (now) vm.runInContext('Date.now = () => __now();', Object.assign(ctx, { __now: now }));
   vm.runInContext(SOURCE, ctx, { filename: 'report.js' });
   const fire = (type, event) => {
     const fn = listeners.get(type);
@@ -286,17 +293,28 @@ await check('a cross-origin fetch is not reported', async () => {
 
 /**
  * A stub whose long poll is broken and whose every other endpoint — the report endpoint
- * included — answers. `down` is read per call so a check can bring the poll back.
+ * included — answers. `down` is read per call so a check can bring the poll back, and the
+ * clock is the check's own, because what the parked rule counts is a *span* of failure
+ * and a suite that cannot move time can only ever pin the sequence.
  */
 const polling = () => {
-  const state = { down: true };
+  const state = { down: true, now: 0 };
   const app = load({
+    now: () => state.now,
     respond: (input) => {
       if (!String(input).startsWith('/api/poll')) return Promise.resolve({ status: 200, ok: true });
       return state.down ? Promise.reject(err('Failed to fetch')) : Promise.resolve({ status: 200, ok: true });
     },
   });
-  return { app, state, poll: () => app.window.fetch('/api/poll?since=12&wait=25').catch(() => {}) };
+  return {
+    app,
+    state,
+    poll: () => app.window.fetch('/api/poll?since=12&wait=25').catch(() => {}),
+    /** Move the clock to this many milliseconds after the first failure. */
+    at: (ms) => {
+      state.now = ms;
+    },
+  };
 };
 
 await check('one failure of the long poll is a blip, and files nothing', async () => {
@@ -305,9 +323,24 @@ await check('one failure of the long poll is a blip, and files nothing', async (
   assert.deepEqual(app.reports(), [], 'bc-y8wf: a phone waking up filed a P0');
 });
 
-await check('a long poll that fails twice running is reported', async () => {
-  const { app, poll } = polling();
+await check('one blip failing two mounts at once is still one blip', async () => {
+  // The case the reviewer of #688 found, and the reason this rule counts a span rather
+  // than occurrences. A failing ordinary mount runs `arbitrate` in public/stream.js's
+  // `finally`; nothing is following by then, so every standby is started on the spot and
+  // issues its own /api/poll into the same dead connection milliseconds later.
+  // public/index.html is such a page — public/panestage.js mounts the standby — and it is
+  // the page bc-y8wf was filed from.
+  const { app, poll, at } = polling();
   await poll();
+  at(3);
+  await poll();
+  assert.deepEqual(app.reports(), [], 'the standby mount landing in the same blip filed the bead');
+});
+
+await check('a long poll still failing half a minute later is reported', async () => {
+  const { app, poll, at } = polling();
+  await poll();
+  at(30 * 1000);
   await poll();
   const [r] = app.reports();
   assert.ok(r, 'a poll that never came back must still file');
@@ -316,11 +349,25 @@ await check('a long poll that fails twice running is reported', async () => {
   assert.equal(r.body.source, '/api/poll');
 });
 
-await check('an answered poll between two failures is two blips, not an incident', async () => {
-  const { app, state, poll } = polling();
+await check('a long poll that has not been failing that long yet is not reported', async () => {
+  // The other side of the same bound. Without this, half a minute could be any number at
+  // all and nothing in the suite would notice.
+  const { app, poll, at } = polling();
   await poll();
+  at(30 * 1000 - 1);
+  await poll();
+  assert.deepEqual(app.reports(), [], 'a stretch shorter than the bound was reported');
+});
+
+await check('an answered poll between two failures is two blips, not an incident', async () => {
+  // The clock is moved well past the bound on purpose: with the failures a moment apart
+  // this check would pass whether or not an answer clears anything.
+  const { app, state, poll, at } = polling();
+  await poll();
+  at(20 * 1000);
   state.down = false;
   await poll();
+  at(45 * 1000);
   state.down = true;
   await poll();
   assert.deepEqual(app.reports(), [], 'the connection came back in between, so neither failure stood');
@@ -334,6 +381,62 @@ await check('a 500 from the poll is an answer, and is filed at once', async () =
   const [r] = app.reports();
   assert.ok(r, 'a 500 on the poll was swallowed');
   assert.equal(r.body.message, 'GET /api/poll failed — HTTP 500');
+});
+
+await check('a 500 in the middle of a stretch clears it, because something answered', async () => {
+  // The half of "any response at all" that the check above cannot see: it starts from
+  // nothing standing, so it proves the 500 is not swallowed and nothing more. Here the
+  // 500 has to *clear* a failure already standing, which is what pins `answered` to its
+  // side of the `res.status >= 500` branch.
+  const state = { down: true, now: 0 };
+  const app = load({
+    now: () => state.now,
+    respond: (input) => {
+      if (!String(input).startsWith('/api/poll')) return Promise.resolve({ status: 200, ok: true });
+      return state.down ? Promise.reject(err('Failed to fetch')) : Promise.resolve({ status: 500, ok: false });
+    },
+  });
+  const poll = () => app.window.fetch('/api/poll?since=12&wait=25').catch(() => {});
+  await poll();
+  state.now = 10 * 1000;
+  state.down = false;
+  await poll();
+  state.now = 45 * 1000;
+  state.down = true;
+  await poll();
+  assert.deepEqual(
+    app.reports().map((r) => r.body.message),
+    ['GET /api/poll failed — HTTP 500'],
+    'the 500 was the only thing worth a bead here',
+  );
+});
+
+await check('a failure long after the last one starts the stretch again', async () => {
+  // A poll that is not being made cannot be answered, so a failure from before a
+  // stood-down mount or a tab left alone would otherwise still be standing when the next
+  // one lands, and "failing for half an hour" would be true of the clock rather than of
+  // the connection.
+  const { app, poll, at } = polling();
+  await poll();
+  at(4 * 60 * 1000);
+  await poll();
+  assert.deepEqual(app.reports(), [], 'a gap that long was counted as one stretch');
+  // …and the one that lands half a minute after *that* is a stretch of its own.
+  at(4 * 60 * 1000 + 30 * 1000);
+  await poll();
+  assert.equal(app.reports().length, 1, 'the clock did not start again');
+});
+
+await check('a stretch does not survive the page being hidden', async () => {
+  // The phone in a pocket, by name: the poll is not running while the screen is off, so
+  // nothing can answer, so nothing would otherwise clear what was standing when it went
+  // dark. Both edges of the event clear, because both mean the same thing.
+  const { app, poll, at } = polling();
+  await poll();
+  app.fire('visibilitychange', {});
+  at(40 * 1000);
+  await poll();
+  assert.deepEqual(app.reports(), [], 'a failure from before the screen went off was still standing');
 });
 
 await check('an ordinary path still files the first time it fails', async () => {
