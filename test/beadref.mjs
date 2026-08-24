@@ -104,6 +104,25 @@ check('the `bead:` block outranks everything, and a weaker tier is a separate en
   assert.ok(tiers.some((t) => t.includes('bc-bbb')));
 });
 
+check('a title that names a second bead does not ride along with the declared one — bc-khoe.30.16', () => {
+  // The exact shape of PR #503: `bead: bc-khoe.30.6` and a title reading "Rewrite
+  // bc-khoe.4". Before the fix both landed in the same tier, so the merge closed
+  // bc-khoe.4 — a bead the PR only mentioned — alongside the one it actually delivered.
+  const tiers = candidateTiers(
+    row({ title: 'bc-khoe.30.6: Rewrite bc-khoe.4 — Advocates is a pane', body: 'bead: bc-khoe.30.6\n\nprose' }),
+    'bc'
+  );
+  assert.deepEqual(tiers[0], ['bc-khoe.30.6']);
+  assert.ok(!tiers[0].includes('bc-khoe.4'));
+});
+
+check('with no `bead:` block, a title still resolves exactly as it always did', () => {
+  assert.deepEqual(first({ title: 'bc-khoe.30.6: Rewrite bc-khoe.4 — Advocates is a pane' }), [
+    'bc-khoe.30.6',
+    'bc-khoe.4',
+  ]);
+});
+
 check('a mention with no verb is not a claim — the three-bead false link stays fixed', () => {
   // The case beadref's header is written about: "nothing was done about bc-2tr / bc-es8,
   // which this unblocks" linked a PR to beads it explicitly had not touched.

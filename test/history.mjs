@@ -7,7 +7,7 @@
  *
  * `test/historyapi.mjs` is the other half of this and checks the endpoint: the sweep,
  * the sort, the paging, the filters, the `errors[]` row for a repo whose `bd` fell over.
- * What is here is the page, and the page's whole job is to turn the space picker into
+ * What is here is the pane, and its whole job is to turn the space picker into
  * one request and what comes back into a list you can scan. So the checks are about the
  * three things that can go wrong in that translation, none of which is visible by
  * reading one function:
@@ -20,25 +20,28 @@
  *    beads, which is the failure mode nobody reports because it looks like data.
  *
  * 2. **A repo whose `bd` fell over is a `200`.** It comes back with a row in `errors[]`
- *    and the other repos' rows still present — not a failed request — so a page reading
+ *    and the other repos' rows still present — not a failed request — so a pane reading
  *    `res.ok` alone draws it as a repo with nothing in it, and under a space of several
  *    repos that is one of them silently vanishing out of a merged list. It is the worst
- *    failure this page has, because it is indistinguishable from the truth.
+ *    failure this pane has, because it is indistinguishable from the truth.
  *
  * 3. **Waiting and empty look identical, and are not.** The uncached sweep is about a
  *    second for 500 beads on an idle Mac and was measured at 28 seconds on one under an
  *    ordinary afternoon's load here, while `{rows: [], total: 0}` is a perfectly good
  *    answer for a repo nobody has filed anything in. Both are a blank list.
  *
- * The client half runs the real `public/history.js` in a vm with a hand-made document,
- * the way test/spacebar.mjs runs the real picker — a rewrite of the logic as a test-only
- * module could not fail while the phone shipped something else.
+ * The client half runs the real `public/history.js` in a vm with a hand-made document and
+ * the real public/hashroute.js, the way test/spacebar.mjs runs the real picker — a
+ * rewrite of the logic as a test-only module could not fail while the phone shipped
+ * something else. (Until bc-khoe.30.15 the document was hand-made twice over, once for
+ * this pane and once for the `/history` page this file used to also draw; the page and
+ * its query-string filters are gone, and so is the second harness.)
  *
  * And the static half at the foot is the other side of that: a stub document answering
- * every selector cannot notice an element missing from the HTML, so every id the script
- * reaches for is also checked against the document that has to contain it.
+ * every selector cannot notice an element missing from the real one, so every id the
+ * script reaches for is also checked against public/index.html, which has to contain it.
  *
- * Worth knowing if you are changing this page: it used to do the merge itself, one
+ * Worth knowing if you are changing this pane: it used to do the merge itself, one
  * request per repo with a k-way merge over a buffer each, because the endpoint was
  * described as taking one workspace. It does not — `ledgerWorkspaces` in lib/server.js
  * resolves all three picker states — and the second implementation went away. If you are
@@ -85,8 +88,17 @@ const iso = (h) => new Date(Date.UTC(2026, 0, 1) + h * 3600e3).toISOString();
 const ALL = { space: 'all', workspace: 'all' };
 
 /**
- * The real file, in a room with the four things it touches: the list element, the pulse
- * dot, the ⟳ button, and the space picker it registers itself on.
+ * The real file, in the shell it now only ever runs in: the pane's list element, the
+ * app's one ⟳, the space picker it registers itself on, and the real public/hashroute.js
+ * for `route.parse`/`route.hashFor` — a stand-in for `panes.js` that has only the three
+ * questions `history.js` actually asks of it (as test/historyfilter.mjs runs both real
+ * files together; this suite is the picker and the paging, so it runs history.js alone).
+ *
+ * No `window.beadcause.stage` here, which is what makes `build()` run synchronously as
+ * the file is loaded rather than waiting to be asked for it — the fallback path
+ * `history.js` takes when there is no stager, and the one that keeps every check below
+ * from having to call `h.build()` itself. `test/historyfilter.mjs`'s shell section is
+ * where the staged-boot timing itself is asserted.
  *
  * `out` keeps `innerHTML` as the string it was handed — which is what every check below
  * reads — and answers `querySelector('#hist-more')` only when that string actually
@@ -119,7 +131,6 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
   out.querySelector = (sel) =>
     sel === '#hist-more' && /id="hist-more"/.test(out.innerHTML) ? button : null;
 
-  const pulse = mk();
   const refresh = mk();
 
   const store = new Map();
@@ -159,28 +170,28 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     return { ok: true, status: 200, headers, json: async () => body };
   };
 
-  const window = { beadcause: { space } };
-  /* The address bar. The filters live in it and nowhere else (bc-nib3.3), so the page
-     reads it before its first request and writes it back on every chip — which means a
-     realm without one throws on load. `hist-filters` answers null here on purpose: this
-     suite is about the picker and the paging, and a page with no filter host mounts no
-     control and takes its filters from the URL alone, which is the supported path for a
-     phone holding history.html from a cache older than filtermenu.js. The control
-     itself is test/historyfilter.mjs. */
-  const location = { pathname: '/history', search: '', hash: '' };
+  /* The address bar. The filters live in it and nowhere else (bc-nib3.3), in the hash's
+     own query since bc-khoe.30.5 — so a realm with no hash grammar throws on load.
+     `hist-filters` answers null here on purpose: this suite is about the picker and the
+     paging, and a pane with no filter host mounts no control and takes its filters from
+     the address alone. The control itself is test/historyfilter.mjs. */
+  const location = { pathname: '/', search: '', hash: '#history' };
   const history = {
     replaceState: (_s, _t, url) => {
-      const at = String(url).indexOf('?');
-      location.search = at === -1 ? '' : String(url).slice(at);
+      const raw = String(url);
+      const at = raw.indexOf('#');
+      location.hash = at === -1 ? '' : raw.slice(at);
     },
   };
+  const window = { beadcause: {} };
   const ctx = vm.createContext({
     window,
     document: {
       getElementById: (id) =>
-        // `hist-list` since bc-khoe.30.5 — see the note on the same lookup in
+        // `hist-list` since bc-khoe.30.5, `refresh` (the shell's one ⟳) rather than the
+        // page's own `hist-refresh` since bc-khoe.30.15 — see the same lookups in
         // test/historyfilter.mjs.
-        id === 'hist-list' ? out : id === 'pulse' ? pulse : id === 'hist-refresh' ? refresh : null,
+        id === 'hist-list' ? out : id === 'refresh' ? refresh : null,
     },
     localStorage: { getItem: (k) => store.get(k) ?? null },
     fetch: fetchStub,
@@ -202,12 +213,23 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     Promise,
     console,
   });
+  // The real grammar, for `route.parse`/`route.hashFor` — it hangs itself off
+  // `window.beadcause` on load, which is why it runs before `space` is assigned onto it.
+  vm.runInContext(read('public/hashroute.js'), ctx, { filename: 'hashroute.js' });
+  window.beadcause.space = space;
+  let showing = 'history';
+  window.beadcause.panes = {
+    showing: () => showing,
+    onShow: () => {},
+    go(v) {
+      showing = v;
+    },
+  };
   vm.runInContext(read('public/history.js'), ctx, { filename: 'history.js' });
 
   return {
     out,
     button,
-    pulse,
     refresh,
     calls,
     /** Move the picker, the way spacebar.js announces it. */
@@ -697,33 +719,36 @@ await check('but a long scroll does not — one re-sweep per press, not per page
 
 /* =============================================================== 6. static reads */
 
-const HTML = read('public/history.html');
 const JS = read('public/history.js');
 
-await check('every id the script reaches for is in the document', () => {
+await check('every id the script reaches for is on the shell, in public/index.html', () => {
+  // public/history.html is gone (bc-khoe.30.15) — the only document this script ever
+  // draws into now is the shell's, and `[data-pane="history"]` there is where its ids
+  // have to be, `#refresh` (the app's shared ⟳) included.
   const wanted = [...JS.matchAll(/getElementById\('([^']+)'\)/g)].map((m) => m[1]);
   assert.ok(wanted.length >= 3, `expected the script to name its elements, found ${wanted.length}`);
-  const missing = wanted.filter((id) => !HTML.includes(`id="${id}"`));
+  const html = read('public/index.html');
+  const missing = wanted.filter((id) => !html.includes(`id="${id}"`));
   assert.deepEqual(missing, [], `no element for: ${missing.join(', ')}`);
 });
 
-await check('the page loads the picker before its own script, and the drawer at all', () => {
-  const order = [...HTML.matchAll(/<script src="\/([a-z]+)\.js"><\/script>/g)].map((m) => m[1]);
-  assert.ok(order.includes('spacebar'), 'no space picker: the page would have nothing to be the ledger of');
-  assert.ok(order.includes('viewbar'), 'no pill row: a page you cannot leave');
-  assert.ok(order.includes('drawer'), 'no drawer: a tap would cost your place in the list');
-  assert.ok(
-    order.indexOf('spacebar') < order.indexOf('history'),
-    'history.js runs before spacebar.js, so it registers on a picker that does not exist yet'
-  );
+await check('history.js has no inShell, and no second filter grammar', () => {
+  // bc-khoe.30.15's acceptance criterion, read off the source directly: the page half —
+  // and the query-string filters it kept its state in — is gone rather than merely
+  // unreachable. `location.search` itself still appears once, in `address.write`, but
+  // only to carry an *unrelated* parameter (`?t=`) across untouched — never read back
+  // into `URLSearchParams` for the four filters, which is the shape the old grammar took.
+  assert.doesNotMatch(JS, /inShell/, 'a page/pane branch survived the page it branched for');
+  assert.doesNotMatch(JS, /URLSearchParams\(location\.search\)/, 'a second place for the four filters to live');
 });
 
-await check('the pill row has a History pill pointing at the page', () => {
+await check('the pill row has a History pill pointing at the view', () => {
   const bar = read('public/viewbar.js');
   assert.match(bar, /id: 'history'/);
   assert.match(bar, /href: '\/history'/);
   // The addresses moved to public/hashroute.js with bc-khoe.30.2 — the row asks it which
-  // view a path is rather than holding a second copy of the answer.
+  // view a path is rather than holding a second copy of the answer. `/history.html` stays
+  // in that table: it is an old address to redirect, not a claim that the file exists.
   assert.match(read('public/hashroute.js'), /paths: \['\/history', '\/history\.html'\]/);
 });
 

@@ -233,16 +233,36 @@ await check('the hand-back is what marks a worker for it', async () => {
 });
 
 await check('the comment is asked for on exactly the ending nobody chose', async () => {
-  const line = advocate.split('\n').find((l) => l.includes('worker.handedBack && res.head'));
+  const line = advocate.split('\n').find((l) => l.includes('worker.handedBack') && l.includes('res.head'));
   assert.ok(line, 'the gate exists');
   assert.match(line, /!res\.merged/, 'nothing to salvage from work already in main');
   assert.match(line, /res\.commits\.length/, 'and nothing to salvage from a window that built nothing');
 });
 
+/**
+ * And the ending that looks like it but is not — bc-y7l2m.
+ *
+ * Every word of this comment's justification is "the bead is workable again and the next
+ * window opens a fresh worktree". A conversation parked because its window disappeared
+ * breaks that: the same agent comes back to the same tree holding the same commits, and
+ * the note would be telling it that its own live branch was abandoned by a dead window.
+ * The archive is written either way — that is the record; this is only the courtesy.
+ */
+await check('and not when the same conversation is coming back to that worktree', async () => {
+  const line = advocate.split('\n').find((l) => l.includes('worker.handedBack') && l.includes('res.head'));
+  assert.match(line, /!worker\.parkedForResume/, 'a park for resume takes the comment off');
+  // Set where the park is written and only once it has landed, for `handedBack`'s reason:
+  // a park that never reached the disk will not be resumed, so the note is right again.
+  const flag = advocate.indexOf("if (kind === 'gone') w.parkedForResume = true;");
+  assert.ok(flag > -1, 'set in `parkWorker`');
+  const write = advocate.indexOf('parked: prunePark(');
+  assert.ok(write > -1 && flag > write, 'after the state write, not before it');
+});
+
 await check('a tracker that refuses the comment does not cost the archive', async () => {
   // The whole point of the ordering in `archiveFinished`: the archive is the record, the
   // comment is a courtesy, and one bead's tracker failing must not end the finished list.
-  const at = advocate.indexOf('worker.handedBack && res.head');
+  const at = advocate.indexOf('worker.handedBack');
   const after = advocate.slice(at, at + 1600);
   assert.match(after, /try \{/, 'the write is guarded');
   assert.match(after, /could not tell \$\{worker\.id\} what its dead window built/, 'and says so rather than throwing');
