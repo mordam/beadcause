@@ -66,10 +66,36 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const ROOT = path.join(HERE, '..');
+/** Used only when `cwd` is not inside any git worktree at all — this file's own checkout. */
+const FALLBACK_ROOT = path.join(HERE, '..');
+
+/**
+ * The root to check: the CALLING session's own worktree, not this script's. Per memory
+ * note only-an-extensionless-bin-resolves-on-path, the bin/ file that actually executes
+ * for any b7e-* command is always the MAIN CHECKOUT's copy — lib/foundation.js puts the
+ * main checkout's bin/ first on PATH — so a HERE-based root would always answer for the
+ * main checkout regardless of which worktree the agent is really sitting in, which is
+ * backwards for a tool whose whole job is catching an uncommitted, not-yet-merged
+ * registration before it ships. Same repoRoot(cwd) pattern as lib/repogrep.js
+ * (bc-4r10.21): shell out to git rather than walk up looking for a marker file, so a
+ * worktree resolves to its own root and not its main checkout's.
+ */
+export function repoRoot(cwd = process.cwd()) {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return FALLBACK_ROOT;
+  }
+}
+export const ROOT = repoRoot();
 
 const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
 const readText = (p) => fs.readFileSync(p, 'utf8');
