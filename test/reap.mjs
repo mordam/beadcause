@@ -65,6 +65,15 @@ const { decide, closingFor, namesBead, beadInName, saidDone, saidFinished, sweep
 const ago = (secs) => new Date(Date.now() - secs * 1000).toISOString();
 
 /**
+ * The label the reap pass reads, and how many times one tick read it.
+ *
+ * Taken from lib/delivery.js rather than spelled out, so a rename cannot leave this file
+ * counting a label nothing asks for and passing every check by measuring zero.
+ */
+const { DELIVERY_LABEL } = await import(LIB('delivery.js'));
+const deliveryReads = (calls) => calls.listLabel[DELIVERY_LABEL] || 0;
+
+/**
  * A workspace whose directory the shell's own rule would derive from `projectRoot`.
  *
  * `beadsDirFor` — which is what lib/claude.js uses to decide which workspace a running
@@ -158,15 +167,19 @@ function harness({ show, overrides = {}, labelled = () => [], empty = null } = {
   cfg.advocates = { ...cfg.advocates, ...overrides };
   fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2));
   const events = [];
-  const calls = { listLabel: 0, sweptEmpty: 0 };
+  // **Counted per label**, because a tick asks this one method for more than one thing.
+  // A delivery is asked about for every *idle* window and not only for one that exited —
+  // the difference between a handful of calls a day and one per quiet window per tick if
+  // the answer were not shared — and that is what the checks below pin. bc-jvt0.5's
+  // whole-job sweep also reads a label on the same tick, once per interval, and a bare
+  // total would have made this file's assertions go red for a call in another sweep that
+  // has nothing to do with what they are measuring.
+  const calls = { listLabel: {}, sweptEmpty: 0 };
   const bd = {
     ready: async () => [],
     show: async (_ws, id) => show(id),
-    // Counted, because a delivery is now asked about for every *idle* window and not
-    // only for one that exited — which is the difference between a handful of calls a
-    // day and one per quiet window per tick if the answer were not shared.
     listLabel: async (_ws, label) => {
-      calls.listLabel += 1;
+      calls.listLabel[label] = (calls.listLabel[label] || 0) + 1;
       return labelled(label);
     },
   };
@@ -390,7 +403,7 @@ await check('a delivered window is closed, and is not written down as a timeout'
     'the ending it reached is the ending recorded'
   );
   assert.deepEqual(attempts(), {}, 'and a documented ending costs the bead no attempt');
-  assert.equal(calls.listLabel, 1, 'one tracker call for the pass, not one per worker');
+  assert.equal(deliveryReads(calls), 1, 'one tracker call for the pass, not one per worker');
   assert.ok(await goneWithin(victim.pid, 4000), 'the window is still open');
 });
 
@@ -410,7 +423,7 @@ await check('a handed-back window is closed, without asking the tracker anything
     'a `human` label on an open bead under a quiet window is a handback'
   );
   assert.deepEqual(attempts(), {}, 'which the brief asks for, so it costs no attempt');
-  assert.equal(calls.listLabel, 0, 'the label was already in hand — no reason to ask about deliveries');
+  assert.equal(deliveryReads(calls), 0, 'the label was already in hand — no reason to ask about deliveries');
   assert.ok(await goneWithin(victim.pid, 4000), 'the window is still open');
 });
 
@@ -429,7 +442,7 @@ await check('a window still working is neither finished nor signalled', async ()
   await new Promise((r) => setTimeout(r, 250));
   assert.equal(card(advocates).workers.length, 1, 'a busy session still holds its slot');
   assert.equal(card(advocates).closing.length, 0, 'and nothing was queued against it');
-  assert.equal(calls.listLabel, 0, 'nor was the tracker asked about a session that has not stopped');
+  assert.equal(deliveryReads(calls), 0, 'nor was the tracker asked about a session that has not stopped');
   assert.ok(alive(victim.pid), 'it signalled a session that was still working');
   victim.kill('SIGKILL');
 });
