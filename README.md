@@ -18527,8 +18527,9 @@ that updates it in place** — `b7e-say -w <ws> -b <bead> --note <key>` or `--re
 <key>`. A debrief has no key to update; the line for one instead names `--debrief`,
 because a report on a run appends rather than overwrites. `--json` carries all of that
 plus each hit's whole stored `value`, so a debrief hit is no less identifiable there
-than in the printed form. Nothing found prints one line saying so and exits `0` — this answers a question, it does not gate anything, and "safe
-to file a new key" is as real an answer as a hit.
+than in the printed form. Nothing found prints one line saying so and exits `0`
+— this answers a question, it does not gate anything, and "safe to file a new
+key" is as real an answer as a hit.
 
 **Never opens a path under the personal memory directory** bc-khoe.18 searched instead
 — the only imports here are `lib/memory.js` and `lib/sessionlog.js`, neither of which
