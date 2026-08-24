@@ -554,10 +554,28 @@ check('the inbox loads the file, and loads it before app.js', () => {
   assert.ok(mine < app, 'index.html loads app.js first — the registrations would find nothing');
 });
 
-check('and carries the ✏️ the module wires itself to', () => {
-  // A fake document answers every getElementById, so only a read of the markup can see
-  // this one missing.
-  assert.match(INDEX, /id="editmode"/, 'no #editmode button in index.html');
+check('and draws no ✏️, because the way in is parked (bc-p49x.12)', () => {
+  // Inverted rather than deleted. The button sat over the inbox all day for a mode most
+  // sessions never touch, so the element came out of the markup and nothing else did —
+  // `wireButton` returns early on a page without one and the whole mode stays reachable
+  // through `beadcause.editMode`. A fake document answers every getElementById, so only
+  // a read of the markup can see whether it is really gone.
+  assert.doesNotMatch(INDEX, /id="editmode"/, 'the ✏️ is back in index.html — bc-p49x.12 parked it');
+  // And the module is what has to keep working without it. Both halves are read here
+  // because "no button" is only half the bead: a page that also lost the module would
+  // pass the line above and have no edit mode at all.
+  assert.match(INDEX, /<script src="\/editmode\.js">/, 'index.html no longer loads editmode.js either');
+  // And the two places in the module that would throw on a page with no button. Read as
+  // code rather than as prose: this file argues about `btn` in comments all the way down,
+  // so a grep over the block is satisfied by the paragraph above the line it is guarding.
+  const MINE = codeLines(read('public/editmode.js'));
+  const body = (name) => MINE.slice(MINE.findIndex((l) => l.startsWith(`function ${name}(`)) + 1);
+  const [look, bail] = body('wireButton');
+  assert.equal(look, "const btn = doc?.getElementById?.('editmode');", 'wireButton no longer starts by looking for the button');
+  assert.equal(bail, 'if (!btn) return;', 'wireButton no longer returns early on a page with no button');
+  assert.equal(body('sayButton')[0], 'if (!btn) return;', 'sayButton no longer tolerates being handed nothing');
+  // paintCount is the one that runs on every change whether or not a button exists.
+  assert.ok(MINE.includes('if (btn) {'), 'paintCount no longer guards the badge write on a button being there');
 });
 
 check('the service worker caches it, so an offline inbox is not half a mode', () => {

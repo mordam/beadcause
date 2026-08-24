@@ -31,6 +31,7 @@
  * can gate on it.
  */
 import { boundaryFor, only, organisations } from '../lib/boundary.js';
+import { COMMITMENTS, suppliable } from '../lib/commitments.js';
 import { current, scope } from '../lib/election.js';
 import {
   assertion,
@@ -110,7 +111,16 @@ function period() {
  * and says so on the document rather than failing to produce one.
  */
 const elected = scope(await current());
-const description = describe(record, { criteria: elected.length ? elected : null, period: period() });
+/**
+ * The commitments register is the one supplied section this CLI passes — see
+ * `lib/commitments.js`. Environment, changes and incidents stay unsupplied: nothing here
+ * lands a register for them, and a flag would make a hand-written section one step away.
+ */
+const description = describe(record, {
+  criteria: elected.length ? elected : null,
+  period: period(),
+  supplied: { commitments: suppliable(COMMITMENTS) },
+});
 
 const json = (v) => console.log(JSON.stringify(v, null, 2));
 const strict = has('--strict');

@@ -109,21 +109,26 @@ if (work.error) {
   process.exit(5);
 }
 
+// `process.exit(0)` right after the write below used to drop whatever of it was still
+// pending: stdout to a pipe is async, so a big `--json | jq` run cut at the 64KB pipe
+// buffer with a success status and no signal at all (bc-dgx7.45). Falling off the end
+// with `process.exitCode` set instead — the `else` is what stands in for the early
+// return `process.exit` used to give — flushes.
 if (json) {
   console.log(JSON.stringify({ workspace: ws.name, epic: epicId, ...work }, null, 2));
-  process.exit(0);
-}
-
-const n = work.beads.length;
-console.log(`${epicId} — ${n} work ${n === 1 ? 'bead' : 'beads'} closed, and this is the list to test`);
-for (const b of work.beads) console.log(`  ${b.id}  ${b.title}`);
-if (work.skipped.length) {
-  console.log(`\nnot work (${work.skipped.length}) — closed under ${epicId}, nothing was built for them:`);
-  for (const b of work.skipped) console.log(`  ${b.id}  [${b.why}]  ${b.title}`);
-}
-if (work.open.length) {
-  // Not a failure of this tool: it is bc-4bet.2's defect showing up in the one place
-  // somebody is still in a position to stop a release over it.
-  console.log(`\nstill open (${work.open.length}) — ${epicId}'s work is not all in main:`);
-  for (const b of work.open) console.log(`  ${b.id}  ${b.title}`);
+  process.exitCode = 0;
+} else {
+  const n = work.beads.length;
+  console.log(`${epicId} — ${n} work ${n === 1 ? 'bead' : 'beads'} closed, and this is the list to test`);
+  for (const b of work.beads) console.log(`  ${b.id}  ${b.title}`);
+  if (work.skipped.length) {
+    console.log(`\nnot work (${work.skipped.length}) — closed under ${epicId}, nothing was built for them:`);
+    for (const b of work.skipped) console.log(`  ${b.id}  [${b.why}]  ${b.title}`);
+  }
+  if (work.open.length) {
+    // Not a failure of this tool: it is bc-4bet.2's defect showing up in the one place
+    // somebody is still in a position to stop a release over it.
+    console.log(`\nstill open (${work.open.length}) — ${epicId}'s work is not all in main:`);
+    for (const b of work.open) console.log(`  ${b.id}  ${b.title}`);
+  }
 }

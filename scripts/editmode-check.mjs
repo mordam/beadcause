@@ -281,19 +281,28 @@ try {
     JSON.stringify(staged)
   );
 
-  /* 1. the mode is enterable and says so */
+  /* 1. the mode is enterable and says so.
+
+     Through the module rather than the ✏️: bc-p49x.12 parked the button, so there is no
+     longer anything on the inbox to tap, and `beadcause.editMode.toggle()` is the whole
+     way in for a check, for the console, and for anybody who wants the mode at all. What
+     is being proved here is the same as it was — the mode turns on, the body wears the
+     tint, and the banner says the screen has stopped — minus the one assertion that was
+     about the button's own `aria-pressed` and nothing else. */
   const entered = await evalJs(
     s,
     `(() => {
-      document.getElementById('editmode').click();
+      window.beadcause.editMode.toggle();
       return {
-        pressed: document.getElementById('editmode').getAttribute('aria-pressed'),
+        button: !!document.getElementById('editmode'),
+        active: window.beadcause.editMode.active(),
         editing: document.body.classList.contains('editing'),
         banner: document.querySelector('.editbar')?.textContent || null,
       };
     })()`
   );
-  check('the ✏️ turns the mode on', entered.pressed === 'true' && entered.editing, JSON.stringify(entered));
+  check('the module turns the mode on with no button to press', entered.active && entered.editing, JSON.stringify(entered));
+  check('and there is indeed no ✏️ on the screen to have pressed', !entered.button, entered.button ? 'the button is back — bc-p49x.12 parked it' : '');
   check(
     'and the banner says the screen is frozen',
     Boolean(entered.banner && /frozen/i.test(entered.banner)),
@@ -467,7 +476,7 @@ try {
   );
 
   /* 4. leaving the mode takes exactly one catch-up repaint */
-  await evalJs(s, `document.getElementById('editmode').click()`);
+  await evalJs(s, `window.beadcause.editMode.toggle()`);
   await sleep(900);
   const thawed = await evalJs(
     s,
