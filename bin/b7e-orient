@@ -197,6 +197,12 @@ const debriefNoParent = !row.parent;
 
 /* --------------------------------------------------------------------- --json */
 
+// `process.exit(0)` right after either write below used to drop whatever of it was
+// still pending: stdout to a **pipe** is async, so a caller-sized report — the whole
+// family, thread and debrief history — could cut at the 64KB pipe buffer with a success
+// status and no signal at all (bc-dgx7.45, bc-dgx7.53). The if/else is what stands in
+// for the early return `process.exit` used to give; falling off the end with
+// `process.exitCode` set instead flushes.
 if (JSON_MODE) {
   console.log(
     JSON.stringify(
@@ -216,74 +222,74 @@ if (JSON_MODE) {
       2
     )
   );
-  process.exit(0);
-}
-
-/* ------------------------------------------------------------------ printed form */
-
-const holder = (r) => (r.assignee ? r.assignee : r.status === 'closed' ? '' : 'unassigned');
-const rowLine = (r) =>
-  `  ${r.id.padEnd(14)} [${(r.status || 'open').padEnd(11)}${holder(r) ? `, ${holder(r)}` : ''}]  ${r.title || '(untitled)'}`;
-
-console.log(`b7e-orient ${beadId} · ${ws.name}\n`);
-console.log(claudeMdLine());
-
-console.log(`\n## Bead`);
-console.log(`${row.id} — ${row.title || '(untitled)'}`);
-console.log(
-  `status: ${row.status}   priority: ${row.priority ?? '(none)'}   type: ${row.issue_type || '(none)'}   assignee: ${row.assignee || '(unassigned)'}`
-);
-if ((row.labels || []).length) console.log(`labels: ${row.labels.join(', ')}`);
-const acceptance = row.acceptance_criteria || row.acceptance || '';
-if (acceptance) console.log(`\nAcceptance:\n${acceptance.split('\n').map((l) => `  ${l}`).join('\n')}`);
-
-const comments = row.comments || [];
-console.log(`\n## Thread (${comments.length} comment${comments.length === 1 ? '' : 's'})`);
-if (!comments.length) console.log('(no comments)');
-for (const c of comments) {
-  console.log(`\n${c.author || 'unknown'} · ${c.created_at || 'unknown time'}`);
-  console.log(String(c.text || '').trim());
-}
-
-console.log(`\n## Family`);
-if (!parentId) {
-  console.log('This bead has no tracker parent — nothing above it, and no siblings to list.');
+  process.exitCode = 0;
 } else {
-  console.log(`parent ${epic.id} (${epic.status}${epic.assignee ? `, ${epic.assignee}` : ''}) — ${epic.title || '(untitled)'}`);
-  if (!siblings.length) {
-    console.log('No other children under that parent.');
-  } else {
-    const CAP = 40;
-    console.log(`${siblings.length} sibling${siblings.length === 1 ? '' : 's'}:`);
-    for (const s of siblings.slice(0, CAP)) console.log(rowLine(s));
-    if (siblings.length > CAP) console.log(`  … and ${siblings.length - CAP} more — pass --json to see the rest`);
-  }
-}
+  /* ------------------------------------------------------------------ printed form */
 
-console.log(`\n## Plan group`);
-if (!plan) {
+  const holder = (r) => (r.assignee ? r.assignee : r.status === 'closed' ? '' : 'unassigned');
+  const rowLine = (r) =>
+    `  ${r.id.padEnd(14)} [${(r.status || 'open').padEnd(11)}${holder(r) ? `, ${holder(r)}` : ''}]  ${r.title || '(untitled)'}`;
+
+  console.log(`b7e-orient ${beadId} · ${ws.name}\n`);
+  console.log(claudeMdLine());
+
+  console.log(`\n## Bead`);
+  console.log(`${row.id} — ${row.title || '(untitled)'}`);
   console.log(
-    parentId || prefixId
-      ? `No plan on ${[parentId, prefixId].filter(Boolean).join(' or ')} names ${beadId}.`
-      : 'No epic to check — this bead has no tracker parent and no dotted id prefix.'
+    `status: ${row.status}   priority: ${row.priority ?? '(none)'}   type: ${row.issue_type || '(none)'}   assignee: ${row.assignee || '(unassigned)'}`
   );
-} else {
-  const g = plan.group;
-  const prs = g.prs || [];
-  console.log(`${plan.epic}'s plan names this bead in group "${g.name}" (${prs.length} pull ${prs.length === 1 ? 'request' : 'requests'}):`);
-  for (const p of prs) console.log(`  ${p.repo}${p.title ? ` — ${p.title}` : ''}`);
-  if (g.prompt) console.log(`\nWhat the epic worker wrote for this group:\n${g.prompt.split('\n').map((l) => `  > ${l}`.trimEnd()).join('\n')}`);
-}
+  if ((row.labels || []).length) console.log(`labels: ${row.labels.join(', ')}`);
+  const acceptance = row.acceptance_criteria || row.acceptance || '';
+  if (acceptance) console.log(`\nAcceptance:\n${acceptance.split('\n').map((l) => `  ${l}`).join('\n')}`);
 
-console.log(`\n## Debriefs`);
-if (!dir) {
-  console.log(`could not resolve a checkout for ${ws.name} to read debriefs from (${String(dirErr?.message || dirErr).split('\n')[0]}).`);
-} else {
-  if (debriefNoParent) {
-    console.log('This bead has no tracker parent, so only ITS OWN prior runs are covered here — not any siblings\'.');
+  const comments = row.comments || [];
+  console.log(`\n## Thread (${comments.length} comment${comments.length === 1 ? '' : 's'})`);
+  if (!comments.length) console.log('(no comments)');
+  for (const c of comments) {
+    console.log(`\n${c.author || 'unknown'} · ${c.created_at || 'unknown time'}`);
+    console.log(String(c.text || '').trim());
   }
-  const past = debriefBrief(debriefs, row);
-  console.log(past ? past.trim() : 'Nothing archived for this bead or its family.');
-}
 
-process.exit(0);
+  console.log(`\n## Family`);
+  if (!parentId) {
+    console.log('This bead has no tracker parent — nothing above it, and no siblings to list.');
+  } else {
+    console.log(`parent ${epic.id} (${epic.status}${epic.assignee ? `, ${epic.assignee}` : ''}) — ${epic.title || '(untitled)'}`);
+    if (!siblings.length) {
+      console.log('No other children under that parent.');
+    } else {
+      const CAP = 40;
+      console.log(`${siblings.length} sibling${siblings.length === 1 ? '' : 's'}:`);
+      for (const s of siblings.slice(0, CAP)) console.log(rowLine(s));
+      if (siblings.length > CAP) console.log(`  … and ${siblings.length - CAP} more — pass --json to see the rest`);
+    }
+  }
+
+  console.log(`\n## Plan group`);
+  if (!plan) {
+    console.log(
+      parentId || prefixId
+        ? `No plan on ${[parentId, prefixId].filter(Boolean).join(' or ')} names ${beadId}.`
+        : 'No epic to check — this bead has no tracker parent and no dotted id prefix.'
+    );
+  } else {
+    const g = plan.group;
+    const prs = g.prs || [];
+    console.log(`${plan.epic}'s plan names this bead in group "${g.name}" (${prs.length} pull ${prs.length === 1 ? 'request' : 'requests'}):`);
+    for (const p of prs) console.log(`  ${p.repo}${p.title ? ` — ${p.title}` : ''}`);
+    if (g.prompt) console.log(`\nWhat the epic worker wrote for this group:\n${g.prompt.split('\n').map((l) => `  > ${l}`.trimEnd()).join('\n')}`);
+  }
+
+  console.log(`\n## Debriefs`);
+  if (!dir) {
+    console.log(`could not resolve a checkout for ${ws.name} to read debriefs from (${String(dirErr?.message || dirErr).split('\n')[0]}).`);
+  } else {
+    if (debriefNoParent) {
+      console.log('This bead has no tracker parent, so only ITS OWN prior runs are covered here — not any siblings\'.');
+    }
+    const past = debriefBrief(debriefs, row);
+    console.log(past ? past.trim() : 'Nothing archived for this bead or its family.');
+  }
+
+  process.exitCode = 0;
+}

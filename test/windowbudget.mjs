@@ -241,6 +241,64 @@ await check('one resolver and a cap of one is a held card, not a silent empty qu
   assert.match(card.note, /1 of them is a session resolving a pull request/, card.note);
 });
 
+/* ---------------------------- and a queue for the budget presses on it too */
+
+/**
+ * bc-xl7n.129, and it is the half bc-29b3 left out.
+ *
+ * Sharing the budget made a resolver *wait* for a full Mac. Nothing made the dispatcher
+ * notice it waiting: `globalFree` subtracted the live resolvers and nothing read the line
+ * behind them, so a slot freed by a worker closing went straight to a new bead and the
+ * drain — a twenty-second timer — lost the race every time. Measured on the day it was
+ * filed: 25 pull requests in line for three hours, and the queue moved exactly once.
+ */
+
+await check('a pull request in line for a window holds the slot a freed one would have gone to', async () => {
+  resolving(101);
+  accountAgainst(() => ({ live: 1, cap: 2 }));
+  const state = { opened: [] };
+  const queued = await hand(state, 115);
+  assert.ok(queued.queued, 'the fixture is wrong if #115 opened rather than queueing');
+  const { opened, card } = await tick({ ready: [bead('bc-1')], globalMaxWorkers: 2 });
+  assert.deepEqual(opened, [], 'the one slot left belongs to the pull request that is already waiting for it');
+  assert.match(card.note, /held by globalMaxWorkers \(2\)/, card.note);
+  assert.match(
+    card.note,
+    /1 more is being kept for the 1 pull request in line for a window/,
+    'a cap of 2 over one live window is arithmetic nobody can check, and the missing one is not a window at all'
+  );
+});
+
+await check('the freed window goes to the queue, and the reservation lifts once the line empties', async () => {
+  let workers = 1;
+  resolving(101);
+  accountAgainst(() => ({ live: workers, cap: 2 }));
+  const state = { opened: [] };
+  await hand(state, 115);
+  assert.deepEqual((await tick({ ready: [bead('bc-1')], globalMaxWorkers: 2 })).opened, [], 'held while it waits');
+  workers = 0;
+  await pump({ probe: async () => true });
+  assert.deepEqual(state.opened, [115], 'the window a worker gave up went to the queue rather than to a new bead');
+  assert.deepEqual(pending(), [], 'and the line is empty');
+  const after = await tick({ ready: [bead('bc-1')], globalMaxWorkers: 3 });
+  assert.deepEqual(after.opened, ['bc-1'], 'nothing is waiting now, so the slot is the dispatcher’s again');
+});
+
+await check('and nothing is kept back when the line is held by maxResolvers rather than by the Mac', async () => {
+  resolving(101);
+  resolving(102);
+  accountAgainst(() => ({ live: 0, cap: 3 }));
+  const state = { opened: [] };
+  const queued = await hand(state, 115);
+  assert.match(queued.note, /2 resolvers are already running/, queued.note);
+  const { opened } = await tick({ ready: [bead('bc-1')], globalMaxWorkers: 3 });
+  assert.deepEqual(
+    opened,
+    ['bc-1'],
+    'the queue cannot take a worker’s slot while its own cap is full, so keeping one for it holds it open for ever'
+  );
+});
+
 /* --------------- and the windows nobody kept a record of at all (bc-2uj4.13) */
 
 /** A live process whose own argv is a coding window's brief — no id lookup needed to find it. */
@@ -453,8 +511,13 @@ await check('the daemon is what ties the two together, and it is one line either
   const advocate = fs.readFileSync(LIB('advocate.js'), 'utf8');
   assert.match(
     advocate,
-    /globalLimit\(\) - totalWorkers\(\) - totalResolvers\(\)/,
+    /globalLimit\(\) - totalWorkers\(\) - totalResolvers\(\) - reservedForResolvers\(\)/,
     'the subtraction is the other direction, and it is the one line the whole first half of this suite is about'
+  );
+  assert.doesNotMatch(
+    advocate,
+    /live: totalWorkers\(\) \+ reservedForResolvers\(\)/,
+    'a reservation counted into globals() is handed to the registry through accountAgainst, and cancels itself'
   );
   const config = fs.readFileSync(LIB('config.js'), 'utf8');
   assert.match(config, /maxResolvers: 2/, 'a key with no default is a key nobody discovers');

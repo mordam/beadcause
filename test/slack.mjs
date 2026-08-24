@@ -346,6 +346,31 @@ await check('more options than the cap fit in a row, and the message says how ma
   assert.match(JSON.stringify(blocks), /5 more options in the app/);
 });
 
+await check('a deferral is written down as one, so the registry says what the button offered', async () => {
+  reset();
+  const deferring = question({
+    decision: {
+      options: [
+        { id: 'do-it', label: 'Do it', response: 'Doing it.', closes: true },
+        // The shape `normalizeOptions` produces for `defers: true` — it forces `closes: false`,
+        // which is exactly why the registry cannot tell a deferral from a commission without
+        // recording the flag itself.
+        { id: 'not-yet', label: 'Not yet', response: 'Not yet. Leave this on the list.', closes: false, defers: true },
+      ],
+    },
+  });
+  await slack.postQuestion(base(), deferring);
+  const entry = loadState().slack['acme/ac-1'];
+  assert.deepEqual(
+    entry.options.map((o) => [o.id, o.closes, o.defers]),
+    [
+      ['do-it', true, false],
+      ['not-yet', false, true],
+    ],
+    'a deferral must not be written down as an ordinary non-closing option'
+  );
+});
+
 await check('a Slack error is an error, even though it arrives as HTTP 200', async () => {
   reset();
   postReply = { ok: false, error: 'channel_not_found' };
