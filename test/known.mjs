@@ -11,6 +11,14 @@
 // nowhere near git. A handful of calls through the real `bin/b7e-known` binary, against a
 // throwaway repo and a fake `bd`, cover what only the CLI does: argv parsing, gathering
 // candidates out of all three stores, and the printed report.
+//
+// "all three stores" is load-bearing and was once only a claim: the debrief branch is the
+// only genuinely new integration in this file's binary, and the only branch whose extra
+// fields (`bead`, `staged`) shape what gets rendered — yet `if (false) candidates.push(…)`
+// and `const family = []` both passed the whole suite, which is how a tier-4 hit shipped
+// previewing `renderDebrief`'s byline instead of its report. So a debrief is seeded here
+// through `lib/memory.js`'s own `debrief`, exactly as a run leaving a report would write
+// it, and read back through the binary.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -188,7 +196,7 @@ fs.writeFileSync(
 );
 fs.mkdirSync(path.join(tmp, 'tracker'), { recursive: true });
 
-function run(args, { input = '' } = {}) {
+function run(args, { input = '', env = {} } = {}) {
   // BEADCAUSE_BEAD is deliberately cleared rather than inherited — this suite may
   // itself be running inside a real beadcause session with that env var set for its
   // own bead, and a child that inherited it would silently pass a real bead id through
@@ -197,7 +205,7 @@ function run(args, { input = '' } = {}) {
     encoding: 'utf8',
     cwd: tmp,
     input,
-    env: { ...process.env, HOME: tmp, BEADCAUSE_CONFIG_DIR: configDir, BEADCAUSE_AGENT: 'known-tester', BEADCAUSE_BEAD: '' },
+    env: { ...process.env, HOME: tmp, BEADCAUSE_CONFIG_DIR: configDir, BEADCAUSE_AGENT: 'known-tester', BEADCAUSE_BEAD: '', ...env },
   });
   if (res.error) throw res.error;
   return { status: res.status, stdout: res.stdout || '', stderr: res.stderr || '' };
@@ -209,6 +217,14 @@ const cwd0 = process.cwd();
 process.chdir(REPO);
 await memory.note('known-tester', 'orphan-census-needs-independent-root', 'A fail-open hasRootAbove check over a census misses an orphan when a second root exists anywhere in the same fixture tree.');
 await memory.remember('known-tester', 'cdp-tab-focus', 'Driving Tab through CDP needs both keyDown and keyUp dispatched, not one synthetic event.');
+// A real tier-4 write, so what comes back is `renderDebrief`'s output — stamp line, blank
+// line, report — and not a hand-built string that would hide the byline bug.
+const DEBRIEF_REPORT =
+  'The parallel gate runner drops a suite whose name collides with another under the same tmpdir, so a green run can be one suite short and say nothing.';
+await memory.debrief('known-tester', 'ws-child', DEBRIEF_REPORT);
+// A second store, big enough that its --json report cannot fit in a 64KB pipe buffer.
+const LONG = 'A fail-open hasRootAbove check over a census misses an orphan when a second root exists anywhere in the same fixture tree. '.repeat(40);
+for (let i = 0; i < 30; i += 1) await memory.note('bulk-tester', `orphan-census-fixture-root-${i}`, `${LONG}${i}`);
 process.chdir(cwd0);
 
 check('--help prints usage and exits 0', () => {
@@ -277,6 +293,104 @@ check('--json emits a parseable, structurally complete report', () => {
   const parsed = JSON.parse(stdout);
   assert.equal(parsed.workspace, 'known-ws');
   assert.ok(parsed.hits.some((h) => h.key === 'orphan-census-needs-independent-root' && h.store === 'note'));
+});
+
+check('a debrief on the bead is gathered and labelled as a debrief hit', () => {
+  const { status, stdout } = run(['-w', 'known-ws', '-b', 'ws-child'], {
+    input: 'A parallel runner silently drops a suite whose name collides with another one under the same tmpdir, so a green run is a suite short.',
+  });
+  assert.equal(status, 0);
+  assert.match(stdout, /debrief entry \(ws-child, pending archive\)/, stdout);
+  assert.match(stdout, /append-only — no key to update/, stdout);
+});
+
+check("a debrief hit previews its report, not renderDebrief's byline", () => {
+  const { status, stdout } = run(['-w', 'known-ws', '-b', 'ws-child'], {
+    input: 'A parallel runner silently drops a suite whose name collides with another one under the same tmpdir, so a green run is a suite short.',
+  });
+  assert.equal(status, 0);
+  const lines = stdout.split('\n');
+  const at = lines.findIndex((l) => l.startsWith('debrief entry ('));
+  assert.ok(at > -1, stdout);
+  const preview = lines[at + 1].trim();
+  // The stamp `renderDebrief` writes is `<agent> · <ISO>`; every tier-4 hit used to
+  // preview that, identically, and never a word of the report itself.
+  assert.ok(!/^known-tester · \d{4}-/.test(preview), `previewed the byline: ${preview}`);
+  assert.ok(DEBRIEF_REPORT.startsWith(preview.slice(0, 40)), `expected the report, got: ${preview}`);
+});
+
+check("--json carries a debrief hit's bead and staged, which the printed form uses", () => {
+  const { status, stdout } = run(['-w', 'known-ws', '-b', 'ws-child', '--json'], {
+    input: 'A parallel runner silently drops a suite whose name collides with another one under the same tmpdir, so a green run is a suite short.',
+  });
+  assert.equal(status, 0);
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.checked.debrief, 1, JSON.stringify(parsed.checked));
+  const hit = parsed.hits.find((h) => h.store === 'debrief');
+  assert.ok(hit, stdout);
+  // `key` is null for every tier-4 hit, so without these two a machine consumer cannot say
+  // which bead it came from or whether it is only staged.
+  assert.equal(hit.bead, 'ws-child');
+  assert.equal(hit.staged, true);
+  assert.ok(!/^known-tester · \d{4}-/.test(hit.preview), `previewed the byline: ${hit.preview}`);
+});
+
+check('--json through a pipe is whole and parseable, however big the report', () => {
+  // `console.log(...)` then `process.exit(0)` dropped the pending write: stdout to a pipe
+  // is async, so this came back cut at exactly 65536 bytes with status 0. spawnSync's
+  // stdio is a pipe, which is the case that broke.
+  const { status, stdout } = run(['-w', 'known-ws', '--agent', 'bulk-tester', '--keep', '30', '--json'], {
+    input: 'A fail-open hasRootAbove check over a census misses an orphan when a second root exists anywhere in the same fixture tree.',
+  });
+  assert.equal(status, 0);
+  assert.ok(stdout.length > 65536, `payload too small to test the pipe buffer: ${stdout.length} bytes`);
+  const parsed = JSON.parse(stdout);
+  assert.equal(parsed.hits.length, 30, `${parsed.hits.length} hits`);
+});
+
+check('an unresolvable $BEADCAUSE_BEAD narrows the scope instead of failing the run', () => {
+  // Every agent session has BEADCAUSE_BEAD stamped, so a cross-workspace call, a renamed
+  // bead or a transient bd failure would otherwise take the whole tool down with no -b
+  // given — over a scope the caller never asked for, in a tool that gates nothing.
+  const { status, stdout, stderr } = run(['-w', 'known-ws'], {
+    input: 'A census with a fail-open hasRootAbove guard misses an orphan whenever a second root exists in the same fixture.',
+    env: { BEADCAUSE_BEAD: 'ws-nope' },
+  });
+  assert.equal(status, 0, stderr);
+  assert.match(stderr, /\$BEADCAUSE_BEAD is ws-nope/);
+  assert.match(stdout, /note `orphan-census-needs-independent-root`/, stdout);
+});
+
+check('but an explicit -b that does not resolve is still a hard 4', () => {
+  const { status, stderr } = run(['-w', 'known-ws', '-b', 'ws-nope'], { input: 'anything' });
+  assert.equal(status, 4);
+  assert.match(stderr, /no bead ws-nope/);
+});
+
+check('a flag whose value is another flag, or missing, is refused as usage', () => {
+  const agent = run(['-w', 'known-ws', '--agent', '--json'], { input: 'anything' });
+  assert.equal(agent.status, 2, agent.stderr);
+  assert.match(agent.stderr, /--agent needs a value, not the flag "--json"/);
+  // A trailing `-b` used to read as "no -b at all" — a narrower answer than was asked for,
+  // given silently.
+  const bead = run(['-w', 'known-ws', '-b'], { input: 'anything' });
+  assert.equal(bead.status, 2, bead.stderr);
+  assert.match(bead.stderr, /-b needs a value/);
+});
+
+check('--keep 0 and --keep abc are refused rather than silently defaulted to 5', () => {
+  for (const bad of ['0', 'abc']) {
+    const { status, stderr } = run(['-w', 'known-ws', '--keep', bad], { input: 'anything' });
+    assert.equal(status, 2, `--keep ${bad}: ${stderr}`);
+    assert.match(stderr, /--keep takes a positive whole number/);
+  }
+});
+
+check('an unreadable --file is the documented 2, not a raw ENOENT at 1', () => {
+  const { status, stderr } = run(['-w', 'known-ws', '--file', path.join(tmp, 'no-such-file.txt')]);
+  assert.equal(status, 2, stderr);
+  assert.match(stderr, /could not read --file/);
+  assert.ok(!/at Object\./.test(stderr), `raw stack: ${stderr}`);
 });
 
 check('never touches the personal memory directory — no such path appears anywhere in the source', () => {

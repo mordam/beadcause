@@ -30,8 +30,9 @@
  * here are `lib/memory.js` and `lib/sessionlog.js`, and neither of those takes one.
  *
  * Exit codes: `0` always, once argv parses and the prose is non-empty — this answers a
- * question, it does not gate anything. `2` bad usage, or nothing to check. `4` `-w`/`-b`
- * named something this checkout's tracker does not have.
+ * question, it does not gate anything. `2` bad usage, or nothing to check. `4` `-w`, or
+ * an *explicit* `-b`, named something this checkout's tracker does not have — an inherited
+ * `$BEADCAUSE_BEAD` that does not resolve is not a failure, it is one fewer store checked.
  */
 import fs from 'node:fs';
 import { loadConfig } from '../lib/config.js';
@@ -42,12 +43,28 @@ import { debriefBeads, readDebriefs } from '../lib/sessionlog.js';
 
 const argv = process.argv.slice(2);
 const has = (f) => argv.includes(f);
+
+function fail(msg, code = 2) {
+  console.error(`b7e-known: ${msg}`);
+  process.exit(code);
+}
+
+// A flag's value is never another flag and never absent. `--agent --json` used to hand
+// "--json" through as an agent name and die on lib/memory.js's raw `bad agent` throw, and
+// a trailing `-b` with nothing after it used to read as "no -b at all" — quietly answering
+// a narrower question than the caller asked. Both are usage errors, and a usage error in
+// this file is `fail(…, 2)`.
 const value = (...names) => {
   for (const f of names) {
     const inline = argv.find((a) => a.startsWith(`${f}=`));
     if (inline) return inline.slice(f.length + 1);
     const at = argv.indexOf(f);
-    if (at > -1) return argv[at + 1];
+    if (at > -1) {
+      const next = argv[at + 1];
+      if (next === undefined) fail(`${f} needs a value`);
+      if (next.startsWith('-')) fail(`${f} needs a value, not the flag "${next}"`);
+      return next;
+    }
   }
   return undefined;
 };
@@ -75,19 +92,21 @@ if (has('--help') || has('-h')) {
 const wsName = value('-w', '--workspace');
 // `$BEADCAUSE_BEAD` falls back the same way `whichBead()` in bin/beadcause-memory does —
 // an agent session already has it stamped, and treating it as "no -b" would silently
-// skip the debrief scope this same session's own `-b <bead>` would have gotten.
-const beadId = value('-b', '--bead') || process.env.BEADCAUSE_BEAD || null;
+// skip the debrief scope this same session's own `-b <bead>` would have gotten. Which of
+// the two it came from is kept, because an unresolvable one means opposite things — see
+// the resolve below.
+const beadFlag = value('-b', '--bead');
+let beadId = beadFlag || process.env.BEADCAUSE_BEAD || null;
 const file = value('-f', '--file');
 const who = value('--agent') || process.env.BEADCAUSE_AGENT || 'worker';
-const KEEP = Number(value('--keep')) || 5;
+const keepRaw = value('--keep');
+const KEEP = keepRaw === undefined ? 5 : Number(keepRaw);
 const JSON_MODE = has('--json');
 
-function fail(msg, code = 2) {
-  console.error(`b7e-known: ${msg}`);
-  process.exit(code);
-}
-
 if (!wsName) fail(`-w/--workspace is required\n${USAGE}`);
+// `Number(x) || 5` mapped both `--keep 0` and `--keep abc` onto the default, so a caller
+// who asked for something impossible got five hits and no sign it had been overruled.
+if (!Number.isInteger(KEEP) || KEEP < 1) fail(`--keep takes a positive whole number, not "${keepRaw}"`);
 
 const cfg = loadConfig();
 const ws = cfg.workspaces.find((w) => w.name === wsName);
@@ -95,7 +114,15 @@ if (!ws) {
   fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
 }
 
-const raw = file ? fs.readFileSync(file, 'utf8') : fs.readFileSync(0, 'utf8');
+// An unreadable --file is bad usage like any other, not a raw ENOENT stack at exit 1 —
+// the header documents 2 for that and this file otherwise keeps the convention.
+let raw;
+try {
+  raw = file ? fs.readFileSync(file, 'utf8') : fs.readFileSync(0, 'utf8');
+} catch (err) {
+  const why = String(err?.message || err).split('\n')[0];
+  fail(file ? `could not read --file ${file}: ${why}` : `could not read the prose from stdin: ${why}`);
+}
 const text = raw.trim();
 if (!text) fail('nothing to check — pipe prose in or pass --file');
 
@@ -103,12 +130,26 @@ const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedSe
 
 let row = null;
 if (beadId) {
+  let why = null;
   try {
     row = await bd.show(ws, beadId);
   } catch (err) {
-    fail(`${ws.name} has no bead ${beadId}: ${String(err?.message || err).split('\n')[0]}`, 4);
+    why = String(err?.message || err).split('\n')[0];
   }
-  if (!row) fail(`${ws.name} has no bead ${beadId}`, 4);
+  if (!row) {
+    // An explicit `-b` is a claim about the tracker, and a wrong one is worth failing on:
+    // the caller asked for that scope and did not get it. An inherited `$BEADCAUSE_BEAD`
+    // is not a claim — every agent session has one stamped, so a cross-workspace call, a
+    // renamed bead, or a transient `bd` failure against the shared Dolt DB would otherwise
+    // take the *whole* tool down, with note/remember needing no bead at all and the header
+    // promising exit 0 because this does not gate anything.
+    if (beadFlag) fail(why ? `${ws.name} has no bead ${beadId}: ${why}` : `${ws.name} has no bead ${beadId}`, 4);
+    console.error(
+      `b7e-known: $BEADCAUSE_BEAD is ${beadId}, which ${ws.name} does not have` +
+        `${why ? ` (${why})` : ''} — checking note/remember only, pass -b to scope the debriefs.`
+    );
+    beadId = null;
+  }
 }
 
 let dir;
@@ -155,7 +196,21 @@ function updateLine(hit) {
   return `(append-only — no key to update; a new run's report is \`b7e-say -w ${ws.name} ${beadArg} --debrief\`)`;
 }
 
-const firstLine = (v) => String(v).trim().split('\n')[0].slice(0, 160);
+// A debrief's stored text is `renderDebrief`'s output, which opens with an
+// `<agent> · <ISO>` stamp and a blank line before the report itself — so line one of every
+// tier-4 hit was that byline, identical across hits, on the one line an agent reads to
+// decide whether what is on file is what it was about to write. Skip the stamp. A report
+// that is nothing but a stamp still shows the stamp, because that is all there is.
+const STAMP = /^\S+ · (\d{4}-\d\d-\d\dT\S*|unknown time)$/;
+const firstLine = (v, store) => {
+  const lines = String(v).trim().split('\n');
+  let i = 0;
+  if (store === 'debrief') {
+    while (i < lines.length && (!lines[i].trim() || STAMP.test(lines[i].trim()))) i += 1;
+    if (i >= lines.length) i = 0;
+  }
+  return String(lines[i] ?? '').trim().slice(0, 160);
+};
 
 if (JSON_MODE) {
   console.log(
@@ -164,31 +219,46 @@ if (JSON_MODE) {
         workspace: ws.name,
         bead,
         checked: { remember: Object.keys(remembered).length, note: Object.keys(noted).length, debrief: debriefsChecked },
-        hits: hits.map((h) => ({ store: h.store, key: h.key, score: h.score, at: h.at, value: h.value })),
+        // `bead` and `staged` ride along because the printed renderer uses both to label a
+        // hit, and every debrief hit has `key: null` — without them a machine consumer
+        // cannot say which bead a tier-4 hit came from, or whether it is only staged, and
+        // --json would be strictly less informative than the text the README describes.
+        hits: hits.map((h) => ({
+          store: h.store,
+          key: h.key,
+          score: h.score,
+          at: h.at,
+          bead: h.bead ?? null,
+          staged: h.staged ?? false,
+          preview: firstLine(h.value, h.store),
+          value: h.value,
+        })),
       },
       null,
       2
     )
   );
-  process.exit(0);
-}
-
-if (!hits.length) {
+} else if (!hits.length) {
   const scope = row ? `, ${debriefsChecked} debrief entr${debriefsChecked === 1 ? 'y' : 'ies'} for ${bead} and its family` : '';
   console.log(
     `nothing on file reads like this — checked ${Object.keys(noted).length} note${Object.keys(noted).length === 1 ? '' : 's'}, ` +
       `${Object.keys(remembered).length} remember${Object.keys(remembered).length === 1 ? '' : 's'}${scope}. Safe to file a new key.`
   );
-  process.exit(0);
+} else {
+  console.log(`b7e-known · ${ws.name}${bead ? ` ${bead}` : ''}: ${hits.length} thing${hits.length === 1 ? '' : 's'} on file read like this\n`);
+  for (const hit of hits) {
+    const label = hit.store === 'debrief' ? `debrief entry (${hit.bead}${hit.staged ? ', pending archive' : ''})` : `${hit.store} \`${hit.key}\``;
+    console.log(`${label}  —  score ${hit.score.toFixed(2)}`);
+    console.log(`  ${firstLine(hit.value, hit.store)}`);
+    console.log(`  ${updateLine(hit)}`);
+    console.log('');
+  }
 }
 
-console.log(`b7e-known · ${ws.name}${bead ? ` ${bead}` : ''}: ${hits.length} thing${hits.length === 1 ? '' : 's'} on file read like this\n`);
-for (const hit of hits) {
-  const label = hit.store === 'debrief' ? `debrief entry (${hit.bead}${hit.staged ? ', pending archive' : ''})` : `${hit.store} \`${hit.key}\``;
-  console.log(`${label}  —  score ${hit.score.toFixed(2)}`);
-  console.log(`  ${firstLine(hit.value)}`);
-  console.log(`  ${updateLine(hit)}`);
-  console.log('');
-}
-
-process.exit(0);
+// `process.exit(0)` here dropped whatever of the write above was still pending: stdout to
+// a pipe is async, so `--json | jq` truncated at the 64KB pipe buffer — unparseable JSON
+// with a success status and no signal at all — while the same run redirected to a file was
+// whole. The payload is unbounded (hits carry each entry's full value, `--keep` is
+// caller-set, and `readDebriefs` runs perBead 3 across a family), so that was the ordinary
+// case rather than an edge one. Setting the code and falling off the end flushes.
+process.exitCode = 0;

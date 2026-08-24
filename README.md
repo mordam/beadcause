@@ -18510,12 +18510,24 @@ is no honest scope to check a debrief against, and this checks none; with `-b`, 
 checks the debrief entries already on file for that bead and its family, the same
 family `beadcause-memory debriefs` reads.
 
+**`-b` can be inherited rather than typed, and the two are not treated the same.** With
+no `-b` on the command line, `$BEADCAUSE_BEAD` supplies one — every agent session
+already has it stamped, and `whichBead()` in `bin/beadcause-memory` reads it the same
+way, so a session that types no `-b` still gets the debrief scope its own `-b <bead>`
+would have given it. An *explicit* `-b` naming something this tracker does not have is
+a hard `4`: the caller asked for that scope and did not get it. An *inherited* one that
+does not resolve — a cross-workspace call, a bead since renamed, a `bd` that would not
+answer against the shared Dolt DB — is not a failure at all; it is one fewer store
+checked, said on stderr, with `note`/`remember` still answered and the exit still `0`.
+Neither of those two needs a bead, and this command gates nothing.
+
 **What comes back, per hit: the store, the key (or, for a debrief, which bead and
 whether it is still only staged), the score, the first line, and the exact command
 that updates it in place** — `b7e-say -w <ws> -b <bead> --note <key>` or `--remember
 <key>`. A debrief has no key to update; the line for one instead names `--debrief`,
-because a report on a run appends rather than overwrites. Nothing found prints one line
-saying so and exits `0` — this answers a question, it does not gate anything, and "safe
+because a report on a run appends rather than overwrites. `--json` carries all of that
+plus each hit's whole stored `value`, so a debrief hit is no less identifiable there
+than in the printed form. Nothing found prints one line saying so and exits `0` — this answers a question, it does not gate anything, and "safe
 to file a new key" is as real an answer as a hit.
 
 **Never opens a path under the personal memory directory** bc-khoe.18 searched instead
