@@ -40,6 +40,7 @@
     "beadcause-gaps": "bin/gaps.js",
     "beadcause-engagement": "bin/engagement.js",
     "beadcause-crosswalk": "bin/crosswalk.js",
+    "beadcause-controls": "bin/controls.js",
     "b7e-affected": "bin/b7e-affected",
     "b7e-apply": "bin/b7e-apply",
     "b7e-base": "bin/b7e-base",
