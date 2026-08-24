@@ -1,0 +1,182 @@
+#!/usr/bin/env node
+/**
+ * `b7e-head` — read a pull request's files at its head, without a ref a sibling session
+ * can clobber.
+ *
+ *     b7e-head 617 --file lib/reviewsync.js
+ *     b7e-head 617 --grep "resolveThread|reviewThreads" -- lib bin
+ *     b7e-head 617 --list
+ *     b7e-head 617 --list --json
+ *     b7e-head 617 --tree
+ *     b7e-head 617 --dir <root> --list      # another checkout — this is how it is tested
+ *
+ * bc-dgx7.37: three ReviewAdvocate sessions each answered "read this pull request's
+ * files" by hand, and two of the three ways silently read the wrong tree — see
+ * lib/head.js for the full account and why every mode here resolves the head from `gh
+ * pr view --json headRefOid` and never from a branch name. This file is only the argv
+ * parsing and the printing around lib/head.js, the same split `bin/b7e-prior` and
+ * `bin/b7e-siblings` already use.
+ *
+ * Exactly one of `--file`, `--grep`, `--list` or `--tree` may be given; with none of
+ * them, the default is the same answer `--list` gives. The head oid, base oid and
+ * branch name are printed to **stderr** on every mode, because "which tree did I just
+ * read" is the exact question that went wrong in bc-zjab.12 — `--file`'s stdout carries
+ * nothing but the file's own bytes, so that banner cannot go there.
+ *
+ * Exit codes: `0` ran to completion. `2` bad usage. `1` `gh`/`git` refused — no such
+ * pull request, a `--file` path that does not exist in the head tree, or a `--grep`
+ * pattern `git` itself would not take.
+ */
+import path from 'node:path';
+import * as head from '../lib/head.js';
+
+const argv = process.argv.slice(2);
+
+// Everything after a bare `--` is paths for `--grep`, taken as given and never parsed
+// as flags — the ordinary git convention, and the only way to pass a path that starts
+// with a dash.
+const dashdash = argv.indexOf('--');
+const mainArgv = dashdash === -1 ? argv : argv.slice(0, dashdash);
+const grepPaths = dashdash === -1 ? [] : argv.slice(dashdash + 1);
+
+const has = (f) => mainArgv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = mainArgv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = mainArgv.indexOf(f);
+    if (at > -1) return mainArgv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-head <pr-number> [--file <path> | --grep <pattern> [-- <path> ...] | --list | --tree] [--json] [--dir <root>]
+
+Read a pull request's files at its head, resolved from \`gh pr view --json headRefOid\`
+and never from a branch name — so a branch that moves during the review does not move
+the answer. Nothing here writes FETCH_HEAD or any ref.
+
+  --file <path>     that file's bytes at the head commit, and nothing else on stdout
+  --grep <pattern>  search the head tree; "-- <path>..." narrows it, same as git grep
+  --list            changed paths with +/- counts (the default, if no mode is given)
+  --tree            materialise the head into a scratch dir under os.tmpdir() and print
+                     its path; keyed by head oid, so a second call reuses it
+  --json            the machine-readable form (with --list, or on its own)
+  --dir <root>      run against another checkout — this is how it is tested
+  --help            this text`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const FLAG_VALUES = new Set(['--file', '--grep', '--dir']);
+const BOOL_FLAGS = new Set(['--list', '--tree', '--json', '--help', '-h']);
+
+const positional = [];
+for (let i = 0; i < mainArgv.length; i += 1) {
+  const a = mainArgv[i];
+  if (BOOL_FLAGS.has(a)) continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--') && a.includes('=')) continue; // an inline --flag=value already read above
+  if (a.startsWith('-')) {
+    console.error(`\x1b[31mb7e-head: unrecognised flag: ${a}\x1b[0m`);
+    process.exit(2);
+  }
+  positional.push(a);
+}
+
+function fail(msg, code = 2) {
+  console.error(`b7e-head: ${msg}`);
+  process.exit(code);
+}
+
+if (positional.length !== 1) {
+  fail(`expected exactly one PR number, got ${positional.length}\n${USAGE}`);
+}
+const prRef = positional[0];
+
+const FILE = value('--file');
+const GREP = value('--grep');
+const LIST = has('--list');
+const TREE = has('--tree');
+const JSON_MODE = has('--json');
+const DIR_GIVEN = value('--dir');
+
+const modesGiven = [FILE !== undefined, GREP !== undefined, LIST, TREE].filter(Boolean).length;
+if (modesGiven > 1) fail(`--file, --grep, --list and --tree are four different questions — pass one\n${USAGE}`);
+
+let ROOT;
+try {
+  ROOT = DIR_GIVEN ? path.resolve(DIR_GIVEN) : await head.mainCheckout(process.cwd());
+} catch (err) {
+  fail(`not inside a git checkout: ${String(err?.message || err).split('\n')[0]}`, 1);
+}
+
+let info;
+try {
+  info = await head.resolveHead(ROOT, prRef);
+} catch (err) {
+  fail(`could not resolve pull request ${prRef}: ${String(err?.message || err).split('\n')[0]}`, 1);
+}
+
+// The banner every mode prints to stderr — the one thing bc-zjab.12 would have caught.
+console.error(
+  `b7e-head ${prRef}: head ${info.headOid} (${info.headRefName || '?'}) · base ${info.baseOid || '?'} (${info.baseRefName || '?'})`
+);
+
+async function needTree() {
+  try {
+    await head.fetchHead(ROOT, info.headOid);
+  } catch (err) {
+    fail(`could not fetch ${info.headOid}: ${String(err?.message || err).split('\n')[0]}`, 1);
+  }
+}
+
+if (FILE !== undefined) {
+  await needTree();
+  const bytes = await head.fileAt(ROOT, info.headOid, FILE);
+  if (bytes === null) fail(`${FILE} does not exist at ${info.headOid}`, 1);
+  process.stdout.write(bytes);
+  process.exit(0);
+}
+
+if (GREP !== undefined) {
+  await needTree();
+  const hits = await head.grepTree(ROOT, info.headOid, GREP, grepPaths);
+  if (JSON_MODE) {
+    console.log(JSON.stringify(hits));
+  } else {
+    for (const h of hits) console.log(`${h.file}:${h.line}:${h.text}`);
+  }
+  process.exit(0);
+}
+
+if (TREE) {
+  await needTree();
+  const dest = await head.materialize(ROOT, info.headOid);
+  console.log(dest);
+  process.exit(0);
+}
+
+// Default: --list, whether asked for by name or by naming nothing else.
+const files = head.changedFiles(info);
+if (JSON_MODE) {
+  console.log(
+    JSON.stringify({
+      number: info.number,
+      headOid: info.headOid,
+      headRefName: info.headRefName,
+      baseOid: info.baseOid,
+      baseRefName: info.baseRefName,
+      files,
+    })
+  );
+} else {
+  console.log(`head ${info.headOid} (${info.headRefName || '?'}) · base ${info.baseOid || '?'} (${info.baseRefName || '?'})`);
+  for (const f of files) console.log(`${f.path}\t+${f.additions}\t-${f.deletions}\t${f.changeType || ''}`.trimEnd());
+}
+process.exit(0);
