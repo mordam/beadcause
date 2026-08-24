@@ -7,12 +7,12 @@
  *
  * `test/queues.mjs` is the other half of this and checks the daemon: which rung a bead is
  * on, which entries exist at all, and when one ages off the board. What is here is the
- * page, and the page's whole job is to turn `rungs[]` into something answerable at a
- * glance. So the checks are about the four things that can go wrong in that translation,
- * none of which is visible by reading one function:
+ * pane, and its whole job is to turn `rungs[]` into something answerable at a glance. So
+ * the checks are about the four things that can go wrong in that translation, none of
+ * which is visible by reading one function:
  *
  * 1. **The stage has to be readable without opening the card.** That is the claim the
- *    whole shape rests on — a page that only said where something was behind a fold would
+ *    whole shape rests on — a pane that only said where something was behind a fold would
  *    look identical in a screenshot and be useless in a pocket.
  *
  * 2. **`untracked` must never draw as done.** Three release rungs come off the router's
@@ -26,7 +26,7 @@
  *    was in would be two renderers wearing one name. So both kinds are drawn from the same
  *    fixture here and asserted the same way.
  *
- * 4. **The strip actually left the board.** The point of bc-khoe.7 is not that a new page
+ * 4. **The strip actually left the board.** The point of bc-khoe.7 is not that a new pane
  *    draws a deploy — it is that the PR board stopped. A `loadDeploys` left behind there
  *    would be an invisible second poll of `/api/deploys` on a screen that has nothing to
  *    draw from it, so the last section reads public/prs.js and says so.
@@ -34,8 +34,13 @@
  * The client half runs the real `public/releases.js` in a vm with a hand-made document,
  * on top of the real `public/prcard.js` — the four helpers it borrows are taken from the
  * file that actually ships them, so a rename there fails here rather than in a browser.
+ * (Until bc-khoe.30.22 the harness could run this file two ways, once for this pane and
+ * once for the `/releases` document it used to also draw; the page and its own `pulse`
+ * and stream mount are gone, and so is the second load path.)
+ *
  * And the static half at the foot is the other side of that: a stub document answering
- * every selector cannot notice an element missing from the HTML.
+ * every selector cannot notice an element missing from the real one, so every id the
+ * script reaches for is also checked against public/index.html, which has to contain it.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -178,27 +183,27 @@ const settle = async (n = 12) => {
 };
 
 /**
- * The real files, in a room with the four elements they touch.
+ * The real file, in the shell it now only ever runs in: the pane's list element, the
+ * app's one ⟳, the space picker it registers itself on, and the three objects the shell
+ * puts on `window.beadcause` — `panes`, `route` and the stager. `pending` is what a
+ * container still carrying `data-pending` looks like — the state this view's own was in
+ * until bc-khoe.30.14.
  *
  * `setTimeout` is faked rather than real: `scheduleDeploys` arms a thirty-second fallback
- * whenever there is no stream to follow, and a suite that let that one through would keep
- * node alive for half a minute after its last assertion. The armed timers are handed back
- * so the cadence itself can be asserted.
+ * whenever the shell's stream is not following, and a suite that let that one through
+ * would keep node alive for half a minute after its last assertion. The armed timers are
+ * handed back so the cadence itself can be asserted.
  *
- * `shell: true` runs the same file as the *pane* it also is since bc-khoe.30.14 — the same
- * room, plus the three objects the shell puts on `window.beadcause`: `panes`, `route` and
- * the stager. The file asks the document which it is (`inShell`), so this is the one lever
- * that drives both halves and there is no second harness. What changes under it is worth
- * naming, because each one is a bug this suite has to be able to see: no mount of its own
- * (public/panestage.js owns the document's one poll), the app's shared ⟳ instead of the
- * page's own, and a boot that happens when the stager calls `build` rather than at load.
+ * No `window.beadcause.stream` unless a case asks for one, which is the honest shape for
+ * a vm with no network: `scheduleDeploys` falls to the thirty-second tick, which is what
+ * most of the cases above are asserting. A case that passes one in is asking a question
+ * *about* the mount — how many of them there are — so the stub only has to be countable.
  */
 function load({
   token = 'tok',
   payload = queues(),
   deploys = { deploys: [], deployable: [] },
   matches,
-  shell = false,
   showing = 'releases',
   stream = null,
 } = {}) {
@@ -221,7 +226,6 @@ function load({
   };
 
   const out = mk();
-  const pulse = mk();
   const observing = mk();
   const refresh = mk();
 
@@ -244,46 +248,36 @@ function load({
     return { ok: true, status: 200, json: async () => ({}) };
   };
 
-  /* The three objects the shell puts on `window.beadcause`, and nothing else: this is what
-     `inShell` asks the document, so a fake that answered `has()` true without a `route`
-     would run the page half of every branch and every assertion below would pass while
-     saying nothing. `pending` is what a container still carrying `data-pending` looks
-     like — the state this view's own was in until bc-khoe.30.14. */
   const shows = [];
   let up = showing;
   const stage = { spec: null };
-  const shellBits = shell
-    ? {
-        route: { VIEWS: [], hashFor: (v) => `#${v}` },
-        panes: {
-          has: (v) => v === 'releases',
-          showing: () => up,
-          onShow: (fn) => shows.push(fn),
-        },
-        stage: {
-          register(view, spec) {
-            stage.spec = { view, ...spec };
-            return true;
-          },
-        },
-      }
-    : {};
 
-  /* Absent by default, which is the honest shape for a vm with no network: with no
-     `window.beadcause.stream` the file's `follow` returns at its first line and
-     `scheduleDeploys` falls to the thirty-second tick, which is what most of the cases
-     above are asserting. A case that passes one in is asking a question *about* the mount
-     — how many of them there are — so the stub only has to be countable. */
   const streamBits = stream
     ? { stream: { touched: (evs, types) => (evs || []).some((e) => [].concat(types).includes(e?.type)), awake: () => true, ...stream } }
     : {};
 
-  const window = { beadcause: { space, ...shellBits, ...streamBits } };
+  const window = {
+    beadcause: {
+      space,
+      route: { VIEWS: [], hashFor: (v) => `#${v}` },
+      panes: {
+        has: (v) => v === 'releases',
+        showing: () => up,
+        onShow: (fn) => shows.push(fn),
+      },
+      stage: {
+        register(view, spec) {
+          stage.spec = { view, ...spec };
+          return true;
+        },
+      },
+      ...streamBits,
+    },
+  };
   const ctx = vm.createContext({
     window,
     document: {
-      getElementById: (id) =>
-        id === 'rel-list' ? out : id === 'pulse' ? pulse : id === 'rel-observing' ? observing : id === 'refresh' ? refresh : null,
+      getElementById: (id) => (id === 'rel-list' ? out : id === 'rel-observing' ? observing : id === 'refresh' ? refresh : null),
     },
     localStorage: { getItem: (k) => store.get(k) ?? null },
     fetch: fetchStub,
@@ -313,21 +307,19 @@ function load({
   vm.runInContext(read('public/prcard.js'), ctx, { filename: 'prcard.js' });
   vm.runInContext(read('public/releases.js'), ctx, { filename: 'releases.js' });
 
-  /* On the document the file boots itself, exactly as it always did. As a pane it hands
-     the stager a `build` and waits — so nothing has been fetched yet, and that is the
-     whole of what the stager buys: a load that lands on Home parses this script and makes
-     no request at all. The harness spends it here so every assertion below reads the same
-     in both halves. */
-  if (shell) stage.spec?.build();
+  /* The file hands the stager a `build` and waits, rather than booting itself — so
+     nothing has been fetched yet, and that is the whole of what the stager buys: a load
+     that lands on Home parses this script and makes no request at all. The harness spends
+     it here so every assertion below reads the pane already built. */
+  stage.spec?.build();
 
   return {
     out,
-    pulse,
     observing,
     refresh,
     calls,
     timers,
-    /** What the file registered with the stager — null on the document. */
+    /** What the file registered with the stager. */
     spec: stage.spec,
     /** One answered poll, as public/panestage.js fans it out. */
     wake(w) {
@@ -346,7 +338,7 @@ function load({
     press() {
       refresh.events.click?.({});
     },
-    /** Tap a card, the way the page's own delegated click handler sees it. */
+    /** Tap a card, the way the pane's own delegated click handler sees it. */
     tap(key) {
       out.events.click({
         target: { closest: (sel) => (sel === '[data-card]' ? { dataset: { card: key } } : null) },
@@ -645,16 +637,16 @@ await check('an unpaired device is told to pair rather than shown an empty board
   assert.equal(h.calls.length, 0, 'asked the daemon for something with no token to ask with');
 });
 
-/* ============================================ 5. the same file, as a pane of the shell */
+/* ============================================ 5. the pane of the shell (bc-khoe.30.14) */
 
-console.log('\nand the same file, as the shell’s Releases pane (bc-khoe.30.14)\n');
+console.log('\nand as the shell’s Releases pane\n');
 
-await check('as a pane it registers with the stager, and draws the board the page drew', async () => {
+await check('it registers with the stager, and draws the board', async () => {
   const payload = queues({
     repos: [repo({ merge: [mergeEntry()], release: [releaseEntry()] })],
     counts: { merge: 1, release: 1 },
   });
-  const h = load({ shell: true, stream: {}, payload });
+  const h = load({ stream: {}, payload });
   await settle();
   // The registration is the contract with public/panestage.js, and every field of it is
   // load-bearing: no `build` and the container stays empty, no `wake` and a pane hidden
@@ -664,37 +656,24 @@ await check('as a pane it registers with the stager, and draws the board the pag
   assert.equal(typeof h.spec?.build, 'function');
   assert.equal(typeof h.spec?.wake, 'function');
   assert.equal(h.spec?.want, 'presence', 'a wider want than presence bills the daemon per event');
-  // Byte for byte the page's own board. The fold is a change of *container*, and a pane
-  // that quietly drew something else would be the one failure a screenshot of either
-  // document on its own could never show.
-  const p = load({ payload });
-  await settle();
-  assert.deepEqual(cardsOf(h), cardsOf(p), 'the pane drew a different board from the page');
-  assert.deepEqual(sectionsOf(h), sectionsOf(p));
-  assert.equal(cardsOf(h).length, 2, 'neither of them drew the fixture at all');
+  assert.equal(cardsOf(h).length, 2, 'the fixture was not drawn at all');
 });
 
-await check('and it opens no stream of its own — the document holds one poll', async () => {
+await check('and it opens no stream of its own — the shell holds one poll', async () => {
   // The trap this pins is a silent one: a second `follow` here is a second parked client
-  // from a single page, which public/panestage.js exists to prevent, and nothing on screen
-  // would look wrong. Asserted through the fake rather than by reading source, so a `follow`
-  // reached for by any route is caught.
+  // from a single document, which public/panestage.js exists to prevent, and nothing on
+  // screen would look wrong. Asserted through the fake rather than by reading source, so a
+  // `follow` reached for by any route is caught.
   let mounts = 0;
   const h = load({
-    shell: true,
     stream: { follow: () => (mounts += 1, { start() {}, stop() {}, get following() { return true; } }) },
   });
   await settle();
   assert.equal(mounts, 0, 'the pane mounted its own poll beside the shell’s');
-  // And the page still does, because it has nobody else to do it for it.
-  const p = load({ stream: { follow: () => (mounts += 1, { start() {}, stop() {}, get following() { return true; } }) } });
-  await settle();
-  assert.equal(mounts, 1, 'the document stopped following the log');
-  assert.ok(p.calls.length > 0);
 });
 
 await check('a wake it was handed reads the queues again, and only for an event that moved one', async () => {
-  const h = load({ shell: true, stream: {} });
+  const h = load({ stream: {} });
   await settle();
   const before = h.calls.length;
   h.wake({ events: [{ type: 'presence' }], resync: false });
@@ -709,7 +688,7 @@ await check('a wake it was handed reads the queues again, and only for an event 
 });
 
 await check('and a resync re-reads both, past the daemon’s hold', async () => {
-  const h = load({ shell: true, stream: {} });
+  const h = load({ stream: {} });
   await settle();
   const before = h.calls.length;
   h.wake({ events: [], resync: true });
@@ -720,7 +699,7 @@ await check('and a resync re-reads both, past the daemon’s hold', async () => 
 });
 
 await check('arriving at the pane fetches nothing — it has been following all along', async () => {
-  const h = load({ shell: true, showing: 'epics' });
+  const h = load({ showing: 'epics' });
   await settle();
   const before = h.calls.length;
   h.show('releases');
@@ -729,7 +708,7 @@ await check('arriving at the pane fetches nothing — it has been following all 
 });
 
 await check('the app’s one ⟳ only acts for the pane that is showing', async () => {
-  const h = load({ shell: true, showing: 'releases' });
+  const h = load({ showing: 'releases' });
   await settle();
   const before = h.calls.length;
   h.setShowing('history');
@@ -742,34 +721,28 @@ await check('the app’s one ⟳ only acts for the pane that is showing', async 
   assert.ok(h.calls.slice(before).some((c) => c.path === '/api/queues' && c.refresh), 'the ⟳ stopped working on its own pane');
 });
 
-await check('the brand dot is the shell’s, and the pane never touches it', async () => {
-  const h = load({ shell: true, stream: {} });
-  await settle();
-  assert.equal(h.pulse.classes.size, 0, 'the pane toggled a dot public/report.js is already driving');
-  // On the document it is this view's own and still is.
-  const p = load();
-  await settle();
-  assert.equal(p.pulse.classes.size, 0, 'left busy after the fetch came back');
-});
-
 /* ================================================================ 6. static reads */
 
-const HTML = read('public/releases.html');
 const JS = read('public/releases.js');
 const SHELL = read('public/index.html');
 
-await check('every id the script reaches for is in both documents', () => {
+await check('releases.js has no inShell, and touches no pulse', () => {
+  // bc-khoe.30.22's acceptance criterion, read off the source directly: the page half is
+  // gone rather than merely unreachable, and the brand dot — always the shell's now, never
+  // conditionally this view's own — is never read at all.
+  assert.doesNotMatch(JS, /inShell/, 'a page/pane branch survived the page it branched for');
+  assert.doesNotMatch(JS, /getElementById\('pulse'\)/, 'a pulse lookup survived the page it was conditional for');
+});
+
+await check('every id the script reaches for is on the shell, in public/index.html', () => {
   const wanted = [...JS.matchAll(/getElementById\('([^']+)'\)/g)].map((m) => m[1]);
   assert.ok(wanted.length >= 3, `expected the script to name its elements, found ${wanted.length}`);
   // One file, two documents, since bc-khoe.30.14 — so an id it reaches for has to be in
   // both or the half that is missing it is a blank screen. `pulse` is the one exemption
   // and it is read *conditionally*: in the shell the brand dot belongs to the whole
   // document and this view deliberately leaves it alone.
-  for (const [where, html] of [['releases.html', HTML], ['index.html', SHELL]]) {
-    const missing = wanted.filter((id) => id !== 'pulse' && !html.includes(`id="${id}"`));
-    assert.deepEqual(missing, [], `no element in ${where} for: ${missing.join(', ')}`);
-  }
-  assert.match(JS, /inShell \? null : document\.getElementById\('pulse'\)/, 'the pane took the shell’s brand dot over');
+  const missing = wanted.filter((id) => !SHELL.includes(`id="${id}"`));
+  assert.deepEqual(missing, [], `no element for: ${missing.join(', ')}`);
 });
 
 await check('the shell holds a Releases pane, filled, with the file that fills it loaded', () => {
@@ -783,28 +756,17 @@ await check('the shell holds a Releases pane, filled, with the file that fills i
   assert.match(SHELL, /<script src="\/releases\.js"><\/script>/, 'nothing loads the file that fills it');
 });
 
-await check('the page loads prcard before its own script, and the row and the drawer at all', () => {
-  const order = [...HTML.matchAll(/<script src="\/([a-z]+)\.js"><\/script>/g)].map((m) => m[1]);
-  assert.ok(order.includes('viewbar'), 'no pill row: a page you cannot leave');
-  assert.ok(order.includes('drawer'), 'no drawer: a bead pill would cost your place in the list');
-  assert.ok(order.includes('spacebar'), 'no space picker: nothing to narrow forty repos with');
-  assert.ok(
-    order.indexOf('prcard') < order.indexOf('releases'),
-    'releases.js runs before prcard.js, and it takes four helpers off it at module scope'
-  );
-});
-
-await check('the page keeps what it fetched, and paints it before asking', () => {
+await check('the pane keeps what it fetched, and paints it before asking', () => {
   // A view in `VIEWS` that neither reads nor writes its own entry is a payload warmed
   // for nobody — the background fill still pays for it and no screen is any faster.
-  assert.match(HTML, /<script src="\/warm\.js"><\/script>/, 'no warm layer loaded at all');
+  assert.match(SHELL, /<script src="\/warm\.js"><\/script>/, 'no warm layer loaded at all');
   assert.match(JS, /warm\?\.read\?\.\('\/api\/queues'\)/, 'nothing reads the held queues');
   assert.match(JS, /warm\?\.write\?\.\('\/api\/queues'/, 'nothing keeps what came back');
   const warm = read('public/warm.js');
   assert.match(warm, /\{ id: 'releases', paths: \['\/api\/queues'\], holdOnly: true \}/);
 });
 
-await check('the pill row has a Releases pill pointing at the page', () => {
+await check('the pill row has a Releases pill pointing at the view', () => {
   const bar = read('public/viewbar.js');
   assert.match(bar, /id: 'releases'/);
   assert.match(bar, /href: '\/releases'/);

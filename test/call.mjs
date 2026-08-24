@@ -59,6 +59,9 @@ export async function slow(x) {
 export function bead(row) {
   return row && typeof row === 'object' ? row.status : null;
 }
+export function bigString(n) {
+  return 'x'.repeat(n) + 'END';
+}
 `
 );
 const FIXTURE_REL = path.relative(ROOT, FIXTURE);
@@ -151,6 +154,17 @@ check('a target with no "#" is refused', () => {
   const { status, stderr } = run(['lib/relay.js', '--json', '[]']);
   assert.notEqual(status, 0);
   assert.match(stderr, /missing "#"/);
+});
+
+check('a caller-sized return value survives a real pipe whole (bc-dgx7.53)', () => {
+  // `printForHuman(...)` then `process.exit(0)` used to drop whatever of the write was
+  // still pending: stdout to a **pipe** is async in Node, so this could come back cut at
+  // exactly 65536 bytes with status 0 — no error, no nonzero exit, nothing to notice.
+  // spawnSync's stdio here is a pipe, which is the case that broke.
+  const { status, stdout } = run([`${FIXTURE_REL}#bigString`, '--json', '[70000]']);
+  assert.equal(status, 0);
+  assert.ok(stdout.length > 65536, `payload too small to test the pipe buffer: ${stdout.length} bytes`);
+  assert.ok(stdout.trimEnd().endsWith('END'), `expected the payload's tail intact, got: ${JSON.stringify(stdout.slice(-20))}`);
 });
 
 /* ============================================================================= --over */

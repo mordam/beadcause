@@ -282,6 +282,14 @@
     }
   })();
 
+  // `at` is `Date.now()`, millisecond resolution: two writes in the same page-load
+  // tick (a background warm racing a view's own fetch) can land in the same
+  // millisecond, and `evict` below would otherwise fall through to whichever
+  // `keys()` happens to enumerate first — insertion order in every browser tested,
+  // but nowhere guaranteed by the Web Storage spec. A monotonic counter, stamped on
+  // every write in this session, breaks that tie without depending on it.
+  let writeSeq = 0;
+
   /**
    * Whether a path is one the store gives up last. See `BUDGET_BYTES`.
    *
@@ -350,7 +358,7 @@
       drop(path);
       return null;
     }
-    return { data: entry.data, at: Number(entry.at) || 0, seq: Number(entry.seq) || 0, age };
+    return { data: entry.data, at: Number(entry.at) || 0, seq: Number(entry.seq) || 0, wseq: Number(entry.wseq) || 0, age };
   }
 
   /**
@@ -373,7 +381,7 @@
     const key = PREFIX + path;
     let raw;
     try {
-      raw = JSON.stringify({ v: STORE_V, at: Date.now(), seq: Number(seq) || 0, data });
+      raw = JSON.stringify({ v: STORE_V, at: Date.now(), seq: Number(seq) || 0, wseq: writeSeq++, data });
     } catch {
       return false; // something un-JSONable got in; not worth a second attempt
     }
@@ -427,8 +435,9 @@
   /**
    * Give up exactly one entry to make room, and say whether there was one to give.
    *
-   * The ordering is `BUDGET_BYTES`'s: oldest `at` first, and the inbox's own paths only
-   * once nothing else is left. `keep` is the path being written, which is never a
+   * The ordering is `BUDGET_BYTES`'s: oldest `at` first (ties broken by `wseq`, the
+   * write's own order — see `writeSeq` above), and the inbox's own paths only once
+   * nothing else is left. `keep` is the path being written, which is never a
    * candidate — evicting it would make room by throwing away the thing we are here to
    * store, and the write would then succeed having achieved nothing.
    */
@@ -445,8 +454,15 @@
         drop(path);
         return true;
       }
-      const rank = [lastToGo(path) ? 1 : 0, hit.at];
-      if (!worst || rank[0] < worst.rank[0] || (rank[0] === worst.rank[0] && rank[1] < worst.rank[1])) {
+      // `at` alone can tie (see `writeSeq` above); `wseq` breaks it deterministically
+      // rather than falling through to `keys()`'s enumeration order.
+      const rank = [lastToGo(path) ? 1 : 0, hit.at, hit.wseq];
+      if (
+        !worst ||
+        rank[0] < worst.rank[0] ||
+        (rank[0] === worst.rank[0] && rank[1] < worst.rank[1]) ||
+        (rank[0] === worst.rank[0] && rank[1] === worst.rank[1] && rank[2] < worst.rank[2])
+      ) {
         worst = { path, rank };
       }
     }

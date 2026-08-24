@@ -1319,6 +1319,10 @@
    * which is the truth and is also exactly what a save that failed would look like; a
    * count still sitting on the way back in is the difference between "nothing was applied,
    * and here is what you said" and "it lost my edits".
+   *
+   * bc-p49x.12 parked the ✏️, so on the inbox today that half writes nothing: the `if
+   * (btn)` is what makes a missing button a no-op rather than a throw on the way out of
+   * the mode. Nothing else here changes, and the badge comes back with the element.
    */
   function paintCount() {
     const btn = doc?.getElementById?.('editmode');
@@ -1397,7 +1401,7 @@
   const toggle = () => (mode.on ? off() : on());
 
   /**
-   * The way in, if the page has one.
+   * The way in, if the page has one — and since bc-p49x.12 no page does.
    *
    * A button in the page's own markup rather than one built here, because where it goes
    * is a question about that page's layout and not about this mode — the inbox has a
