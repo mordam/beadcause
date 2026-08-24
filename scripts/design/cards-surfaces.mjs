@@ -219,7 +219,7 @@ export const SURFACES = [
         name: 'Monitor states',
         subtitle: 'mon-state, deploy dot, the P0 row',
         viewport: { width: 480, height: 340 },
-        note: `The monitor's own vocabulary for "what is this thing doing". <b>.mon-state.dim</b> is the absence case — "no advocate", "no settings" — said in words rather than left blank, because a blank slot and a slot that has not loaded look identical. The <b>.p0-row</b> is the one row that gets colour on this screen: a P0 in the tracker is the thing the monitor exists to surface.`,
+        note: `The monitor's own vocabulary for "what is this thing doing". <b>.mon-state.dim</b> is the absence case — "no advocate", "no settings" — said in words rather than left blank, because a blank slot and a slot that has not loaded look identical. The <b>.p0-row</b> is the one row that gets colour on this screen: a P0 in the tracker is the thing the monitor exists to surface. The deploy row below is the real nested <code>.deploy</code> markup from public/releases.js, not a lookalike — <b>.deploy.live .deploy-dot</b> is the one thing on this card that pulses.`,
         markup: `<div class="ds-stack">
   <div class="work-head"><h2>beadcause</h2><span class="mon-state ok">sweeping</span></div>
   <div class="work-head"><h2>sophab</h2><span class="mon-state dim">no advocate</span></div>
@@ -229,7 +229,15 @@ export const SURFACES = [
     <span class="work-title">Publish the beadcause design system</span>
     <span class="pill p0">P0</span>
   </div>
-  <div class="release-head"><span class="deploy-dot"></span><span class="work-title">Deployed</span><span class="deploy-said">settled, swapped, live</span></div>
+  <article class="deploy good live">
+    <button class="deploy-row" type="button" aria-expanded="false">
+      <span class="deploy-main">
+        <span class="deploy-what"><span class="deploy-dot" aria-hidden="true"></span>beadcause<span class="sr-only"> deploy: </span><span class="deploy-said">deployed</span></span>
+        <span class="deploy-sub">38s · 2m ago</span>
+      </span>
+      <span class="chev" aria-hidden="true">›</span>
+    </button>
+  </article>
 </div>`,
       },
       {
