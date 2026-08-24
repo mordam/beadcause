@@ -749,7 +749,14 @@ await check('the service worker ships it, or a cached page has no warm layer', (
   const sw = read('public/sw.js');
   assert.ok(sw.includes("'/warm.js'"), 'not in SHELL');
   // The version is what makes the new file and the pages that need it arrive together.
-  assert.ok(/const CACHE = 'beadcause-v(2[3-9]|[3-9]\d)'/.test(sw), 'CACHE was not bumped past v22');
+  // Read as a number and compared, rather than matched against a hand-rolled
+  // alternation of the digits that were plausible when this was written. The four
+  // suites that did it the other way (this one, spacedetails, warm, termdoor) all
+  // spelled a two-digit range and so stopped matching the moment the cache reached
+  // v100 — reporting "CACHE was not bumped" about a version three higher than the one
+  // they were asking for. Every other suite here already captures `(\d+)`.
+  const version = Number(sw.match(/const CACHE = 'beadcause-v(\d+)'/)?.[1]);
+  assert.ok(version > 22, `CACHE was not bumped past v22 — it reads v${version}`);
 });
 
 await check('every pill the row draws is warmed — and three views are deliberately not pills', () => {

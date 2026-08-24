@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v99';
+const CACHE = 'beadcause-v100';
 const SHELL = [
   '/',
   '/index.html',
@@ -73,6 +73,13 @@ const SHELL = [
   // beside panes.js and for the same reason — it runs on boot on the one page that is the
   // app, and a page cached without it is a page whose panes never get built at all.
   '/panestage.js',
+  // The host for the views the repos declare about themselves. In the shell because it
+  // is loaded on the one page that is the app and because the panes it adopts are the
+  // only way to reach those views at all — a page cached without it is a page where a
+  // repo's board is not merely stale but absent, with no pill saying it ever existed.
+  // What it hosts is *not* precached: a repo's script and its payload come from that
+  // repo's checkout, which only the daemon can read.
+  '/viewhost.js',
   // The pill row across the top of every page. Every one of them is useless without it
   // — it is the only way off a page — so it belongs in the shell rather than being
   // fetched once per page over a phone link.
