@@ -38,7 +38,57 @@
 -- housekeeping sweep that started the terminal in order to tidy it would be worse than
 -- the thing it tidies.
 --
--- Prints the number closed, then their ids, space separated: `2 42590 42729`, or `0`.
+-- ## Three passes, because `close` lies about these windows
+--
+-- The first shipped version had two passes and counted an id as closed the moment `close`
+-- did not raise. It never once worked, and it announced success 2,330 times: bc-xl7n.110.
+-- `try` catches an *error*, and on a zero-tab window iTerm accepts `close` without raising
+-- and without removing the window — which is the same iTerm behaviour this header already
+-- documents from the other side, that ⌘W is *Close Session* and there is no session here
+-- to close. So the number was "windows I sent a close to", and the same ids came back on
+-- every tick for four days while the frames sat on the desk.
+--
+-- The close is therefore no longer its own evidence. The ids are closed in one pass, and
+-- then **re-queried by id** — `count of (every window whose id is wid)` — and only a window
+-- that is genuinely absent is counted. If the re-query itself fails, the window is reported
+-- as stuck: never claim a departure that was not seen.
+--
+-- ### Why the re-query is a poll and not a single settle
+--
+-- A window that is really going does not go *at once*. Measured on 2026-08-23 against iTerm
+-- 3.6.11: close a window and re-query it in the same `tell` block with no wait at all and
+-- iTerm still answers `1`; the id disappears somewhere between there and 50ms, and a batch
+-- of three was consistently gone after one 0.05s step (five runs: 0.05, 0.05, 0.05, 0.05,
+-- 0.1). So a fixed settle has to be picked, and picking one is picking which way to be
+-- wrong — too short and every real closure is announced as stuck, which is this bead's own
+-- bug wearing the other sign.
+--
+-- Polling removes the choice. One settle for the whole batch rather than one per window,
+-- because per-window delays are how a ten-window sweep runs out of the caller's five
+-- seconds; the loop drops out the moment nothing is left pending, so the ordinary sweep
+-- costs a single 0.15s step, and a Mac thrashing hard enough to take longer gets up to
+-- 1.2s before anything is called stuck. Both ends are far inside that five-second budget.
+-- A window still present after the last step is genuinely not going: that is the finding.
+--
+-- The later passes walk their list by index rather than as `repeat with x in doomed`,
+-- because that form binds a *reference* to the list item and the usual way to dereference
+-- one — `contents of x` — is not available here: inside `tell application iTerm2`,
+-- `contents` is iTerm's own term for a session's text, so it answers
+-- `Can't get contents of 69571 (-1728)`. `item i of doomed` is a plain value and needs no
+-- dereference at all.
+--
+-- ## What it does not do, deliberately
+--
+-- It does not try a second verb on the ones that would not go. There is no way to make a
+-- zero-tab window on demand — `close` of a window's last tab closes the window, and so does
+-- SIGKILLing its shell (both measured on 2026-08-23, iTerm 3.6.11); they appear only when
+-- iTerm loses one on its own. So any second verb would ship unverified, which is exactly
+-- how the first version of this got to 2,330 false successes. The honest report below is
+-- what will say whether *anything* here closes, and that measurement is what a second verb
+-- would need before it is worth writing.
+--
+-- Prints the number closed, then their ids, space separated: `2 42590 42729`, or `0`. If
+-- any window was asked to close and did not, a second line names them: `stuck 47768 47792`.
 
 on run
 	if not (application id "com.googlecode.iterm2" is running) then return "0"
@@ -51,18 +101,43 @@ on run
 			end try
 		end repeat
 
-		set closedIds to {}
-		repeat with theId in doomed
+		repeat with i from 1 to (count of doomed)
 			try
-				close (first window whose id is theId)
-				set end of closedIds to (theId as text)
+				close (first window whose id is (item i of doomed))
 			end try
+		end repeat
+
+		set closedIds to {}
+		set pending to doomed
+		repeat 8 times
+			if (count of pending) is 0 then exit repeat
+			tell current application to delay 0.15
+			set stillPending to {}
+			repeat with i from 1 to (count of pending)
+				set wid to item i of pending
+				set stillThere to true
+				try
+					if (count of (every window whose id is wid)) is 0 then set stillThere to false
+				end try
+				if stillThere then
+					set end of stillPending to wid
+				else
+					set end of closedIds to (wid as text)
+				end if
+			end repeat
+			set pending to stillPending
+		end repeat
+
+		set stuckIds to {}
+		repeat with i from 1 to (count of pending)
+			set end of stuckIds to ((item i of pending) as text)
 		end repeat
 	end tell
 
 	set AppleScript's text item delimiters to " "
 	set out to ((count of closedIds) as text)
 	if (count of closedIds) > 0 then set out to out & " " & (closedIds as text)
+	if (count of stuckIds) > 0 then set out to out & linefeed & "stuck " & (stuckIds as text)
 	set AppleScript's text item delimiters to ""
 	return out
 end run

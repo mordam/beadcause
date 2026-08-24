@@ -182,6 +182,23 @@ check('a bead nothing has tried has been tried nought times, not null times', ()
   assert.equal(s.refused, null, 'refused must stay null — an empty sentence is a different state');
   assert.deepEqual(s.baseline, []);
   assert.equal(s.resolving, false);
+  assert.equal(s.declined, false);
+});
+
+/**
+ * bc-5mdsw. `resolving` and `declined` are the two halves of one state and the queue acts
+ * on them in opposite directions — one says *leave it alone*, the other says *spend an
+ * attempt* — so a block that carried the flag and lost it in the round trip would put a
+ * branch a resolver has already given up on back in the way of another one.
+ */
+check('a resolver that gave up is a state of its own, and it survives the round trip', () => {
+  const notes = withQueueBlock('', { attempts: 1, declined: true, refused: 'nothing is on it any more' });
+  const s = queueState({ notes });
+  assert.equal(s.declined, true);
+  assert.equal(s.resolving, false, 'a branch nothing is resolving must not read as one being resolved');
+  // Written only when true, like every other optional field here: `declined: false` on
+  // every merge-bead in the workspace would read as a queue that gives up on conflicts.
+  assert.ok(!/declined/.test(withQueueBlock('', { attempts: 1 })), 'the flag is written on beads it is not true of');
 });
 
 check('the state survives a round trip through notes', () => {
