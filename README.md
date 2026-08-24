@@ -18614,6 +18614,16 @@ answer against the shared Dolt DB — is not a failure at all; it is one fewer s
 checked, said on stderr, with `note`/`remember` still answered and the exit still `0`.
 Neither of those two needs a bead, and this command gates nothing.
 
+**`--agent` is checked against `agents()` — `lib/memory.js`'s own roster of who has ever
+remembered anything — and a name not on it is a hard `4`, not a quiet all-clear.**
+`bc-dgx7.46`: `--agent reviewAdvocate` (a typo for `review-advocate`) used to read an
+empty tier 2 and tier 1 and print exactly the same "nothing on file reads like this ...
+Safe to file a new key" a genuinely fresh, correctly-spelled agent gets — no way to tell
+a name that is wrong from a name that is right but unused. The check is on the *name*:
+a real agent with nothing relevant on file for this text still gets that same message at
+exit `0`, because an empty store is a plausible state and this command still gates
+nothing.
+
 **What comes back, per hit: the store, the key (or, for a debrief, which bead and
 whether it is still only staged), the score, the first line, and the exact command
 that updates it in place** — `b7e-say -w <ws> -b <bead> --note <key>` or `--remember
