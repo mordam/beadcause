@@ -113,21 +113,25 @@ for (const id of ids) {
   results.push(await priorWork(dir, id));
 }
 
+// `process.exit(0)` right after the write below used to drop whatever of it was still
+// pending: stdout to a **pipe** is async, so a big `--json` run could cut at the 64KB pipe
+// buffer with a success status and no signal at all (bc-dgx7.45 — `results` carries every
+// worktree, branch, commit and pull request found, unbounded once `--family` is given).
+// The `else` is what stands in for the early return `process.exit` used to give; falling
+// off the end with `process.exitCode` set instead flushes.
 if (JSON_MODE) {
   console.log(JSON.stringify({ workspace: ws.name, family: FAMILY, results }, null, 2));
-  process.exit(0);
+  process.exitCode = 0;
+} else {
+  const allEmpty = results.every(isEmpty);
+  if (results.length === 1 && allEmpty) {
+    console.log(`b7e-prior ${beadId} · ${ws.name}: nothing anywhere names it — no worktree, branch, commit or pull request.`);
+  } else {
+    console.log(`b7e-prior ${beadId} · ${ws.name}${FAMILY ? ` (+${results.length - 1} sibling${results.length - 1 === 1 ? '' : 's'})` : ''}\n`);
+    for (const found of results) {
+      for (const line of describePrior(found)) console.log(line);
+      console.log('');
+    }
+  }
+  process.exitCode = 0;
 }
-
-const allEmpty = results.every(isEmpty);
-if (results.length === 1 && allEmpty) {
-  console.log(`b7e-prior ${beadId} · ${ws.name}: nothing anywhere names it — no worktree, branch, commit or pull request.`);
-  process.exit(0);
-}
-
-console.log(`b7e-prior ${beadId} · ${ws.name}${FAMILY ? ` (+${results.length - 1} sibling${results.length - 1 === 1 ? '' : 's'})` : ''}\n`);
-for (const found of results) {
-  for (const line of describePrior(found)) console.log(line);
-  console.log('');
-}
-
-process.exit(0);
