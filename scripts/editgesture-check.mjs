@@ -304,10 +304,17 @@ try {
 
   // Every gesture below is aimed at a rectangle read a moment before it, because entering
   // the mode pushes the whole document down by the height of the banner.
-  await tap(s, await at(s, '#editmode'));
+  //
+  // Entering is the one step here that is *not* a thumb, and it is the only one that
+  // cannot be: bc-p49x.12 parked the ✏️, so the inbox has nothing to tap and the mode is
+  // reached through the module. Nothing this check is about is lost with it — a tap on a
+  // fixed 44px circle was never one of the three gestures being proved, and every gesture
+  // after this line is still a real `Input.dispatchTouchEvent`.
+  check('there is no ✏️ on the inbox to tap — it is parked (bc-p49x.12)', !(await evalJs(s, `!!document.getElementById('editmode')`)));
+  await evalJs(s, `window.beadcause.editMode.toggle()`);
   await evalJs(s, `window.beadcause.editMode.ready()`);
   await sleep(400);
-  check('the ✏️ takes a tap from a thumb', await evalJs(s, `document.body.classList.contains('editing')`));
+  check('and the module puts the screen into the mode without one', await evalJs(s, `document.body.classList.contains('editing')`));
 
   /* 1. the scroll — the case a gesture layer breaks first.
 
@@ -468,22 +475,28 @@ try {
        retyped: document.body.textContent.includes('Retyped by a thumb'),
        held: JSON.parse(JSON.stringify(window.beadcause?.editMode?.changes?.() || [])).length,
        badge: document.getElementById('editmode')?.getAttribute('data-changes') || null,
-       label: document.getElementById('editmode')?.getAttribute('aria-label') || '',
      })`
   );
   check('leaving the mode takes the banner, the boxes and every mark with it', !done.editing && !done.banner && !done.note && done.marked === 0, JSON.stringify(done));
   check('the app is saying what it always said — nothing was applied', !done.retyped);
   check('and the pass itself survives, because leaving is not discarding', done.held === left.length, `${done.held} of ${left.length} kept`);
-  // The screen being back the way the app has it is the truth, and is also what a failed
-  // save looks like. The count on the way back in is the only thing that tells them apart.
+  // What this used to assert was the badge on the ✏️: the screen being back the way the
+  // app has it is the truth, and is also what a failed save looks like, and the count on
+  // the way back in was the only thing on the screen that told them apart.
+  //
+  // bc-p49x.12 parked the button, so that count has nowhere to land and the bead accepted
+  // it. What is left is the honest half — the pass survives and is readable — plus the
+  // fact that made the loss cheap enough to accept: `paintCount` is the writer, it runs on
+  // the way out with no button there, and it does not throw. A red here after a change to
+  // it would be an exception in the console and a mode that could not be left.
   check(
-    'the ✏️ says how many are still held, so a reverted screen does not read as a loss',
-    done.badge === String(left.length) && /unsaved/.test(done.label),
-    `badge ${done.badge}, “${done.label}”`
+    'the count has nowhere to land now, and paintCount did not throw on its way out',
+    done.badge === null && done.held === left.length,
+    `badge ${done.badge}, ${done.held} of ${left.length} still held`
   );
 
   /* 7. Save — the one press in this mode that makes any of it real */
-  await tap(s, await at(s, '#editmode'));
+  await evalJs(s, `window.beadcause.editMode.toggle()`);
   await sleep(400);
   await tap(s, await at(s, '[data-act="edit-list"]'));
   await sleep(200);
