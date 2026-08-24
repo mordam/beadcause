@@ -201,6 +201,21 @@ check('one a resolver window is on is re-armed too — being asked about is what
   assert.equal(plan.state.resolving, false);
 });
 
+/**
+ * bc-5mdsw, and the one entry that looks perfectly queued and is not moving.
+ *
+ * A bead whose conflict a resolver has already declined stays in the queue's own `queued`
+ * bucket with attempts to spare, so the obvious read makes **Merge** record an approval and
+ * change nothing — on the single bead whose whole point is that only Adam can unstick it.
+ */
+check('and one a resolver gave up on is re-armed rather than merely approved', () => {
+  const plan = admitPlan([queuedBead(withQueueBlock('', { attempts: 1, declined: true, refused: 'still conflicts' }))], about);
+  assert.equal(plan.action, 'admit', 'the tap recorded an approval and left it counting down to a card');
+  assert.equal(plan.state.declined, false, 'the next tick would refuse it again rather than open a resolver');
+  assert.equal(plan.state.attempts, 0);
+  assert.match(plan.why, /declined|given its conflict up/);
+});
+
 check('nothing open about the pull request means one is filed', () => {
   const plan = admitPlan([], about);
   assert.equal(plan.action, 'file');
