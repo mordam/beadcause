@@ -14706,6 +14706,73 @@ on it is.
 the temp files, the same bead dispatched three times without the counter moving, and
 delivered and handed-back sessions coming out unchanged.
 
+#### The window that disappeared — and the conversation that comes back into the next one
+
+The section above is a window that never started. This is the opposite end: a window that
+started, worked for an hour, and then **went away** — closed by hand, killed, or lost with
+its terminal.
+
+Until bc-y7l2m nothing noticed. There was no ending for it, so the window fell through to
+`workerTimeoutMinutes`: the slot was held for **two hours**, then the bead was charged an
+attempt and its claim forced off, and the next window was briefed from scratch. Measured on
+2026-08-24, both windows on this Mac that died that morning stopped writing at 10:47 and
+were written down as having timed out at 11:55 and 12:22 — four hours of held slots between
+them, and two full transcripts sitting unread on disk the entire time.
+
+**The whole fix rests on one distinction: a window that is *gone* is not a window that is
+*quiet*.** `silent`, `timeout` and `lapsed` are all read off a window still sitting on the
+screen, and the note beside `parkWorker` is right about them — an agent that stopped
+answering may be wedged mid-turn, and resuming it would resume the wedge. A window whose
+live-session row is *absent* stopped answering for a reason that says nothing about the
+agent at all. Somebody hit ⌘W.
+
+So `reconcile` now watches for the absence, and what follows is the ordinary parking
+machinery pointed at a new ending:
+
+| | |
+|---|---|
+| **noticing** | a worker with a session id whose row is not in Claude Code's live-session list, on a Mac where *other* rows still are, for `goneMinutes` (default 3) of consecutive ticks. Three minutes and not one tick because the evidence is an absence: a list being rewritten can be read a moment short, and concluding from one miss would take a working agent's slot, force its claim off and hand its bead to a second window — [which is the worst failure this file has](#a-tracker-two-macs-share) |
+| **the ending** | `gone`, and it fires long before the two-hour timeout. The slot comes back, `handBack` puts the claim back in the queue, and **the bead is charged no attempt** — the same argument as `silent`, only stronger. A window vanishing is evidence about the window; `maxAttemptsPerBead` is 2, so charging a closed terminal would retire beads for something no session did wrong |
+| **the park** | the conversation is written down exactly as a handed-back one is — session id, directory, and now the **ending** that put it there, because that is what decides which turn it wakes up to |
+| **the other sensor** | pressing **Reclaim sessions** asks iTerm about each window by id, and `missing` is the same fact measured a stronger way — that one needs no clock, and it now reaches the same ending rather than the older `reclaimed`. The `!term` branch beside it stays `reclaimed`: a slot freed *without asking* measured nothing, so there is nothing to conclude about the conversation |
+| **the resume** | the next dispatch through `launch` finds the park and opens that conversation instead of briefing a stranger, in the worktree it was standing in. Usually the same tick: the hand-back happens at the end of `reconcile`, and the survey a few lines later reads a bead that is ready again |
+
+The turn it wakes up to is **not** the one an answered question gets. `resumePrompt` opens
+with "Adam answered", and handing that to an agent whose window was merely closed sends it
+hunting through the bead, the comments and its own transcript for a decision nobody made —
+the one failure here that the agent cannot detect for itself. `interruptedPrompt` says the
+opposite in its first line: your window disappeared, **nothing was answered**, do not start
+over. Then the two facts its transcript cannot contain, because both happened after its last
+line — its claim was forced off and it has to take it back, and time has passed so `main` has
+probably moved. The two turns are chosen off the recorded `ending` and never off whether an
+answer happens to be in hand, because a perfectly ordinary handback whose question was filed
+as its own bead has no answer under that key either.
+
+**And it does not loop.** `maxResumes` (default 1) is the guard. The first disappearance is
+an accident, repaired for free. A conversation whose *resumed* window also disappears is not
+an accident any more — something about that agent, that worktree or that bead is killing
+windows — so that one is charged an attempt, nothing is parked, and the bead falls through
+to the fresh brief the attempt counter was always arranging. Two counters, deliberately:
+`resumes` bounds how many times a **conversation** is carried over, `attempts` bounds how
+many times a **bead** is tried. The trip count rides on the worker record between one park
+and the next, because the resume *drops* the park — a record left behind is a conversation
+two dispatches would both try to bring back.
+
+One quiet consequence, in `archiveFinished`: the salvage comment that tells a handed-back
+bead ["what its dead window built"](#and-the-hand-back-tells-the-bead-what-its-dead-window-built) is suppressed for a
+conversation parked for resume. Every word of that comment's justification is "the next
+window opens a fresh worktree", and here the same agent comes back to the same tree holding
+the same commits — the note would be telling it, about its own live branch, that it was
+abandoned. The archive under `refs/beadcause/sessions/<bead>` is still written either way;
+that is the record, and the comment was only ever a courtesy to a stranger who is not
+coming.
+
+`test/gonewindow.mjs` is the check: the ending inside the grace, the attempt not charged,
+the park and its ending, the resume into the parked tree wearing the interrupted turn, the
+trip count surviving into the next window and stopping the second one, and the four things
+that are never called gone — a window merely idle, a worker matched by name rather than by
+id, a Mac whose session list came back empty, and one tick of absence on its own.
+
 #### A bead it has given up on says so
 
 `maxAttemptsPerBead` is a floor nothing decrements. The counter is cleared on the four
@@ -27682,6 +27749,8 @@ to be one.
 | `advocates.workerTimeoutMinutes` | how long a session may hold its slot with no ending reached before the slot is released and the bead charged an attempt (default 120) |
 | `advocates.checkinMinutes` | how long a session asked to check in has to answer before its slot goes back (default 10) — long enough for a turn in flight to land and run the command, short enough that pressing Reclaim sessions is worth doing at all |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
+| `advocates.goneMinutes` | how long a worker's window has to be **missing** from Claude Code's live-session list before it is finished as `gone` rather than left to `workerTimeoutMinutes` (default 3). Then the slot comes back, the claim is handed back, **no attempt is charged** and the conversation is parked so the next dispatch [brings the same agent back](#the-window-that-disappeared--and-the-conversation-that-comes-back-into-the-next-one) instead of briefing a stranger. Minutes rather than one tick because the evidence is an *absence*: one missed read is a list being rewritten, six in a row is a fact. `0` or `false` restores the two-hour wait |
+| `advocates.maxResumes` | how many times one conversation may be carried over into a new window after its own disappeared (default 1). The first disappearance is an accident and is repaired for free; a *resumed* window that also disappears is a pattern, so that one is charged an attempt and the next window gets the fresh brief. `0` keeps the `gone` ending and never carries a conversation over |
 | `advocates.neverStartedSeconds` | how long a window is given to get past line 3 of its command before [the launch's own temp files are read as proof it never started](#the-window-that-opened-and-never-ran-its-command) (default 45). Then the slot comes back, the files are cleaned up, the claim is handed back and **no attempt is charged** — a launch that never ran is not an attempt at the work. Seconds rather than minutes because the point is answering before `workerTimeoutMinutes`; `0` or `false` asks nothing and restores the two-hour wait |
 | `advocates.batchEpicChildren` | [hand an epic's ready children to one worker as a batch](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window), instead of holding the epic back and letting each child take its own window on its own tick (default `true`). `false` falls back to `heldByChildren`'s suppression, which is what this did before |
 | `advocates.maxBatchBeads` | how many of an epic's ready children one worker is briefed on at once (default 5) — the overflow waits rather than racing its own siblings in a second window |
