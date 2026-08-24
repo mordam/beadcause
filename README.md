@@ -21173,6 +21173,25 @@ looks like a detail until it is wrong:
   a sentence saying that answer was never re-reviewed — it is context for whoever picks it
   up, not a settlement.
 
+**And the epic's advocate is told, when there is one listening** (bc-9ntye.3,
+`lib/followupnudge.js`, `test/followupnudge.mjs`). Filing the bead is usually the whole
+job: it is open, unclaimed, under a root, which is what `bd ready` means, and the re-entry
+sweep opens an Epic Advocate on the *filed* event without being asked. The case neither
+covers is the likely one — the root's advocate window is **already live**, because a merge
+under an epic is usually an epic that had a worker out. `reenter` will not open a second
+window on a root a session already names, and the live one read `bd children` at the top of
+its turn and will not read them again; so without a word from the queue the follow-up waits
+for that window to end *and* for the three-hour re-entry cooldown. The queue types one
+paragraph into it instead, through the same `messageSession` channel a pause uses. "An
+advocated epic" is `wantsAdvocate` **and** `isEnrolled` — the pair `advocatedRoots` queues
+on, reused rather than re-derived, because `wantsAdvocate` alone is true of every open owned
+root including the many nothing has ever advocated, and typing into one of those is a
+paragraph about somebody else's epic in an ordinary worker's window. No advocate, no root,
+no window, an iTerm that refuses: all of them are silence, and none of them can reach the
+two closes. It also lives in `finish` rather than in `afterMerge`, which is what the bead
+asked for and is a variant of the ordering below — `afterMerge` fires before the follow-up
+exists, so there is no bead id to hand anybody.
+
 Every sentence the merge writes names the bead the findings went to: the report on the pull
 request, the merge-bead's close reason, and the comment on the work bead — and, since
 bc-9ntye.5, the **landed notification** too. It was the one place that did not, and the
