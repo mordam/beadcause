@@ -173,11 +173,37 @@ await check('an approval with no comments has nothing to anchor, so nothing inli
  * line and the exact text `inlineComments` sent, never by position — `reviewThreads`
  * makes no promise about the order GraphQL hands threads back in.
  */
+const C1_BODY = '**blocking** — this leaks a handle the finally never runs';
+
+/**
+ * Three of these five threads are decoys, and each one differs from `c1`'s real thread in
+ * exactly one of the three matched fields — so dropping *any* single field from the
+ * predicate returns a decoy rather than `PRRT_kwABC`, and the exactness of the match is
+ * pinned rather than merely commented. They are listed first for the same reason: a
+ * looser predicate would `find` one of them before the real thread. (Round 1 of #655's
+ * review measured the previous fixture: rewriting the predicate to `p.path === c.file`
+ * alone left every check in this file and in test/mergequeue.mjs passing.)
+ */
 const THREADS = [
+  {
+    id: 'PRRT_kwBODY',
+    resolved: false,
+    comments: [{ id: '5541', path: 'lib/example.js', line: 42, body: '**blocking** — a different objection entirely, on the same line' }],
+  },
+  {
+    id: 'PRRT_kwLINE',
+    resolved: false,
+    comments: [{ id: '5542', path: 'lib/example.js', line: 7, body: C1_BODY }],
+  },
+  {
+    id: 'PRRT_kwPATH',
+    resolved: false,
+    comments: [{ id: '5543', path: 'lib/other.js', line: 42, body: C1_BODY }],
+  },
   {
     id: 'PRRT_kwABC',
     resolved: false,
-    comments: [{ id: '5551', path: 'lib/example.js', line: 42, body: '**blocking** — this leaks a handle the finally never runs' }],
+    comments: [{ id: '5551', path: 'lib/example.js', line: 42, body: C1_BODY }],
   },
   {
     id: 'PRRT_kwXYZ',
@@ -189,6 +215,60 @@ const THREADS = [
 await check('a comment matching path, line and exact posted text is anchored to its thread', () => {
   const map = threadIdsFor(CHANGES, THREADS);
   assert.equal(map.get('c1'), 'PRRT_kwABC');
+});
+
+await check('a thread on the same path and line whose body differs is never the anchor', () => {
+  const map = threadIdsFor(CHANGES, [THREADS[0]]);
+  assert.equal(map.size, 0);
+});
+
+await check('a thread with the same body on a different line is never the anchor', () => {
+  const map = threadIdsFor(CHANGES, [THREADS[1]]);
+  assert.equal(map.size, 0);
+});
+
+await check('a thread with the same body and line in a different file is never the anchor', () => {
+  const map = threadIdsFor(CHANGES, [THREADS[2]]);
+  assert.equal(map.size, 0);
+});
+
+/**
+ * `threads` is every thread on the pull request, not only the ones this review just made,
+ * so a comment carried forward verbatim into a later round matches twice on all three
+ * fields. #655 review c2: `find` used to return whichever GraphQL listed first — normally
+ * the older one — which would anchor this round's comment to last round's thread.
+ */
+const CARRIED = (round1Resolved) => [
+  {
+    id: 'PRRT_kwROUND1',
+    resolved: round1Resolved,
+    comments: [{ id: '5551', path: 'lib/example.js', line: 42, body: C1_BODY }],
+  },
+  {
+    id: 'PRRT_kwROUND2',
+    resolved: false,
+    comments: [{ id: '6002', path: 'lib/example.js', line: 42, body: C1_BODY }],
+  },
+];
+
+await check('a comment repeated verbatim in a later round anchors to the thread this round made, not the older one', () => {
+  const map = threadIdsFor(CHANGES, CARRIED(false));
+  assert.equal(map.get('c1'), 'PRRT_kwROUND2');
+});
+
+await check('and the older thread wins nothing by being listed first', () => {
+  const map = threadIdsFor(CHANGES, [...CARRIED(false)].reverse());
+  assert.equal(map.get('c1'), 'PRRT_kwROUND2');
+});
+
+await check('an objection re-raised after being settled skips the thread GitHub already shows resolved', () => {
+  const map = threadIdsFor(CHANGES, CARRIED(true));
+  assert.equal(map.get('c1'), 'PRRT_kwROUND2');
+});
+
+await check('a resolved thread is still better than no anchor when it is the only match', () => {
+  const map = threadIdsFor(CHANGES, [{ ...CARRIED(true)[0] }]);
+  assert.equal(map.get('c1'), 'PRRT_kwROUND1');
 });
 
 await check('a comment with no file/line — the same ones inlineComments drops — is never looked up', () => {

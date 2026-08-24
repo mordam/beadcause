@@ -1431,6 +1431,62 @@ check(
 );
 check('but it is flagged transient — GitHub never actually answered', pr.threadsTransient(REPO, 42) === true);
 
+/**
+ * The outage does not have to land on the thread query to be an outage, and on 2026-08-17
+ * it did not: `slugFor` -> `resolve` -> `seenBy` is `gh repo view`, GraphQL as well, and
+ * that is the call which 503'd on roughly four requests in five. `reviewThreads` bails on
+ * a null slug before it ever speaks to the thread query, so unless the flag is set there
+ * too it answers `false` — "this pull request genuinely has no threads" — in the middle
+ * of the very outage it was built to name. Measured in round 1 of #655's review; the two
+ * checks below are that measurement, kept.
+ */
+console.log('\nreviewThreads and an outage on the repo probe underneath it');
+
+pr.forgetAvailability();
+twoAccounts();
+world({
+  ...JSON.parse(fs.readFileSync(STATE, 'utf8')),
+  threads: [{ id: 'PRRT_kwABC', isResolved: false, comments: { nodes: [] } }],
+  repoOutage: { count: 9 },
+});
+resetLog();
+const probeOutagedThreads = await pr.reviewThreads(REPO, 42);
+check(
+  'an outage on the repo probe never reaches the thread query, so this is null as well',
+  probeOutagedThreads === null,
+  JSON.stringify(probeOutagedThreads)
+);
+check(
+  'and nothing reaches graphql at all — the repo probe is where it died',
+  !calls().some((c) => c.args[0] === 'api'),
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+check('the repo probe knows it was an outage', pr.probeTransient(REPO) === true);
+check(
+  'so threadsTransient says outage too, rather than "this pull request has no threads"',
+  pr.threadsTransient(REPO, 42) === true
+);
+
+// The same ordering, read the other way: the flag is cleared by every call, including one
+// that bails long before GraphQL, so an outage that has since cleared cannot leave a `true`
+// standing over a read that never asked GitHub anything. Deliberately no
+// `forgetAvailability()` here — it clears `threadsTransientKeys` outright, which would
+// prove nothing about the ordering inside `reviewThreads`.
+world({
+  ...JSON.parse(fs.readFileSync(STATE, 'utf8')),
+  repoOutage: null,
+  repoByToken: { '': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' } },
+});
+resetLog();
+const afterTheOutage = await pr.reviewThreads(REPO, 42);
+check(
+  'the repo resolves again but there is now nobody to read the threads as, so still null',
+  afterTheOutage === null,
+  JSON.stringify(afterTheOutage)
+);
+check('that read never reached graphql either', !calls().some((c) => c.args[0] === 'api'), JSON.stringify(calls().map((c) => c.args.join(' '))));
+check('and the earlier outage does not survive it as a stale true', pr.threadsTransient(REPO, 42) === false);
+
 pr.forgetAvailability();
 world();
 

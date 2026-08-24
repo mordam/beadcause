@@ -20768,6 +20768,16 @@ pull request since one checkout answers for several; `resolveThread`'s answer ca
 `transient: true` instead, since it already returns an object rather than `null` on every
 failure and a second lookup would be one fact in two places.
 
+**And the flag counts an outage that never reached the thread query at all.** The likelier
+half, in fact: `reviewThreads` resolves the repo and the reviewer identity first, and both
+of those go through `seenBy` — `gh repo view`, the very call the 2026-08-17 measurement
+above caught 503ing. Flagging only its own query's failure left `threadsTransient` answering
+`false` in precisely the outage the bead was filed for, which round 1 of #655's review
+measured and is now two checks in `test/pr.mjs`. So every early return consults
+`probeTransient(dir)` and inherits its answer — the same classification, read rather than
+guessed at a second time — and the clear happens above those returns, so a read that dies
+before GraphQL still cannot leave a stale `true` standing behind it.
+
 **What this does not yet do.** Nothing further — the wiring this section used to describe
 as left for later, anchoring a comment to its thread and resolving the ones a worker's
 answer settled, is folded in above (bc-36xx.31).
