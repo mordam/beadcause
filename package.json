@@ -58,6 +58,7 @@
     "b7e-handback": "bin/b7e-handback",
     "b7e-harness": "bin/b7e-harness",
     "b7e-known": "bin/b7e-known",
+    "b7e-moment": "bin/b7e-moment",
     "b7e-orient": "bin/b7e-orient",
     "b7e-owes": "bin/b7e-owes.js",
     "b7e-pinned": "bin/b7e-pinned",

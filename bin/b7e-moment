@@ -1,0 +1,261 @@
+#!/usr/bin/env node
+/**
+ * `b7e-moment` — what else was this machine doing when the error was filed.
+ *
+ *     b7e-moment bc-l8ub                  around bc-l8ub's own created_at, ±15m
+ *     b7e-moment bc-l8ub --window 30m     widen the window either side
+ *     b7e-moment --at 2026-08-22T18:36:30Z --window 10m
+ *     b7e-moment bc-l8ub --json
+ *     b7e-moment --at <iso> --log fixture.log --deploys fixture-deploys/
+ *
+ * bc-dgx7.55 is the session audit's finding: three auto-filed `app-error` beads, three
+ * sessions, the same opening question, three different hand-rolled answers — see the
+ * doc comment at the top of lib/moment.js, which owns the join this argv-parses around.
+ *
+ * Five blocks, always printed, each saying explicitly when it has nothing rather than
+ * being omitted: the bead's own occurrence comments (has this recurred, or never);
+ * other `app-error` beads created inside the window; deploy records overlapping it;
+ * `git log` on this checkout inside it; and the daemon log's lines inside it, streamed
+ * rather than read whole, with `slow`/`[cache]`/error lines called out.
+ *
+ * Exit codes: `0` ran to completion, whatever it found — an empty window is an answer,
+ * not a failure. `2` bad usage (neither a bead id nor `--at`, or both). `3` `--at` did
+ * not parse, or the named bead does not exist. `4` `-w` named a workspace this Mac has
+ * no config for, or a bead id was given and this checkout resolves to none.
+ */
+import { loadConfig } from '../lib/config.js';
+import { workspaceFor } from '../lib/claude.js';
+import { Bd } from '../lib/bd.js';
+import { repoRoot } from '../lib/cites.js';
+import { DAEMON_LOG, DEFAULT_WINDOW_MS, parseWindow, momentReport } from '../lib/moment.js';
+
+const argv = process.argv.slice(2);
+const has = (...names) => names.some((n) => argv.includes(n));
+const value = (...names) => {
+  for (const n of names) {
+    const inline = argv.find((a) => a.startsWith(`${n}=`));
+    if (inline) return inline.slice(n.length + 1);
+    const at = argv.indexOf(n);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-moment <bead-id> [--window 15m] [--json] [-w, --workspace <name>]
+       b7e-moment --at <iso> [--window 15m] [--json]
+       b7e-moment (<bead-id> | --at <iso>) [--log <path>] [--deploys <dir>]
+
+What else was this machine doing at a moment — a bead's own \`created_at\`, or a bare
+timestamp. Five blocks, always printed: the bead's own occurrence comments, other
+app-error beads in the window, deploy records overlapping it, git log on this checkout
+inside it, and the daemon log's lines inside it.
+
+  <bead-id>            read the moment off this bead's created_at
+  --at <iso>           a bare timestamp instead of a bead
+  --window <dur>       how far either side — a number of minutes, or Ns/Nm/Nh (default 15m)
+  --json               one object instead of the printed report
+  --log <path>         read this file instead of ~/Library/Logs/beadcause.log
+  --deploys <dir>      read this directory instead of the real deploy journal
+  -w, --workspace      which tracker to read the bead/siblings from (default: this
+                        checkout's own — see lib/claude.js workspaceFor). Ignored with
+                        --at and no bead id.`;
+
+if (has('--help', '-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const FLAG_VALUES = new Set(['--window', '--log', '--deploys', '-w', '--workspace', '--at']);
+const positional = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--json') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.includes('=') && FLAG_VALUES.has(a.split('=')[0])) continue;
+  if (a.startsWith('-')) {
+    console.error(`b7e-moment: unrecognised flag: ${a}`);
+    console.error(USAGE);
+    process.exit(2);
+  }
+  positional.push(a);
+}
+
+const atFlag = value('--at');
+const beadId = positional[0] || null;
+const JSON_MODE = has('--json');
+const logFile = value('--log') || DAEMON_LOG;
+const deploysDir = value('--deploys') || null;
+
+if (beadId && atFlag) {
+  console.error('b7e-moment: a bead id and --at are two ways of naming the same moment — pass one, not both');
+  process.exit(2);
+}
+if (!beadId && !atFlag) {
+  console.error(`b7e-moment: need a bead id or --at\n${USAGE}`);
+  process.exit(2);
+}
+if (positional.length > 1) {
+  console.error(`b7e-moment: one bead id at a time, not ${positional.length}`);
+  process.exit(2);
+}
+
+let windowMs = DEFAULT_WINDOW_MS;
+const windowFlag = value('--window');
+if (windowFlag !== undefined) {
+  windowMs = parseWindow(windowFlag);
+  if (windowMs == null) {
+    console.error(`b7e-moment: --window "${windowFlag}" doesn't look like a duration (e.g. 15m, 90s, 1h)`);
+    process.exit(2);
+  }
+}
+
+const cfg = loadConfig();
+// process.cwd(), not HERE (this bin/ file's own dirname): the executing copy of any
+// b7e-* command is always the main checkout's, since PATH is prefixed with it — HERE
+// would silently answer for the main checkout's git history, not the calling worktree's
+// (which matters for `-w`/workspaceFor's own cwd-based resolution just below, even
+// though `git log` itself returns the same commits from any worktree of this repo). See
+// beadcause-memory notes a-worktree-aware-bin-resolves-root-from-cwd-not-here.
+const ROOT = repoRoot();
+
+let ws = null;
+let bd = null;
+let at = atFlag;
+let beadComments = null;
+
+if (beadId || atFlag === undefined) {
+  const wsName = value('-w', '--workspace') || workspaceFor(cfg, ROOT);
+  ws = wsName ? (cfg.workspaces || []).find((w) => w.name === wsName) : null;
+  if (!ws) {
+    const known = (cfg.workspaces || []).map((w) => w.name).join(', ');
+    console.error(
+      wsName ? `b7e-moment: no workspace named "${wsName}" — ${known}` : `b7e-moment: ${ROOT} resolves to no workspace on this Mac — name one with -w (${known})`
+    );
+    process.exit(4);
+  }
+  bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+}
+
+if (beadId) {
+  let row;
+  try {
+    row = await bd.showWithComments(ws, beadId);
+  } catch (err) {
+    const msg = String(err?.message || err).split('\n')[0];
+    // A missing bead is bd exiting non-zero, not an empty result — distinguish it from
+    // a genuine read failure (tracker unreachable, a lock, a timeout) so the two get
+    // different exit codes, the same split b7e-cites makes on the same error text.
+    if (/no issues? found|not found/i.test(msg)) {
+      console.error(`b7e-moment: ${beadId} — no such bead in ${ws.name}`);
+      process.exit(3);
+    }
+    console.error(`b7e-moment: could not read ${beadId} from ${ws.name} — ${msg}`);
+    process.exit(4);
+  }
+  if (!row) {
+    console.error(`b7e-moment: ${beadId} — no such bead in ${ws.name}`);
+    process.exit(3);
+  }
+  if (!row.created_at) {
+    console.error(`b7e-moment: ${beadId} has no created_at to read a moment from`);
+    process.exit(3);
+  }
+  at = row.created_at;
+  beadComments = row.comments || [];
+}
+
+if (!Date.parse(at)) {
+  console.error(`b7e-moment: not a parseable timestamp: ${at}`);
+  process.exit(3);
+}
+
+const report = await momentReport(bd, ws, {
+  at,
+  windowMs,
+  beadId,
+  beadComments,
+  root: ROOT,
+  logFile,
+  deploysDir,
+});
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(report, null, 2));
+  process.exit(0);
+}
+
+/* ------------------------------------------------------------------------------ print */
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+// Echo back what was actually asked for, rather than re-deriving a unit from the
+// resolved milliseconds — a re-derivation is where "90s" would round-trip as "2m" and
+// print the wrong number next to the right suffix.
+const windowLabel = windowFlag !== undefined ? windowFlag : '15m';
+console.log(bold(`Moment: ${report.window.at}  ±${windowLabel}`));
+console.log(dim(`  window: ${report.window.start} .. ${report.window.end}`));
+console.log('');
+
+console.log(bold(beadId ? `${beadId}'s own occurrences:` : "this bead's own occurrences:"));
+if (!report.bead) {
+  console.log('  (no bead given — nothing to check)');
+} else if (!report.bead.occurrences.length) {
+  console.log('  nothing — this bead has never recurred');
+} else {
+  for (const o of report.bead.occurrences) console.log(`  ${o.at || '(no time)'}  ${o.text}`);
+}
+console.log('');
+
+console.log(bold('sibling app-error beads in the window:'));
+if (!report.siblings.length) {
+  console.log('  nothing');
+} else {
+  for (const s of report.siblings) console.log(`  ${s.id}  ${s.created_at}  ${s.title || ''}`);
+}
+console.log('');
+
+console.log(bold('deploys overlapping the window:'));
+if (!report.deploys.length) {
+  console.log('  nothing');
+} else {
+  for (const d of report.deploys) {
+    console.log(`  ${d.id}  ${d.requestedAt} .. ${d.finishedAt || '(in flight)'}  ${d.status}  ${d.workspace || d.repo || ''}`);
+  }
+}
+console.log('');
+
+console.log(bold('merges on this checkout in the window:'));
+if (report.merges.error) {
+  console.log(`  could not read git log: ${report.merges.error}`);
+} else if (!report.merges.commits.length) {
+  console.log('  nothing');
+} else {
+  for (const c of report.merges.commits) console.log(`  ${c.hash}  ${c.at}  ${c.subject}`);
+}
+console.log('');
+
+const l = report.log;
+if (!l.exists) {
+  console.log(bold(`daemon log (${logFile}):`));
+  console.log('  nothing — that file does not exist on this Mac');
+} else {
+  const total = l.lines.length + l.omitted;
+  console.log(
+    bold(
+      `daemon log (${logFile}) in the window: ${total} line${total === 1 ? '' : 's'}` +
+        ` (${l.counts.slow} slow, ${l.counts.cache} [cache], ${l.counts.error} error)`
+    )
+  );
+  if (!total) {
+    console.log('  nothing');
+  } else {
+    for (const line of l.lines) console.log(`  ${line.text}`);
+    if (l.omitted) console.log(dim(`  … ${l.omitted} more line${l.omitted === 1 ? '' : 's'} not shown (first ${l.lines.length} kept)`));
+  }
+}
+
+process.exit(0);
