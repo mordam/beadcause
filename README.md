@@ -33003,7 +33003,8 @@ were not.** A colour off the palette is a literal hex in a sheet where every oth
 says `var(--…)`, and it fails review on sight; `9px` in a sheet that also says `10px`,
 `11px` and `12px` fails nothing and looks like every line around it.
 
-So bc-03pz gave two of the three axes a scale and a suite. **Radius is 6 / 10 / 14 / 18,
+So bc-03pz gave two of the three axes a scale and a suite, and bc-ka5y.22 the third.
+**Radius is 6 / 10 / 14 / 18,
 four apart, plus `999px` and `50%`** — four apart because `vocabulary.mjs` calls two values
 within 2px of each other a smear, so a scale with 2px steps would be one, and the suite
 asserts that spacing about *itself* as well as about the sheet. **Weight is 400 / 550 / 600
@@ -33019,12 +33020,30 @@ what `999px` gives. That rewrite is provably pixel-identical and it says what th
 means. And **the two chat bubbles landed together**: `.msg.you` and `.queued-text` are the
 same bubble either side of a send, and they had drifted to 14px and 12px.
 
-**Type sizes are deliberately not enforced, and that is the open half.** A radius cannot
-move a box and a weight barely can — the whole snap moved seven text runs by 1–3px and not
-one box height, which `scripts/design/baseline.mjs` is what proved. A type scale moves
-layout on a 360px phone, so which one to snap to is a design decision rather than a
-normalization, and it is filed rather than guessed. When it is settled its allowed set
-belongs in `test/metricscale.mjs` beside the other two.
+**Type is 9 / 11 / 13 / 16 / 19 / 24, and it is the axis that had to be asked about.** A
+radius cannot move a box and a weight barely can — bc-03pz's whole snap moved seven text
+runs by 1–3px and not one box height, which `scripts/design/baseline.mjs` is what proved.
+A type scale moves layout on a 360px phone, so which one to snap to was a design decision
+rather than a normalization, and bc-ka5y.22 was filed rather than guessed.
+
+**It was then decided on a measurement rather than on the argument.** Each candidate scale
+was applied to the real sheet, all 77 cards re-rendered, and the fingerprints diffed —
+about a minute per candidate, which is cheaper than the paragraph that would otherwise have
+argued for one. Three things came out of that and none of them was reachable by reading.
+The width risk the bead was filed on had already been fixed by bc-khoe.5: `topbar-check`
+says every page has at least 24px of slack at 360px, and three of the four candidates *gain*
+8px because the picker face narrows. "No box height changes" turned out to be impossible for
+*any* type scale, because the line-heights here are unitless multipliers — 292 elements move
+by ≤4px and none of them is a wrap. And the rounding of the three ties (10px, 12px, 14.5px,
+98 declarations between them) mattered more than the choice of scale: **down** gives 6 boxes
+taller and 27 shorter, **up** gives 29 taller and one card 83px longer.
+
+So the sheet moved 356 declarations by no more than 2px, 11 / 13 / 16 / 24 stayed exactly
+where they were, five cards lost a line and none gained one — the single card that grows on
+the 440px design board is `decisions/options.html`, whose option hint was already two lines
+at 360px and 393px before the change. The allowed set lives in `test/metricscale.mjs` beside
+the other two, and the rounding rule is in its header, because a later 12px is not a
+near-miss to wave through: it is 11px or 13px and the sheet has already decided which.
 
 ## Notes on bd
 
