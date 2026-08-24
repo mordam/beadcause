@@ -294,5 +294,27 @@ check(
   !/control(index|coverage|landing|s)\.js/.test(fs.readFileSync(path.join(LIB, 'beadfiles.js'), 'utf8'))
 );
 
+/* --------------------------------------------------- the one command that writes */
+
+console.log('\nthe declare path, where a bad call is invisible until somebody runs it');
+
+// Both of these were real, both were hit writing this bead, and neither fails anywhere a
+// suite would notice — `bin/controls.js declare` is the only thing here that reaches the
+// tracker, and it is run by hand. `new Bd(cfg)` finds no `bin` and dies inside `execFile`
+// with "the file argument must be of type string", naming neither the line nor the
+// mistake; a bare workspace *name* is refused by lib/bd.js's own guard, which is bc-ygwa.
+// Asserted statically because the alternative is a fake daemon for two lines of wiring.
+const cli = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'controls.js'), 'utf8');
+check(
+  'Bd is built from the four named fields, not handed the config object',
+  /new Bd\(\{\s*bin: cfg\.bdBin/.test(cli),
+  (cli.match(/new Bd\([^)]*\)/) || ['no Bd construction found'])[0]
+);
+check(
+  'and every bd call takes the workspace object the config named',
+  /const ws = workspaceNamed\(workspace\)/.test(cli) && !/bd\.(show|update)\(workspace\b/.test(cli),
+  (cli.match(/bd\.(show|update)\([^)]*\)/g) || []).join(' · ')
+);
+
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');
 process.exit(failed ? 1 : 0);

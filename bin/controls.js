@@ -57,6 +57,21 @@ const die = (msg) => {
 
 const short = (s) => String(s || '').slice(0, 8);
 
+/**
+ * The workspace **object** for a name, because that is what every `bd.*` call takes.
+ *
+ * Handing `bd.show` a bare string is bc-ygwa, and the guard in lib/bd.js refuses it by
+ * name rather than resolving it — a name is ambiguous the moment two installs disagree
+ * about where a workspace lives, and a tracker read against the wrong directory answers
+ * confidently and wrongly. So the resolution happens once, here, and an unknown name is a
+ * refusal that lists what this install actually has.
+ */
+function workspaceNamed(name) {
+  const ws = (cfg.workspaces || []).find((w) => w.name === name);
+  if (!ws) die(`no workspace called ${name} — this install has ${(cfg.workspaces || []).map((w) => w.name).join(', ')}`);
+  return ws;
+}
+
 async function main() {
   if (!verb || verb === '--help' || verb === '-h') {
     console.log(
@@ -121,12 +136,16 @@ async function main() {
     // wrote three of the four ids and mentioned the fourth in passing is one whose caller
     // reads the exit code and moves on.
     if (dropped.length) die(`not in the corpus: ${dropped.join(', ')} — nothing written`);
-    const bd = new Bd(cfg);
-    const issue = await bd.show(workspace, bead);
+    const ws = workspaceNamed(workspace);
+    // `Bd` takes four named fields, not the config object — `new Bd(cfg)` finds no `bin`
+    // and fails inside `execFile` with "the file argument must be of type string", which
+    // names neither this line nor the mistake.
+    const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+    const issue = await bd.show(ws, bead);
     if (!issue) die(`${workspace}/${bead} not found`);
     const had = readControls(issue).ids;
     const merged = [...new Set([...had, ...good])];
-    await bd.update(workspace, bead, { notes: withControls(issue.notes, { ids: merged }) });
+    await bd.update(ws, bead, { notes: withControls(issue.notes, { ids: merged }) });
     console.log(`${bead} exercises ${merged.join(', ')}`);
     console.log('nothing is evidenced yet — the merge that lands this bead is what proves it.');
     return;
