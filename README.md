@@ -12405,6 +12405,56 @@ sets naively would take the same bead off `ready` twice. Ship beads get no pill 
 own: what they are waiting for already has a number over
 [its own button](#the-release-queue--the-number-over-ship).
 
+### Endorsing from the inbox — an answer that names another bead
+
+The gesture lives in four places and until bc-xl7n.76.3 none of them was the inbox.
+`POST /api/bead/endorse` is the door; this page and `bin/endorse.js` (the `/endorse`
+skill) both post to it. The fourth is `POST /api/session`, and its own reasoning is why
+there is now a fifth: tapping **work on this** on a held bead takes the marker off first
+and opens the window second, because *you tapping it is you present and choosing, and a
+refusal there would send you to another screen to press a button and come back*.
+
+That reasoning applies word for word to an answer that says *endorse bc-xl7n.121*. It
+just only ever covered the bead the card was **on**, never one the answer **named** —
+and twice, three days apart, an answer named one and nothing happened. Once typed
+(*"bc-xl7n.121 endorsed so the class stops recurring."*) and once by tapping an option
+whose own response text said *"Run the update-branch on PR 703, and endorse bc-xl7n.121
+so the stale-check hold gets a producer instead of a manual nudge each time."* Both were
+recorded as prose, both cards closed, and both times the marker stayed exactly where it
+was — while bc-xl7n.121, the class fix for ten pull requests held by the stale-check
+gate, sat one label away from dispatch.
+
+So `/api/respond` reads the answer (`lib/endorseanswer.js`) and performs what it finds,
+through `applyVerdict` and the same `endorsement` event this page's own verdicts use —
+so a bead endorsed from an answer leaves the queue on every device at the same moment,
+by the same mechanism, as one endorsed from a row here. A second, quieter endorsement
+path is exactly what the hold warns against.
+
+**Why prose is read here when the same handler refuses to read it elsewhere.** An
+[ambiguous typed answer](#answering)
+comes back *pick an option* rather than being guessed at, and the comment there is
+explicit that matching words against option labels reads *"ship it but not yet"* as a
+commission just as confidently as *"ship it"*. This is not that, and the difference is
+the **id**: `bc-xl7n.121` is a name written out, not a meaning to be inferred. The
+reading is narrow enough that only one bit is ever inferred — the word has to be there,
+the id has to be adjacent to it, and a negation in front of the word takes the clause off
+the table. `endorse bc-a and close bc-b` endorses exactly one bead, because a second verb
+ends the list.
+
+**Ids are found by the workspace's prefix, and that is the precision rather than an
+economy.** The general shape of a bead id is also the shape of an ordinary hyphenated
+word — the very sentence above contains `update-branch`, which any prefix-free pattern
+reads as a bead. So an answer endorses in its own workspace or not at all, and an id
+under another prefix is never seen.
+
+**And an endorsement `bd` will not perform does not close the card.** A named bead that
+does not exist, or a [ship bead](#a-ship-bead-is-not-a-proposal-and-endorse-all-could-reach-one),
+leaves the question open in the inbox with the reason on the thread, the way an ambiguous
+answer does: nothing about the card moves, no label is written, and it can be answered
+again. The one ending this class must never have — recorded as settled with the marker
+still on — is what that is for. At most eight beads come off one answer, and anything
+past that is named on the thread rather than dropped in silence.
+
 ### Talking about one before you decide
 
 **Discuss 💬** is the fifth control on a row and the only one that is not a verdict. The
