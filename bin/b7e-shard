@@ -1,0 +1,41 @@
+#!/usr/bin/env node
+/**
+ * `b7e-shard` — the `--index`-th of `--total` shards of the whole suite, one per line.
+ *
+ *     b7e-shard --index 0 --total 4        # this shard's suites, one per line
+ *     b7e-shard --index 0 --total 4 --dir <root>
+ *
+ * `.github/workflows/test.yml` is the caller: each matrix leg runs this to get its slice,
+ * then feeds it straight to `bin/b7e-gate --only`. `lib/shard.js` carries the slicing
+ * (stride, so the handful of expensive suites spread across shards instead of piling into
+ * whichever one a contiguous block happens to land on) and reuses `lib/gate.js`'s
+ * `discoverSuites()` — which already shells `scripts/test.mjs --list` — so this file adds
+ * no second opinion about what a suite is, only argv parsing and the printing around it,
+ * the same split every other `b7e-*` command uses.
+ *
+ * Exit codes: `0` printed (a shard can be an empty list — `--total` larger than the suite
+ * count — and that is not an error, just nothing for that leg to run); `2` refused, bad
+ * usage.
+ */
+import path from 'node:path';
+import { REPO_ROOT, discoverSuites } from '../lib/gate.js';
+import { shardOf } from '../lib/shard.js';
+
+const argv = process.argv.slice(2);
+const value = (f) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? undefined : argv[at + 1];
+};
+
+const ROOT = path.resolve(value('--dir') || REPO_ROOT);
+const INDEX = Number(value('--index'));
+const TOTAL = Number(value('--total'));
+
+if (!Number.isInteger(TOTAL) || TOTAL < 1 || !Number.isInteger(INDEX) || INDEX < 0 || INDEX >= TOTAL) {
+  console.error(`usage: b7e-shard --index <0..total-1> --total <n> [--dir <root>]`);
+  console.error(`  got --index ${value('--index')} --total ${value('--total')}`);
+  process.exit(2);
+}
+
+const suites = discoverSuites(ROOT);
+console.log(shardOf(suites, INDEX, TOTAL).join('\n'));

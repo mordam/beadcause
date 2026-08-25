@@ -108,6 +108,64 @@ const CHILD = `
 const sandbox = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'beadcause-profiletest-'));
 const live = new Set();
 
+/** Blocking, because everything else in this suite is; 25ms is a dozen of the child's writes. */
+const settle = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+const count = () => fs.readdirSync(sandbox).length;
+
+/** Kill every stub and take the sandbox away. Both endings go through it. */
+function cleanup() {
+  for (const proc of live) {
+    try {
+      proc.kill('SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
+  settle(80);
+  removeTreeSync(sandbox);
+}
+
+/**
+ * A broken fixture, said once and then stopped on.
+ *
+ * Every scenario below needs a child that is *writing*; without one they all measure an
+ * unattended directory and report on the teardown of nothing. That is worth one honest
+ * red line rather than eleven misleading ones, so this ends the run where it is found.
+ */
+function fatal(name, detail) {
+  bad(name, detail);
+  cleanup();
+  console.log(`\n\x1b[31m${ran - failures}/${ran}\x1b[0m assertions passed\n`);
+  process.exit(1);
+}
+
+/** How long a `node -e` child gets to boot and reach its interval on a contended machine. */
+const STUB_READY_TIMEOUT_MS = 10_000;
+
+/**
+ * Start one — and do not come back until it is demonstrably writing.
+ *
+ * Each call site used to follow this with `settle(120)`: a guess that a `node -e` child is
+ * up and inside its interval within a tenth of a second. On an idle Mac it is. On a
+ * machine running four suites at once — which is `bin/b7e-gate --jobs 4`, which is what
+ * both CI and every local gate run here is — it is not, and node has not finished booting
+ * when the scenario starts measuring.
+ *
+ * **The failure that causes is not a near miss, it is the suite inverting.** With nothing
+ * writing into the profile, `killAndRemove` wins on its first attempt against a directory
+ * nobody is defending: the control that must fail passes, the escalation window is never
+ * reached so `took` comes in under it, and the profile that "could not be removed" is
+ * removed and reported `true`. Those are three of this file's twelve assertions and they
+ * go red together — on `main` in CI on 2026-08-25 (twice), and six runs out of six here
+ * under a synthetic 3x CPU load. bc-xl7n.136 filed the third of them from the same shape.
+ *
+ * So the wait is on the evidence rather than on the clock. Two distinct filenames means
+ * the interval has fired twice — the child cycles `f0`…`f23` — and a child that has ticked
+ * twice is the whole of what any scenario here asks of it. A machine slow enough to miss
+ * that in ten seconds is not one whose teardown timings mean anything, and it is a broken
+ * fixture rather than a failing assertion, so it stops the run.
+ */
 function startStub(name, { stubborn = false } = {}) {
   const profile = path.join(sandbox, name);
   fs.mkdirSync(profile, { recursive: true });
@@ -116,13 +174,22 @@ function startStub(name, { stubborn = false } = {}) {
     env: { ...process.env, STUB_PROFILE: profile, STUB_STUBBORN: stubborn ? '1' : '0' },
   });
   live.add(proc);
-  return { proc, profile };
+  const deadline = Date.now() + STUB_READY_TIMEOUT_MS;
+  for (;;) {
+    let written = 0;
+    try {
+      written = fs.readdirSync(profile).length;
+    } catch {
+      /* taken away mid-look, which is itself a child that is running */
+    }
+    if (written >= 2) return { proc, profile };
+    if (proc.exitCode != null || proc.signalCode)
+      fatal(`the fake browser '${name}' stays up`, `it exited (${proc.exitCode ?? proc.signalCode}) before writing anything`);
+    if (Date.now() > deadline)
+      fatal(`the fake browser '${name}' starts writing`, `two ticks never landed in ${STUB_READY_TIMEOUT_MS}ms`);
+    settle(10);
+  }
 }
-
-/** Blocking, because everything else in this suite is; 25ms is a dozen of the child's writes. */
-const settle = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-
-const count = () => fs.readdirSync(sandbox).length;
 
 /* ------------------------------------------ the control: the old two lines, defeated */
 
@@ -132,7 +199,6 @@ const count = () => fs.readdirSync(sandbox).length;
 // suite below says nothing at all.
 {
   const { proc, profile } = startStub('control-old-teardown', { stubborn: true });
-  settle(120);
   proc.kill();
   try {
     fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
@@ -152,7 +218,6 @@ const count = () => fs.readdirSync(sandbox).length;
 {
   const before = count();
   const { proc, profile } = startStub('polite');
-  settle(120);
   const started = Date.now();
   // A generous escalation window on purpose. What is being asserted is that a browser
   // which goes on its own does not sit out the window — measured at about 70ms here and
@@ -180,7 +245,6 @@ const count = () => fs.readdirSync(sandbox).length;
 {
   const before = count();
   const { proc, profile } = startStub('stubborn', { stubborn: true });
-  settle(120);
   const started = Date.now();
   const removed = killAndRemove(proc, profile, { sigkillAfterMs: 400, timeoutMs: 5000 });
   const took = Date.now() - started;
@@ -203,8 +267,36 @@ const count = () => fs.readdirSync(sandbox).length;
 {
   // A profile that cannot be removed is a real outcome and the caller is on its way out,
   // so the contract is a `false`, not an exception thrown from inside somebody's `close()`.
-  const { proc, profile } = startStub('undeletable', { stubborn: true });
-  settle(120);
+  //
+  // **This one is not raced, which is the difference between it and the three above.**
+  // They ask what the teardown does while a writer is defending the directory, and a
+  // writer is the honest instrument for that. This one asks what it answers when the
+  // directory cannot go at all — and a writer is a bad instrument for *that*, because
+  // `killAndRemove` only believes a deletion it can still see 40ms later, and 40ms is
+  // well inside what a contended machine deschedules a 2ms interval for. The profile then
+  // really does go, and the check reads `true`: twice on `main` in CI on 2026-08-25, and
+  // once in six runs here even after the readiness handshake above closed the other three.
+  //
+  // So the impossibility is made structural instead. The profile sits one level down in a
+  // holder with no write bit, so the final `rmdir` is `EACCES` no matter how long anything
+  // waits or how often it re-asks. The stubborn child stays because `killAndRemove` is
+  // still being handed a live process to end — it is the directory that changed, not the
+  // browser. A permission bit does not stop root, so the arrangement is probed rather than
+  // assumed; without that, a root run would report this as the contract regressing.
+  const holder = path.join(sandbox, 'undeletable');
+  const probe = path.join(holder, 'probe');
+  const { proc, profile } = startStub(path.join('undeletable', 'profile'), { stubborn: true });
+  fs.mkdirSync(probe);
+  fs.chmodSync(holder, 0o500);
+  let enforced = false;
+  try {
+    fs.rmdirSync(probe);
+  } catch {
+    enforced = true;
+  }
+  if (enforced) ok('control: a directory inside a holder with no write bit cannot be removed');
+  else bad('control: a directory inside a holder with no write bit cannot be removed', 'it went anyway — running as root?');
+
   let thrown = null;
   let removed = null;
   try {
@@ -216,7 +308,8 @@ const count = () => fs.readdirSync(sandbox).length;
   else bad('a profile it could not remove is reported, not thrown', thrown ? String(thrown) : `it returned ${removed}`);
   proc.kill('SIGKILL');
   settle(60);
-  removeTreeSync(profile);
+  fs.chmodSync(holder, 0o700);
+  removeTreeSync(holder);
 }
 
 /* ----------------------------------------------------------------- the static rule */
@@ -241,15 +334,7 @@ else bad('and the whole teardown budget is seconds, not minutes', String(TEARDOW
 
 /* -------------------------------------------------------------------- verdict */
 
-for (const proc of live) {
-  try {
-    proc.kill('SIGKILL');
-  } catch {
-    /* already gone */
-  }
-}
-settle(80);
-removeTreeSync(sandbox);
+cleanup();
 
 console.log(`\n${failures ? '\x1b[31m' : '\x1b[32m'}${ran - failures}/${ran}\x1b[0m assertions passed\n`);
 process.exit(failures ? 1 : 0);
