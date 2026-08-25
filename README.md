@@ -992,6 +992,89 @@ as its own failure, because that is how the old bug gets back in. `/monitor` is 
 second time with one workspace, in the shorter bar, because the two heights are still the
 two states this ships in and the pill row has to sit against the bar in both.
 
+### ＋ Add a bead-space — the last row of the picker
+
+Everything else about a tracker can be done from a phone: mute it, set its quiet hours,
+decide whether an agent may answer a comment in it unasked, retire it when the project is
+over. The one thing that could not was **having** one. A new repo meant opening
+`~/.config/beadcause/config.json` in an editor, writing a `workspaceDirs` entry, and
+restarting the backend — on the Mac, which is the single device this app exists so you do
+not need.
+
+So the picker has a last row, under every group, and it is the only row in it that is not a
+place to go. It opens a dialog (`public/addspace.js`) that takes **a path on the Mac** or **a
+git URL**, and a `Clone to` field prefilled with `<projectRoot>/<repo>` — editable, because a
+repo that belongs somewhere else should cost a line of typing rather than a config edit.
+
+**Three words, because two of them used to be one word.** `space` and `workspace` are a
+syllable apart, mean nothing like each other, and on a four-inch screen that is not a
+distinction anybody makes correctly. Everywhere a person reads:
+
+| word | what it is | in the config |
+|---|---|---|
+| **group** | "Personal", "Climative" — a name, a list, quiet hours, and the answer to *when may this reach me* | `spaces` |
+| **bead-space** | one tracker: one `.beads`, one Dolt database, one id prefix (`bc-`, `sp-`) | `workspaces` |
+| **bead-repo** | a checkout attached to a bead-space — forty Climative services filing into one `cl-` graph | `repos.<ws>.approved` |
+
+The config keys and every identifier under `lib/` still say the old words, deliberately:
+renaming a key is a migration and renaming an identifier is a sweep of forty files, and
+neither belongs in the same diff as a new button. That is bc-35qub.
+
+**It asks after it looks, never before.** A directory either has a `.beads` or it does not,
+and that is not a question to put to a person — they mostly do not know, and the directory
+always does. So the first round resolves or clones, inspects, and finishes on the spot in
+the common case. Only when there is no tracker does it come back with the one question that
+cannot be looked up: a graph of its own, or beads filed into a bead-space that already
+exists — with the list to choose from. The second round always arrives as a **path**, never
+the URL again, because by then the clone has happened and re-sending the URL would make the
+server decide whether the directory it finds is the one it just made or somebody else's
+checkout of the same name.
+
+**The refusals are the feature**, and they live in `lib/newspace.js` where the suite can
+reach them without a server:
+
+- **a relative path**, refused on the raw text and not after `expandHome` — that function
+  ends in `path.resolve`, so a check made after it can never fail, and `projects/safeleaf`
+  would come back as `/projects/safeleaf` resolved against the daemon's working directory,
+  which under launchd is `/`;
+- **a clone onto something**, refused before `git` is spawned at all;
+- **a name already served**, because the name is the key for `sessionDirs`, `jira`,
+  `advocates.perWorkspace` and every group's list, so two trackers sharing one would
+  silently share all of them — and **a name you retired**, refused with the word *Restore*
+  in it rather than added a second time over the top of the retirement;
+- **a prefix another tracker already mints**, because every screen in this app addresses
+  beads by id and two graphs both minting `bc-` makes an id ambiguous;
+- and the expensive one: **a clone carrying `refs/dolt/data`**, which is a team tracker
+  nobody has bootstrapped yet. `bd bootstrap` will not clone over a database that exists,
+  so a `bd init` there means the team's history can never arrive and every later
+  `bd dolt pull` meets two unrelated histories — the one outcome `lib/sync.js` says never
+  retries its way out, and the reason the install order is *bootstrap before the workspace
+  has ever been written to*. The choice is withheld rather than drawn and then refused, and
+  the sentence says `npm run onboard`.
+
+**A tracker it makes goes in the container root and never in the checkout.** This is
+`bd-newws` as a function, and the two things it does that a bare `bd init` does not are the
+whole reason it is not a bare `bd init`: `--skip-agents`, because `bd init` writes
+`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.agents/` and `.codex/` into the current directory
+and inside a checkout that overwrites the repo's own instructions; and running from the
+tracker directory with `BEADS_DIR` set, so those files could not land in a checkout even if
+the flag stopped working.
+
+**Nothing is rolled back on a cancel.** If a clone has happened, the directory stays and the
+message says where it is. Something was fetched from a network onto a disk, and deleting a
+tree to tidy up a dialog is not a thing a daemon should do behind a dismissed sheet.
+
+**It writes in all three places, in the order Retire already established** — the pin (or
+deliberately no pin: a tracker a root already reaches is left unpinned, because pinning one
+freezes it so that renaming its directory drops the bead-space instead of moving it),
+`cfg.workspaces` for what this tick serves, and the live `workspaces` Map for the routes
+that resolve one repo by name. So a bead-space added from a phone is being swept before the
+dialog closes, and no restart is owed.
+
+**And the bar draws where it used to hide.** The picker hid itself below two workspaces —
+one repo and one space is nothing to pick between. It is a choice now, and the install with
+one tracker, or with none, is precisely the one that needs the row.
+
 ### Space details — every setting a space has, on a page of its own
 
 Every setting a space has is one you used to change by opening `~/.config/beadcause/config.json`
@@ -18301,6 +18384,60 @@ The one real use for a session — "why did shard 2 go red" — is answered fast
 that shard's own log than by re-deriving which suites it held, so the grant would sit
 here unused the same way `b7e-worktree`'s does above.
 
+### Run one thing under a deadline, on a Mac with no `timeout` binary — `b7e-bound`
+
+`bc-xl7n.120` is another finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
+filed against the same shape breaking repeatedly rather than once. Four sessions
+(`bc-dgx7.8`, `bc-xl7n.93`, `bc-khoe.32`, `bc-1kwl.30`) each typed `timeout <n> <cmd>` and
+got `(eval):1: command not found: timeout` — there is no coreutils `timeout` on this Mac,
+and each one found that out the same way. What followed was worse than the missing
+binary: `bc-xl7n.93` dropped the bound, hit the harness's 120s cutoff, and cycled through
+a background task, `sleep`, a `tail` that printed nothing and `TaskOutput`. `bc-dgx7.8` is
+the worst case: five rounds of `background & sleep & TaskOutput` on a suite that takes two
+seconds when it passes and never returns when it doesn't, one round of which piped a timed
+command into `head -60; echo "EXIT: $?"` and got back `EXIT: 0` for a run that never
+finished at all — the exit code it read belonged to `head`, not to what was piped into it.
+
+```
+b7e-bound --for <seconds> -- <command> [args...]
+```
+
+Runs `<command>` directly — no shell, so there is no pipe for an exit code to go missing
+into the way `bc-dgx7.8`'s did, and no shell metacharacters in `<command>`'s own arguments
+are interpreted. Its combined stdout/stderr streams through as it happens, and it ends one
+of two ways:
+
+- **Inside the deadline**, it exits with **the command's own exit code** (128+signal if
+  the command died of one) — `b7e-bound --for 90 -- foo; echo $?` behaves exactly like
+  `foo; echo $?` would, so nothing downstream that checks `$?` has to change.
+- **Still running at the deadline**, `SIGTERM` and then, after a short grace, `SIGKILL` go
+  to the command's whole process **group** — not just the one child it spawned — so a
+  command that itself backgrounds work (`npm test`'s own workers, a daemon a hung script
+  started) leaves nothing behind holding a port. It prints how long it waited and the last
+  line the command produced, and exits `124`: the code coreutils' own `timeout` already
+  uses for exactly this, chosen so it reads the same way to anyone who has used that
+  command before. Like coreutils' `timeout`, this is not distinguishable from a command
+  that happens to exit `124` on its own — no in-band exit code can be, on any Unix — and
+  `124` is the one value this repo's users already half-remember the meaning of.
+
+The file is `bin/b7e-bound`, no `.js`: `lib/foundation.js` puts this repo's `bin/` on
+every agent's `PATH`, resolving the literal filename typed, and a `package.json` `bin`
+entry that renames a `.js` file only resolves after an `npm link` this install has never
+had — the same reasoning `b7e-apply` and `b7e-worktree` give for the same choice
+elsewhere in this file.
+
+**Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, for the `b7e-call`
+reason rather than the `b7e-gate` one: `b7e-call` runs whatever export its argument names,
+and `b7e-bound` runs whatever command its argument names — there is no argv shape to check
+for "reaches a write", because reaching whatever the caller points it at is the entire
+job. `dispatch`, the one agent `DEFAULT_TOOL_LIST` actually widens, is a single turn that
+answers a phone comment with one `bd comment` and has no branch and no oversight loop;
+granting it the ability to run an arbitrary command under a time bound would be strictly
+more capability than `Bash(npm test:*)`, which `lib/grants.js` already classifies as a
+write held by `merge-advocate` alone. A worker session, which is what actually hits the
+shape this bead is about, already carries an unrestricted allowlist and needs no grant to
+run it.
+
 ### Given a diff, name the suites that actually cover it — `b7e-affected`
 
 `bc-khoe.40` is the session audit agent naming the same shape a fifth time: eight sessions
@@ -19783,6 +19920,65 @@ of what a skill needs, not to this bead. See `bin/b7e-handback`, `lib/handback.j
 `test/b7ehandback.mjs`.
 
 
+### A reviewer's own runnable copy of a pull request — `b7e-prtree`
+
+`bc-dgx7.38`, filed by the session audit against three sessions that each needed to
+*run* code from a pull request, not just read it, and each assembled the tree a
+different way. `bc-36xx.24` built one by hand — `git archive FETCH_HEAD | tar -x` — and
+it worked. `bc-zjab.12` ran the same recipe and it did not: midway through the session,
+`gh pr view <n> --json headRefOid` said one sha and `git rev-parse FETCH_HEAD` said
+another, because a concurrent `git fetch` from somewhere else on the Mac had overwritten
+`FETCH_HEAD` between the fetch that built the tree and the archive that read it back.
+`bc-36xx.9` never built a tree at all: nine separate `git show <ref>:<path>` and `git
+grep <ref>` calls, hunting one file and one function at a time for what one archive
+would have handed over whole.
+
+```
+b7e-prtree 622                cd "$(b7e-prtree 622)" is the whole workflow
+b7e-prtree 622 --merge         GitHub's own test-merge commit, not the head
+b7e-prtree --sha <sha>         an explicit sha, no `gh` call at all
+b7e-prtree 622 --name mine     reuse/replace a named tree — a second call with the
+                                same --name tears the first down first
+b7e-prtree 622 --vendor        also runs scripts/vendor.js in the new tree
+b7e-prtree 622 --json          one JSON object instead of the plain-text report
+```
+
+**The fix is not "fetch, then hurry" — it is never reading `FETCH_HEAD` at all.** Every
+path through `lib/prtree.js` resolves a full 40-character sha *first*, from something
+nobody else on the Mac can move (`gh pr view`'s `headRefOid` for the head, or `git
+ls-remote origin refs/pull/<n>/merge` — a query, not a fetch — for GitHub's own
+test-merge commit), and only fetches after: `git fetch --no-write-fetch-head origin
+<sha>`, a bare, already-known sha rather than a ref name, so the fetch itself never
+writes the one file that bit `bc-zjab.12`. `git archive <sha>` is then exactly as
+deterministic as the sha is. Verified live against this repo's own `origin` while
+building this: `refs/pull/678/merge`'s sha, genuinely absent from a fresh clone,
+fetched clean with nothing on the command line but the sha itself — GitHub allows
+fetching any commit it knows about this way, not only the tips of refs it advertises.
+
+**Nothing here is ever written under the repo it reads from, `~/.config/beadcause`, or
+the machine's home directory at all.** Every tree lives under
+`os.tmpdir()/beadcause-prtree/<--name>`, the same `assertContained` promise
+`lib/sandbox.js` makes for a throwaway `bd` tracker — checked here by `test/prtree.mjs`
+running the CLI with `HOME` pointed at an empty fixture directory and asserting nothing
+landed there. A second call with the same `--name` tears the first tree down and
+rebuilds it fresh, unless the first call passed `--keep`, which makes a later same-name
+call refuse rather than delete it — identical to `b7e-sandbox`'s own `--name` contract.
+
+**`node_modules` is symlinked in from the reviewing checkout when it has one**, so a
+suite that imports a real dependency runs without a `npm ci` inside the throwaway tree;
+`--vendor` additionally runs `scripts/vendor.js` inside the new tree for browser
+suites. Neither is required — a tree with neither still has everything `git archive`
+put there, which is every suite that touches no dependency and no browser bundle.
+
+Deliberately **not** on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-sandbox`
+argument rather than the `b7e-gate`/`b7e-blame` one: its whole job is real disk and
+network activity — a `git fetch`, a `git archive`, optionally a `scripts/vendor.js` run
+— even though none of it touches the tree it runs in. `dispatch`, the one agent that
+list governs, answers one phone comment with one `bd comment` and has no pull request
+of its own to build a runnable copy of. See `bin/b7e-prtree`, `lib/prtree.js` and
+`test/prtree.mjs`.
+
+
 ### The house shape of a suite, computed rather than copied — `b7e-harness`
 
 `bc-zjab.11`. Six sessions wrote a suite in this repo and all six began the same way: by
@@ -20183,6 +20379,60 @@ need a live `bd` call against a tracker this Mac may not even have configured.
 walk never leaves the fixed roots, and the only `bd` verbs it spawns — `list --limit 1`
 (to learn this tracker's own prefix) and one batched `show` — are both reads. See
 `bin/b7e-cites`, `lib/cites.js` and `test/cites.mjs`.
+
+
+### What else was this machine doing at a moment — `b7e-moment`
+
+`bc-dgx7.55` is the session audit's finding: three auto-filed `app-error` beads
+(`bc-19vt`, `bc-y8wf`, `bc-l8ub`), three sessions, the same opening question — what was
+happening on this Mac at the bead's `created_at` — and three different hand-rolled
+answers, none of which the next session could reuse. `bc-19vt` read the daemon log by
+hand — `grep -n "api/queues" ~/Library/Logs/beadcause.log | tail -20`, then `sed -n
+<n>,<n+25>p` on a 21,878,663-byte file — and the debrief says the diagnosis it turned up
+(`[cache] board: gave up its refresh slot after 150s` beside `slow GET /api/queues
+150057ms cold`) "took ten minutes to find because the answer is in the daemon log rather
+than anywhere in the code". `bc-y8wf` never opened the log at all, and grepped
+`~/.config/beadcause/deploys` by hand instead. `bc-l8ub` did neither, and got the actual
+finding — another `app-error` bead three minutes earlier, two merges either side, merges
+here self-deploy — from `bd list --json` filtered by hand alongside `git log
+--since/--until`.
+
+```
+b7e-moment <bead-id>                around the bead's own created_at, ±15m
+b7e-moment <bead-id> --window 30m   widen or narrow the window either side
+b7e-moment --at <iso>                a bare timestamp instead of a bead
+b7e-moment <bead-id> --json          one object instead of the printed report
+b7e-moment --at <iso> --log <path> --deploys <dir>   read fixtures instead of the real ones
+```
+
+**Five blocks, always printed, each saying explicitly when it has nothing** rather than
+being omitted — the failure this replaces was never "the data wasn't there", it was that
+an omitted source reads exactly like a source nobody thought to ask:
+
+1. **The bead's own occurrence comments.** `lib/errors.js` already writes a comment
+   ("**Occurrence 3** — ...", "**4 more occurrences** — ...") every time a report
+   matches an existing bead's fingerprint; this reads them back off the bead's own
+   thread and says plainly whether this has ever recurred.
+2. **Other `app-error` beads created inside the window** — `bc-y8wf`'s `bd list --label
+   app-error` step, generalised to any window instead of eyeballed against `tail`.
+3. **Deploy records overlapping the window** — `lib/deploy.js`'s own journal
+   (`requestedAt`/`finishedAt`), read from the real `~/.config/beadcause/deploys` or a
+   fixture named with `--deploys`.
+4. **`git log` on this checkout, inside the window** — via `lib/gitref.js`'s `git()`, so
+   the answer to "was this a deploy window" no longer needs a separate hand-typed
+   `--since/--until`.
+5. **The daemon log's own lines inside the window** — streamed line by line
+   (`readline` over a `createReadStream`, never a whole-file read: the log this was
+   filed over is 21,878,663 bytes and only grows), with `slow`/`[cache]`/error lines
+   called out the way `bc-19vt`'s hand read singled them out. A line with no leading
+   stamp of its own (a continuation of a multi-line write) inherits the stamp of the
+   line before it, per `lib/logstamp.js`.
+
+`lib/moment.js` is the join and the streaming reader; `bin/b7e-moment` is the argv
+parsing and the printing around it. `Bash(b7e-moment:*)` is on `DEFAULT_TOOL_LIST` in
+`lib/toolbelt.js` and `read` in `lib/grants.js` — every `bd` verb it spawns (`show
+--include-comments`, `list --label`) is a read, and the log/deploy/git reads never
+write anything either. See `bin/b7e-moment`, `lib/moment.js` and `test/b7emoment.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
@@ -24840,6 +25090,19 @@ counting them as a defect would make the number swing on nothing but delivery tr
 Excluded by what they *are* — the `merge-queue` label (`lib/mergebead.js`) or the
 `pr-delivery` label (`lib/delivery.js`) — never by matching a title, which a card that
 merely mentions "Merge" in its own title would otherwise be caught by.
+
+**And the second exclusion, for the same reason from the other direction: a bead already
+decided *against*.** A bead carrying `superseded-by:<id>` has been looked at and ruled a
+duplicate of work living somewhere else, so counting it among the beads *nothing* has
+decided above inflates the very number this file exists to keep honest, and spends a
+`[census]` line naming resolved work. Both siblings in the family already drop it —
+`strandingsIn` (`lib/rootclose.js`) and `createEpicWatch`'s
+`worthSaying` — and it is the same label read, from `lib/superseded.js`, that they read.
+Still counted into `unrooted`, like the merge genre: having no root above it is a true
+thing to say about it. **Which is why `mergeGenre` is counted rather than inferred** —
+it used to be the residual `unrooted - ordinary.length`, which is only correct while
+there is exactly one exclusion, and a second one arriving would have quietly reported
+every superseded bead as a merge card (bc-xl7n.132.3).
 
 **Logged once per bead per spell of being an ordinary orphan, not once per cycle.** The
 same restraint `withoutOrphans` and the adoption sweep's own refusal log already use: a
