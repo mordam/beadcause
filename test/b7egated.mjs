@@ -97,6 +97,12 @@ await checkAsync('startRun stamps sha, a tree snapshot, and the untracked list',
   assert.deepEqual(r.untracked, {});
 });
 
+await checkAsync('startRun with no origin remote at all leaves mergeBase null, not throwing — bc-dgx7.62', async () => {
+  const { file } = await gaterun.startRun(main, { suites: ['test/x.mjs'] });
+  const r = gaterun.readRun(file);
+  assert.equal(r.mergeBase, null, 'this fixture never adds an origin remote, so there is nothing to compute a merge-base against');
+});
+
 await checkAsync('an unedited tree compares as a match', async () => {
   const { file } = await gaterun.startRun(main, { suites: ['test/x.mjs'] });
   const r = gaterun.readRun(file);
