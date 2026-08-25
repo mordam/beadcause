@@ -19041,6 +19041,88 @@ by `merge-advocate` alone, on the argument that "nothing about run the tests is 
 `dispatch`, the one agent this list actually governs, has no branch of its own and no
 suite run to doubt.
 
+### A *workspace repo's* own gate scripts, all of them, with a baseline — `b7e-checks`
+
+`b7e-gate` above runs *this* repo's own `test/*.mjs` — `lib/gate.js`'s `discoverSuites`
+execs `scripts/test.mjs --list`, which only ever exists here. deluvia's acceptance bar,
+"all twelve `scripts/check_*.py` exit 0, plus `studio_status.py` reports no DRIFT," has
+no equivalent tool, and `bc-dgx7.57` names eight sessions (`dv-3rn.3`, `dv-5i2.44`,
+`dv-ek4`, `dv-6cn`, `dv-gsh`, `dv-i5v`, `dv-nnk`, `dv-5f3`) that each ran that set by
+hand, at least twice per delivery, and no two the same way. `dv-6cn` tried a bare
+`for f in scripts/check_*.py; do …; done` and was refused by the worktree-isolation
+guard as "too complex to verify that it stays inside the worktree," then wrote
+`scratchpad/gate.sh` and ran `sh` on it; `dv-3rn.3` hit the same wall and wrote
+`scratchpad/rungates.py`; `dv-ek4` discovered the hard way that `python3 check.py . |
+tail -1; echo $?` reports `tail`'s exit status, not the check's — an earlier spelling
+was reporting green for red.
+
+```
+b7e-checks -w <workspace>              every check the repo's manifest finds
+b7e-checks --dir <root>                a checkout directly, no beadcause workspace needed
+b7e-checks -w <workspace> --baseline <ref>   + a third column vs that ref
+b7e-checks -w <workspace> --only <glob>      repeatable
+b7e-checks -w <workspace> --skip <glob>      repeatable, applied after --only
+b7e-checks -w <workspace> --jobs N     how many checks at once (default 4)
+b7e-checks -w <workspace> --timeout <s>      per-check seconds (default 300)
+b7e-checks -w <workspace> --json       one object per check, streamed
+b7e-checks -w <workspace> --list       what would run, without running it
+```
+
+**Discovery is a manifest, not a fixed list.** A repo's "own gate scripts" is
+repo-specific, so `lib/checks.js`'s `MANIFESTS` is tried in order, each entry's
+`detect(root)` deciding whether it applies; a `--dir`/`-w` root none of them recognise
+is a refusal (exit `2`), never a silent empty run. The one manifest written today is
+`scripts/check_*.py` plus `scripts/studio_status.py`, and it is dynamic — it globs
+whatever `check_*.py` files exist rather than hardcoding the twelve that existed when
+this bead was filed (nineteen by the time it shipped), so a new check added to deluvia
+tomorrow is picked up with no change here.
+
+**Most checks are exit-code-only; one is not.** `studio_status.py`'s own docstring says
+it "never exits non-zero merely because a gate is not ready — that is the normal state
+of a gate and is not an error," so its pass/fail rule is not the exit code, it is
+whether `--json`'s `drift` array is empty. Every check carries its own `judge(result)`
+for exactly this reason, and a non-zero exit from `studio_status.py` is still a failure
+regardless of drift — it means the report itself could not be produced.
+
+**`-w <workspace>` resolves both the checkout and the tracker it should query.**
+`resolveSessionDir` (`lib/session.js`) turns the workspace name into the repo directory,
+the same resolution every session-opening path in this codebase already uses; the
+workspace's own `.dir` — its `BEADS_DIR` — is passed into each check's environment, so
+`studio_status.py`'s `bd list` shells out against deluvia's own tracker rather than
+whatever workspace this process happened to inherit (almost always a different one).
+`--dir` skips this: a checkout named directly carries no workspace to resolve `bd`
+against, so a check that shells out to `bd` is on its own.
+
+**`--baseline <ref>` runs the same selection at a throwaway detached `git worktree`,
+never the working tree**, the same `git worktree add --detach` ritual `b7e-blame`'s
+`makeMainWorktree` already uses, generalised to any ref rather than pinned to
+`origin/main`. Each check is matched to its baseline counterpart *by name* — a check
+that did not exist at the baseline ref has nothing to be blamed on but itself — and
+marked `ALREADY RED` (failed both there and here), `newly red` (passed there, or never
+existed there, and fails here), or nothing at all if it currently passes. This is the
+half `dv-3rn.3` wrote down as the one worth getting right: it found
+`check_g0_canon_lock_selftest` case 8 and `check_g1_pilot_scope_selftest` case 1 already
+red on `origin/main`, before its own branch existed, and nearly attributed both to its
+own change. The exit code does not soften for a baseline match — `0` all green, `1` any
+current check red, whatever a baseline column says about whose fault it is — because
+"already red on main" is context for a reader, not permission to ship past it.
+
+**One `b7e-checks`/`b7e-gate` per tree at a time.** `acquireLock` (`lib/gate.js`) is
+reused as-is, keyed by the resolved root — a lock that already exists for that root
+refuses rather than doubling the load, whichever of the two commands holds it.
+
+Exit codes: `0` every check passed. `1` at least one failed. `2` refused — bad usage, no
+manifest recognises the repo, or another run already holds the lock on this root.
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the same reason as `b7e-gate` and
+`b7e-blame` just above rather than the read-only shape most of this list is: it spawns
+external processes for as long as `--timeout` allows, per check, and one of the
+selftests this command runs against deluvia today (`check_g0_canon_lock_selftest.py`)
+alone takes over a minute — heavier than a lighter version of `Bash(npm test:*)`, not a
+read anything in `lib/grants.js` already classifies as one. `dispatch`, the one agent
+this list actually governs, has no more use for a battery of another repo's checks than
+it does for running this one's own suite.
+
 ### Re-run a sweep's failures alone, and say which are real — `b7e-triage`
 
 `bc-ka5y.15.16` names four sessions (`bc-ka5y.15.5`, `bc-khoe.29`, `bc-khoe.30.4`,
@@ -19676,6 +19758,68 @@ Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` for a free ride — it earns its
 same way `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme`/`b7e-ws` do: it runs exactly one
 `bd` verb (`export`) and there is no argv path through it that reaches a write. See
 `bin/b7e-census` and `lib/census.js`.
+
+
+### One deterministic occurrence count for a literal, at a git ref — `b7e-count`
+
+`bc-dgx7.59`, filed by the session audit (`lib/sessionaudit.js`) against four sessions
+that each needed the same thing — "how many times does this literal appear, and in how
+many files" — done by hand every time, in `dv-i5v`, `dv-5i2.44`, `dv-nnk` and `dv-6cn`.
+These are usually beads about a number in a sentence — "199 occurrences across 51
+files", "32 in the built bundle", "1,344 mentions" — and nobody had a tool, so every
+session wrote its own pipeline and the pipelines disagreed. `dv-i5v` measured the same
+literal three ways in one run: `git grep -lI ... | tee | wc -l` (50 files / 237
+occurrences), a `while read` loop piped through `awk` (85, for a different literal), then
+gave up and wrote `scratchpad/count.py`, which returned yet a third pair of numbers —
+different from both of the others, off the *same tree*. `dv-6cn`'s first attempt,
+`grep -rn PATTERN --include=*.md .`, was rejected by zsh globbing before it ever ran
+("no matches found: --include=*.md"). `dv-nnk` decomposed one bead's own acceptance
+criterion by hand into three source classes to show it was literally unreachable as
+written. `dv-5i2.44` classified 1,344 mentions through repeated `python3` heredocs to
+find the six that actually mattered.
+
+```
+b7e-count Athira                                this repo's own checkout, delivery base
+b7e-count Athira "Lady Athira" Arthir           one count per pattern, in the order given
+b7e-count -w deluvia --ref origin/main Athira   another workspace's checkout, a fixed ref
+b7e-count --regex 'Ath[ei]ra'                   extended regex instead of a fixed string
+b7e-count --paths 'novel/**' --exclude CHANGE_LOG.md Athira
+b7e-count --per-file Athira                     plus the per-file breakdown
+b7e-count --json Athira                         one JSON object per pattern
+```
+
+**`git grep -I -o -n -z` at a ref, not `-c` and never `--no-index`.** `-c` counts
+matching *lines*; a line naming a literal twice is one line and two occurrences, exactly
+the gap between `dv-i5v`'s `git grep -lI` count and its `python3` one. `-o` prints only
+the matched text, one per output line, so counting lines of `-o` output is counting
+occurrences directly. Running at a ref (`<pattern> <ref> -- <pathspec>`) reads the git
+tree object, never the live working directory — so a stale sibling git worktree sitting
+on disk under `.claude/worktrees/`, a second full checkout of the same repo, is never
+walked into at all, which is exactly what inflated `dv-6cn`'s plain recursive
+`grep -rn --include=*.md .`. `.git` and `.claude/worktrees` are excluded from the
+pathspec defensively anyway, so that invariant holds even if a future caller ever points
+this at something other than a committed ref.
+
+**`--ref` defaults to "the delivery base"** — `origin/main`, falling back to `main` — the
+same fallback `lib/affected.js`'s `resolvableBase` and `lib/counterproof.js`'s own copy
+of it already use for the same question, "what does a branch here actually deliver
+into". Given explicitly, a ref that does not resolve to a tree is refused rather than
+silently falling back to something else.
+
+**`-w <workspace>` resolves through `lib/session.js`'s `resolveSessionDir`**, the one
+function twenty-five other call sites already use to turn a workspace name into a
+checkout directory — not a second, hand-rolled path-guessing scheme. With neither `-w`
+nor `--dir`, it counts in this repo's own checkout.
+
+**Per-file breakdown is sorted by count descending, then path ascending on ties** —
+deterministically, regardless of the order `git grep` itself happened to walk the tree
+in — which is what makes running the same call twice on an unchanged tree return
+byte-identical output, `--json` included.
+
+Read-only in the same construction sense as `b7e-def`/`b7e-owes`/`b7e-affected`/
+`b7e-census` above: the only subprocess it ever spawns is `git grep` at a fixed ref, and
+the only thing it does with `bd`'s own config is read a checkout path out of it — never a
+call to `bd` itself. See `bin/b7e-count` and `lib/count.js`.
 
 
 ### A disposable git tree with a history and a suite, to point `--dir` at — `b7e-fixture`
@@ -20488,6 +20632,69 @@ walk never leaves the fixed roots, and the only `bd` verbs it spawns — `list -
 `bin/b7e-cites`, `lib/cites.js` and `test/cites.mjs`.
 
 
+### Every external assertion about a file, before you change it — `b7e-claims`
+
+Not every repo this machine works in encodes its own broken state as *passing*. In the
+deluvia tracker, `scripts/check_saga_audit.py`'s gates assert the gap positively — a
+hard-coded filename that must still exist, a numeric literal that must still equal the
+current broken count — so fixing the actual thing they guard turns the gate red, often in
+a script nowhere near the file that changed. Five sessions there (`dv-6cn`, `dv-gsh`,
+`dv-nnk`, `dv-i5v`, `dv-ek4`) each hand-derived the full "who else asserts something about
+this file" list before touching it, and each called the derivation itself the bulk of the
+work. `dv-6cn` found four live claims scattered outside the file it was fixing — a gate
+that needed both forks to *stay* wrong, a docstring naming it a carve-out, a prose
+carve-out in a canon-lock doc, and a change-log note — and wrote afterward: "grep for the
+basename before editing; the two prose carve-outs are the ones a gate will not catch."
+`dv-gsh` hit the sharper trap twice: merely *naming* an orphaned reference file in a new
+doc dropped a hard-coded orphan count by one and reddened the gate, with no mention of the
+file anywhere in the gate's own source.
+
+```
+b7e-claims <path>            e.g. reference/LORE_PROPOSAL_electric_universe.md
+b7e-claims <basename>        a bare filename, matched wherever it is named
+b7e-claims <section-id>      an audit section like S5.1 or B10, matched as a whole word
+b7e-claims <target> --json   one object per line instead of the printed report
+b7e-claims <target> --dir <root>   another checkout — this is how it is tested, and how
+                                     it is meant to be run against a repo other than this
+                                     one (deluvia, on this machine, is the motivating case)
+```
+
+Three grouped lists, always in this order: **prose claims** (markdown lines naming the
+target, with the sentence, from `lib/corpus.js`), **gate probes** (python lines naming the
+target by string literal, tagged with the `check(...)` id they belong to, from
+`lib/probes.js`), and **numeric literals at risk** — the `dv-gsh` trap generalised: an
+ALL_CAPS module constant, compared inside a function that enumerates markdown files under
+the target's own directory, even when nothing in that function names the target directly.
+That last group is deliberately structural rather than computed: it does not re-run the
+enumeration to ask whether the constant's *current* value is still right, only whether
+editing the target *could* move it, which is the bead's own phrasing and a cheaper, more
+honest question than trying to fully re-implement one gate script's exact counting rule in
+JavaScript.
+
+**No python parser, same tradeoff `b7e-def` makes for JavaScript.** Everything is
+line-and-regex matching against the disciplined, heavily-commented style these audit
+scripts are actually written in — a `check(id, description, condition)` call, a docstring
+or `# TAG -- ...` comment opening a section, an `os.path.join(root, "reference")`-shaped
+directory literal. A literal spanning multiple lines, or a `check(` call built
+dynamically, is read as prose, not parsed.
+
+**One of the bead's own two acceptance examples no longer exists to test against.**
+`reference/deluvia.archaeo-anthro-overview.md` — the file `dv-6cn`'s four claims were
+about — was itself renamed to `reference/REAL_WORLD_EVIDENCE.md` as part of resolving that
+very finding, so asserting the bead's quoted "four claims" verbatim against the live repo
+would test a file that is gone rather than the command. The other example held up:
+`b7e-claims LORE_PROPOSAL_electric_universe.md --dir ~/neadamthal.projects/deluvia`
+currently reports the direct S8 literal mention *and* flags S5.2's `UNREFERENCED = 14` as
+at risk, both verified against deluvia's real, current `main` this session. `test/
+b7eclaims.mjs` reproduces the same shapes on a fabricated fixture instead of depending on
+that live, separately-changing checkout, which CI does not have at all.
+
+`Bash(b7e-claims:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`, the same shape as `b7e-def`/`b7e-cites`/`b7e-census` above: it only ever
+reads files under a given tree and prints what it found, and spawns nothing at all. See
+`bin/b7e-claims`, `lib/corpus.js`, `lib/probes.js` and `test/b7eclaims.mjs`.
+
+
 ### What else was this machine doing at a moment — `b7e-moment`
 
 `bc-dgx7.55` is the session audit's finding: three auto-filed `app-error` beads
@@ -20540,6 +20747,62 @@ parsing and the printing around it. `Bash(b7e-moment:*)` is on `DEFAULT_TOOL_LIS
 `lib/toolbelt.js` and `read` in `lib/grants.js` — every `bd` verb it spawns (`show
 --include-comments`, `list --label`) is a read, and the log/deploy/git reads never
 write anything either. See `bin/b7e-moment`, `lib/moment.js` and `test/b7emoment.mjs`.
+
+
+### The next free `CHANGE_LOG.md` entry number, across every branch — `b7e-entry`
+
+`bc-dgx7.61`, a session audit against a repo like deluvia's, where `CHANGE_LOG.md` is
+canonical and beads cite its entries by number but ~20 live worktrees each allocate
+numbers against their own copy. Six sessions worked this out by hand. `dv-6cn` picked
+Entry 105 with `grep -n "^## Entry " CHANGE_LOG.md | tail -8`, a Python heredoc to
+splice it in, and a second Python one-liner to recount the ledger — after first pulling
+two memory notes to learn it needed to. `dv-3rn.3` found the number already live: two
+unrelated decisions both filed as `## Entry 078`, because the number had been picked
+against one branch's tail, not every branch's. Four more sessions (`dv-90i`, `dv-gsh`,
+`dv-i5v`, `dv-aps`) filed no entry at all, naming the avoidance itself as the cost — a
+G0-ledger re-measure plus collision risk against branches nobody had looked at.
+
+```
+b7e-entry -w deluvia            next free number, every collision found, the ledger's
+                                  three figures and the delta one more entry costs
+b7e-entry -w deluvia --check    same audit; exits 1 if anything collides
+b7e-entry -w deluvia --json     the machine-readable form
+b7e-entry --dir <root>          another tree — this is how it is tested
+```
+
+**A number is only free if no branch has already claimed it**, so this reads
+`CHANGE_LOG.md` out of every local and remote branch `git for-each-ref` can see — a
+branch with no worktree checked out for it right now still counts, which is the whole
+point: `dv-3rn.3`'s collision was with a decision already sitting on the trunk, not
+with anything the session had open. Run against deluvia's own tree it found 11 real
+collisions across 271 branches, including one between two branches still open on
+2026-08-25, each having independently claimed Entry 120 that same day.
+
+**What counts as a collision took two corrections to get right.** A first pass compared
+whole entry bodies and flagged 68 of deluvia's own entries as "duplicates" — every one
+of them the *same* decision, just re-verified or partly propagated on different
+branches: `Status:` carries a running narrative as work lands (`PENDING PROPAGATION` →
+`PARTIALLY PROPAGATED` → `[PROPAGATED]`, sometimes with a growing re-verification note),
+and `Chapters affected:` checkboxes tick independently per branch. Comparing only the
+`**Decision:**` field cut that to 31, but a real case remained: deluvia's own Entry 002
+reads "NOT Slothen" on `main` and "NOT Sloth-hen" on an unmerged branch that had
+corrected the spelling — the same decision, not a second one claiming the number. The
+final measure is a similarity ratio over each `Decision:` field's own words (`lib/
+changelog.js`'s `decisionsAgree`), which lets a wording fix or a typo correction read as
+the same entry while two genuinely different decisions — near-zero shared vocabulary —
+still separate. That brought deluvia's real count to 11. A number every branch agrees on,
+however many carry it, is never reported; the house's own fix for a genuine collision —
+suffixing the second `Entry 078` as `078b` "so the file stays in date order" — is
+honoured too, since a letter suffix is part of an entry's identity here, not stripped
+before comparing.
+
+**Never writes to `CHANGE_LOG.md`, or anywhere else.** Every path through it is `git
+for-each-ref` and `git cat-file -p <ref>:<file>` (`lib/gitref.js`'s `readRefFile`)
+against whatever this Mac's git object store already has — no fetch, no checkout.
+Picking the number and splicing in the entry stays a human's job, or a later command's,
+not this one's. `Bash(b7e-entry:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and
+`read` in `lib/grants.js` on that strength. See `bin/b7e-entry`, `lib/changelog.js` and
+`test/b7eentry.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
@@ -29969,6 +30232,7 @@ to be one.
 | `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |
 | `bdBin` | the `bd` binary (default: found on `PATH`). Set it only where discovery fails |
 | `healthTimeoutMs` | how long `bin/router.js` waits for a *first* attempt at a backend to answer, in ms (default 20000) — a starting point, not a ceiling, since the router doubles it per attempt and remembers how slow this machine has proved to be. Lower it only in a test that needs the slow-start path reachable on demand |
+| `drainMs` | how long a swap lets the backend it is replacing finish requests it already had before killing it out from under them, in ms (default 60000) — bc-xl7n.134. A parked long poll runs up to 55s and a board sweep has been measured past 65s, so raising this to outlast them is not the fix: a request DRAIN_MS forces off still open gets told to retry rather than treated as the daemon failing (see `bin/router.js`'s `retire`). Lower it only in a test that needs the kill reachable on demand |
 | `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log. Set from the HTTPS card on `/admin` rather than by hand — see [the switch on the Admin screen](#the-switch-on-the-admin-screen) and [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
 | `tls.name` | the name to get a certificate for, if not the MagicDNS name `tailscale status` reports (default `null` — ask). The protocol floor is deliberately not a setting |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
@@ -34337,6 +34601,63 @@ however long anything waits. The stubborn child stays, because what is being han
 does not stop root, so that too has a control that must fail — an empty probe directory
 inside the same holder, asserted not to go — because without it a root run would report the
 contract regressing rather than the arrangement not holding.
+
+### A press is not a stopwatch — `scripts/space-check.mjs`
+
+Two sections above are about `space-check.mjs` failing for a reason that had nothing to do
+with the change in front of it. This is the third, and it is the one that got as far as
+being filed as a regression against somebody else's merged pull request.
+
+**One press on the space card is two requests and a repaint, in that order.** `POST
+/api/space`, then `GET /api/spaces` so the picker's 🔕 comes off the config that was just
+written, then `render()`. Every press in the check used to be followed by a flat
+`sleep(700)` — a bet that all three fit in that window.
+
+**When the bet loses it does not look like a timeout.** It looks like the feature being
+broken, one assertion *later*. `Clear` is only drawn while the space has quiet hours
+(`public/config.js`), so a press that arrives before the redraw finds no button, clicks
+nothing, and the assertion under it reports that Clear left the hours in place. The repo
+row does the same thing a press later, and its "the row redraws with the tag and the button
+agreeing" follows from it. Three reds, all of them phrased as behaviour, none of them
+behaviour.
+
+Measured 2026-08-25 (bc-khoe.67): filed as a regression from PR 584 on the reasoning that
+it was the only commit in the range touching both the space-settings UI and the check —
+which was true, and the commit's whole change to `public/config.js` is the word *space*
+→ *group*. The tell was in the failure detail nobody had a use for at the time:
+`autoEndorsePerWorkspace` read `{}` rather than absent, and `{}` is a **config default**
+(`lib/config.js`). An empty map is what "the write has not landed yet" looks like on disk;
+a daemon that had mishandled the press would have left the repo set wrong, not left the
+default sitting there.
+
+**So the check waits for the page, not for a clock.** `window.fetch` is counted in the
+page, and `quiet()` returns once every request a press started has finished and nothing new
+has started for a moment. It is bounded — a write that genuinely never lands still fails
+its own assertion, on the same wording, a few seconds later rather than 700ms later — so
+nothing is weakened by the wait; the stopwatch was never what any of these were asserting.
+Two details are worth keeping: `/api/presence` is excluded, because a 45-second heartbeat
+nobody pressed would otherwise be free to satisfy "a request started" on behalf of a click
+that issued none; and a press that is *supposed* to send nothing needs a grace window
+rather than the full deadline, because Set on a blank channel field is refused in the page
+without a request and that refusal is one of the assertions here.
+
+**And a press whose result is thrown away cannot tell you which of the two it was.**
+`press()` has always returned whether its selector matched, and the assertions that read
+the config file afterwards ignored it — so "the button did nothing" and "the button was not
+there to be pressed" arrived as the same red. They now carry it, and an absent button says
+so by name.
+
+**The same bet, one line further down, in the `finally`.** Fixing the presses surfaced it:
+39 of 39 assertions green, then `ENOTEMPTY: rmdir .../config/.git` and exit 1. This is the
+only check that starts a *daemon*, that daemon keeps a git repository under its config
+directory, and the teardown was `daemon.kill()` with an `rmSync` beside it — so the delete
+walks a tree something is still writing into. `kill()` is not a wait, and `maxRetries: 3`
+cannot help, because that is `rmSync`'s own retry of a failed *unlink* rather than of a
+directory being repopulated behind it. It is `killAndRemoveSync` now, which is two sections
+above and was already imported here for the signal path. Same bug and same fix as bc-beleq.1
+in `test/advswitch.mjs`, which landed the same day; a teardown that can fail a run whose
+every assertion passed is the worst shape a red comes in, because the results are printed
+above it and say the change was fine.
 
 ### A guard that fires must say what it is — `test/monitorwidth.mjs`
 
