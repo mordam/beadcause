@@ -18350,6 +18350,40 @@ use for running the whole suite than it does for
 shape this bead is about, already carries an unrestricted allowlist and needs no grant to
 run it.
 
+### The `--index`-th of `--total` shards, one suite per line — `b7e-shard`
+
+```
+b7e-shard --index i --total N          this shard's suites, one per line
+b7e-shard --index i --total N --dir <root>
+```
+
+`.github/workflows/test.yml` is the caller (bc-xlz32.4): each of its four `shard` matrix
+legs runs this to get its slice, then feeds it straight to `bin/b7e-gate --only`. It adds
+no second discovery of what a suite *is* — `lib/gate.js`'s `discoverSuites()`, which
+already shells `scripts/test.mjs --list`, is reused as-is — this file only slices the list
+that comes back, in `lib/shard.js`, and prints the result.
+
+**Stride, not a contiguous block.** `suites[i]` goes to shard `i % total`, because the
+suite list is not uniform cost: the pinned suites front and back, the nine `*real.mjs`
+suites and `test/landcheck.mjs` all run far longer than the alphabetical middle, and a
+contiguous slice would put however many of those sort together into whichever one shard
+covers that stretch — the slowest shard would set the ceiling for all of them, which is
+the whole thing sharding exists to avoid. Stride spreads them out without needing to know
+in advance which suites are expensive. `test/shard.mjs` asserts the invariant this exists
+for: `total` shards, unioned, reproduce the input exactly — nothing dropped (a coverage
+hole CI would never notice, since the run still goes green) and nothing duplicated
+(wasted runner minutes, and a stateful suite raced against itself would flake with no
+local repro) — for a synthetic list, for every shard count the workflow actually uses,
+and against this repo's own suite list live.
+
+**Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`.** It is read-only by
+construction, the same shape as `b7e-affected` just below — but unlike `b7e-affected`,
+which answers "what does my diff touch" for whoever is looking at one, `b7e-shard`
+answers a question that only exists because of how CI happens to be sliced this week.
+The one real use for a session — "why did shard 2 go red" — is answered faster by reading
+that shard's own log than by re-deriving which suites it held, so the grant would sit
+here unused the same way `b7e-worktree`'s does above.
+
 ### Run one thing under a deadline, on a Mac with no `timeout` binary — `b7e-bound`
 
 `bc-xl7n.120` is another finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
@@ -31716,12 +31750,34 @@ stops the run, propagates its exit code, and does not run what comes after it.
 
 ### GitHub runs it too — `.github/workflows/test.yml`
 
-The same `npm test`, on a `macos-latest` runner, on every pull request, every push to
-`main`, and every merge-group entry. It exists because of what `bin/deliver.js` cannot
-see: it runs the suite locally, on the branch, against the `main` that branch was *cut
-from*. Two branches that each pass alone can still break `main` together, and with a
-dozen worktrees in flight that is not a hypothetical — the merge is a third thing neither
-of them ever ran. bc-rcrt.
+The same suite, on `macos-latest` runners, on every pull request, every push to `main`,
+and every merge-group entry. It exists because of what `bin/deliver.js` cannot see: it
+runs the suite locally, on the branch, against the `main` that branch was *cut from*. Two
+branches that each pass alone can still break `main` together, and with a dozen worktrees
+in flight that is not a hypothetical — the merge is a third thing neither of them ever
+ran. bc-rcrt.
+
+**It is sharded, not `npm test` (bc-xlz32.4).** `npm test` is strictly serial and stops
+at the first red suite — right for a laptop, wrong for CI, where 135 suites on 2026-08-12
+had become 455 twelve days later and a serial run had gone from comfortable to 14-15
+minutes against a 20-minute `timeout-minutes`, with the headroom shrinking every week.
+Past that ceiling every PR and every merge-group entry fails on a *timeout* rather than on
+a test, and the merge queue stalls on a required check that never reports. Instead, four
+`shard` jobs each run `bin/b7e-shard --index i --total 4 | bin/b7e-gate --only ...` — the
+same no-bail gate every session already runs by hand, driving its own `--jobs`-wide pool
+of workers (free money on an otherwise-uncontended runner) — so a red PR names every
+failing suite in its shard instead of hiding behind the first, and a green one gets its
+verdict in minutes instead of a quarter of an hour. `lib/shard.js` slices the list
+`scripts/test.mjs --list` decides by **stride** (`suites[i]` → shard `i % 4`), not by
+contiguous block, so the handful of expensive suites spread across shards instead of
+piling into whichever one's slice happens to land on them; `test/shard.mjs` asserts the
+shards union back to the full list with nothing dropped and nothing duplicated.
+
+A quarter of the suite's real cost is not in this number at all: `bd` is not installed on
+the runner, so the nine `test/*real.mjs` suites and `test/landcheck.mjs` — the ones that
+drive a real `bd` end to end — skip here, deliberately. Installing `bd` on the runner
+would put that cost back and spend exactly the budget sharding exists to protect; closing
+that gap, if it is worth closing, is its own bead.
 
 **macOS, not Linux, and that is not a preference.** This is a program about launchd,
 osascript, iTerm and a tailnet; the first Ubuntu run died eight suites in on
@@ -31746,15 +31802,19 @@ else:
   outlives the browser it reports on and wrote the directory back after the delete, so the
   reporter is now off and the browser gets SIGTERM first.
 
-The runner is given two things it has no reason to have: a git identity, because ~28
-suites commit into a temp repo and only most of them set their own, and an empty
+Each `shard` runner is given two things it has no reason to have: a git identity, because
+~28 suites commit into a temp repo and only most of them set their own, and an empty
 `~/beads/ci/.beads`, because four suites spawn the real daemon and a daemon with no
 workspace correctly refuses to start.
 
-**The job is called `test` and the name is load-bearing.** Branch protection and the merge
-queue name a required check by its job name; rename the job and the rule silently stops
-matching — GitHub does not complain, it waits for a check that will never report. The
-`merge_group` trigger is there before there is a queue for the same reason: a required
+**The *required* check is still called `test`, and the name is load-bearing — sharding
+does not get to rename it.** Branch protection and the merge queue name a required check
+by its job name; rename it and the rule silently stops matching — GitHub does not
+complain, it waits for a check that will never report. A matrix job reports as `shard
+(0)`, `shard (1)`, … under a different name each, so it cannot be the one the rule points
+at. Instead `test` is a small roll-up job that `needs:` all four `shard` legs and fails if
+any of them did — the suite itself runs in `shard`, not in `test`. The `merge_group`
+trigger is there before there is a queue for the same reason it always was: a required
 check that does not answer merge-group events blocks a queue rather than gating it.
 
 ### `npm run evals` — what the agent *does*, not what the daemon builds
