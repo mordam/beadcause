@@ -20507,6 +20507,69 @@ walk never leaves the fixed roots, and the only `bd` verbs it spawns — `list -
 `bin/b7e-cites`, `lib/cites.js` and `test/cites.mjs`.
 
 
+### Every external assertion about a file, before you change it — `b7e-claims`
+
+Not every repo this machine works in encodes its own broken state as *passing*. In the
+deluvia tracker, `scripts/check_saga_audit.py`'s gates assert the gap positively — a
+hard-coded filename that must still exist, a numeric literal that must still equal the
+current broken count — so fixing the actual thing they guard turns the gate red, often in
+a script nowhere near the file that changed. Five sessions there (`dv-6cn`, `dv-gsh`,
+`dv-nnk`, `dv-i5v`, `dv-ek4`) each hand-derived the full "who else asserts something about
+this file" list before touching it, and each called the derivation itself the bulk of the
+work. `dv-6cn` found four live claims scattered outside the file it was fixing — a gate
+that needed both forks to *stay* wrong, a docstring naming it a carve-out, a prose
+carve-out in a canon-lock doc, and a change-log note — and wrote afterward: "grep for the
+basename before editing; the two prose carve-outs are the ones a gate will not catch."
+`dv-gsh` hit the sharper trap twice: merely *naming* an orphaned reference file in a new
+doc dropped a hard-coded orphan count by one and reddened the gate, with no mention of the
+file anywhere in the gate's own source.
+
+```
+b7e-claims <path>            e.g. reference/LORE_PROPOSAL_electric_universe.md
+b7e-claims <basename>        a bare filename, matched wherever it is named
+b7e-claims <section-id>      an audit section like S5.1 or B10, matched as a whole word
+b7e-claims <target> --json   one object per line instead of the printed report
+b7e-claims <target> --dir <root>   another checkout — this is how it is tested, and how
+                                     it is meant to be run against a repo other than this
+                                     one (deluvia, on this machine, is the motivating case)
+```
+
+Three grouped lists, always in this order: **prose claims** (markdown lines naming the
+target, with the sentence, from `lib/corpus.js`), **gate probes** (python lines naming the
+target by string literal, tagged with the `check(...)` id they belong to, from
+`lib/probes.js`), and **numeric literals at risk** — the `dv-gsh` trap generalised: an
+ALL_CAPS module constant, compared inside a function that enumerates markdown files under
+the target's own directory, even when nothing in that function names the target directly.
+That last group is deliberately structural rather than computed: it does not re-run the
+enumeration to ask whether the constant's *current* value is still right, only whether
+editing the target *could* move it, which is the bead's own phrasing and a cheaper, more
+honest question than trying to fully re-implement one gate script's exact counting rule in
+JavaScript.
+
+**No python parser, same tradeoff `b7e-def` makes for JavaScript.** Everything is
+line-and-regex matching against the disciplined, heavily-commented style these audit
+scripts are actually written in — a `check(id, description, condition)` call, a docstring
+or `# TAG -- ...` comment opening a section, an `os.path.join(root, "reference")`-shaped
+directory literal. A literal spanning multiple lines, or a `check(` call built
+dynamically, is read as prose, not parsed.
+
+**One of the bead's own two acceptance examples no longer exists to test against.**
+`reference/deluvia.archaeo-anthro-overview.md` — the file `dv-6cn`'s four claims were
+about — was itself renamed to `reference/REAL_WORLD_EVIDENCE.md` as part of resolving that
+very finding, so asserting the bead's quoted "four claims" verbatim against the live repo
+would test a file that is gone rather than the command. The other example held up:
+`b7e-claims LORE_PROPOSAL_electric_universe.md --dir ~/neadamthal.projects/deluvia`
+currently reports the direct S8 literal mention *and* flags S5.2's `UNREFERENCED = 14` as
+at risk, both verified against deluvia's real, current `main` this session. `test/
+b7eclaims.mjs` reproduces the same shapes on a fabricated fixture instead of depending on
+that live, separately-changing checkout, which CI does not have at all.
+
+`Bash(b7e-claims:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`, the same shape as `b7e-def`/`b7e-cites`/`b7e-census` above: it only ever
+reads files under a given tree and prints what it found, and spawns nothing at all. See
+`bin/b7e-claims`, `lib/corpus.js`, `lib/probes.js` and `test/b7eclaims.mjs`.
+
+
 ### What else was this machine doing at a moment — `b7e-moment`
 
 `bc-dgx7.55` is the session audit's finding: three auto-filed `app-error` beads
@@ -20559,6 +20622,62 @@ parsing and the printing around it. `Bash(b7e-moment:*)` is on `DEFAULT_TOOL_LIS
 `lib/toolbelt.js` and `read` in `lib/grants.js` — every `bd` verb it spawns (`show
 --include-comments`, `list --label`) is a read, and the log/deploy/git reads never
 write anything either. See `bin/b7e-moment`, `lib/moment.js` and `test/b7emoment.mjs`.
+
+
+### The next free `CHANGE_LOG.md` entry number, across every branch — `b7e-entry`
+
+`bc-dgx7.61`, a session audit against a repo like deluvia's, where `CHANGE_LOG.md` is
+canonical and beads cite its entries by number but ~20 live worktrees each allocate
+numbers against their own copy. Six sessions worked this out by hand. `dv-6cn` picked
+Entry 105 with `grep -n "^## Entry " CHANGE_LOG.md | tail -8`, a Python heredoc to
+splice it in, and a second Python one-liner to recount the ledger — after first pulling
+two memory notes to learn it needed to. `dv-3rn.3` found the number already live: two
+unrelated decisions both filed as `## Entry 078`, because the number had been picked
+against one branch's tail, not every branch's. Four more sessions (`dv-90i`, `dv-gsh`,
+`dv-i5v`, `dv-aps`) filed no entry at all, naming the avoidance itself as the cost — a
+G0-ledger re-measure plus collision risk against branches nobody had looked at.
+
+```
+b7e-entry -w deluvia            next free number, every collision found, the ledger's
+                                  three figures and the delta one more entry costs
+b7e-entry -w deluvia --check    same audit; exits 1 if anything collides
+b7e-entry -w deluvia --json     the machine-readable form
+b7e-entry --dir <root>          another tree — this is how it is tested
+```
+
+**A number is only free if no branch has already claimed it**, so this reads
+`CHANGE_LOG.md` out of every local and remote branch `git for-each-ref` can see — a
+branch with no worktree checked out for it right now still counts, which is the whole
+point: `dv-3rn.3`'s collision was with a decision already sitting on the trunk, not
+with anything the session had open. Run against deluvia's own tree it found 11 real
+collisions across 271 branches, including one between two branches still open on
+2026-08-25, each having independently claimed Entry 120 that same day.
+
+**What counts as a collision took two corrections to get right.** A first pass compared
+whole entry bodies and flagged 68 of deluvia's own entries as "duplicates" — every one
+of them the *same* decision, just re-verified or partly propagated on different
+branches: `Status:` carries a running narrative as work lands (`PENDING PROPAGATION` →
+`PARTIALLY PROPAGATED` → `[PROPAGATED]`, sometimes with a growing re-verification note),
+and `Chapters affected:` checkboxes tick independently per branch. Comparing only the
+`**Decision:**` field cut that to 31, but a real case remained: deluvia's own Entry 002
+reads "NOT Slothen" on `main` and "NOT Sloth-hen" on an unmerged branch that had
+corrected the spelling — the same decision, not a second one claiming the number. The
+final measure is a similarity ratio over each `Decision:` field's own words (`lib/
+changelog.js`'s `decisionsAgree`), which lets a wording fix or a typo correction read as
+the same entry while two genuinely different decisions — near-zero shared vocabulary —
+still separate. That brought deluvia's real count to 11. A number every branch agrees on,
+however many carry it, is never reported; the house's own fix for a genuine collision —
+suffixing the second `Entry 078` as `078b` "so the file stays in date order" — is
+honoured too, since a letter suffix is part of an entry's identity here, not stripped
+before comparing.
+
+**Never writes to `CHANGE_LOG.md`, or anywhere else.** Every path through it is `git
+for-each-ref` and `git cat-file -p <ref>:<file>` (`lib/gitref.js`'s `readRefFile`)
+against whatever this Mac's git object store already has — no fetch, no checkout.
+Picking the number and splicing in the entry stays a human's job, or a later command's,
+not this one's. `Bash(b7e-entry:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and
+`read` in `lib/grants.js` on that strength. See `bin/b7e-entry`, `lib/changelog.js` and
+`test/b7eentry.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
@@ -34333,6 +34452,86 @@ exact two lines that shipped before, and the directory is asserted to survive th
 it a green run would prove only that the fake browser was easy to kill. And the counting is
 done inside a sandbox directory the suite makes for itself, because counting the shared
 temp directory is what made `test/browse.mjs` flaky through four separate bug reports.
+
+**The fake browser is waited for, not slept on** — and getting that wrong did not weaken
+the suite, it inverted it. Each scenario used to follow the spawn with a flat 120ms, which
+is a guess that a `node -e` child is up and inside its interval by then. Under
+`b7e-gate --jobs 4` — CI, and every local gate run here — it is not. With nothing writing,
+`killAndRemove` wins on its first attempt against a directory nobody is defending: the
+control that must fail passes, the escalation window is never reached, and the profile that
+"could not be removed" is removed. Three of the file's assertions go red together, and they
+did, on `main`, twice on 2026-08-25 (bc-mrm77, bc-xl7n.136) and in six runs out of six
+under a synthetic 3× CPU load. The wait is now on the evidence: two distinct filenames means
+the child's interval has fired twice, and a stub that never gets there stops the run as a
+broken fixture rather than leaving eleven measurements of nothing.
+
+**And the one scenario that is about impossibility is no longer raced.** `killAndRemove`
+only believes a deletion it can still see 40ms later, and 40ms is well inside what a
+loaded machine deschedules a 2ms writer for — so "a profile it could not remove" was
+removable often enough to go red on its own. The impossibility is structural now: the
+profile sits one level down in a holder with no write bit, so the final `rmdir` is `EACCES`
+however long anything waits. The stubborn child stays, because what is being handed to
+`killAndRemove` is still a live process; it is the directory that changed. A permission bit
+does not stop root, so that too has a control that must fail — an empty probe directory
+inside the same holder, asserted not to go — because without it a root run would report the
+contract regressing rather than the arrangement not holding.
+
+### A press is not a stopwatch — `scripts/space-check.mjs`
+
+Two sections above are about `space-check.mjs` failing for a reason that had nothing to do
+with the change in front of it. This is the third, and it is the one that got as far as
+being filed as a regression against somebody else's merged pull request.
+
+**One press on the space card is two requests and a repaint, in that order.** `POST
+/api/space`, then `GET /api/spaces` so the picker's 🔕 comes off the config that was just
+written, then `render()`. Every press in the check used to be followed by a flat
+`sleep(700)` — a bet that all three fit in that window.
+
+**When the bet loses it does not look like a timeout.** It looks like the feature being
+broken, one assertion *later*. `Clear` is only drawn while the space has quiet hours
+(`public/config.js`), so a press that arrives before the redraw finds no button, clicks
+nothing, and the assertion under it reports that Clear left the hours in place. The repo
+row does the same thing a press later, and its "the row redraws with the tag and the button
+agreeing" follows from it. Three reds, all of them phrased as behaviour, none of them
+behaviour.
+
+Measured 2026-08-25 (bc-khoe.67): filed as a regression from PR 584 on the reasoning that
+it was the only commit in the range touching both the space-settings UI and the check —
+which was true, and the commit's whole change to `public/config.js` is the word *space*
+→ *group*. The tell was in the failure detail nobody had a use for at the time:
+`autoEndorsePerWorkspace` read `{}` rather than absent, and `{}` is a **config default**
+(`lib/config.js`). An empty map is what "the write has not landed yet" looks like on disk;
+a daemon that had mishandled the press would have left the repo set wrong, not left the
+default sitting there.
+
+**So the check waits for the page, not for a clock.** `window.fetch` is counted in the
+page, and `quiet()` returns once every request a press started has finished and nothing new
+has started for a moment. It is bounded — a write that genuinely never lands still fails
+its own assertion, on the same wording, a few seconds later rather than 700ms later — so
+nothing is weakened by the wait; the stopwatch was never what any of these were asserting.
+Two details are worth keeping: `/api/presence` is excluded, because a 45-second heartbeat
+nobody pressed would otherwise be free to satisfy "a request started" on behalf of a click
+that issued none; and a press that is *supposed* to send nothing needs a grace window
+rather than the full deadline, because Set on a blank channel field is refused in the page
+without a request and that refusal is one of the assertions here.
+
+**And a press whose result is thrown away cannot tell you which of the two it was.**
+`press()` has always returned whether its selector matched, and the assertions that read
+the config file afterwards ignored it — so "the button did nothing" and "the button was not
+there to be pressed" arrived as the same red. They now carry it, and an absent button says
+so by name.
+
+**The same bet, one line further down, in the `finally`.** Fixing the presses surfaced it:
+39 of 39 assertions green, then `ENOTEMPTY: rmdir .../config/.git` and exit 1. This is the
+only check that starts a *daemon*, that daemon keeps a git repository under its config
+directory, and the teardown was `daemon.kill()` with an `rmSync` beside it — so the delete
+walks a tree something is still writing into. `kill()` is not a wait, and `maxRetries: 3`
+cannot help, because that is `rmSync`'s own retry of a failed *unlink* rather than of a
+directory being repopulated behind it. It is `killAndRemoveSync` now, which is two sections
+above and was already imported here for the signal path. Same bug and same fix as bc-beleq.1
+in `test/advswitch.mjs`, which landed the same day; a teardown that can fail a run whose
+every assertion passed is the worst shape a red comes in, because the results are printed
+above it and say the change was fine.
 
 ### A guard that fires must say what it is — `test/monitorwidth.mjs`
 
