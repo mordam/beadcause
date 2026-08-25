@@ -157,6 +157,47 @@ await check('an uncaught exception arrives at the endpoint', () => {
   assert.equal(r.body.userAgent, 'test-agent/1');
 });
 
+await check('a rethrow trampoline is not attributed as the origin — bc-jjdar.2', () => {
+  // public/viewhost.js and public/panestage.js both catch a view's build() throwing and
+  // rethrow it out of a setTimeout, on purpose. `Error.stack` is captured where the error
+  // was actually constructed and does not move — so a rethrown error's stack names the
+  // real site while event.filename/event.lineno name only the trampoline that rethrew it.
+  // Every repo view that fails to draw, in every workspace, used to collapse onto that one
+  // trampoline location: errat:a96ab0d6aa08.
+  const app = load();
+  app.fire('error', {
+    message: "Cannot access 'section' before initialization",
+    filename: 'http://127.0.0.1:4317/viewhost.js',
+    lineno: 427,
+    colno: 11,
+    error: err(
+      "Cannot access 'section' before initialization",
+      'ReferenceError: x\n    at build (http://127.0.0.1:4317/v/deluvia/x/asset/briefs.js:306:5)'
+    ),
+  });
+  const [r] = app.reports();
+  assert.ok(r, 'nothing was posted');
+  assert.equal(r.body.source, undefined, 'the rethrow site was attributed as the origin');
+  assert.equal(r.body.line, undefined, 'the rethrow site was attributed as the origin');
+  assert.equal(r.body.column, undefined, 'the rethrow site was attributed as the origin');
+  assert.match(r.body.stack, /at build/, 'the real site is still on the stack for frameFromStack to find');
+});
+
+await check('a cache-busted script URL still confirms an ordinary throw', () => {
+  // The query string is part of the loaded URL but does not always survive into a stack
+  // frame — the bare path must still be enough to confirm filename/lineno are real.
+  const app = load();
+  app.fire('error', {
+    message: 'boom',
+    filename: 'http://127.0.0.1:4317/app.js?v=9',
+    lineno: 100,
+    error: err('boom', 'TypeError: boom\n    at go (http://127.0.0.1:4317/app.js:100:4)'),
+  });
+  const [r] = app.reports();
+  assert.equal(r.body.source, 'http://127.0.0.1:4317/app.js?v=9');
+  assert.equal(r.body.line, 100);
+});
+
 await check('a rejected promise arrives at the endpoint', () => {
   const app = load();
   app.fire('unhandledrejection', { reason: err('bd is locked', 'Error: bd is locked\n    at sweep (http://127.0.0.1:4317/app.js:900:3)') });
