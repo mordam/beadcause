@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v100';
+const CACHE = 'beadcause-v101';
 const SHELL = [
   '/',
   '/index.html',
@@ -94,6 +94,11 @@ const SHELL = [
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.
   '/spacebar.js',
+  // The dialog behind the picker's last row. In the shell because the row that opens it
+  // is: a cached page that drew ＋ Add a bead-space and then could not fetch the file
+  // behind it would be a control that does nothing at all, which is worse than a page
+  // that never offered it.
+  '/addspace.js',
   // The account switcher beside it, and in the shell for a stronger version of the same
   // reason: a page cached without this file has no way to change which *life* the app is
   // about — and, because the menu is where the page's own top-right buttons now live, no
