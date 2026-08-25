@@ -54,6 +54,8 @@ import {
   forgetPayloads,
   VIEW_DIR,
   MANIFEST,
+  GENERATOR_HEADER,
+  GENERATOR_CODE,
 } from '../lib/repoviews.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -891,6 +893,27 @@ await check('a view with no generator answers the data route with a reason, not 
   const res = await get('/api/views/demo/board/data');
   assert.equal(res.status, 502);
   assert.match(JSON.parse(res.body).error, /no "data.run"/);
+});
+
+await check('and that 502 says it is the generator failing, not the daemon — bc-3wf1r', async () => {
+  // public/report.js files a sev2 P0 for every 5xx that does not say otherwise, and this
+  // one is a script this daemon spawned on another repo's behalf — or, here, a manifest
+  // that named none. The header is what stops the false P0; the body's `code` is for a
+  // caller that has already parsed it.
+  const res = await get('/api/views/demo/board/data');
+  assert.equal(res.headers[GENERATOR_HEADER], '1', 'the view-data 502 carries no generator marker');
+  assert.equal(JSON.parse(res.body).code, GENERATOR_CODE);
+});
+
+await check('and the browser reads that same header literally, since public/ cannot import lib/', () => {
+  // The one thing that can silently break this: renaming the constant in lib/repoviews.js
+  // and leaving public/report.js matching the old string. Then every view-generator 502
+  // files a P0 again and nothing goes red. See the comment at the exemption in report.js.
+  const reporter = fs.readFileSync(new URL('../public/report.js', import.meta.url), 'utf8');
+  assert.ok(
+    reporter.includes(`'${GENERATOR_HEADER}'`),
+    `public/report.js does not excuse ${GENERATOR_HEADER}`
+  );
 });
 
 for (const s of servers) s.close();
