@@ -83,6 +83,34 @@
   container is pending its addresses must stay documents, because `show()` falling to Home
   is the right answer for a hash and the wrong answer for a home-screen shortcut.
 
+  ## The second half of the address (bc-k7lrc)
+
+  A hash names a view and may narrow it — `#history?status=closed`, decision 5 in
+  public/hashroute.js. `show` below is about the first half only, and it *returns early*
+  when the view has not changed, which is right: moving from `?b=one` to `?b=two` hides
+  nothing and moves no scroll position. It also meant that the one change to the URL a
+  view could never be told about was a change to its own address. The back button walked
+  between two briefs and the pane went on drawing the first one.
+
+  So `sync` reads both halves and `onQuery` reports the second. Two of the five views
+  already kept state there and each had grown its own copy of the write — an `address`
+  object in public/history.js and another in public/montabs.js, the same fifteen lines
+  twice, including the same "only while this pane is showing" refusal. `setQuery` is those
+  lines once, which is what lets the third kind of caller have them: a **repo view**, whose
+  script is in somebody else's checkout and cannot be expected to rediscover the refusal.
+  That is the whole of what makes a repo view deep-linkable — see `ctx.setQuery` in
+  public/viewhost.js, and `#deluvia.briefs?b=<slug>`.
+
+  The two existing `address` objects are deliberately left alone. They work, they are
+  covered, and folding them in is a change to the ledger's filters and the console's chips
+  for no behaviour — worth doing on the day one of them needs touching anyway, not on the
+  day the mechanism they inspired arrives. The one consequence, written down so it is not
+  rediscovered as a bug: those two call `replaceState` themselves, so `currentQuery` goes
+  stale behind them and the *next* move of their view's query is reported when it might
+  not have been. Harmless, because neither of them takes `onQuery` — the ledger reads its
+  filters once as its pane is built — and it stops being true for whichever of them is
+  folded in first.
+
   ## Why a file of its own, and not a few lines in viewbar.js
 
   `public/viewbar.js` draws the pill row on **twelve** pages and exactly one of them is
@@ -169,6 +197,21 @@
   const listeners = [];
 
   /**
+   * The query hung on the pane that is up — the `b=one` of `#deluvia.briefs?b=one`.
+   *
+   * Held here rather than read where it is wanted, because it is the thing `sync` has to
+   * *compare*. A hash moving from `?b=one` to `?b=two` names the same view, so `show`
+   * returns early on it and always has — rightly, since nothing is hidden and no scroll
+   * position moves. That early return is also why, until this, the one URL change a view
+   * could never be told about was a change to its own address: the back button walked
+   * between two briefs and the pane went on drawing the first one.
+   */
+  let currentQuery = '';
+
+  /** Called with `(view, query)` when the query of the pane that is up changes. */
+  const queryListeners = [];
+
+  /**
    * Show one pane and hide the rest, carrying the scroll positions across.
    *
    * An id with no pane here falls to Home, which is the same answer `parse` gives a hash
@@ -194,8 +237,29 @@
     return id;
   }
 
-  /** Show whatever the hash currently names. The one way a pane is ever chosen. */
-  const sync = () => show(route.parse(location.hash).view);
+  /**
+   * Show whatever the hash currently names, and tell the pane if its query moved.
+   *
+   * Two answers out of one read, because they come from one hash and taking it twice is
+   * how they get to disagree. `show` is unchanged and still decides everything about which
+   * container is painted; what is added is the second half of the address — a view's own
+   * query — which nothing was watching.
+   *
+   * `route.queryFor` is asked about the pane that was **actually shown**, not the one the
+   * hash named. They differ exactly when a hash names a view this document cannot show —
+   * a repo view whose pane has not been adopted yet, a pending container — and `show`
+   * answers those with Home. A query hung on a name that lost is not Home's, so it is
+   * dropped with the view it belonged to rather than handed to whoever is up.
+   */
+  function sync() {
+    const shown = show(route.parse(location.hash).view);
+    const q = shown ? route.queryFor(shown, location.hash) : '';
+    if (q !== currentQuery) {
+      currentQuery = q;
+      for (const fn of queryListeners) fn(shown, q);
+    }
+    return shown;
+  }
 
   /*
     The hash is the only input. A pill tap goes through `go` below, the back button and a
@@ -243,12 +307,50 @@
      * every other pane. `sync` is idempotent, so the redundant call on every other
      * transition costs a map lookup and an early return.
      */
-    go(view) {
-      const hash = route.hashFor(view);
+    go(view, query) {
+      const hash = route.hashFor(view, query);
       if (hash == null) return null;
       route.go(hash);
       return sync();
     },
+    /**
+     * Rewrite the query of the pane that is up, without leaving it.
+     *
+     * The address a view keeps its own state in — which brief is open, which chip, which
+     * filters. `public/history.js` and `public/montabs.js` each grew their own `address`
+     * object for this and each wrote the same fifteen lines; this is those lines, once,
+     * where a repo view can reach them too (`ctx.setQuery` in public/viewhost.js).
+     *
+     * **Only the pane on screen may write.** The staged boot builds a pane while Home is
+     * showing and a repo view's `build` runs whenever its payload lands, so a view writing
+     * from behind a pane nobody is looking at would move the address out from under the
+     * view that owns it. Both of the files above already refuse for this reason; the
+     * refusal is here now so a view cannot forget to make it.
+     *
+     * `replaceState` by default, because the thing being written is a *narrowing* rather
+     * than a place — a filter chip, an accordion opening — and a panel of them would fill
+     * the back stack with steps between you and the screen you arrived from. `push: true`
+     * is for the narrowing that really is a place: tapping into one brief from a list of
+     * them is somewhere you expect the back button to leave.
+     *
+     * Either way `currentQuery` is brought up to date here, so the writer is never told
+     * about its own write: `replaceState` fires no `hashchange` at all, and the push's
+     * `hashchange` finds nothing changed and calls nobody. `onQuery` therefore means "the
+     * address moved under you" — a back button, a deep link, another pane's link — which
+     * is the only case a view has to redraw for.
+     */
+    setQuery(view, query, { push = false } = {}) {
+      if (current !== view) return false;
+      const hash = route.hashFor(view, query);
+      if (hash == null) return false;
+      if (hash === location.hash) return false;
+      if (push) route.go(hash);
+      else history.replaceState(null, '', location.pathname + location.search + hash);
+      currentQuery = route.queryFor(view, location.hash);
+      return true;
+    },
+    /** The query on the pane that is up, as the string between `?` and the end. */
+    query: () => currentQuery,
     /** Can this document show that view without a document load? */
     has: (view) => panes.has(view),
     /** Register a container built after the page was parsed. See `adopt` above. */
@@ -262,6 +364,17 @@
     /** Called with the view id every time the shown pane changes. */
     onShow(fn) {
       if (typeof fn === 'function') listeners.push(fn);
+    },
+    /**
+     * Called with `(view, query)` when the address of the pane that is up moves.
+     *
+     * Not on the writer's own `setQuery`, and not on the first `sync` — that one runs as
+     * this file is parsed, before anything has had the chance to register, and a view
+     * landed on by a deep link reads its query directly instead (`ctx.query`). So this
+     * fires for exactly one thing: somebody else moved the URL. The back button, mostly.
+     */
+    onQuery(fn) {
+      if (typeof fn === 'function') queryListeners.push(fn);
     },
   };
 })();

@@ -315,22 +315,34 @@ function board({ stream = true, deploys = [] } = {}) {
   stage.spec?.build();
 
   // public/panestage.js's own standby mount, played by hand: it is what opens the one
-  // socket a built pane with a `wake` rides, and it hands every answer straight to that
-  // `wake` (`fanout` in panestage.js). Not opened at all when `stream` is false — the
-  // state of a phone holding an old service-worker shell, or a proxy with no daemon
+  // socket a built pane with a `wake` rides. Not opened at all when `stream` is false —
+  // the state of a phone holding an old service-worker shell, or a proxy with no daemon
   // behind it, which is exactly what `scheduleDeploys`'s fallback exists for.
+  //
+  // The mount itself carries no `onWake` — the real one in public/panestage.js does not
+  // either. Every wake reaches the pane through `stream.listen` (`fanout`, in that file),
+  // played by hand here too, because that is also the only channel `ended: true` rides
+  // (bc-khoe.30.24): `follow()` tells it when this mount's loop ends with nothing left to
+  // pick it up, and a mount-local `onWake` would never see it.
   if (stream) {
     const api = async (path, opts) => {
       const res = await fetchStub(path, opts);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     };
+    ctx.window.beadcause.stream.listen((events, extra) => {
+      stage.spec?.wake?.({
+        data: extra?.data ?? null,
+        events: events || [],
+        resync: Boolean(extra?.resync),
+        ended: Boolean(extra?.ended),
+      });
+    });
     const mount = ctx.window.beadcause.stream.follow({
       api,
       want: 'presence',
       cold: true,
       standby: true,
-      onWake: (w) => stage.spec?.wake?.(w),
     });
     mount.start();
   }
@@ -425,31 +437,29 @@ await check('a pane with no stream behind it keeps the idle tick — the failure
   assert.deepEqual(b.waits(), [IDLE_MS], `a pane with nothing to wake it stopped refreshing: ${JSON.stringify(b.waits())}`);
 });
 
-await check('and a stream that stops following mid-session does not — a gap, filed as bc-khoe.30.24', async () => {
-  // This is the one claim in the header ("an idle pane holds no timer of its own")
-  // that does NOT hold once the stream that fed it dies rather than never having
-  // existed. It held on the page: releases.js owned its own `follow()` and passed
+await check('and a stream that stops following mid-session puts the fallback back (bc-khoe.30.24)', async () => {
+  // This is the one claim in the header ("an idle pane holds no timer of its own") that
+  // does not hold once the stream that fed it dies rather than never having existed. It
+  // held on the page: releases.js owned its own `follow()` and passed
   // `onSettle: () => scheduleDeploys()`, so the moment the mount gave up it put the
-  // fallback timer straight back. It does not hold on the pane, because the mount that
-  // now owns this poll is public/panestage.js's standby one, and that file's own
-  // `stream.follow({..., standby: true})` call passes no `onSettle` at all — so nothing
-  // anywhere reacts to the stream itself dying. `wake` does run on the empty, log-less
-  // answer that precedes the break (public/stream.js's `tell` fires before `if (!told)
-  // break`), but there is nothing in that payload for it to act on, and calling
-  // `scheduleDeploys()` from inside `wake` would not help either: `stream.awake()` is
-  // still true at that exact moment, one line before the mount marks itself not
-  // following. bc-khoe.30.24 is this finding, filed rather than patched here — it is a
-  // panestage.js-wide gap (every pane sharing the standby mount is equally exposed, not
-  // only this one's own fallback clock), and a real fix belongs at that layer.
+  // fallback timer straight back. On the pane it is public/panestage.js's standby mount
+  // that dies instead, and that file's own `follow()` call passes no `onSettle` at all —
+  // `wake` did run once, on the empty, log-less answer that precedes the break
+  // (public/stream.js's `tell` fires before `if (!told) break`), but at that exact moment
+  // `stream.awake()` was still true, one line before the mount marks itself not
+  // following, so calling `scheduleDeploys()` from inside that `wake` would have armed
+  // nothing.
+  //
+  // The fix is at the stream layer rather than the pane's: `follow()`'s own `finally` now
+  // tells every listener `{events: [], ended: true}` once `awake()` reads false — after,
+  // not before, the mount marks itself not following — and releases.js's `wake` reads
+  // `ended` and re-runs `scheduleDeploys()` from there, by which point `stream.awake()`
+  // is honestly false.
   const b = board({ deploys: [] });
   await settle();
   assert.deepEqual(b.waits(), [], 'the pane did not start out parked and clockless');
   await b.wakeWithoutALog();
-  assert.deepEqual(
-    b.waits(),
-    [],
-    `the gap this pins closed on its own — recheck bc-khoe.30.24 before deleting this check: ${JSON.stringify(b.waits())}`
-  );
+  assert.deepEqual(b.waits(), [IDLE_MS], `the fallback did not come back: ${JSON.stringify(b.waits())}`);
 });
 
 console.log(`\n${ran - failures}/${ran} ok\n`);
