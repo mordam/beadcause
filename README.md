@@ -24890,6 +24890,19 @@ Excluded by what they *are* — the `merge-queue` label (`lib/mergebead.js`) or 
 `pr-delivery` label (`lib/delivery.js`) — never by matching a title, which a card that
 merely mentions "Merge" in its own title would otherwise be caught by.
 
+**And the second exclusion, for the same reason from the other direction: a bead already
+decided *against*.** A bead carrying `superseded-by:<id>` has been looked at and ruled a
+duplicate of work living somewhere else, so counting it among the beads *nothing* has
+decided above inflates the very number this file exists to keep honest, and spends a
+`[census]` line naming resolved work. Both siblings in the family already drop it —
+`strandingsIn` (`lib/rootclose.js`) and `createEpicWatch`'s
+`worthSaying` — and it is the same label read, from `lib/superseded.js`, that they read.
+Still counted into `unrooted`, like the merge genre: having no root above it is a true
+thing to say about it. **Which is why `mergeGenre` is counted rather than inferred** —
+it used to be the residual `unrooted - ordinary.length`, which is only correct while
+there is exactly one exclusion, and a second one arriving would have quietly reported
+every superseded bead as a merge card (bc-xl7n.132.3).
+
 **Logged once per bead per spell of being an ordinary orphan, not once per cycle.** The
 same restraint `withoutOrphans` and the adoption sweep's own refusal log already use: a
 bead that stays unrooted for a week would otherwise be the same line every cycle for as
