@@ -1,0 +1,179 @@
+#!/usr/bin/env node
+/**
+ * `b7e-bound` — run one thing under a deadline, on a Mac with no `timeout` binary.
+ *
+ *     b7e-bound --for 90 -- node scripts/checks.mjs
+ *     b7e-bound --for 120 -- node scripts/checks.mjs --only viewbar
+ *
+ * bc-xl7n.120, filed by the session audit against four sessions (bc-dgx7.8, bc-xl7n.93,
+ * bc-khoe.32, bc-1kwl.30) that each typed `timeout <n> <cmd>` and got `(eval):1: command
+ * not found: timeout` — there is no coreutils `timeout` on this Mac. What followed each
+ * time was worse than the missing binary: a bare rerun that hit the harness's 120s
+ * cutoff, several background-task/`sleep`/`TaskOutput` cycles, or — the worst case,
+ * bc-dgx7.8 — a `… | head -60; echo "EXIT: $?"` pipeline that printed `EXIT: 0` for a
+ * command that never finished at all, because the exit code it read back belonged to
+ * `head`, not to whatever was piped into it.
+ *
+ * This runs the command directly — no shell, so there is no pipe for an exit code to go
+ * missing into — streams its combined output as it happens, and ends one of two ways:
+ *
+ *   - it exits inside the deadline: this process exits with the SAME CODE the command
+ *     exited with (128+signal if it died of one), so `b7e-bound --for 90 -- foo; echo $?`
+ *     behaves exactly like `foo; echo $?` would.
+ *   - it is still running at the deadline: SIGTERM, then SIGKILL after a short grace, to
+ *     the command's whole process GROUP rather than just the one child it spawned — so a
+ *     command that itself backgrounds work (`npm test`'s own child processes, a daemon it
+ *     starts) leaves nothing behind holding a port. Prints how long it waited and the
+ *     last line the command produced, and exits 124 — the code coreutils' own `timeout`
+ *     already uses for this, so it reads the same way to anyone who has used that command
+ *     before. Like coreutils' `timeout`, this is not distinguishable from a command that
+ *     happens to exit 124 on its own; no in-band exit code can be, on any Unix, and 124 is
+ *     the one value this repo's users already half-remember the meaning of.
+ *
+ * Extensionless on purpose (bin/b7e-bound, not bin/b7e-bound.js) — see the memory note
+ * only-an-extensionless-bin-resolves-on-path: lib/foundation.js puts this repo's bin/ on
+ * every agent's PATH by resolving the literal filename typed, and a package.json bin
+ * entry that renames a `.js` file only resolves after an `npm link` this install has
+ * never had. NOT on lib/toolbelt.js's DEFAULT_TOOL_LIST — see the comment there, next to
+ * b7e-call's for the same reason: this runs whatever the caller names, so there is no
+ * argv shape to check for "reaches a write".
+ */
+import os from 'node:os';
+import { spawn } from 'node:child_process';
+import { onExit } from '../lib/teardown.js';
+
+const TIMEOUT_EXIT = 124;
+const SPAWN_FAIL_EXIT = 127;
+const GRACE_MS = 2000;
+
+const USAGE = `usage: b7e-bound --for <seconds> -- <command> [args...]
+
+Runs <command> directly — no shell, so pipes/redirects/env-vars in it are literal
+arguments, not interpreted. Streams its combined stdout+stderr as it happens. Exits with
+the command's own exit code if it finishes before the deadline, or 124 (the command's
+whole process group killed) if it is still running at the deadline.`;
+
+/**
+ * `process.exit` does not wait for a pipe to drain — same trap bin/b7e-gate's own `leave`
+ * exists for. Output arriving right up to the moment the child closes must not be cut off
+ * by an exit that outraces the write.
+ */
+async function leave(code) {
+  await new Promise((r) => process.stdout.write('', r));
+  await new Promise((r) => process.stderr.write('', r));
+  process.exit(code);
+}
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h') || argv.length === 0) {
+  console.log(USAGE);
+  await leave(argv.length === 0 ? 1 : 0);
+}
+
+const dashDash = argv.indexOf('--');
+if (dashDash === -1 || dashDash === argv.length - 1) {
+  console.error(`b7e-bound: missing "-- <command>"\n\n${USAGE}`);
+  await leave(1);
+}
+const before = argv.slice(0, dashDash);
+const command = argv.slice(dashDash + 1);
+
+function flagValue(name) {
+  const eq = before.find((a) => a.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const at = before.indexOf(name);
+  return at === -1 ? undefined : before[at + 1];
+}
+
+const forRaw = flagValue('--for') ?? flagValue('-f');
+const forSeconds = Number(forRaw);
+if (!forRaw || !Number.isFinite(forSeconds) || forSeconds <= 0) {
+  console.error(
+    `b7e-bound: --for <seconds> is required and must be a positive number, got ${JSON.stringify(forRaw ?? null)}\n\n${USAGE}`
+  );
+  await leave(1);
+}
+
+const [cmd, ...cmdArgs] = command;
+const started = Date.now();
+let out = '';
+let timedOut = false;
+let settled = false;
+let timer;
+
+let child;
+try {
+  child = spawn(cmd, cmdArgs, {
+    cwd: process.cwd(),
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // A process group of its own, not just a child of ours — so a timeout kill can take
+    // the whole tree a command started (npm test's own workers, a daemon it backgrounded)
+    // rather than orphaning everything under it. POSIX group semantics; fine on Darwin.
+    detached: true,
+  });
+} catch (err) {
+  console.error(`b7e-bound: could not start "${cmd}" — ${err.message}`);
+  await leave(SPAWN_FAIL_EXIT);
+}
+
+/** Whole process group, escalating — same shape as lib/gate.js's runSuite. */
+function killGroup(signal) {
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    // ESRCH: already gone. Nothing to do.
+  }
+}
+
+// Runs on a signal to US too — the harness's own shorter fuse, or Ctrl-C — so the child's
+// group does not outlive a `b7e-bound` that was itself killed before its own deadline hit.
+// lib/teardown.js: synchronous only, and this is.
+const releaseOnExit = onExit(() => killGroup('SIGTERM'));
+
+child.on('error', async (err) => {
+  if (settled) return;
+  settled = true;
+  clearTimeout(timer);
+  releaseOnExit();
+  console.error(`b7e-bound: could not start "${cmd}" — ${err.message}`);
+  await leave(SPAWN_FAIL_EXIT);
+});
+
+child.stdout.on('data', (d) => {
+  out += d;
+  process.stdout.write(d);
+});
+child.stderr.on('data', (d) => {
+  out += d;
+  process.stderr.write(d);
+});
+
+timer = setTimeout(() => {
+  timedOut = true;
+  killGroup('SIGTERM');
+  setTimeout(() => killGroup('SIGKILL'), GRACE_MS).unref();
+}, forSeconds * 1000);
+
+child.on('close', async (code, signal) => {
+  if (settled) return;
+  settled = true;
+  clearTimeout(timer);
+  releaseOnExit();
+  if (timedOut) {
+    const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+    const lastLine = out.trim().split('\n').filter(Boolean).pop() || '(no output)';
+    process.stderr.write(`\nb7e-bound: timeout after ${elapsed}s\nb7e-bound: last line: ${lastLine}\n`);
+    await leave(TIMEOUT_EXIT);
+    return;
+  }
+  if (signal) {
+    // Died of a signal nobody here sent — report it the way a shell would ($? = 128+n),
+    // not as a generic 1, so "what killed it" survives past this process too.
+    const num = os.constants.signals[signal];
+    process.stderr.write(`b7e-bound: exit — killed by ${signal}\n`);
+    await leave(num ? 128 + num : 1);
+    return;
+  }
+  process.stderr.write(`b7e-bound: exit ${code}\n`);
+  await leave(code ?? 1);
+});

@@ -165,14 +165,21 @@ console.log('\nwhich transitions are owed, and which cannot be carried');
   ];
   const commits = ['1'.repeat(40), '2'.repeat(40), '3'.repeat(40)];
   const first = sweeper.transitionsOwed(ts, commits, new Set());
-  check('the two with a bead are owed', first.owed.length === 2 && first.owed[0].bead === 'bc-7r4l', JSON.stringify(first.owed));
+  check('all three are owed, whatever their bead', first.owed.length === 3 && first.skipped.length === 0, JSON.stringify(first));
+  check('the two with a bead carry it', first.owed[0].bead === 'bc-7r4l' && first.owed[2].bead === 'bc-keqy', JSON.stringify(first.owed));
   check(
-    'and the one with none is named rather than dropped',
-    first.skipped.length === 1 && /names no bead/.test(first.skipped[0]),
-    JSON.stringify(first.skipped)
+    'and the one with none publishes as the sentinel rather than being dropped',
+    first.owed[1].bead === 'none',
+    JSON.stringify(first.owed)
   );
-  const again = sweeper.transitionsOwed(ts, commits, new Set([commits[0], commits[2]]));
-  check('a transition already on the chain is not owed twice', again.owed.length === 0, JSON.stringify(again.owed));
+  const again = sweeper.transitionsOwed(ts, commits, new Set(commits));
+  check('a transition already on the chain is not owed twice, sentinel included', again.owed.length === 0, JSON.stringify(again.owed));
+  const partial = sweeper.transitionsOwed(ts, commits, new Set([commits[0], commits[2]]));
+  check(
+    'the bead-less one alone is still owed once the other two are published',
+    partial.owed.length === 1 && partial.owed[0].bead === 'none',
+    JSON.stringify(partial.owed)
+  );
   const short = sweeper.transitionsOwed(ts, commits.slice(0, 1), new Set());
   check(
     'a payload with more transitions than commits is reported, not published',
@@ -322,12 +329,15 @@ console.log('\na transition with no bead behind it');
   const back = await p.sweep({ force: true });
   const pub = await import('../lib/publication.js');
   const transitions = (await pub.chain()).filter((r) => r.kind === 'transition');
-  check('the two transitions with a bead are published', transitions.length === 2, JSON.stringify(transitions.map((r) => r.bead)));
+  check('all three transitions are published, bead or none', transitions.length === 3, JSON.stringify(transitions.map((r) => r.bead)));
   check(
-    'and the one without is named in the outcome rather than lost',
-    back.skipped.some((s) => /names no bead/.test(s)),
-    JSON.stringify(back.skipped)
+    'and the one with no bead behind it carries the sentinel rather than being dropped',
+    transitions.some((r) => r.bead === 'none'),
+    JSON.stringify(transitions.map((r) => r.bead))
   );
+  check('nothing was skipped — a transition with no bead is not a hole any more', back.skipped.length === 0, JSON.stringify(back.skipped));
+  const publishable = await import('../lib/publishable.js');
+  check('and the chain still links, sentinel included', publishable.linkProblems(await pub.chain()).length === 0);
 }
 
 /* --------------------------------------- 4. the service cannot hurt a tick */
