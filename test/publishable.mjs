@@ -137,6 +137,25 @@ check('a criterion state is one of three, and unverified is its own answer', () 
   assert.equal(TYPES.state.ok('probably'), false);
 });
 
+// bc-3muu.21: `setManagement` in lib/management.js takes a bead and defaults it to null,
+// so a manual on/off typed at a terminal is a transition this table has to be able to
+// carry. `'none'` is the sentinel — the same shape `since`'s `never`, `origin`'s
+// `unknown` and `retention`'s `permanent` already take — rather than an optional field
+// or a silently-skipped transition.
+check('a bead is a bead id, or the sentinel "none" — never an empty string or null', () => {
+  assert.equal(TYPES.bead.ok('bc-3muu.21'), true);
+  assert.equal(TYPES.bead.ok('none'), true);
+  assert.equal(TYPES.bead.ok(''), false);
+  assert.equal(TYPES.bead.ok(null), false);
+  assert.equal(TYPES.bead.ok('None'), false, 'the sentinel is a literal, not a word to match loosely');
+});
+
+check('a transition naming no bead publishes clean, carrying the sentinel', () => {
+  const t = next(enrolment(), 'transition', { ref: 'refs/beadcause/management', commit: SHA, bead: 'none' }, { at: '2026-08-15T18:00:00.000Z' });
+  assert.deepEqual(problemsWith(t), []);
+  assert.equal(t.bead, 'none');
+});
+
 /* ----------------------------------------------------------------- the boundary */
 
 check('no record carrying content of any named kind can be built', () => {

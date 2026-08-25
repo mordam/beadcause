@@ -168,6 +168,45 @@ check('the trip count survives the overwrite — it counts trips, not parks', ()
   assert.equal(parkedAt(p, 'beadcause/bc-1').resumes, 1);
 });
 
+/**
+ * And it survives the case that actually happens — bc-y7l2m.
+ *
+ * The overwrite above is the easy half and it was never the real path: a resume *drops*
+ * the record, so by the time the resumed window parks again there is no prior to carry
+ * anything, and every second trip was being written down as the first. The count rides on
+ * the worker in between and comes back through `rec.resumes`. Without that, `maxResumes`
+ * never binds and the same window reopens forever.
+ */
+check('and it survives the drop, because the caller carries it back', () => {
+  let p = recordPark({}, 'beadcause/bc-1', REC, NOW);
+  p = dropPark(countResume(p, 'beadcause/bc-1'), 'beadcause/bc-1');
+  assert.deepEqual(p, {}, 'the record really is gone — two dispatches must not both find one');
+  p = recordPark(p, 'beadcause/bc-1', { ...REC, resumes: 1 }, NOW);
+  assert.equal(parkedAt(p, 'beadcause/bc-1').resumes, 1, 'the trip the dropped record knew about');
+});
+
+check('a caller that knows nothing about trips does not reset the count', () => {
+  let p = recordPark({}, 'beadcause/bc-1', { ...REC, resumes: 3 }, NOW);
+  p = recordPark(p, 'beadcause/bc-1', REC, NOW);
+  assert.equal(parkedAt(p, 'beadcause/bc-1').resumes, 3, 'whichever side knows more is the one telling the truth');
+});
+
+/**
+ * Which ending parked it, kept as a field because it decides what the resumed agent is
+ * told: `resumePrompt` opens with "Adam answered" and `interruptedPrompt` opens with
+ * "nothing was answered". Getting that wrong sends an agent looking for a decision nobody
+ * made, which is the one failure here it cannot detect for itself.
+ */
+check('the ending is recorded, so the resume knows which turn to write', () => {
+  const p = recordPark({}, 'beadcause/bc-1', { ...REC, ending: 'gone' }, NOW);
+  assert.equal(parkedAt(p, 'beadcause/bc-1').ending, 'gone');
+});
+
+check('a record from before endings were kept reads as null, never as gone', () => {
+  const p = recordPark({}, 'beadcause/bc-1', REC, NOW);
+  assert.equal(parkedAt(p, 'beadcause/bc-1').ending, null, 'and null takes the answering turn, which is what those were');
+});
+
 check('dropping is what happens after the window is open, and it is complete', () => {
   const p = recordPark({}, 'beadcause/bc-1', REC, NOW);
   assert.deepEqual(dropPark(p, 'beadcause/bc-1'), {});
