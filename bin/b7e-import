@@ -1,0 +1,256 @@
+#!/usr/bin/env node
+/**
+ * `b7e-import` — before adding an import: is it exported, already here, colliding, or
+ * a cycle. And the other half: before removing a symbol, what dies with it.
+ *
+ *   b7e-import <symbol> --into <file>                where <symbol> is exported from,
+ *                                                      whether <file> already has it,
+ *                                                      where a new import line would
+ *                                                      land, any name collision, any cycle
+ *   b7e-import <symbol> --into <file> --from <module>  same, disambiguated when
+ *                                                      <symbol> is exported from more
+ *                                                      than one place
+ *   b7e-import --removing <symbol>... --into <file>   what import/local bindings in
+ *                                                      <file> die if these leave it,
+ *                                                      and who elsewhere still uses them
+ *   b7e-import --dir <root>                           "this tree" is <root>, not the
+ *                                                      tree this file is in
+ *   b7e-import --json                                 one object instead of the report
+ *
+ * bc-ka5y.30 is the session audit: four beads each answered these same questions with
+ * four to six greps, in a different order, with different false positives. `lib/imports.js`
+ * carries the answer, over `lib/noundef.js`'s own parser and scope resolution; this file
+ * is just the argv parsing and printing every other `b7e-*` command already uses.
+ *
+ * Exit codes: `0` clean — nothing found that needs attention. `1` something does: the
+ * name is exported from more than one place and `--from` was not given, a local binding
+ * already uses the name, adding the import would close a cycle, the symbol is not
+ * exported anywhere in this tree, or (removing) a name is not actually declared in
+ * `--into`, or something else in the tree still references it. `2` refused — bad usage.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  SCAN_DIRS,
+  findExporters,
+  alreadyImported,
+  localCollision,
+  resolveImport,
+  insertionLine,
+  cycleIfImported,
+  deadOnRemoval,
+} from '../lib/imports.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.join(HERE, '..');
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback = null) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+const values = (f) => {
+  const at = argv.indexOf(f);
+  if (at === -1) return [];
+  const out = [];
+  for (let i = at + 1; i < argv.length && !argv[i].startsWith('--'); i++) out.push(argv[i]);
+  return out;
+};
+
+const HELP = has('--help') || has('-h');
+if (HELP) {
+  console.log(
+    [
+      'b7e-import <symbol> --into <file>                  where <symbol> exports from, is it already',
+      '                                                    imported, where a new import would land,',
+      '                                                    any collision, any cycle',
+      'b7e-import <symbol> --into <file> --from <module>   disambiguate when <symbol> is exported',
+      '                                                    from more than one place',
+      'b7e-import --removing <symbol>... --into <file>     what dies in <file> if these leave it, and',
+      '                                                    who elsewhere still references them',
+      'b7e-import --dir <root>                             "this tree" is <root>',
+      'b7e-import --json                                   one object instead of the printed report',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const JSON_MODE = has('--json');
+const INTO = value('--into');
+const REMOVING = values('--removing');
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+if (!INTO) {
+  console.error(red('refused — --into <file> is required'));
+  process.exit(2);
+}
+
+const intoAbs = path.join(ROOT, INTO);
+let intoSource;
+try {
+  intoSource = fs.readFileSync(intoAbs, 'utf8');
+} catch (err) {
+  console.error(red(`refused — could not read ${INTO} — ${err.message}`));
+  process.exit(2);
+}
+
+/* --------------------------------------------------------------- removing */
+
+if (REMOVING.length) {
+  const result = deadOnRemoval(ROOT, INTO, REMOVING);
+  if (JSON_MODE) {
+    console.log(JSON.stringify(result));
+    process.exit(result.missing.length || result.stillReferencedFrom.length ? 1 : 0);
+  }
+
+  console.log(`removing ${REMOVING.join(', ')} from ${INTO}`);
+  if (result.missing.length) {
+    console.log(red(`not declared at the top level of ${INTO}: ${result.missing.join(', ')}`));
+  }
+  if (result.deadImports.length) {
+    console.log('dead imports if removed:');
+    for (const d of result.deadImports) console.log(`  ${d.name} (from ${d.from}, line ${d.line})`);
+  } else {
+    console.log(dim('no imports become dead'));
+  }
+  if (result.deadLocals.length) {
+    console.log('dead locals if removed:');
+    for (const d of result.deadLocals) console.log(`  ${d.name} (${d.kind}, line ${d.line})`);
+  } else {
+    console.log(dim('no local bindings become dead'));
+  }
+  if (result.stillReferencedFrom.length) {
+    console.log(amber('still referenced elsewhere:'));
+    for (const r of result.stillReferencedFrom) console.log(`  ${r.file}: ${r.name}`);
+  } else {
+    console.log(green(`no other file under ${SCAN_DIRS.concat('test').join('/, ')}/ references ${REMOVING.join(', ')}`));
+  }
+  process.exit(result.missing.length || result.stillReferencedFrom.length ? 1 : 0);
+}
+
+/* -------------------------------------------------------------- adding */
+
+const SYMBOL = argv.find((a, i) => !a.startsWith('-') && argv[i - 1] !== '--into' && argv[i - 1] !== '--from' && argv[i - 1] !== '--dir');
+if (!SYMBOL) {
+  console.error(red('refused — give a symbol name, or --removing <symbol>...'));
+  process.exit(2);
+}
+
+const FROM_ARG = value('--from');
+
+// `--from` is matched loosely on purpose — a caller may reasonably type the module
+// specifier as it appears inside `--into` itself ('./news.js'), a repo-relative path
+// ('lib/news.js'), or just the basename with or without its extension ('news.js',
+// 'news'). All four picked out the one candidate they meant, in a spot check against
+// this repo's own tree, so no single canonical form is required.
+function matchesFrom(candidateFile, fromArg) {
+  if (fromArg.startsWith('.')) {
+    let resolved = path.normalize(path.join(path.dirname(INTO), fromArg));
+    if (!/\.[mc]?js$/.test(resolved)) resolved += '.js';
+    return resolved === candidateFile;
+  }
+  const stripped = fromArg.replace(/^\/+/, '');
+  if (stripped === candidateFile) return true;
+  const strippedWithExt = /\.[mc]?js$/.test(stripped) ? stripped : `${stripped}.js`;
+  const base = path.basename(candidateFile);
+  return base === strippedWithExt || base === path.basename(stripped);
+}
+
+const exporters = findExporters(ROOT, SYMBOL);
+let problem = false;
+const report = { symbol: SYMBOL, into: INTO, exporters };
+
+const candidates = FROM_ARG ? exporters.filter((e) => matchesFrom(e.file, FROM_ARG)) : exporters;
+
+if (!exporters.length) {
+  problem = true;
+  report.exportedFrom = null;
+} else if (!FROM_ARG && exporters.length > 1) {
+  problem = true;
+  report.ambiguous = true;
+} else if (FROM_ARG && !candidates.length) {
+  problem = true;
+  report.fromMismatch = FROM_ARG;
+} else {
+  report.exportedFrom = candidates[0] ?? exporters[0];
+}
+
+const already = alreadyImported(intoSource, SYMBOL);
+report.alreadyImported = already;
+
+// A collision is either an existing local const/function/class of this name, or an
+// existing import of this name from the *wrong* module — an import from the right one
+// is just the ordinary "already imported" state, not a collision. `already` is only
+// ever the raw specifier as written in `--into` ('./news.js'); resolve it the same way
+// `findExporters` resolved `report.exportedFrom` before comparing, or the two would
+// almost never agree even when they name the same file.
+let collision = localCollision(intoSource, SYMBOL);
+if (!collision && already) {
+  const resolvedExisting = resolveImport(ROOT, INTO, already.source);
+  const isRightModule = report.exportedFrom && resolvedExisting === report.exportedFrom.file;
+  if (!isRightModule) collision = { kind: 'import', from: already.source, line: already.line };
+}
+report.collision = collision;
+if (collision) problem = true;
+
+report.insertionLine = insertionLine(intoSource);
+
+report.cycles = [];
+const cycleTargets = report.exportedFrom ? [report.exportedFrom] : candidates.length ? candidates : exporters;
+for (const cand of cycleTargets) {
+  const chain = cycleIfImported(ROOT, INTO, cand.file);
+  if (chain) {
+    problem = true;
+    report.cycles.push({ from: cand.file, chain });
+  }
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(report));
+  process.exit(problem ? 1 : 0);
+}
+
+console.log(`${SYMBOL} --into ${INTO}`);
+if (!exporters.length) {
+  console.log(red(`not exported anywhere under ${SCAN_DIRS.join('/, ')}/`));
+} else if (report.ambiguous) {
+  console.log(amber(`exported from more than one place — pass --from to pick:`));
+  for (const e of exporters) console.log(`  ${e.file}:${e.line} (${e.kind}${e.from ? ` from ${e.from}` : ''})`);
+} else if (report.fromMismatch) {
+  console.log(red(`--from did not match any exporter (resolved to ${report.fromMismatch}); found:`));
+  for (const e of exporters) console.log(`  ${e.file}:${e.line} (${e.kind}${e.from ? ` from ${e.from}` : ''})`);
+} else {
+  const e = report.exportedFrom;
+  console.log(green(`exported from ${e.file}:${e.line} (${e.kind}${e.from ? ` from ${e.from}` : ''})`));
+}
+
+if (already) {
+  console.log(`${INTO}: already imported at line ${already.line} (as ${already.local}, from ${already.source})`);
+} else {
+  console.log(`${INTO}: not yet imported — would insert at line ${report.insertionLine}`);
+}
+
+if (collision && collision.kind === 'import') {
+  console.log(amber(`collides with an existing import of ${SYMBOL} from ${collision.from} at line ${collision.line} — not the module above`));
+} else if (collision) {
+  console.log(amber(`collides with an existing ${collision.kind} named ${SYMBOL} in ${INTO} at line ${collision.line}`));
+} else {
+  console.log(dim(`no local binding named ${SYMBOL} already in ${INTO} would collide`));
+}
+
+if (report.cycles.length) {
+  for (const c of report.cycles) {
+    console.log(red(`cycle: ${INTO} would import ${c.from}, which already (transitively) imports ${INTO} — ${c.chain.join(' -> ')}`));
+  }
+} else if (exporters.length) {
+  console.log(green('no cycle'));
+}
+
+process.exit(problem ? 1 : 0);

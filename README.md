@@ -18150,6 +18150,49 @@ for ending a worker's own run, and the one agent `DEFAULT_TOOL_LIST` actually re
 leave, and no worker slot to check in on. A worker session, which is what actually hits
 this bug, already carries an unrestricted allowlist and needs no grant to run it.
 
+### The commit before the delivery, written the house way instead of four ways — `b7e-commit`
+
+`bc-xl7n.119` is the fifth finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
+filed against the same shape breaking repeatedly rather than once. Every one of ten runs
+across five beads (`bc-xl7n.93`, `bc-1kwl.30`, `bc-7qo.14`, `bc-ka5y.19`, `bc-dgx7.7`) ends
+the same way — confirm the scope with `git diff main...HEAD --name-only`, commit, then
+`bin/deliver.js` — and the confirm and the deliver were each one call that worked first
+time. The commit in between was written four different ways and failed three of them:
+`bc-xl7n.93` ran a `git commit -m "…\`backticked\`…"` inside a Bash tool call and hit the
+same command-substitution hazard `b7e-say` exists for, at the one call site it did not
+cover — the call hung two minutes before anyone noticed. The same run also hardcoded
+`--author="…adam.morgan@climative.ai"`, the *work* address, in a personal repo whose
+`~/.gitconfig` `includeIf` exists to resolve the personal one instead, and separately
+forgot the `Co-Authored-By` trailer, patching it in after the fact with a `printf` append
+and an amend. The other nine got the message onto the command line a different way each —
+a scratch file plus `-F`, a `$(cat <<'EOF' … EOF)`, a plain multi-line `-m`, a one-line
+`-m` — and none of them checked for or normalised the trailer.
+
+```
+b7e-commit -w <workspace> -b <bead> [--amend] [--file <path>]
+```
+
+The body is `--file <path>` or stdin, exactly the `b7e-say` idiom and for the same
+reason — never a positional argument, so a shell never re-scans it for backticks,
+`$(...)` or a heredoc terminator. It stages the whole tree (`git add -A`), then commits
+with `git commit -F <tmpfile>`: the subject is `<bead>: <first line>`, everything after
+the first line is the body untouched, and a `Co-Authored-By` trailer is added as its own
+paragraph unless the body already carries one anywhere. `--author` is never passed —
+identity is whatever `git` resolves for the checkout, which is exactly what `bc-xl7n.93`
+got wrong by hardcoding it. It refuses, having written nothing, on the workspace's base
+branch (`main`/`master` too), on a tree with nothing staged, and on a body that is empty
+once trimmed; an `--amend` is exempt from the empty-tree refusal, since amending only the
+message with the same tree staged is a legitimate call. It prints the staged file list
+before the sha and subject it wrote, so the confirmation of scope and the confirmation of
+the commit are never two different numbers.
+
+Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the same reason as
+`b7e-say`: staging and committing the whole tree is a write no reading of "the read-only
+surface every reply agent gets" can cover, and `dispatch` — the one agent that list
+reaches — has no branch of its own to commit onto and no delivery waiting on one. A
+worker session, which is what actually hit this bug five times, already carries an
+unrestricted allowlist and needs no grant to run it.
+
 ### One command runs the whole suite without bailing — `b7e-gate`
 
 `bc-khoe.39` is the fourth finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
@@ -18847,6 +18890,74 @@ to a live process — a write with no undo — and the allowlist has no syntax t
 plain report while withholding that one flag from the same binary. `dispatch`, the one
 agent this list governs, has no gate of its own running and no branch to have started one
 on.
+### Before adding an import — is it exported, already here, colliding, or a cycle — `b7e-import`
+
+`bc-ka5y.30` is the session audit: four beads (`bc-ka5y.15.8`, `bc-ka5y.15.7`, `bc-xl7n.93`,
+`bc-36xx.18`) each edited an import block and answered the same five questions by hand, in
+a different order, with a different tool, and different failures. `bc-ka5y.15.7` ran four
+greps for `landedNewsEvents` and answered nothing until the fifth. `bc-xl7n.93` moved
+`clearAbandonedLocks` and `STALE_LOCK_MS` out of `lib/commonrepo.js` and had to disprove
+twelve `grep -rln` hits on `heldBy`/`held` by hand — every one a substring match, none of
+them the identifier actually being moved. `bc-36xx.18` checked a name collision with
+`node -e "import(...).then(...).catch(...)"` and two unrelated `SEVERITIES` exports that
+took opening both files to clear.
+
+```
+b7e-import <symbol> --into <file>                  where <symbol> exports from, is it
+                                                     already imported, where a new import
+                                                     would land, any collision, any cycle
+b7e-import <symbol> --into <file> --from <module>   disambiguate when <symbol> is exported
+                                                     from more than one place
+b7e-import --removing <symbol>... --into <file>     the other half: what dies in <file> if
+                                                     these leave it, and who elsewhere
+                                                     still references them
+b7e-import --dir <root>                             "this tree" is <root>
+b7e-import --json                                   one object instead of the printed report
+```
+
+**By identifier, not by text.** `lib/imports.js` reuses `lib/noundef.js`'s own
+`scanFiles`/`SCAN_DIRS` and its acorn/`eslint-scope` pipeline rather than walking the tree
+a second way with a regex. That is what makes the `heldBy`/`held` false positive
+structurally impossible rather than merely avoided by a tighter pattern: `eslint-scope`
+reports a *reference*, at a location, never a substring — `obj.heldBy` and the word `held`
+are different `Identifier` nodes, full stop.
+
+**Adding.** Answers, in one call: every file under `lib/`, `bin/` and `scripts/` that
+exports `<symbol>` (named, default, or a re-export, each with its own line — a name
+exported from two places is returned as two rows, never narrowed to a first guess); whether
+`<file>` already imports it, and under what local name; the line a fresh `import` would be
+appended at — one past the last existing import, because this repo's own import blocks are
+not alphabetised (`lib/advocate.js`'s ~90 lines are in the order they arrived, not sorted),
+so "where it belongs" is answered the way this tree actually answers it; whether the name
+already names something else at `<file>`'s top level — a local `const`/`function`/`class`,
+or an import of the same name from a *different* module than the one resolved above; and
+whether adding the import would close a cycle — `<module>` already (transitively) importing
+`<file>`, proven by walking relative imports the same way `lib/noundef.js`'s own scope walk
+does, not asked of Node's module loader.
+
+**Removing — the other half.** `--removing <symbol>...` takes names already declared at
+`<file>`'s top level and reports what becomes dead if they leave: an import or a local
+`const`/`function`/`class`, not itself among `<symbol>...`, every one of whose real
+references sits inside the declarations being removed — the `fs`/`path` imports in
+`bc-xl7n.93`'s own example, unused by anything left behind once `clearAbandonedLocks` and
+`STALE_LOCK_MS` are gone. A binding with no references *before* the removal is not
+reported; that is a pre-existing dead end, not one this removal causes. Alongside that,
+every other file under `lib/`, `bin/`, `scripts/` and `test/` whose AST still contains an
+`Identifier` named after one of `<symbol>...` — the cross-file check `bc-xl7n.93` did with
+`grep -rln` and twelve false hits to disprove; a name declared in `--removing` but not
+actually found at `<file>`'s top level is reported `missing` rather than silently answered
+as "nothing depends on it".
+
+Exit codes: `0` clean — nothing found that needs attention. `1` something does: the name is
+exported from more than one place and `--from` was not given, a local binding already uses
+the name, adding the import would close a cycle, the symbol is not exported anywhere in
+this tree, or (removing) a name is not actually declared in `--into`, or something else in
+the tree still references it. `2` refused — bad usage.
+
+Read-only in exactly the same construction as `b7e-def` above: it only ever reads
+`lib/`, `bin/` and `scripts/` off disk and prints what it finds — no `bd`, no `git`, no
+subprocess. `Bash(b7e-import:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` beside
+`b7e-def`, and `lib/grants.js` classifies it `read`.
 
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
 
@@ -19059,6 +19170,81 @@ a real `git worktree`" shape `lib/grants.js` already calls a write on `Bash(npm
 test:*)` for. Its whole occasion is a session watching a `b7e-gate` it just started in
 the background; `dispatch`, the one agent this list governs, has no branch and starts no
 gate of its own to watch.
+
+
+### Does a gate run still describe the tree you are about to deliver? — `b7e-gated`
+
+`bc-dgx7.39`, filed by the session audit against four sessions that each launched
+`b7e-gate` in the background and kept editing the worktree while it ran, then
+delivered the run's verdict as though it still applied. `bc-xl7n.108` started a gate at
+suite 62/416, made two more edits to `lib/release.js` and one to `test/release.mjs`
+while it ran, then delivered `--tests "all 416 suites passed"` — a run that had never
+seen those three edits. `bc-4r10.20` backgrounded the suite, edited `README.md` twice
+while it ran, and delivered "420/420 suites green" on it. `bc-4r10.3.2`'s run also
+carried a broken `node_modules`, so it re-ran three suites separately afterward and
+delivered a verdict assembled by arithmetic across two different trees. `bc-xl7n.110`
+is the one that caught it — and only by remembering: "I edited README.md and
+`lib/advocate.js` *after* that gate started, so it didn't test what I'm delivering." It
+paid for a second full run, roughly 25 minutes, to get a verdict that matched the
+commit. `b7e-watch` (just above) can say a run finished green; nothing said which tree
+it was green *on*.
+
+```
+b7e-gated                 this worktree's most recent gate run vs the working tree now
+b7e-gated --run <id>      a specific run, from any worktree
+b7e-gated --staged        compare against the INDEX now, instead of the working tree
+b7e-gated --json
+```
+
+One line back: the run, its state, and whether its own recorded tree still matches —
+naming every file responsible when it does not. Exit `0` when it still matches, `1`
+when the tree has moved under it (or nothing can confirm it did not), `2` when the run
+named, or found for this worktree, does not exist.
+
+**The snapshot is `b7e-gate`'s to write, in the same `start` line `b7e-watch` already
+reads.** `lib/gaterun.js`'s `startRun` now stamps `sha` (`HEAD`), `tree` — a single
+commit object standing for every TRACKED file's on-disk content at that moment,
+computed with `git stash create`, which — unlike `git stash push`/`save` — never
+writes `refs/stash`, the ref shared across *every* worktree of this checkout — and
+`untracked`, `{ path: contentHash }` for every file git does not track yet, hashed
+with `git hash-object` rather than just listed by name. `compareToTree`, beside
+`readRun` in the same file, is what asks whether that snapshot still matches: it
+diffs the tracked side by content with `git diff --name-only`, deliberately **not**
+by comparing the commit shas themselves — two `stash create` calls over an
+*unchanged* dirty tree still mint two different commits, because the synthetic "WIP
+on ..." commit carries its own timestamp, and a gate is usually run against a tree
+that already has local edits in it. Comparing shas would report drift on the common
+case, not the rare one. A file touched and then touched back to its original content
+reads as unchanged, the same as `git diff` would say — and an untracked file edited
+while it *stays* untracked is now caught too, which a by-name-only comparison would
+have missed outright, since two untracked snapshots that both simply say "scratch.txt
+is there" read as identical regardless of what changed inside it.
+
+**One known, deliberately accepted false positive**: a file untracked when the run
+started, later `git add`ed and committed with the exact same bytes — the ordinary
+next step right after a gate run this command exists to validate — still reads as
+moved. `tree` only ever captures tracked content, so that path is simply absent from
+it at run-start; once committed, `git diff --name-only` reports it as "added"
+regardless of what the untracked-hash record beside it says. Closing this needs a
+single tree object merging tracked and untracked content (a throwaway index,
+`read-tree` + `update-index --cacheinfo` + `write-tree`), which is real extra
+plumbing with its own wrinkle for `--staged` (untracked content is never staged), and
+was left as a possible follow-up rather than built here — every incident this bead was
+actually filed over was an edit to a file already tracked when the gate started, which
+this reports correctly, and a false "moved" on a file you just wrote is a nudge to
+double-check, not a wrong answer trusted as a right one.
+
+`--staged` changes only what "now" means — the baseline is always the working tree
+`b7e-gate` actually tested, because that is what the suites ran against, but the
+comparison can be pointed at the index instead: "if I commit exactly what's staged,
+does that still match what was gated?"
+
+**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, unlike `b7e-watch`/`b7e-gate`/
+`b7e-blame` just above: it never runs a suite and never calls `runBlame` — the whole
+comparison is `git` reads with no working-tree or index side effects (`stash create`,
+`write-tree`, `hash-object`, `diff --name-only`, `rev-parse`) against a run's own
+already-written record. That is exactly the read-only shape `b7e-def`/`b7e-owes`/
+`b7e-affected`/`b7e-readme` already are, not a lighter version of `npm test`.
 
 
 ### Read another workspace's tracker by name — `b7e-ws`
@@ -20286,6 +20472,117 @@ and must never grow into one, which `test/controls.mjs` enforces by failing any 
 that has swollen into a block quote.
 
 
+## Control to evidence — `refs/beadcause/controls`
+
+The corpus above is a vocabulary. On its own it says which controls exist and which of them
+are the same control under three names; it says nothing about whether any of them has ever
+*happened here*. That gap is the whole of a compliance programme's failure mode: a policy
+document describes a control, an auditor asks for evidence that it operated, and the answer
+has to be produced afterwards from memory and a search of Slack.
+
+So a bead **declares the control it exercises**, and a merge is what promotes that claim
+from forecast to proof. The requirements graph
+[above](#which-requirement-a-change-was-for--refsbeadcauserequirements) is the model and
+the three pieces are the same three:
+
+| | Requirements | Controls |
+|---|---|---|
+| what a bead says | `lib/beadreqs.js` — ids **and candidates** | `lib/beadcontrols.js` — ids only |
+| what a merge writes | `requirements:` on `refs/notes/beadcause` | `controls:` on the same note |
+| the lookup | `refs/beadcause/requirements/<token>` | `refs/beadcause/controls/<framework>` |
+| the denominator | `lib/reqcoverage.js`, and it may be absent | `lib/controlcoverage.js`, and it never is |
+
+**There is no candidate list, and that is the one structural difference.** A requirement
+usually does not exist yet when a bead is filed, so that block has to be able to hold a
+proposal without letting it pass for a fact. A control cannot be proposed: `SOC2.CC6.1` is
+published by the AICPA, the corpus ships with beadcause rather than being loaded from a
+checkout that may be absent, and a "candidate control" would be an invented control with a
+queue behind it. An id that does not resolve is dropped on read and **named** in `dropped`,
+because an agent that is not told writes the same invented id every run and from outside
+that is indistinguishable from the feature not working.
+
+```bash
+beadcause-controls declare beadcause bc-x SOC2.CC6.1 ISO27001.A.8.3   # the forecast
+beadcause-controls show SOC2.CC6.1        # the record, both crosswalks, and every commit
+beadcause-controls files lib/auth.js      # the reverse lookup
+beadcause-controls coverage [--months=N]  # what is unevidenced, forecast-only, or stale
+beadcause-controls rebuild <repo>         # the repair, and the proof
+```
+
+### Forecast and proof are the same edge with a different word on it
+
+`declared` is a bead saying beforehand what it will exercise. `observed-from-diff` is a
+merge having done it. `human-confirmed` is somebody having looked. Nothing anywhere adds
+the first to the other two, and the summary line leads with the number that is actually
+worth something:
+
+```
+9 of 192 controls are proved by a merge (5%) · 3 forecast and not yet proved · 180 with no
+evidence at all · 2 whose newest proof is older than 12 months
+```
+
+A programme that counted intentions as evidence would read as complete on the morning of
+the audit and have nothing to show for any of it. That is why `lib/controlindex.js` keeps
+provenance per edge and only ever lets it get **stronger** on re-record: a merge proving
+what a bead forecast is new evidence, and the forecast arriving afterwards is not.
+
+**The write happens without anyone remembering to.** `notePending` in `lib/advocate.js` is
+the one place in the system that holds a merge commit and a bead at the same moment;
+`lib/controllanding.js` hangs off it, next to the requirements half. A bead that claims no
+control takes none of it and its landing note is byte-for-byte the note it always was.
+
+### Dated by the commit, not by the clock
+
+An edge's `at` is the **committer date of the merge**, which is a smaller decision than it
+looks and the one that makes the review period mean anything. A note carries no date, so a
+`rebuild` that stamped "now" would mark all 192 controls freshly evidenced on the day
+somebody ran a repair — indistinguishable from good news, and the one failure a staleness
+report cannot survive. Taking it from the commit also dates a landing noted late (the sweep
+retries until the merge commit is found, which can be hours) when it merged rather than
+when the daemon noticed. `test/controlindex.mjs` wipes the store, rebuilds from the notes,
+and asserts the clock came back with the same values.
+
+### What the internal-audit instrument actually asks
+
+`GET /api/controls` — and `beadcause-controls coverage`, which is the same four questions
+in a terminal. Each answer is a **list with names in it** rather than a count, because
+"137 unevidenced" is a statistic and `SOC2.CC6.1` is a task:
+
+- **`unevidenced`** — every control with no edge at all;
+- **`forecastOnly`** — a bead said it would, no merge has shown it did;
+- **`stale`** — proved, but the newest proof is older than the review period;
+- **`orphans`** — edges recorded against ids the corpus no longer has, which is the only
+  visible symptom of a control being renamed out from under its evidence.
+
+The four are disjoint **by construction** rather than by care, and that is worth a
+sentence. `lib/controlcoverage.js` computes one row per control with a single `state` on
+it — `controls[]` in the payload — and the four lists are that register filtered. A control
+cannot appear in two of them, and a count cannot disagree with its own list, which is the
+specific way a compliance report stops being believed. `test/controlcoverage.mjs` checks
+the register against the findings rather than the findings against each other.
+
+**The review period is one number and guidance has none.** `REVIEW_MONTHS` is twelve — the
+outside of what "operated throughout the period" means for a Type II observation window or
+an ISO surveillance year — and `?months=` measures a report over a shorter one. A period per
+record would be 192 numbers nobody chose, copied down a column. What actually decides it is
+already on the framework: ISO/IEC 23894, 42005 and 5338 are `certifiable: false`, nobody is
+certified against them, and a staleness finding on one would be a finding against a document
+that makes no claim.
+
+**Unlike `/api/requirements`, this route has no `{ corpus: null }` state.** That corpus
+lives in a checkout most Macs do not have, so its absence is a state to report; this one
+ships with beadcause and is built at import, so an unreadable control corpus is a failed
+build rather than a payload. The route can therefore always state a denominator — which is
+exactly what makes "180 controls have no evidence" a sentence anybody can act on rather
+than a shrug.
+
+**It is a hint and never a gate.** No dispatch, hold or edit path consults the index, and
+that is asserted at the import boundary in `test/controlindex.mjs` for the reason
+`test/requirements.mjs` asserts it of the other one: coverage here is partial by
+construction, so a graph that could withhold work would withhold it because nobody had
+written a block, which is not a compliance failure and is certainly not a reason to hold a
+bead.
+
 ## Landing work — a branch, a pull request, and a merge queue
 
 An advocate opens sessions on ready work. What happens to that work afterwards has now
@@ -21251,6 +21548,25 @@ looks like a detail until it is wrong:
   meant to close it. A `declined` **does** file, with the worker's own words on the child and
   a sentence saying that answer was never re-reviewed — it is context for whoever picks it
   up, not a settlement.
+
+**And the epic's advocate is told, when there is one listening** (bc-9ntye.3,
+`lib/followupnudge.js`, `test/followupnudge.mjs`). Filing the bead is usually the whole
+job: it is open, unclaimed, under a root, which is what `bd ready` means, and the re-entry
+sweep opens an Epic Advocate on the *filed* event without being asked. The case neither
+covers is the likely one — the root's advocate window is **already live**, because a merge
+under an epic is usually an epic that had a worker out. `reenter` will not open a second
+window on a root a session already names, and the live one read `bd children` at the top of
+its turn and will not read them again; so without a word from the queue the follow-up waits
+for that window to end *and* for the three-hour re-entry cooldown. The queue types one
+paragraph into it instead, through the same `messageSession` channel a pause uses. "An
+advocated epic" is `wantsAdvocate` **and** `isEnrolled` — the pair `advocatedRoots` queues
+on, reused rather than re-derived, because `wantsAdvocate` alone is true of every open owned
+root including the many nothing has ever advocated, and typing into one of those is a
+paragraph about somebody else's epic in an ordinary worker's window. No advocate, no root,
+no window, an iTerm that refuses: all of them are silence, and none of them can reach the
+two closes. It also lives in `finish` rather than in `afterMerge`, which is what the bead
+asked for and is a variant of the ordering below — `afterMerge` fires before the follow-up
+exists, so there is no bead id to hand anybody.
 
 Every sentence the merge writes names the bead the findings went to: the report on the pull
 request, the merge-bead's close reason, and the comment on the work bead — and, since
@@ -25087,9 +25403,22 @@ the sentence is read on the screen that produced it. The same guard runs on the 
 proposal path — approving an advocate's block — where there is no screen to warn on, so
 what was dropped is commented on the question instead.
 
+That warning still only fires *after* you press **Create**, and until bc-xl7n.87 the Labels
+field on the card showed `unendorsed` or `superseded-by:bc-x` as an ordinary value in the
+meantime — the card and the bead it was about to become disagreed until the warning
+appeared underneath. So `lib/draft.js` now asks `daemonOnly` the same question while it
+normalises a bead — for an agent's proposal and for a phone's edit alike — and keeps the
+answer as `labelIssues`, keyed by the label. `public/console.js` reads that field rather
+than re-deriving the rule: it greys the label's pill with the reason as its title, and
+prints the same sentence in words under the Labels field, because a `title` is a tooltip
+and this screen is read on a phone. The warning after the create is unchanged — this is the
+earlier notice, not a replacement for it.
+
 `node test/proposedlabels.mjs` (in `npm test`) covers both refusals end to end, and its
 last section is a static read of `isProtectedLabel` itself: add a family there without
 deciding what a create should do with it, and this suite fails naming your label.
+`node test/labelchip.mjs` pins the earlier notice against the same `DAEMON_ONLY` list, so
+the two cannot drift apart either.
 
 ### A card that is already a bead says so — and still files
 
@@ -26066,22 +26395,35 @@ properties:
   `ledger:sophab`, `prs:/Users/x/repo`, `board:` for a thing there is one of — so a write that
   changed one kind of thing can drop every scope of it by prefix without knowing which routes
   cached what. Nothing builds a key out of anything a request carries.
-- **The cold miss is the only wait, and it is bounded.** A key with nothing kept awaits the
-  producer under a ceiling. The ceiling is about the *slot*, not the caller: a refresh that
-  never settles must stop holding the single-flight entry, or that key is never refreshed
-  again for the life of the process and the cache quietly becomes a permanent snapshot.
-- **And running out of ceiling is a different answer from a producer that failed.** The error
-  carries a flag, and `cache.timedOut(err)` is how a caller asks. It matters because the two
-  mean opposite things: a producer that threw means *this source is broken*, while a ceiling
-  means the source is fine, the Mac is busy, and the sweep is still out there and will very
-  likely land into the keep a few seconds later. Two callers act on it, and both of them are
-  behind `/api/queues`: `collectBoard` turns a ceiling into the same `unavailable` sentence a
-  missing `gh` produces, and `gatherMerges` turns it into an `errors[]` row per workspace —
-  because none of them was reached. Both shapes already existed for "this could not be read",
-  and every reader already draws them. That is what stopped `/api/prs` and `/api/queues`
-  answering **HTTP 500** on a busy morning and having the phone file a P0 incident bead about
-  a daemon that was working (bc-19vt). A producer that genuinely failed still throws, and
-  still gets its 500.
+- **The cold miss is the only wait, and it is bounded — by two numbers, not one
+  (bc-19vt.1).** `ceilingMs` is about the *slot*: a refresh that never settles must stop
+  holding the single-flight entry, or that key is never refreshed again for the life of
+  the process and the cache quietly becomes a permanent snapshot — 150 seconds, past
+  `bd`'s own 120-second ceiling with room to spare. `waitMs` is about the *caller*: how
+  long *this* `Promise.race` will wait on that slot before it is told "not yet", and it
+  defaults to `ceilingMs` so a caller that never asked for the split sees no change. A
+  caller with somewhere honest to land "not yet" can pass a much smaller `waitMs` — the
+  slot still holds for the full 150 seconds and the sweep already running still lands
+  into the keep, but the request that arrived on the cold key stops inheriting a wait
+  that was never about it. Before the split, a phone landing on a cold `board:` key on a
+  busy Mac hung for the whole 150 seconds even though the ⟳ behind it was going to answer
+  "unavailable" either way — waiting bought it nothing.
+- **And running out of the wait is a different answer from a producer that failed.** The
+  error carries a flag, and `cache.timedOut(err)` is how a caller asks. It matters because
+  the two mean opposite things: a producer that threw means *this source is broken*, while
+  running out of `waitMs` means the source is fine, the Mac is busy, and the sweep is still
+  out there and will very likely land into the keep a few seconds later. Two callers act on
+  it, and both of them are behind `/api/prs` and `/api/queues`: `collectBoard` turns it into
+  the same `unavailable` sentence a missing `gh` produces, and `gatherMerges` turns it into
+  an `errors[]` row per workspace — because none of them was reached. Both shapes already
+  existed for "this could not be read", and every reader already draws them. That combination
+  — the shape *and*, since bc-19vt.1, the short `waitMs` those two routes actually pass — is
+  what stopped `/api/prs` and `/api/queues` answering **HTTP 500** on a busy morning and
+  having the phone file a P0 incident bead about a daemon that was working, and then stopped
+  the phone hanging for two and a half minutes to get there. An acting call (Ship, Merge)
+  does not pass the short `waitMs` — it needs the real answer rather than a fast one, so it
+  keeps waiting the full 150 seconds exactly as before. A producer that genuinely failed
+  still throws, and still gets its 500.
 
 ### What is on it, and what is deliberately not
 
@@ -28256,6 +28598,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/claims` | `?regions=1` | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding. `regions=1` adds the changed line ranges to each collision and whether they overlap; opt-in, because it is several git spawns per collision and a list of names should not pay for them |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
 | GET | `/api/requirements` | `?id=` | `{corpus, dir, tokens[], totals, orphans[], graph, summary}` — the requirement graph and, first, how much of it is missing: how many of the corpus's requirements have any edge at all, how many of those a merge proved rather than an advocate forecast, and how many edges are recorded against ids the corpus no longer has. `?id=` returns one requirement and its edges instead. `{corpus: null}` and a 200 on an install with no architecture checkout, which is every personal one — a state, not an error. Read-only: promotion into the corpus is a proposal a human applies from `beadcause-requirements promote` |
+| GET | `/api/controls` | `?id=`, `?months=` | `{size, crosswalkEdges, reviewMonths, controls[], frameworks[], totals, unevidenced[], forecastOnly[], stale[], orphans[], graph, summary}` — [the control graph](#control-to-evidence--refsbeadcausecontrols) and, first, everything it cannot evidence: every control with no edge at all, the ones a bead forecast and no merge has proved, the ones whose newest proof is older than the review period, and edges recorded against ids the corpus no longer has. Each is a **list of ids**, not a count — a finding is a task with a name on it, and each is `controls` filtered by `state`, so a count can never disagree with its own list. `controls` is one row per control carrying its title, kind, group, edge count and state — enough to put a name beside every finding without a request per row, and deliberately not the definition, which is a paragraph 192 times over. `?id=` returns one control, both directions of its crosswalk, and its edges; an id the corpus does not have is a `404` rather than an empty answer, because an empty edge list is the ordinary state of almost every control here. `?months=` measures staleness against a shorter observation window. Unlike `/api/requirements` there is no `{corpus: null}` state — `lib/controls.js` ships with beadcause, so a denominator is always available. Read-only |
 | GET | `/api/skills` | `?workspace=` **or** `?space=`, and `&refresh=1` | `{library[], candidates:{counts, rows[]}, audit, checkouts[], untracked[], errors[]}` — [the Skills view](#whether-the-library-is-being-used--the-skills-view): the `b7e-*` commands that exist, every candidate bead with its state, and what the audit agent has read. Scoped exactly as `/api/history` is, with the same three refusals. **`untracked` is part of the answer, not an omission**: four of the six numbers the view was asked for need a record of a skill being called and nothing writes one yet, so each is returned named, explained, and carrying the bead that would measure it. Kept 30s per scope; `refresh=1` forces the read |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 | POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
@@ -32938,6 +33281,82 @@ it, so the set belongs to the service organisation rather than to this daemon. T
 register itself is a controlled document in `lib/documents.js`, on twelve months, and what
 is approved there is the register — by the owner of this repository — and not the fifteen
 documents it tracks.
+
+### Eight risks, each with an owner, a treatment and a date it expires — `lib/risk.js`, `test/risk.mjs`
+
+Clause 6.1.2 of ISO/IEC 42001 does not ask for a list of risks. It asks for a *process*:
+criteria saying what counts as acceptable, written down **before** anything is rated
+against them, then identification, analysis, evaluation, and 6.1.3's treatment — with the
+residual left over accepted by somebody, by name. A register produced without the criteria
+is a page of worries, and an auditor asks for the date on the criteria for exactly that
+reason: criteria written afterwards are criteria drawn around the answers.
+
+Most of the register already existed. A risk here *is* a bead — an owner, work that treats
+it, a date to look again — and the tracker holds those three far better than a file would.
+What it cannot hold is the vocabulary. A likelihood spelled two ways is two likelihoods,
+an "acceptable" that means whatever the reader thinks is not a criterion, and a treatment
+naming a control nobody minted treats nothing. So this module holds the method, the
+criteria and the ratings, and cites the tracker where the work lives.
+
+**The chain is the point: risk → control → evidence.** Every risk names the 42001 controls
+it selects, the modules here that make the treatment real today, and the classes of record
+from [the evidence
+register](#nothing-is-kept-without-saying-for-how-long--libevidencejs-testevidencemjs)
+that an auditor could sample to see it operating. `chain()` returns the three together,
+which is what makes a Statement of Applicability *generatable* rather than argued —
+`bc-eqn1.14` reads `controlsClaimed()` and gets, for every control, the risks that selected
+it and the records that would show it working. An SoA whose justification column was typed
+by hand is one nobody can re-derive next year.
+
+**The ids are 42001's, and that is the opposite direction to the policy set.**
+[`lib/policies.js`](#fifteen-policies-each-with-an-owner-and-a-date-it-expires--libpoliciesjs-testpoliciesmjs)
+names SOC 2 criteria because a policy set answers a SOC 2 request list. Annex A of 42001 is
+a list of *treatments* and exists to be selected from, so a risk names 42001 ids and the
+SOC 2 half is walked off [the
+corpus](#the-control-corpus--six-standards-in-one-closed-vocabulary) by `alsoServes`. That
+is `bc-4r10.8`'s whole argument — CC3 and CC9 read off this one register rather than growing
+a second — and the suite greps the two data blocks to make sure no SOC 2 or 27001 id was
+ever written into them by hand.
+
+**Five likelihoods by five consequences, and the multiplication is a sort key rather than
+arithmetic.** "Possible × major" is not a number of dollars and two risks scoring 12 are
+not interchangeable; what the product buys is a stable order and a threshold that could be
+written down before the ratings were. The scales are anchored on something observable — a
+likelihood on this daemon's year, a consequence on what the consequence *is* — because this
+organisation has no loss figures and a dollar band would be the most quotable false thing in
+the file. Every one of the twenty-five scores lands in exactly one band, and the suite walks
+all of them to prove it.
+
+**Harm to whom is rated separately, which is ISO/IEC 23894's distinctive demand.** A
+register that scores every risk by its cost to the organisation is the register 23894 exists
+to refuse, so `harmTo` is a closed set — the organisation, individuals, society — and a
+consequence to individuals is never netted off against a benefit to the organisation. Most
+of this register is organisational, and the criteria say so out loud rather than leaving the
+imbalance to look like an oversight: it is a development tool run by one person on one Mac,
+and the three things that would change that are named as a re-rating of the whole register
+rather than an entry appended to it.
+
+**Nothing is accepted yet, and that is the honest state.** Seven of the eight residuals sit
+above the acceptable band and every one of them records that its acceptance is still owed,
+with a sentence saying what is missing. Writing an acceptor and a date anyway would produce
+a register that passes every check and is false in the one way that matters — the refusal
+`lib/policies.js` makes about fifteen unwritten policies, and `lib/documents.js` makes about
+an approver nobody asked. The rules bite in both directions: an accepted risk with no
+acceptor is refused, and an owed one carrying a date is refused just as hard. Who may sign
+is the criteria's answer, not the entry's — a medium residual is the AI system owner's, a
+high one top management's, and a critical residual may not be retained at all.
+
+**The eight process steps are 23894's own, and a missing one fails by name.** `METHOD` is
+written as the standard's list rather than as whatever this system happens to do, because
+the value of it is that a step nobody performs shows up as an empty one. Three of the eight
+admit to a gap today: nobody is consulted on a rating because there is nobody to consult,
+identification happened once and nothing prompts it again, and review is on a clock rather
+than on a trigger — nothing re-rates a risk because the code that treated it changed.
+
+The register is itself a controlled document in `lib/documents.js`, on six months rather
+than twelve, because a rating is a statement about a system on the day it was made and this
+one changes daily. What is approved there is the method and the register; not the residuals,
+every one of which separately says its acceptance is owed.
 
 ### Two commitments, owed to NYSERDA and TD until somebody reads the agreement — `lib/commitments.js`, `test/commitments.mjs`
 
