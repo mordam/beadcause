@@ -35140,8 +35140,9 @@ temp directory is what made `test/browse.mjs` flaky through four separate bug re
 
 **The fake browser is waited for, not slept on** — and getting that wrong did not weaken
 the suite, it inverted it. Each scenario used to follow the spawn with a flat 120ms, which
-is a guess that a `node -e` child is up and inside its interval by then. Under
-`b7e-gate --jobs 4` — CI, and every local gate run here — it is not. With nothing writing,
+is a guess that a `node -e` child is up and inside its interval by then. Under several
+concurrent suites — CI ran `b7e-gate --jobs 4` on a 3-core runner at the time, and every
+local gate run here is the same shape — it is not. With nothing writing,
 `killAndRemove` wins on its first attempt against a directory nobody is defending: the
 control that must fail passes, the escalation window is never reached, and the profile that
 "could not be removed" is removed. Three of the file's assertions go red together, and they
