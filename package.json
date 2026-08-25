@@ -55,6 +55,7 @@
     "b7e-counterproof": "bin/b7e-counterproof.js",
     "b7e-def": "bin/b7e-def",
     "b7e-enroll": "bin/b7e-enroll",
+    "b7e-entry": "bin/b7e-entry",
     "b7e-eyeball": "bin/b7e-eyeball",
     "b7e-fixture": "bin/b7e-fixture",
     "b7e-gate": "bin/b7e-gate",
