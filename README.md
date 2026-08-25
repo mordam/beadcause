@@ -366,16 +366,16 @@ images:
   because the close is the one outcome that is not going to happen. The option's id
   rides with the answer and the server re-reads the bead to decide, so editing the
   sentence into your own words does not turn a commission back into a close.
-- **`defers: true` on an option that means *not yet, leave this on the list*.** The
+- **`defers: true` on an option that means *not yet, ask me again later*.** The
   other kind of non-closing answer, and the one `closes: false` used to be pressed
   into service for — wrongly, because it hands the bead to an agent. A deferral hands
   it to nobody: the answer goes on the thread, the bead stays open and unclaimed, and
-  the **card stays in your inbox** with its options, because that is what you just
-  said should happen to it. `defers: true` implies `closes: false` and wins over a
-  `closes: true` written beside it. The button reads *Answer & defer*, the option
-  carries *↪ not yet — the card stays on your list*, and the two-tap arm on a
-  collapsed card says *Tap again — defers bc-7qo*. See [Not yet — the third thing an
-  answer can mean](#not-yet--the-third-thing-an-answer-can-mean).
+  the **card is set aside**, coming back on its own when what it is waiting on has
+  cleared. `defers: true` implies `closes: false` and wins over a `closes: true`
+  written beside it. The button reads *Answer & set aside*, the option carries *↪ not
+  yet — sets this card aside*, and the two-tap arm on a collapsed card says *Tap again
+  — sets bc-7qo aside*. See [Not yet — the third thing an answer can
+  mean](#not-yet--the-third-thing-an-answer-can-mean).
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
 - `docs` are files on the Mac you need to read before answering. Each opens in the
@@ -1512,12 +1512,39 @@ leave the bead open; what differs is who has it next.
 |---|---|---|---|
 | nothing — the ordinary case | closed, reason *Answered via Beadcause* | irrelevant, the bead is closed | nobody, it is settled |
 | `closes: false` — a commission | open, unclaimed | **off** | an agent, via `bd ready` |
-| `defers: true` — a deferral | open, unclaimed | **on** | you, on the same card |
+| `defers: true` — a deferral | open, unclaimed | **on** | nobody, until it comes back to you |
 
 So `defers: true` is `closes: false` **plus** the label staying, and that one write is
 the whole difference: the inbox is `bd human list` and an advocate's queue is `bd ready
 --exclude-label human`, so it is one fact read from two sides rather than two states to
 keep in step. Nothing can open a session on a bead you have deferred.
+
+**And the card is set aside rather than left on the list.** That is bc-y9cof, and it is
+the second half of *not yet* — the half that was missing long enough to look like a bug
+in the first. A deferral used to leave the card in the inbox with all three options
+still on it, so the next sweep drew the identical question with *⟳ You answered this 1m
+ago* above buttons still asking to be tapped, and there was nothing on screen to
+distinguish that from the app having lost the answer. bc-xl7n.132 was answered *leave it
+open until 717 and 719 have merged* and was back a minute later wanting the same
+decision.
+
+The fix is not a fourth ending: it is the one beadcause already had. Answering a
+deferral writes the same record [*Set aside for now*](#setting-a-card-aside-is-not-answering-it)
+writes, so the card leaves the inbox and comes back when its **gate** clears — every
+child closed, blockers gone — or, for a bead with no gate, when somebody comments.
+*Leave it open until both children merge* **is** that gate clearing, so the trigger the
+dismissal picks on its own is the sentence the answer wrote. The toast says which:
+*bc-xl7n.132 set aside — back when its open children clear*.
+
+The `human` label still stays on, and now for a sharper reason than "the card stays on
+your list". A dismissal record only hides a bead the sweep still returns; drop the label
+and the bead leaves the sweep, the record is pruned as stale, and the deferral becomes a
+bead that quietly left the inbox with nothing due to bring it back. The label is what
+makes a deferral **reversible** rather than a disappearance.
+
+Nothing about the bead moves either way, which is why this is still one flag. `defers`
+declares that the option decides nothing and commissions nothing; where the card goes is
+beadcause's business, not the tracker's.
 
 **Why the cost of not having it was more than one wrong tap.** Every advocate writing a
 card had to give *every* option `closes: false`'s opposite as a workaround, and reason
@@ -1535,9 +1562,12 @@ sentence, and counting it would have moved the tax rather than removed it. Tappi
 how you defer; typing still closes.
 
 The thread says which happened, in as many words, because the next reader is an agent
-deciding whether it has just been given work: *Left open and still in the inbox — this
-answer defers the question rather than settling it or commissioning anything.* And a
-deferral does not lift a [superseded marker](#the-duplicate-that-comes-ready-the-moment-its-original-lands), where a
+deciding whether it has just been given work: *Left open, and nothing has been handed to
+an agent — this answer defers the question rather than settling it or commissioning
+anything. The card is set aside in beadcause and comes back on its own when what it is
+waiting on has cleared.* The second sentence is there so an agent that finds this bead
+open with nothing happening reads it as waiting rather than as dropped. And a deferral
+does not lift a [superseded marker](#the-duplicate-that-comes-ready-the-moment-its-original-lands), where a
 commission does — *not yet* is not *these are two jobs*.
 
 **One surface still gets it wrong, and it is not new.** An ntfy action button POSTs the
@@ -1551,7 +1581,11 @@ ordinary close. The phone, the Mirror and the Slack path all send the id and are
 
 `node test/defer.mjs` drives all four endings against one card: the deferral keeps the
 label and the commission beside it still drops it, an ordinary option still closes, and
-a typed answer on a card whose only non-closing option is a deferral still closes.
+a typed answer on a card whose only non-closing option is a deferral still closes. It
+also drives the set-aside: the deferred card leaves `/api/questions`, its record carries
+the bead's gate as the trigger, a gateless bead falls back to the comment count with the
+answer's own comment already counted, and a `bd` that cannot be read leaves the card
+visible rather than hiding it on a promise nothing kept.
 
 ### Setting a card aside is not answering it
 
