@@ -44,12 +44,17 @@ const FINGERPRINT = `(() => {
   ];
   const out = [];
   for (const el of document.querySelectorAll('body *')) {
-    // The card frame is this bundle's furniture, not the app's — see build.mjs. closest()
-    // rather than testing the element's own class, because .ds-note prose's children
-    // (<b>, <code>, <i>) carry no class of their own and were being fingerprinted as app
-    // — see bc-ka5y.28. contrast.mjs already does the ancestor check this way.
-    if (el.closest('[class*="ds-"]')) continue;
+    // The card frame is this bundle's own furniture rather than the app's — see build.mjs.
+    // Two tests and not one, because the \`ds-\` classes are not the same kind of thing.
+    // \`.ds-stack\`/\`.ds-box\`/\`.ds-scale\`/\`.ds-row\`/\`.ds-grid\` wrap the app's markup,
+    // so only the wrapper itself is furniture and its children are the component.
+    // \`.ds-note\` is the card's own prose, so everything inside it is furniture too — its
+    // children (<b>, <code>, <i>) carry no class of their own and were being fingerprinted
+    // as app — see bc-ka5y.28. Testing closest('[class*="ds-"]') for both, as bc-ka5y.28
+    // did, also matches the wrappers' own descendants and skipped the whole app — see
+    // bc-ka5y.38. contrast.mjs already does the ancestor check this way.
     const cls = typeof el.className === 'string' ? el.className.trim() : '';
+    if (/(^|\\s)ds-/.test(cls) || el.closest('.ds-note')) continue;
     const cs = getComputedStyle(el);
     if (cs.display === 'none') continue;
     const r = el.getBoundingClientRect();
@@ -84,6 +89,17 @@ for (const card of cards) {
 page.close();
 server.close();
 console.log('\n');
+
+// An over-broad furniture filter doesn't fail loud — it fingerprints a card as an empty
+// array, which then diffs clean against another empty array forever. See bc-ka5y.38: the
+// [class*="ds-"] filter bc-ka5y.28 landed skipped every wrapper's own descendants too, and
+// this would have caught it the same run it happened rather than three beads later.
+const empty = Object.entries(now).filter(([, rows]) => rows.length === 0).map(([key]) => key);
+if (empty.length) {
+  console.error(`${empty.length} render(s) fingerprinted as empty — the furniture filter is over-skipping:`);
+  for (const key of empty) console.error(`  ${key}`);
+  process.exit(2);
+}
 
 if (save) {
   writeFileSync(FILE, JSON.stringify({ at: new Date().toISOString(), shots: now }));
