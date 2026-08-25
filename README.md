@@ -1871,8 +1871,8 @@ Adam happens to merge that way:
 
 | door | what happens now |
 |---|---|
-| a tap on a delivery card (`lib/server.js`) | merges, notes the merge on the epic, leaves it open, owes nothing |
-| the PR board's Merge (`lib/server.js`) | the same — both go through `finishWorkBead` |
+| a tap on a delivery card (`lib/server.js`) | since bc-xl7n.135 it admits the pull request to the merge queue rather than merging; the epic guard lives on the queue's own merge, in `lib/mergequeue.js`'s `finish`, which calls `finishWorkBead` the moment it actually lands one |
+| the PR board's Merge (`lib/server.js`) | the same, and for the same reason (bc-02ldo) |
 | a worker's own `beadcause-deliver` | merges, prints `landed #n`, comments, and says on stderr that the epic stays open |
 | the sweep that notices a merge on github.com (`lib/landed.js`) | reports the epic as a skip, and writes nothing to it |
 
@@ -10351,18 +10351,18 @@ already ruled it out.
 #### Every way a merge lands sets it off
 
 A sweep is only worth having if it happens whichever way the merge happened, and there are
-four ways into `main` here:
+three ways into `main` here:
 
-- a tap on a **delivery card** in the inbox, which is how work a worker could not merge
-  itself lands;
 - a tap on **Merge** on the [PR board](#where-you-read-it-an-inbox-card-and-the-board);
 - **the merge queue**, which is how most work lands — a worker files a merge-bead as its
-  last act and the daemon merges it (`lib/mergequeue.js`);
+  last act and the daemon merges it (`lib/mergequeue.js`), and since bc-xl7n.135 the
+  delivery card's own Merge tap sends its pull request here too, rather than merging on
+  the spot;
 - the **merge button on github.com**, from a phone browser or from somebody else, which
   nothing here performs and `reconcileLanded` notices afterwards.
 
 A door that does not sweep is not a gap you would ever see; it is a feature that looks
-broken exactly on the day you happened to merge that way. So all four call one function,
+broken exactly on the day you happened to merge that way. So all three call one function,
 and none of them calls `sweepConflicts` where it stands. What they do instead is write down
 that a merge landed, keyed by the repo it landed in — `lib/mergesweep.js` — and the
 daemon's poll cycle sweeps it a few seconds later.
@@ -16608,9 +16608,10 @@ already use.
 
 ### The merge that happened somewhere else
 
-beadcause closes a bead on the two paths where **it** performs the merge: the tap on a
-delivery card, and a worker merging its own pull request. The merge button on github.com
-is neither. A pull request merged there is merged as far as `main` is concerned and
+beadcause closes a bead on the paths where **it** performs the merge: the merge queue —
+which since bc-xl7n.135 is also where the tap on a delivery card ends up, rather than
+merging where it stands — and a worker merging its own pull request. The merge button on
+github.com is neither. A pull request merged there is merged as far as `main` is concerned and
 invisible as far as the tracker is concerned, so the bead stays open, stays in
 `bd ready`, and the advocate opens a fresh session on work that is already in `main`.
 
@@ -21608,10 +21609,11 @@ Nine things follow, and they are the whole of the change:
   **`QUEUED-`**, which is true when it is written, and the queue writes **`DONE-`** over
   it in `finish` — the same function that closes both beads because GitHub says the pull
   request merged. Nothing infers the merge: the one thing that knows is the thing that
-  renames. **Three doors write it**, because three of them can be the first to know a
-  branch landed: the queue's `finish`, the **Merge** tap on a delivery card (a
-  `--review` delivery files no merge-bead, so the queue never sees that pull request),
-  and `reconcileLanded`, for one merged on github.com. Each renames *before* it closes
+  renames. **Two doors write it now**, because two of them can be the first to know a
+  branch landed: the queue's `finish` — which since bc-xl7n.135 is also where a delivery
+  card's own Merge tap ends up, `--review` deliveries included, because the tap admits a
+  merge-bead the queue can see rather than merging beside it — and `reconcileLanded`, for
+  one merged on github.com. Each renames *before* it closes
   the bead — the close is what makes the window reapable, so a rename after it races the
   signal that closes the window. `lib/retitle.js` does the writing, into both stores a
   name lives in — the pid record every guard here reads, and the transcript entry
