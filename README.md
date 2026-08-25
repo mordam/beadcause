@@ -34347,6 +34347,29 @@ it a green run would prove only that the fake browser was easy to kill. And the 
 done inside a sandbox directory the suite makes for itself, because counting the shared
 temp directory is what made `test/browse.mjs` flaky through four separate bug reports.
 
+**The fake browser is waited for, not slept on** — and getting that wrong did not weaken
+the suite, it inverted it. Each scenario used to follow the spawn with a flat 120ms, which
+is a guess that a `node -e` child is up and inside its interval by then. Under
+`b7e-gate --jobs 4` — CI, and every local gate run here — it is not. With nothing writing,
+`killAndRemove` wins on its first attempt against a directory nobody is defending: the
+control that must fail passes, the escalation window is never reached, and the profile that
+"could not be removed" is removed. Three of the file's assertions go red together, and they
+did, on `main`, twice on 2026-08-25 (bc-mrm77, bc-xl7n.136) and in six runs out of six
+under a synthetic 3× CPU load. The wait is now on the evidence: two distinct filenames means
+the child's interval has fired twice, and a stub that never gets there stops the run as a
+broken fixture rather than leaving eleven measurements of nothing.
+
+**And the one scenario that is about impossibility is no longer raced.** `killAndRemove`
+only believes a deletion it can still see 40ms later, and 40ms is well inside what a
+loaded machine deschedules a 2ms writer for — so "a profile it could not remove" was
+removable often enough to go red on its own. The impossibility is structural now: the
+profile sits one level down in a holder with no write bit, so the final `rmdir` is `EACCES`
+however long anything waits. The stubborn child stays, because what is being handed to
+`killAndRemove` is still a live process; it is the directory that changed. A permission bit
+does not stop root, so that too has a control that must fail — an empty probe directory
+inside the same holder, asserted not to go — because without it a root run would report the
+contract regressing rather than the arrangement not holding.
+
 ### A guard that fires must say what it is — `test/monitorwidth.mjs`
 
 The width suite ends by running the real program: `node bin/monitor.js --once` against a
