@@ -205,8 +205,13 @@ const args = process.argv.slice(2);
 if (args[0] === 'export') {
   const worldFile = path.join(dir, 'world.jsonl');
   if (!fs.existsSync(worldFile)) { process.stderr.write('no such workspace\\n'); process.exit(1); }
+  // Not process.exit(0) after the write: this stub is itself spawned over a pipe (by
+  // execFile in lib/bd.js), and a big fixture would otherwise cut at the 64KB pipe
+  // buffer here before it ever reached the CLI under test — the same bug bc-dgx7.45
+  // is about, one level down.
   process.stdout.write(fs.readFileSync(worldFile, 'utf8'));
-  process.exit(0);
+  process.exitCode = 0;
+  return;
 }
 process.stderr.write('stub bd: unexpected verb "' + args[0] + '"\\n');
 process.exit(1);
@@ -221,6 +226,7 @@ const dirFor = (name) => {
 };
 const DELUVIA = { name: 'deluvia', dir: dirFor('deluvia') };
 const BROKEN = { name: 'broken', dir: dirFor('broken') };
+const BULK = { name: 'bulk', dir: dirFor('bulk') };
 
 const row = (id, { status = 'open', labels = [], title = 'a title', deps = [] } = {}) => ({
   id,
@@ -243,9 +249,16 @@ fs.writeFileSync(DELUVIA.dir + '/world.jsonl', world.map((r) => JSON.stringify(r
 // BROKEN has no world.jsonl at all, so the stub's `export` fails — a real `bd export`
 // timing out or losing a Dolt lock looks the same from here: a nonzero exit.
 
+// Enough matching rows that `--json`'s report cannot fit in a 64KB pipe buffer — see the
+// check below.
+const bulkWorld = Array.from({ length: 700 }, (_, i) =>
+  row(`bk-${i}`, { labels: ['gate'], title: `bulk fixture bead number ${i}, padded so each row is not tiny` })
+);
+fs.writeFileSync(BULK.dir + '/world.jsonl', bulkWorld.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
 fs.writeFileSync(
   path.join(configDir, 'config.json'),
-  JSON.stringify({ bdBin: FAKE_BD, actor: 'beadcause-test', workspaces: [DELUVIA, BROKEN] }, null, 2)
+  JSON.stringify({ bdBin: FAKE_BD, actor: 'beadcause-test', workspaces: [DELUVIA, BROKEN, BULK] }, null, 2)
 );
 
 const UNRELATED_CWD = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-census-elsewhere-'));
@@ -324,6 +337,18 @@ check('--count refuses to combine with --json or --values', () => {
   assert.match(a.stderr, /--count cannot be combined/);
   const b = run(['-w', 'deluvia', '--count', '--values', 'gate:']);
   assert.notEqual(b.status, 0);
+});
+
+check('--json through a pipe is whole and parseable, however big the report (bc-dgx7.45)', () => {
+  // `console.log(...)` then `process.exit(0)` used to drop whatever of the write was
+  // still pending: stdout to a **pipe** is async in Node, so this came back cut at
+  // exactly 65536 bytes with status 0 — unparseable JSON, no error, no nonzero exit,
+  // nothing to notice. spawnSync's stdio here is a pipe, which is the case that broke.
+  const { status, stdout } = run(['-w', 'bulk', '--label', 'gate', '--json']);
+  assert.equal(status, 0);
+  assert.ok(stdout.length > 65536, `payload too small to test the pipe buffer: ${stdout.length} bytes`);
+  const rows = stdout.trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(rows.length, 700, `expected all 700 rows, got ${rows.length}`);
 });
 
 check('a failed `bd export` exits 2 rather than printing an empty answer', () => {

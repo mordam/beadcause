@@ -40,6 +40,10 @@ process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 const STATE = path.join(process.env.BEADCAUSE_CONFIG_DIR, 'advocates.json');
+/** The other store: the open register and the parked conversations. */
+const APPSTATE = path.join(process.env.BEADCAUSE_CONFIG_DIR, 'state.json');
+/** Uuid-shaped, because `parkable` refuses anything that is not a session id. */
+const SESSION_ID = 'aaaaaaaa-1111-2222-3333-444444444444';
 
 const { createAdvocates, answersCheckin, checkinFileFor } = await import(LIB('advocate.js'));
 const { checkinMessage } = await import(LIB('session.js'));
@@ -74,6 +78,8 @@ const worker = (id, extra = {}) => ({
  */
 function harness(workers, answers = {}) {
   fs.writeFileSync(STATE, JSON.stringify({ alpha: { workers } }));
+  // A clean park store per case, or one case's record answers the next case's assertion.
+  fs.writeFileSync(APPSTATE, JSON.stringify({ opened: {}, parked: {} }));
   const said = [];
   const events = [];
   const advocates = createAdvocates(cfg, {
@@ -128,6 +134,37 @@ await check('a window that is gone gives its slot back', async () => {
   const { advocates } = harness([worker('al-1')], { 'w0t0p0:al-1': 'missing' });
   await advocates.control('alpha', 'reclaim');
   assert.deepEqual(slots(advocates), [], 'no window, no slot');
+});
+
+/**
+ * And it is the same ending `reconcile` reaches through the other sensor — bc-y7l2m.
+ *
+ * That one waits out `goneMinutes` because its evidence is the *absence* of a row in a
+ * list. This is stronger and needs no clock: iTerm was asked about one window id and said
+ * it addresses nothing. Both mean the window was closed, and the ending decides whether
+ * the conversation is carried into the next window or thrown away — so answering that
+ * question differently depending on which sweep noticed would be an accident of timing.
+ */
+await check('and it ends as `gone`, so the conversation is carried over rather than lost', async () => {
+  const { advocates, events } = harness([worker('al-1', { sessionId: SESSION_ID })], { 'w0t0p0:al-1': 'missing' });
+  await advocates.control('alpha', 'reclaim');
+  const actions = events.filter((e) => e.id === 'al-1').map((e) => e.action);
+  assert.ok(actions.includes('gone'), `expected a gone ending — got ${actions.join(', ')}`);
+  const parked = JSON.parse(fs.readFileSync(APPSTATE, 'utf8')).parked || {};
+  const rec = parked['alpha/al-1'];
+  assert.ok(rec, `expected a park under alpha/al-1 — got ${JSON.stringify(Object.keys(parked))}`);
+  assert.equal(rec.sessionId, SESSION_ID, 'it is the conversation, which is the whole point');
+  assert.equal(rec.ending, 'gone', 'and the ending, which is what decides the turn it wakes up to');
+});
+
+await check('the worker with no window handle is still only reclaimed — nothing was measured', async () => {
+  // `!w.term` frees a slot on the word of whoever pressed the button. No question was
+  // asked of anything, so there is nothing to conclude about the conversation.
+  const { advocates, events } = harness([worker('al-1', { term: null, sessionId: SESSION_ID })]);
+  await advocates.control('alpha', 'reclaim');
+  const actions = events.filter((e) => e.id === 'al-1').map((e) => e.action);
+  assert.ok(actions.includes('reclaimed'), `expected reclaimed — got ${actions.join(', ')}`);
+  assert.ok(!actions.includes('gone'), 'and not the measured ending');
 });
 
 await check('macOS refusing the Apple event does not free anything', async () => {

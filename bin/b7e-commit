@@ -1,0 +1,88 @@
+#!/usr/bin/env node
+/**
+ * b7e-commit — the commit before the delivery, written the house way (`bc-xl7n.119`).
+ *
+ *   b7e-commit -w beadcause -b bc-xl7n.119 <<'EOF'
+ *   Whatever the summary is, however many backticks, $(...) or heredoc terminators
+ *   it needs.
+ *   EOF
+ *
+ *   b7e-commit -w beadcause -b bc-xl7n.119 --file scratchpad/commit-msg.txt --amend
+ *
+ * Five sessions wrote this by hand, four different ways, and it failed three times —
+ * see [lib/commit.js](../lib/commit.js) for the full story. This file is the argv
+ * parsing and the printing, in the shape every other `b7e-*` command uses; `lib/commit.js`
+ * carries the git plumbing and the message shape.
+ *
+ * The body is `--file <path>` or stdin — never a positional argument, exactly the
+ * `b7e-say` idiom, because a shell argument is where the backtick hazard lives.
+ *
+ * Exit codes: `0` committed; `1` refused (wrong branch, empty tree, empty body, bad usage).
+ */
+import fs from 'node:fs';
+import { loadConfig } from '../lib/config.js';
+import { commitAll } from '../lib/commit.js';
+
+function arg(...names) {
+  for (const n of names) {
+    const i = process.argv.indexOf(n);
+    if (i > -1) return process.argv[i + 1];
+  }
+  return undefined;
+}
+const has = (n) => process.argv.includes(n);
+
+const USAGE = [
+  'usage: b7e-commit -w <workspace> -b <bead> [--amend] [--file <path>]',
+  '',
+  'The message body comes from --file <path> or stdin — never a shell argument, so',
+  'backticks, $(...) and a heredoc terminator inside it commit verbatim. The subject',
+  'line is "<bead>: <first line>"; a Co-Authored-By trailer is added unless the body',
+  'already carries one. No --author is ever passed to git.',
+].join('\n');
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const cfg = loadConfig();
+const wsName = arg('-w', '--workspace');
+const beadId = arg('-b', '--bead');
+const file = arg('-f', '--file');
+const amend = has('--amend');
+
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws || !beadId) {
+  console.error(USAGE);
+  console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
+  process.exit(1);
+}
+
+let body;
+try {
+  body = file ? fs.readFileSync(file, 'utf8') : fs.readFileSync(0, 'utf8');
+} catch (err) {
+  console.error(`b7e-commit: could not read the body — ${err.message}`);
+  process.exit(1);
+}
+
+try {
+  const { sha, subject, files } = commitAll(process.cwd(), {
+    beadId,
+    body,
+    amend,
+    cfg,
+    workspaceName: ws.name,
+  });
+  if (files.length) {
+    console.log(files.length === 1 ? '1 file:' : `${files.length} files:`);
+    for (const f of files) console.log(`  ${f}`);
+  } else {
+    console.log('(amend — no new files staged)');
+  }
+  console.log(`${sha.slice(0, 12)} ${subject}`);
+} catch (err) {
+  console.error(`b7e-commit: ${err.message}`);
+  process.exit(1);
+}

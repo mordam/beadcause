@@ -26,10 +26,6 @@
 //     the ledger *first* and make its very first request the narrowed one — one request,
 //     not a wide one corrected afterwards.
 //
-// And the compatibility half, at the end: `/history` is still its own document until
-// bc-khoe.30.7, so the same file has to draw the same list there with its filters in the
-// query string rather than in the hash.
-//
 // Not part of `npm test`: it wants Chrome. It is self-contained otherwise — its own HTTP
 // server over `public/` with a fixture ledger behind `/api/history`, no daemon, no `bd`,
 // no tracker. About fifteen seconds.
@@ -97,7 +93,7 @@ const TYPES = {
 };
 /* The two rewrites in `serveStatic` (lib/server.js) this file needs, written out rather
    than imported: importing the server would bring a config, a tracker and a daemon. */
-const ROUTES = { '/history': '/history.html', '/monitor': '/monitor.html' };
+const ROUTES = { '/monitor': '/monitor.html' };
 
 function serve() {
   const server = http.createServer((req, res) => {
@@ -293,30 +289,6 @@ try {
   check('tapping a chip writes the hash', chip.hash.startsWith('#history?') && /status=closed(%2C|,)open/.test(chip.hash), chip.hash);
   check('and leaves the query string alone', chip.search === '', chip.search);
   check('and the list widened to match', chip.rows === PAGE, String(chip.rows));
-
-  /* --------------------------------------------- /history, still its own document */
-
-  console.log('\nand /history is still a document\n');
-  await s.send('Page.navigate', { url: `http://127.0.0.1:${port}/history?t=x&status=closed` });
-  await sleep(2500);
-  const doc = await evaluate(`(() => {
-    const list = document.getElementById('hist-list');
-    return {
-      rows: list.querySelectorAll('.hist-row').length,
-      allClosed: [...list.querySelectorAll('.hist-row')].every((r) => r.classList.contains('is-closed')),
-      search: location.search,
-      hash: location.hash,
-      panes: Boolean(window.beadcause.panes),
-      scrollers: [...document.querySelectorAll('.pagescroll')].filter((el) => el.offsetParent !== null).length,
-      ownRefresh: Boolean(document.getElementById('hist-refresh')),
-    };
-  })()`);
-  console.log(`    ${JSON.stringify(doc)}\n`);
-
-  check('it draws the ledger on its own', doc.rows === PAGE && doc.allClosed, String(doc.rows));
-  check('with its filters in the query string, where they have always been', doc.search.includes('status=closed') && doc.hash === '', `${doc.search} ${doc.hash}`);
-  check('it has no panes to be one of, and its own ⟳', !doc.panes && doc.ownRefresh);
-  check('and it is still one scroller', doc.scrollers === 1, String(doc.scrollers));
 } catch (err) {
   bad('the run itself', String(err && err.message).slice(0, 500));
 } finally {

@@ -382,6 +382,19 @@ await check('a window still open past the drain is stood down, not left running'
   assert.ok(after.closing.length >= 0);
 });
 
+await check('and it costs the bead an attempt, so the cap can bite on a bead that keeps being torn down', async () => {
+  // bc-7qo.19. A window closed here reached none of its own endings: its worktree is
+  // archived with 0 commits and the bead is no further forward. Left uncharged,
+  // `maxAttemptsPerBead` could not bite on the one loop that needed it — bc-7qo.11 was
+  // opened and stood down 28 times in six hours on 2026-08-21 and 27 of those launches
+  // logged `attempt 1`.
+  await withWindowOpen({ maintenanceAt: startedAgo(50), maintenanceDrainMinutes: 45 });
+  // Off the roster file rather than the card: `attempts` is the advocate's own counter and
+  // `persist` is where it is written down, which is also what survives a daemon restart.
+  const roster = JSON.parse(fs.readFileSync(path.join(process.env.BEADCAUSE_CONFIG_DIR, 'advocates.json'), 'utf8'));
+  assert.equal(roster.alpha?.attempts?.['bc-1'], 1, 'the bead whose window was closed carries a charge');
+});
+
 await check('the tick after that one collects, now the Mac is empty', async () => {
   const { advocates, gcCalls } = await withWindowOpen({
     maintenanceAt: startedAgo(50),
@@ -390,6 +403,32 @@ await check('the tick after that one collects, now the Mac is empty', async () =
   assert.equal(gcCalls.length, 0, 'nothing was collected while a window was still up');
   await advocates.tick();
   assert.equal(gcCalls.length, 1, 'and the next tick, over an empty Mac, collected');
+});
+
+await check('a night that has finished does not start itself again — no second drain, no second collection', async () => {
+  /**
+   * bc-7qo.19, and the reason the incident lasted six hours rather than one tick. The
+   * caller writes the verdict's phase straight back into its own state, so a verdict of
+   * `idle` over a finished night *erased the memory that tonight had happened* — and the
+   * next tick, reading a phase indistinguishable from "nothing has run", drained, forced
+   * every open window down, collected, and did it again. Between each collection and the
+   * next re-entry into `closing` dispatch was live, which is the hole the 28 windows on
+   * bc-7qo.11 went through.
+   *
+   * Driven over a long run of ticks rather than one, because a single verdict cannot show
+   * it: the bug is in what the tick *after* reads.
+   */
+  const { advocates, gcCalls } = await withWindowOpen({
+    maintenanceAt: startedAgo(50),
+    maintenanceDrainMinutes: 45,
+    maintenanceMaxMinutes: 120,
+  });
+  await advocates.tick(); // the Mac is empty now — collect
+  assert.equal(gcCalls.length, 1);
+  for (let i = 0; i < 6; i++) await advocates.tick();
+  assert.equal(gcCalls.length, 1, 'six further ticks inside the same window collected nothing');
+  const card = advocates.snapshot().find((x) => x.workspace === 'alpha');
+  assert.equal(card.maintenance, null, 'and dispatch is not held — the card has stopped mentioning it');
 });
 
 /* ------------------------------------------------------- the argv, for real */

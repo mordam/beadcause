@@ -198,13 +198,14 @@ console.log('\nend to end, against this repo\n');
       lines.join('\n')
     )
   );
-  // test/pagepaths.mjs has no equivalent gate — nothing today asserts every
-  // serveStatic alias has a PAGES/REDIRECTS entry, which is the whole reason this
-  // tool exists. Filed as bc-khoe.27.9 rather than fixed here (five pages, each needing
-  // its own decision about what to assert). If this line goes red because that bead
-  // landed, delete it — it means b7e-owes did what it was for.
-  check('and it finds the known, filed pagepaths.mjs gap', () =>
-    assert.ok(lines.some((l) => l.includes("'/foundations'") && l.includes('test/pagepaths.mjs')), lines.join('\n'))
+  // test/pagepaths.mjs used to have no equivalent gate — nothing asserted every
+  // serveStatic alias had a PAGES/REDIRECTS entry, which is the whole reason this tool
+  // exists. bc-khoe.27.9 filed the five-page gap this used to assert (rather than
+  // fixing it here, since each page needed its own decision about what to assert) and
+  // then closed it: /foundations, /flow, /map, /requirements and /coverage all have
+  // PAGES entries now, so this tool finds nothing left to name in that registry.
+  check('and it finds nothing left in test/pagepaths.mjs, now that bc-khoe.27.9 landed', () =>
+    assert.ok(!lines.some((l) => l.endsWith('(test/pagepaths.mjs)')), lines.join('\n'))
   );
 }
 
