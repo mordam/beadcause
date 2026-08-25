@@ -13,7 +13,7 @@
  * bc-dgx7.59, filed by the session audit (lib/sessionaudit.js) against four sessions
  * (dv-i5v, dv-5i2.44, dv-nnk, dv-6cn) that each hand-rolled a different occurrence count
  * for the same literal and got different numbers back — see README for what each one
- * tried and where they disagreed. lib/corpus.js is the counting, over
+ * tried and where they disagreed. lib/count.js is the counting, over
  * `git grep -I -o -n -z` at a fixed ref; this is the argv parsing and the printing
  * around it, the same split every other b7e-* command in this family already uses.
  *
@@ -24,7 +24,7 @@
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';
 import { resolveSessionDir } from '../lib/session.js';
-import { REPO_ROOT, resolveRef, census } from '../lib/corpus.js';
+import { REPO_ROOT, resolveRef, census } from '../lib/count.js';
 
 const USAGE = `usage: b7e-count [-w <workspace> | --dir <path>] [--ref <ref>] [--regex]
                  [--paths <glob>]... [--exclude <glob>]... [--json] [--per-file]

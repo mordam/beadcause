@@ -19694,7 +19694,7 @@ byte-identical output, `--json` included.
 Read-only in the same construction sense as `b7e-def`/`b7e-owes`/`b7e-affected`/
 `b7e-census` above: the only subprocess it ever spawns is `git grep` at a fixed ref, and
 the only thing it does with `bd`'s own config is read a checkout path out of it — never a
-call to `bd` itself. See `bin/b7e-count` and `lib/corpus.js`.
+call to `bd` itself. See `bin/b7e-count` and `lib/count.js`.
 
 
 ### A disposable git tree with a history and a suite, to point `--dir` at — `b7e-fixture`

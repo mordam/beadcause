@@ -5,10 +5,10 @@
 // pipeline for the same question and got different numbers back; this is that command.
 //
 //   npm test
-//   node test/corpus.mjs
+//   node test/count.mjs
 //
 // Two kinds of proof, the same split test/census.mjs uses for the same reason: the
-// counting in lib/corpus.js is exercised directly against small fabricated git trees
+// counting in lib/count.js is exercised directly against small fabricated git trees
 // (lib/fixture.js) — no `bd`, no workspace config, just `git grep` at a real ref — and
 // then bin/b7e-count is driven as a real subprocess, both with `--dir` (the argv/wiring
 // surface) and once with `-w` against a fabricated workspace config, to prove the
@@ -22,7 +22,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildFixture } from '../lib/fixture.js';
-import { REPO_ROOT, resolveRef, countOccurrences, census } from '../lib/corpus.js';
+import { REPO_ROOT, resolveRef, countOccurrences, census } from '../lib/count.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -42,12 +42,12 @@ const check = (name, fn) => {
 
 console.log('\nb7e-count\n');
 
-/* ============================================================== lib/corpus.js */
+/* ============================================================== lib/count.js */
 
 const file = (p, content) => ({ type: 'file', path: p, content });
 const commit = (message = 'commit') => ({ type: 'commit', message });
 
-// One fixture, reused by every lib/corpus.js check below: three files, a term that
+// One fixture, reused by every lib/count.js check below: three files, a term that
 // appears more than once on the same line (the exact distinction dv-i5v's three
 // pipelines disagreed on — a matching *line* is not the same number as a matching
 // *occurrence*), a term that appears nowhere, and a nested `.claude/worktrees/` path
@@ -179,7 +179,7 @@ check('-w and --dir together are refused', () => {
   assert.match(stderr, /mutually exclusive/);
 });
 
-check('--dir Athira reproduces the lib/corpus.js count through the real CLI', () => {
+check('--dir Athira reproduces the lib/count.js count through the real CLI', () => {
   const { status, stdout } = run(['--dir', fx.dir, '--ref', 'main', 'Athira']);
   assert.equal(status, 0);
   assert.match(stdout, /Athira: 3 occurrences across 2 files/);
@@ -211,7 +211,7 @@ check('multiple patterns in one call are independent, not ORed together', () => 
   assert.match(stdout, /NoSuchLiteralAnywhere: 0 occurrences across 0 files/);
 });
 
-check('--regex is wired through to lib/corpus.js', () => {
+check('--regex is wired through to lib/count.js', () => {
   const { stdout } = run(['--dir', fx.dir, '--ref', 'main', '--regex', 'Ath[ei]ra']);
   assert.match(stdout, /3 occurrences across 2 files/);
 });
