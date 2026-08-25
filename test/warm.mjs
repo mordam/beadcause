@@ -51,6 +51,15 @@
  *    sweep is faster, it is that the quiet case does not sweep — so it is asserted as
  *    *no calls to `bd`*, against a `bd` that records every invocation.
  *
+ * 7. **One path has three writers, and a write to it merges rather than replaces
+ *    (bc-khoe.63).** `keep()` in public/app.js, public/monitor.js's own fetch, and this
+ *    file's own `prewarm` all write `/api/questions?scope=human`, and none can promise
+ *    it holds the newest daemon's copy — a mixed fleet used to mean whichever wrote last
+ *    won outright, silently erasing a field an older payload happened to omit. Checked
+ *    both that a write here now fills gaps instead of leaving them, and that every other
+ *    path keeps the old replace-outright behaviour: those callers write their own
+ *    complete state on every call, and a field missing there really does mean "gone".
+ *
  * The client half runs the real `public/warm.js` in a vm with a hand-made
  * `localStorage`, the way test/queue.mjs runs the real send queue: a rewrite of the
  * logic as a test-only module could pass this while the phone shipped something else.
@@ -223,6 +232,55 @@ await check('fresh() is the floor the background warm reads, not the TTL', () =>
   assert.equal(warm.fresh('/api/prs'), true);
   assert.equal(warm.fresh('/api/prs', warm.PREWARM_FLOOR_MS, Date.now() + warm.PREWARM_FLOOR_MS + 1), false);
   assert.equal(warm.fresh('/api/consoles'), false, 'never fetched is never fresh');
+});
+
+/* --------------------------------- 1b. one path, three writers, one write policy */
+
+const QPATH = '/api/questions?scope=human';
+
+await check('a write missing a field fills the gap from what is already held, not erase it', () => {
+  const { warm } = load();
+  warm.write(QPATH, { questions: [{ key: 'bc-1' }], rootboard: { owned: true, roots: [{ key: 'bc-rfnr' }] } }, 40);
+  // The next writer's daemon predates `rootboard` — its own object has no such key,
+  // exactly what `keep()`'s destructuring produces for a payload that never had it.
+  warm.write(QPATH, { questions: [{ key: 'bc-1' }, { key: 'bc-2' }] }, 41);
+  const hit = warm.read(QPATH);
+  assert.deepEqual(plain(hit.data.rootboard), { owned: true, roots: [{ key: 'bc-rfnr' }] }, 'an older daemon erased a newer one’s board');
+  assert.deepEqual(
+    plain(hit.data.questions),
+    [{ key: 'bc-1' }, { key: 'bc-2' }],
+    'a field the second write DID carry must still win — this is a merge, not "first write wins"'
+  );
+});
+
+await check('a field explicitly sent empty overwrites — only a genuinely absent key is kept', () => {
+  const { warm } = load();
+  warm.write(QPATH, { tickets: [{ key: 'TECH-1' }] }, 1);
+  // An empty array is present, not absent — "every repo answered and nobody has one".
+  warm.write(QPATH, { tickets: [] }, 2);
+  assert.deepEqual(plain(warm.read(QPATH).data.tickets), [], 'an explicit empty list was not allowed to win');
+});
+
+await check('the merge is scoped to this one path — every other write still replaces outright', () => {
+  const { warm } = load();
+  warm.write('/api/prs', { repos: [{ name: 'beadcause' }], board: { open: 3 } });
+  // `/api/prs`'s own writer sends its whole current state on every call; a repo that
+  // dropped out really is gone, and a merge here would let it survive forever.
+  warm.write('/api/prs', { repos: [{ name: 'beadcause' }] });
+  assert.equal(warm.read('/api/prs').data.board, undefined, 'a path outside MERGE_ON_WRITE must not merge');
+});
+
+await check('the seq stamped is the write’s own, even though the merged data is not all this fresh', () => {
+  const { warm } = load();
+  warm.write(QPATH, { rootboard: { owned: true } }, 10);
+  warm.write(QPATH, { questions: [] }, 11);
+  assert.equal(warm.read(QPATH).seq, 11, 'the snapshot is true as of the latest write, one position for the whole payload');
+});
+
+await check('the first write to the path has nothing to merge onto, and just holds what it was given', () => {
+  const { warm } = load();
+  warm.write(QPATH, { questions: [{ key: 'bc-1' }] }, 1);
+  assert.deepEqual(plain(warm.read(QPATH).data), { questions: [{ key: 'bc-1' }] }, 'nothing held yet is a miss, not something to merge against');
 });
 
 /* ------------------------------------------------ 2. a storage that will not have it */
