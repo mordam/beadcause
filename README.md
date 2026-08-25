@@ -13217,6 +13217,21 @@ concurrently, and a report whose predecessor failed is still filed rather than
 inheriting the rejection — one `bd` lock timeout must not silently swallow every later
 occurrence of that error for as long as the daemon runs.
 
+**Per fingerprint means one key each, waited on together — not one key for the pair.**
+The lookup is an OR: `--label-any` asks for both labels and `pickMatch` takes a row
+carrying *either*. The chain key was an AND (`workspace::atLabel::msgLabel`), and the two
+disagree for exactly the reports that share one fingerprint and not the other. Two
+reports from one throw site with different messages got different chain keys, never
+queued behind each other, and both ran the lookup before either `bd create` landed —
+which is the failure the chain exists to prevent, reached by the one door it left open.
+It is measured, not theoretical: bc-jjdar and bc-mwhkg were filed 27 milliseconds apart
+for one root cause, and the advocate opened an unattended window on each. `intake` now
+takes a key per fingerprint and waits on *all* of them, which also has to be both rather
+than a primary with a fallback — a cross-origin `Script error.` has no source at all, so
+`atLabel || msgLabel` would key it on its message while the report it matches keyed on
+its source. The coalescing window is registered under both keys for the same reason, so
+a report matching on either one is counted rather than commented.
+
 **The endpoint never answers 5xx.** It is called *by* error handling: a 500 here is
 itself an error, the page reports the failure of its own reporting, and the loop has no
 floor. A tracker that is down answers `200 {ok: false, reason}` instead, which a
