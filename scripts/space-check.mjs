@@ -162,11 +162,94 @@ try {
   await s.send('Page.navigate', { url: `${BASE}/config?t=${TOKEN}` });
   await sleep(1200);
 
+  /* ------------------------------------------- waiting for the page, not for a clock
+
+     Every press on this card is two requests and a repaint, in that order: `POST
+     /api/space`, then `GET /api/spaces` so the bar's 🔕 comes off the config that was
+     just written, then `render()`. Each press used to be followed by a flat
+     `sleep(700)`, which is a stopwatch bet that all three fit in that window.
+
+     On a loaded Mac they do not, and the way it loses is not a timeout — it is a red
+     that reads as a behaviour bug. `Clear` is only drawn while the space *has* quiet
+     hours, so a press that arrives before the redraw finds no button, clicks nothing,
+     and the assertion under it reports that Clear left the hours in place. The repo
+     row does the same one press later. That is bc-khoe.67: three reds in one run,
+     filed against a commit whose only change to public/config.js was the word
+     "space" → "group".
+
+     So the check waits for the page to stop talking to the daemon instead. `fetch` is
+     counted here, and `quiet()` returns once every request a press started has
+     finished and nothing new has started for ~150ms. It is bounded: a write that
+     genuinely never lands still fails its own assertion, on the same wording, a few
+     seconds later rather than 700ms later.
+
+     Presence is excluded because it is the one request on this page nobody pressed —
+     a 45-second heartbeat that would otherwise be free to satisfy "a request started"
+     on behalf of a click that issued none. */
+  await evalJs(
+    s,
+    `(() => {
+      if (window.__bcReq) return true;
+      const req = { started: 0, done: 0 };
+      window.__bcReq = req;
+      const real = window.fetch;
+      window.fetch = (...a) => {
+        const url = String(typeof a[0] === 'string' ? a[0] : a[0]?.url || '');
+        if (url.includes('/api/presence')) return real(...a);
+        req.started += 1;
+        return real(...a).finally(() => {
+          req.done += 1;
+        });
+      };
+      return true;
+    })()`
+  );
+
+  /** How many requests this page has started so far — the mark a `quiet()` waits past. */
+  const started = async () => (await evalJs(s, `window.__bcReq.started`)) ?? 0;
+
+  /**
+   * Wait until the page has finished what the last action set going.
+   *
+   * `from` is the count taken *before* the action: without it a poll landing in the
+   * moment between the click and its own `fetch` would read "nothing in flight" and
+   * return while the write was still being assembled. Three consecutive quiet polls
+   * rather than one, because a press's second request starts in the microtask after
+   * its first resolves, and a single poll can land in that gap.
+   *
+   * `GRACE` is for the press that is *supposed* to send nothing. Set on a blank channel
+   * field is refused in public/config.js without a request — that refusal is one of the
+   * assertions below — and a wait keyed only on "a request started" would sit out its
+   * whole deadline for it. A handler that does fetch calls it in the same task as the
+   * click, so anything that has sent nothing 600ms later was never going to.
+   */
+  const GRACE = 600;
+  const quiet = async (from, { ms = 12000 } = {}) => {
+    const began = Date.now();
+    const deadline = began + ms;
+    let still = 0;
+    while (Date.now() < deadline) {
+      await sleep(50);
+      const [s1, d1] = await evalJs(s, `[window.__bcReq.started, window.__bcReq.done]`);
+      if (s1 === from && Date.now() - began > GRACE) return true;
+      still = s1 > from && s1 === d1 ? still + 1 : 0;
+      if (still >= 3) return true;
+    }
+    return false;
+  };
+
+  /** Run an expression that talks to the daemon, and wait for the page to catch up. */
+  const settle = async (expr) => {
+    const before = await started();
+    const out = await evalJs(s, expr);
+    await quiet(before);
+    return out;
+  };
+
   // Narrow to a space, through the picker rather than by writing state.json: the card
   // is drawn from `beadcause.space.filter`, so a filter set behind its back would test
   // the card and not the thing that feeds it.
-  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
-  await sleep(900);
+  await settle(`window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
 
   const card = () =>
     evalJs(
@@ -240,11 +323,15 @@ try {
   );
 
   const press = async (selector) => {
+    const before = await started();
     const hit = await evalJs(
       s,
       `(() => { const b = document.querySelector(${JSON.stringify(selector)}); if (!b) return false; b.click(); return true; })()`
     );
-    await sleep(700);
+    // A selector that matched nothing sent nothing, so there is nothing to wait for —
+    // and waiting the deadline out for it would turn one absent button into a
+    // twelve-second pause. The `false` is what the assertion above it should say.
+    if (hit) await quiet(before);
     return hit;
   };
 
@@ -264,11 +351,19 @@ try {
 
   /* ------------------------------------------------------------- quiet days */
 
-  await press('[data-space-day="sat"]');
-  await press('[data-space-day="sun"]');
-  check('a day toggles on and the list accumulates', JSON.stringify(spaceOnDisk('Work').quietDays) === '["sun","sat"]', JSON.stringify(spaceOnDisk('Work').quietDays));
-  await press('[data-space-day="sat"]');
-  check('and toggles back off', JSON.stringify(spaceOnDisk('Work').quietDays) === '["sun"]', JSON.stringify(spaceOnDisk('Work').quietDays));
+  const satOn = await press('[data-space-day="sat"]');
+  const sunOn = await press('[data-space-day="sun"]');
+  check(
+    'a day toggles on and the list accumulates',
+    satOn && sunOn && JSON.stringify(spaceOnDisk('Work').quietDays) === '["sun","sat"]',
+    satOn && sunOn ? JSON.stringify(spaceOnDisk('Work').quietDays) : 'no day button on the card to press'
+  );
+  const satOff = await press('[data-space-day="sat"]');
+  check(
+    'and toggles back off',
+    satOff && JSON.stringify(spaceOnDisk('Work').quietDays) === '["sun"]',
+    satOff ? JSON.stringify(spaceOnDisk('Work').quietDays) : 'no day button on the card to press'
+  );
 
   /* ------------------------------------------------------------ quiet hours */
 
@@ -281,14 +376,21 @@ try {
       to.value = '07:15';
     })()`
   );
-  await press('[data-space-hours="set"]');
+  const setHours = await press('[data-space-hours="set"]');
   check(
     'the clocks write the window they are showing',
-    JSON.stringify(spaceOnDisk('Work').quietHours) === '{"from":"21:30","to":"07:15"}',
-    JSON.stringify(spaceOnDisk('Work').quietHours)
+    setHours && JSON.stringify(spaceOnDisk('Work').quietHours) === '{"from":"21:30","to":"07:15"}',
+    setHours ? JSON.stringify(spaceOnDisk('Work').quietHours) : 'no Set button on the card to press'
   );
-  await press('[data-space-hours="clear"]');
-  check('and Clear removes them outright', !('quietHours' in spaceOnDisk('Work')), JSON.stringify(spaceOnDisk('Work')));
+  // Drawn only while the space *has* quiet hours, so an absent one means the press
+  // above has not been redrawn yet rather than that Clear is broken — which is the
+  // whole of bc-khoe.67, and why this one says which of the two it was.
+  const clearedHours = await press('[data-space-hours="clear"]');
+  check(
+    'and Clear removes them outright',
+    clearedHours && !('quietHours' in spaceOnDisk('Work')),
+    clearedHours ? JSON.stringify(spaceOnDisk('Work')) : 'no Clear button on the card to press'
+  );
 
   /* ------------------------------------------------------------ slack channel */
 
@@ -324,8 +426,7 @@ try {
   /* The claim no static read can make: this page repaints off a stream event rather
      than off your thumb, so a poll landing mid-type must not take the id away. */
   await type('C0HALFTYPED');
-  await evalJs(s, `window.beadcause.config.refresh()`);
-  await sleep(700);
+  await settle(`window.beadcause.config.refresh()`);
   check(
     'and a repaint under your thumb does not take a half-typed one away',
     (await evalJs(s, `document.querySelector('#slack-channel')?.value`)) === 'C0HALFTYPED',
@@ -453,8 +554,7 @@ try {
      The settings above stay the space's, and that is asserted here too: `quietDays` is
      not a property of a repo, and a card that had narrowed *those* would be promising a
      narrowing the config cannot express. */
-  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'alpha' })`);
-  await sleep(700);
+  await settle(`window.beadcause.space.set({ space: 'Work', workspace: 'alpha' })`);
   await open('What alpha resolves to');
   await sleep(300);
   const pinned = await evalJs(
@@ -480,8 +580,7 @@ try {
       `[...document.querySelectorAll('.space-card .space-what')].map((x) => x.textContent).includes('Quiet days')`
     )
   );
-  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
-  await sleep(700);
+  await settle(`window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
   const widened = await evalJs(
     s,
     `[...document.querySelectorAll('.space-repo')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim())`
@@ -601,8 +700,7 @@ try {
      and a retire is exactly this payload — a `workspaces` list with the name gone. The
      daemon reconciles a stale pin on the way out (`reconcileFilter`), so this is the
      window between the two, which is where the phone lives. */
-  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'alpha' })`);
-  await sleep(700);
+  await settle(`window.beadcause.space.set({ space: 'Work', workspace: 'alpha' })`);
   await evalJs(s, `window.beadcause.space.adopt({ workspaces: ['beta'] })`);
   await sleep(400);
   const gone = await facing();
@@ -613,8 +711,7 @@ try {
   );
   await evalJs(s, `window.beadcause.space.adopt({ workspaces: ['alpha', 'beta'] })`);
   await sleep(300);
-  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
-  await sleep(700);
+  await settle(`window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
 
   /* ------------------------------------------------------------ the rest of it */
 
@@ -641,8 +738,7 @@ try {
   if (SHOT) {
     // Back to the space, with both panels open — the picture is of the card, and a shut
     // card is a picture of a heading.
-    await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
-    await sleep(900);
+    await settle(`window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
     await open('Settings');
     await open('What each repo resolves to');
     await sleep(400);
@@ -651,23 +747,35 @@ try {
     console.log(`  ⤷ ${SHOT}`);
   }
 
-  // On `All spaces` there is no one space these would belong to, and the card has to
+  // On `Everything` there is no one group these would belong to, and the card has to
   // say so rather than keep the last one it drew.
-  await evalJs(s, `window.beadcause.space.set({ space: 'all', workspace: 'all' })`);
-  await sleep(700);
+  await settle(`window.beadcause.space.set({ space: 'all', workspace: 'all' })`);
   check(
     'widening to everything takes the card down and says why',
     await evalJs(
       s,
-      `!document.querySelector('.space-card') && /Pick a space/.test(document.querySelector('.space-none')?.textContent || '')`
+      `!document.querySelector('.space-card') && /Pick a group/.test(document.querySelector('.space-none')?.textContent || '')`
     )
   );
 } finally {
   disarmExit();
   close();
-  daemon.kill();
-  if (!KEEP) fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3 });
-  else console.log(`\nkept ${CONFIG_DIR}`);
+  // Through `killAndRemoveSync` rather than `kill()` and an `rmSync` beside it, which is
+  // what this was and which fails the check *after* all 39 assertions have passed.
+  //
+  // `kill()` is not a wait — it returns once the signal is queued — and this daemon keeps
+  // a git repository under its config directory, so the delete on the next line walks a
+  // tree something is still writing into and throws `ENOTEMPTY` on `config/.git`. Nothing
+  // catches it, so a run whose every assertion was green exits 1 on its own teardown.
+  // Watched happening 2026-08-25, and `maxRetries: 3` cannot help: that is `rmSync`'s own
+  // retry of a failed *unlink*, not of a directory being repopulated behind it. Same bug
+  // and same fix as bc-beleq.1 in test/advswitch.mjs; lib/teardown.js is the one copy of
+  // it, it never throws, and this file already imported it for the signal path.
+  if (!KEEP) killAndRemoveSync(daemon, tmp);
+  else {
+    daemon.kill();
+    console.log(`\nkept ${CONFIG_DIR}`);
+  }
 }
 
 const failed = results.filter((r) => !r.ok);

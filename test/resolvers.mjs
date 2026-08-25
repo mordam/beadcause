@@ -38,10 +38,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
 
 // Before lib/session.js is reached through the import below: CONFIG_DIR resolves once, at
@@ -445,6 +447,59 @@ await check('no handle is ever written to disk', async () => {
 
   restart();
   assert.equal(find('beadcause', 243, T0).term, null, 'and it comes back with none');
+});
+
+/**
+ * bc-zjab.12: `node bin/beadcause.js --url` is meant to print exactly one thing on
+ * stdout — the phone URL — because that stdout is command-substituted in
+ * scripts/build-android.sh. The boot announcement above is printed at module load,
+ * before `--url` is even read, so it used to land on the same stream ahead of the
+ * URL on any Mac whose previous daemon left resolver windows behind.
+ *
+ * This is the one case in the suite that has to go through a real subprocess rather
+ * than `restart()`: the announcement only ever runs once, at the module's own load,
+ * and `restart()` (used by every other case above) deliberately does not repeat it —
+ * so the only way to see which stream it actually goes to is to boot a fresh process
+ * with a resolver state already on disk, exactly as the acceptance criteria says.
+ */
+await check('`beadcause.js --url` prints exactly one line to stdout, even with resolver windows restored', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-url-'));
+  try {
+    const configDir = path.join(dir, 'config');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({ baseUrl: 'http://127.0.0.1:4318', token: 'test-token-not-a-secret', workspaces: [], workspaceRoots: [] }, null, 2)
+    );
+    // Exactly the shape `persist()` writes in lib/resolvers.js — a record `restore()`
+    // will accept, so `restoredAtBoot` is truthy and the announcement fires.
+    fs.writeFileSync(
+      path.join(configDir, 'resolvers.json'),
+      JSON.stringify([{ workspace: 'beadcause', number: 496, branch: 'worktree-example', dir: '/repo', at: new Date().toISOString() }])
+    );
+
+    const run = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'beadcause.js'), '--url'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 60000,
+      env: { ...process.env, BEADCAUSE_CONFIG_DIR: configDir },
+    });
+
+    const stdoutLines = (run.stdout || '').split('\n').filter((l) => l.trim() !== '');
+    assert.equal(
+      stdoutLines.length,
+      1,
+      `expected exactly one stdout line, got ${JSON.stringify(stdoutLines)} (status ${run.status}, stderr ${JSON.stringify(run.stderr)})`
+    );
+    assert.match(stdoutLines[0], /^http/, `the one stdout line must be the URL, got ${JSON.stringify(stdoutLines[0])}`);
+    assert.match(
+      run.stderr || '',
+      /\[resolvers\] 1 window restored from the last daemon/,
+      `the boot announcement moved to stderr, got ${JSON.stringify(run.stderr)}`
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 await cleanupTmp(tmp);

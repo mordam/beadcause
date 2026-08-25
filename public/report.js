@@ -44,6 +44,13 @@
 
   - **A fetch the page abandoned.** An `AbortError` is the long poll being torn down,
     which is bookkeeping, not a failure.
+  - **A moment's failure of the long poll.** `/api/poll` is parked almost all of the
+    time, so it is what every momentary loss of the connection lands on — a phone waking,
+    a tailnet reconnecting, an extension that wraps `fetch`. The app recovers on its own
+    and the staleness banner says so meanwhile. A poll that has been failing for *half a
+    minute* with nothing answering in between is reported, because that one never came
+    back — the span rather than the count, because one blip fails every mount on the page
+    at once. See `PARKED`.
   - **Anything at all once the page is going away.** A navigation rejects every fetch in
     flight, so a tap on the tab bar used to be worth one "Failed to fetch" per open
     request. `pagehide` closes the shutter.
@@ -471,6 +478,137 @@
     }
   }
 
+  /* ------------------------------------------------------------------- parked */
+
+  /**
+   * Requests this page holds open by design, and why a moment's failure of one is not news.
+   *
+   * `/api/poll` is public/stream.js's long poll. It parks for twenty-five seconds at a
+   * time, continuously, for the whole life of every open page — so it is the one request
+   * in the app that is nearly always in flight, and therefore the one that *any*
+   * momentary loss of the connection lands on. A phone waking, a tailnet reconnecting, a
+   * Wi-Fi handover, an extension that wraps `fetch` and drops one in passing: none of
+   * those is a bug in this app, and every one of them was a P0 with an advocate on it
+   * inside the hour. That is bc-y8wf — a single occurrence, never repeated in the two
+   * days it stayed open, filed from a stack whose top two frames are a browser
+   * extension's request interceptor.
+   *
+   * **Nothing is lost by staying quiet through a blip**, and that is an argument rather
+   * than a hope. The failure is already visible where a person can act on it: stream.js
+   * retries on a backoff and public/freshness.js raises the staleness banner, so the
+   * screen says so while this file says nothing. And a poll that stays broken is not
+   * silenced — a failure of one that has been failing for `SUSTAINED_MS` with nothing
+   * answering in between is reported, which is precisely the case the blips were
+   * drowning: a proxy that kills long connections, a daemon answering every short
+   * request and no park.
+   *
+   * So a bead about the poll now means something stronger than it used to: the poll had
+   * been failing for half a minute, and nothing had answered on it in that time.
+   *
+   * **What is counted is how long it has been failing, not how many times** — and that
+   * distinction is the whole of the rule rather than a nicety. One blip produces more
+   * than one failure on any page carrying a standby mount: the ordinary mount's failure
+   * runs `arbitrate` in public/stream.js's `finally`, `busy()` is false by then, so every
+   * standby is started on the spot and issues its own `/api/poll` into the same dead
+   * connection milliseconds later. public/index.html is such a page — public/panestage.js
+   * mounts a standby for the panes — and it is the page bc-y8wf was filed from. Counting
+   * occurrences would have called that pair "twice running" and filed the very bead this
+   * exists to stop.
+   *
+   * This is deliberately narrower than `QUIET` above, which also holds `/api/presence`.
+   * The heartbeat is a short request on a timer, out for a few milliseconds at a time; it
+   * is only caught by an outage that a dozen other requests are catching too, and the
+   * echo rule already folds those onto one bead. The poll is the one that is out when
+   * nothing else is.
+   */
+  const PARKED = ['/api/poll'];
+
+  /**
+   * How long a parked path must have been failing, with nothing answering, to be news.
+   *
+   * Derived rather than tuned: a park lasts twenty-five seconds and stream.js waits five
+   * more before its first retry, so half a minute is the shortest stretch in which the
+   * poll has actually had a turn, failed, waited, and had another. Anything shorter is
+   * one interruption seen once or seen four times — a mount and its standbys all falling
+   * into the same dead connection — and every cause named above outlives a single round
+   * trip by seconds, which is exactly why the count of failures says nothing and their
+   * span says everything.
+   */
+  const SUSTAINED_MS = 30 * 1000;
+
+  /**
+   * After which a standing failure is forgotten rather than counted against.
+   *
+   * `strikes` is cleared by an answer, and an answer only arrives if something asked. So
+   * a poll that stops running — a view that stood its mount down, a tab left hidden for
+   * an hour — leaves its last failure standing with nothing to clear it, and the next
+   * failure whenever it comes would otherwise read as half an hour of continuous
+   * failure. A stretch longer than this is not a poll that never came back; it is a poll
+   * that was not being made. The failure that finds one starts the clock again instead
+   * of filing on it.
+   */
+  const FORGET_MS = 3 * 60 * 1000;
+
+  /** When each parked path started failing, with nothing having answered on it since. */
+  const strikes = new Map();
+
+  /**
+   * Whether this parked path has been failing long enough to be worth a bead.
+   *
+   * Asked only from `failed`, and only for a path in `PARKED`: every other path is
+   * reported the first time it fails, exactly as before. The first failure of a stretch
+   * — and any failure so long after the last that the stretch cannot be one outage —
+   * starts the clock and answers no.
+   */
+  function sustained(path, now) {
+    const since = strikes.get(path);
+    if (since === undefined || now - since > FORGET_MS) {
+      strikes.set(path, now);
+      return false;
+    }
+    return now - since >= SUSTAINED_MS;
+  }
+
+  /**
+   * Something answered on this path, so whatever was wrong is over.
+   *
+   * Called for *every* response, whatever its status. A 500 is the daemon failing and is
+   * filed on its own account a few lines down — but it is also proof that the connection
+   * is there, and reachability is the only thing `strikes` counts.
+   */
+  function answered(path) {
+    strikes.delete(path);
+  }
+
+  /**
+   * The page stopped being watched, or started again — either way the stretch is broken.
+   *
+   * A hidden tab is a phone in a pocket: the poll is not running, so nothing can answer,
+   * so a failure from before the screen went off would otherwise still be standing when
+   * it comes back on. That is the phone-waking case by name, and a bead saying "failing
+   * for half a minute" would be true of a clock rather than of the connection. Both
+   * edges clear, because both mean the same thing: what happened before this is not part
+   * of the same stretch.
+   *
+   * What that costs, said plainly: a tab flipped back and forth through a real outage
+   * starts the clock again each time, and the bead arrives later than it would have. It
+   * never arrives never — stream.js keeps retrying and the first undisturbed half-minute
+   * files — and a page nobody is looking at is the one case where a late bead costs
+   * nothing at all.
+   *
+   * On the document where the event is fired, falling back to the window for an
+   * environment that has no document — the reporter runs before anything else on the
+   * page and assumes as little as it can about what is around it.
+   */
+  function standDown() {
+    strikes.clear();
+  }
+  try {
+    (window.document || window).addEventListener('visibilitychange', standDown);
+  } catch {
+    /* an environment without that event is an environment that is never hidden */
+  }
+
   /* -------------------------------------------------------------------- fetch */
 
   /**
@@ -511,8 +649,19 @@
       return out.then(
         (res) => {
           if (counted) settled();
-          // 4xx is the daemon declining on purpose. 5xx is the daemon failing.
-          if (res && res.status >= 500) {
+          // Whatever it says, something answered — which is what clears a parked path's
+          // standing failure. See `PARKED`.
+          answered(where.path);
+          // 4xx is the daemon declining on purpose. 5xx is the daemon failing — except
+          // this one shape of it: bin/router.js sets DRAIN_HEADER on a 503 when the
+          // request it lost was open on a backend it had already retired for a swap, a
+          // new backend already serving. That is not the daemon failing — see
+          // bc-xl7n.134, filed after this exact header-less 502 filed a P0 about a
+          // daemon that was working fine — so it does not file, though `answered` above
+          // still clears any standing failure and the caller's own retry (a poll simply
+          // asking again) is what actually recovers it.
+          const drained = res && res.headers && res.headers.get && res.headers.get('x-beadcause-swap-drain');
+          if (res && res.status >= 500 && !drained) {
             const message = `${where.method} ${where.path} failed — HTTP ${res.status}`;
             if (report('fetch', { message, source: where.path })) remember(`HTTP ${res.status}`, Date.now());
           }
@@ -531,10 +680,17 @@
   function failed(where, err, init) {
     try {
       if (err?.name === 'AbortError' || init?.signal?.aborted) return;
+      const now = Date.now();
+      // A request the page holds open is in flight for almost all of the page's life, so
+      // a moment's failure of it is a blip the app recovers from on its own and says so
+      // on the screen. Half a minute of it, with nothing answering in between, is not —
+      // and it is the span that is counted rather than the failures, because one blip
+      // fails every mount on the page at once. See `PARKED`.
+      if (PARKED.includes(where.path) && !sustained(where.path, now)) return;
       const why = oneLine(err?.message) || String(err?.name || 'the request failed');
       if (report('fetch', { message: `${where.method} ${where.path} failed — ${why}`, source: where.path, stack: err?.stack })) {
         // The caller is about to toast `why` on its own. One incident, one bead.
-        remember(why, Date.now());
+        remember(why, now);
       }
     } catch {
       /* never from here */

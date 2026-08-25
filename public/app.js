@@ -2428,15 +2428,27 @@
    * Worth doing rather than waiting for the next minute's sweep: an act on this screen
    * changes the row it acted on, and a lamp that goes on a minute late is a lamp you press
    * the button again over.
+   *
+   * And back into the warm entry, not only into memory — the same write `loadBoard` makes
+   * at its own sweep. Without this a live correction won by opening or acting on a card
+   * dies with the document: the next warm boot repaints from the held entry, still
+   * carrying whatever `fresh` just corrected. `/api/prs` is `holdOnly` (public/warm.js)
+   * precisely so a `gh` sweep never runs per page load, but this is not that sweep — it is
+   * the one read `ensurePrDetail` already paid for, going where `loadBoard`'s does.
    */
   function adoptBoardRow(fresh) {
+    let found = false;
     for (const repo of state.board?.repos || []) {
       // By the row's own key, which names the repo: matching on the workspace and the number
       // would put a freshly-read `athena-service` #1 into `architecture`'s #1 as well, and
       // both rows would then be drawn from the same read.
       const at = (repo.prs || []).findIndex((p) => p.key === fresh.key);
-      if (at !== -1) repo.prs[at] = fresh;
+      if (at !== -1) {
+        repo.prs[at] = fresh;
+        found = true;
+      }
     }
+    if (found) window.beadcause?.warm?.write?.('/api/prs', state.board);
   }
 
   /**
@@ -6922,10 +6934,11 @@
   }
 
   /**
-   * Every child closed, and the close offered rather than left for you to notice.
+   * The epic is finished, and the close offered rather than left for you to notice.
    *
-   * `advocacy.finished` is lib/finishedepic.js's own fingerprint — that sweep has already
-   * asked the question, on the bead, with a `decision` block and the `human` label. So the
+   * `advocacy.finished` is lib/finishedepic.js's own fingerprint — either of them, since
+   * bc-jvt0.5 gave that sweep a second question — so it has already asked, on the bead,
+   * with a `decision` block and the `human` label. So the
    * only thing owed here is the way *in* to the card it wrote, and that is `p0-answer`:
    * the same one line `p0AnswerHtml` uses, opening the inbox card with its parsed options,
    * its arm-then-confirm and its submit queue rather than a second answer surface.
@@ -6987,9 +7000,11 @@
    *     up right now if something is holding it. **Not a button offering to make a second
    *     one**: the launch would be refused by `/api/bead/advocate`'s own rule, and an offer
    *     whose only outcome is a 409 is worse than no offer at all.
-   *   - **Done** — every child closed and lib/finishedepic.js has already asked. The close
-   *     is offered here rather than left to be noticed in the inbox, and the launch is not:
-   *     there is nothing left under this epic for an advocate to plan.
+   *   - **Done** — lib/finishedepic.js has already asked whether this epic is finished, by
+   *     either of its two questions: every child closed, or (bc-jvt0.5) worked as one job
+   *     with that work in `main`. The close is offered here rather than left to be noticed
+   *     in the inbox, and the launch is not: there is nothing left under this epic for an
+   *     advocate to plan.
    *   - **Nobody on it** — the offer, exactly as it was.
    *
    * The done offer and the advocate line are not exclusive with the two above them, which
@@ -10623,11 +10638,80 @@
     // that reach here come off `/api/poll`, which carries the advocate snapshot, the
     // event log and the presence list as well — none of which this page draws, all of
     // which would be sat in the phone's storage for nothing, and one of which is a list
-    // of devices. What is stored is exactly what would be painted back.
-    const { questions, requests, workspaces, spaces, filter, summary } = data;
+    // of devices.
+    //
+    // **This has to be everything `adopt` treats as "absent means an old server, keep
+    // what's on screen" (bc-khoe.51, bc-khoe.62), not merely everything it draws.** A
+    // warm boot's whole point is that nothing else has run `adopt` yet this document, so
+    // "what's on screen" is the state object's own hard-coded defaults — `rootboard:
+    // {owned: false}` and `me: []` chief among them — and absent silently reads as "this
+    // install has no board" or "this Mac has no `me`" rather than as "ask the daemon".
+    // Leaving one of these out does not fail loud: the field just does not draw until
+    // the next `/api/poll` happens to carry it, which on a quiet tracker is minutes to
+    // hours. `rootboard`, `tickets`, `cancelledTickets`, `strandedCancels`, `trouble`,
+    // `syncTrouble`, `me` and `consoles` are stored for that reason, and a field added to
+    // that list in `adopt` later has to be added here too, or this comment goes stale the
+    // same way the one it replaced did.
+    //
+    // **`me` is the one it was worth stopping to think about rather than just adding.**
+    // `adopt`'s own comment says keeping the last value is what stops a phone behind a
+    // cached service worker from calling your own questions somebody else's — but that is
+    // a description of what an empty `state.me` risks, not of what it does: `addresseeHtml`
+    // draws nothing at all while `state.me` is empty, and `addressedToMe` can only ever
+    // read false against an empty list. So the warm-boot gap this bead found is not a
+    // card misattributed to you — it is a "mine" narrowing with nothing on this Mac to be,
+    // for the frame or two before the next poll fills `state.me` in. Real and worth
+    // closing, and the closing is the same one line as the other seven.
+    //
+    // **`consoles` round-trips cleanly, checked against what the payload actually holds.**
+    // The worry was `dismissedChats` (a plain in-memory `Set`, reset on every new
+    // document) filtering a payload that still carried something dismissed on a different
+    // tab. It does not: the server's own `inboxConsoles()` already excludes anything with
+    // `closedAt` set before this payload is ever built, so a stored `consoles` list is
+    // already "open only" the same way the live fetch is, and an empty `dismissedChats`
+    // on a fresh document has nothing to do but agree with it.
+    //
+    // **Merging onto the held entry, rather than replacing it outright, is settled too —
+    // in `write()` in public/warm.js, not here (bc-khoe.63).** This key has three writers
+    // — this function, public/monitor.js's own `/api/questions` fetch, and the prewarm
+    // loop in public/warm.js — and a merge in this function alone would still be undone
+    // by either of the other two. `write()` merges any write to this one path onto
+    // whatever it already holds, so all three get the guarantee for free and none of them
+    // has to know about the other two.
+    const {
+      questions,
+      requests,
+      workspaces,
+      spaces,
+      filter,
+      summary,
+      rootboard,
+      tickets,
+      cancelledTickets,
+      strandedCancels,
+      trouble,
+      syncTrouble,
+      me,
+      consoles,
+    } = data;
     window.beadcause?.warm?.write?.(
       questionsPath(scope),
-      { questions, requests, workspaces, spaces, filter, summary },
+      {
+        questions,
+        requests,
+        workspaces,
+        spaces,
+        filter,
+        summary,
+        rootboard,
+        tickets,
+        cancelledTickets,
+        strandedCancels,
+        trouble,
+        syncTrouble,
+        me,
+        consoles,
+      },
       Number(data.seq) || 0
     );
   }

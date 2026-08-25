@@ -205,11 +205,22 @@ console.log('\nwhat the strip does about it');
 /**
  * The real /releases script, in a vm, with a fake clock and a scripted `fetch`.
  *
- * The technique is test/spacebar.mjs's: stub the handful of nodes the page reaches for
+ * The technique is test/spacebar.mjs's: stub the handful of nodes the pane reaches for
  * and let the real file run. Two things are specific to this suite — `setTimeout` and
  * `clearTimeout` are captured rather than real, because the assertion *is* about which
  * timers exist; and `/api/poll` is answered by a promise the test holds, because a
  * parked poll is the state the strip is supposed to have no clock in.
+ *
+ * releases.js has run only as a pane since bc-khoe.30.14 and only ever as one since
+ * bc-khoe.30.22 took the page half out — it holds no poll of its own, registers with the
+ * stager, and gets woken by whatever `window.beadcause.stream` fans out. So this harness
+ * plays the two roles that used to be inside the file: `window.beadcause.panes`/`route`/
+ * `stage` so it builds as a pane at all, and — when `stream` is true — the standby mount
+ * public/panestage.js opens for a pane with a `wake` (`stream.follow({..., standby:
+ * true})`), feeding every answer straight to the registered `wake`. `stream: false` is
+ * the page-era `if (stream) …` toggle turned into its pane-era meaning: no
+ * `window.beadcause.stream` at all, which is the state `scheduleDeploys`'s own fallback
+ * exists for.
  */
 function board({ stream = true, deploys = [] } = {}) {
   const timers = new Map();
@@ -235,13 +246,12 @@ function board({ stream = true, deploys = [] } = {}) {
     classList: { add() {}, remove() {}, toggle() {} },
   });
   /* `rel-list` and `rel-observing` rather than the `releases` and `observing` they were
-     until bc-khoe.30.14: that file runs in the shell as well now, where `#releases` is the
-     hash naming the view — an element of that id is a fragment target — and where
-     monitor.html's own `observing` is about to fold into the same document. This map is
-     the page, so the names simply follow the page. */
+     until bc-khoe.30.14: the hash naming this view is `#releases`, an element of that id
+     is a fragment target, and monitor.html's own `observing` folded into this document
+     with bc-khoe.4. No `pulse` — releases.js never reads it, in either shape, since
+     bc-khoe.30.22 (the brand dot is always the shell's). */
   const nodes = new Map([
     ['rel-list', node('rel-list')],
-    ['pulse', node('pulse')],
     ['rel-observing', node('rel-observing')],
     ['refresh', node('refresh')],
   ]);
@@ -258,7 +268,22 @@ function board({ stream = true, deploys = [] } = {}) {
   };
 
   const state = { deploys };
-  const window = { beadcause: {}, scrollY: 0, scrollTo() {} };
+  const stage = { spec: null };
+  let showing = 'releases';
+  const window = {
+    beadcause: {
+      panes: { has: (v) => v === 'releases', showing: () => showing, onShow: () => {} },
+      route: { VIEWS: [], hashFor: (v) => `#${v}` },
+      stage: {
+        register(view, spec) {
+          stage.spec = { view, ...spec };
+          return true;
+        },
+      },
+    },
+    scrollY: 0,
+    scrollTo() {},
+  };
   const ctx = vm.createContext({
     window,
     document: {
@@ -286,10 +311,46 @@ function board({ stream = true, deploys = [] } = {}) {
   if (stream) vm.runInContext(fs.readFileSync(PUBLIC('stream.js'), 'utf8'), ctx, { filename: 'stream.js' });
   vm.runInContext(fs.readFileSync(PUBLIC('releases.js'), 'utf8'), ctx, { filename: 'releases.js' });
 
+  // The stager builds it — releases.js hands `build` to `stage.register` and waits.
+  stage.spec?.build();
+
+  // public/panestage.js's own standby mount, played by hand: it is what opens the one
+  // socket a built pane with a `wake` rides. Not opened at all when `stream` is false —
+  // the state of a phone holding an old service-worker shell, or a proxy with no daemon
+  // behind it, which is exactly what `scheduleDeploys`'s fallback exists for.
+  //
+  // The mount itself carries no `onWake` — the real one in public/panestage.js does not
+  // either. Every wake reaches the pane through `stream.listen` (`fanout`, in that file),
+  // played by hand here too, because that is also the only channel `ended: true` rides
+  // (bc-khoe.30.24): `follow()` tells it when this mount's loop ends with nothing left to
+  // pick it up, and a mount-local `onWake` would never see it.
+  if (stream) {
+    const api = async (path, opts) => {
+      const res = await fetchStub(path, opts);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    };
+    ctx.window.beadcause.stream.listen((events, extra) => {
+      stage.spec?.wake?.({
+        data: extra?.data ?? null,
+        events: events || [],
+        resync: Boolean(extra?.resync),
+        ended: Boolean(extra?.ended),
+      });
+    });
+    const mount = ctx.window.beadcause.stream.follow({
+      api,
+      want: 'presence',
+      cold: true,
+      standby: true,
+    });
+    mount.start();
+  }
+
   return {
     timers,
     asked,
-    /** Answer the oldest parked poll with these events, and let the page act on it. */
+    /** Answer the oldest parked poll with these events, and let the pane act on it. */
     async wake(events) {
       const answer = polls.shift();
       assert.ok(answer, 'nothing was parked on /api/poll');
@@ -298,8 +359,7 @@ function board({ stream = true, deploys = [] } = {}) {
     },
     /**
      * Answer it the way something that keeps no log does — a `seq` that is *absent*
-     * rather than zero. public/stream.js ends the loop on that rather than busy-looping,
-     * which is exactly the case the strip's fallback exists for.
+     * rather than zero. public/stream.js ends the loop on that rather than busy-looping.
      */
     async wakeWithoutALog() {
       const answer = polls.shift();
@@ -335,11 +395,11 @@ const IDLE_MS = 30000;
 const running = [{ id: 'd-1', workspace: 'beadcause', status: 'deploying', restarts: true, requestedAt: new Date().toISOString(), steps: [] }];
 const done = [{ id: 'd-1', workspace: 'beadcause', status: 'ok', restarts: true, requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), steps: [] }];
 
-await check('the acceptance criterion: an idle page holds a socket and sets no timeout', async () => {
+await check('the acceptance criterion: an idle pane holds a socket and sets no timeout', async () => {
   const b = board({ deploys: [] });
   await settle();
   assert.ok(b.asked.some((u) => u.startsWith('/api/deploys')), 'the strip never asked for the journal at all');
-  assert.equal(b.parked(), 1, 'the page is not parked on the log');
+  assert.equal(b.parked(), 1, 'the pane is not parked on the log');
   assert.deepEqual(b.waits(), [], `the strip is still on a clock: ${JSON.stringify(b.waits())}`);
 });
 
@@ -348,7 +408,7 @@ await check('a deploy started somewhere else lights the strip, off the event and
   await settle();
   const before = b.asked.length;
   // The event the daemon now emits at the start. Its `status` is one the runner still
-  // owns, which is how the page knows it is watching rather than reading history.
+  // owns, which is how the pane knows it is watching rather than reading history.
   b.set(running);
   await b.wake([{ type: 'deploy', id: 'd-1', workspace: 'beadcause', status: 'queued', seq: 2 }]);
   assert.ok(
@@ -369,24 +429,37 @@ await check('and puts the clock away again when it settles', async () => {
   assert.deepEqual(b.waits(), [], `the strip kept a clock after the deploy ended: ${JSON.stringify(b.waits())}`);
 });
 
-await check('a page with no stream behind it keeps the idle tick — the failure this must not have', async () => {
+await check('a pane with no stream behind it keeps the idle tick — the failure this must not have', async () => {
   // An older service-worker shell: the HTML cached before stream.js existed, or a proxy
-  // that answers /api/poll and keeps no log. Nothing will ever wake this page.
+  // that answers /api/poll and keeps no log. Nothing will ever wake this pane.
   const b = board({ stream: false, deploys: [] });
   await settle();
-  assert.deepEqual(b.waits(), [IDLE_MS], `a page with nothing to wake it stopped refreshing: ${JSON.stringify(b.waits())}`);
+  assert.deepEqual(b.waits(), [IDLE_MS], `a pane with nothing to wake it stopped refreshing: ${JSON.stringify(b.waits())}`);
 });
 
-await check('a stream that stops following puts the idle tick back', async () => {
+await check('and a stream that stops following mid-session puts the fallback back (bc-khoe.30.24)', async () => {
+  // This is the one claim in the header ("an idle pane holds no timer of its own") that
+  // does not hold once the stream that fed it dies rather than never having existed. It
+  // held on the page: releases.js owned its own `follow()` and passed
+  // `onSettle: () => scheduleDeploys()`, so the moment the mount gave up it put the
+  // fallback timer straight back. On the pane it is public/panestage.js's standby mount
+  // that dies instead, and that file's own `follow()` call passes no `onSettle` at all —
+  // `wake` did run once, on the empty, log-less answer that precedes the break
+  // (public/stream.js's `tell` fires before `if (!told) break`), but at that exact moment
+  // `stream.awake()` was still true, one line before the mount marks itself not
+  // following, so calling `scheduleDeploys()` from inside that `wake` would have armed
+  // nothing.
+  //
+  // The fix is at the stream layer rather than the pane's: `follow()`'s own `finally` now
+  // tells every listener `{events: [], ended: true}` once `awake()` reads false — after,
+  // not before, the mount marks itself not following — and releases.js's `wake` reads
+  // `ended` and re-runs `scheduleDeploys()` from there, by which point `stream.awake()`
+  // is honestly false.
   const b = board({ deploys: [] });
   await settle();
-  assert.deepEqual(b.waits(), [], 'the page did not start out parked and clockless');
+  assert.deepEqual(b.waits(), [], 'the pane did not start out parked and clockless');
   await b.wakeWithoutALog();
-  assert.deepEqual(
-    b.waits(),
-    [IDLE_MS],
-    `the stream ended and the strip did not fall back to its own clock: ${JSON.stringify(b.waits())}`
-  );
+  assert.deepEqual(b.waits(), [IDLE_MS], `the fallback did not come back: ${JSON.stringify(b.waits())}`);
 });
 
 console.log(`\n${ran - failures}/${ran} ok\n`);

@@ -240,6 +240,29 @@
   };
 
   /**
+   * The query currently hung on **one named** view, and `''` for every other hash.
+   *
+   * `parse` answers with a `view` for every input, including a card and a typo, because
+   * there is always a pane to show. A *query*, though, belongs to the view that was named
+   * — so a caller asking "what are my filters" has to know both what the hash says and
+   * whether the hash is talking to it, and both of `public/history.js` and
+   * `public/montabs.js` read `parse(...).query` without that second half. It has never
+   * bitten either of them, because each reads for keys the other does not write and each
+   * is called once as its own pane is built. It would bite the third caller: a repo view
+   * is handed its query on `build`, and a repo view's `build` runs several hundred
+   * milliseconds after `/api/views` answers, which is long after somebody may have moved
+   * to another pane.
+   *
+   * So the check is here rather than at each call site, and it is the whole reason this
+   * exists as a function: `queryFor('deluvia.briefs')` is `''` while the ledger is up, and
+   * `''` for a card hash, and `''` for Home — which has no name for a query to hang on.
+   */
+  const queryFor = (view, hash) => {
+    const at = parse(hash);
+    return at.kind === 'view' && at.view === view ? at.query : '';
+  };
+
+  /**
    * The hash that opens a card, in the exact form the daemon has always minted.
    *
    * `#` + `encodeURIComponent(key)` is `lib/notify.js`'s line, and `lib/slack.js`'s, and
@@ -299,6 +322,41 @@
     return true;
   }
 
+  /**
+   * Admit one more view to the grammar, at runtime (bc — repo views).
+   *
+   * The list above is closed and stays closed: those five are what *this app* is, they
+   * are in the service worker's precache, and a sixth appearing there would be a change
+   * to beadcause. What this adds is a different kind of view — one a **repo** declares
+   * about itself, discovered from `/api/views` after boot and gone again when that repo
+   * leaves the account. See public/viewhost.js and lib/repoviews.js.
+   *
+   * It is the same grammar and not a second one, which is the whole point: a repo view is
+   * named by a hash, falls back to Home when it is not there, carries a query like any
+   * other view, and is opened by `panes.go` through `hashFor`. Nothing downstream learns
+   * a new word.
+   *
+   * **The id is `<workspace>.<id>` and the hash is that id verbatim.** A dot rather than
+   * a slash or a colon, because decision 1 reads both of those as the shape of a bead card
+   * key — a view hashed `#deluvia/studio` would parse as a card, and the pill would open
+   * the inbox looking for a bead that does not exist. A bare word with a dot in it is not
+   * a card under any of the three shapes, and `parse` consults `NAMED` before `isCardKey`
+   * either way, so the two halves still cannot collide.
+   *
+   * Answers whether it took it. A duplicate is refused rather than replacing what is
+   * there — the built-in five are the ones that would be shadowed, and a repo that could
+   * take the name `history` could take the ledger off the row.
+   */
+  function add(view) {
+    const id = String(view?.id || '');
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*\.[a-z0-9][a-z0-9-]*$/.test(id)) return false;
+    if (VIEWS.some((v) => v.id === id)) return false;
+    const paths = (Array.isArray(view?.paths) ? view.paths : []).map((x) => String(x));
+    VIEWS.push({ id, hash: `#${id}`, paths, repo: true });
+    NAMED.set(id, id);
+    return true;
+  }
+
   window.beadcause = window.beadcause || {};
   window.beadcause.route = {
     /** Every view, its hash, and every address that means it. */
@@ -307,8 +365,14 @@
     HOME,
     parse,
     hashFor,
+    /** The query hung on one named view, `''` when the hash is talking to somebody else. */
+    queryFor,
     hashForCard,
     viewOfPath,
     go,
+    /** Admit a repo's own view to the grammar. See `add` above. */
+    add,
+    /** Every view a repo declared, as opposed to the five this app is. */
+    repoViews: () => VIEWS.filter((v) => v.repo).map((v) => v.id),
   };
 })();

@@ -151,6 +151,13 @@
 
   const ALL = 'all';
 
+  /* The last row, and the only one that is not a place to go: it opens the dialog in
+     public/addspace.js instead of moving the filter. A `<select>` cannot carry a button,
+     and this control is already where you go to change which repo you are looking at —
+     so adding one to look at belongs at the bottom of it rather than on a screen you
+     would have to know about. Prefixed so it can never collide with `space:`/`ws:`. */
+  const ADD = 'add:beadspace';
+
   /* The name of the group for repos in no configured space. Not a space — there is no
      entry for it in `spaces` and nothing to set on it (`GET /api/space` 404s on it by
      design) — but it is a value the filter can hold, so it needs a name in one place.
@@ -304,7 +311,7 @@
   el.innerHTML = `<div class="spacepick">
       <span class="spacepick-shown" id="space-shown" aria-hidden="true"></span>
       <span class="spacepick-caret" aria-hidden="true">▾</span>
-      <select id="space-pick" aria-label="Which space to show — everything outside it is hidden"></select>
+      <select id="space-pick" aria-label="Which group or bead-space to show — everything outside it is hidden"></select>
     </div>`;
   /* Directly after the brand, not at the end of the bar. It used to be a row of its own so
      the order of the bar's children did not matter; on a shared row it does — /monitor
@@ -415,7 +422,13 @@
     if (window.beadcause?.editMode?.frozen?.()) return void thawFirst();
     const now = valueOf(state.filter);
     held = false;
-    const rows = [option(ALL, 'All spaces', now === ALL)];
+    /* "Everything", not "All spaces", and the two words are not a tidy-up. The rows below
+       are *groups* holding *bead-spaces*, so "all spaces" now names one of the two levels
+       and means both — the exact confusion the three words were separated to end. It is
+       also what `label()` has always answered here, so the bar and the row it is selected
+       in finally say the same thing. Ten characters either way, which is what
+       `scripts/topbar-check.mjs` measures the bar against. */
+    const rows = [option(ALL, 'Everything', now === ALL)];
 
     for (const s of state.spaces) {
       // The synthetic group is drawn once, below, and not here. `summarise()` emits a
@@ -476,6 +489,13 @@
       rows.push('</optgroup>');
     }
 
+    /* The one row that is not a place to go, and the last one whatever is above it.
+       Outside every optgroup so it reads as an action rather than as a repo in the final
+       group, and never `selected` — `option()` only sets `held` for a row drawn as the
+       selection, so this one cannot be mistaken for the pin the block above is looking
+       for, and the change handler puts the selection straight back. */
+    rows.push(option(ADD, '＋ Add a bead-space', false));
+
     // Assigned only when it has actually changed. Pages republish on every poll and on
     // every filter tap — and rebuilding a `<select>` under an open native dropdown, on
     // a phone, is a wheel that shuts itself. Compared against what we last wrote rather
@@ -518,10 +538,12 @@
     // dropdown open. The control is the select's accessible name either way.
     if (sel.title !== label()) sel.title = label();
 
-    // One repo and one space is not a choice. Drawn from the configured list rather
-    // than from what has questions in it, so the bar does not appear and disappear as
-    // the day goes.
-    el.hidden = !state.known || state.workspaces.length < 2;
+    // One repo and one space used to be no choice at all, and the bar hid itself for it.
+    // It is a choice now: the last row adds a second repo, and the install with one — or
+    // with none, which is what a fresh Mac has — is exactly the one that needs it. Hiding
+    // it there left the only way to add a tracker on the machine you were trying not to
+    // have to sit at. So the bar waits for the first payload and nothing else.
+    el.hidden = !state.known;
     el.classList.toggle('narrowed', valueOf(state.filter) !== ALL);
   }
 
@@ -612,7 +634,24 @@
       });
   }
 
-  sel.addEventListener('change', () => set(filterOf(sel.value)));
+  sel.addEventListener('change', () => {
+    /* The add row is an action, not a place. Repaint first — that puts the `<select>`
+       back on whatever is actually selected, so a cancelled dialog leaves the bar saying
+       what it said before the tap, and a dialog that succeeds is followed by a `reload()`
+       that redraws it from the server anyway. */
+    if (sel.value === ADD) {
+      // A repaint is enough, and only since bc-ka5y.32: `paint()` assigns `sel.value`
+      // itself now, so it puts the control back on whatever is actually selected. It
+      // could not before — the rebuild is guarded on the markup, and picking a row moves
+      // the DOM's selection without changing a character of it, so the bar would have sat
+      // on "＋ Add a bead-space" as though it were a repo. That fix and this row are the
+      // same mechanism: a value that moved without a `change` we honoured.
+      paint();
+      window.beadcause?.addSpace?.open?.();
+      return;
+    }
+    set(filterOf(sel.value));
+  });
 
   /* --------------------------------------------------------------- coming in */
 
@@ -670,12 +709,12 @@
    * the reply lands *after* the page has published what it is showing, and one poll
    * behind it.
    */
-  async function load() {
+  async function load({ weak = true } = {}) {
     if (!token) return;
     try {
       const res = await fetch('/api/spaces', { headers: { 'x-beadcause-token': token } });
       if (!res.ok) return;
-      adopt(await res.json(), { weak: true });
+      adopt(await res.json(), { weak });
     } catch {
       /* No bar rather than a wrong one. The page's own error handling has the network. */
     }
@@ -705,6 +744,16 @@
     },
     set,
     adopt,
+    /**
+     * Redraw from the server, strongly.
+     *
+     * For the one caller that has just *changed* what the server serves — the add dialog
+     * (public/addspace.js). `load()` adopts weakly, which is right for a fetch racing a
+     * page's own first render and wrong here: a page that has already published its
+     * workspace list owns that field, and a weak adopt would leave the bead-space that
+     * was added a second ago off the picker until the next poll.
+     */
+    reload: () => load({ weak: false }),
     /** Is a write of ours still in flight? A poll must not adopt a filter over it. */
     writing: () => writes > 0,
   };

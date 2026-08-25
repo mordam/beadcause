@@ -183,6 +183,11 @@
    * the presence list, the workspace names all ride every wake — and a fan-out that dropped
    * it would have been a channel every pane had to go and re-fetch behind. Second rather
    * than folded into one object so the listener that predates it is untouched.
+   *
+   * `extra.ended` is the third thing it can carry (bc-khoe.30.24): `events: []` with
+   * `ended: true` is not an answer at all, it is `follow()` saying its last follower just
+   * left with nobody to replace it — the one case a listener could otherwise mistake for
+   * "nothing happened" rather than "nothing is listening any more".
    */
   function tell(events, extra) {
     for (const fn of listeners) {
@@ -379,6 +384,18 @@
           // still trying at all, which is the difference between a warning and an alarm.
           window.beadcause?.fresh?.trying?.(true);
         }
+        // The page's one park just ended and nothing picked it up — a standby stood down
+        // with no ordinary mount to catch it, a retry about to back off for up to a
+        // minute, an old daemon giving up on `!told` for good (bc-khoe.30.24). `awake()`
+        // already reads false for anyone asking directly; this is for a view that only
+        // asks when told to, because it owns a **fallback timer** of its own — see
+        // public/releases.js's `scheduleDeploys`. Checked after `arbitrate()` on purpose:
+        // a standby that this very call just put back up (or an ordinary mount an
+        // arbitrate elsewhere just started) means the page is still fed, and firing here
+        // would be a false alarm. Told through `tell` rather than a new channel — every
+        // listener already gets `(events, extra)` off an ordinary wake, and an `ended`
+        // extra is the same shape for the wake that never came.
+        if (!awake()) tell([], { ended: true });
       }
     }
 

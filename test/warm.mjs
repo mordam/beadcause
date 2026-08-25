@@ -51,6 +51,15 @@
  *    sweep is faster, it is that the quiet case does not sweep — so it is asserted as
  *    *no calls to `bd`*, against a `bd` that records every invocation.
  *
+ * 7. **One path has three writers, and a write to it merges rather than replaces
+ *    (bc-khoe.63).** `keep()` in public/app.js, public/monitor.js's own fetch, and this
+ *    file's own `prewarm` all write `/api/questions?scope=human`, and none can promise
+ *    it holds the newest daemon's copy — a mixed fleet used to mean whichever wrote last
+ *    won outright, silently erasing a field an older payload happened to omit. Checked
+ *    both that a write here now fills gaps instead of leaving them, and that every other
+ *    path keeps the old replace-outright behaviour: those callers write their own
+ *    complete state on every call, and a field missing there really does mean "gone".
+ *
  * The client half runs the real `public/warm.js` in a vm with a hand-made
  * `localStorage`, the way test/queue.mjs runs the real send queue: a rewrite of the
  * logic as a test-only module could pass this while the phone shipped something else.
@@ -225,6 +234,55 @@ await check('fresh() is the floor the background warm reads, not the TTL', () =>
   assert.equal(warm.fresh('/api/consoles'), false, 'never fetched is never fresh');
 });
 
+/* --------------------------------- 1b. one path, three writers, one write policy */
+
+const QPATH = '/api/questions?scope=human';
+
+await check('a write missing a field fills the gap from what is already held, not erase it', () => {
+  const { warm } = load();
+  warm.write(QPATH, { questions: [{ key: 'bc-1' }], rootboard: { owned: true, roots: [{ key: 'bc-rfnr' }] } }, 40);
+  // The next writer's daemon predates `rootboard` — its own object has no such key,
+  // exactly what `keep()`'s destructuring produces for a payload that never had it.
+  warm.write(QPATH, { questions: [{ key: 'bc-1' }, { key: 'bc-2' }] }, 41);
+  const hit = warm.read(QPATH);
+  assert.deepEqual(plain(hit.data.rootboard), { owned: true, roots: [{ key: 'bc-rfnr' }] }, 'an older daemon erased a newer one’s board');
+  assert.deepEqual(
+    plain(hit.data.questions),
+    [{ key: 'bc-1' }, { key: 'bc-2' }],
+    'a field the second write DID carry must still win — this is a merge, not "first write wins"'
+  );
+});
+
+await check('a field explicitly sent empty overwrites — only a genuinely absent key is kept', () => {
+  const { warm } = load();
+  warm.write(QPATH, { tickets: [{ key: 'TECH-1' }] }, 1);
+  // An empty array is present, not absent — "every repo answered and nobody has one".
+  warm.write(QPATH, { tickets: [] }, 2);
+  assert.deepEqual(plain(warm.read(QPATH).data.tickets), [], 'an explicit empty list was not allowed to win');
+});
+
+await check('the merge is scoped to this one path — every other write still replaces outright', () => {
+  const { warm } = load();
+  warm.write('/api/prs', { repos: [{ name: 'beadcause' }], board: { open: 3 } });
+  // `/api/prs`'s own writer sends its whole current state on every call; a repo that
+  // dropped out really is gone, and a merge here would let it survive forever.
+  warm.write('/api/prs', { repos: [{ name: 'beadcause' }] });
+  assert.equal(warm.read('/api/prs').data.board, undefined, 'a path outside MERGE_ON_WRITE must not merge');
+});
+
+await check('the seq stamped is the write’s own, even though the merged data is not all this fresh', () => {
+  const { warm } = load();
+  warm.write(QPATH, { rootboard: { owned: true } }, 10);
+  warm.write(QPATH, { questions: [] }, 11);
+  assert.equal(warm.read(QPATH).seq, 11, 'the snapshot is true as of the latest write, one position for the whole payload');
+});
+
+await check('the first write to the path has nothing to merge onto, and just holds what it was given', () => {
+  const { warm } = load();
+  warm.write(QPATH, { questions: [{ key: 'bc-1' }] }, 1);
+  assert.deepEqual(plain(warm.read(QPATH).data), { questions: [{ key: 'bc-1' }] }, 'nothing held yet is a miss, not something to merge against');
+});
+
 /* ------------------------------------------------ 2. a storage that will not have it */
 
 await check('a browser that refuses the storage says so, and every call is a safe no-op', () => {
@@ -257,6 +315,32 @@ await check('the oldest entry is the one given up — the one nothing has restam
   assert.equal(warm.read('/api/prs'), null, 'the entry nothing is maintaining is the one to lose');
   assert.ok(warm.read('/api/admin'));
   assert.ok(warm.read('/api/consoles'));
+});
+
+await check('a same-millisecond tie breaks on write order, not on Map enumeration order', () => {
+  // bc-ibt8g.1: `at` is `Date.now()`, millisecond resolution — two writes in the same
+  // tick can tie on it. Pin both entries to the exact same `at` by hand (rather than
+  // hoping two real `Date.now()` calls collide, which is the flaky way to prove this)
+  // and re-insert them into the Map in the OPPOSITE order a naive "whichever `keys()`
+  // yields first" fallback would need to get this right by accident — so this only
+  // passes if `wseq`, not enumeration order, is what `evict` actually reads.
+  const { warm, bag } = load({ quota: 2 });
+  warm.write('/api/prs', { repos: [] }); // written first — lower wseq
+  warm.write('/api/admin', { scopes: [] }); // written second — higher wseq
+  const prsKey = [...bag.keys()].find((k) => k.endsWith('/api/prs'));
+  const adminKey = [...bag.keys()].find((k) => k.endsWith('/api/admin'));
+  const prs = JSON.parse(bag.get(prsKey));
+  const admin = JSON.parse(bag.get(adminKey));
+  const tied = admin.at;
+  prs.at = tied;
+  admin.at = tied;
+  bag.delete(prsKey);
+  bag.delete(adminKey);
+  bag.set(adminKey, JSON.stringify(admin)); // the later write, re-inserted first
+  bag.set(prsKey, JSON.stringify(prs)); // the earlier write, re-inserted second
+  warm.write('/api/consoles', { consoles: [] });
+  assert.equal(warm.read('/api/prs'), null, 'the earlier write (lower wseq) is the one to lose, tie or not');
+  assert.ok(warm.read('/api/admin'), 'the later write survives even though it was re-inserted into the map first');
 });
 
 await check('a full store gives up the inbox last, whatever its age', () => {
@@ -723,7 +807,14 @@ await check('the service worker ships it, or a cached page has no warm layer', (
   const sw = read('public/sw.js');
   assert.ok(sw.includes("'/warm.js'"), 'not in SHELL');
   // The version is what makes the new file and the pages that need it arrive together.
-  assert.ok(/const CACHE = 'beadcause-v(2[3-9]|[3-9]\d)'/.test(sw), 'CACHE was not bumped past v22');
+  // Read as a number and compared, rather than matched against a hand-rolled
+  // alternation of the digits that were plausible when this was written. The four
+  // suites that did it the other way (this one, spacedetails, warm, termdoor) all
+  // spelled a two-digit range and so stopped matching the moment the cache reached
+  // v100 — reporting "CACHE was not bumped" about a version three higher than the one
+  // they were asking for. Every other suite here already captures `(\d+)`.
+  const version = Number(sw.match(/const CACHE = 'beadcause-v(\d+)'/)?.[1]);
+  assert.ok(version > 22, `CACHE was not bumped past v22 — it reads v${version}`);
 });
 
 await check('every pill the row draws is warmed — and three views are deliberately not pills', () => {

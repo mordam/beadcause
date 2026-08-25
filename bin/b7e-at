@@ -1,0 +1,150 @@
+#!/usr/bin/env node
+/**
+ * `b7e-at` — a runnable copy of this repo at any commit, taken away afterwards.
+ *
+ *   b7e-at <ref> -- <command>...    run <command> in a detached worktree at <ref>,
+ *                                   node_modules symlinked and public/vendor linked,
+ *                                   torn down afterward whatever the command's exit code
+ *   b7e-at <ref> --keep             build the tree, print its absolute path, leave it
+ *   b7e-at <ref> --dir <root>       <ref> is resolved and fetched from <root>, not
+ *                                   whichever repo the caller's cwd is in
+ *   b7e-at --list                   every tree this command has left on this Mac
+ *   b7e-at --reap                   tear all of them down
+ *
+ * `bc-dgx7.63` names four sessions that each needed this repo, at some other commit,
+ * runnable — and each built the copy by hand, one leaking three `git worktree`
+ * registrations it then had to `--force`-remove itself, one running `git checkout`
+ * inside its own live locked worktree, one reading a shared main checkout that is
+ * routinely tens of commits stale. `lib/blame.js` already had the answer, hardwired to
+ * `origin/main`; `lib/at.js` is that answer generalised to any ref, and `lib/blame.js`
+ * now calls it too. See lib/at.js for the worktree itself and the registry `--list`/
+ * `--reap` read.
+ *
+ * `<ref>` is anything `git worktree add --detach` accepts — a sha, a branch, a tag, a
+ * merge-base expression (`main...other`, `HEAD~3`). It is resolved against `--dir`'s repo
+ * (or, without `--dir`, the repo the caller's own `cwd` is inside — never this file's own
+ * location, which `lib/foundation.js` always resolves to the main checkout's `bin/`,
+ * whichever worktree actually typed the command).
+ *
+ * Exit codes: with a command, whatever that command itself exited with. Otherwise `0`
+ * (built and printed the path, or listed/reaped with nothing to report), `2` refused —
+ * bad usage, or not run from inside a git repository, `3` building the tree failed (a bad
+ * `ref`, or `git worktree add` itself failing).
+ */
+import path from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { makeAtWorktree, removeAtWorktree, liveTrees, reapTree } from '../lib/at.js';
+
+const USAGE = [
+  'b7e-at <ref> -- <command>...    run <command> in a detached worktree at <ref>',
+  'b7e-at <ref> --keep             build the tree, print its path, leave it',
+  'b7e-at <ref> --dir <root>       resolve/fetch <ref> from <root>, not the cwd\'s repo',
+  'b7e-at --list                   every tree this command has left on this Mac',
+  'b7e-at --reap                   tear all of them down',
+].join('\n');
+
+const rawArgv = process.argv.slice(2);
+const dashDash = rawArgv.indexOf('--');
+const ownArgv = dashDash === -1 ? rawArgv : rawArgv.slice(0, dashDash);
+const command = dashDash === -1 ? null : rawArgv.slice(dashDash + 1);
+
+if (ownArgv.includes('--help') || ownArgv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const has = (f) => ownArgv.includes(f);
+const value = (f) => {
+  const at = ownArgv.indexOf(f);
+  return at === -1 ? null : (ownArgv[at + 1] ?? null);
+};
+
+const KEEP = has('--keep');
+const DIR = value('--dir');
+const positionals = ownArgv.filter((a, i) => !a.startsWith('-') && ownArgv[i - 1] !== '--dir');
+
+/* ------------------------------------------------------------------------- --list */
+
+if (has('--list')) {
+  for (const t of liveTrees()) {
+    console.log(`${t.dir}${t.ref ? ` — ${t.ref}${t.sha ? ` (${t.sha.slice(0, 8)})` : ''}` : ' — (no meta.json)'}${t.root ? ` from ${t.root}` : ''}`);
+  }
+  process.exit(0);
+}
+
+/* ------------------------------------------------------------------------- --reap */
+
+if (has('--reap')) {
+  const trees = liveTrees();
+  for (const t of trees) {
+    reapTree(t);
+    console.log(`reaped ${t.dir}`);
+  }
+  process.exit(0);
+}
+
+/* --------------------------------------------------------------------- the ref */
+
+if (positionals.length !== 1) {
+  console.error(`b7e-at: needs exactly one <ref> (got ${positionals.length})`);
+  console.error(USAGE);
+  process.exit(2);
+}
+const ref = positionals[0];
+
+if (!command && !KEEP) {
+  console.error('b7e-at: give a command (-- <command>...) or --keep — a tree built and torn down at once does nothing');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (command && command.length === 0) {
+  console.error('b7e-at: "--" was given with nothing after it');
+  process.exit(2);
+}
+
+let repoRoot;
+try {
+  repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd: DIR ? path.resolve(DIR) : process.cwd(),
+    encoding: 'utf8',
+    stdio: 'pipe',
+  }).trim();
+} catch {
+  repoRoot = '';
+}
+if (!repoRoot) {
+  console.error(`b7e-at: refusing — ${DIR ? path.resolve(DIR) : process.cwd()} is not inside a git repository`);
+  process.exit(2);
+}
+
+let built;
+try {
+  built = makeAtWorktree(repoRoot, ref, { vendor: true });
+} catch (err) {
+  console.error(`b7e-at: could not build a tree at "${ref}" — ${err.message}`);
+  process.exit(3);
+}
+
+/* ------------------------------------------------------------------- run it */
+
+if (command) {
+  const [cmd, ...args] = command;
+  let res;
+  try {
+    res = spawnSync(cmd, args, { cwd: built.dir, stdio: 'inherit' });
+  } finally {
+    if (!KEEP) removeAtWorktree(repoRoot, built.dir, built.scratchRoot);
+  }
+  if (res.error) {
+    console.error(`b7e-at: could not run "${cmd}" — ${res.error.message}`);
+    process.exit(3);
+  }
+  if (KEEP) console.error(`b7e-at: tree left at ${built.dir} (sha ${built.sha})`);
+  process.exit(res.status ?? (res.signal ? 128 : 1));
+}
+
+/* --------------------------------------------------------- no command, --keep */
+
+console.log(built.dir);
+console.error(`b7e-at: ${ref} resolved to ${built.sha}`);
+process.exit(0);
