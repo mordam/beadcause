@@ -74,6 +74,7 @@ const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 const { hasRootAbove } = await import(LIB('underroot.js'));
 const { fileBeads } = await import(LIB('filing.js'));
 const { Bd, forgetParents } = await import(LIB('bd.js'));
+const { RED_BASE_LABEL } = await import(LIB('redbase.js'));
 
 /* --------------------------------------------------------------------- harness */
 
@@ -118,6 +119,11 @@ const LINES = [
   // label is only safe while it looks at roots alone.
   row('zz-home', { priority: 0, labels: [HOME_LABEL] }),
   row('zz-home.1', { labels: [HOME_LABEL], dependencies: [parentEdge('zz-home.1', 'zz-home')] }),
+  // bc-beleq.2: a red-base hold — a P0 with no parent, so it is its own root — and a
+  // second one hanging under a themed epic, for the "hold is not only ever a bare root"
+  // half of the same bug.
+  row('zz-hold', { priority: 0, labels: [RED_BASE_LABEL] }),
+  row('zz-hold-under', { priority: 0, labels: [RED_BASE_LABEL], dependencies: [parentEdge('zz-hold-under', 'zz-epic')] }),
 ];
 const INDEX = indexFrom(LINES.join('\n'));
 
@@ -134,6 +140,22 @@ await check('and nothing is over a bead nothing decided, or over a closed P0’s
   assert.equal(rootOver(INDEX, 'zz-done.1'), null, 'a closed P0 is not a root, so it is not a home either');
   assert.equal(rootOver(INDEX, 'zz-never-heard-of-it'), null);
   assert.equal(rootOver(INDEX, ''), null);
+});
+
+await check('A RED-BASE HOLD IS NEVER A HOME — bc-beleq.2', () => {
+  // A hold bead is a P0 with no parent, so it is its own root — the exact shape that
+  // parented bc-beleq.1 under bc-beleq (the hold itself) and left the hold unable to
+  // close, because bd refuses to close a bead with open children and `sweepBase` closes
+  // the hold the moment the base is green with no check for any of that.
+  assert.equal(rootOver(INDEX, 'zz-hold'), null, 'a bare hold has no root above it once itself is skipped');
+  // A hold hanging under an epic (unusual, but not impossible) skips past itself too —
+  // "the next root up", not just "give up".
+  assert.equal(rootOver(INDEX, 'zz-hold-under'), 'zz-epic');
+  // And `homeFor` carries it all the way through: no home found over the bare hold falls
+  // through to the unsorted backlog exactly as "nothing above it at all" already does.
+  assert.equal(homeFor(INDEX, { from: 'zz-hold' }).parent, 'zz-pile');
+  assert.notEqual(homeFor(INDEX, { from: 'zz-hold' }).parent, 'zz-hold', 'never a child of the hold it was found from');
+  assert.equal(homeFor(INDEX, { from: 'zz-hold-under' }).parent, 'zz-epic');
 });
 
 /* --------------------------------------------------------------- the backlog P0 */
