@@ -23056,6 +23056,29 @@ out a Dolt lock, a failed `bd export` and bd's hierarchy rules in turn, all wron
 parent link to the bead you were working is the same trail drawn more prominently, and the
 notes say *filed by an agent while working X* either way.
 
+**Except a red-base hold, which is never that root — bc-beleq.2.** "A root counts as
+being above itself" is right for an ordinary work-bearing P0: it closes the same way any
+bead does, by someone deciding the work is finished, and bd's own children-first rule is
+exactly the safety a person would want there too. (An `app-error` P0 is the *other*
+exception, landed alongside this one as bc-mwhkg.2 and for its own reason — `lib/errors.js`
+files it automatically and it closes the moment the error stops being reported, so a
+discovery parented under one is stranded the instant it closes. The two skips are separate
+in `rootOver` and both apply.) A [red-base hold](#when-main-itself-is-red--the-queue-holds-and-something-is-put-on-the-fix)
+is not that — it is a *standing condition*, closed automatically the moment the base is
+green, by `sweepBase`'s own `bd.close(..., { overClaim: true })`, which lifts the claim
+guard and not the children guard. A worker opened on the hold, following this very
+section's own "found more work, file it" instruction, used to land the discovery as the
+hold's child — and the next tick's close was then refused every time, holding every
+branch in the repo behind a base that was already fixed, with nothing louder than a log
+line saying so. `lib/homing.js`'s `rootOver` now skips a hold bead as a candidate home
+the same way it skips a closed one, so a discovery made while working a hold climbs past
+it to whatever real root is above (there usually is none) and falls through to the
+unsorted backlog exactly as "nothing above it at all" already did. And the refusal
+itself, on the rarer path where something does still block the close, is no longer only
+a log line: `sweepBase` now comments it onto the hold bead (`stuckReason` in
+`lib/redbase.js`), so a card that still reads "holding" after the base went green carries
+the reason rather than a green check on GitHub that contradicts it.
+
 **What a refusal says is now what bd said.** `Bd.run` builds its error as `bd <every
 argument> failed in <ws>: <reason>`, and a `create` carries `--description` — so the
 message's first line is the start of the command and the reason is somewhere past the
