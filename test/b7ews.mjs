@@ -55,30 +55,31 @@ const args = process.argv.slice(2);
 const verb = args[0];
 const json = args.includes('--json');
 const die = (m) => { process.stderr.write(m + '\\n'); process.exit(1); };
+// process.exit(0) right after a write here used to be able to drop whatever was still
+// pending, same bug as bin/b7e-ws itself is under test for (bc-dgx7.45) — the if/else
+// chain below is what stands in for the early return process.exit used to give, so a
+// big fixture payload (list --json below) flushes instead of racing process.exit.
 if (verb === 'show') {
   const issue = world.issues[args[1]];
   if (!issue) die('Error fetching ' + args[1] + ': no issue found matching "' + args[1] + '"');
   process.stdout.write(json ? JSON.stringify([issue]) : (issue.id + ' · ' + issue.title + '\\n'));
-  process.exit(0);
-}
-if (verb === 'comments') {
+  process.exitCode = 0;
+} else if (verb === 'comments') {
   process.stdout.write('comments for ' + args[1] + ': none\\n');
-  process.exit(0);
-}
-if (verb === 'list') {
+  process.exitCode = 0;
+} else if (verb === 'list') {
   const rows = Object.values(world.issues);
   process.stdout.write(json ? JSON.stringify(rows) : rows.map((r) => r.id).join('\\n') + '\\n');
-  process.exit(0);
-}
-if (verb === 'ready') {
+  process.exitCode = 0;
+} else if (verb === 'ready') {
   process.stdout.write('ready: none\\n');
-  process.exit(0);
-}
-if (verb === 'search') {
+  process.exitCode = 0;
+} else if (verb === 'search') {
   process.stdout.write('search results for "' + args[1] + '": none\\n');
-  process.exit(0);
+  process.exitCode = 0;
+} else {
+  die('stub bd: unexpected verb "' + verb + '"');
 }
-die('stub bd: unexpected verb "' + verb + '"');
 `,
   { mode: 0o755 }
 );
@@ -92,8 +93,9 @@ const dirFor = (name) => {
 };
 const ALPHA = { name: 'alpha', dir: dirFor('alpha') };
 const BETA = { name: 'beta', dir: dirFor('beta') };
+const GAMMA = { name: 'gamma-big', dir: dirFor('gamma-big') };
 
-const seed = (id, title) => ({ id, title, description: '', status: 'open', issue_type: 'task', priority: 2, labels: [] });
+const seed = (id, title, description = '') => ({ id, title, description, status: 'open', issue_type: 'task', priority: 2, labels: [] });
 
 fs.writeFileSync(
   path.join(ALPHA.dir, 'world.json'),
@@ -103,11 +105,17 @@ fs.writeFileSync(
   path.join(BETA.dir, 'world.json'),
   JSON.stringify({ issues: { 'be-1': seed('be-1', 'Beta bead one') } }, null, 2)
 );
+// A single issue with a caller-sized description — enough to push `list --json` past
+// the 64KB pipe buffer, for the real-pipe proof below.
+fs.writeFileSync(
+  path.join(GAMMA.dir, 'world.json'),
+  JSON.stringify({ issues: { 'ga-1': seed('ga-1', 'Gamma bead one', 'x'.repeat(70000) + 'END') } })
+);
 
 fs.writeFileSync(
   path.join(configDir, 'config.json'),
   JSON.stringify(
-    { bdBin: FAKE_BD, actor: 'beadcause-test', workspaces: [ALPHA, BETA] },
+    { bdBin: FAKE_BD, actor: 'beadcause-test', workspaces: [ALPHA, BETA, GAMMA] },
     null,
     2
   )
@@ -187,6 +195,18 @@ check('--json passes bd\'s own rows through unformatted', () => {
   assert.equal(rows[0].id, 'al-1');
   const call = lastCall();
   assert.ok(call.args.includes('--json'), '--json must reach bd');
+});
+
+check('a caller-sized row survives a real pipe whole (bc-dgx7.53)', () => {
+  // bin/b7e-ws's success path never calls process.exit at all — it falls off the end
+  // after process.stdout.write(out), which is already the fix bc-dgx7.45 applied
+  // elsewhere. This proves that holds for a payload past the 64KB pipe buffer too.
+  const { status, stdout } = run(['-w', 'gamma-big', 'list', '--json']);
+  assert.equal(status, 0);
+  assert.ok(stdout.length > 65536, `payload too small to test the pipe buffer: ${stdout.length} bytes`);
+  const rows = JSON.parse(stdout);
+  assert.equal(rows[0].id, 'ga-1');
+  assert.ok(rows[0].description.endsWith('END'), 'description truncated mid-payload');
 });
 
 check('comments, list and ready and search are all forwarded', () => {
