@@ -8246,7 +8246,9 @@ A repo view is a **view**, not a page in a frame. It joins the same grammar ever
 view is in, so it arrives with:
 
 * **an address** — `/v/<workspace>/<id>`, which hops to `#<workspace>.<id>` exactly the
-  way `/history` hops to `#history`, so a phone's home screen can hold it;
+  way `/history` hops to `#history`, so a phone's home screen can hold it, and an address
+  for **what the view is showing** rather than only for the view (*A view's own state is
+  in the URL*, below);
 * **a pane** — its scroll position survives switching away and back, and it is built once
   and never rebuilt (`public/panes.js`);
 * **a pill**, at the end of the one row of chrome this app has;
@@ -8283,10 +8285,51 @@ window.beadcause.view.define({
 | `space.filter`, `space.onChange(fn)` | what the picker has selected |
 | `esc(s)`, `md(text)` | escape, and sanitised markdown through the app's own two libraries |
 | `asset(rel)`, `note(text, kind)` | another declared file; one line above the board |
+| `query`, `setQuery(q, {push})`, `onQuery(fn)` | the view's own slice of the address |
 
 `build` is called once, when the first payload has landed **or failed to** — never before.
 A view whose `build` had to cope with `data === null` would make every view author write
 the same empty state, and the chrome already draws the waiting and the failure.
+
+### A view's own state is in the URL
+
+A repo view could always be linked *to*. It could not be linked to **at** anything.
+deluvia's Briefs view is the case that made that obvious: which brief is open lived in a
+variable, so sharing the brief you were reading shared the index of briefs, and the back
+button walked out of the view instead of back through it. The Studio board has the same
+shape waiting for it — a gate, a production line, a department.
+
+The slot is the view's own query, the one every other view already had:
+`#deluvia.briefs?b=chapter-one`, and `/v/deluvia/briefs?b=chapter-one` for the form a
+phone's home screen holds or a person pastes. The hop between them was already there —
+the daemon splits its own `?t=` off the front and everything else goes behind the `#`.
+
+```js
+build(ctx) {
+  open(ctx.query.get('b'));                 // what the link that arrived named
+  ctx.onQuery((q) => open(q.get('b')));     // the address moved: the back button
+}
+// on a tap into one brief:
+ctx.setQuery(`b=${encodeURIComponent(slug)}`, { push: true });
+```
+
+Three rules, and each is the shell's to enforce rather than the view's to remember:
+
+* **`query` is only ever yours.** It answers `''` while the hash is naming another pane —
+  which is the state of the world for the several hundred milliseconds between
+  `/api/views` answering and a generator landing. Without that check a view picks up the
+  ledger's filters and opens a brief called `closed`.
+* **`onQuery` means somebody else moved you.** Never your own `setQuery`, and never the
+  deep link that *built* you — at that moment there was no pane to hold a listener, which
+  is why `build` reads `ctx.query` rather than waiting to be told.
+* **A pane that is not on screen may not write the address.** `setQuery` refuses, and
+  answers `false`. Both built-in views that keep state this way make the same refusal for
+  themselves; a repo view's script is in somebody else's checkout, so it is made for it.
+
+`push: true` for a narrowing that is really a *place* — tapping into one brief out of a
+list is somewhere the back button should leave. The default is `replaceState`, because a
+filter chip is not somewhere you go back to and a panel of them would fill the back stack
+with steps between you and the screen you arrived from.
 
 ### What a badly-behaved view can and cannot take down
 
@@ -19032,6 +19075,73 @@ by `merge-advocate` alone, on the argument that "nothing about run the tests is 
 `dispatch`, the one agent this list actually governs, has no branch of its own and no
 suite run to doubt.
 
+### A runnable copy of this repo at any commit, taken away afterwards — `b7e-at`
+
+`bc-dgx7.63` names four sessions (`bc-dgx7.52`, `bc-beleq`, `bc-9ntye.3`, `bc-ogicx.5`)
+that each needed this repo, at some other commit, runnable — and each built the copy a
+different way, two of them unsafe. `bc-dgx7.52` leaked three `git worktree` registrations
+into a `mktemp` scratch dir and had to `git worktree remove --force` them by hand.
+`bc-beleq` used `git archive <sha> | tar -x`, twice, and `rm -rf`'d the results itself
+afterward. `bc-9ntye.3` ran `git checkout` inside its own live, *locked* worktree and
+checked the branch back out when it was done. `bc-ogicx.5` read the shared main checkout
+instead — exactly what `b7e-blame`'s own header above warns is "routinely tens of commits
+stale". `lib/blame.js` already had the answer, hardwired to `origin/main`; this is that
+same worktree-building code, lifted into `lib/at.js` and generalised to take any ref, with
+`lib/blame.js` calling it too.
+
+```
+b7e-at <ref> -- <command>...    run <command> in a detached worktree at <ref>
+b7e-at <ref> --keep             build the tree, print its absolute path, leave it
+b7e-at <ref> --dir <root>       resolve/fetch <ref> from <root>, not the cwd's repo
+b7e-at --list                   every tree this command has left on this Mac
+b7e-at --reap                   tear all of them down
+```
+
+`<ref>` is anything `git worktree add --detach` accepts — a sha, a branch, a tag, a
+merge-base expression. It resolves against `--dir`'s repo, or, without `--dir`, whichever
+repo the caller's own `cwd` is inside — **never** this file's own location: every `b7e-*`
+command actually runs from the *main checkout's* `bin/` (`lib/foundation.js` puts it first
+on `PATH`), so a worktree session that resolved from `import.meta.url` would silently
+build against the wrong tree no matter which worktree actually typed the command, the same
+discipline `b7e-prtree` and `b7e-swbump` already hold.
+
+**With a command, the tree is a detached `git worktree`** — never `EnterWorktree`, which
+claims a lock a sibling session could trip over for a tree nobody is here to edit, and
+never inside `.claude/worktrees/`, so `git worktree list` in a sibling session never shows
+it as a claimable worktree — with `node_modules` symlinked from the source repo's own
+(never copied, the same rule `b7e-worktree` and `scripts/vendor.js` hold elsewhere) and
+`public/vendor` linked the same way, by running the new tree's own `scripts/vendor.js`
+(best-effort: a ref with no such script, or a run that fails, still returns a usable
+tree). The command runs with that tree as its working directory, inheriting stdio, and
+whatever it exits with is what `b7e-at` itself exits with — the tree is removed
+afterward regardless, success, a nonzero exit, or the command being killed outright.
+**Without a command**, `--keep` is required — a tree built and immediately torn down
+does nothing — and the tree's absolute path is printed on stdout, one line, so
+`DIR=$(b7e-at <ref> --keep)` is the whole workflow; everything else goes to stderr.
+
+**`--list`/`--reap` answer the one case a `finally` cannot cover: this process getting
+killed before it gets there.** Every tree carries a `meta.json` sidecar inside its own
+scratch directory, so removing that directory is also what takes it off the list — no
+registry to keep in sync by hand. `--list` prints every tree this command has ever left
+on this Mac, whichever repo or session built it, and nothing when there is none; `--reap`
+tears every one of them down the same way `removeAtWorktree` always has, and is the
+direct answer to the `git worktree list | grep ..., git worktree remove --force` three
+times, `git worktree prune` cleanup `bc-dgx7.52` had to run by hand.
+
+Exit codes: with a command, whatever that command itself exited with. Otherwise `0`
+(built and printed the path, or listed/reaped with nothing to report), `2` refused — bad
+usage, or not run from inside a git repository, `3` building the tree failed (a bad
+`ref`, or `git worktree add` itself failing).
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-blame`/`b7e-worktree`
+reason and the `b7e-call`/`b7e-bound` one together: it creates a real (if detached and
+short-lived) `git worktree` — the same write-shaped step `b7e-blame` is withheld for —
+and, given a command, runs whatever the caller names with whatever arguments the caller
+names, the same "no argv shape to check for reaches a write" `b7e-call` is withheld for.
+`dispatch`, the one agent this list actually governs, has no branch of its own, no ref
+to want a runnable copy of, and no oversight loop past its own single `bd comment` for
+whatever a caller-named command might do.
+
 ### A *workspace repo's* own gate scripts, all of them, with a baseline — `b7e-checks`
 
 `b7e-gate` above runs *this* repo's own `test/*.mjs` — `lib/gate.js`'s `discoverSuites`
@@ -19654,6 +19764,89 @@ comparison is `git` reads with no working-tree or index side effects (`stash cre
 `write-tree`, `hash-object`, `diff --name-only`, `rev-parse`) against a run's own
 already-written record. That is exactly the read-only shape `b7e-def`/`b7e-owes`/
 `b7e-affected`/`b7e-readme` already are, not a lighter version of `npm test`.
+
+
+### Is this suite already known red — whose bead, at what base, and has main fixed it since — `b7e-stillred`
+
+`bc-dgx7.62`, filed by the session audit against six sessions on 2026-08-24
+(`bc-ka5y.22`, `bc-ogicx.5`, `bc-9ntye.3`, `bc-beleq`, `bc-9ntye.5`, `bc-dgx7.52`) that
+each hit the *same* red suite, `test/finishedepic.mjs`, and each spent five to forty
+minutes deciding whose it was, by six different methods, none of them the same: a
+reverted-and-rerun scratchpad script, a re-run against the main checkout (`lib/blame.js`'s
+own header already calls that tree "routinely tens of commits stale"), moving a live
+*locked* worktree's `HEAD` to prove a point and moving it back, `b7e-blame` run against
+*current* `origin/main` after the fix had already landed under it, and three separate
+`bd search` guesses at the tracker — one of which nearly filed a second bead for a bug
+that already had one. Everything needed to answer this was already on disk: `b7e-gate`
+writes one JSONL run record per suite to `.claude/gate-runs` in the main checkout, readable
+by every worktree on this Mac, and the tracker already held the bead. Nobody after the
+session that wrote either one read it.
+
+```
+b7e-stillred <suite>...          suites by path, as b7e-gate names them
+b7e-stillred --from <gate-log>   take the failures out of a b7e-gate run instead
+b7e-stillred --base <ref>        compare against this ref, not the computed merge-base
+b7e-stillred --dir <root>        another tree — this is how it is tested
+b7e-stillred --json              one object per suite instead of the printed report
+```
+
+**Not `b7e-blame` again.** `b7e-blame` (above) answers "is this red on `origin/main`
+*right now*" by actually running the suite there — correct, and priced at a real (if
+detached and short-lived) `git worktree` and a suite run, twice, every time. This answers
+a narrower, cheaper question purely from records: has any `b7e-gate` run on this Mac
+*ever* recorded this suite failing, and has any commit touched its own path on
+`origin/main` since the base that run was taken against. It never runs the suite and
+never builds a worktree — every path through it is a filesystem read of an
+already-written record, a handful of bounded `git` plumbing calls (`rev-parse`,
+`merge-base`, `log -- <path>`), and a `bd search`.
+
+**Four verdicts.** `no-record` — no gate run on this Mac has ever recorded this suite
+failing; nothing to say. `still-red` — it has failed, and no commit has touched its path
+on `origin/main` since the base; nothing here says it is fixed. `fixed-on-main` — it has
+failed, and at least one commit has touched its path on `origin/main` since the base;
+merge `origin/main` rather than re-deriving this by hand. `unclear-base` — it has failed,
+but no base could be resolved at all (a run older than the field below, with no `--base`
+given, whose own recorded commit no longer merge-bases against `origin/main` either).
+Every answer also carries the last recorded failure (worktree, run id, how long ago, at
+which commit), how many runs have failed it, the exact commits found on `origin/main`
+since the base, and the open bead that already names it, if the tracker has one — a `bd
+search` against the suite's own basename, the same word `bc-ka5y.22` searched by hand.
+
+**The base is stamped when the run is taken, not derived from `origin/main`'s current
+tip.** `lib/gaterun.js`'s `startRun` now records `mergeBase` — `HEAD`'s merge-base with
+`origin/main` *as it stood at that moment* — beside the `sha` it already stamped
+(`bc-dgx7.39`), on the same `start` line `b7e-watch` and `b7e-gated` already read. A run
+written before that field existed, or one recorded against a `--dir` fixture with no
+`origin` remote, falls back to re-deriving the same merge-base from the run's own `sha` at
+read time — the answer is identical either way, since a merge-base is a pure function of
+the commit graph and a landed commit never moves. This is the exact trap that caught
+`b7e-blame` on `bc-dgx7.52`: asked after `bc-beleq`'s fix had already landed, it compared
+against `origin/main`'s *then-current* tip and answered "green on main — yours," reading
+as "you introduced this" when the truer story was "main moved past you and fixed it
+independently." Comparing against the base a run was actually taken at, rather than
+whatever `origin/main` has moved to by the time someone asks, is what tells the two apart.
+`--base <ref>` overrides this outright, for a caller who already knows the recorded base
+is wrong (a rebase, a force-push).
+
+**"Fixed" means a commit touched the path, not that the fix is verified.** `git log
+<base>..origin/main -- <suite>` is the whole of the check — every commit on `origin/main`
+since the base that touched the suite's own file. A commit that touches a file without
+fixing it (a rename, a comment) reads the same way; this reports every such commit rather
+than silently deciding among them, so a caller with reason to doubt one still has the
+subject lines in front of it. It is not a re-implementation of `b7e-blame`'s named-check
+comparison — it is a cheaper, coarser first question, and the honest reason it can afford
+to be cheap is that it is answering "does something say this might be fixed," not "prove
+it is."
+
+Exit codes: `0` nothing here needs re-deriving (no suite given has any recorded failure,
+or every one that does already has a fix on `origin/main` since its base); `1` at least
+one suite is recorded red with no fix since its base, or has no base to compare at all;
+`2` refused — bad usage, or no suites to look at.
+
+**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, for the `b7e-gated` reason just above
+rather than the `b7e-gate`/`b7e-watch`/`b7e-blame`/`b7e-triage` one: it never runs a suite
+and never builds a `git worktree`, so it carries none of the "runs the tests" write
+`lib/grants.js` already classifies `Bash(npm test:*)` as.
 
 
 ### Read another workspace's tracker by name — `b7e-ws`

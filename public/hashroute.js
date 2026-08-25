@@ -240,6 +240,29 @@
   };
 
   /**
+   * The query currently hung on **one named** view, and `''` for every other hash.
+   *
+   * `parse` answers with a `view` for every input, including a card and a typo, because
+   * there is always a pane to show. A *query*, though, belongs to the view that was named
+   * — so a caller asking "what are my filters" has to know both what the hash says and
+   * whether the hash is talking to it, and both of `public/history.js` and
+   * `public/montabs.js` read `parse(...).query` without that second half. It has never
+   * bitten either of them, because each reads for keys the other does not write and each
+   * is called once as its own pane is built. It would bite the third caller: a repo view
+   * is handed its query on `build`, and a repo view's `build` runs several hundred
+   * milliseconds after `/api/views` answers, which is long after somebody may have moved
+   * to another pane.
+   *
+   * So the check is here rather than at each call site, and it is the whole reason this
+   * exists as a function: `queryFor('deluvia.briefs')` is `''` while the ledger is up, and
+   * `''` for a card hash, and `''` for Home — which has no name for a query to hang on.
+   */
+  const queryFor = (view, hash) => {
+    const at = parse(hash);
+    return at.kind === 'view' && at.view === view ? at.query : '';
+  };
+
+  /**
    * The hash that opens a card, in the exact form the daemon has always minted.
    *
    * `#` + `encodeURIComponent(key)` is `lib/notify.js`'s line, and `lib/slack.js`'s, and
@@ -342,6 +365,8 @@
     HOME,
     parse,
     hashFor,
+    /** The query hung on one named view, `''` when the hash is talking to somebody else. */
+    queryFor,
     hashForCard,
     viewOfPath,
     go,
