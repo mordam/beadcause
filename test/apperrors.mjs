@@ -497,6 +497,58 @@ await check('three reports of one error at once are still one bead', async () =>
   );
 });
 
+await check('two reports sharing only the source, at once, are still one bead (bc-jjdar.1)', async () => {
+  // The bug this pair of checks is here for. The *match* is an OR — `--label-any`, and
+  // `pickMatch` takes a row carrying either label — but the chain key used to be an AND
+  // (`workspace::atLabel::msgLabel`). Two reports from one throw site with different
+  // messages therefore got different keys, never queued behind each other, and both ran
+  // the lookup before either `bd create` landed. Observed: bc-jjdar and bc-mwhkg, 27ms
+  // apart, one root cause, two P0s, two unattended windows opened on it.
+  await reset();
+  const outs = await Promise.all([
+    intake(bd, ws, REPORT),
+    intake(bd, ws, { ...REPORT, message: "Cannot read properties of undefined (reading 'name')" }),
+  ]);
+  assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
+  assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the two filed it');
+  assert.equal(issues()[0].comments.length, 1, 'and the other became a comment on it');
+});
+
+await check('two reports sharing only the message, at once, are still one bead', async () => {
+  // The mirror of it: an edit above the throw site moves the line, and the two reports
+  // share nothing but the message. Same OR in the lookup, so the same key has to hold.
+  await reset();
+  const outs = await Promise.all([intake(bd, ws, REPORT), intake(bd, ws, { ...REPORT, line: 3402 })]);
+  assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
+  assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the two filed it');
+});
+
+await check('a report with no source at all still queues behind the one it matches', async () => {
+  // A cross-origin `window.onerror` says "Script error." and nothing else, so it has a
+  // message fingerprint and no source one. This is why the key cannot be a primary with
+  // a fallback: `atLabel || msgLabel` would key this one on its message and the report
+  // it matches on its source, and the two would miss each other exactly as before.
+  await reset();
+  const outs = await Promise.all([
+    intake(bd, ws, REPORT),
+    intake(bd, ws, { ...REPORT, source: '', line: null, column: null, stack: '' }),
+  ]);
+  assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
+  assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the two filed it');
+});
+
+await check('and a chain of three, each sharing one key with the next, is one bead', async () => {
+  // Transitivity, which is what waiting on *both* keys buys over picking one: A and C
+  // share nothing, but B shares the source with A and the message with C, so all three
+  // land in order behind each other rather than A and C racing.
+  await reset();
+  const b = { ...REPORT, message: 'Failed to fetch' };
+  const c = { ...b, line: 3402 };
+  const outs = await Promise.all([intake(bd, ws, REPORT), intake(bd, ws, b), intake(bd, ws, c)]);
+  assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
+  assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the three filed it');
+});
+
 await check('two different errors at once are not serialised behind each other', async () => {
   await reset();
   const [a, b] = await Promise.all([
