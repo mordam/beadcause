@@ -146,6 +146,14 @@ await checkAsync('startRun writes a start line, appendResult/endRun add to the s
   assert.equal(r.worktree, 'main');
 });
 
+await checkAsync('startRun also stamps mergeBase against origin/main — bc-dgx7.62, b7e-stillred reads this', async () => {
+  const { file } = await gaterun.startRun(main, { suites: ['test/green.mjs'] });
+  const r = gaterun.readRun(file);
+  // `main` was just pushed to `origin` above with nothing since, so HEAD's own
+  // merge-base with `origin/main` is HEAD itself.
+  assert.equal(r.mergeBase, git(main, 'rev-parse', 'HEAD').trim());
+});
+
 check('a torn last line (writer mid-append) reads as still running, not a crash', () => {
   const dir = path.join(main, '.claude', 'gate-runs');
   const file = path.join(dir, 'main-torn-line-test.jsonl');

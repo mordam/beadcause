@@ -277,6 +277,111 @@
     return true;
   };
 
+  /* ------------------------------------------------- a scope in the address (bc-xnj67) */
+
+  /*
+    `/bdcoz/personal/deluvia` — the space and the workspace *this page* is looking at.
+
+    ## Why it does not write
+
+    Everything above is about one selection shared by every device, and the header says
+    where it lives and why: on the server, because `quietReasonFor` reads it from inside
+    the push path with no client in the loop, so it is what decides whether the phone
+    rings. That is exactly why a path must not touch it. A link that wrote the filter
+    would be a link that silences five repos on every device you own — the failure the
+    "All stays, and stays the default" paragraph exists to prevent — and a link is a thing
+    other people send you.
+
+    So a scoped page is a page with its **own** answer. It neither reads the stored filter
+    nor writes it: `adopt` stops taking the payload's, and `set` stops posting. The picker
+    still works and still moves what you are looking at; on a scoped page it moves the
+    **address** instead of the stored selection, so the URL never disagrees with the
+    screen.
+
+    That split is what makes the separation real rather than cosmetic. A phone on
+    `/bdcoz/climative/architecture` and a laptop on `/bdcoz/personal/deluvia` are two
+    pages with two answers, neither arguing with the other over one value in `state.json`.
+    An unscoped `/` is untouched by all of this and behaves exactly as it always has.
+
+    ## Read once, at load
+
+    The path changes only when this file changes it (`replaceState` below) or when the
+    page is navigated, and a navigation reloads the document. So there is no listener here
+    and nothing to keep in step.
+  */
+
+  /** The address's own answer, as slugs, or `null` on an unscoped page. */
+  const SCOPE = (() => {
+    try {
+      return window.beadcause.route.scopeOfPath(location.pathname);
+    } catch {
+      /* A page that loaded this before hashroute.js is not one that exists — but a bar
+         that threw on boot would take the chrome off every screen, so it answers null. */
+      return null;
+    }
+  })();
+
+  /**
+   * A space's name flattened for an address. The twin of `spaceSlug` in lib/spaces.js.
+   *
+   * Said twice for the reason `SCOPE_ROOT` is: this runs in a browser off `window`, that
+   * runs in the daemon off an import, and no module is readable from both.
+   * test/spacepaths.mjs holds the two against each other.
+   */
+  const slugOf = (name) =>
+    String(name == null ? '' : name)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+  /**
+   * The scope in the address as the `{space, workspace}` the rest of this file speaks —
+   * space *names*, not slugs — or `null` when there is no scope, or it names nothing.
+   *
+   * Needs `state.spaces`, so it answers `null` until the first payload has landed. That is
+   * why it is applied in `adopt` rather than at the top of this file.
+   *
+   * A slug matching no configured space drops to `null` rather than standing as a filter
+   * nothing can satisfy: a typo, or a space renamed since somebody saved the link, should
+   * show you the app you already had. The same answer `parse` gives a hash nobody minted.
+   */
+  function scopeFilter() {
+    if (!SCOPE) return null;
+    const space = state.spaces.find((s) => slugOf(s.name) === SCOPE.space);
+    if (!space) return null;
+    // A workspace named in the address but not in that space is the same kind of typo, and
+    // dropping only the workspace leaves the space — the wider of the two, which is the
+    // safer half to keep.
+    const inSpace = SCOPE.workspace && (space.workspaces || []).includes(SCOPE.workspace);
+    return { space: space.name, workspace: inSpace ? SCOPE.workspace : ALL };
+  }
+
+  /** Is this page answering to its address rather than to the stored selection? */
+  const pinned = () => Boolean(scopeFilter());
+
+  /**
+   * Move the address to say what is now selected. Only on a page that is already scoped.
+   *
+   * `replaceState`, not `pushState`: on a scoped page the picker is the control that says
+   * what you are looking at, and the back button should leave the page rather than walk
+   * back through however many spaces you tried. A pill tap is a step; a picker tap is a
+   * correction of where you already are.
+   *
+   * The hash and the search are carried across untouched — the view you are on does not
+   * change because the scope did, and `?t=` belongs to the daemon.
+   */
+  function writePath(next) {
+    if (!SCOPE || !history.replaceState) return false;
+    const space = next.space === ALL ? '' : slugOf(next.space);
+    const workspace = next.workspace === ALL ? '' : next.workspace;
+    const path = window.beadcause.route.pathForScope(space, workspace);
+    const url = `${path}${location.search}${location.hash}`;
+    if (url === location.pathname + location.search + location.hash) return false;
+    history.replaceState(null, '', url);
+    return true;
+  }
+
   /** What is selected, in words: "beadcause", "Personal", "everything". */
   const label = () => {
     const { space, workspace } = state.filter;
@@ -592,6 +697,16 @@
     const before = state.filter;
     state.filter = { space: next.space || ALL, workspace: next.workspace || ALL };
     paint();
+    /* A scoped page keeps its answer in its address, so a pick moves the address and
+       stops there — see "why it does not write" above. Deliberately before the `post`
+       check rather than folded into it: what is being said is not "do not post this one",
+       it is "on this page the address is the selection", and the write that would have
+       gone to the server goes to the URL instead. */
+    if (post && pinned()) {
+      writePath(state.filter);
+      if (!same(before, state.filter)) notify({ filter: state.filter, source: 'pick' });
+      return Promise.resolve(null);
+    }
     if (!post) {
       if (!same(before, state.filter)) notify({ filter: state.filter, source: 'adopt' });
       return Promise.resolve(null);
@@ -674,6 +789,21 @@
     if (take('workspaces') && Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
     const first = !state.known;
     state.known = true;
+    /* The address wins on a scoped page, and it wins over every payload rather than only
+       the first (bc-xnj67). Not just a boot-time seed: the stored filter moving on another
+       device sends a new one down the poll every time, and adopting it here is precisely
+       the cross-device argument a scoped page exists to opt out of.
+
+       Resolved on each payload rather than cached, because it cannot be answered until
+       `state.spaces` has arrived — which is this call, or a later one on a page whose
+       first payload carried only the filter. */
+    const mine = scopeFilter();
+    if (mine) {
+      if (!same(mine, state.filter)) set(mine, { post: false });
+      else paint();
+      if (first) notify({ filter: state.filter, source: 'load' });
+      return;
+    }
     if (take('filter') && data.filter && !writes) {
       const incoming = { space: data.filter.space || ALL, workspace: data.filter.workspace || ALL };
       if (replacedByUs(incoming)) {
