@@ -13,7 +13,10 @@
   the shell already has all the hard parts. A repo view gets, for free and by construction:
 
   * an address (`/v/<ws>/<id>`) that a phone's home screen can hold, and a hash
-    (`#<ws>.<id>`) the back button walks like every other view;
+    (`#<ws>.<id>`) the back button walks like every other view — **including its own
+    state**: `?b=<slug>` on either form is the view's to read and write (`ctx.query`,
+    `ctx.setQuery`, `ctx.onQuery`), so a view is deep-linkable down to the thing it is
+    showing rather than only to itself (bc-k7lrc);
   * a pane, which means its scroll position survives a switch away and back, and it is
     never rebuilt (public/panes.js);
   * a pill on the one row of chrome this app has (public/viewbar.js);
@@ -189,6 +192,8 @@
     const noteEl = el.querySelector('[data-note]');
     const ageEl = el.querySelector('[data-age]');
     const listeners = [];
+    /** `onQuery` subscribers — the address moving under this view. See below. */
+    const queries = [];
 
     const ctx = {
       /** The full view id, `<workspace>.<id>` — what the hash and the pane are named. */
@@ -213,6 +218,69 @@
        * list should ask for it rather than shelling out to `bd` a second time.
        */
       api,
+
+      /**
+       * This view's own slice of the address — where its state is written down.
+       *
+       * `#deluvia.briefs?b=chapter-one` is the Briefs view with one brief open, and these
+       * three are the whole of how a view gets that. Read `query` in `build` to come up on
+       * the thing the link named; call `setQuery` when the reader moves; take `onQuery` to
+       * be told when the reader moves *backwards*.
+       *
+       *     build(ctx) {
+       *       open(ctx.query.get('b'));
+       *       ctx.onQuery((q) => open(q.get('b')));
+       *     }
+       *     // on a tap:
+       *     ctx.setQuery(`b=${encodeURIComponent(slug)}`, { push: true });
+       *
+       * Almost everything that makes this work was already here and unused. The grammar
+       * parses a repo view's query like any other view's (decision 5 in
+       * public/hashroute.js, plus `add`), and `viewHop` in lib/server.js already splits
+       * `/v/<ws>/<id>?b=one` into `/#<ws>.<id>?b=one` — so the *path* form, the one a
+       * phone's home screen holds and the one you paste to somebody, has carried this
+       * since bc-khoe.30.7. What was missing was only this end of it, and public/panes.js
+       * noticing that a hash can change without the view changing (bc-k7lrc).
+       *
+       * A fresh `URLSearchParams` on every read, deliberately: it is a snapshot of the URL
+       * rather than a handle on it, so a view that mutates what it got has changed nothing
+       * until it hands it back to `setQuery`. `route.queryFor` is what makes reading safe
+       * at any moment — it answers `''` while the hash is naming some other pane, which is
+       * the ordinary state of the world for the several hundred milliseconds between
+       * `/api/views` answering and this view's generator landing.
+       */
+      get query() {
+        return new URLSearchParams(route.queryFor(v.view, location.hash));
+      },
+
+      /**
+       * Write it. Takes a `URLSearchParams` or the string one stringifies to.
+       *
+       * `replaceState` unless `push` — `panes.setQuery` holds the argument for which, and
+       * holds the one refusal that matters: a pane that is not on screen may not write the
+       * address. A repo view's script lives in somebody else's checkout, so that refusal
+       * has to be made *for* it rather than documented at it.
+       *
+       * Answers whether it wrote. Almost no caller needs that; it tells "nothing changed"
+       * apart from "not your turn".
+       */
+      setQuery(next, opts) {
+        return Boolean(panes.setQuery?.(v.view, String(next == null ? '' : next), opts));
+      },
+
+      /**
+       * Be told when the address moved and it was not this view that moved it — the back
+       * button, mostly; also a link from another pane, and a second deep link arriving.
+       *
+       * Handed `URLSearchParams`, the same shape `query` answers with, so the two ends of
+       * a view's state read identically. Never fired for the view's own `setQuery`, and
+       * never fired for the deep link that *built* the view: at that moment the pane did
+       * not exist to hold a listener, which is exactly why `build` reads `ctx.query`
+       * rather than waiting to be told.
+       */
+      onQuery(fn) {
+        if (typeof fn === 'function') queries.push(fn);
+      },
 
       /** The URL of another file this view declared. For an image, a font, a second sheet. */
       asset: (rel) => `/v/${encodeURIComponent(v.workspace)}/${encodeURIComponent(v.id)}/asset/${String(rel)}`,
@@ -288,6 +356,21 @@
       /** Called whenever a new payload lands, including the first. */
       onData(fn) {
         if (typeof fn === 'function') listeners.push(fn);
+      },
+
+      /** Internal: the shell handing this view a move of its own address. */
+      _query(query) {
+        const raw = String(query || '');
+        for (const fn of queries) {
+          try {
+            // One each, not one shared: what a view is handed is a snapshot, and a
+            // listener that sorts or deletes on it must not be able to change what the
+            // next listener sees.
+            fn(new URLSearchParams(raw), ctx);
+          } catch (err) {
+            console.error(`[view] ${v.view} threw on a query change`, err);
+          }
+        }
       },
 
       /** Internal: the chrome's own handle on the listeners. Not part of the contract. */
@@ -468,6 +551,24 @@
   }
 
   /* ----------------------------------------------------------------------- the boot */
+
+  /*
+    One subscription for every hosted view, rather than one per view registered as each is
+    built. `panes.onQuery` reports the pane that is up and the query on it, so the routing
+    is a map lookup — and a view that is not on screen is not told about somebody else's
+    address, which is the property that lets a view's listener assume the query it is
+    handed is its own.
+
+    Guarded on `built`, because a repo view's pane exists a good deal earlier than its
+    script has run: `adopt` calls `sync`, so landing straight on `#deluvia.briefs?b=one`
+    fires a query change while `spec` is still null. Nothing is lost by dropping it — that
+    arrival is the one `build` reads with `ctx.query` — and delivering it would mean every
+    view author coping with a callback before their own `build`.
+  */
+  panes.onQuery?.((view, query) => {
+    const entry = view && hosted.get(view);
+    if (entry?.built) entry.ctx._query(query);
+  });
 
   bc.view = {
     define,

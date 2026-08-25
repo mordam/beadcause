@@ -274,6 +274,31 @@ await check('a 4xx is not reported', async () => {
   }
 });
 
+await check('a 503 the router marks as a swap-drain kill is not reported — bc-xl7n.134', async () => {
+  // bin/router.js answers this way when the socket it lost belonged to a backend it had
+  // already retired for a swap: a new backend was already serving, so this was never the
+  // daemon failing, and the plain 502 it used to send was exactly what filed the P0. The
+  // header is what tells the two apart — see the `headers` fake below, which is the
+  // minimum a Fetch `Response` promises and more than every other stub in this file
+  // bothers to build, because this is the one case that has to read one.
+  const app = load({
+    respond: () => Promise.resolve({ status: 503, ok: false, headers: { get: (k) => (k === 'x-beadcause-swap-drain' ? '1' : null) } }),
+  });
+  const res = await app.window.fetch('/api/queues');
+  assert.equal(res.status, 503, 'the wrapper must be transparent');
+  assert.deepEqual(app.reports(), [], 'a swap-drain 503 filed a bead');
+});
+
+await check('an ordinary 503 with no swap-drain header is reported', async () => {
+  // The header is the whole of what makes the case above safe to skip — a 503 with none
+  // is an ordinary failure (the app has nothing behind the port, say) and must still file.
+  const app = load({ respond: () => Promise.resolve({ status: 503, ok: false, headers: { get: () => null } }) });
+  await app.window.fetch('/api/queues');
+  const [r] = app.reports();
+  assert.ok(r, 'a bare 503 did not file a bead');
+  assert.equal(r.body.message, 'GET /api/queues failed — HTTP 503');
+});
+
 await check('the report request does not go back through the wrapper', async () => {
   // The endpoint answering 500 is the case that would loop: the wrapper would see a 5xx,
   // report it, see that report fail, and so on with nothing to stop it.
