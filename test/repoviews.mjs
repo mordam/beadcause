@@ -837,9 +837,26 @@ await check('it is behind the credential, like every other payload', async () =>
   assert.equal((await get('/api/views', { token: '' })).status, 401);
 });
 
+await check('a scoped address is served the shell, at the address it was asked for', async () => {
+  // bc-xnj67, and the one claim about it that reading the source cannot make: a rewrite
+  // rather than a hop, so the space stays in the address bar while the hash goes on naming
+  // the view. A 302 here would put the address on screen for one round trip and then take
+  // it away, which is the whole thing this shape exists to avoid.
+  const res = await get('/bdcoz/personal/demo');
+  assert.equal(res.status, 200, 'a scoped address did not serve the shell');
+  assert.match(res.headers['content-type'] || '', /text\/html/);
+  assert.ok(res.body.includes('data-pane='), 'what came back is not the shell');
+  // Any scope is served, including one naming no configured space. This file has no
+  // business being the place that knows which spaces exist, and a typo should show you the
+  // app rather than a 404 — the client drops an unknown scope back to the stored filter.
+  assert.equal((await get('/bdcoz/nosuchspace')).status, 200);
+});
+
 await check('/v/demo/board hops to the hash rather than serving the shell', async () => {
   const res = await get('/v/demo/board');
   assert.equal(res.status, 302, 'a rewrite here draws Home from every home-screen shortcut');
+  // Unscoped, because `demo` is in no configured space in this fixture — the hop upgrades
+  // to `/bdcoz/<space>/<ws>#…` only when there is a space to name (bc-xnj67).
   assert.equal(res.headers.location, '/#demo.board');
 });
 

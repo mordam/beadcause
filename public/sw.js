@@ -505,6 +505,19 @@ self.addEventListener('fetch', (e) => {
  * by `viewAddress` below, on the same split `viewHop` makes in lib/server.js: what the
  * daemon reads stays in front of the `#`, what the view reads goes behind it.
  */
+/*
+  **A scoped address needs no row here, and must not be given one** (bc-xnj67).
+
+  `/bdcoz/personal/deluvia` is the shell at its own address — the space in the path, the
+  view still in the hash — so the `caches.match('/')` at the foot of `fallback` already
+  answers it correctly with no daemon to ask: the shell, served where it was asked for,
+  with the path intact for public/spacebar.js to read off `location.pathname`.
+
+  That is the whole difference between a scope and the entries below. Every one of these
+  exists because a *fragment* had to reach the address bar and only a redirect can put one
+  there. A scope is already in the path the browser asked for, so redirecting it would be
+  this worker rewriting an address that was right when it arrived.
+*/
 const VIEW_HOPS = {
   '/history': { view: 'history' },
   '/history.html': { view: 'history' },
