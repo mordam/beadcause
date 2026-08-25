@@ -12439,6 +12439,56 @@ sets naively would take the same bead off `ready` twice. Ship beads get no pill 
 own: what they are waiting for already has a number over
 [its own button](#the-release-queue--the-number-over-ship).
 
+### Endorsing from the inbox — an answer that names another bead
+
+The gesture lives in four places and until bc-xl7n.76.3 none of them was the inbox.
+`POST /api/bead/endorse` is the door; this page and `bin/endorse.js` (the `/endorse`
+skill) both post to it. The fourth is `POST /api/session`, and its own reasoning is why
+there is now a fifth: tapping **work on this** on a held bead takes the marker off first
+and opens the window second, because *you tapping it is you present and choosing, and a
+refusal there would send you to another screen to press a button and come back*.
+
+That reasoning applies word for word to an answer that says *endorse bc-xl7n.121*. It
+just only ever covered the bead the card was **on**, never one the answer **named** —
+and twice, three days apart, an answer named one and nothing happened. Once typed
+(*"bc-xl7n.121 endorsed so the class stops recurring."*) and once by tapping an option
+whose own response text said *"Run the update-branch on PR 703, and endorse bc-xl7n.121
+so the stale-check hold gets a producer instead of a manual nudge each time."* Both were
+recorded as prose, both cards closed, and both times the marker stayed exactly where it
+was — while bc-xl7n.121, the class fix for ten pull requests held by the stale-check
+gate, sat one label away from dispatch.
+
+So `/api/respond` reads the answer (`lib/endorseanswer.js`) and performs what it finds,
+through `applyVerdict` and the same `endorsement` event this page's own verdicts use —
+so a bead endorsed from an answer leaves the queue on every device at the same moment,
+by the same mechanism, as one endorsed from a row here. A second, quieter endorsement
+path is exactly what the hold warns against.
+
+**Why prose is read here when the same handler refuses to read it elsewhere.** An
+[ambiguous typed answer](#answering)
+comes back *pick an option* rather than being guessed at, and the comment there is
+explicit that matching words against option labels reads *"ship it but not yet"* as a
+commission just as confidently as *"ship it"*. This is not that, and the difference is
+the **id**: `bc-xl7n.121` is a name written out, not a meaning to be inferred. The
+reading is narrow enough that only one bit is ever inferred — the word has to be there,
+the id has to be adjacent to it, and a negation in front of the word takes the clause off
+the table. `endorse bc-a and close bc-b` endorses exactly one bead, because a second verb
+ends the list.
+
+**Ids are found by the workspace's prefix, and that is the precision rather than an
+economy.** The general shape of a bead id is also the shape of an ordinary hyphenated
+word — the very sentence above contains `update-branch`, which any prefix-free pattern
+reads as a bead. So an answer endorses in its own workspace or not at all, and an id
+under another prefix is never seen.
+
+**And an endorsement `bd` will not perform does not close the card.** A named bead that
+does not exist, or a [ship bead](#a-ship-bead-is-not-a-proposal-and-endorse-all-could-reach-one),
+leaves the question open in the inbox with the reason on the thread, the way an ambiguous
+answer does: nothing about the card moves, no label is written, and it can be answered
+again. The one ending this class must never have — recorded as settled with the marker
+still on — is what that is for. At most eight beads come off one answer, and anything
+past that is named on the thread rather than dropped in silence.
+
 ### Talking about one before you decide
 
 **Discuss 💬** is the fifth control on a row and the only one that is not a verdict. The
@@ -18255,6 +18305,63 @@ construction in the same sense `b7e-def`/`b7e-owes`/`b7e-affected` are — it on
 calls `fs.readdirSync`/`readFileSync`/`statSync` over the files above and prints what
 it found — which is what put `Bash(b7e-enroll:*)` on `DEFAULT_TOOL_LIST` beside them.
 
+### Which of these commands answers this question — `b7e-which`
+
+`bc-dgx7.65`, filed by the session audit against five sessions (`bc-9ntye.6`,
+`bc-19vt.1`, `bc-dgx7.52`, `bc-dgx7.53`, `bc-9ntye.3`) that each needed one of the
+thirty-odd `b7e-*` commands and went looking for it a different way — `ls bin/ | grep
+-i "gate\|parallel"`, a memory lookup, opening files cold to learn what one did — and
+three came away with a name and no idea what it answered. Every command already carries
+the answer: its own docblock opens with the question it exists to answer,
+`lib/toolbelt.js` carries a prose comment beside its `DEFAULT_TOOL_LIST` entry (or says
+why there is none), and `README.md` has a `### ` section naming it. Three registries,
+and nothing before this read any of them to answer "which one do I want."
+
+```
+b7e-which                       the whole index, all commands, sorted by name
+b7e-which "run the whole suite" ranked matches — b7e-gate above b7e-gates
+b7e-which flaky                 a bare word works the same way as a phrase
+b7e-which --json                one JSON object per line instead of the printed report
+b7e-which --dir <root>          another tree's bin/, README.md and lib/toolbelt.js —
+                                 this is how it is tested
+```
+
+**Candidates are read off `bin/` itself**, the same union `b7e-enroll`'s own
+`candidateNames` already uses (`package.json`'s `bin` map, plus any stray `b7e-*` file
+under `bin/` that map does not point to yet) — so a command added in a branch and not
+yet registered anywhere else still shows up here, which is the whole point of the
+bead's own acceptance criteria: the index needs no edit of its own when a new command
+lands.
+
+**The question is the docblock's opening paragraph**, not just its first physical
+line — most of the family wraps its intro across two source lines and stopping at the
+first newline would hand back half a sentence. The paragraph ends at the first blank
+comment line, or at the first usage-example line for a docblock with none. A
+backtick-quoted `` `name` — `` prefix, where a docblock opens with one, is stripped;
+roughly a fifth of the family does not open that way at all and its question is just
+the paragraph as written. A docblock with nothing readable before its first blank line
+or usage example is `malformed: true`, `question: null` — left out of ranked search
+results, since there is nothing to score it against, but still listed in the bare
+index, because "this command has no question to read" is itself worth being able to
+see rather than something silently hidden.
+
+**Ranking is plain word-overlap**, deliberately not fuzzy or stemmed: a query is
+lowercased, split on words and stripped of a short stopword list, and each surviving
+token is looked for as a whole word — in the name (split on `-`), then the question,
+then the usage lines, then the rest of the docblock, the best tier per token summed.
+Exact matching is what keeps a plural or a different inflection from scoring —
+`b7e-gates`'s "gate runners" does not answer "the whole suite" just because "runners"
+contains "run" as a substring, which is what keeps `b7e-gate` ranked above `b7e-gates`
+for that query.
+
+Exit codes: `0` always, whatever it found — a query matching nothing prints "nothing
+matches" rather than failing, because no match is an ordinary answer, not a bad one;
+`2` refused — bad usage, more than one positional argument, or `--dir` names something
+with no `bin/` or `package.json` of its own. Read-only by construction in the same
+sense `b7e-def`/`b7e-claims`/`b7e-enroll` are: every path through it is a
+`readFileSync`/`readdirSync` over `bin/`, `README.md` and `lib/toolbelt.js`, and it
+never spawns a process or touches `bd`.
+
 ### Agent prose goes into a bead or a memory from a file, never a shell argument — `b7e-say`
 
 `bc-gdub.2` is the third finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
@@ -20307,6 +20414,64 @@ as `--search`, verified live against this repo: it correctly surfaces PR #488 fo
 `lib/grants.js`: every path through it is `bd show` (plus `bd export` under `--family`)
 and `git`/`gh` reads, nothing that writes anywhere. See `bin/b7e-prior`, `lib/prior.js`
 and `test/b7eprior.mjs`.
+
+
+### The sibling bead that already did this shape of change, and the patch it made — `b7e-precedent`
+
+`bc-dgx7.64`. Four sessions each needed the same thing — what an earlier bead in their
+own family had already committed, as a template to copy — and none of them had a way to
+ask for it. `bc-khoe.30.22` ("delete `public/releases.html`") was the twenty-second
+child of an epic whose fifteenth child had deleted `public/history.html` the identical
+way a day earlier; it found that commit by `git log --oneline --all | grep -i
+"khoe.30.14"` — the wrong sibling on the first guess — then ran `git show <sha> --stat`
+and six separate `git diff <sha>^1 <sha> -- <file>` calls to mirror each touched file by
+hand. `bc-dgx7.53` ("fix the remaining `--json` commands") tried `git show bc-dgx7.45
+--stat` as though the bead id were a rev, got nothing, then fell back to `git log
+--oneline --all --grep="dgx7.45"`.
+
+```
+b7e-precedent -w beadcause -b bc-khoe.30.22                       the printed report
+b7e-precedent -w beadcause -b bc-khoe.30.22 --file public/history.js   one file's diff
+b7e-precedent -w beadcause -b bc-dgx7.53 --root bc-dgx7           widen past the parent
+b7e-precedent -w beadcause -b bc-khoe.30.22 --json                machine-readable
+```
+
+**Every commit in this repo is `<bead-id>: <title> (#<PR>)`** — the merge queue writes
+it — so the search is exact rather than a substring grep that might match a prefix of
+another id (`bc-khoe.30` is a prefix of `bc-khoe.30.15`) or a body mention that is not
+the bead's own landing commit at all. `landingCommitsFor` anchors `git log --grep` on
+`^<id>: `, the very start of the commit message, which is what keeps a parent id from
+ever matching a child's commit with no separate word-boundary check needed.
+
+**"Landed" means an ancestor of `main`, checked, not merely a commit that exists
+somewhere.** This repo carries dozens of unmerged branches, and `--all` walks every ref
+— so every anchored match is re-checked with `git merge-base --is-ancestor <sha>
+<base>` (`pickBase` from `lib/notinmain.js`, the same fallback `b7e-prior` uses) before
+it is reported. One trap hit building this: `--is-ancestor` prints nothing on success —
+the whole answer is the exit code — so the check has to be a plain resolves/rejects
+test; wrapping it the way most reads here wrap a `git` call (treating empty stdout as
+falsy) reads a genuine yes as a no and reports every family as empty.
+
+**One anchored commit can have two matches, and the merge commit wins.** A pre-merge
+branch commit and the squash-merge of it both open with the same `<id>: ` and both end
+up ancestors of `main` once merged — measured against this repo's own history, `git log
+--all --grep='^bc-dgx7\.53: '` returns both `d9add0ef` (the branch commit, no PR number)
+and `20a28644` (the merge, `(#710)`). Among the ancestors, whichever names a pull request
+wins; a repo with no merge-queue convention at all falls back to the most recent.
+
+**`--extended-regexp` is POSIX ERE, which has no `\s`.** The first version of the anchor
+pattern used `^<id>:\\s`, which git silently matched nothing against — no error, no
+warning, an empty result read exactly like an untouched family. A literal space fixed
+it; `-P` would too, but needs libpcre-enabled git, which nothing else here requires.
+
+A sibling's files, and a `--file` diff, are always `git diff <sha>^1 <sha>` — well-defined
+for both an ordinary commit and the merge queue's own two-parent shape, and the exact
+comparison `bc-khoe.30.22` ran six times by hand.
+
+`Bash(b7e-precedent:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`: every path through it is `bd show`, `bd export` and `git log`/`git
+diff`/`git merge-base` reads, nothing that writes anywhere. See `bin/b7e-precedent`,
+`lib/precedent.js` and `test/b7eprecedent.mjs`.
 
 
 ### End a run that delivered nothing, the one way the next tick expects — `b7e-handback`
