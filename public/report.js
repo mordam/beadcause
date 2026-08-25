@@ -652,8 +652,16 @@
           // Whatever it says, something answered — which is what clears a parked path's
           // standing failure. See `PARKED`.
           answered(where.path);
-          // 4xx is the daemon declining on purpose. 5xx is the daemon failing.
-          if (res && res.status >= 500) {
+          // 4xx is the daemon declining on purpose. 5xx is the daemon failing — except
+          // this one shape of it: bin/router.js sets DRAIN_HEADER on a 503 when the
+          // request it lost was open on a backend it had already retired for a swap, a
+          // new backend already serving. That is not the daemon failing — see
+          // bc-xl7n.134, filed after this exact header-less 502 filed a P0 about a
+          // daemon that was working fine — so it does not file, though `answered` above
+          // still clears any standing failure and the caller's own retry (a poll simply
+          // asking again) is what actually recovers it.
+          const drained = res && res.headers && res.headers.get && res.headers.get('x-beadcause-swap-drain');
+          if (res && res.status >= 500 && !drained) {
             const message = `${where.method} ${where.path} failed — HTTP ${res.status}`;
             if (report('fetch', { message, source: where.path })) remember(`HTTP ${res.status}`, Date.now());
           }

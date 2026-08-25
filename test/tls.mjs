@@ -546,36 +546,59 @@ await check('and a URL that is not a URL is not a warning', () => {
   }
 });
 
-/** `bin/beadcause.js <flag>` against a config of our own, as a real process. */
+/**
+ * `bin/beadcause.js <flag>` against a config of our own, as a real process.
+ *
+ * `status` is `null` when the child never reached an exit of its own — a fork that lost to
+ * the machine, or a process killed by a signal. Neither is an answer about
+ * `bin/beadcause.js`, but `assert.equal(r.code, 0)` cannot tell them from one that ran and
+ * failed: it says `null !== 0` and leaves the reader nothing to act on. That is how this
+ * suite took `main` red on 2026-08-25, on a runner running four suites at once.
+ *
+ * So a `null` is retried rather than asserted on — the next fork almost always lands — and
+ * whatever the last attempt said is carried out in `why`, so a run that never gets a status
+ * names the signal or the spawn error instead of being retried into silence.
+ */
 function cli(flag, baseUrl) {
   const dir = fs.mkdtempSync(path.join(tmp, 'cli-'));
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ baseUrl, token: 'tok' }));
-  const run = spawnSync(process.execPath, [path.join(HERE, '..', 'bin', 'beadcause.js'), flag], {
-    encoding: 'utf8',
-    env: { ...process.env, BEADCAUSE_CONFIG_DIR: dir },
-  });
-  return { out: run.stdout, err: run.stderr, code: run.status };
+  let run;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    run = spawnSync(process.execPath, [path.join(HERE, '..', 'bin', 'beadcause.js'), flag], {
+      encoding: 'utf8',
+      env: { ...process.env, BEADCAUSE_CONFIG_DIR: dir },
+    });
+    if (run.status !== null) break;
+    // Blocking, because everything around this is: the machine is short of whatever the
+    // fork wanted, and an immediate retry asks for it again before anything has let go.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250 * attempt);
+  }
+  const why = run.error ? String(run.error) : run.signal ? `killed by ${run.signal}` : null;
+  return { out: run.stdout ?? '', err: run.stderr ?? '', code: run.status, why };
 }
+
+/** What `assert.equal(r.code, 0)` should have said all along. */
+const exited = (r) => `exit ${r.code}${r.why ? ` (${r.why})` : ''} — stderr: ${r.err.trim() || '(none)'}`;
 
 await check('`--url` keeps the warning off stdout, because scripts pipe that', () => {
   // The acceptance criterion, as the thing it protects: `beadcause --url` is read into
   // shell variables, and a sentence in there is an address nothing can dial.
   const r = cli('--url', 'http://192.168.1.10:4318');
-  assert.equal(r.code, 0);
+  assert.equal(r.code, 0, exited(r));
   assert.equal(r.out.trim(), 'http://192.168.1.10:4318/?t=tok', 'stdout is the URL and nothing else');
   assert.match(r.err, /Android app will refuse/, 'and the warning still gets said, on stderr');
 });
 
 await check('and says nothing on either stream when the link is already https', () => {
   const r = cli('--url', 'https://beads.example.com');
-  assert.equal(r.code, 0);
+  assert.equal(r.code, 0, exited(r));
   assert.equal(r.out.trim(), 'https://beads.example.com/?t=tok');
   assert.equal(r.err.trim(), '', 'a pairable link is not worth a word');
 });
 
 await check('`--qr` still prints its code, with the warning last on stderr', () => {
   const r = cli('--qr', 'http://192.168.1.10:4318');
-  assert.equal(r.code, 0);
+  assert.equal(r.code, 0, exited(r));
   assert.match(r.out, /Pair the app/, 'the QR itself is untouched');
   assert.match(r.out, /http:\/\/192\.168\.1\.10:4318\/\?t=tok/);
   assert.match(r.err, /login\.tailscale\.com\/admin\/dns/);
