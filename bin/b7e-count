@@ -1,0 +1,168 @@
+#!/usr/bin/env node
+/**
+ * `b7e-count` — one deterministic occurrence census for a literal, at a git ref.
+ *
+ *   b7e-count Athira                             this repo's own checkout, delivery base
+ *   b7e-count Athira "Lady Athira" Arthir         one count per pattern, in order given
+ *   b7e-count -w deluvia --ref origin/main Athira another workspace's checkout
+ *   b7e-count --regex 'Ath[ei]ra'                 extended regex instead of a literal
+ *   b7e-count --paths 'novel/**' --exclude CHANGE_LOG.md Athira
+ *   b7e-count --per-file Athira                   plus the per-file breakdown
+ *   b7e-count --json Athira                       one JSON object per pattern
+ *
+ * bc-dgx7.59, filed by the session audit (lib/sessionaudit.js) against four sessions
+ * (dv-i5v, dv-5i2.44, dv-nnk, dv-6cn) that each hand-rolled a different occurrence count
+ * for the same literal and got different numbers back — see README for what each one
+ * tried and where they disagreed. lib/corpus.js is the counting, over
+ * `git grep -I -o -n -z` at a fixed ref; this is the argv parsing and the printing
+ * around it, the same split every other b7e-* command in this family already uses.
+ *
+ * Exit codes: `0` every pattern was counted — zero occurrences is still an answer.
+ * `2` refused: bad usage, an unknown workspace, a ref that does not resolve, or a bad
+ * `--regex`.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { REPO_ROOT, resolveRef, census } from '../lib/corpus.js';
+
+const USAGE = `usage: b7e-count [-w <workspace> | --dir <path>] [--ref <ref>] [--regex]
+                 [--paths <glob>]... [--exclude <glob>]... [--json] [--per-file]
+                 <pattern>...
+
+  -w, --workspace <name>   count in this workspace's checkout (default: this repo's own)
+  --dir <path>             count in this directory instead of a workspace — how this is
+                            tested; mutually exclusive with -w
+  --ref <ref>               a git ref/tree-ish (default: origin/main, falling back to
+                            main — "the delivery base")
+  --regex                   every <pattern> is an extended regex (git grep -E), not a
+                            fixed string (the default, -F)
+  --paths <glob>             only these paths (pathspec glob, repeatable)
+  --exclude <glob>            never these paths (pathspec glob, repeatable) — on top of
+                            .git and .claude/worktrees, which are always excluded
+  --json                     one JSON object per pattern instead of the printed report
+  --per-file                 the printed report also lists every matching file
+
+Counts every occurrence of each pattern, not lines that match it. Running this twice on
+an unchanged tree returns byte-identical output.`;
+
+const rawArgv = process.argv.slice(2);
+if (rawArgv.includes('--help') || rawArgv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let wsName = null;
+let dirGiven = null;
+let refGiven = null;
+let regexMode = false;
+let jsonMode = false;
+let perFile = false;
+const paths = [];
+const excludes = [];
+const patterns = [];
+
+for (let i = 0; i < rawArgv.length; i += 1) {
+  const a = rawArgv[i];
+  const next = () => {
+    const v = rawArgv[i + 1];
+    i += 1;
+    return v;
+  };
+  switch (a) {
+    case '-w':
+    case '--workspace':
+      wsName = next();
+      break;
+    case '--dir':
+      dirGiven = next();
+      break;
+    case '--ref':
+      refGiven = next();
+      break;
+    case '--paths':
+      paths.push(next());
+      break;
+    case '--exclude':
+      excludes.push(next());
+      break;
+    case '--regex':
+      regexMode = true;
+      break;
+    case '--json':
+      jsonMode = true;
+      break;
+    case '--per-file':
+      perFile = true;
+      break;
+    default:
+      patterns.push(a);
+  }
+}
+
+if (wsName && dirGiven) {
+  console.error('-w/--workspace and --dir are mutually exclusive — pick one.');
+  process.exit(2);
+}
+
+if (!patterns.length) {
+  console.error('need at least one pattern to count.\n');
+  console.error(USAGE);
+  process.exit(2);
+}
+
+let dir;
+if (wsName) {
+  const cfg = loadConfig();
+  const ws = cfg.workspaces.find((w) => w.name === wsName);
+  if (!ws) {
+    console.error(`no workspace named ${wsName} — have: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
+    process.exit(2);
+  }
+  try {
+    dir = resolveSessionDir(cfg, ws);
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+} else if (dirGiven) {
+  dir = path.resolve(dirGiven);
+} else {
+  dir = REPO_ROOT;
+}
+
+let ref;
+try {
+  ref = resolveRef(dir, refGiven);
+} catch (err) {
+  console.error(err.message);
+  process.exit(2);
+}
+
+let results;
+try {
+  results = census(dir, ref, patterns, { regex: regexMode, paths, excludes });
+} catch (err) {
+  console.error(err.message);
+  process.exit(2);
+}
+
+// No `process.exit(0)` after these writes: stdout to a **pipe** is async in Node, so an
+// explicit exit right after a big write (many patterns, `--per-file` over hundreds of
+// matching files) can cut it off at the 64KB pipe buffer with a success status and
+// nothing to notice — bc-dgx7.45, hit first in bin/b7e-census. Setting `process.exitCode`
+// and falling off the end instead flushes before the process actually exits.
+if (jsonMode) {
+  for (const r of results) console.log(JSON.stringify({ dir, ref, ...r }));
+} else {
+  console.log(`# ${dir} @ ${ref}`);
+  for (const r of results) {
+    const label = r.regex ? `${r.pattern} (regex)` : r.pattern;
+    console.log(`${label}: ${r.occurrences} occurrence${r.occurrences === 1 ? '' : 's'} across ${r.files} file${r.files === 1 ? '' : 's'}`);
+    if (perFile) {
+      for (const f of r.perFile) console.log(`  ${String(f.count).padStart(6)}  ${f.path}`);
+    }
+  }
+}
+
+process.exitCode = 0;

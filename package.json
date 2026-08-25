@@ -52,6 +52,7 @@
     "b7e-chrome": "bin/b7e-chrome",
     "b7e-cites": "bin/b7e-cites",
     "b7e-commit": "bin/b7e-commit",
+    "b7e-count": "bin/b7e-count",
     "b7e-counterproof": "bin/b7e-counterproof.js",
     "b7e-def": "bin/b7e-def",
     "b7e-enroll": "bin/b7e-enroll",
