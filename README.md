@@ -18350,6 +18350,40 @@ use for running the whole suite than it does for
 shape this bead is about, already carries an unrestricted allowlist and needs no grant to
 run it.
 
+### The `--index`-th of `--total` shards, one suite per line — `b7e-shard`
+
+```
+b7e-shard --index i --total N          this shard's suites, one per line
+b7e-shard --index i --total N --dir <root>
+```
+
+`.github/workflows/test.yml` is the caller (bc-xlz32.4): each of its four `shard` matrix
+legs runs this to get its slice, then feeds it straight to `bin/b7e-gate --only`. It adds
+no second discovery of what a suite *is* — `lib/gate.js`'s `discoverSuites()`, which
+already shells `scripts/test.mjs --list`, is reused as-is — this file only slices the list
+that comes back, in `lib/shard.js`, and prints the result.
+
+**Stride, not a contiguous block.** `suites[i]` goes to shard `i % total`, because the
+suite list is not uniform cost: the pinned suites front and back, the nine `*real.mjs`
+suites and `test/landcheck.mjs` all run far longer than the alphabetical middle, and a
+contiguous slice would put however many of those sort together into whichever one shard
+covers that stretch — the slowest shard would set the ceiling for all of them, which is
+the whole thing sharding exists to avoid. Stride spreads them out without needing to know
+in advance which suites are expensive. `test/shard.mjs` asserts the invariant this exists
+for: `total` shards, unioned, reproduce the input exactly — nothing dropped (a coverage
+hole CI would never notice, since the run still goes green) and nothing duplicated
+(wasted runner minutes, and a stateful suite raced against itself would flake with no
+local repro) — for a synthetic list, for every shard count the workflow actually uses,
+and against this repo's own suite list live.
+
+**Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`.** It is read-only by
+construction, the same shape as `b7e-affected` just below — but unlike `b7e-affected`,
+which answers "what does my diff touch" for whoever is looking at one, `b7e-shard`
+answers a question that only exists because of how CI happens to be sliced this week.
+The one real use for a session — "why did shard 2 go red" — is answered faster by reading
+that shard's own log than by re-deriving which suites it held, so the grant would sit
+here unused the same way `b7e-worktree`'s does above.
+
 ### Run one thing under a deadline, on a Mac with no `timeout` binary — `b7e-bound`
 
 `bc-xl7n.120` is another finding [the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
@@ -19030,6 +19064,70 @@ tests is a read" — and on a suite it decides needs it, writes to the tree via
 `scripts/vendor.js`. `dispatch`, the one agent this list actually governs, has no sweep
 of its own to triage and no branch to have run one on.
 
+### Prove a new check is red without the fix, and put the tree back — `b7e-counterproof`
+
+`bc-68ou.14` names three sessions (`bc-fh0sz`, `bc-xl7n.109`, `bc-gdub`) that each wrote a
+regression check, then had to answer "does this actually catch the bug?" by hand, each a
+different way: `git stash push -- <path> && node <suite>; echo "EXIT=$?"`, then `git
+stash pop`; the same stash with the pop chained onto a `grep`'d pipe, so the exit code
+echoed was the pipe's, not the suite's; a `sed` mutation of a copy, three separate times
+for three separate lines, with no restore at all until the very end. Two of those forms
+leave the tree wrong if the suite crashes between mutate and restore, and one of them
+actually lost an uncommitted fix that way, redone by hand.
+
+```
+b7e-counterproof <path>... -- <suite>...   revert <path>s to --at, run each <suite>
+b7e-counterproof --at <ref>                what to revert to (default: merge-base with main)
+b7e-counterproof --dir <root>               "this tree" is <root>, not this repo's own root
+b7e-counterproof --timeout <s>              per-run seconds, overriding lib/gate.js's own default
+b7e-counterproof --keep-going               keep going past a suite name that will not resolve
+b7e-counterproof --json                     one object, machine-readable, instead of the printed report
+```
+
+Every suite named runs **twice**: once against the tree exactly as it is, once with
+`<path>...` reverted to `--at`. Only a check that is green the first time and red the
+second is *proven* by the revert — the report calls those out by name, with the failure
+text underneath, same as `bc-fh0sz`'s own debrief asked for ("5/7, failure text showing
+the missing grace line"). A check red both times is reported separately rather than
+folded in: it may be red for a reason that has nothing to do with the paths being
+reverted, and counting it would be exactly the mistake `bc-xl7n.109`'s first PATH check
+made the other way — `PATH=/usr/bin:/bin` hard-coded, so it "passed" with and without the
+fix and proved nothing either way. A check that passes both ways is the same failure in
+reverse, and the exit code says so: `0` only when every named suite flipped at least one
+check.
+
+**The restore is `lib/teardown.js`'s `onExit`, not a fourth hand-rolled one.** Every
+path is snapshotted to raw bytes *before* anything is mutated — not read back through
+git, not assumed to match any ref — so an uncommitted fix sitting in the tree when this
+is called is exactly what comes back, the case `bc-gdub` lost work to. The snapshot, the
+`onExit` registration and the mutation itself happen on one synchronous tick with no
+`await` between them, so a `SIGTERM` (a caller's own timeout, `Ctrl-C`, an agent harness
+stopping the run) cannot land in a window where the paths are mutated but the restore is
+not yet armed — `test/counterproof.mjs` drives a real kill mid-run and checks `git
+status` before and after are identical, uncommitted edit included.
+
+`--at` defaults to the merge-base between `HEAD` and whichever of `origin/main`/`main`
+resolves — the ordinary case being a branch that added the fix on top of a commit `main`
+has not moved past. A bare suite name (`teardown`, not `test/teardown.mjs`) resolves
+against `lib/affected.js`'s `candidateSuites` — `npm test`'s own list *union* every
+`scripts/*-check.mjs` — with `.mjs`/`.js` tried in turn, the same "suites or
+`scripts/*-check.mjs`" scope the bead names. An unresolved name refuses the whole call
+before anything is mutated, unless `--keep-going` is given, in which case it is dropped
+and the rest of the named suites still run.
+
+The tree-wide lock is `lib/gate.js`'s own `acquireLock` — the same one `b7e-gate` takes,
+on purpose: this does everything a gate run does and then mutates tracked files on top,
+so a gate and a counterproof racing on one tree is worse than either racing itself.
+
+Exit codes: `0` every named suite flipped at least one check; `1` ran fine but at least
+one suite passed both ways, or was skipped as unresolved under `--keep-going`; `2`
+refused outright — bad usage, an unresolved suite name without `--keep-going`, a `--at`
+that does not resolve, or the lock already held.
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-triage`/`b7e-blame` reason
+and then some: it re-runs a suite, which `lib/grants.js` already classifies as a write,
+and it also writes to the tracked tree while it runs, if only for the run. `dispatch`,
+the one agent that list governs, has no branch and no new check of its own to prove.
 ### Which gate runners are on this Mac, whose worktree each is, and ending only mine — `b7e-gates`
 
 `bc-khoe.55` names four sessions (`bc-4r10.13`, `bc-khoe.4`, `bc-khoe.30.14`,
@@ -31797,12 +31895,34 @@ stops the run, propagates its exit code, and does not run what comes after it.
 
 ### GitHub runs it too — `.github/workflows/test.yml`
 
-The same `npm test`, on a `macos-latest` runner, on every pull request, every push to
-`main`, and every merge-group entry. It exists because of what `bin/deliver.js` cannot
-see: it runs the suite locally, on the branch, against the `main` that branch was *cut
-from*. Two branches that each pass alone can still break `main` together, and with a
-dozen worktrees in flight that is not a hypothetical — the merge is a third thing neither
-of them ever ran. bc-rcrt.
+The same suite, on `macos-latest` runners, on every pull request, every push to `main`,
+and every merge-group entry. It exists because of what `bin/deliver.js` cannot see: it
+runs the suite locally, on the branch, against the `main` that branch was *cut from*. Two
+branches that each pass alone can still break `main` together, and with a dozen worktrees
+in flight that is not a hypothetical — the merge is a third thing neither of them ever
+ran. bc-rcrt.
+
+**It is sharded, not `npm test` (bc-xlz32.4).** `npm test` is strictly serial and stops
+at the first red suite — right for a laptop, wrong for CI, where 135 suites on 2026-08-12
+had become 455 twelve days later and a serial run had gone from comfortable to 14-15
+minutes against a 20-minute `timeout-minutes`, with the headroom shrinking every week.
+Past that ceiling every PR and every merge-group entry fails on a *timeout* rather than on
+a test, and the merge queue stalls on a required check that never reports. Instead, four
+`shard` jobs each run `bin/b7e-shard --index i --total 4 | bin/b7e-gate --only ...` — the
+same no-bail gate every session already runs by hand, driving its own `--jobs`-wide pool
+of workers (free money on an otherwise-uncontended runner) — so a red PR names every
+failing suite in its shard instead of hiding behind the first, and a green one gets its
+verdict in minutes instead of a quarter of an hour. `lib/shard.js` slices the list
+`scripts/test.mjs --list` decides by **stride** (`suites[i]` → shard `i % 4`), not by
+contiguous block, so the handful of expensive suites spread across shards instead of
+piling into whichever one's slice happens to land on them; `test/shard.mjs` asserts the
+shards union back to the full list with nothing dropped and nothing duplicated.
+
+A quarter of the suite's real cost is not in this number at all: `bd` is not installed on
+the runner, so the nine `test/*real.mjs` suites and `test/landcheck.mjs` — the ones that
+drive a real `bd` end to end — skip here, deliberately. Installing `bd` on the runner
+would put that cost back and spend exactly the budget sharding exists to protect; closing
+that gap, if it is worth closing, is its own bead.
 
 **macOS, not Linux, and that is not a preference.** This is a program about launchd,
 osascript, iTerm and a tailnet; the first Ubuntu run died eight suites in on
@@ -31827,15 +31947,19 @@ else:
   outlives the browser it reports on and wrote the directory back after the delete, so the
   reporter is now off and the browser gets SIGTERM first.
 
-The runner is given two things it has no reason to have: a git identity, because ~28
-suites commit into a temp repo and only most of them set their own, and an empty
+Each `shard` runner is given two things it has no reason to have: a git identity, because
+~28 suites commit into a temp repo and only most of them set their own, and an empty
 `~/beads/ci/.beads`, because four suites spawn the real daemon and a daemon with no
 workspace correctly refuses to start.
 
-**The job is called `test` and the name is load-bearing.** Branch protection and the merge
-queue name a required check by its job name; rename the job and the rule silently stops
-matching — GitHub does not complain, it waits for a check that will never report. The
-`merge_group` trigger is there before there is a queue for the same reason: a required
+**The *required* check is still called `test`, and the name is load-bearing — sharding
+does not get to rename it.** Branch protection and the merge queue name a required check
+by its job name; rename it and the rule silently stops matching — GitHub does not
+complain, it waits for a check that will never report. A matrix job reports as `shard
+(0)`, `shard (1)`, … under a different name each, so it cannot be the one the rule points
+at. Instead `test` is a small roll-up job that `needs:` all four `shard` legs and fails if
+any of them did — the suite itself runs in `shard`, not in `test`. The `merge_group`
+trigger is there before there is a queue for the same reason it always was: a required
 check that does not answer merge-group events blocks a queue rather than gating it.
 
 ### `npm run evals` — what the agent *does*, not what the daemon builds
@@ -34228,6 +34352,29 @@ exact two lines that shipped before, and the directory is asserted to survive th
 it a green run would prove only that the fake browser was easy to kill. And the counting is
 done inside a sandbox directory the suite makes for itself, because counting the shared
 temp directory is what made `test/browse.mjs` flaky through four separate bug reports.
+
+**The fake browser is waited for, not slept on** — and getting that wrong did not weaken
+the suite, it inverted it. Each scenario used to follow the spawn with a flat 120ms, which
+is a guess that a `node -e` child is up and inside its interval by then. Under
+`b7e-gate --jobs 4` — CI, and every local gate run here — it is not. With nothing writing,
+`killAndRemove` wins on its first attempt against a directory nobody is defending: the
+control that must fail passes, the escalation window is never reached, and the profile that
+"could not be removed" is removed. Three of the file's assertions go red together, and they
+did, on `main`, twice on 2026-08-25 (bc-mrm77, bc-xl7n.136) and in six runs out of six
+under a synthetic 3× CPU load. The wait is now on the evidence: two distinct filenames means
+the child's interval has fired twice, and a stub that never gets there stops the run as a
+broken fixture rather than leaving eleven measurements of nothing.
+
+**And the one scenario that is about impossibility is no longer raced.** `killAndRemove`
+only believes a deletion it can still see 40ms later, and 40ms is well inside what a
+loaded machine deschedules a 2ms writer for — so "a profile it could not remove" was
+removable often enough to go red on its own. The impossibility is structural now: the
+profile sits one level down in a holder with no write bit, so the final `rmdir` is `EACCES`
+however long anything waits. The stubborn child stays, because what is being handed to
+`killAndRemove` is still a live process; it is the directory that changed. A permission bit
+does not stop root, so that too has a control that must fail — an empty probe directory
+inside the same holder, asserted not to go — because without it a root run would report the
+contract regressing rather than the arrangement not holding.
 
 ### A guard that fires must say what it is — `test/monitorwidth.mjs`
 
