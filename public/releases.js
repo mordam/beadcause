@@ -702,7 +702,11 @@
    * **The fallback is not decoration.** public/panestage.js owns the document's one poll and
    * fans its answers out to `wake` below; a pane whose news had quietly stopped arriving
    * would look exactly like one with nothing to say. `stream.awake()` is asked directly
-   * rather than through a handle this file holds, because this pane holds none.
+   * rather than through a handle this file holds, because this pane holds none. Called from
+   * `wake` on `ended` too (bc-khoe.30.24) — the case that reading `stream.awake()` only at
+   * boot and on a tap could never catch: the standby dying mid-session with nothing else to
+   * pick it up, which used to leave this exact clock unset until the pane was hidden and
+   * shown again.
    *
    * **The four-second tick is not paused when the pane is hidden, and that is deliberate.**
    * It only runs while a deploy is actually in flight — minutes, not hours — and the whole
@@ -742,7 +746,16 @@
    * shell's existing poll being handed on, and the two fetches below only happen when an
    * event says a queue actually moved.
    */
-  function wake({ events, resync }) {
+  function wake({ events, resync, ended }) {
+    // The stream this pane rides just lost its last follower with nobody to replace it
+    // (bc-khoe.30.24) — nothing moved, so there is nothing to fetch, but `scheduleDeploys`
+    // reads `stream.awake()` fresh every time and this is the one moment it would have
+    // gone stale unread: `stream.awake()` is still true one line earlier, inside the wake
+    // that precedes this loop ending, which is why that call could never have caught it.
+    if (ended) {
+      scheduleDeploys();
+      return;
+    }
     if (resync) {
       loadDeploys();
       load({ refresh: true });
