@@ -54,6 +54,7 @@
     "b7e-commit": "bin/b7e-commit",
     "b7e-counterproof": "bin/b7e-counterproof.js",
     "b7e-def": "bin/b7e-def",
+    "b7e-deliverbase": "bin/b7e-deliverbase",
     "b7e-enroll": "bin/b7e-enroll",
     "b7e-eyeball": "bin/b7e-eyeball",
     "b7e-fixture": "bin/b7e-fixture",
