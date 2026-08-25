@@ -366,16 +366,16 @@ images:
   because the close is the one outcome that is not going to happen. The option's id
   rides with the answer and the server re-reads the bead to decide, so editing the
   sentence into your own words does not turn a commission back into a close.
-- **`defers: true` on an option that means *not yet, leave this on the list*.** The
+- **`defers: true` on an option that means *not yet, ask me again later*.** The
   other kind of non-closing answer, and the one `closes: false` used to be pressed
   into service for — wrongly, because it hands the bead to an agent. A deferral hands
   it to nobody: the answer goes on the thread, the bead stays open and unclaimed, and
-  the **card stays in your inbox** with its options, because that is what you just
-  said should happen to it. `defers: true` implies `closes: false` and wins over a
-  `closes: true` written beside it. The button reads *Answer & defer*, the option
-  carries *↪ not yet — the card stays on your list*, and the two-tap arm on a
-  collapsed card says *Tap again — defers bc-7qo*. See [Not yet — the third thing an
-  answer can mean](#not-yet--the-third-thing-an-answer-can-mean).
+  the **card is set aside**, coming back on its own when what it is waiting on has
+  cleared. `defers: true` implies `closes: false` and wins over a `closes: true`
+  written beside it. The button reads *Answer & set aside*, the option carries *↪ not
+  yet — sets this card aside*, and the two-tap arm on a collapsed card says *Tap again
+  — sets bc-7qo aside*. See [Not yet — the third thing an answer can
+  mean](#not-yet--the-third-thing-an-answer-can-mean).
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
 - `docs` are files on the Mac you need to read before answering. Each opens in the
@@ -1512,12 +1512,39 @@ leave the bead open; what differs is who has it next.
 |---|---|---|---|
 | nothing — the ordinary case | closed, reason *Answered via Beadcause* | irrelevant, the bead is closed | nobody, it is settled |
 | `closes: false` — a commission | open, unclaimed | **off** | an agent, via `bd ready` |
-| `defers: true` — a deferral | open, unclaimed | **on** | you, on the same card |
+| `defers: true` — a deferral | open, unclaimed | **on** | nobody, until it comes back to you |
 
 So `defers: true` is `closes: false` **plus** the label staying, and that one write is
 the whole difference: the inbox is `bd human list` and an advocate's queue is `bd ready
 --exclude-label human`, so it is one fact read from two sides rather than two states to
 keep in step. Nothing can open a session on a bead you have deferred.
+
+**And the card is set aside rather than left on the list.** That is bc-y9cof, and it is
+the second half of *not yet* — the half that was missing long enough to look like a bug
+in the first. A deferral used to leave the card in the inbox with all three options
+still on it, so the next sweep drew the identical question with *⟳ You answered this 1m
+ago* above buttons still asking to be tapped, and there was nothing on screen to
+distinguish that from the app having lost the answer. bc-xl7n.132 was answered *leave it
+open until 717 and 719 have merged* and was back a minute later wanting the same
+decision.
+
+The fix is not a fourth ending: it is the one beadcause already had. Answering a
+deferral writes the same record [*Set aside for now*](#setting-a-card-aside-is-not-answering-it)
+writes, so the card leaves the inbox and comes back when its **gate** clears — every
+child closed, blockers gone — or, for a bead with no gate, when somebody comments.
+*Leave it open until both children merge* **is** that gate clearing, so the trigger the
+dismissal picks on its own is the sentence the answer wrote. The toast says which:
+*bc-xl7n.132 set aside — back when its open children clear*.
+
+The `human` label still stays on, and now for a sharper reason than "the card stays on
+your list". A dismissal record only hides a bead the sweep still returns; drop the label
+and the bead leaves the sweep, the record is pruned as stale, and the deferral becomes a
+bead that quietly left the inbox with nothing due to bring it back. The label is what
+makes a deferral **reversible** rather than a disappearance.
+
+Nothing about the bead moves either way, which is why this is still one flag. `defers`
+declares that the option decides nothing and commissions nothing; where the card goes is
+beadcause's business, not the tracker's.
 
 **Why the cost of not having it was more than one wrong tap.** Every advocate writing a
 card had to give *every* option `closes: false`'s opposite as a workaround, and reason
@@ -1535,9 +1562,12 @@ sentence, and counting it would have moved the tax rather than removed it. Tappi
 how you defer; typing still closes.
 
 The thread says which happened, in as many words, because the next reader is an agent
-deciding whether it has just been given work: *Left open and still in the inbox — this
-answer defers the question rather than settling it or commissioning anything.* And a
-deferral does not lift a [superseded marker](#the-duplicate-that-comes-ready-the-moment-its-original-lands), where a
+deciding whether it has just been given work: *Left open, and nothing has been handed to
+an agent — this answer defers the question rather than settling it or commissioning
+anything. The card is set aside in beadcause and comes back on its own when what it is
+waiting on has cleared.* The second sentence is there so an agent that finds this bead
+open with nothing happening reads it as waiting rather than as dropped. And a deferral
+does not lift a [superseded marker](#the-duplicate-that-comes-ready-the-moment-its-original-lands), where a
 commission does — *not yet* is not *these are two jobs*.
 
 **One surface still gets it wrong, and it is not new.** An ntfy action button POSTs the
@@ -1551,7 +1581,11 @@ ordinary close. The phone, the Mirror and the Slack path all send the id and are
 
 `node test/defer.mjs` drives all four endings against one card: the deferral keeps the
 label and the commission beside it still drops it, an ordinary option still closes, and
-a typed answer on a card whose only non-closing option is a deferral still closes.
+a typed answer on a card whose only non-closing option is a deferral still closes. It
+also drives the set-aside: the deferred card leaves `/api/questions`, its record carries
+the bead's gate as the trigger, a gateless bead falls back to the comment count with the
+answer's own comment already counted, and a `bd` that cannot be read leaves the card
+visible rather than hiding it on a promise nothing kept.
 
 ### Setting a card aside is not answering it
 
@@ -13183,6 +13217,21 @@ concurrently, and a report whose predecessor failed is still filed rather than
 inheriting the rejection — one `bd` lock timeout must not silently swallow every later
 occurrence of that error for as long as the daemon runs.
 
+**Per fingerprint means one key each, waited on together — not one key for the pair.**
+The lookup is an OR: `--label-any` asks for both labels and `pickMatch` takes a row
+carrying *either*. The chain key was an AND (`workspace::atLabel::msgLabel`), and the two
+disagree for exactly the reports that share one fingerprint and not the other. Two
+reports from one throw site with different messages got different chain keys, never
+queued behind each other, and both ran the lookup before either `bd create` landed —
+which is the failure the chain exists to prevent, reached by the one door it left open.
+It is measured, not theoretical: bc-jjdar and bc-mwhkg were filed 27 milliseconds apart
+for one root cause, and the advocate opened an unattended window on each. `intake` now
+takes a key per fingerprint and waits on *all* of them, which also has to be both rather
+than a primary with a fallback — a cross-origin `Script error.` has no source at all, so
+`atLabel || msgLabel` would key it on its message while the report it matches keyed on
+its source. The coalescing window is registered under both keys for the same reason, so
+a report matching on either one is counted rather than commented.
+
 **The endpoint never answers 5xx.** It is called *by* error handling: a 500 here is
 itself an error, the page reports the failure of its own reporting, and the loop has no
 floor. A tracker that is down answers `200 {ok: false, reason}` instead, which a
@@ -18656,6 +18705,84 @@ at least one suite.
 `b7e-def`/`b7e-owes` shape, not the `npm test` shape. It never spawns a daemon, binds a
 port or runs a suite; it reads `git diff` and the text of this repo's own source once and
 prints a list. `lib/grants.js` classifies it `read`, the same as `b7e-def` and `b7e-owes`.
+
+### The default local gate before delivering — `b7e-shipgate`
+
+`bc-xlz32.2`: `b7e-affected` just above already answers "which suites cover this diff" and
+`b7e-gate --only` already takes the answer, but nothing composed the two by default —
+every session ran the whole 440-suite gate before delivering, roughly twenty worktrees at
+a time, which is most of the load the rest of `bc-xlz32` is fighting. Since `bc-rcrt` the
+full suite also runs in GitHub Actions on the merge that is actually about to happen, so a
+full *local* run before delivering is a slower, less accurate copy of a check that is
+going to happen regardless.
+
+```
+b7e-shipgate                          affected suites for the diff since origin/main
+b7e-shipgate <path> ...                affected suites for these specific files instead
+b7e-shipgate --full                    skip narrowing — run the whole gate, deliberately
+b7e-shipgate --dir <root>              another tree — this is how it is tested
+b7e-shipgate --jobs/--timeout/--log/--json/--skip   forwarded to b7e-gate unchanged
+```
+
+**Composed outside `b7e-gate`, not inside it.** `bin/b7e-gate`, `lib/gate.js` and
+`scripts/test.mjs` stay untouched by this — `bc-xlz32.1`/`.5` own those three files this
+week for a machine-wide gate semaphore, and a `--affected` flag on the gate itself would
+collide with that. Composing from outside also keeps `b7e-affected`'s own fallback visible
+at the exact point the decision gets made, rather than a layer down inside the gate where
+nothing but this command would ever read it. `lib/shipgate.js` carries the pure decision
+(narrow, or fall back, and the one-line record either way); `bin/b7e-shipgate` is the argv
+parsing, the two subprocesses, and the printing around it.
+
+**The fallback survives intact, because it is read the same way the plain pipe means it.**
+`b7e-affected` prints nothing on stdout and exits `1` the instant any changed file matched
+no suite — a partial list would look identical to a complete one — and an empty `--only`
+selection is `b7e-gate`'s own definition of "everything." This reads `b7e-affected --json`
+rather than the plain pipe, only to explain itself (which files, which suites, which ones
+came back unmatched) — but it treats an empty `suites` list, whether from an unmatched
+file or from no changed files to narrow against in the first place, exactly the way the
+plain pipe's empty stdout would: run the whole gate. `--full` (or the plain `b7e-gate`)
+stays one word away for the deliberate full run, and CI never narrows —
+`.github/workflows/test.yml` always runs everything regardless of what this decides.
+
+**A second gap, found dogfooding this on its own diff.** `b7e-affected`'s own universe is
+wider than `b7e-gate`'s on purpose: `lib/affected.js`'s `candidateSuites` matches against
+`npm test`'s suites *union* every browser check under `scripts/*-check.mjs`, because both
+are real coverage — this repo's own diff for `bc-xlz32.2` narrowed to 245 names, 22 of
+them browser checks `b7e-gate` has never heard of. Left alone, `b7e-gate --only` would
+silently run only the 223 it recognised (harmless, if quieter than the record claimed) —
+but a diff matched *only* by browser checks would hand it a list of names that match
+nothing at all, landing on its `nothing matches --only …` refusal: a manufactured
+*failure* for a diff with no local `npm test` coverage to run. `restrictToKnownSuites`
+filters `b7e-affected`'s list down to `b7e-gate`'s own discovered suites before deciding,
+so the record's count is exactly what will run, and a browser-check-only diff reports
+`affected: 0 local suites for 1 changed file — every match is a browser check, outside npm
+test` and exits `0` without ever invoking `b7e-gate` — distinct from an unmatched file,
+which still falls back to the whole gate.
+
+**The last line on stdout is built for `beadcause-deliver --tests`** — e.g.
+`tests: affected: 14 suites for 2 changed files, all passed` or
+`tests: full gate: lib/foo.js matched no suite, all passed` — so a reviewer sees the
+narrowing, or the lack of it, instead of guessing at it from a bare "tests passed."
+
+**A signal on this wrapper has to reach the `b7e-gate` it spawned, not just itself.** The
+first version killed cleanly on its own `SIGTERM` and left its child running, orphaned,
+still holding `b7e-gate`'s own per-tree lock — a session that killed this command believed
+nothing was running while a stale run sat on the lock for whoever ran it next. `lib/
+teardown.js`'s `onExit` (the same registration `b7e-gate` itself uses for its lock) forwards
+the signal to the child before this process actually exits.
+
+Exit codes are whatever `b7e-gate` itself exits with — `0` every selected suite passed,
+`1` at least one failed or timed out — plus `2` if either subprocess is refused (bad
+usage, or `b7e-affected` itself refusing). `node test/shipgate.mjs` covers the decision
+directly (narrow, each of the three fallbacks, `--full`) and drives the real CLI against a
+fabricated tree the way `test/gate.mjs` and `test/affected.mjs` do, including a suite that
+fails inside the narrowed set, a forwarded `--skip`, and that killing the wrapper mid-run
+actually ends the gate underneath it rather than orphaning it.
+
+**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**: deliberately NOT on it, for the same
+reason as `b7e-gate` just above — every run this does is still `Bash(npm test:*)`-shaped
+underneath, which `lib/grants.js` already classifies as a write held by merge-advocate
+alone, only narrower.
 
 ### Ask for the notes about this bead and these files — `b7e-notes`
 

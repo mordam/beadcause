@@ -424,10 +424,15 @@ const rel = (...segs) => segs.join('/');
 check('public/spacebar.js: exactly the suites that read its source text, matching on text and not on import', () => {
   // Three since bc-mc71w: test/addspace.mjs reads the picker to assert that the row it
   // draws is wired to the dialog behind it. The list is spelled out rather than counted
-  // because the claim is *which* suites, not how many — a fourth appearing is either a
-  // real reader or the matcher having gone back to propagating through imports.
+  // because the claim is *which* suites, not how many — a fifth appearing is either a real
+  // reader or the matcher having gone back to propagating through imports.
+  //
+  // Four since bc-xnj67, and that one is a real reader of the least usual kind: it lifts
+  // `slugOf` out of the source and runs it. That function is a copy of `spaceSlug` in
+  // lib/spaces.js — one on each side of the browser/daemon line, with no module readable
+  // from both — and what the suite asserts is that the two copies still agree.
   const { suites, results } = affected.findAffected(affected.REPO_ROOT, [rel('public', 'spacebar.js')]);
-  assert.deepEqual(suites, ['test/addspace.mjs', 'test/editfreeze.mjs', 'test/sweepfail.mjs']);
+  assert.deepEqual(suites, ['test/addspace.mjs', 'test/editfreeze.mjs', 'test/spacepaths.mjs', 'test/sweepfail.mjs']);
   for (const m of results[0].matches) assert.deepEqual(m.reasons, ['reads its source text']);
 });
 
