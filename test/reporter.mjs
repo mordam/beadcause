@@ -289,6 +289,35 @@ await check('a 503 the router marks as a swap-drain kill is not reported — bc-
   assert.deepEqual(app.reports(), [], 'a swap-drain 503 filed a bead');
 });
 
+await check('a 502 the daemon marks as a view generator failure is not reported — bc-3wf1r', async () => {
+  // lib/server.js answers this way for `/api/views/<ws>/<id>/data` when the repo's own
+  // generator failed and there is nothing held to fall back on. What failed is a script
+  // spawned on another repo's behalf, public/viewhost.js has already drawn the reason in
+  // the pane, and the sev2 P0 it used to file said a function of the daemon had stopped
+  // working when nothing of the sort had happened.
+  const app = load({
+    respond: () =>
+      Promise.resolve({
+        status: 502,
+        ok: false,
+        headers: { get: (k) => (k === 'x-beadcause-view-generator' ? '1' : null) },
+      }),
+  });
+  const res = await app.window.fetch('/api/views/deluvia/studio/data');
+  assert.equal(res.status, 502, 'the wrapper must be transparent');
+  assert.deepEqual(app.reports(), [], 'a view-generator 502 filed a bead');
+});
+
+await check('an ordinary 502 on the same path with no such header is still reported', async () => {
+  // The header is the whole of the exemption. A 502 from the router — the backend really
+  // is unreachable — arrives on this same path and must still file.
+  const app = load({ respond: () => Promise.resolve({ status: 502, ok: false, headers: { get: () => null } }) });
+  await app.window.fetch('/api/views/deluvia/studio/data');
+  const [r] = app.reports();
+  assert.ok(r, 'a bare 502 did not file a bead');
+  assert.equal(r.body.message, 'GET /api/views/deluvia/studio/data failed — HTTP 502');
+});
+
 await check('an ordinary 503 with no swap-drain header is reported', async () => {
   // The header is the whole of what makes the case above safe to skip — a 503 with none
   // is an ordinary failure (the app has nothing behind the port, say) and must still file.
