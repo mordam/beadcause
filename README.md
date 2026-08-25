@@ -20445,6 +20445,69 @@ walk never leaves the fixed roots, and the only `bd` verbs it spawns — `list -
 `bin/b7e-cites`, `lib/cites.js` and `test/cites.mjs`.
 
 
+### Every external assertion about a file, before you change it — `b7e-claims`
+
+Not every repo this machine works in encodes its own broken state as *passing*. In the
+deluvia tracker, `scripts/check_saga_audit.py`'s gates assert the gap positively — a
+hard-coded filename that must still exist, a numeric literal that must still equal the
+current broken count — so fixing the actual thing they guard turns the gate red, often in
+a script nowhere near the file that changed. Five sessions there (`dv-6cn`, `dv-gsh`,
+`dv-nnk`, `dv-i5v`, `dv-ek4`) each hand-derived the full "who else asserts something about
+this file" list before touching it, and each called the derivation itself the bulk of the
+work. `dv-6cn` found four live claims scattered outside the file it was fixing — a gate
+that needed both forks to *stay* wrong, a docstring naming it a carve-out, a prose
+carve-out in a canon-lock doc, and a change-log note — and wrote afterward: "grep for the
+basename before editing; the two prose carve-outs are the ones a gate will not catch."
+`dv-gsh` hit the sharper trap twice: merely *naming* an orphaned reference file in a new
+doc dropped a hard-coded orphan count by one and reddened the gate, with no mention of the
+file anywhere in the gate's own source.
+
+```
+b7e-claims <path>            e.g. reference/LORE_PROPOSAL_electric_universe.md
+b7e-claims <basename>        a bare filename, matched wherever it is named
+b7e-claims <section-id>      an audit section like S5.1 or B10, matched as a whole word
+b7e-claims <target> --json   one object per line instead of the printed report
+b7e-claims <target> --dir <root>   another checkout — this is how it is tested, and how
+                                     it is meant to be run against a repo other than this
+                                     one (deluvia, on this machine, is the motivating case)
+```
+
+Three grouped lists, always in this order: **prose claims** (markdown lines naming the
+target, with the sentence, from `lib/corpus.js`), **gate probes** (python lines naming the
+target by string literal, tagged with the `check(...)` id they belong to, from
+`lib/probes.js`), and **numeric literals at risk** — the `dv-gsh` trap generalised: an
+ALL_CAPS module constant, compared inside a function that enumerates markdown files under
+the target's own directory, even when nothing in that function names the target directly.
+That last group is deliberately structural rather than computed: it does not re-run the
+enumeration to ask whether the constant's *current* value is still right, only whether
+editing the target *could* move it, which is the bead's own phrasing and a cheaper, more
+honest question than trying to fully re-implement one gate script's exact counting rule in
+JavaScript.
+
+**No python parser, same tradeoff `b7e-def` makes for JavaScript.** Everything is
+line-and-regex matching against the disciplined, heavily-commented style these audit
+scripts are actually written in — a `check(id, description, condition)` call, a docstring
+or `# TAG -- ...` comment opening a section, an `os.path.join(root, "reference")`-shaped
+directory literal. A literal spanning multiple lines, or a `check(` call built
+dynamically, is read as prose, not parsed.
+
+**One of the bead's own two acceptance examples no longer exists to test against.**
+`reference/deluvia.archaeo-anthro-overview.md` — the file `dv-6cn`'s four claims were
+about — was itself renamed to `reference/REAL_WORLD_EVIDENCE.md` as part of resolving that
+very finding, so asserting the bead's quoted "four claims" verbatim against the live repo
+would test a file that is gone rather than the command. The other example held up:
+`b7e-claims LORE_PROPOSAL_electric_universe.md --dir ~/neadamthal.projects/deluvia`
+currently reports the direct S8 literal mention *and* flags S5.2's `UNREFERENCED = 14` as
+at risk, both verified against deluvia's real, current `main` this session. `test/
+b7eclaims.mjs` reproduces the same shapes on a fabricated fixture instead of depending on
+that live, separately-changing checkout, which CI does not have at all.
+
+`Bash(b7e-claims:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`lib/grants.js`, the same shape as `b7e-def`/`b7e-cites`/`b7e-census` above: it only ever
+reads files under a given tree and prints what it found, and spawns nothing at all. See
+`bin/b7e-claims`, `lib/corpus.js`, `lib/probes.js` and `test/b7eclaims.mjs`.
+
+
 ### What else was this machine doing at a moment — `b7e-moment`
 
 `bc-dgx7.55` is the session audit's finding: three auto-filed `app-error` beads
