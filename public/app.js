@@ -10641,31 +10641,43 @@
     // of devices.
     //
     // **This has to be everything `adopt` treats as "absent means an old server, keep
-    // what's on screen" (bc-khoe.51), not merely everything it draws.** A warm boot's
-    // whole point is that nothing else has run `adopt` yet this document, so "what's on
-    // screen" is the state object's own hard-coded defaults — `rootboard: {owned:
-    // false}` chief among them — and absent silently reads as "this install has no
-    // board" rather than as "ask the daemon". Leaving one of these out does not fail
-    // loud: the field just does not draw until the next `/api/poll` happens to carry
-    // it, which on a quiet tracker is minutes to hours. `rootboard`, `tickets`,
-    // `cancelledTickets`, `strandedCancels`, `trouble` and `syncTrouble` are stored for
-    // that reason, and a field added to that list in `adopt` later has to be added here
-    // too, or this comment goes stale the same way the one it replaced did.
+    // what's on screen" (bc-khoe.51, bc-khoe.62), not merely everything it draws.** A
+    // warm boot's whole point is that nothing else has run `adopt` yet this document, so
+    // "what's on screen" is the state object's own hard-coded defaults — `rootboard:
+    // {owned: false}` and `me: []` chief among them — and absent silently reads as "this
+    // install has no board" or "this Mac has no `me`" rather than as "ask the daemon".
+    // Leaving one of these out does not fail loud: the field just does not draw until
+    // the next `/api/poll` happens to carry it, which on a quiet tracker is minutes to
+    // hours. `rootboard`, `tickets`, `cancelledTickets`, `strandedCancels`, `trouble`,
+    // `syncTrouble`, `me` and `consoles` are stored for that reason, and a field added to
+    // that list in `adopt` later has to be added here too, or this comment goes stale the
+    // same way the one it replaced did.
     //
-    // **Two more already carry the same guard and are deliberately still missing here.**
-    // `adopt` reads `data.consoles` and `data.me` on exactly this absent-means-an-old-
-    // server rule and neither is stored — that is bc-khoe.62, filed rather than folded
-    // in, because this bead's acceptance criteria named the board/tickets/trouble six.
-    // `me` is the one to be careful with: `adopt`'s own comment says keeping the last
-    // value is what stops a phone behind a cached service worker from calling your own
-    // questions somebody else's, and a warm boot has no last value to keep.
+    // **`me` is the one it was worth stopping to think about rather than just adding.**
+    // `adopt`'s own comment says keeping the last value is what stops a phone behind a
+    // cached service worker from calling your own questions somebody else's — but that is
+    // a description of what an empty `state.me` risks, not of what it does: `addresseeHtml`
+    // draws nothing at all while `state.me` is empty, and `addressedToMe` can only ever
+    // read false against an empty list. So the warm-boot gap this bead found is not a
+    // card misattributed to you — it is a "mine" narrowing with nothing on this Mac to be,
+    // for the frame or two before the next poll fills `state.me` in. Real and worth
+    // closing, and the closing is the same one line as the other seven.
     //
-    // **This overwrites the held entry, it does not merge into it** — so a payload from
-    // an older daemon that omits one of the six erases a newer daemon's copy of it,
-    // which is `adopt`'s rule inverted. Deliberate, and not settled here: public/
-    // monitor.js writes this same key with the whole payload untrimmed, so a merge in
-    // this function alone is undone by the next visit to /monitor. It is one policy for
-    // the key rather than a choice per writer, and it is bc-khoe.63.
+    // **`consoles` round-trips cleanly, checked against what the payload actually holds.**
+    // The worry was `dismissedChats` (a plain in-memory `Set`, reset on every new
+    // document) filtering a payload that still carried something dismissed on a different
+    // tab. It does not: the server's own `inboxConsoles()` already excludes anything with
+    // `closedAt` set before this payload is ever built, so a stored `consoles` list is
+    // already "open only" the same way the live fetch is, and an empty `dismissedChats`
+    // on a fresh document has nothing to do but agree with it.
+    //
+    // **Merging onto the held entry, rather than replacing it outright, is settled too —
+    // in `write()` in public/warm.js, not here (bc-khoe.63).** This key has three writers
+    // — this function, public/monitor.js's own `/api/questions` fetch, and the prewarm
+    // loop in public/warm.js — and a merge in this function alone would still be undone
+    // by either of the other two. `write()` merges any write to this one path onto
+    // whatever it already holds, so all three get the guarantee for free and none of them
+    // has to know about the other two.
     const {
       questions,
       requests,
@@ -10679,6 +10691,8 @@
       strandedCancels,
       trouble,
       syncTrouble,
+      me,
+      consoles,
     } = data;
     window.beadcause?.warm?.write?.(
       questionsPath(scope),
@@ -10695,6 +10709,8 @@
         strandedCancels,
         trouble,
         syncTrouble,
+        me,
+        consoles,
       },
       Number(data.seq) || 0
     );

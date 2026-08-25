@@ -5,22 +5,31 @@
  *     npm test
  *     node test/warmkeep.mjs
  *
- * bc-khoe.51. `keep()` in public/app.js is what a cold `/api/questions` fetch leaves
- * behind for the next document that opens the inbox — `warmBoot()` reads it back and
- * feeds it straight into `adopt()`, with no round trip to the daemon. `adopt()` treats a
- * missing field as "an old server that predates it, keep what's on screen" for six of
- * them: `rootboard`, `tickets`, `cancelledTickets`, `strandedCancels`, `trouble` and
- * `syncTrouble`. On a warm boot there is nothing on screen yet — the state object's own
- * hard-coded defaults are what "on screen" means before the first `adopt()` of the
- * document — so a `keep()` that drops one of those six does not fail loud, it silently
- * paints the empty default (`rootboard: {owned: false}` chief among them) until a parked
- * `/api/poll` happens to carry a payload that disagrees, which on a quiet tracker is
- * minutes to hours.
+ * bc-khoe.51, bc-khoe.62. `keep()` in public/app.js is what a cold `/api/questions` fetch
+ * leaves behind for the next document that opens the inbox — `warmBoot()` reads it back
+ * and feeds it straight into `adopt()`, with no round trip to the daemon. `adopt()` treats
+ * a missing field as "an old server that predates it, keep what's on screen" for eight of
+ * them: `rootboard`, `tickets`, `cancelledTickets`, `strandedCancels`, `trouble`,
+ * `syncTrouble`, `me` and `consoles`. On a warm boot there is nothing on screen yet — the
+ * state object's own hard-coded defaults are what "on screen" means before the first
+ * `adopt()` of the document — so a `keep()` that drops one of those eight does not fail
+ * loud, it silently paints the empty default (`rootboard: {owned: false}` and `me: []`
+ * chief among them) until a parked `/api/poll` happens to carry a payload that disagrees,
+ * which on a quiet tracker is minutes to hours.
  *
  * `keep()` used to store only `{ questions, requests, workspaces, spaces, filter,
  * summary }`, on a comment claiming that was "trimmed to what `adopt` reads" — which had
  * stopped being true. This suite lifts `keep()` out of public/app.js and asserts the
- * object it hands to the warm store's `write()` carries all six.
+ * object it hands to the warm store's `write()` carries all eight.
+ *
+ * **What this file does not cover: the erasure bc-khoe.63 fixed.** `keep()` genuinely
+ * does not invent a field a payload never had — that is correct, and is what the last
+ * check below asserts — but the object it hands to `write()` used to then *replace* the
+ * held entry outright, so a payload from an older daemon that lacked one of the eight
+ * erased a newer daemon's copy of it. That merge-or-replace decision lives in `write()`
+ * itself now, in public/warm.js, because this key has two other writers besides `keep()`
+ * and a fix here alone would still be undone by them — see test/warm.mjs for the checks
+ * on that behaviour, against the real `write()` rather than a stub of it.
  *
  * No `bd`, no network, no browser: `keep()` touches nothing but its own argument and the
  * `warm.write` it is handed, so it is testable in a `node:vm` the way test/jirarow.mjs
@@ -129,6 +138,8 @@ const PAYLOAD = {
   strandedCancels: [{ key: 'TECH-3' }],
   trouble: [{ workspace: 'sophab', error: 'timeout' }],
   syncTrouble: [{ workspace: 'deluvia', error: 'behind' }],
+  me: ['adam.morgan@climative.ai'],
+  consoles: [{ id: 'c-1', workspace: 'beadcause' }],
   // On the payload but not in `keep`'s output — these are re-fetched their own way
   // (public/accountbar.js's own `/api/accounts` call) rather than carried warm, and
   // asserting their absence is what would catch `keep` growing to store the whole
@@ -154,9 +165,12 @@ for (const field of ['questions', 'requests', 'workspaces', 'spaces', 'filter', 
   });
 }
 
-// The six fields adopt() reads as "absent means an old server, keep what's on screen" —
-// the ones a warm boot has no "screen" to fall back to, and the whole of bc-khoe.51.
-for (const field of ['rootboard', 'tickets', 'cancelledTickets', 'strandedCancels', 'trouble', 'syncTrouble']) {
+// The eight fields adopt() reads as "absent means an old server, keep what's on screen" —
+// the ones a warm boot has no "screen" to fall back to. Six of them are bc-khoe.51; `me`
+// and `consoles` are bc-khoe.62, filed while working .51 and deliberately left for their
+// own bead rather than folded in, because .51's acceptance criteria named only the six.
+const ABSENT_MEANS_OLD_SERVER = ['rootboard', 'tickets', 'cancelledTickets', 'strandedCancels', 'trouble', 'syncTrouble', 'me', 'consoles'];
+for (const field of ABSENT_MEANS_OLD_SERVER) {
   check(`keep() now stores ${field}, so a warm boot has it to adopt`, () => {
     assert.deepEqual(kept?.stored?.[field], PAYLOAD[field], `${field} did not round-trip through keep()`);
   });
@@ -167,23 +181,29 @@ check('a rootboard with roots on it is not silently narrowed on the way through'
   assert.equal(kept?.stored?.rootboard?.roots?.length, 1);
 });
 
-check('a payload with none of the six still keeps cleanly — an old daemon is a miss, not a throw', () => {
-  const { rootboard, tickets, cancelledTickets, strandedCancels, trouble, syncTrouble, ...rest } = PAYLOAD;
+check('a payload with none of the eight still keeps cleanly — an old daemon is a miss, not a throw', () => {
+  const { rootboard, tickets, cancelledTickets, strandedCancels, trouble, syncTrouble, me, consoles, ...rest } = PAYLOAD;
   const out = callKeep('human', rest);
-  // **These three go first, and they are what make the six below mean anything.**
+  // **These three go first, and they are what make the eight below mean anything.**
   // `out?.stored?.[field] === undefined` is equally true of a `keep()` that wrote
   // nothing at all, so on its own the loop cannot tell "kept, without inventing the
-  // six" from "never kept". Every other check in this file asserts a field is present,
+  // eight" from "never kept". Every other check in this file asserts a field is present,
   // and would go red on a `keep()` that stopped writing; this one is the only one that
-  // asserts a *behaviour*, and it is the one covering the mixed-fleet path the six
+  // asserts a *behaviour*, and it is the one covering the mixed-fleet path the eight
   // `adopt` guards exist for — so vacuous here means a later `keep()` could drop
   // old-daemon payloads on the floor and the file written to stop exactly that silence
   // stays green. Verified against the mutation `if (!data.rootboard) return;` at the
   // top of `keep()`, which left this suite 16/16 before these lines and fails on them.
-  assert.ok(out, 'keep() wrote nothing at all for a payload missing the six — an old daemon is not warm-kept');
+  //
+  // **This is a claim about what `keep()` hands to `write()`, not about what ends up
+  // held.** `write()` is stubbed in this file (see `callKeep`), so it cannot merge
+  // anything back in — asserting `undefined` here is correct and unrelated to whether
+  // the *held entry* keeps a field an older payload omitted, which is bc-khoe.63's
+  // question and is answered in `write()` itself, not in what `keep()` builds for it.
+  assert.ok(out, 'keep() wrote nothing at all for a payload missing the eight — an old daemon is not warm-kept');
   assert.deepEqual(out.stored.questions, rest.questions, 'the payload did not round-trip through keep()');
   assert.equal(out.seq, 41, 'the sequence number did not come through');
-  for (const field of ['rootboard', 'tickets', 'cancelledTickets', 'strandedCancels', 'trouble', 'syncTrouble']) {
+  for (const field of ABSENT_MEANS_OLD_SERVER) {
     assert.equal(out.stored[field], undefined, `${field} appeared from nowhere on a payload that never had it`);
   }
 });
