@@ -358,6 +358,29 @@
   /* ----------------------------------------------------------------- handlers */
 
   /**
+   * Whether `event.filename`/`event.lineno` are actually where this error was thrown,
+   * rather than where something merely rethrew it.
+   *
+   * `public/viewhost.js` and `public/panestage.js` both catch a view's failure and
+   * rethrow it out of a `setTimeout`, on purpose, so one bad view cannot take the page
+   * down. But `Error.stack` is captured at construction and never moves, so for a
+   * rethrow it still names the real origin while `event.filename`/`event.lineno` name
+   * only the trampoline that rethrew it — every such failure, in every repo view, then
+   * reports the same file and line. The stack is the tiebreaker: when it is there, trust
+   * `filename`/`lineno` only if the stack's top actually agrees with them. A cache-busted
+   * script's query string does not always survive into a frame, so the bare path is
+   * checked too. Both V8 (`at fn (url:line:col)`) and Safari (`fn@url:line:col`) produce
+   * a frame containing `path:line:`. No stack at all (a cross-origin "Script error.", or
+   * a caller that never had one) is the ordinary case this leaves alone — there is
+   * nothing to contradict `filename`/`lineno` with, so they are trusted as before.
+   */
+  function attributed(stack, filename, lineno) {
+    if (typeof stack !== 'string' || !stack || !filename || !Number.isFinite(lineno)) return true;
+    const bare = String(filename).replace(/[?#].*$/, '');
+    return stack.includes(`${filename}:${lineno}:`) || stack.includes(`${bare}:${lineno}:`);
+  }
+
+  /**
    * An uncaught exception.
    *
    * Not in the capture phase, and that is the whole of how a failed `<img>` or a script
@@ -371,12 +394,14 @@
    */
   window.addEventListener('error', (event) => {
     if (!event || typeof event.message !== 'string' || !event.message) return;
+    const stack = event.error?.stack;
+    const real = attributed(stack, event.filename, event.lineno);
     report('error', {
       message: event.message,
-      source: event.filename,
-      line: event.lineno,
-      column: event.colno,
-      stack: event.error?.stack,
+      source: real ? event.filename : undefined,
+      line: real ? event.lineno : undefined,
+      column: real ? event.colno : undefined,
+      stack,
     });
   });
 
