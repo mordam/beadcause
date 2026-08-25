@@ -32434,6 +32434,55 @@ get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain 
 `test/*.mjs` survive, that the three pinned positions hold, and that a failure still
 stops the run, propagates its exit code, and does not run what comes after it.
 
+### Nine real-`bd` suites share one cached workspace template — `test/helpers/bdtemplate.mjs`
+
+Nine suites drive the real `bd` binary rather than a stub of it (the argument for that
+is at the top of `test/adoptsweepreal.mjs`, and it still holds — nothing here fakes
+`bd`): `test/landcheck.mjs` (by way of `scripts/land-check.mjs`), `test/closegatereal.mjs`,
+`test/promoterunbin.mjs`, `test/epicedgereal.mjs`, `test/adoptsweepreal.mjs`,
+`test/declarededgereal.mjs`, `test/reassignguard.mjs`, `test/onboard.mjs` and
+`test/detect.mjs`. Between them they used to spend about a quarter of the gate's total
+suite-seconds (bc-xlz32.3), and almost none of that was the assertions — it was that
+each one opened by running its own `bd init --skip-agents --prefix <x>`, which builds a
+fresh embedded Dolt database from nothing. Measured at ~28s on a loaded Mac, nine times
+a run.
+
+`test/helpers/bdtemplate.mjs` builds that empty workspace once per `(bd version,
+prefix, extra flags)` and every suite above copies it rather than building its own.
+Copying is a `fs.cpSync` of a small directory (a couple of megabytes) with directory
+modes mirrored back afterward — `bd` sets `.beads` to `0700` and warns below it, which a
+plain recursive copy does not preserve on its own — and it is fast enough that the
+*second* suite asking for a given prefix pays single-digit milliseconds instead of
+seconds. `test/bdtemplate.mjs` is where the three properties every caller relies on are
+actually checked against the real binary, not assumed: a copy is independent (a write in
+one is invisible from a sibling copy and from the template itself), several suites
+asking for the same prefix at once build it once and the rest wait rather than race, and
+the cache is keyed on `bd version` so an upgraded `bd` can never hand back a stale
+database.
+
+**The prefix is not rewritten after copy.** At least one suite
+(`test/adoptsweepreal.mjs`) asserts against a literal `ar-nope` id, which makes the
+prefix load-bearing content rather than a label — and the embedded engine names both
+the on-disk database directory and the database itself after the prefix it was given,
+which makes renaming one after the fact a second, riskier problem. Building the ten
+distinct templates this repo's suites actually use (nine prefixes, plus `test/onboard.mjs`
+needing a second, unrelated one) once each is cheap enough that this file does not need
+to solve that instead.
+
+**The cache lives at a hardcoded `/tmp/beadcause-bd-template`, never under
+`os.tmpdir()` or `os.homedir()`.** `os.tmpdir()` is the usual place for scratch state in
+this repo (see `lib/fixture.js`), but `lib/gate.js` and `scripts/test.mjs` each hand a
+suite's *child process* its own private `$TMPDIR` and delete it the moment the suite
+exits (bc-5isv) — a template built there would be built, and thrown away, by every
+suite that asked for it, which is exactly the cost this file exists to remove. And
+`os.homedir()` looked like the obvious fix until `bd init` itself refused there for a
+reason that has nothing to do with `BEADS_DIR`: it walks up from `cwd` looking for an
+ancestor that already has a `.beads`, and on a machine that also runs `bd` for its own
+personal tracking (this one does — see the beads section of the global CLAUDE.md) that
+ancestor is `$HOME` itself, so every path under it inherited the refusal regardless of
+`BEADS_DIR` or `--prefix`. `BEADCAUSE_BD_TEMPLATE_DIR` moves the cache, mainly so
+`test/bdtemplate.mjs` never touches the real one.
+
 ### GitHub runs it too — `.github/workflows/test.yml`
 
 The same suite, on `macos-latest` runners, on every pull request, every push to `main`,
