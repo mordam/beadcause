@@ -760,9 +760,22 @@ try {
 } finally {
   disarmExit();
   close();
-  daemon.kill();
-  if (!KEEP) fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3 });
-  else console.log(`\nkept ${CONFIG_DIR}`);
+  // Through `killAndRemoveSync` rather than `kill()` and an `rmSync` beside it, which is
+  // what this was and which fails the check *after* all 39 assertions have passed.
+  //
+  // `kill()` is not a wait — it returns once the signal is queued — and this daemon keeps
+  // a git repository under its config directory, so the delete on the next line walks a
+  // tree something is still writing into and throws `ENOTEMPTY` on `config/.git`. Nothing
+  // catches it, so a run whose every assertion was green exits 1 on its own teardown.
+  // Watched happening 2026-08-25, and `maxRetries: 3` cannot help: that is `rmSync`'s own
+  // retry of a failed *unlink*, not of a directory being repopulated behind it. Same bug
+  // and same fix as bc-beleq.1 in test/advswitch.mjs; lib/teardown.js is the one copy of
+  // it, it never throws, and this file already imported it for the signal path.
+  if (!KEEP) killAndRemoveSync(daemon, tmp);
+  else {
+    daemon.kill();
+    console.log(`\nkept ${CONFIG_DIR}`);
+  }
 }
 
 const failed = results.filter((r) => !r.ok);
