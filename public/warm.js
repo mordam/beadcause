@@ -282,6 +282,54 @@
     }
   })();
 
+  // `at` is `Date.now()`, millisecond resolution: two writes in the same page-load
+  // tick (a background warm racing a view's own fetch) can land in the same
+  // millisecond, and `evict` below would otherwise fall through to whichever
+  // `keys()` happens to enumerate first — insertion order in every browser tested,
+  // but nowhere guaranteed by the Web Storage spec. A monotonic counter, stamped on
+  // every write in this session, breaks that tie without depending on it.
+  let writeSeq = 0;
+
+  /**
+   * Paths where a write layers its data onto whatever is already held, instead of
+   * replacing the entry outright — every other path keeps the old all-or-nothing
+   * behaviour. bc-khoe.63: `/api/questions?scope=human` has three writers — `keep()`
+   * in public/app.js, public/monitor.js's own `/api/questions` fetch, and `prewarm`
+   * below — none of which can promise it is holding the newest daemon's copy of the
+   * payload. On a mixed fleet, whichever wrote last used to win outright: an older
+   * daemon's payload that omits `rootboard` (or any of the other fields `adopt()` in
+   * public/app.js treats as "absent means an old server, keep what's on screen")
+   * produced a stored entry with no `rootboard` at all, silently erasing a newer
+   * daemon's copy of it. A real empty board is `{owned: false}` — present, not
+   * absent — so absence never legitimately means "gone" on this payload, and merging
+   * on write is `adopt()`'s own rule carried to the write side. See the comment above
+   * `keep()` for the fuller argument and the counter-argument it was weighed against.
+   *
+   * Scoped to this one path rather than folded into `write()` for everyone: every other
+   * caller (`console.js`, `admin.js`, `endorse.js`, the board in `app.js`, …) writes its
+   * own current, complete state on every call, and an absent field there legitimately
+   * means "that's the whole list now" — merging those would let a removed row survive
+   * forever in the held entry.
+   */
+  const MERGE_ON_WRITE = new Set(['/api/questions?scope=human']);
+
+  /**
+   * Layer `patch`'s own keys onto `base`, skipping any key whose value is `undefined`.
+   *
+   * `undefined` rather than "own key present" is the test, because `keep()` builds its
+   * written object by destructuring — `{ rootboard, tickets, ... } = data` — so a field
+   * the payload omits is still an own key on the object it hands to `write()`, just with
+   * an `undefined` value. Treating that the same as a genuinely missing key is what makes
+   * this agree with `adopt()`, which reads exactly the same "absent" both ways.
+   */
+  function mergeAbsent(base, patch) {
+    const out = { ...base };
+    for (const k of Object.keys(patch)) {
+      if (patch[k] !== undefined) out[k] = patch[k];
+    }
+    return out;
+  }
+
   /**
    * Whether a path is one the store gives up last. See `BUDGET_BYTES`.
    *
@@ -350,7 +398,7 @@
       drop(path);
       return null;
     }
-    return { data: entry.data, at: Number(entry.at) || 0, seq: Number(entry.seq) || 0, age };
+    return { data: entry.data, at: Number(entry.at) || 0, seq: Number(entry.seq) || 0, wseq: Number(entry.wseq) || 0, age };
   }
 
   /**
@@ -367,13 +415,25 @@
    * already treats that as a miss, and a page that cannot warm is merely as fast as it
    * was. What has changed is that failing to hold *this* payload no longer costs the
    * others.
+   *
+   * **`MERGE_ON_WRITE` paths layer onto the held entry instead of replacing it.** See
+   * that constant for why. The merged object is what gets stamped and budgeted below,
+   * so a merge that pushes the entry over budget fails exactly like an oversized write
+   * always has. `seq` is still whatever this call was handed — the payload just written
+   * may be carrying forward a field from an older fetch, but the snapshot as a whole is
+   * true as of this `seq`, which is the same granularity `adopt()` already reasons in
+   * (one position for the whole payload, not one per field).
    */
   function write(path, data, seq = 0) {
     if (!store || data == null) return false;
+    if (MERGE_ON_WRITE.has(path) && data && typeof data === 'object') {
+      const hit = read(path);
+      if (hit && hit.data && typeof hit.data === 'object') data = mergeAbsent(hit.data, data);
+    }
     const key = PREFIX + path;
     let raw;
     try {
-      raw = JSON.stringify({ v: STORE_V, at: Date.now(), seq: Number(seq) || 0, data });
+      raw = JSON.stringify({ v: STORE_V, at: Date.now(), seq: Number(seq) || 0, wseq: writeSeq++, data });
     } catch {
       return false; // something un-JSONable got in; not worth a second attempt
     }
@@ -427,8 +487,9 @@
   /**
    * Give up exactly one entry to make room, and say whether there was one to give.
    *
-   * The ordering is `BUDGET_BYTES`'s: oldest `at` first, and the inbox's own paths only
-   * once nothing else is left. `keep` is the path being written, which is never a
+   * The ordering is `BUDGET_BYTES`'s: oldest `at` first (ties broken by `wseq`, the
+   * write's own order — see `writeSeq` above), and the inbox's own paths only once
+   * nothing else is left. `keep` is the path being written, which is never a
    * candidate — evicting it would make room by throwing away the thing we are here to
    * store, and the write would then succeed having achieved nothing.
    */
@@ -445,8 +506,15 @@
         drop(path);
         return true;
       }
-      const rank = [lastToGo(path) ? 1 : 0, hit.at];
-      if (!worst || rank[0] < worst.rank[0] || (rank[0] === worst.rank[0] && rank[1] < worst.rank[1])) {
+      // `at` alone can tie (see `writeSeq` above); `wseq` breaks it deterministically
+      // rather than falling through to `keys()`'s enumeration order.
+      const rank = [lastToGo(path) ? 1 : 0, hit.at, hit.wseq];
+      if (
+        !worst ||
+        rank[0] < worst.rank[0] ||
+        (rank[0] === worst.rank[0] && rank[1] < worst.rank[1]) ||
+        (rank[0] === worst.rank[0] && rank[1] === worst.rank[1] && rank[2] < worst.rank[2])
+      ) {
         worst = { path, rank };
       }
     }

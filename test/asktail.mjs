@@ -113,9 +113,17 @@ check(() => {
 check(() => {
   const { decision } = parseDecision(askTemplate());
   assert.ok(decision, 'the template parsed to a decision');
-  assert.equal(decision.options.length, 2);
+  assert.equal(decision.options.length, 3);
   assert.equal(decision.options.filter((o) => o.recommended).length, 1);
 }, 'the template parses, and it demonstrates the recommendation rather than describing it');
+
+check(() => {
+  const { decision } = parseDecision(askTemplate());
+  const deferring = decision.options.filter((o) => o.defers);
+  assert.equal(deferring.length, 1, 'exactly one option demonstrates defers: true');
+  assert.equal(deferring[0].closes, false, 'a deferring option never closes, whatever else it says');
+  assert.equal(deferring[0].recommended, false, 'the demonstration option is not itself the recommendation');
+}, 'and it demonstrates defers: true — the "not yet, leave it on the list" shape — not just closes: false');
 
 check(() => {
   assert.equal(decisionTail(askTemplate()).ok, true);

@@ -1,0 +1,129 @@
+#!/usr/bin/env node
+/**
+ * `b7e-handback` — end a run that delivered nothing, and put the bead back the one way
+ * the next tick expects.
+ *
+ *     echo 'Out of time; the harness half is written, the CLI half is not.' > note.md
+ *     b7e-handback -w beadcause -b bc-dgx7.34 --note note.md
+ *     b7e-handback -w beadcause -b bc-ogicx.1 --note note.md --why blocked --human
+ *     b7e-handback -w beadcause -b bc-dgx7.34 --note note.md --json
+ *
+ * bc-dgx7.34: four sessions ended without a pull request and each put the bead back
+ * differently — one cleared the assignee and left the status alone, one set the status
+ * and left the assignee on, one skipped the readback that would have caught either. See
+ * lib/handback.js for the write this replaces and why it reuses `Bd.reopenAbandoned`
+ * rather than reimplementing its retry-then-force logic here.
+ *
+ * The note is a **file**, never a shell argument — `--note -` (or no `--note` at all)
+ * reads stdin instead, matching `bin/block.js`/`bin/supersede.js`. Two of the four hand
+ * sessions this replaces lost or corrupted the note going in as a heredoc argument; a
+ * file or a pipe cannot be mangled the same way.
+ *
+ * `--why` is optional context folded into the comment's own header (`Handing back
+ * (timeout): …`) — it changes no write, only what the next reader sees first.
+ *
+ * `--human` adds the `human` label bc-ogicx.1's own hand session used, and refuses
+ * outright on a bead that is not type `decision` — the label belongs on the question,
+ * not on ordinary work being handed back for another reason.
+ *
+ * Exit codes: `0` handed back and read back as open-and-unassigned. `2` bad usage. `3`
+ * refused before writing anything (closed bead, `--human` on a non-decision, unknown
+ * workspace/bead). `5` something was written but the readback did not come back
+ * open-and-unassigned — the case none of the four hand sessions checked for. `1` an
+ * unexpected error from `bd` itself (a lock, a timeout) partway through.
+ */
+import fs from 'node:fs';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { handback, describeHandback, WHY_VALUES } from '../lib/handback.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-handback -w <workspace> -b <bead> [--note <file>] [--why timeout|handback|blocked] [--human] [--json]
+
+End a run that delivered nothing: comment the note, set the bead open and unassigned
+(lib/bd.js's reopenAbandoned), optionally add the human label, then read the bead back
+and say plainly whether it landed open-and-unassigned.
+
+  -w, --workspace <name>   which tracker (required; one of the configured workspaces)
+  -b, --bead <id>          the bead to hand back (required)
+  --note <file>            the note, as a file — omit or pass "-" to read stdin instead
+  --why <reason>           timeout | handback | blocked — folded into the comment header
+  --human                  also add the human label; refused on a bead that is not type decision
+  --json                   the machine-readable form instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const beadId = value('-b', '--bead');
+const noteFile = value('--note');
+const why = value('--why') ?? null;
+const HUMAN = has('--human');
+const JSON_MODE = has('--json');
+
+function fail(msg, code = 2) {
+  console.error(`b7e-handback: ${msg}`);
+  process.exit(code);
+}
+
+if (!wsName) fail(`-w/--workspace is required\n${USAGE}`);
+if (!beadId) fail(`-b/--bead is required\n${USAGE}`);
+if (why !== null && !WHY_VALUES.includes(why)) {
+  fail(`--why must be one of ${WHY_VALUES.join(', ')}, not "${why}"`);
+}
+
+let note;
+try {
+  note = (noteFile && noteFile !== '-' ? fs.readFileSync(noteFile, 'utf8') : fs.readFileSync(0, 'utf8')).trim();
+} catch (err) {
+  fail(`could not read the note (${String(err?.message || err).split('\n')[0]})`);
+}
+if (!note) fail(`the note is empty — pipe or point --note at what happened, so the bead does not go back silent`);
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 3);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let result;
+try {
+  result = await handback(bd, ws, beadId, { note, why, human: HUMAN });
+} catch (err) {
+  console.error(`b7e-handback: ${beadId} — ${String(err?.message || err).split('\n')[0]}`);
+  process.exit(1);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ workspace: ws.name, bead: beadId, why, human: HUMAN, ...result }, null, 2));
+} else {
+  for (const line of describeHandback(beadId, result)) console.log(line);
+}
+
+// Printed to stdout either way — the report above is the audit trail even for a
+// partial write — and echoed to stderr on failure too, so a caller checking only
+// stderr (the way `fail()` above already works) sees the same reason.
+if (result.refused && result.wrote.length === 0) {
+  console.error(`b7e-handback: ${beadId} — ${result.refused}`);
+  process.exit(3);
+}
+if (!result.ok) {
+  console.error(`b7e-handback: ${beadId} — ${result.refused || 'did not read back as open-and-unassigned'}`);
+  process.exit(5);
+}
+process.exit(0);

@@ -564,6 +564,7 @@
     const orphans = (a && a.heldByNoRoot) || [];
     const paused = (a && a.heldByPause) || [];
     const undecided = (a && a.heldByUndecided) || [];
+    const owedRetry = (a && a.heldByOwed) || [];
     const gaveUp = (a && a.givenUp) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
@@ -623,6 +624,17 @@
         ? `<span class="pill p1" title="${esc(
             undecided.map((h) => `${h.id} — ${h.why}`).join('\n')
           )}">${undecided.length} childless epic${undecided.length === 1 ? '' : 's'} nobody has decided the shape of</span>`
+        : '',
+      // `heldByOwed` is the thirteenth (bc-4r10.20), and the only one whose second party
+      // is a ledger entry rather than a window, a branch, a machine or a file: this bead's
+      // merge-bead already closed on a merge, and `lib/owed.js` is retrying the work
+      // bead's own close every poll. `muted` rather than `p1`, with the others that clear
+      // on their own — the ordinary life of one of these is a poll or two, not a wait
+      // anybody has to act on.
+      owedRetry.length
+        ? `<span class="pill muted" title="${esc(
+            owedRetry.map((h) => `${h.id} — ${h.why}`).join('\n')
+          )}">${owedRetry.length} already merged, closing on retry</span>`
         : '',
       // The eleventh, and the only pill on this row naming a bead that is (usually) still
       // *in* the queue the pill beside it counts (bc-xl7n.111 — and bc-xl7n.117 for the
@@ -1957,7 +1969,7 @@
    * binds: every advocate card already quotes it, in its stepper's tooltip and in the
    * amber "Held by globalMaxWorkers" note the tick writes when it is what stopped a
    * launch. Until now it was also the one number on this page you could not change
-   * without editing ~/.beadcause/config.json and restarting the daemon — so the page
+   * without editing ~/.config/beadcause/config.json and restarting the daemon — so the page
    * could tell you exactly which number was holding your work up and offer you nothing
    * to do about it.
    *
@@ -2215,6 +2227,11 @@
       // With its sequence, so the inbox can tell whether the copy it is holding for this
       // page has been invalidated by anything since — see `MAINTAINED` in public/app.js.
       warm?.write?.('/api/work', work, Number(work?.seq) || 0);
+      // Whole and untrimmed — unlike `keep()` in public/app.js, which stores a named
+      // subset. Used to be able to erase a field a newer daemon had already stored, on a
+      // mixed fleet where this fetch's daemon predates it (bc-khoe.63); `write()` now
+      // merges onto the held entry for this one path, so an older payload here cannot
+      // undo what a fresher one elsewhere already wrote.
       if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
       adoptQuestions(questions);
       state.error = null;
