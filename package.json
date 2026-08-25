@@ -45,6 +45,7 @@
     "b7e-apply": "bin/b7e-apply",
     "b7e-base": "bin/b7e-base",
     "b7e-blame": "bin/b7e-blame",
+    "b7e-bound": "bin/b7e-bound",
     "b7e-brief": "bin/b7e-brief",
     "b7e-call": "bin/b7e-call",
     "b7e-census": "bin/b7e-census",
