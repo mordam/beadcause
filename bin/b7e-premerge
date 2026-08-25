@@ -1,0 +1,192 @@
+#!/usr/bin/env node
+/**
+ * `b7e-premerge` — will this branch and a sibling editing the same file actually merge,
+ * simulated before either one is delivered.
+ *
+ *     b7e-premerge                              every colliding worktree lib/siblings.js finds
+ *     b7e-premerge --against worktree-b7e-def-3rjan
+ *     b7e-premerge --against origin/branch --against other-branch
+ *     b7e-premerge --bead bc-3rjan               the files that bead declares, instead
+ *     b7e-premerge --tree                        also materialise each merge under os.tmpdir()
+ *     b7e-premerge --json
+ *     b7e-premerge --dir <root>                  another tree — this is how it is tested
+ *
+ * bc-dgx7.52: three sessions on 2026-08-24 each answered "does this merge?" a different
+ * way — a full hand-resolve with `git merge-tree`/`sed`/a python heredoc inside the
+ * worktree about to be delivered, an after-the-fact `git log`/`bd show` that never
+ * simulated the merge at all, and a claim refusal re-issued and ignored twice. This is
+ * bc-3rjan's own working method (`git merge-tree --write-tree`), reusable and never
+ * touching the caller's working tree — see lib/premerge.js's header for why that is
+ * actually true, not just claimed.
+ *
+ * Prints one block per counterparty: `clean` (with its tree oid) or `conflicted`, with
+ * each conflicted path's line range and a few lines of context — nothing for a run that
+ * found no counterparty and nothing was named. `--tree` extracts each merge (clean or
+ * conflicted) into its own directory under `os.tmpdir()`, `node_modules` already
+ * symlinked in from this worktree, and prints where.
+ *
+ * Exit codes: `0` every counterparty merges clean. `1` at least one conflicts, or named
+ * a ref this could not resolve. `2` bad usage — nothing to check against, or an
+ * unrecognised flag.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { declaredFiles } from '../lib/beadfiles.js';
+import { ownChangedFiles, resolveRef, currentRef, discoverCounterparties, premergeAgainst, BASE_REF } from '../lib/premerge.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+const values = (...names) => {
+  const out = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (names.includes(argv[i])) {
+      const v = argv[i + 1];
+      if (v !== undefined) out.push(v);
+    } else {
+      for (const f of names) {
+        if (argv[i].startsWith(`${f}=`)) out.push(argv[i].slice(f.length + 1));
+      }
+    }
+  }
+  return out;
+};
+
+const USAGE = `usage: b7e-premerge [--against <branch|worktree>]... [--bead <id> [-w <workspace>]] [--tree] [--json] [--dir <root>]
+
+Simulates merging this branch (HEAD) against each named counterparty with
+'git merge-tree --write-tree' — never touching this worktree's own files or index.
+With no --against, the counterparties are every live worktree lib/siblings.js finds
+already touching the files this branch has changed since ${BASE_REF} (or, with --bead,
+the files that bead declares instead).
+
+  --against <ref>   a branch name or worktree path to merge against — repeatable
+  --bead <id>       read the files to survey for siblings from this bead, not this branch's own diff
+  -w, --workspace   which tracker --bead is read from (default: this checkout's own)
+  --tree            also extract each merge into its own directory under os.tmpdir()
+  --dir <root>      run against another tree — this is how it is tested
+  --json            one object per counterparty instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const FLAG_VALUES = new Set(['--dir', '--bead', '-b', '-w', '--workspace', '--against']);
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--json' || a === '--tree' || a === '--help' || a === '-h') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1; // its value, already read by value()/values() above
+    continue;
+  }
+  if (a.startsWith('--') && a.includes('=') && [...FLAG_VALUES].some((f) => a.startsWith(`${f}=`))) continue;
+  console.error(`\x1b[31mb7e-premerge: unrecognised flag: ${a}\x1b[0m`);
+  process.exit(2);
+}
+
+const DIR_GIVEN = value('--dir');
+const ROOT = path.resolve(DIR_GIVEN || process.cwd());
+const JSON_MODE = has('--json');
+const TREE_MODE = has('--tree');
+const beadId = value('--bead', '-b');
+const against = values('--against');
+
+if (beadId && against.length) {
+  console.error('b7e-premerge: --bead and --against are two ways of choosing counterparties — pass one, not both');
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const cfg = loadConfig();
+
+let branches = against;
+if (!branches.length) {
+  let files;
+  if (beadId) {
+    const wsName = value('-w', '--workspace');
+    const ws = wsName ? cfg.workspaces.find((w) => w.name === wsName) : cfg.workspaces.find((w) => path.resolve(w.dir) === path.resolve(ROOT)) || cfg.workspaces[0];
+    if (!ws) {
+      console.error(`b7e-premerge: no workspace ${wsName ? `named ${wsName}` : 'resolves for this checkout'} — pass -w explicitly`);
+      process.exit(2);
+    }
+    const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+    const row = await bd.show(ws, beadId);
+    if (!row) {
+      console.error(`b7e-premerge: ${ws.name} has no bead ${beadId}`);
+      process.exit(2);
+    }
+    files = declaredFiles(row);
+  } else {
+    files = await ownChangedFiles(ROOT);
+  }
+  if (!files.length) {
+    console.error(`b7e-premerge: nothing to check — ${beadId ? `${beadId} declares no files` : `HEAD has changed nothing since ${BASE_REF}`}, and no --against was given`);
+    process.exit(0);
+  }
+  branches = await discoverCounterparties(ROOT, files, { cfg });
+  if (!branches.length) process.exit(0); // nothing collides — see lib/siblings.js
+} else {
+  branches = await Promise.all(branches.map((b) => resolveRef(ROOT, b)));
+}
+
+const ourRef = await currentRef(ROOT);
+const blocks = [];
+for (const b of branches) {
+  // eslint-disable-next-line no-await-in-loop -- one counterparty at a time, same as lib/siblings.js
+  blocks.push(await premergeAgainst(ROOT, ourRef, b, { tree: TREE_MODE }));
+}
+
+let anyTrouble = false;
+
+// `process.exitCode` rather than `process.exit()` right after a write — a `--json` run
+// over several conflicted counterparties can outrun a pipe's buffer, the same 64KB trap
+// bc-dgx7.45 found and fixed in bin/b7e-siblings.
+if (JSON_MODE) {
+  for (const block of blocks) {
+    console.log(JSON.stringify(block));
+    if (!block.ok || !block.clean) anyTrouble = true;
+  }
+} else {
+  const green = (s) => `\x1b[32m${s}\x1b[0m`;
+  const red = (s) => `\x1b[31m${s}\x1b[0m`;
+  const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+
+  for (const block of blocks) {
+    if (!block.ok) {
+      console.log(`${block.branch}: ${red('could not resolve')} — ${block.error}`);
+      anyTrouble = true;
+      continue;
+    }
+    if (block.clean) {
+      console.log(`${block.branch}: ${green('clean')} (tree ${block.treeOid.slice(0, 12)})`);
+    } else {
+      anyTrouble = true;
+      console.log(`${block.branch}: ${red('conflicted')} (tree ${block.treeOid.slice(0, 12)})`);
+      for (const c of block.conflicts) {
+        if (!c.hunks) {
+          console.log(`  ${c.file}: conflict with no textual markers — see below`);
+          continue;
+        }
+        console.log(`  ${c.file}: ${c.hunks.map((h) => h.range).join(', ')}`);
+        for (const h of c.hunks) {
+          console.log(dim(`    L${h.range}:`));
+          for (const line of h.context) console.log(dim(`      ${line}`));
+        }
+      }
+      for (const m of block.messages) console.log(dim(`  ${m}`));
+    }
+    if (block.treeDir) console.log(dim(`  --tree: ${block.treeDir}`));
+  }
+}
+
+process.exitCode = anyTrouble ? 1 : 0;
