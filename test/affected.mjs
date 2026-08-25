@@ -421,9 +421,13 @@ console.log("\nthe real repo — bc-khoe.40's own acceptance\n");
 // it: neither half alone is the literal `pathLiteralIndex` looks for.
 const rel = (...segs) => segs.join('/');
 
-check('public/spacebar.js: exactly the two suites that read its source text, matching on text and not on import', () => {
+check('public/spacebar.js: exactly the suites that read its source text, matching on text and not on import', () => {
+  // Three since bc-mc71w: test/addspace.mjs reads the picker to assert that the row it
+  // draws is wired to the dialog behind it. The list is spelled out rather than counted
+  // because the claim is *which* suites, not how many — a fourth appearing is either a
+  // real reader or the matcher having gone back to propagating through imports.
   const { suites, results } = affected.findAffected(affected.REPO_ROOT, [rel('public', 'spacebar.js')]);
-  assert.deepEqual(suites, ['test/editfreeze.mjs', 'test/sweepfail.mjs']);
+  assert.deepEqual(suites, ['test/addspace.mjs', 'test/editfreeze.mjs', 'test/sweepfail.mjs']);
   for (const m of results[0].matches) assert.deepEqual(m.reasons, ['reads its source text']);
 });
 
