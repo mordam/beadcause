@@ -1,0 +1,144 @@
+#!/usr/bin/env node
+/**
+ * `b7e-entry` — the next free `CHANGE_LOG.md` entry number in a repo like deluvia's,
+ * computed across every branch this checkout can see, and what claiming it would cost
+ * the G0 ledger that counts off that file.
+ *
+ *     b7e-entry -w deluvia                  next free number, every duplicate found,
+ *                                             the ledger's three figures and their delta
+ *     b7e-entry -w deluvia --check           same audit; exits 1 if anything collides
+ *     b7e-entry -w deluvia --json            the machine-readable form
+ *     b7e-entry --dir <root>                 another tree — this is how it is tested
+ *
+ * `bc-dgx7.61`: a session audit found six sessions (`dv-6cn`, `dv-aps`, `dv-90i`,
+ * `dv-gsh`, `dv-i5v`, `dv-3rn.3`) had each worked this out by hand — one allocating a
+ * number that turned out to already be live on another branch, four declining to file an
+ * entry at all rather than pay the re-measure and collision risk by hand. See
+ * `lib/changelog.js` for the read: `git for-each-ref` over every local and remote
+ * branch, `git cat-file -p <ref>:CHANGE_LOG.md` on each, and why a duplicate is judged by
+ * the file's *content* rather than by branch name (a pushed-and-unchanged branch is not
+ * a collision with itself).
+ *
+ * **Never writes to `CHANGE_LOG.md`, or anywhere else.** This only ever reads refs `git
+ * show`/`git cat-file` can already see; picking the number and splicing in the entry
+ * stays a human or a later command's job, not this one's.
+ *
+ * `-w`/`--workspace` resolves through `lib/claude.js`'s `workspaceFor` and
+ * `lib/session.js`'s `resolveSessionDir` — the checkout a workspace's name actually
+ * means — never by matching a workspace's own `.beads` directory against a path (see
+ * the memory note `a-checkout-dir-is-not-a-workspaces-dir`: that directory is the
+ * tracker's home, not the git checkout). With neither `-w` nor `--dir` given, it falls
+ * back to whichever workspace this checkout itself resolves to.
+ *
+ * Exit codes: `0` ran to completion, whether or not anything collided — see `--check`
+ * for a status that reacts to that. `2` bad usage. `4` `-w` named a workspace this Mac
+ * has no config for, or this checkout resolves to none and neither `-w` nor `--dir` was
+ * given. With `--check`: `1` at least one entry number is claimed more than once.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { workspaceFor } from '../lib/claude.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { scanChangeLog } from '../lib/changelog.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-entry [-w, --workspace <name>] [--dir <root>] [--base <ref>] [--file <path>]
+                 [--check] [--json]
+
+The next free CHANGE_LOG.md entry number across every branch this checkout can see,
+every number already claimed more than once and which branches hold it, and the
+G0-ledger-style figures (entry count, PENDING PROPAGATION, PARTIALLY) for the delivery
+base, with the delta one more entry would cost. Never writes anywhere.
+
+  -w, --workspace <name>   which tracker names the checkout to scan (default: this
+                            checkout's own — see lib/claude.js workspaceFor)
+  --dir <root>             scan this directory directly, ignoring -w — this is how it
+                            is tested
+  --base <ref>             the delivery base the ledger figures are taken from
+                            (default: main — origin/main preferred when both exist)
+  --file <path>            which file to scan (default: CHANGE_LOG.md)
+  --check                  audit only: exit 1 if any entry number is claimed more than
+                            once, 0 otherwise, instead of the always-0 default
+  --json                   the machine-readable form instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const DIR_GIVEN = value('--dir');
+const base = value('--base') || 'main';
+const file = value('--file') || 'CHANGE_LOG.md';
+const CHECK = has('--check');
+const JSON_MODE = has('--json');
+
+function fail(msg, code = 2) {
+  console.error(`b7e-entry: ${msg}`);
+  process.exit(code);
+}
+
+let ROOT;
+if (DIR_GIVEN) {
+  ROOT = path.resolve(DIR_GIVEN);
+} else {
+  const cfg = loadConfig();
+  const known = () => (cfg.workspaces || []).map((w) => w.name).join(', ');
+  const name = wsName || workspaceFor(cfg, process.cwd());
+  const ws = name ? (cfg.workspaces || []).find((w) => w.name === name) : null;
+  if (!ws) {
+    fail(
+      wsName
+        ? `no workspace called ${wsName} — ${known()}`
+        : `this checkout resolves to no workspace — name one with -w (${known()})`,
+      4
+    );
+  }
+  ROOT = resolveSessionDir(cfg, ws);
+}
+
+const result = await scanChangeLog(ROOT, { file, base });
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(result, null, 2));
+} else {
+  const branchWord = result.branchesScanned.length === 1 ? 'branch' : 'branches';
+  console.log(`${result.file} across ${result.branchesScanned.length} ${branchWord} (base: ${result.base || 'not found'})`);
+  console.log('');
+  console.log(`next free entry: ${result.nextFree}`);
+  console.log('');
+  if (result.duplicates.length) {
+    console.log('duplicates:');
+    for (const d of result.duplicates) {
+      console.log(`  Entry ${d.entry} — ${d.variants.length} different decisions share this number`);
+      for (const v of d.variants) {
+        console.log(`    ${v.heading}`);
+        console.log(`      ${v.branches.join(', ')}`);
+      }
+    }
+  } else {
+    console.log('duplicates: none');
+  }
+  console.log('');
+  console.log(`ledger (base ${result.base || 'not found'}):`);
+  console.log(`  entries:              ${result.ledger.entries} → ${result.delta.entries}`);
+  console.log(`  PENDING PROPAGATION:  ${result.ledger.pendingPropagation} → ${result.delta.pendingPropagation}`);
+  console.log(`  PARTIALLY:            ${result.ledger.partially} → ${result.delta.partially}`);
+}
+
+// Set the exit code rather than calling process.exit() here: deluvia's own tree scans a
+// hundred-plus branches, and a --json payload that size can still be draining to stdout
+// when process.exit() tears the process down, truncating it (bc-dgx7.45/53). Falling off
+// the end lets Node flush first.
+if (CHECK && result.duplicates.length) process.exitCode = 1;

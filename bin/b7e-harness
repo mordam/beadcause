@@ -77,6 +77,12 @@ if (!fs.existsSync(path.join(root, 'test'))) fail(`${root} has no test/ to read 
 
 const JSON_MODE = has('--json');
 
+// `process.exit(0)` right after either write below used to drop whatever of it was still
+// pending: stdout to a **pipe** is async, so a `--json` skeleton (unbounded — it carries
+// the whole generated suite text) could cut at the 64KB pipe buffer with a success status
+// and no signal at all (bc-dgx7.45). The if/else below is what stands in for the early
+// return `process.exit` used to give; falling off the end with `process.exitCode` set
+// instead flushes.
 if (has('--kinds')) {
   const suites = readSuites(root);
   const counts = countKinds(suites);
@@ -86,70 +92,70 @@ if (has('--kinds')) {
       out[kind] = { suites: counts[kind], is: KIND_BLURB[kind], seeds: seedSuites(suites, deriveShape(suites, kind)).map((s) => `test/${s.file}`) };
     }
     console.log(JSON.stringify(out, null, 2));
-    process.exit(0);
+  } else {
+    console.log(`${suites.length} suites under ${path.relative(process.cwd(), path.join(root, 'test')) || 'test'}\n`);
+    for (const kind of KINDS) {
+      const seeds = seedSuites(suites, deriveShape(suites, kind)).map((s) => `test/${s.file}`);
+      console.log(`  ${kind.padEnd(5)} ${String(counts[kind]).padStart(3)}  ${KIND_BLURB[kind]}`);
+      console.log(`        ${' '.repeat(3)}  nearest: ${seeds.join(', ')}`);
+    }
   }
-  console.log(`${suites.length} suites under ${path.relative(process.cwd(), path.join(root, 'test')) || 'test'}\n`);
-  for (const kind of KINDS) {
-    const seeds = seedSuites(suites, deriveShape(suites, kind)).map((s) => `test/${s.file}`);
-    console.log(`  ${kind.padEnd(5)} ${String(counts[kind]).padStart(3)}  ${KIND_BLURB[kind]}`);
-    console.log(`        ${' '.repeat(3)}  nearest: ${seeds.join(', ')}`);
+  process.exitCode = 0;
+} else {
+  const kind = value('-k', '--kind');
+  const like = value('--like');
+  const target = value('-f', '--for');
+  const name = value('--name');
+
+  if (kind && !KINDS.includes(kind)) fail(`unknown kind: ${kind} (one of ${KINDS.join(', ')})\n${USAGE}`);
+  if (kind && like) fail('--kind and --like are two ways to ask the same question; pass one');
+
+  let answer;
+  try {
+    answer = harness(root, { kind, like, target, name });
+  } catch (err) {
+    fail(err.message, 4);
   }
-  process.exit(0);
+
+  if (JSON_MODE) {
+    console.log(
+      JSON.stringify(
+        {
+          kind: answer.shape.kind,
+          basis: answer.shape.basis,
+          sampleSize: answer.shape.sampleSize,
+          suite: `test/${answer.stem}.mjs`,
+          seeds: answer.seeds.map((s) => `test/${s.file}`),
+          completed: answer.added,
+          unresolved: answer.missing,
+          siblings: answer.siblings,
+          text: answer.text,
+        },
+        null,
+        2
+      )
+    );
+  } else {
+    process.stdout.write(answer.text);
+
+    /* ------------------------------------------------------ the notice, on stderr */
+
+    const note = [];
+    note.push(
+      `test/${answer.stem}.mjs — ${answer.shape.kind} shape` +
+        (answer.shape.basis === 'like'
+          ? `, copied from test/${answer.shape.like}`
+          : `, the majority of ${answer.shape.sampleSize} suite${answer.shape.sampleSize === 1 ? '' : 's'}`)
+    );
+    if (answer.seeds.length) note.push(`  nearest finished suites: ${answer.seeds.map((s) => `test/${s.file}`).join(', ')}`);
+    if (answer.added.length) note.push(`  pulled in so it runs: ${answer.added.join(', ')}`);
+    if (answer.missing.length) note.push(`  left undeclared (nothing in test/ declares them): ${answer.missing.join(', ')}`);
+    if (answer.siblings?.owed?.length) {
+      note.push('');
+      note.push(`  ${answer.siblings.owed.length} suite(s) must gain a lift of \`${answer.siblings.symbol}\` or they will fail:`);
+      for (const file of answer.siblings.owed) note.push(`    test/${file}`);
+    }
+    console.error(note.join('\n'));
+  }
+  process.exitCode = 0;
 }
-
-const kind = value('-k', '--kind');
-const like = value('--like');
-const target = value('-f', '--for');
-const name = value('--name');
-
-if (kind && !KINDS.includes(kind)) fail(`unknown kind: ${kind} (one of ${KINDS.join(', ')})\n${USAGE}`);
-if (kind && like) fail('--kind and --like are two ways to ask the same question; pass one');
-
-let answer;
-try {
-  answer = harness(root, { kind, like, target, name });
-} catch (err) {
-  fail(err.message, 4);
-}
-
-if (JSON_MODE) {
-  console.log(
-    JSON.stringify(
-      {
-        kind: answer.shape.kind,
-        basis: answer.shape.basis,
-        sampleSize: answer.shape.sampleSize,
-        suite: `test/${answer.stem}.mjs`,
-        seeds: answer.seeds.map((s) => `test/${s.file}`),
-        completed: answer.added,
-        unresolved: answer.missing,
-        siblings: answer.siblings,
-        text: answer.text,
-      },
-      null,
-      2
-    )
-  );
-  process.exit(0);
-}
-
-process.stdout.write(answer.text);
-
-/* ------------------------------------------------------ the notice, on stderr */
-
-const note = [];
-note.push(
-  `test/${answer.stem}.mjs — ${answer.shape.kind} shape` +
-    (answer.shape.basis === 'like'
-      ? `, copied from test/${answer.shape.like}`
-      : `, the majority of ${answer.shape.sampleSize} suite${answer.shape.sampleSize === 1 ? '' : 's'}`)
-);
-if (answer.seeds.length) note.push(`  nearest finished suites: ${answer.seeds.map((s) => `test/${s.file}`).join(', ')}`);
-if (answer.added.length) note.push(`  pulled in so it runs: ${answer.added.join(', ')}`);
-if (answer.missing.length) note.push(`  left undeclared (nothing in test/ declares them): ${answer.missing.join(', ')}`);
-if (answer.siblings?.owed?.length) {
-  note.push('');
-  note.push(`  ${answer.siblings.owed.length} suite(s) must gain a lift of \`${answer.siblings.symbol}\` or they will fail:`);
-  for (const file of answer.siblings.owed) note.push(`    test/${file}`);
-}
-console.error(note.join('\n'));

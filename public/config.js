@@ -134,7 +134,7 @@
      may be worked before you have read it — joined them after that, and `autoShip` joined
      them with the release queue that deploys a merge without being tapped. Editing them
      meant opening
-     `~/.beadcause/config.json` on the Mac — which is exactly the wrong place, because
+     `~/.config/beadcause/config.json` on the Mac — which is exactly the wrong place, because
      the moment you know a setting is wrong is the moment you are looking at what it
      did, on a phone, at the weekend.
 
@@ -222,8 +222,8 @@
       </div>
       <p class="space-help">${esc(help)}</p>
       <div class="space-btns">
-        ${btn(true, 'On', `${label} — on for this space, whatever the global says`)}
-        ${btn(false, 'Off', `${label} — off for this space, whatever the global says`)}
+        ${btn(true, 'On', `${label} — on for this group, whatever the global says`)}
+        ${btn(false, 'Off', `${label} — off for this group, whatever the global says`)}
         ${btn(null, `Inherit (${onOff(inherited)})`, `Follow the global default, which is currently ${onOff(inherited)}`)}
       </div>
     </div>`;
@@ -246,8 +246,8 @@
     {
       key: 'autoEndorse',
       what: 'Beads agents file here',
-      on: 'files arrive endorsed, whatever the space says',
-      off: 'files stay held for a tap, whatever the space says',
+      on: 'files arrive endorsed, whatever the group says',
+      off: 'files stay held for a tap, whatever the group says',
     },
     {
       key: 'autoMerge',
@@ -337,7 +337,7 @@
       // Not an error and not worth a card: nothing is narrowed, so there is no one
       // space whose settings these would be. The picker in the bar above is the fix,
       // and saying so once is cheaper than drawing a card of controls that write nowhere.
-      return `<p class="subtitle space-none">Pick a space in the bar above to see and change its settings.</p>`;
+      return `<p class="subtitle space-none">Pick a group in the bar above to see and change its settings.</p>`;
     }
     if (state.spaceError) {
       // The synthetic "Other" group lands here: it is a place the picker offers, not a
@@ -346,13 +346,13 @@
         <div class="work-head"><h2>${esc(name)}</h2><span class="mon-state dim">no settings</span></div>
         <p class="subtitle">${esc(state.spaceError)}${
           name === 'Other'
-            ? ' — repos in no configured space follow the global defaults, and there is nothing here to set on them.'
+            ? ' — bead-spaces in no configured group follow the global defaults, and there is nothing here to set on them.'
             : ''
         }</p>
       </article>`;
     }
     const d = state.space;
-    if (!d || d.space !== name) return '<p class="subtitle space-none">Reading this space…</p>';
+    if (!d || d.space !== name) return '<p class="subtitle space-none">Reading this group…</p>';
 
     const s = d.settings;
     const g = d.defaults;
@@ -378,7 +378,7 @@
           <span class="space-what">Muted</span>
           <span class="space-state ${s.muted ? 'held' : 'dim'}">${s.muted ? 'on' : 'off'}</span>
         </div>
-        <p class="space-help">Never light the phone up for this space. Its questions still arrive, still list, still count — see lib/spaces.js.</p>
+        <p class="space-help">Never light the phone up for this group. Its questions still arrive, still list, still count — see lib/spaces.js.</p>
         <div class="space-btns">
           <button class="adv-btn${s.muted ? ' on' : ''}" data-space-set="muted" data-value="true">Mute</button>
           <button class="adv-btn${s.muted ? '' : ' on'}" data-space-set="muted" data-value="null">Unmute</button>
@@ -455,7 +455,7 @@
         <div class="space-btns space-channel">
           <input type="text" id="slack-channel" value="${esc(draft ?? s.slackChannel ?? '')}" placeholder="${esc(
             g.slackChannel || 'C0123456789'
-          )}" aria-label="Slack channel for this space" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+          )}" aria-label="Slack channel for this group" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
           <button class="adv-btn primary" data-space-channel="set" title="Post this space&#39;s questions to the channel typed here">Set</button>
           <button class="adv-btn${s.slackChannel === '' ? ' on' : ''}" data-space-set="slackChannel" data-value="" title="This space never posts to Slack, whatever the global channel is">Never</button>
           <button class="adv-btn${s.slackChannel === null ? ' on' : ''}" data-space-set="slackChannel" data-value="null" title="Follow the global slack.channel, which is currently ${esc(g.slackChannel || 'unset')}">Inherit (${esc(g.slackChannel || 'none')})</button>
@@ -480,7 +480,7 @@
       tri(
         'autoDispatch',
         'Agents may answer unasked',
-        'Whether an unattended agent may reply to comments in this space. The global switch is a veto: with it off, nothing here can turn it back on.',
+        'Whether an unattended agent may reply to comments in this group. The global switch is a veto: with it off, nothing here can turn it back on.',
         s.autoDispatch,
         g.autoDispatch
       ),
@@ -611,7 +611,7 @@
 
     const missing = d.missing.length
       ? `<div class="adv-note warn">${esc(d.missing.join(', '))} ${
-          d.missing.length === 1 ? 'is named by this space and is not a configured workspace' : 'are named by this space and are not configured workspaces'
+          d.missing.length === 1 ? 'is named by this group and is not a bead-space this Mac serves' : 'are named by this group and are not bead-spaces this Mac serves'
         } — config drift, and nothing here reaches them.</div>`
       : '';
 
@@ -924,7 +924,7 @@
      already has a sentence in public/mirror.js — it was a chip on the console before it
      was a page, and neither of those had to change when it moved. */
   const tellPresence = () =>
-    window.beadcause?.presence?.report({ view: 'config', space: spaceName() || '', detail: spaceName() || 'every space' });
+    window.beadcause?.presence?.report({ view: 'config', space: spaceName() || '', detail: spaceName() || 'every group' });
 
   /* Draw whatever the picker already says before the first request lands: with no space
      selected that is the "pick a space" line, which is the final answer rather than a

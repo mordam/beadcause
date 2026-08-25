@@ -38,53 +38,57 @@ for (const a of process.argv.slice(2)) {
 const cfg = loadConfig();
 const state = loadState();
 
+// `process.exit(N)` right after any of the writes below used to drop whatever was still
+// pending: stdout to a **pipe** is async, so `--json` over the whole register (every
+// principal and credential) could cut at the 64KB pipe buffer with a success status and
+// no signal at all (bc-dgx7.45). The if/else chain below is what stands in for the early
+// return `process.exit` used to give; falling off the end with `process.exitCode` set
+// instead flushes.
 if (reviewOnly) {
   const review = reviewState();
   if (json) console.log(JSON.stringify(review, null, 2));
   else console.log(reviewLine(review));
-  process.exit(review.overdue ? 1 : 0);
+  process.exitCode = review.overdue ? 1 : 0;
+} else {
+  const reg = register(cfg, state);
+
+  if (json) {
+    console.log(JSON.stringify(reg, null, 2));
+  } else {
+    const rule = (t) => `\n${t}\n${'─'.repeat(t.length)}`;
+
+    console.log(`Access register · ${reg.generatedAt}`);
+    console.log(reviewLine(reg.review));
+
+    console.log(rule('Principals'));
+    for (const p of reg.principals) {
+      console.log(`\n  ${p.id}  [${p.kind}]`);
+      console.log(`    ${p.name}`);
+      if (p.what) console.log(`    what    ${p.what}`);
+      console.log(`    reaches ${p.reaches}`);
+      if (p.writes) console.log(`    writes  ${p.writes}`);
+      if (p.mayRun) console.log(`    may run ${p.mayRun}`);
+      if (p.inTransit) console.log(`    wire    ${p.inTransit}`);
+      console.log(`    granted ${p.grant}`);
+      console.log(`    revoke  ${p.revoke}`);
+    }
+
+    console.log(rule('Credentials'));
+    for (const c of CREDENTIALS) {
+      console.log(`\n  ${c.id}`);
+      console.log(`    ${c.what}`);
+      console.log(`    where   ${c.where}`);
+      console.log(`    holder  ${c.holder}`);
+      console.log(`    scope   ${c.scope}`);
+      console.log(`    revoke  ${c.revoke}`);
+    }
+
+    console.log(rule('Joiner'));
+    for (const s of JML.joiner) console.log(`  · ${s}`);
+    console.log(rule('Mover'));
+    for (const s of JML.mover) console.log(`  · ${s}`);
+    console.log(rule('Leaver'));
+    for (const s of JML.leaver) console.log(`  · ${s.act}  (${s.credential})`);
+  }
+  process.exitCode = reg.review.overdue ? 1 : 0;
 }
-
-const reg = register(cfg, state);
-
-if (json) {
-  console.log(JSON.stringify(reg, null, 2));
-  process.exit(reg.review.overdue ? 1 : 0);
-}
-
-const rule = (t) => `\n${t}\n${'─'.repeat(t.length)}`;
-
-console.log(`Access register · ${reg.generatedAt}`);
-console.log(reviewLine(reg.review));
-
-console.log(rule('Principals'));
-for (const p of reg.principals) {
-  console.log(`\n  ${p.id}  [${p.kind}]`);
-  console.log(`    ${p.name}`);
-  if (p.what) console.log(`    what    ${p.what}`);
-  console.log(`    reaches ${p.reaches}`);
-  if (p.writes) console.log(`    writes  ${p.writes}`);
-  if (p.mayRun) console.log(`    may run ${p.mayRun}`);
-  if (p.inTransit) console.log(`    wire    ${p.inTransit}`);
-  console.log(`    granted ${p.grant}`);
-  console.log(`    revoke  ${p.revoke}`);
-}
-
-console.log(rule('Credentials'));
-for (const c of CREDENTIALS) {
-  console.log(`\n  ${c.id}`);
-  console.log(`    ${c.what}`);
-  console.log(`    where   ${c.where}`);
-  console.log(`    holder  ${c.holder}`);
-  console.log(`    scope   ${c.scope}`);
-  console.log(`    revoke  ${c.revoke}`);
-}
-
-console.log(rule('Joiner'));
-for (const s of JML.joiner) console.log(`  · ${s}`);
-console.log(rule('Mover'));
-for (const s of JML.mover) console.log(`  · ${s}`);
-console.log(rule('Leaver'));
-for (const s of JML.leaver) console.log(`  · ${s.act}  (${s.credential})`);
-
-process.exit(reg.review.overdue ? 1 : 0);

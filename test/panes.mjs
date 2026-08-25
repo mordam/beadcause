@@ -12,7 +12,7 @@
  * hidden, with `public/panes.js` deciding which from the URL hash and `public/viewbar.js`
  * drawing a control rather than a link for any view this document can already show.
  *
- * Four things are worth a suite, and none of them is visible by reading one function.
+ * Five things are worth a suite, and none of them is visible by reading one function.
  *
  * 1. **Hiding has to be `display: none`.** `visibility: hidden` and an offscreen transform
  *    leave the element in layout, and three panes in a viewport-height flex column would
@@ -32,7 +32,14 @@
  *    `<a href>` it has always been. Get that wrong and a pill leads to a blank screen on an
  *    app that deploys itself the moment a branch merges.
  *
- * 4. **The row is on twelve pages and only one has panes.** Every other page must draw
+ * 4. **A hash can change without the view changing** (bc-k7lrc). `#deluvia.briefs?b=one`
+ *    to `?b=two` is the same pane, so `show` returns early on it — rightly — and until
+ *    `sync` read the second half of the address too, the one URL change a view could never
+ *    be told about was a change to its own. That is what makes a repo view deep-linkable
+ *    to the thing it is showing rather than only to itself, and the failure is silent: the
+ *    back button walks and the pane goes on drawing what it drew.
+ *
+ * 5. **The row is on twelve pages and only one has panes.** Every other page must draw
  *    exactly what it drew before, which means `window.beadcause.panes` being absent has to
  *    be an ordinary answer rather than a `TypeError`. The last section runs the row with no
  *    panes at all and asserts every pill is the link it was.
@@ -376,9 +383,11 @@ await check('Home’s pane holds everything that belongs to Home, and nothing th
   const close = HTML.indexOf('<div class="pane" data-pane="history"');
   assert.ok(open > 0 && close > open, 'the panes are not where this suite thinks they are');
   const inside = HTML.slice(open, close);
-  // The list and its filter, and the three fixed things that float over them: a ＋ left
+  // The list and its filter, and the fixed things that float over them: a ＋ left
   // outside the pane would go on hovering over the History pane with nothing behind it.
-  for (const mark of ['id="filters"', 'id="list"', 'id="scrollpos"', 'class="compose-wrap"', 'id="editmode"']) {
+  // The ✏️ used to be one of them and is parked (bc-p49x.12) — asserted absent from the
+  // whole document by test/editmode.mjs, so there is nothing here to place.
+  for (const mark of ['id="filters"', 'id="list"', 'id="scrollpos"', 'class="compose-wrap"']) {
     assert.ok(inside.includes(mark), `${mark} is outside Home’s pane`);
   }
   // The app talking, rather than this view: both outlive a pane switch.
@@ -569,6 +578,126 @@ await check('onShow says which pane arrived, once per move', () => {
   b.panes().go('history');
   b.panes().go('epics');
   assert.deepEqual(seen, ['history', 'epics'], 'a switch to the pane already up repainted anyway');
+});
+
+/* ============================ the second half of the address (bc-k7lrc) */
+
+console.log('\nthe query on the pane that is up');
+
+/**
+ * A shell with a repo view adopted into it — the only kind of view that has no container
+ * in `index.html`, and the caller this half of the address was built for.
+ *
+ * The order is the one public/viewhost.js is required to use and the reason it is
+ * required: `route.add` first, because `adopt` refuses an id the grammar does not know.
+ */
+function withBriefs(opts) {
+  const b = boot(whenBuilt(), opts);
+  b.run('panes.js');
+  b.ctx.window.beadcause.route.add({ id: 'deluvia.briefs', paths: ['/v/deluvia/briefs'] });
+  const el = pane('deluvia.briefs');
+  b.body.append(el);
+  b.panes().adopt('deluvia.briefs', el);
+  return b;
+}
+
+await check('a query-only move is reported, though the pane never changes', () => {
+  // The bug this exists to fix. `show` returns early when the view has not moved — rightly,
+  // since nothing is hidden and no scroll position goes anywhere — so before this the one
+  // URL change a view could never hear about was a change to its own address. The back
+  // button walked between two briefs and the pane went on drawing the first one.
+  const b = withBriefs({ hash: '#deluvia.briefs?b=one' });
+  const seen = [];
+  b.panes().onQuery((view, q) => seen.push(`${view}|${q}`));
+  assert.equal(b.panes().showing(), 'deluvia.briefs');
+  assert.equal(b.panes().query(), 'b=one', 'the deep link’s own query was dropped on the way in');
+  b.navigate('#deluvia.briefs?b=two');
+  assert.equal(b.panes().showing(), 'deluvia.briefs', 'a query change moved the pane');
+  assert.deepEqual(seen, ['deluvia.briefs|b=two']);
+});
+
+await check('leaving the view drops its query, and coming back hands it over again', () => {
+  const b = withBriefs({ hash: '#deluvia.briefs?b=one' });
+  const seen = [];
+  b.panes().onQuery((view, q) => seen.push(`${view}|${q}`));
+  b.navigate('#history');
+  b.navigate('#deluvia.briefs?b=one');
+  assert.deepEqual(seen, ['history|', 'deluvia.briefs|b=one'], 'the pane came back drawing whatever it was last told');
+});
+
+await check('a query hung on a pane this document cannot show falls with the view', () => {
+  // `show` answers a hash naming a pending or unbuilt pane with Home. A query that was
+  // written for the view that lost is not Home's, and handing it over would be the ledger's
+  // filters arriving on the inbox.
+  const b = boot(withPending(), { hash: '#config?section=notify' });
+  b.run('panes.js');
+  assert.equal(b.panes().showing(), 'epics');
+  assert.equal(b.panes().query(), '', 'a pending pane’s query was handed to Home');
+});
+
+await check('setQuery writes without leaving, and does not tell the writer what it just did', () => {
+  const b = withBriefs({ hash: '#deluvia.briefs' });
+  const seen = [];
+  b.panes().onQuery((view, q) => seen.push(`${view}|${q}`));
+  assert.equal(b.panes().setQuery('deluvia.briefs', 'b=one'), true);
+  assert.equal(b.ctx.location.hash, '#deluvia.briefs?b=one');
+  assert.equal(b.panes().showing(), 'deluvia.briefs', 'writing a query switched panes');
+  assert.equal(b.panes().query(), 'b=one');
+  assert.deepEqual(seen, [], 'the view was told about its own write — `onQuery` means somebody else moved you');
+  assert.equal(b.panes().setQuery('deluvia.briefs', 'b=one'), false, 'a write of what is already there');
+});
+
+await check('a narrowing replaces and a place pushes', () => {
+  // `replaceState` by default: a filter chip is not somewhere you go back *to*, and a
+  // panel of them would fill the back stack with steps between you and the screen you
+  // arrived from. `push` is for the narrowing that really is a place — tapping into one
+  // brief out of a list is somewhere the back button is expected to leave.
+  const b = withBriefs({ hash: '#deluvia.briefs' });
+  b.panes().setQuery('deluvia.briefs', 'b=one');
+  assert.deepEqual(b.historyCalls, ['replace'], 'the default left a step in the back stack');
+
+  // The push goes through `route.go`, which writes a non-empty hash by *assigning*
+  // `location.hash` — that is what pushes an entry, in a browser and by definition. So the
+  // proof that it pushed is that it did not call `replaceState`, and the fake `location`
+  // here records the same thing a browser's address bar would show.
+  const seen = [];
+  b.panes().onQuery((view, q) => seen.push(`${view}|${q}`));
+  b.panes().setQuery('deluvia.briefs', 'b=two', { push: true });
+  assert.deepEqual(b.historyCalls, ['replace'], 'a push was written with replaceState — the back stack lost the step');
+  assert.equal(b.ctx.location.hash, '#deluvia.briefs?b=two');
+  assert.equal(b.panes().query(), 'b=two');
+
+  // And the `hashchange` that assignment causes in a real browser arrives to find nothing
+  // it has not already been told, so the writer is not called back about its own push
+  // either. Without `currentQuery` being brought up to date inside `setQuery`, this is the
+  // line that would fire.
+  b.navigate('#deluvia.briefs?b=two');
+  assert.deepEqual(seen, [], 'the push’s own hashchange was reported back to the view that pushed');
+});
+
+await check('a pane that is not on screen may not write the address', () => {
+  // The refusal both of the older `address` objects make for themselves — the staged boot
+  // builds a pane while Home is showing, and a repo view's `build` runs whenever its
+  // generator lands. A view writing from behind a pane nobody is looking at would move the
+  // address out from under the view that owns it. A repo view's script is in somebody
+  // else's checkout, so the refusal has to be made for it rather than documented at it.
+  const b = withBriefs({ hash: '#history' });
+  assert.equal(b.panes().showing(), 'history');
+  assert.equal(b.panes().setQuery('deluvia.briefs', 'b=one'), false);
+  assert.equal(b.ctx.location.hash, '#history', 'a hidden pane wrote the address');
+});
+
+await check('go() carries a query, and Home still refuses to hold one', () => {
+  const b = withBriefs();
+  b.panes().go('deluvia.briefs', 'b=one');
+  assert.equal(b.ctx.location.hash, '#deluvia.briefs?b=one');
+  assert.equal(b.panes().showing(), 'deluvia.briefs');
+  // Home is the empty hash, so there is no name for a query to hang off — and `/?…` is the
+  // address the phone's home screen holds. `hashFor` answers the bare hash rather than
+  // refusing, so the pill still works.
+  b.panes().go('epics', 'b=one');
+  assert.equal(b.ctx.location.hash, '');
+  assert.equal(b.panes().showing(), 'epics');
 });
 
 console.log('\nwhere you were, when you come back');

@@ -848,7 +848,7 @@ console.log('\nthe advocate tick');
 
 const { createAdvocates } = await import(LIB('advocate.js'));
 
-async function tickWith(bd, { flagInMain: on = true } = {}) {
+async function tickWith(bd, { flagInMain: on = true, pr = { enabled: true, base: 'main' } } = {}) {
   const workspace = { name: 'widgets', dir: path.join(tmp, 'beads', 'widgets', '.beads') };
   const opened = [];
   const cfg = {
@@ -856,7 +856,7 @@ async function tickWith(bd, { flagInMain: on = true } = {}) {
     spaces: [],
     claudeSessions: false,
     sessionDirs: { widgets: REPO },
-    pr: { enabled: true, base: 'main' },
+    pr,
     advocates: {
       enabled: true,
       workspaces: ['*'],
@@ -898,6 +898,35 @@ async function tickWith(bd, { flagInMain: on = true } = {}) {
   const { opened } = await tickWith(bd, { flagInMain: false });
   check('with the sweep off, that same tick does open one', opened.includes('wg-aaa'), `opened: ${opened.join(', ')}`);
   check('and the bead is untouched', bd.writes.length === 0, kinds(bd));
+}
+
+// bc-ka5y.15.17: `flagInMain`'s call to `sweepInMain` passed `configuredBase(cfg,
+// a.workspace)` — the workspace *object*, not its name — so `pr.basePerWorkspace` always
+// missed and every sweep silently fell back to `pr.base`. `pr.base` here is deliberately
+// broken, so only a correctly-threaded `a.name` lookup into `basePerWorkspace` can find
+// the real `main` ref and let the sweep run at all; the buggy code would have `pickBase`
+// fail against `bogus-global-base` and the sweep would flag nothing.
+{
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'land the accordion log', description: 'Land `worktree-landed-aaa`.' }]);
+  const { opened, advocates } = await tickWith(bd, {
+    pr: { enabled: true, base: 'bogus-global-base', basePerWorkspace: { widgets: 'main' } },
+  });
+  check(
+    'a workspace-specific pr.base override still flags a branch already in main',
+    bd.writes.some((w) => w.kind === 'label' && w.label === 'human'),
+    kinds(bd)
+  );
+  check(
+    'and opens no session on it — the override base, not the broken global default, reached the sweep',
+    opened.length === 0,
+    `opened: ${opened.join(', ')}`
+  );
+  const inMain = advocates.snapshot().find((s) => s.workspace === 'widgets')?.inMain;
+  check(
+    'and the sweep did not skip with the broken global base as its reason',
+    !String(inMain?.summary || '').includes('bogus-global-base'),
+    JSON.stringify(inMain)
+  );
 }
 
 console.log(`\n${ran - failures}/${ran} passed`);

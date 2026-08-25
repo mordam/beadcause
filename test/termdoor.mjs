@@ -132,7 +132,7 @@ for (const asset of ['/terminal', '/term.html', '/term.js']) {
 // the ⌨️ twice, and the old `/admin` beside the new `/` leaves no standing door at all.
 check(
   'the cache version was bumped past v27, so the pair arrives together',
-  /const CACHE = 'beadcause-v(2[8-9]|[3-9]\d)'/.test(sw),
+  Number(sw.match(/const CACHE = 'beadcause-v(\d+)'/)?.[1]) > 27,
   `it is ${sw.match(/const CACHE = '([^']+)'/)?.[1]}`
 );
 

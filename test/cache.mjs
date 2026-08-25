@@ -237,6 +237,9 @@ cache.clear();
     threw = err;
   }
   await check(() => assert.match(String(threw?.message), /no such workspace/), 'but a failure with nothing kept is a throw — the caller has an error path and it must be reachable');
+  // The other half of bc-19vt's distinction: a producer that fell over is not a ceiling,
+  // and a caller keying off `timedOut` must not soften a real failure into "not yet".
+  await check(() => assert.equal(cache.timedOut(threw), false), 'and it is not flagged as a ceiling — the producer failed, which is a different answer');
 }
 
 /* -------------------------------------------------------------------- the ceiling */
@@ -255,6 +258,10 @@ cache.clear();
       threw = err;
     }
     await check(() => assert.match(String(threw?.message), /did not answer within/), 'a cold read on a hung producer is bounded, not parked forever');
+    // bc-19vt. The board's route answers `unavailable` for this one and 500s for every
+    // other throw, and the difference has to be visible without matching on prose.
+    await check(() => assert.equal(cache.timedOut(threw), true), 'and the ceiling error says it is the ceiling, so a caller can answer "not yet" instead of "broken"');
+    await check(() => assert.equal(threw?.ceilingMs, 30), 'carrying the ceiling it ran out of, so the caller can say how long it waited');
     await new Promise((r) => setTimeout(r, 20));
     p.hang = false;
     p.value = 'landed';
@@ -263,6 +270,46 @@ cache.clear();
     await check(() => assert.equal(second.value, 'landed'), 'which answers');
   });
   await check(() => assert.ok(said.some((l) => /gave up its refresh slot/.test(l))), 'and the abandoned slot is said out loud');
+}
+
+/* -------------------------------------------------------- the wait, split from the slot */
+
+/**
+ * bc-19vt.1. `ceilingMs` above governs two different questions at once, and the test just
+ * above set them both by setting one number: how long the *slot* may hold a refresh, and
+ * how long *this call's own* `Promise.race` will wait on it. A phone arriving on a cold
+ * `board:` key inherited the slot's whole 150 seconds for no reason of its own — it gains
+ * nothing by waiting, because the abandoned sweep is still out there and lands into the
+ * keep either way. `waitMs` is the second, smaller number, and it bounds only the caller.
+ */
+
+console.log('\na request that gives up before the slot does\n');
+
+cache.clear();
+{
+  let release;
+  const slow = () => new Promise((resolve) => (release = resolve));
+  const said = await quiet(async () => {
+    let threw = null;
+    try {
+      // The slot may hold for 200ms (standing in for the real 150s); this call is only
+      // willing to wait 20ms of it (standing in for the "a few seconds" the bead asks for).
+      await cache.read('queue:', slow, { freshMs: 10_000, now, ceilingMs: 200, waitMs: 20 });
+    } catch (err) {
+      threw = err;
+    }
+    await check(() => assert.match(String(threw?.message), /did not answer within 20ms/), "a cold read gives up on its OWN wait, not the slot's ceiling");
+    await check(() => assert.equal(cache.timedOut(threw), true), 'still flagged as a ceiling rather than a producer failure');
+    await check(() => assert.equal(threw?.waitMs, 20), 'carrying the wait it ran out of');
+    await check(() => assert.equal(threw?.ceilingMs, 200), 'and the slot ceiling it did NOT run out of, for a caller that wants to say both');
+  });
+  await check(() => assert.ok(!said.some((l) => /gave up its refresh slot/.test(l))), 'and the slot itself was never abandoned — only this one caller stopped waiting on it');
+
+  // The abandoned producer is still out there, well inside its 200ms ceiling. Let it land,
+  // standing for the sweep landing a few seconds after the phone that started it gave up.
+  release('landed after the caller gave up');
+  await settle(8);
+  await check(() => assert.equal(cache.peek('queue:')?.value, 'landed after the caller gave up'), 'and it still writes into the keep — the caller giving up did not cancel it');
 }
 
 /* ------------------------------------------------------- a late refresh may not go backwards */
