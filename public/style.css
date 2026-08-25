@@ -1166,6 +1166,44 @@ body {
 .accountform-repo { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--prose); cursor: pointer; }
 .accountform-error { margin: 10px 0 0; color: var(--danger); font-size: 13px; }
 
+/* ＋ Add a bead-space (public/addspace.js). It borrows the account dialog's chrome —
+   same class on the `<dialog>`, same buttons, same fields — because it is the same kind
+   of thing: a form you reached from a control in the top bar, on a phone, and a second
+   set of dialog styles is a second set to keep in step. What is added here is only what
+   that form does not have: a two-way radio, a select in a field, and two kinds of note. */
+.addspace-kinds { display: flex; flex-direction: column; gap: 6px; margin: 0 0 14px; }
+.addspace-kind {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; min-height: var(--tap);
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--text); font-size: 14px; cursor: pointer;
+}
+.addspace-kind input { accent-color: var(--accent); width: 18px; height: 18px; }
+/* The chosen one said in the border too, for the reason the account rows say it twice:
+   a radio is four pixels of a row read at arm's length. */
+.addspace-kind:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+.accountform-field select {
+  width: 100%; padding: 11px 12px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--text); font-size: 16px;
+}
+.addspace-note { margin: -6px 0 14px; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+/* `.accountform-field` sets `display: flex`, which beats the UA's own `[hidden]` rule —
+   so the Clone-to field drew under "A path on the Mac", where there is nothing to clone.
+   The same shape as `.filter-menu[hidden]` above, and the same reason. */
+.accountform-field[hidden], .addspace-note[hidden] { display: none; }
+/* Not an error — the press it belongs to succeeded, or has not happened yet. This is the
+   sentence that says what it will cost, or what is now true and unfinished. */
+.addspace-warn {
+  display: block; margin: 0 0 12px; padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line)); border-radius: 10px;
+  color: var(--prose); font-size: 12.5px; line-height: 1.5;
+}
+.addspace-changed { display: block; margin-top: 6px; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 /* The bottom 12px is the gap after the last card. It used to be 0 because the body
    reserved the bottom bar's whole height under the list; the list is the scroller now
    and ends where the screen does, so the breathing room has to be its own. */
