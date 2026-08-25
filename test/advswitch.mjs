@@ -49,7 +49,7 @@ import { boundPort } from './helpers/net.mjs';
 // Not a bare `fs.rmSync`: both teardowns here run immediately before `process.exit`, so
 // they cannot await, and the tree they are taking away is a scratch CONFIG_DIR the
 // common repo may still be committing into. See test/helpers/tmp.mjs.
-import { removeTreeSync } from './helpers/tmp.mjs';
+import { removeTreeSync, quiesce, removeTree } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -163,10 +163,23 @@ const baseConfig = () => ({
  *
  * `ready` is what the tracker says; `opened` is every window that would have been
  * opened, which is the assertion a disable has to survive.
+ *
+ * **Async, and quiesces before it wipes.** This reset runs between almost every check,
+ * and every `enable`/`disable`/`tick`/`control` in the check before it may have called
+ * `saveState()`, which schedules a debounced commit into the common repo
+ * (lib/commonrepo.js) — a real `git init`/`commit` child process, landing up to 2000ms
+ * later, in this same `BEADCAUSE_CONFIG_DIR`. A bare `fs.rmSync` here raced exactly that
+ * child: this suite is the one `git init` mid-write in `.git/hooks` was caught by
+ * (bc-beleq.1), because unlike the harness's *own* teardown at the bottom of the file, this
+ * reset never flushed the pending commit or retried the removal — see the two-halves note
+ * in test/helpers/tmp.mjs. `quiesce()` forces that commit to run now and waits for it, so
+ * there is no writer left when we delete; `removeTree` is the retrying backstop for
+ * anything quiesce does not know about, same as the final teardown already gets.
  */
-function harness({ advocates: adv = {}, ready = [], workers = [], ...overrides } = {}) {
+async function harness({ advocates: adv = {}, ready = [], workers = [], ...overrides } = {}) {
+  await quiesce();
   for (const f of fs.readdirSync(process.env.BEADCAUSE_CONFIG_DIR)) {
-    fs.rmSync(path.join(process.env.BEADCAUSE_CONFIG_DIR, f), { recursive: true, force: true });
+    await removeTree(path.join(process.env.BEADCAUSE_CONFIG_DIR, f));
   }
   const cfg = { ...baseConfig(), ...overrides, advocates: { ...baseConfig().advocates, ...adv } };
   fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2));
@@ -206,7 +219,7 @@ const afterRestart = () => createAdvocates(onDisk(), { bd: {}, bus: { emit: () =
 console.log('\nan advocate switched on and off from the console\n');
 
 await check('switching one on gives it an advocate now, and after a restart', async () => {
-  const { advocates, cfg } = harness();
+  const { advocates, cfg } = await harness();
   assert.equal(card(advocates, 'beta'), undefined, 'beta starts with none — that is the setting');
 
   advocates.enable('beta');
@@ -218,7 +231,7 @@ await check('switching one on gives it an advocate now, and after a restart', as
 });
 
 await check('and it ticks: the switch is what stood between this repo and a session', async () => {
-  const { advocates, opened } = harness({ ready: [bead('b-1')] });
+  const { advocates, opened } = await harness({ ready: [bead('b-1')] });
   await advocates.tick();
   assert.deepEqual(opened, [], 'beta is off, so nothing opened on its queue');
 
@@ -228,7 +241,7 @@ await check('and it ticks: the switch is what stood between this repo and a sess
 });
 
 await check('switching one off with nothing running takes it away at once', async () => {
-  const { advocates } = harness();
+  const { advocates } = await harness();
   advocates.disable('alpha');
   assert.equal(card(advocates, 'alpha'), undefined, 'the card is gone');
   assert.deepEqual(onDisk().advocates.workspaces, [], 'and the list it was in');
@@ -237,7 +250,7 @@ await check('switching one off with nothing running takes it away at once', asyn
 
 await check('switching one off with sessions open drains — failure 4, the one that hurts', async () => {
   const worker = { id: 'a-1', title: 'still working', at: new Date().toISOString(), attempt: 1 };
-  const { advocates, opened } = harness({ ready: [bead('a-2')], workers: [worker] });
+  const { advocates, opened } = await harness({ ready: [bead('a-2')], workers: [worker] });
 
   advocates.disable('alpha');
   const drained = card(advocates, 'alpha');
@@ -258,7 +271,7 @@ await check('switching one off with sessions open drains — failure 4, the one 
 
 await check('and it goes on the first tick that finds it empty', async () => {
   const worker = { id: 'a-1', title: 'still working', at: new Date().toISOString(), attempt: 1 };
-  const { advocates } = harness({ workers: [worker] });
+  const { advocates } = await harness({ workers: [worker] });
   advocates.disable('alpha');
   await advocates.tick();
   assert.ok(card(advocates, 'alpha'), 'still draining, and still written down');
@@ -278,7 +291,7 @@ await check('and it goes on the first tick that finds it empty', async () => {
 
 await check('switching a draining one back on takes the drain off', async () => {
   const worker = { id: 'a-1', title: 'still working', at: new Date().toISOString(), attempt: 1 };
-  const { advocates, opened } = harness({ ready: [bead('a-2')], workers: [worker] });
+  const { advocates, opened } = await harness({ ready: [bead('a-2')], workers: [worker] });
   advocates.disable('alpha');
   advocates.enable('alpha');
 
@@ -294,14 +307,14 @@ await check('switching a draining one back on takes the drain off', async () => 
 });
 
 await check('pressing on over an advocate that has one is a repaint, not an error', async () => {
-  const { advocates } = harness();
+  const { advocates } = await harness();
   advocates.enable('alpha');
   advocates.enable('alpha');
   assert.deepEqual(onDisk().advocates.workspaces, ['alpha'], 'and never a second copy in the list');
 });
 
 await check('a repo that is not configured at all is a 404, not a new list entry', async () => {
-  const { advocates } = harness();
+  const { advocates } = await harness();
   assert.throws(() => advocates.enable('gamma'), (err) => err.status === 404);
   assert.throws(() => advocates.disable('gamma'), (err) => err.status === 404);
   assert.deepEqual(onDisk().advocates.workspaces, ['alpha'], 'nothing was written');
@@ -314,7 +327,7 @@ await check('a repo that is not configured at all is a 404, not a new list entry
    write and says which it was. */
 
 await check('a space with advocate: false vetoes the switch, and keeps vetoing it', async () => {
-  const { advocates, cfg } = harness({ spaces: [{ name: 'Halifax', workspaces: ['beta'], advocate: false }] });
+  const { advocates, cfg } = await harness({ spaces: [{ name: 'Halifax', workspaces: ['beta'], advocate: false }] });
   assert.throws(() => advocates.enable('beta'), (err) => err.status === 409 && /Halifax/.test(err.message));
   assert.deepEqual(onDisk().advocates.workspaces, ['alpha'], 'the list is untouched');
   assert.equal(row(advocates, 'beta').can, false, 'and the console is told not to draw a switch');
@@ -327,7 +340,7 @@ await check('a space with advocate: false vetoes the switch, and keeps vetoing i
 });
 
 await check('the master switch off refuses it — a list nothing reads is not a setting', async () => {
-  const { advocates } = harness({ advocates: { enabled: false } });
+  const { advocates } = await harness({ advocates: { enabled: false } });
   assert.throws(() => advocates.enable('beta'), (err) => err.status === 409 && /advocates\.enabled/.test(err.message));
   assert.equal(row(advocates, 'beta').can, false);
 });
@@ -335,7 +348,7 @@ await check('the master switch off refuses it — a list nothing reads is not a 
 await check('"*" refuses it rather than being expanded into a frozen list', async () => {
   // Expanding the star would make one Off button work and silently stop every repo
   // added afterwards from getting an advocate — which is the one thing "*" says.
-  const { advocates } = harness({ advocates: { workspaces: '*' } });
+  const { advocates } = await harness({ advocates: { workspaces: '*' } });
   assert.throws(() => advocates.disable('alpha'), (err) => err.status === 409 && /"\*"/.test(err.message));
   assert.equal(onDisk().advocates.workspaces, '*', 'still the star it was written as');
   assert.equal(row(advocates, 'alpha').can, false);
@@ -343,7 +356,7 @@ await check('"*" refuses it rather than being expanded into a frozen list', asyn
 });
 
 await check('the roster is every configured workspace, whether or not it has one', async () => {
-  const { advocates } = harness();
+  const { advocates } = await harness();
   assert.deepEqual(advocates.roster().map((r) => [r.workspace, r.advocated, r.can]), [
     ['alpha', true, true],
     ['beta', false, true],

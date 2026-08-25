@@ -1,0 +1,184 @@
+#!/usr/bin/env node
+/**
+ * `b7e-shipgate` — the default local gate for a session about to deliver:
+ * `b7e-affected` into `b7e-gate --only`, with the fallback that makes that safe.
+ *
+ *     b7e-shipgate                        affected suites for the diff since origin/main
+ *     b7e-shipgate <path> ...             affected suites for these specific files instead
+ *     b7e-shipgate --full                 skip narrowing — run the whole gate, on purpose
+ *     b7e-shipgate --dir <root>           another tree — this is how it is tested
+ *     b7e-shipgate --jobs N --timeout S --log <path> --json --skip <suite>
+ *                                         forwarded to b7e-gate unchanged
+ *
+ * bc-xlz32.2: `b7e-affected` (bc-khoe.40) already answers "which suites cover this diff"
+ * and `b7e-gate --only` (bc-khoe.39) already takes the answer; nothing used the pairing
+ * by default, so every session ran the whole 440-suite gate before delivering. `lib/
+ * shipgate.js` is the decision (pure, tested without spawning anything); this is the argv
+ * parsing, the two subprocesses, and the printing around it — the same split every other
+ * `b7e-*` command uses.
+ *
+ * **Why this lives outside `bin/b7e-gate` rather than inside it.** bc-xlz32.1 and
+ * bc-xlz32.5 own `bin/b7e-gate`, `lib/gate.js` and `scripts/test.mjs` this week (a
+ * machine-wide gate semaphore), and a `--affected` flag there would collide with that.
+ * Composing from outside also keeps `b7e-affected`'s own fallback visible at the exact
+ * point the decision gets made, rather than buried inside the gate where nothing but this
+ * file would ever read it.
+ *
+ * **The fallback, and why it is not a bug.** `b7e-affected` prints nothing on stdout and
+ * exits `1` the moment any changed file matched no suite — a partial list would look
+ * identical to a complete one — and an empty `--only` selection is `b7e-gate`'s own
+ * definition of "everything." This composes the two on that same contract: a changed
+ * file nothing can be mapped to runs the whole gate, same as no changed files at all.
+ * `--full` (or the plain `b7e-gate`) stays one word away for the deliberate full run, and
+ * CI never narrows — `.github/workflows/test.yml` always runs everything regardless of
+ * what this prints.
+ *
+ * **`b7e-affected`'s universe is wider than `b7e-gate`'s, and that has to be reconciled
+ * here.** `lib/affected.js` matches against `npm test`'s suites *union* every browser
+ * check under `scripts/*-check.mjs`, because both are real coverage — but `b7e-gate` only
+ * ever knows the first half. `restrictToKnownSuites` (lib/shipgate.js) drops anything
+ * `b7e-gate` cannot run before deciding, so a diff matched only by browser checks reports
+ * zero local suites and exits `0` without ever invoking `b7e-gate`, rather than handing it
+ * an `--only` list of names it has never heard of and landing on its own
+ * `nothing matches --only …` refusal.
+ *
+ * The last line on stdout is built for `beadcause-deliver --tests` — e.g.
+ * `tests: affected: 14 suites for 2 changed files, all passed` or
+ * `tests: full gate: lib/foo.js matched no suite, all passed` — so a reviewer sees the
+ * narrowing (or the lack of it) instead of guessing at it.
+ *
+ * Exit codes: whatever `b7e-gate` exits with — `0` every selected suite passed, `1` at
+ * least one failed or timed out (`0`, with nothing run, when every matched suite was a
+ * browser check). `2` refused: bad usage, or `b7e-affected` itself refused.
+ */
+import path from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { discoverSuites } from '../lib/gate.js';
+import {
+  AFFECTED_BIN,
+  GATE_BIN,
+  REPO_ROOT,
+  decide,
+  gateArgsFor,
+  parseAffectedJson,
+  recordWithOutcome,
+  restrictToKnownSuites,
+} from '../lib/shipgate.js';
+import { onExit } from '../lib/teardown.js';
+
+const USAGE = `usage: b7e-shipgate [<path> ...] [options]
+
+  <path> ...          narrow against these specific changed files, instead of the diff
+                       since origin/main (plus anything uncommitted)
+  --full               skip b7e-affected entirely — run the whole gate, deliberately
+  --dir <root>         another tree — this is how it is tested
+  --jobs <n>           forwarded to b7e-gate
+  --timeout <s>        forwarded to b7e-gate
+  --log <path>         forwarded to b7e-gate
+  --json               forwarded to b7e-gate
+  --skip <suite>       forwarded to b7e-gate (repeatable)`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const has = (f) => argv.includes(f);
+const multi = (f) => {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === f && argv[i + 1] !== undefined) out.push(argv[++i]);
+    else if (argv[i].startsWith(`${f}=`)) out.push(argv[i].slice(f.length + 1));
+  }
+  return out;
+};
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+const DIR_GIVEN = value('--dir', null);
+const ROOT = path.resolve(DIR_GIVEN || REPO_ROOT);
+const FULL = has('--full');
+const JOBS = value('--jobs', null);
+const TIMEOUT = value('--timeout', null);
+const LOG = value('--log', null);
+const JSON_MODE = has('--json');
+const SKIP = multi('--skip');
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+
+const leave = async (code) => {
+  await new Promise((r) => process.stdout.write('', r));
+  process.exit(code);
+};
+
+// Everything left over once the known flags and their values are pulled out is a path —
+// same convention b7e-affected uses.
+const FLAG_VALUES = new Set(['--dir', '--jobs', '--timeout', '--log', '--skip']);
+const files = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--full' || a === '--json') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1; // skip its value
+    continue;
+  }
+  if (a.startsWith('--')) {
+    console.error(red(`unrecognised flag: ${a}`));
+    await leave(2);
+  }
+  files.push(a);
+}
+
+let decision;
+if (FULL) {
+  decision = decide({ full: true });
+} else {
+  const res = spawnSync(process.execPath, [AFFECTED_BIN, '--dir', ROOT, '--json', ...files], { encoding: 'utf8' });
+  if (res.status === 2) {
+    console.error(red((res.stderr || 'b7e-affected refused').trim()));
+    await leave(2);
+  }
+  const parsed = parseAffectedJson(res.stdout);
+  // b7e-affected matches against npm test's suites UNION every browser check; b7e-gate
+  // only ever knows the first half. Restrict before deciding, so a diff matched only by
+  // browser checks reads as zero local suites rather than a b7e-gate --only refusal.
+  const { suites: knownSuites, wasMatched } = restrictToKnownSuites(parsed.suites, discoverSuites(ROOT));
+  decision = decide({ ...parsed, suites: knownSuites, browserOnly: wasMatched && knownSuites.length === 0 });
+}
+
+console.error(dim(decision.record));
+
+if (decision.skip) {
+  console.log(`tests: ${decision.record}, nothing to run`);
+  await leave(0);
+}
+
+const extra = [];
+if (JOBS != null) extra.push('--jobs', JOBS);
+if (TIMEOUT != null) extra.push('--timeout', TIMEOUT);
+if (LOG != null) extra.push('--log', LOG);
+if (JSON_MODE) extra.push('--json');
+for (const suite of SKIP) extra.push('--skip', suite);
+
+const gateArgv = ['--dir', ROOT, ...gateArgsFor(decision, extra)];
+const child = spawn(process.execPath, [GATE_BIN, ...gateArgv], { stdio: 'inherit' });
+// A SIGINT/SIGTERM/SIGHUP on this wrapper must reach the gate it spawned, or the child
+// runs on orphaned — still holding b7e-gate's own per-tree lock — while the session that
+// killed this one believes nothing is running. See lib/teardown.js.
+const releaseKill = onExit(() => child.kill('SIGTERM'));
+const gateStatus = await new Promise((resolve) => {
+  child.on('exit', (code, signal) => resolve(signal ? 1 : code ?? 1));
+  child.on('error', () => resolve(2));
+});
+releaseKill();
+
+const finalRecord = recordWithOutcome(decision.record, gateStatus);
+console.log(`tests: ${finalRecord}`);
+
+await leave(gateStatus);

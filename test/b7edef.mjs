@@ -88,6 +88,24 @@ console.log('\n--callers adds call sites without duplicating the definition or t
   check('the definition line itself is not re-listed as a caller', Boolean(defLine) && !new RegExp(`callers[\\s\\S]*lib/ancestry\\.js:${defLine?.[1]}:`).test(r.stdout), r.stdout);
 }
 
+console.log('\na call passing an object literal is not mistaken for a definition (bc-dgx7.36)');
+
+{
+  // openReviewAnswerSession is a real export in lib/session.js. Its only call site,
+  // lib/server.js:3322, is a bare `openReviewAnswerSession(...)` at the start of a
+  // trimmed line — syntactically identical to the method/property-function head
+  // shape — whose own closing `)` is immediately followed by a comma, then
+  // `resolveFor`'s own third-argument object literal three arguments later. Before
+  // bc-dgx7.36, findBody walked past that comma to the first `{` at depth 0,
+  // however far away, and reported the call site as a second, phantom definition.
+  const r = run(['openReviewAnswerSession']);
+  check('exits 0', r.status === 0, `status was ${r.status}\n${r.stderr}`);
+  const spans = [...r.stdout.matchAll(/^lib\/[\w./-]+:\d+-\d+/gm)];
+  check('exactly one definition, not the call site too', spans.length === 1, `found ${spans.length}:\n${r.stdout}`);
+  check('the one definition is in lib/session.js', spans[0]?.[0].startsWith('lib/session.js:'), r.stdout);
+  check('no phantom definition at the lib/server.js call site', !spans.some((m) => m[0].startsWith('lib/server.js:')), r.stdout);
+}
+
 console.log('\nno name, or --help, is a usage message rather than a crash');
 
 {
