@@ -1,0 +1,136 @@
+#!/usr/bin/env node
+/**
+ * Does a gate run's own verdict still describe the tree you are about to deliver?
+ *
+ *   b7e-gated                 this worktree's most recent gate run vs the working tree now
+ *   b7e-gated --run <id>      a specific run, from any worktree — the id `b7e-gate` prints
+ *   b7e-gated --staged        compare against the INDEX now, not the working tree
+ *   b7e-gated --json
+ *
+ * bc-dgx7.39, filed by the session audit against four sessions (`bc-xl7n.110`,
+ * `bc-xl7n.108`, `bc-4r10.20`, `bc-4r10.3.2`) that each launched the full gate in the
+ * background and kept editing the worktree while it ran, then delivered the run's
+ * verdict as if it still applied. `bc-xl7n.108` made three more edits after starting
+ * a gate at suite 62/416 and delivered "all 416 passed" on a run that had never seen
+ * them; `bc-4r10.20` and `bc-4r10.3.2` did the same with README and a broken
+ * `node_modules`, the latter paying for three suites re-run by hand afterward to
+ * patch the verdict back together. `bc-xl7n.110` is the one that caught its own case
+ * — and only by *remembering* an edit made after the gate had already started. This
+ * makes that a question a command can answer instead of a fact somebody has to recall.
+ *
+ * `bin/b7e-gate` (`bc-khoe.39`) already stamps every run it starts with a snapshot of
+ * the tree it is about to test (`lib/gaterun.js`'s `startRun`, alongside the same
+ * `sha`/`worktree`/`branch` `bin/b7e-watch` already reads) — this reads that snapshot
+ * back and asks `lib/gaterun.js`'s `compareToTree` whether it still matches. Nothing
+ * here re-runs a suite, greps a log, or diffs by mtime: the comparison is two git
+ * commit objects, so a file touched and then touched back to its original content
+ * reads as unchanged, exactly as a `git diff` would say it is. `--run <id>` always
+ * compares against the directory the run itself ran in (recorded on its own `start`
+ * line), never wherever this command happens to be invoked from — reading a run
+ * another session started in another worktree compares that worktree's tree, not this
+ * one's.
+ *
+ * Exit codes: `0` the run's own tree still matches — the verdict, whatever it was,
+ * describes the tree in front of you; `1` the tree has moved under it (the files
+ * responsible are named) or nothing can confirm it did not; `2` the run named, or
+ * found for this worktree, does not exist.
+ */
+import { runsDir, latestRunFor, readRun, runFile, worktreeSlug, compareToTree } from '../lib/gaterun.js';
+
+function arg(...names) {
+  for (const n of names) {
+    const i = process.argv.indexOf(n);
+    if (i > -1) return process.argv[i + 1];
+  }
+  return undefined;
+}
+const has = (n) => process.argv.includes(n);
+
+const USAGE = `usage: b7e-gated [--run <id>] [--staged] [--json]
+
+With no arguments, reports on this worktree's most recent gate run (started by
+\`b7e-gate\`): does the tree it recorded when it started still match the working tree
+right now? --run <id> reports on a specific run, started by any session in any
+worktree. --staged compares the run's baseline against the INDEX right now instead of
+the working tree — ask this immediately before a commit, when what will actually land
+is what's staged, not everything still sitting unstaged.`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const cwd = process.cwd();
+const runId = arg('--run');
+const staged = has('--staged');
+const jsonMode = has('--json');
+
+async function findFile() {
+  if (runId) {
+    const dir = await runsDir(cwd);
+    const fs = await import('node:fs');
+    const f = runFile(dir, runId);
+    return fs.existsSync(f) ? f : null;
+  }
+  return latestRunFor(cwd);
+}
+
+function fmtElapsed(sec) {
+  if (sec === null) return '?';
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m ? `${m}m${String(s).padStart(2, '0')}s` : `${s}s`;
+}
+
+async function main() {
+  const file = await findFile();
+  if (!file) {
+    const dir = await runsDir(cwd);
+    console.error(
+      runId
+        ? `b7e-gated: no run ${runId} found in ${dir}`
+        : `b7e-gated: no gate run found for worktree ${await worktreeSlug(cwd)} in ${dir} — start one with \`b7e-gate\``
+    );
+    process.exit(2);
+  }
+
+  const r = readRun(file);
+  const cmp = await compareToTree(r, { staged });
+  const state = r.running ? 'running' : r.status === 'ok' ? 'done, green' : 'done, red';
+  const sha7 = r.sha ? r.sha.slice(0, 7) : '?';
+
+  if (jsonMode) {
+    console.log(
+      JSON.stringify({
+        runId: r.runId,
+        worktree: r.worktree,
+        state,
+        sha: r.sha,
+        staged,
+        matches: cmp.matches,
+        reason: cmp.reason,
+        changed: cmp.changed,
+      })
+    );
+  } else {
+    const head = `run ${r.runId} (${r.worktree || '?'}, sha ${sha7}): ${state}, ${fmtElapsed(r.elapsedSeconds)} elapsed`;
+    if (cmp.matches === true) {
+      console.log(`${head} — tree unchanged since it started${staged ? ' (staged)' : ''}`);
+    } else if (cmp.matches === false) {
+      console.log(
+        `${head} — tree has moved under it${staged ? ' (staged)' : ''}, ${cmp.changed.length} file(s): ${cmp.changed.join(', ')}`
+      );
+    } else if (cmp.reason === 'no-baseline') {
+      console.log(`${head} — no tree recorded for this run (started before b7e-gated existed); cannot confirm the verdict still applies`);
+    } else {
+      console.log(`${head} — could not read the tree right now; cannot confirm the verdict still applies`);
+    }
+  }
+
+  process.exit(cmp.matches === true ? 0 : 1);
+}
+
+main().catch((err) => {
+  console.error(`b7e-gated: ${err.message}`);
+  process.exit(1);
+});
