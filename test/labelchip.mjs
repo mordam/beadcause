@@ -31,6 +31,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -133,6 +134,6 @@ check('the collapsed card and the open one both see the same labelIssues, and it
 
 /* ------------------------------------------------------------------------ end */
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(`\n${ran - failures}/${ran} checks passed`);
 process.exit(failures ? 1 : 0);

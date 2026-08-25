@@ -477,6 +477,115 @@ await check('a second sweep inside the window is served from memory, and refresh
   forget();
 });
 
+/* -------------------------------------------- a queue sweep that ran out of ceiling */
+
+/* bc-774a2. `sweep` cannot throw for a tracker — it catches per workspace — but the wait on
+   a *cold* key can still hit lib/cache.js's ceiling, and this is the most expensive sweep in
+   the app bar one: a `bd list --label` per workspace plus up to forty `bd show`s. 37 child
+   processes and 232 seconds of `bd` work behind this key is how it happened on 2026-08-24.
+   That throw reached the route's catch-all as HTTP 500, which public/report.js reads as *the
+   daemon is failing* and files a P0 incident bead about. `errors[]` is the shape /endorse
+   already draws for a workspace that could not be read.
+
+   Seeded through the cache's own key rather than by slowing the sweep down: what is under
+   test is which of two failures `endorsementQueue` is looking at, and the real ceiling is
+   150s. */
+
+console.log('\nwhen the queue sweep does not come back in time\n');
+
+{
+  forget();
+  let release;
+  const held = cache.read('queue:alpha,beta', () => new Promise((resolve) => (release = resolve)), {
+    freshMs: 10_000,
+    ceilingMs: 5_000,
+  });
+  held.catch(() => {});
+
+  const was = console.error;
+  console.error = () => {};
+  let out;
+  try {
+    out = await endorsementQueue(bd, [ALPHA, BETA], { ceilingMs: 30 });
+  } finally {
+    console.error = was;
+  }
+
+  await check('a cold queue sweep past its ceiling answers rather than throwing', () => {
+    assert.deepEqual(out.beads, []);
+    assert.match(out.errors[0]?.error || '', /did not answer within/);
+  });
+  await check('  — with every workspace in errors[], because none of them was reached', () =>
+    assert.deepEqual(
+      out.errors.map((e) => e.workspace),
+      ['alpha', 'beta']
+    )
+  );
+  await check('  — and the counts say nothing is waiting rather than being absent', () =>
+    assert.deepEqual(out.counts, { total: 0, shown: 0, byWorkspace: {} })
+  );
+  await check('  — and no kept age, because nothing was kept to be old', () => assert.equal(out.kept, null));
+
+  release({ beads: [], errors: [], counts: { total: 0, shown: 0, byWorkspace: {} } });
+  await held.catch(() => {});
+  forget();
+}
+
+/* bc-19vt.1's split, on this caller. The block above shrinks `ceilingMs` alone, shrinking
+   the slot and this call's own wait together. `/api/unendorsed` shrinks neither — it passes
+   `waitMs` on its own and leaves `ceilingMs` at the real default, so the sweep the slot is
+   holding still gets the full 150 seconds while this one caller gives up in a few. */
+{
+  forget();
+  let release;
+  const held = cache.read('queue:alpha,beta', () => new Promise((resolve) => (release = resolve)), {
+    freshMs: 10_000,
+    ceilingMs: 5_000,
+  });
+  held.catch(() => {});
+
+  const was = console.error;
+  console.error = () => {};
+  let out;
+  try {
+    out = await endorsementQueue(bd, [ALPHA, BETA], { waitMs: 30 });
+  } finally {
+    console.error = was;
+  }
+
+  await check("a short `waitMs` alone gives up in seconds, with `ceilingMs` left at the real default", () => {
+    assert.deepEqual(out.beads, []);
+    assert.match(out.errors[0]?.error || '', /did not answer within/);
+  });
+
+  release({ beads: [], errors: [], counts: { total: 0, shown: 0, byWorkspace: {} } });
+  await held.catch(() => {});
+  forget();
+}
+
+/* And the other half of the flag: only the *ceiling* converts. Anything else is a real
+   failure and keeps its 500 — which is why lib/cache.js flags the ceiling error rather than
+   leaving callers to match on its message.
+
+   The clock stands in for that "anything else", and deliberately: `sweep` catches every
+   tracker failure it can have — per workspace for `bd list`, inside `pool` for the
+   provenance `bd show`s, inside lib/openquestion.js for the questions — so there is no
+   broken `bd` that reaches this branch, and the branch is a guard against the failures
+   nobody enumerated rather than against a tracker. A `now` that throws is one of those,
+   and it proves the discriminator is `cache.timedOut` and not a bare catch. */
+await check('anything that is not the ceiling comes back out, and still gets its 500', async () => {
+  forget();
+  await assert.rejects(
+    endorsementQueue(bd, [ALPHA, BETA], {
+      now: () => {
+        throw new Error('the clock is gone');
+      },
+    }),
+    /the clock is gone/
+  );
+  forget();
+});
+
 /* ---------------------------------------------------------------------- the route */
 
 const { createApp, listen } = await import(LIB('server.js'));
