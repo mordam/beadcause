@@ -20003,9 +20003,11 @@ block — four calls. `bc-mwhkg.1` got the same brief and the brief was wrong: s
 correct the premise and conclude the parent was unanswered too.
 
 ```
-b7e-answered -w <workspace> -b <bead>            the bead alone
-b7e-answered -w <workspace> -b <bead> --family    also walk ancestors — parent, grandparent...
-b7e-answered -w <workspace> -b <bead> --json      the machine-readable form
+b7e-answered -w <workspace> -b <bead>                    the bead alone
+b7e-answered -w <workspace> -b <bead> --family            also walk ancestors — parent, grandparent...
+b7e-answered -w <workspace> -b <bead> --json              the machine-readable form
+b7e-answered -w <workspace> -b <bead1> -b <bead2>          several beads, one call — repeat `-b`...
+b7e-answered -w <workspace> -b <bead1>,<bead2>             ...or comma-join them
 ```
 
 **Two things it reads, because the fact was already recorded in both and nothing read
@@ -20034,12 +20036,41 @@ the outcome — then one verdict line naming the bead the answer is actually on,
 none of them in the chain carries one (the `bc-mwhkg.1` shape: nothing on the bead *or*
 its parent, despite the brief).
 
-Exit codes: `0` ran to completion, whatever the verdict — "nobody has answered this" is a
-legitimate answer, not a failure. `2` bad usage. `4` `-w`/`-b` named something this
-checkout's tracker does not have.
+**`bc-dgx7.95`: `close_reason` says a ruling happened, never what it was.** Every bead
+`respond()` closes gets the identical constant string, `Answered via Beadcause` — that
+is the whole of what the old fallback had to show once `state.json`'s own record had
+gone (past its 30-day TTL, or the bead was answered by hand with a plain `bd comment`
+rather than through the app). The actual choice is the comment `respond()` wrote
+immediately before closing, and this now searches the thread for it — most-recent-first,
+so anything said on the bead *after* the ruling does not get mistaken for it — and
+resolves the chosen option from that text exactly as it would from a `state.json`
+record. The option list prints with the taken one marked and `recommended` kept where it
+was set; the comment's own text and timestamp print alongside it. A still-open bead
+carrying `human-replied` gets the same search. The one case nothing can answer — closed
+as a ruling with no comment on the thread at all — reads as the outcome
+**`answered-but-unrecorded`**, not as an empty `(closed)`: the gap is real and the report
+says so, rather than reading like a ruling with nothing behind it.
 
-Read-only: two `bd` reads per bead in the chain (`bd show --include-comments`) plus
-`state.json`'s own `answered` map, never a write. `Bash(b7e-answered:*)` is on
+**Several beads in one call**, for the case `dv-3rn.2` needed it: 32 beads answered by
+hand, where a `bd show`/`bd comments` pair per bead ran so slowly under contention that a
+backgrounded script hadn't finished in five minutes. `-b` may be repeated
+(`-b a -b b`) or comma-joined (`-b a,b`), or both. The batch form skips the extra
+existence-checking `bd show` the single-bead form still does — a bead `beadAnswer`
+itself cannot find comes back with an empty chain, which already says "not found" — so
+it costs one `bd` read per bead in the chain rather than two, the other half of the
+64-calls-for-32-beads this bead was filed to cut. `--json` becomes `{ beads, results }`,
+one entry per requested id in the order given, `notFound: true` on the ones that
+weren't there.
+
+Exit codes: `0` ran to completion, whatever the verdict(s) — "nobody has answered this"
+is a legitimate answer, not a failure; with several beads, `0` means at least one of them
+was findable. `2` bad usage. `4` `-w` named a workspace this checkout's tracker does not
+have, or (single-bead form only) `-b` named a bead it does not have.
+
+Read-only: one `bd` read per bead in the chain (`bd show --include-comments`) in the
+batch form; the single-bead form keeps its original extra existence check, so two for the
+bead named on `-b` and one for each further ancestor `--family` walks to. Plus
+`state.json`'s own `answered` map. Never a write. `Bash(b7e-answered:*)` is on
 `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
 
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
@@ -21062,6 +21093,69 @@ brief already tells it to reach `bin/deliver.js`: by absolute path, through the 
 grant it already has. Wiring it onto the allowlist belongs to `bc-dgx7.2`'s definition
 of what a skill needs, not to this bead. See `bin/b7e-handback`, `lib/handback.js` and
 `test/b7ehandback.mjs`.
+
+
+### Take a bead a studio role is holding — `b7e-take`
+
+`bc-dgx7.97`, moved here from deluvia (filed there as `dv-b5d.48`) after a session
+audit found seven sessions each hand-recovering from the same refusal. `bd update <id>
+--claim` refuses whenever a bead already carries an assignee, and for `dv-b5d.24`,
+`dv-b5d.26`, `dv-b5d.22`, `dv-gr6.40`, `dv-3rn.4`, `dv-3rn.2` and `dv-gr6.36` that
+assignee was never a live session — it was a studio role (`sinew`, `vox`, `aria`,
+`tally`, `clio`) the bead had only been *routed* to. All seven ran `bd update
+--claim`, hit `issue already claimed: already assigned to "<role>"`, read the memory
+explaining the refusal is not a collision, and only then issued the write that
+actually works: `bd update <id> --if-assignee=<role> --assignee=<actor>
+--status=in_progress`. Three round trips, byte-identical across seven runs, before
+any of them had read a line of the repo they were there to work.
+
+```
+b7e-take -w deluvia -b dv-b5d.24              take it, or claim it plainly if unheld
+b7e-take -w deluvia -b dv-b5d.24 --dry-run    decide and report; write nothing
+b7e-take -w deluvia -b dv-b5d.24 --release    give it back to the role it came from
+b7e-take -w deluvia -b dv-b5d.24 --json       the machine-readable form
+```
+
+`lib/bd.js`'s new `CLAIM_ROLE_GUARD_RE` / `claimedBy` name who a `--claim` refusal
+says holds a bead — a third wording next to `CLAIM_GUARD_RE` and `REASSIGN_GUARD_RE`,
+placed beside them as the bead asked. What bd's own wording cannot say is whether
+taking the bead over is *safe*: a role and a real live session refuse in exactly the
+same words. `lib/take.js` answers that by reading the calling checkout's own role
+roster instead of guessing — every directory under `<checkout>/ai-context/agents/`,
+deluvia's own convention rather than a beadcause one (its nineteen names are exactly
+the acceptance criteria's "19 studio roles", and all five roles above are among
+them). A holder outside that roster — a real person, or a live window actually
+working the bead — is refused by name, never taken on a hunch; a workspace that names
+no such directory reads back an empty roster and refuses every held bead, the
+conservative default rather than a silent guess.
+
+The take itself is atomic: `Bd.casAssign` (`lib/bd.js`) is `bd update <id>
+--if-assignee <role> --assignee <actor> --status in_progress --add-label
+taken-from:<role>` in one call, so the write only lands if the role was still the
+assignee the instant it ran. That label is what `--release` reads back to hand the
+bead to the same role it came from, and it is removed on release. A stale guard (bd
+1.2.1's own exit 13, "precondition guard did not match") means somebody else won the
+race between the read and the write — reported rather than retried, since retrying
+would recompare the same expected value against the same now-wrong assignee and lose
+the same way again.
+
+**Not on `DEFAULT_TOOL_LIST`, despite the bead's own wiring checklist saying it
+should be.** That checklist line is right for a read-only lookup (`b7e-def`,
+`b7e-claims`) and wrong for this one, for the same reason its closest sibling in
+shape, `b7e-handback`, is not on it either: a reassign is a tracker *write*,
+`DEFAULT_TOOL_LIST` is the read-only surface a constrained reply agent gets
+(`lib/toolbelt.js`'s own docstring: "the read-only surface every reply agent gets"),
+and the worker session this actually serves already has the Bash access to run it —
+the same way it already runs `bd update --claim` itself, by the name it resolves to
+on `PATH`. Adding it would hand a write to a reply agent the checklist was never
+written with in mind.
+
+`test/b7etake.mjs` drives all three of `lib/bd.js`'s claim-refusal wordings from a
+fake `bd`: the new one (taking over a role-held bead), and the two existing ones
+(`CLAIM_GUARD_RE`, `REASSIGN_GUARD_RE`) checked to prove the new pattern never
+misreads either of them. Also covers the role roster read from a fixture
+`ai-context/agents/` directory, an unrecognised holder refused by name, `--release`,
+`--dry-run`, and the CAS race. See `bin/b7e-take`, `lib/take.js`.
 
 
 ### A reviewer's own runnable copy of a pull request — `b7e-prtree`
