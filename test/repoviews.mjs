@@ -54,7 +54,10 @@ import {
   forgetPayloads,
   VIEW_DIR,
   MANIFEST,
+  GENERATOR_HEADER,
+  GENERATOR_CODE,
 } from '../lib/repoviews.js';
+const timing = await import('../lib/timing.js');
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -285,6 +288,26 @@ await check('a view with no generator says so rather than spawning anything', as
   assert.match(out.problem, /no "data.run"/);
 });
 
+await check('a generator run is logged as cold, with its wall time attributed to it as a child process', async () => {
+  forgetPayloads();
+  timing.reset();
+  // Sleeps rather than returning instantly, so the generator's wall time is large enough
+  // to tell "attributed" from "not attributed" without a flaky margin.
+  writeGen('await new Promise((r) => setTimeout(r, 60)); console.log(JSON.stringify({ ok: true }));\n');
+  writeManifest({
+    views: [{ id: 'board', script: 'board.js', data: { run: [process.execPath, path.join(VIEW_DIR, 'gen.mjs')], ttl: 60 } }],
+  });
+  const v = findView(cfg, WS, 'somerepo.board');
+  const rec = timing.begin('GET /api/views/somerepo/board/data');
+  const out = await payloadFor(cfg, v);
+  timing.end(rec, 200);
+  assert.equal(out.data.ok, true);
+  const row = timing.snapshot().routes.find((r) => r.route === 'GET /api/views/somerepo/board/data');
+  assert.ok(row?.cold, `not recorded cold — got ${JSON.stringify(row)}`);
+  assert.equal(row.cold.calls, 1, 'charged the one generator spawn');
+  assert.ok(row.cold.subMs >= 40, `subMs ${row.cold.subMs}ms — the generator's wall time was not attributed to it`);
+});
+
 await check('allViews walks every workspace and keeps the config order', () => {
   writeManifest({ views: [{ id: 'board', script: 'board.js' }] });
   const { views } = allViews(cfg, [...WS, { name: 'nosuchworkspace', dir: '/nowhere/.beads' }]);
@@ -337,6 +360,11 @@ class El {
     node.parent = this;
     this.children.splice(at === -1 ? this.children.length : at, 0, node);
   }
+  /** What `<head>` is asked for — the host appends a stylesheet and a script to it. */
+  appendChild(node) {
+    this.append(node);
+    return node;
+  }
   remove() {
     if (!this.parent) return;
     const at = this.parent.children.indexOf(this);
@@ -380,7 +408,7 @@ function pane(id) {
 }
 
 /** The grammar, the panes and the row, over a body of containers. */
-function boot(panes, { hash = '', pathname = '/' } = {}) {
+function boot(panes, { hash = '', pathname = '/', views = null } = {}) {
   const body = new El('body');
   const topbar = new El('header');
   topbar.className = 'topbar';
@@ -405,10 +433,23 @@ function boot(panes, { hash = '', pathname = '/' } = {}) {
       querySelectorAll: (sel) => body.querySelectorAll(sel),
     },
     console,
+    // A `node:vm` context has none of these, and the host uses all three: `URLSearchParams`
+    // is the shape a view's query is handed over in, and the two timers are how a `build`
+    // that throws is rethrown out of the loop rather than taking the other views with it.
+    URLSearchParams,
+    setTimeout,
+    clearTimeout,
     addEventListener(type, fn) {
       if (!listeners.has(type)) listeners.set(type, []);
       listeners.get(type).push(fn);
     },
+    /* Only for the section that runs public/viewhost.js, which asks `/api/views` on boot
+       and hosts whatever comes back. Absent otherwise, which the host copes with — a
+       failed discovery is a console line and the pills it would have added, and nothing
+       else. */
+    ...(views
+      ? { fetch: async (path) => ({ ok: true, json: async () => (path === '/api/views' ? { views } : {}) }) }
+      : {}),
   };
   ctx.window = ctx;
   vm.createContext(ctx);
@@ -542,6 +583,139 @@ await check('a duplicate pill is refused rather than drawn twice', () => {
   b.run('panes.js');
   b.run('viewbar.js');
   assert.equal(b.bc().views.add({ id: 'history' }), false, 'a built-in pill may not be doubled');
+});
+
+/* ============================== the SDK's half of the address (bc-k7lrc) */
+
+/*
+  A repo view could always be linked to. It could not be linked to *at* anything: which
+  brief is open lived in a variable, so every share of the Briefs view was a share of the
+  index of it, and the back button walked out of the view rather than back through it.
+
+  The three lines that fix it are `ctx.query`, `ctx.setQuery` and `ctx.onQuery`, and what
+  they are worth testing for is the adapter rather than the mechanism — public/panes.js's
+  own suite has the mechanism. What is here: that a view is handed *its own* query and not
+  whatever the URL happens to say, that its listener is never called before its `build`,
+  and that a script in somebody else's checkout cannot write the address from behind a
+  pane nobody is looking at.
+*/
+
+console.log('\nwhat a repo view is handed of its own address');
+
+/** The manifest as `/api/views` hands it over, for a view with no generator — so `build`
+ *  is called the moment the script defines itself and nothing waits on a payload. */
+const BRIEFS = {
+  view: 'deluvia.briefs',
+  workspace: 'deluvia',
+  id: 'briefs',
+  path: '/v/deluvia/briefs',
+  label: 'Briefs',
+  icon: '📄',
+  script: 'briefs.js',
+  scriptUrl: '/v/deluvia/briefs/asset/briefs.js',
+  styleUrl: '',
+  dataUrl: '',
+};
+
+/** Let the boot's `/api/views` promise settle — two awaits deep, so two turns. */
+const settled = async () => {
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+};
+
+/**
+ * The shell with Briefs hosted in it, and the view's script "loaded".
+ *
+ * The script tag the host appends never fetches anything here, so `define` is called by
+ * hand — in its two-argument form, which is the one the contract offers a script that
+ * defers past its own execution and is exactly what this is.
+ */
+async function hosting(spec, opts) {
+  // Home and the ledger, because half of what is being asserted is what a repo view does
+  // while *another* pane is up, and a document with only Home in it cannot be on one.
+  const b = boot([pane('epics'), pane('history')], { ...opts, views: [BRIEFS] });
+  b.run('panes.js');
+  b.run('viewbar.js');
+  b.run('viewhost.js');
+  await settled();
+  b.bc().view.define('deluvia.briefs', spec);
+  return b;
+}
+
+await check('build() reads the query the link arrived with', async () => {
+  // The arrival a deep link *is*, and the reason `build` reads rather than waits: at the
+  // moment this hash landed there was no pane to hold a listener, let alone a view.
+  let saw = null;
+  const b = await hosting({ build: (c) => (saw = c.query.get('b')) }, { hash: '#deluvia.briefs?b=chapter-one' });
+  assert.equal(b.bc().panes.showing(), 'deluvia.briefs', 'the deep link did not reach the pane');
+  assert.equal(saw, 'chapter-one');
+});
+
+await check('and reads `` while the hash is naming somebody else', async () => {
+  // The ordinary state of the world for the several hundred milliseconds between
+  // `/api/views` answering and a generator landing. Without `route.queryFor`'s check this
+  // is where a view picks up the ledger's filters and opens a brief called `closed`.
+  let saw = null;
+  const b = await hosting({ build: (c) => (saw = [...c.query]) }, { hash: '#history?status=closed' });
+  assert.equal(b.bc().panes.showing(), 'history');
+  assert.deepEqual(saw, [], 'the view was handed another pane’s query');
+});
+
+await check('onQuery fires when the address moves under the view, with what it moved to', async () => {
+  const moves = [];
+  const b = await hosting({ build: (c) => c.onQuery((q) => moves.push(q.get('b'))) }, {
+    hash: '#deluvia.briefs?b=one',
+  });
+  b.navigate('#deluvia.briefs?b=two');
+  assert.deepEqual(moves, ['two'], 'the back button walked between two briefs and the view was not told');
+  // Off the view and back: the query it left with is handed over again, so a pane that is
+  // never rebuilt is still redrawn to the thing the address names.
+  b.navigate('#history');
+  b.navigate('#deluvia.briefs?b=one');
+  assert.deepEqual(moves, ['two', 'one']);
+});
+
+await check('and never before the view has built', async () => {
+  // `adopt` calls `sync`, so landing straight on this hash fires a query change while the
+  // script has not run. Delivering it would mean every view author coping with a callback
+  // that precedes their own `build`.
+  const order = [];
+  const b = boot([pane('epics')], { hash: '#deluvia.briefs?b=one', views: [BRIEFS] });
+  b.run('panes.js');
+  b.run('viewbar.js');
+  b.run('viewhost.js');
+  await settled();
+  b.bc().view.define('deluvia.briefs', {
+    build: (c) => {
+      order.push('build');
+      c.onQuery(() => order.push('query'));
+    },
+  });
+  assert.deepEqual(order, ['build']);
+  b.navigate('#deluvia.briefs?b=two');
+  assert.deepEqual(order, ['build', 'query']);
+});
+
+await check('setQuery writes the view’s own hash and nobody else’s', async () => {
+  let ctx = null;
+  const b = await hosting({ build: (c) => (ctx = c) }, { hash: '#deluvia.briefs' });
+  assert.equal(ctx.setQuery('b=chapter-one', { push: true }), true);
+  assert.equal(b.ctx.location.hash, '#deluvia.briefs?b=chapter-one');
+  assert.equal(b.bc().panes.showing(), 'deluvia.briefs', 'writing a query left the pane');
+  // A `URLSearchParams` is as good as the string, because that is what `query` answers
+  // with and a view should be able to hand back what it was given.
+  const q = ctx.query;
+  q.set('b', 'chapter-two');
+  ctx.setQuery(q);
+  assert.equal(b.ctx.location.hash, '#deluvia.briefs?b=chapter-two');
+});
+
+await check('a view behind a pane nobody is looking at cannot write the address', async () => {
+  let ctx = null;
+  const b = await hosting({ build: (c) => (ctx = c) }, { hash: '#history' });
+  assert.equal(b.bc().panes.showing(), 'history');
+  assert.equal(ctx.setQuery('b=chapter-one'), false);
+  assert.equal(b.ctx.location.hash, '#history', 'a hidden view moved the address out from under the ledger');
 });
 
 /* ================================================================= the wiring */
@@ -686,9 +860,26 @@ await check('it is behind the credential, like every other payload', async () =>
   assert.equal((await get('/api/views', { token: '' })).status, 401);
 });
 
+await check('a scoped address is served the shell, at the address it was asked for', async () => {
+  // bc-xnj67, and the one claim about it that reading the source cannot make: a rewrite
+  // rather than a hop, so the space stays in the address bar while the hash goes on naming
+  // the view. A 302 here would put the address on screen for one round trip and then take
+  // it away, which is the whole thing this shape exists to avoid.
+  const res = await get('/bdcoz/personal/demo');
+  assert.equal(res.status, 200, 'a scoped address did not serve the shell');
+  assert.match(res.headers['content-type'] || '', /text\/html/);
+  assert.ok(res.body.includes('data-pane='), 'what came back is not the shell');
+  // Any scope is served, including one naming no configured space. This file has no
+  // business being the place that knows which spaces exist, and a typo should show you the
+  // app rather than a 404 — the client drops an unknown scope back to the stored filter.
+  assert.equal((await get('/bdcoz/nosuchspace')).status, 200);
+});
+
 await check('/v/demo/board hops to the hash rather than serving the shell', async () => {
   const res = await get('/v/demo/board');
   assert.equal(res.status, 302, 'a rewrite here draws Home from every home-screen shortcut');
+  // Unscoped, because `demo` is in no configured space in this fixture — the hop upgrades
+  // to `/bdcoz/<space>/<ws>#…` only when there is a space to name (bc-xnj67).
   assert.equal(res.headers.location, '/#demo.board');
 });
 
@@ -723,6 +914,27 @@ await check('a view with no generator answers the data route with a reason, not 
   const res = await get('/api/views/demo/board/data');
   assert.equal(res.status, 502);
   assert.match(JSON.parse(res.body).error, /no "data.run"/);
+});
+
+await check('and that 502 says it is the generator failing, not the daemon — bc-3wf1r', async () => {
+  // public/report.js files a sev2 P0 for every 5xx that does not say otherwise, and this
+  // one is a script this daemon spawned on another repo's behalf — or, here, a manifest
+  // that named none. The header is what stops the false P0; the body's `code` is for a
+  // caller that has already parsed it.
+  const res = await get('/api/views/demo/board/data');
+  assert.equal(res.headers[GENERATOR_HEADER], '1', 'the view-data 502 carries no generator marker');
+  assert.equal(JSON.parse(res.body).code, GENERATOR_CODE);
+});
+
+await check('and the browser reads that same header literally, since public/ cannot import lib/', () => {
+  // The one thing that can silently break this: renaming the constant in lib/repoviews.js
+  // and leaving public/report.js matching the old string. Then every view-generator 502
+  // files a P0 again and nothing goes red. See the comment at the exemption in report.js.
+  const reporter = fs.readFileSync(new URL('../public/report.js', import.meta.url), 'utf8');
+  assert.ok(
+    reporter.includes(`'${GENERATOR_HEADER}'`),
+    `public/report.js does not excuse ${GENERATOR_HEADER}`
+  );
 });
 
 for (const s of servers) s.close();
