@@ -19468,6 +19468,91 @@ read anything in `lib/grants.js` already classifies as one. `dispatch`, the one 
 this list actually governs, has no more use for a battery of another repo's checks than
 it does for running this one's own suite.
 
+### Turn a gate's own "expected X — got Y" into the edit — `b7e-rebaseline`
+
+`b7e-checks` just above runs a workspace repo's gate scripts and tells you which are red.
+This is what five sessions did *next*, by hand. `bc-dgx7.76`, filed by the session audit
+(`lib/sessionaudit.js`), names `dv-gr6.41`, `dv-gr6.43`, `dv-b5d.4.3`, `dv-3rn.1` and
+`dv-b5d.14`: each changed a file a gate script measures, read the new number off the
+gate's own FAIL line, and then hand-propagated it into every other place the old one was
+written. `dv-gr6.41` got `FAIL [S3.1] Ch 4 prose words == 4090 -- got 4536`, `[S3.1] total
+shortfall == 25198 -- got 24752` and `[S3.2] Ch 4 delta == +2499 -- got +2945`, wrote
+`scratchpad/rebaseline.py` to rewrite three constants in `scripts/check_saga_audit.py`
+plus two tables in `SAGA_READINESS_AUDIT_2026-08-10.md`, and committed that as a commit of
+its own. `dv-gr6.43` did the same for chapters 10 and 11 with its own
+`scratchpad/rebaseline.py`, then had to do the whole thing *again* after merging
+`origin/main` — the merge conflicted in exactly those two files, because `dv-gr6.41` had
+re-baselined the same constants concurrently — and finished with a placeholder trick
+(write `0`, re-run the gate, `sed -i ''` the measured values back in), two more scripts and
+two inline heredocs. `dv-3rn.1` spent a throwaway `git worktree add --detach` and a hand
+reimplementation of the check's own `check_unreferenced`, copied out of the script's
+source, working out *why* an orphan count had moved. Four `beadcause-memory` notes already
+warn about this tax; every one of them is a warning to a human, and none of them does the
+arithmetic.
+
+```
+b7e-rebaseline -w <workspace>              the plan, touching nothing (the default)
+b7e-rebaseline --dir <root>                a checkout directly, no workspace needed
+b7e-rebaseline -w <workspace> --write      apply it, then re-run the gate to prove it
+b7e-rebaseline -w <workspace> --only S3.1  one assertion, by check id or label text
+b7e-rebaseline -w <workspace> --no-recheck with --write, skip the confirming second run
+b7e-rebaseline -w <workspace> --json       the whole plan as one object
+```
+
+**It is the other half of `b7e-count`, not a second copy of it.** `b7e-count` answers
+"where is this literal written, and how many times". This answers "what is that number
+*now*, read off the gate's own measurement, and which of those sites belong to that
+assertion" — the half every one of the five sessions had to do after finding the sites.
+
+**Running the gate is `lib/checks.js`, unchanged.** Discovery, the per-check `judge`, the
+per-tree lock and the concurrency are `manifestFor`/`discoverChecks`/`runChecks` — the
+same set `b7e-checks` runs, so the two commands can never disagree about what this repo's
+gate *is*. A root no manifest recognises is refused here exactly as it is there, and a new
+repo shape belongs in that file's `MANIFESTS` rather than in a private discovery rule here.
+
+**A site is only rewritten when its own context names the check.** The dangerous version
+of this command is the one that rewrites every `12` in the tree because a check measured
+12. So each stale pair carries anchors — its bracketed id (`[S5.2]`), the distinctive
+words of its label, and any qualifier number the label holds ("Ch **4** prose words") —
+and a site qualifies only when its line, the few lines above it, the nearest heading above
+it or the nearest constant assignment above it names one of them. Everything else carrying
+the old literal is still *listed*, under "not rewritten", because "here are five more
+places that number is written and I did not touch them" is exactly what `dv-b5d.4.3`
+needed and did not have. A site two stale assertions both claim, disagreeing about what it
+should become, is nobody's to rewrite — which is `dv-gr6.43`'s concurrent-re-baseline
+collision, caught rather than merged.
+
+**The sites are bucketed the way the five sessions thought about them** — "the script",
+"the doc it mirrors", "a selftest fixture", and `elsewhere` for anything that is none of
+the three, reported under its own heading rather than quietly filed as a doc. The
+definition site is called out separately: the assigning line in the gate script itself
+(`PROSE_WORDS = {`, `4: 4090,`), which is the one a human goes looking for first.
+
+**Formatting survives the rewrite.** A doc table saying `4,090` gets `4,536`, not `4536`,
+and a delta written `+2499` stays signed — not cosmetic, because a gate that parses its own
+doc back reads a regrouped number as a different one. A trailing comma in a dict literal
+(`4: 4090,`) is not a thousands group; a comma only joins a number when three digits
+follow it.
+
+**A failure that is not an expected/got pair is reported as out of scope and refuses the
+write.** A dangling pointer or a naming violation is a real finding about the tree, and
+moving a baseline is never the answer to it — so those are printed, nothing is written even
+with `--write`, and the exit code is `2`.
+
+Exit codes: `0` nothing is stale, or a plan was printed, or `--write` applied it and the
+gate came back green. `2` refused — bad usage, no manifest, another gate run holds the
+lock, or a failure that is not a pair. `3` `--write` applied its edits and the gate is
+still red.
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-checks`/`b7e-gate` reason
+rather than the read-only shape of `b7e-def`/`b7e-count`: it runs another repo's gate
+scripts as external processes for as long as `--timeout` allows — which `lib/grants.js`
+already calls a write on the strength of "nothing about run the tests is a read" — and with
+`--write` it rewrites tracked files in a checkout it does not own. `dispatch`, the one
+agent this list actually governs, answers one phone comment with one `bd comment`; it has
+no branch to re-baseline on and no way to commit or review the result. See
+`bin/b7e-rebaseline` and `lib/rebaseline.js`.
+
 ### Re-run a sweep's failures alone, and say which are real — `b7e-triage`
 
 `bc-ka5y.15.16` names four sessions (`bc-ka5y.15.5`, `bc-khoe.29`, `bc-khoe.30.4`,
