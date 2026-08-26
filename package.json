@@ -85,6 +85,7 @@
     "b7e-prtree": "bin/b7e-prtree",
     "b7e-readme": "bin/b7e-readme",
     "b7e-rebaseline": "bin/b7e-rebaseline",
+    "b7e-run": "bin/b7e-run",
     "b7e-sandbox": "bin/b7e-sandbox",
     "b7e-say": "bin/b7e-say.js",
     "b7e-sh": "bin/b7e-sh",
