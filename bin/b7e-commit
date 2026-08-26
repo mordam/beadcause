@@ -18,6 +18,8 @@
  * `b7e-say` idiom, because a shell argument is where the backtick hazard lives.
  *
  * Exit codes: `0` committed; `1` refused (wrong branch, empty tree, empty body, bad usage).
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import { loadConfig } from '../lib/config.js';

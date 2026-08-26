@@ -68,7 +68,9 @@ delete process.env.BEADCAUSE_CONFLUENCE_TOKEN;
 // around is gone (bc-u4na moved the list into lib/toolbelt.js) and test/loadorder.mjs
 // is what guards that now, but importing the foundation first still costs nothing.
 const foundation = await import(LIB('foundation.js'));
-const { DEFAULT_TOOL_LIST } = await import(LIB('toolbelt.js'));
+// tooldecl.js since bc-wbrhi — toolbelt.js keeps the hand-written half, and the whole
+// list is that plus the b7e tools that declare themselves.
+const { DEFAULT_TOOL_LIST } = await import(LIB('tooldecl.js'));
 const conf = await import(LIB('confluence.js'));
 
 /* ------------------------------------------------------------ the fake Confluence */

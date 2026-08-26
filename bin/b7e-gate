@@ -29,6 +29,8 @@
  *
  * Exit codes: `0` every suite passed, `1` at least one failed or timed out, `2` refused —
  * bad usage, or another `b7e-gate` on this same tree is already running.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import os from 'node:os';

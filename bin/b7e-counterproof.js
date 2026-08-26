@@ -28,6 +28,8 @@
  * one suite passed both ways (proves nothing) or was skipped under `--keep-going`; `2`
  * refused outright — bad usage, an unresolved suite name without `--keep-going`, a `--at`
  * that does not resolve, or the tree's `b7e-gate`/counterproof lock already held.
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import { REPO_ROOT, toRepoRel, counterprove, exitCodeFor, reportLines } from '../lib/counterproof.js';

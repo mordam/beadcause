@@ -19,6 +19,8 @@
  * at least one suite carries a failure `origin/main` does not have, in full or in part,
  * or could not be checked against it at all; `2` refused — bad usage, or no suites to
  * look at.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';
