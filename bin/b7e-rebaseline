@@ -1,0 +1,303 @@
+#!/usr/bin/env node
+/**
+ * `b7e-rebaseline` — a gate's own "expected X — got Y", turned into the edit, everywhere
+ * X is written.
+ *
+ *     b7e-rebaseline -w deluvia                 # the plan, touching nothing (the default)
+ *     b7e-rebaseline --dir <root>                # a checkout with no beadcause workspace
+ *     b7e-rebaseline -w deluvia --write          # apply it, then re-run the gate to prove it
+ *     b7e-rebaseline -w deluvia --only S3.1      # one assertion, by its bracketed id
+ *     b7e-rebaseline -w deluvia --json           # the whole plan as one object
+ *
+ * bc-dgx7.76: five sessions (dv-gr6.41, dv-gr6.43, dv-b5d.4.3, dv-3rn.1, dv-b5d.14) each
+ * moved a number a gate script measures, read the new value off the gate's own FAIL line,
+ * and then hand-propagated it into every other place the old one was written — four
+ * script constants and two doc tables, in deluvia's case. No two spelled it the same way,
+ * none got it in one pass, and one of them had to do the whole thing twice because the
+ * merge it did next conflicted in exactly the files it had just re-baselined.
+ * `lib/rebaseline.js` is the parsing, the locating and the rewriting; this file is the
+ * argv parsing and the printing around it — the same split `bin/b7e-checks` and
+ * `lib/checks.js` already use, and the gate is literally run by that pair.
+ *
+ * **The default is `--dry`.** Nothing is written without `--write`, and even then only
+ * sites whose own context names the failing check are touched; everything else carrying
+ * the old literal is printed under "not rewritten" for a human to decide about.
+ *
+ * Exit codes: `0` nothing is stale, or a plan was printed, or `--write` applied it and the
+ * gate came back green. `2` refused: bad usage, no manifest recognises the repo, another
+ * gate run holds the lock, or the gate failed about something that is not an expected/got
+ * pair at all — a dangling pointer or a naming violation is a real finding, and rewriting
+ * a baseline is never the answer to it. `3` `--write` has had its go and the gate is still
+ * red — either its edits were not enough, or no site named the check it belongs to and
+ * there was nothing this command was willing to rewrite.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { DEFAULT_TIMEOUT_MS, acquireLock, discoverChecks, manifestFor, runChecks } from '../lib/checks.js';
+import { applyPlan, buildPlan, scriptPathsOf } from '../lib/rebaseline.js';
+
+const USAGE = `usage: b7e-rebaseline -w <workspace> | --dir <root> [options]
+
+  -w, --workspace <name>   a beadcause workspace whose checkout is the repo to re-baseline
+  --dir <root>             a checkout directly, instead of a workspace name
+  --only <id-or-text>      only assertions whose check id is this, or whose label contains
+                            it (repeatable) — "S3.1", "orphan"
+  --write                  apply the plan (the default is --dry: print it, touch nothing)
+  --no-recheck             with --write, skip the confirming second gate run
+  --jobs <n>               how many gate scripts at once (default 4)
+  --timeout <s>            per-script seconds (default ${DEFAULT_TIMEOUT_MS / 1000})
+  --json                   the whole plan as one JSON object
+  --dry                    the default; accepted so a caller can say it out loud
+
+Runs the repo's own gate scripts (lib/checks.js's manifest — the same set b7e-checks
+runs), reads every "expected X -- got Y" pair off what they printed, and finds every site
+in the tree carrying X: the script, the doc it mirrors, a selftest fixture. A site is only
+rewritten when its own context names the failing check.`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const has = (f) => argv.includes(f);
+const multi = (f) => {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === f && argv[i + 1] !== undefined) out.push(argv[++i]);
+    else if (argv[i].startsWith(`${f}=`)) out.push(argv[i].slice(f.length + 1));
+  }
+  return out;
+};
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+const wsName = value('-w', value('--workspace', null));
+const dirArg = value('--dir', null);
+const ONLY = multi('--only');
+const WRITE = has('--write');
+const RECHECK = WRITE && !has('--no-recheck');
+const JOBS = Math.max(1, Number(value('--jobs', 4)) || 4);
+const TIMEOUT_ARG = value('--timeout', null);
+const TIMEOUT_MS = TIMEOUT_ARG == null ? DEFAULT_TIMEOUT_MS : Math.max(0, Number(TIMEOUT_ARG) || 0) * 1000;
+const JSON_MODE = has('--json');
+
+if (!wsName && !dirArg) {
+  console.error('b7e-rebaseline: one of -w/--workspace or --dir is required');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (wsName && dirArg) {
+  console.error('b7e-rebaseline: -w/--workspace and --dir are mutually exclusive');
+  process.exit(2);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+const say = (s = '') => {
+  if (!JSON_MODE) console.log(s);
+};
+
+let ROOT;
+/** Set only when `-w` resolved a workspace — the same reason `b7e-checks` sets it: a
+ * check that shells out to `bd` must see the target repo's own tracker, not this
+ * process's. */
+let RUN_ENV;
+
+if (dirArg) {
+  ROOT = path.resolve(dirArg);
+} else {
+  const cfg = loadConfig();
+  const ws = cfg.workspaces.find((w) => w.name === wsName);
+  if (!ws) {
+    console.error(`b7e-rebaseline: no workspace named "${wsName}"`);
+    console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+    process.exit(2);
+  }
+  try {
+    ROOT = resolveSessionDir(cfg, ws);
+  } catch (err) {
+    console.error(`b7e-rebaseline: ${err.message}`);
+    process.exit(2);
+  }
+  RUN_ENV = { BEADS_DIR: ws.dir };
+}
+
+if (!manifestFor(ROOT)) {
+  console.error(`b7e-rebaseline: no manifest recognises ${ROOT} (no scripts/check_*.py found)`);
+  console.error(dim('a new repo shape belongs in lib/checks.js\'s MANIFESTS, where b7e-checks sees it too'));
+  process.exit(2);
+}
+
+const CHECKS = discoverChecks(ROOT);
+const SCRIPT_PATHS = scriptPathsOf(CHECKS);
+
+const lock = acquireLock(ROOT);
+if (!lock.ok) {
+  const since = lock.startedAt ? `${Math.round((Date.now() - lock.startedAt) / 1000)}s ago` : 'a while ago';
+  console.error(red(`a gate or checks run is already running on this tree — pid ${lock.pid}, started ${since}`));
+  console.error(dim("refusing rather than doubling the load; that run's own output is the one to read"));
+  process.exit(2);
+}
+
+let exitCode = 0;
+try {
+  say(dim(`# ${ROOT}`));
+  say(dim(`# running ${CHECKS.length} gate script${CHECKS.length === 1 ? '' : 's'}…`));
+  const run = await runChecks(ROOT, CHECKS, { jobs: JOBS, timeoutMs: TIMEOUT_MS, env: RUN_ENV });
+  const plan = buildPlan(ROOT, run.results, { only: ONLY, scriptPaths: SCRIPT_PATHS });
+
+  let write = null;
+  let after = null;
+  if (WRITE && plan.outOfScope.length) {
+    say('');
+    say(red('refusing to write: the gate failed about something that is not an expected/got pair.'));
+  } else if (WRITE && plan.edits.length) {
+    write = applyPlan(plan);
+    if (RECHECK) {
+      say(dim('\n# re-running the gate to prove it…'));
+      after = await runChecks(ROOT, CHECKS, { jobs: JOBS, timeoutMs: TIMEOUT_MS, env: RUN_ENV });
+    }
+  }
+
+  if (JSON_MODE) {
+    console.log(JSON.stringify(jsonPlan(plan, run, write, after)));
+  } else {
+    printPlan(plan, run, write, after);
+  }
+
+  // `3` means "--write has had its go and the gate is still red" — which includes the case
+  // where there was nothing this command was willing to rewrite, because a caller that
+  // asked for a write and got a red gate back needs the same answer either way. With
+  // `--no-recheck` nobody looked, so nobody may claim it.
+  if (plan.outOfScope.length) exitCode = 2;
+  else if (WRITE && RECHECK && after && !after.ok) exitCode = 3;
+  else if (WRITE && RECHECK && !after && !run.ok) exitCode = 3;
+  else exitCode = 0;
+} finally {
+  lock.release();
+}
+
+// `process.exitCode` rather than `process.exit()`: stdout to a **pipe** is async in Node,
+// and an explicit exit straight after a long report (nine stale assertions, every site
+// under each) can cut it off at the 64KB pipe buffer with a success status and nothing to
+// notice — bc-dgx7.45, and bin/b7e-count's own tail carries the same note.
+process.exitCode = exitCode;
+
+/* ------------------------------------------------------------------------ printing */
+
+function printPlan(plan, run, write, after) {
+  const BUCKETS = [
+    ['script', 'the script'],
+    ['doc', 'the doc it mirrors'],
+    ['selftest', 'a selftest fixture'],
+    ['elsewhere', 'elsewhere in the tree'],
+  ];
+
+  if (run.ok) {
+    say('');
+    say(green(`every gate script passed (${run.total}) — nothing to re-baseline`));
+    return;
+  }
+
+  for (const c of plan.checks) {
+    say('');
+    const id = c.checkId ? `[${c.checkId}] ` : '';
+    say(`${amber(`${id}${c.label || c.line}`)}`);
+    say(dim(`  ${c.check} · expected ${c.expected} — measured ${c.measured}`));
+    if (c.definition) {
+      say(`  ${dim('definition')}  ${c.definition.file}:${c.definition.line}  ${dim(clip(c.definition.text))}`);
+    } else {
+      say(`  ${dim('definition')}  ${red('not found')} ${dim('— nothing in the tree carrying ' + c.expected + ' names this check')}`);
+    }
+    for (const [key, title] of BUCKETS) {
+      const inBucket = c.sites.filter((s) => s.bucket === key && s.associated && !s.ambiguous && !s.duplicate);
+      if (!inBucket.length) continue;
+      say(`  ${title}`);
+      for (const s of inBucket) {
+        say(`    ${s.file}:${s.line}  ${s.oldText} ${dim('→')} ${green(s.newText)}  ${dim(`(${s.anchor})`)}`);
+      }
+    }
+    const held = c.sites.filter((s) => !s.associated || s.ambiguous);
+    if (held.length) {
+      say(`  ${dim('not rewritten')}`);
+      for (const s of held) {
+        const why = s.ambiguous
+          ? 'two stale assertions both claim it'
+          : s.reportLine
+            ? "this is the line that prints the failure, not the baseline behind it"
+            : 'nothing here names this check';
+        say(dim(`    ${s.file}:${s.line}  ${s.oldText}  — ${why}`));
+      }
+    }
+  }
+
+  if (plan.outOfScope.length) {
+    say('');
+    say(red(`${plan.outOfScope.length} failure${plan.outOfScope.length === 1 ? '' : 's'} out of scope — not an expected/got pair, so not a baseline to move:`));
+    for (const u of plan.outOfScope) say(dim(`    ${u.check}: ${clip(u.line, 140)}`));
+  }
+
+  say('');
+  if (plan.skipped) say(dim(`${plan.skipped} stale assertion${plan.skipped === 1 ? '' : 's'} outside --only ${ONLY.join(', ')}`));
+  const n = plan.edits.length;
+  const f = plan.filesTouched.length;
+  const scope = `${n} site${n === 1 ? '' : 's'} across ${f} file${f === 1 ? '' : 's'}`;
+  if (!plan.checks.length) {
+    say(red('the gate is red, but nothing it printed is an expected/got pair'));
+  } else if (write) {
+    for (const r of write.refused) say(red(`  refused ${r.file}: ${r.why}`));
+    say(`rewrote ${write.applied} site${write.applied === 1 ? '' : 's'} in ${write.changed.length} file${write.changed.length === 1 ? '' : 's'}: ${write.changed.join(', ')}`);
+    if (after) say(after.ok ? green(`the gate is green (${after.total} scripts)`) : red(`still red: ${after.failed.map((x) => x.name).join(', ')}`));
+    else say(dim('--no-recheck: the gate was not re-run'));
+  } else if (WRITE && !plan.outOfScope.length) {
+    say(red(`nothing was rewritten: no site carrying ${plan.checks.length === 1 ? 'that number' : 'those numbers'} names the check it belongs to.`));
+    say(dim('the sites above are listed for you to decide about — the gate is still red'));
+  } else {
+    say(`${plan.checks.length} assertion${plan.checks.length === 1 ? '' : 's'} stale; ${scope} would change. Re-run with --write to apply.`);
+  }
+}
+
+function jsonPlan(plan, run, write, after) {
+  return {
+    dir: plan.dir,
+    gate: { total: run.total, passed: run.passed, failed: run.failed.map((f) => f.name), ok: run.ok },
+    checks: plan.checks.map((c) => ({
+      check: c.check,
+      checkId: c.checkId,
+      label: c.label,
+      expected: c.expected,
+      measured: c.measured,
+      line: c.line,
+      definition: c.definition ? { file: c.definition.file, line: c.definition.line } : null,
+      sites: c.sites.map((s) => ({
+        file: s.file,
+        line: s.line,
+        bucket: s.bucket,
+        old: s.oldText,
+        new: s.newText,
+        rewritten: !!(s.associated && !s.ambiguous && !s.duplicate),
+        anchor: s.anchor,
+        ambiguous: s.ambiguous,
+      })),
+    })),
+    outOfScope: plan.outOfScope,
+    skipped: plan.skipped,
+    edits: plan.edits.length,
+    filesTouched: plan.filesTouched,
+    wrote: write ? { applied: write.applied, changed: write.changed, refused: write.refused } : null,
+    after: after ? { ok: after.ok, failed: after.failed.map((f) => f.name) } : null,
+  };
+}
+
+function clip(s, n = 92) {
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+}
