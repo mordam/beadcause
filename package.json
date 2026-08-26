@@ -98,6 +98,7 @@
     "b7e-triage": "bin/b7e-triage",
     "b7e-watch": "bin/b7e-watch",
     "b7e-which": "bin/b7e-which",
+    "b7e-window": "bin/b7e-window",
     "b7e-worktree": "bin/b7e-worktree",
     "b7e-ws": "bin/b7e-ws"
   },
