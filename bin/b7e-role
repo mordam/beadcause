@@ -9,11 +9,13 @@
  *   b7e-role -w <workspace> --all           the roster — every role, its department,
  *                                            and the gate it answers to
  *   b7e-role -w <workspace> <role> --json   the same answer, structured
- *   b7e-role ... --dir <root>               resolve docs and role files against <root>,
- *                                            not the cwd (the default is right when this
- *                                            runs from inside the workspace's own
- *                                            checkout, which is where a relay session is)
+ *   b7e-role ... --dir <root>               resolve docs and role files against <root>
+ *                                            instead — the default is the workspace's own
+ *                                            checkout (lib/session.js's resolveSessionDir),
+ *                                            falling back to the cwd where that cannot be
+ *                                            placed, which is where a relay session is
  *
+
  * `bc-dgx7.77` names five sessions (`dv-5eu.1.1`, `dv-gr6.43`, `dv-gr6.41`, `dv-b5d.4.3`,
  * `dv-gr6.38`) that each opened by slicing `docs/STUDIO_CHARTER.md` (726 lines),
  * `docs/APPROVAL_PIPELINE.md` (445) and a role file by hand — `wc -l` then a guessed run
@@ -45,6 +47,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
 import { relayFor, rolesOf, departmentOf, profilePath } from '../lib/relay.js';
 import { charterBlock, oneLawSection, outputTemplate, departmentGates, functionRange } from '../lib/rolecontract.js';
 
@@ -61,7 +64,8 @@ A relay role's whole operating contract, in one call.
   --next                   print only the legal handoff targets, not the whole contract
   --all                    list every role this workspace's relay knows, with its
                             department and the gate it answers to — no <role> needed
-  --dir <root>             resolve docs and role files against <root>, not the cwd
+  --dir <root>             resolve docs and role files against <root> — default is the
+                            workspace's own checkout, falling back to the cwd
   --json                   the same answer as one JSON object instead of the printed form`;
 
 function arg(...names) {
@@ -116,7 +120,26 @@ if (!def) {
   process.exit(2);
 }
 
-const dir = DIR ? path.resolve(DIR) : process.cwd();
+// `--dir` wins outright. Failing that, the workspace's own checkout — `resolveSessionDir`,
+// the pair every other "which checkout is this workspace" caller in this repo already
+// uses (lib/advocate.js, lib/deploy.js, lib/jiraingest.js, lib/mergesweep.js,
+// lib/prboard.js) — so this works from wherever it is run, not only from a cwd that
+// happens to already be inside the checkout. Falls back to cwd when the workspace is not
+// one `cfg.workspaces` knows (a relay can be configured for a name with no tracker of its
+// own) or `resolveSessionDir` cannot place it (no `sessionDirs` override, no `projectRoot`
+// match) — cwd is still the right default for a relay session, which already opens there.
+function defaultDir() {
+  const ws = (cfg.workspaces || []).find((w) => w.name === workspace);
+  if (ws) {
+    try {
+      return resolveSessionDir(cfg, ws);
+    } catch {
+      // falls through to cwd
+    }
+  }
+  return process.cwd();
+}
+const dir = DIR ? path.resolve(DIR) : defaultDir();
 if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
   warn(`refusing — ${dir} is not a directory`);
   process.exit(2);

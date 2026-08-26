@@ -240,6 +240,38 @@ function makeConfigDir() {
   return dir;
 }
 
+/**
+ * Same relay as `makeConfigDir`, but with a `cfg.workspaces` entry too, so
+ * `resolveSessionDir` (lib/session.js) can place `teststudio` at `checkoutDir` — the
+ * `--dir`-free path a real relay session actually takes. No `projectRoot` is set, so
+ * `resolveSessionDir` takes its simplest branch: the parent of the workspace's own `.beads`
+ * path, which is `checkoutDir` itself here.
+ */
+function makeConfigDirWithWorkspace(checkoutDir) {
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'beadcause-role-config-ws-'));
+  // `reconcileWorkspaces` (lib/config.js) drops any configured workspace whose `.dir` does
+  // not exist on disk — real, or this entry never survives `loadConfig()` to be found.
+  fs.mkdirSync(path.join(checkoutDir, '.beads'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'config.json'),
+    JSON.stringify({
+      workspaces: [{ name: 'teststudio', dir: path.join(checkoutDir, '.beads') }],
+      relays: {
+        teststudio: {
+          profile: 'ai-context/agents/{role}/{role}.md',
+          docs: ['docs/CHARTER.md'],
+          filer: 'vox',
+          executive: ['vox'],
+          departments: {
+            'dept:story': { name: 'Story', lead: 'aria', members: ['aria', 'clio'], check: ['clio'] },
+          },
+        },
+      },
+    }),
+  );
+  return dir;
+}
+
 function run(args, { dir, configDir } = {}) {
   return spawnSync('node', [BIN, ...args], {
     encoding: 'utf8',
@@ -269,6 +301,17 @@ function run(args, { dir, configDir } = {}) {
   check('--next with cwd inside the workspace needs no --dir', r.status === 0, r.stderr);
   check('--next prints only the roster, not the contract', r.stdout.trim() === 'clio\nvox');
   check('--next never lists the role itself', !r.stdout.split('\n').includes('aria'));
+}
+
+{
+  // No --dir, and cwd is `tmp` — nowhere near the fixture checkout. Only a `cfg.workspaces`
+  // entry (resolveSessionDir) can find the real files here, the same mechanism a relay
+  // session opened somewhere else would rely on.
+  const work = makeWorkspace();
+  const configDir = makeConfigDirWithWorkspace(work);
+  const r = run(['-w', 'teststudio', 'aria'], { dir: tmp, configDir });
+  check('with no --dir and cwd elsewhere, resolveSessionDir still finds the checkout', r.status === 0, r.stderr);
+  check('and prints the real contract, not a cwd-relative miss', r.stdout.includes('a chapter, in prose'));
 }
 
 {

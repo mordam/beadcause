@@ -21310,10 +21310,8 @@ b7e-role -w deluvia clio           the contract: one law, clio's own charter blo
 b7e-role -w deluvia clio --next    only the legal handoff targets
 b7e-role -w deluvia --all          the roster — every role, its department, its gate
 b7e-role -w deluvia clio --json    the same answer, structured
-b7e-role ... --dir <root>          resolve docs and role files against <root>, not the
-                                     cwd — the default is right from inside the
-                                     workspace's own checkout, which is where a relay
-                                     session runs
+b7e-role ... --dir <root>          resolve docs and role files against <root> instead of
+                                     the default — the workspace's own checkout
 ```
 
 **Workspace-general, not deluvia-specific.** Every path — the charter, the pipeline, a
@@ -21322,6 +21320,16 @@ the same definition `beadcause-relay` and the relay brief (`lib/session.js`) alr
 `-w deluvia` is only the first caller because it is the first workspace with one. The
 roster (`rolesOf`) and a role's own department (`departmentOf`) are the same functions
 the relay dispatch uses, so the two can never disagree about who is real.
+
+**Finds the checkout on its own, the same way every other "which checkout is this
+workspace" caller in this repo already does.** No `--dir` needed: the default is
+`resolveSessionDir` (`lib/session.js`) — the pair `lib/advocate.js`, `lib/deploy.js`,
+`lib/jiraingest.js`, `lib/mergesweep.js` and `lib/prboard.js` all already use, rather than
+a hand-rolled path match. `cfg.workspaces[name].dir` is the *tracker's* directory
+(`~/beads/deluvia/.beads`), never the code checkout, and matching against it directly is
+the mistake this repo's own memory warns the next `b7e-*` command off of; `resolveSessionDir`
+is what actually answers "where is `deluvia`'s code". Falling back to the cwd is what
+keeps a relay session — which already opens there — working the same as before.
 
 **The slicing is narrow on purpose, not a dump of either document.** `lib/rolecontract.js`
 cuts exactly the role's own `####` block from the charter and the studio's one law
