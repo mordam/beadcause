@@ -584,7 +584,65 @@ await check('a refused update is counted here, unlike the BEHIND arm, because it
   const prApi = fakePr(stalePr(), { update: { updated: false, reason: 'the base moved under it' } });
   const out = await run(bd, prApi, { behind: drifted(177) });
   assert.deepEqual(out.waiting, ['zz-merge']);
-  assert.equal(queueState({ notes: bd.calls.updates.at(-1).notes }).downmerges, 1);
+  const after = queueState({ notes: bd.calls.updates.at(-1).notes });
+  // COUNTED AGAINST THE BUDGET, AND NOT AS A DOWNMERGE — bc-johbj. The shipped version
+  // wrote `downmerges: 1` here, so twelve pull requests GitHub had refused with a flat
+  // 404 were on their way to being told their base had been brought in three times.
+  assert.equal(after.downmergeRefusals, 1, 'the ask was not counted, so a standing refusal costs a write every tick');
+  assert.equal(after.downmerges, 0, 'a refusal was recorded as a downmerge that never happened');
+  assert.equal(after.downmergeRefusal, 'the base moved under it', 'the reason is gone, so nothing can say why');
+});
+
+await check('AND THE BOUND IS THE TWO TOGETHER, SO REFUSALS STILL CANNOT RUN FOR EVER', async () => {
+  const bd = fakeBd({
+    rows: [staleBead({ downmergeRefusals: MAX_DOWNMERGES })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr(), { update: { updated: false, reason: 'gh: Not Found (HTTP 404)' } });
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [], 'it kept asking GitHub after the budget was spent');
+  assert.deepEqual(out.stale, [42]);
+});
+
+await check('and a mixed budget spends both halves', async () => {
+  const bd = fakeBd({
+    rows: [staleBead({ downmerges: 2, downmergeRefusals: 1 })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [], 'two downmerges plus one refusal is three asks and the budget is three');
+  assert.deepEqual(out.stale, [42]);
+});
+
+await check('AN EXHAUSTED BRANCH THAT WAS NEVER ONCE DOWNMERGED DOES NOT CLAIM IT WAS', async () => {
+  /* The sentence bc-johbj exists to stop. `MAX_DOWNMERGES` refusals used to leave the tick
+     saying "Its base has been brought in 3 times already." about a base that had never
+     gone in — an invisible indefinite wait replaced by a visible permanent dead end
+     carrying a false explanation, which is worse than what it replaced. */
+  const lines = [];
+  const bd = fakeBd({
+    rows: [staleBead({ downmergeRefusals: MAX_DOWNMERGES, downmergeRefusal: 'gh: Not Found (HTTP 404)' })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr());
+  await run(bd, prApi, { behind: drifted(177), log: (m) => lines.push(String(m)) });
+  const said = lines.find((l) => l.includes('#42')) || '';
+  assert.doesNotMatch(said, /has been brought in/, said || 'no line about #42 at all');
+  assert.match(said, /could not be brought in at all/, said);
+  assert.match(said, /Not Found \(HTTP 404\)/, 'the refusal GitHub gave is the one fact that points at the cause');
+});
+
+await check('and one that really was downmerged says how many times, not the cap', async () => {
+  const lines = [];
+  const bd = fakeBd({
+    rows: [staleBead({ downmerges: 2, downmergeRefusals: 1 })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr());
+  await run(bd, prApi, { behind: drifted(177), log: (m) => lines.push(String(m)) });
+  const said = lines.find((l) => l.includes('#42')) || '';
+  assert.match(said, /brought in 2 times already/, said);
 });
 
 await check('the tick says out loud which pull requests are held on it', async () => {
@@ -1958,6 +2016,20 @@ await check('the report reaches the pull request and the bead, and names the pas
     bd.calls.comments.some((c) => c.id === 'zz-merge' && /Merged into `main`/.test(c.text)),
     'the bead never got the same report'
   );
+});
+
+await check('AND A BRANCH GITHUB WOULD NOT UPDATE IS NOT REPORTED AS STRAIGHT THROUGH', async () => {
+  // bc-johbj: nothing moved *because* the queue could not move it, and "straight through"
+  // is the most misleading line the report has — it reads as a branch that needed nothing.
+  const state = { attempts: 0, downmerges: 0, downmergeRefusals: 2, downmergeRefusal: 'gh: Not Found (HTTP 404)' };
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', state) })], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  await run(bd, prApi);
+  const onPr = prApi.calls.comments[0].text;
+  assert.doesNotMatch(onPr, /Straight through/, 'two refused updates were reported as a clean passage');
+  assert.match(onPr, /could not be brought in/, onPr);
+  assert.match(onPr, /Not Found \(HTTP 404\)/, 'the refusal is the half that says whose problem this is');
+  assert.doesNotMatch(onPr, /base moved under it/, 'a refusal was described as a downmerge');
 });
 
 await check('and it points at the advocate rather than paraphrasing it', async () => {

@@ -20095,6 +20095,64 @@ bead named on `-b` and one for each further ancestor `--family` walks to. Plus
 `state.json`'s own `answered` map. Never a write. `Bash(b7e-answered:*)` is on
 `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
 
+### Is another live window already on this bead — `b7e-window`
+
+`bc-dgx7.88` is the session audit: seven sessions in the deluvia tracker each opened by
+asking whether a second agent window was already working the same bead, and each wrote
+its own `ps` pipeline for it. No two were the same, and the variation was not cosmetic —
+one flooded 50KB of output to a file nobody read then retried twice; one got a **false
+negative** on the one question this exists to get right, and only found the second
+window a call later by luck. The bracket idiom that keeps a `grep` from matching its own
+invocation (`grep 'beadcaus[e]/<id>'`) was independently rediscovered by all seven.
+
+```
+b7e-window -w <workspace> -b <bead>            one line per live window naming it
+b7e-window -w <workspace> -b <bead> --family   also census every bead under its nearest root
+b7e-window -w <workspace> -b <bead> --json     the machine-readable form
+```
+
+**A self-check, not the dispatch-time door.** `lib/onewindow.js` (`bc-7qo.19`) refuses at
+*dispatch* time, when the daemon already knows a bead is live. This is for a window that
+cannot assume that door caught every case — a hand-opened session, a race, a stale lease
+— and wants the answer for itself, with an exit code it can act on: `0` at most one live
+window names the bead, `1` two or more do (their pids are named). `2` bad usage. `4`
+`-w`/`-b` named something this checkout's tracker does not have.
+
+One `ps -Ao pid=,etime=,args=` read is the whole of the evidence, matched with the same
+word-boundary rule (`namesBead`, `lib/reap.js`) the rest of the codebase already trusts
+for this — including its guarantee against a *dotted child* reading as a match (a live
+window on `bc-x.1.3` does not make `bc-x.1` look occupied). "This session's own window"
+is found by walking up the process tree from `ps -Ao pid=,ppid=` until a pid with a live
+`~/.claude/sessions/<pid>.json` record turns up — the same walk
+`~/.claude/rename-session.sh` does in shell, ported to JS.
+
+**`--family` widens to the nearest root (P0 or epic) above the bead, and everything
+under it** — the per-bead census a couple of the deluvia sessions (`dv-b5d.23`,
+`dv-b5d.40`) assembled by hand for a whole epic's worth of live windows. Under
+`--family` this is a report, not a gate: a sibling bead worked in a different window is
+ordinary, not a competitor, so the exit code stays `0` regardless of what turns up. Worth
+knowing before trusting a wide `--family` census: a live process's argv can carry its
+whole loaded context, and this repo's own memory notes are free to *quote* another
+bead's qualified id as example text — measured live while building this, `--family`
+against a large epic picked up two ordinary sessions as "live on" a sibling bead purely
+because a note in their context quoted that bead's qualified id in a worked
+`beadcause-supersede` example. Not a false positive this tool introduces — the same
+trade-off the rest of the codebase already accepts for the single-id case, just visible
+at fifty times the width.
+
+**Not `b7e-onbead` (`bc-7qo.24`), a closely related but distinct question, still
+unmerged as of this writing (PR #656, conflicted, no resolver).** `b7e-onbead` is an
+investigative report for *reaching* a live peer — worktree, dirty disk state, a
+`SendMessage`-able name; this command is a fast boolean gate for a session's *own*
+self-check, with an exit code and a `--family` census neither of `b7e-onbead`'s
+acceptance criteria ask for. Kept separate rather than merged into one, the way
+`b7e-siblings` and `b7e-onbead` were kept separate before them — worth folding together
+once `b7e-onbead` actually lands, if that reads better then.
+
+Read-only: one `ps` read, plus (for `--family`) one `bd export` — never a write, never
+touches a worktree. `Bash(b7e-window:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`,
+and `lib/grants.js` classifies it `read`. See `bin/b7e-window` and `lib/window.js`.
+
 ### Every surface a printed figure appears on, and whether they agree — `b7e-where`
 
 `bc-dgx7.16` is the session audit: six sophab sessions (`sp-0hw`, `sp-clh`, `sp-oyg`,
@@ -20530,6 +20588,66 @@ and never builds a `git worktree`, so it carries none of the "runs the tests" wr
 `lib/grants.js` already classifies `Bash(npm test:*)` as.
 
 
+### Did the gate actually run this suite, and what did it say — `b7e-ran`
+
+`bc-dgx7.92`, filed by the session audit against six sessions (`bc-dgx7.80`, `.86`,
+`.82`, `.77`, `.81`, `.78`) that each added a new `test/*.mjs`, ran a gate, and then
+had to work out by hand whether that file had actually been in the run — no two of
+them the same way. `bc-dgx7.86` grepped a persisted log for `"b7ewrite\|b7e-write"`,
+then again under a different spelling. `bc-dgx7.77` tried three greps in a row before
+giving up and searching for `"test/role"` plain. `bc-dgx7.80` is the one that shows why
+a basename grep is not an answer: it built the real check by hand across four calls —
+`b7e-gate --list` to a file, the log's own suite names to another, `sort -u` both,
+`comm -23` between them — and only that way found that its own two new suites had
+*never run at all*; a plain grep for one of their names had matched an unrelated file
+instead and read as "there."
+
+The data already existed: `lib/gaterun.js`'s `readRun` already parses the JSONL
+`b7e-gate` writes, one line per suite, precisely so nothing has to grep a log — it just
+had no way to ask about one named suite, or which selected suites produced no result at
+all. `resultsFor`/`missingFrom` are that read, wired to a CLI.
+
+```
+b7e-ran <suite> ...        one row per named suite, against this worktree's most
+                            recent gate run
+b7e-ran --missing          every suite the run selected that produced no result
+b7e-ran --run <id>         a specific run, from any worktree
+b7e-ran --json             the raw records
+b7e-ran --dir <root>       another tree
+```
+
+**`never-ran` is its own answer, not a verdict.** A suite that never produced a
+`result` line in the run — never selected, or a run that stopped before reaching it —
+reports `never-ran`, distinct from any `ok`/`FAIL`/`TIMEOUT`. That is exactly the
+ambiguity a basename grep collapses: it cannot tell "not there" from "there and green"
+from "matched something else entirely."
+
+**`TIMEOUT` is recovered from the tail, not stored as its own status.** `b7e-gate`'s own
+`onResult` collapses `FAIL` and `TIMEOUT` into the JSONL's `status: 'fail'` before
+writing — see its header. `lib/gaterun.js`'s `verdictFor` tells them apart the only way
+the record still can: by matching the `"timed out after Xs — killed"` line `runSuite`
+(`lib/gate.js`) appends to a suite's own tail when it is killed for running past its
+timeout, which `appendResult` keeps as the last lines of `tail` for any non-`ok` result.
+
+**A typo is refused, not reported as `never-ran`.** Named suites are checked against
+`discoverSuites` (`scripts/test.mjs --list`, the same list `b7e-gate` itself selects
+from) before anything is read from the run; a name that is not a real suite in the repo
+exits `2` rather than printing a real-sounding negative for something that was never a
+suite. `--missing` does not need this check — it reads names straight out of the run's
+own `start` line, which `b7e-gate` only ever populated from a real `discoverSuites` call
+in the first place.
+
+Exit codes: `0` every named suite ran with verdict `ok` (or, with `--missing`, nothing
+is missing); `1` at least one named suite never ran or came back `FAIL`/`TIMEOUT` (or,
+with `--missing`, at least one suite is missing); `2` refused — bad usage, no run found,
+or a suite name that is not in the repo at all.
+
+**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, the same read-only argument as
+`b7e-gated`/`b7e-stillred` just above: it only parses an already-written JSONL record
+and, to refuse a typo, shells to `scripts/test.mjs --list` — it never runs a suite and
+never touches `bd`.
+
+
 ### Read another workspace's tracker by name — `b7e-ws`
 
 `bc-bmry.10`, filed by the session audit (`lib/sessionaudit.js`) against three sessions
@@ -20569,6 +20687,66 @@ a workspace is even resolved. That is what makes this read-only *by construction
 same shape as `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme`, and what earns it a place
 on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` alongside them — this is a lookup, not a
 second door into `bd`.
+
+
+### One `bd` write that survives contention, instead of a blind retry that double-posts — `b7e-write`
+
+`bc-dgx7.86`, re-filed from `dv-k4n.14` (the session audit, `lib/sessionaudit.js`).
+`b7e-ws` above forwards read verbs and refuses to mutate anything "on purpose — this is a
+lookup, not a second door into bd". Every mutating call three sessions needed therefore
+went out as raw `bd` from a Bash tool call, against a workspace where embedded Dolt's
+single writer was contended all afternoon, under the harness's own 120s ceiling — and each
+session invented something different, one of them destructive. `dv-k4n.8`'s `bd comment`
+timed out; its own check read raced the still-queued write and answered "No comments", so
+the session retried — both writes landed, the same finding twice. `dv-b5d.43` spent seven
+round-trips (`ps | grep`, hand-written `until ! kill -0` loops) confirming a backgrounded
+`--claim`. `dv-gr6.65` abandoned per-bead reads entirely after one hung for two minutes and
+exited 143.
+
+```
+b7e-write -w deluvia comment dv-vry <<'EOF'      text from --file or stdin, never argv
+Whatever happened, however many backticks or heredoc terminators it needs.
+EOF
+b7e-write -w deluvia claim dv-vry                shorthand for `bd update dv-vry --claim`
+b7e-write -w deluvia unclaim dv-vry
+b7e-write -w deluvia close dv-vry --reason "duplicate"
+b7e-write -w deluvia update dv-vry --status=open
+b7e-write -w deluvia label add dv-vry human
+b7e-write -w deluvia dep add dv-vry dv-abc
+```
+
+**The retry logic already exists and is already correct.** `lib/bd.js`'s `run` never
+retries a timeout, whatever `retries` says — a timeout means the machine has just proved
+it is too busy, and asking again inside the same ceiling wastes the ceiling twice. What was
+missing is the step between "the write timed out" and "is it safe to ask again": a
+verification read that can tell "the write is not there" apart from "I could not find
+out", because `dv-k4n.8`'s read was exactly the second case dressed as the first. On a
+timeout, this command runs exactly one such read — on a *fresh* `Bd` instance, never the
+one the write just used, because `run`'s quarantine is keyed per-instance and fires the
+moment a write times out; reusing it would have the verification read refused before it
+ever spawned, on every single timeout, which is the one case this command exists to
+answer — and reports one of four outcomes: **landed** (wrote first try), **already
+landed** (the write timed out but the read found it — nothing retried), **not landed**
+(the read found no trace of it — safe to retry), or **unconfirmed** (the read could not
+answer either, so nothing is retried and the bead needs a human look).
+
+**Only the mutating set `b7e-ws` itself refuses is accepted** — `comment`, `update`,
+`close`, `claim`, `unclaim`, `label`, `dep` — anything else (a read verb, `create`, a
+typo) is refused before a workspace is even resolved, pointing a read at `b7e-ws`
+instead. `claim` is not a real `bd` verb; it is shorthand for `bd update <id> --claim`,
+offered because that is the one shape almost every worker brief in this repo runs first.
+Comment text is always `--file <path>` or stdin, never a positional argument — the
+`b7e-say` rule (bc-gdub.2) that a Bash tool call's own double-quoted argv re-parses
+backticks and `$(...)` before the command they are quoting ever runs; once read into this
+process the text goes to `execFile` as one argv element with no shell in between, so that
+hop needs no escaping at all.
+
+**Deliberately NOT on `DEFAULT_TOOL_LIST`.** Unlike `b7e-ws`, this command *is* the write
+door — granting it to `dispatch`, the one agent that list governs, would be a
+general-purpose write into any configured tracker, which is strictly more capability than
+any single mutating `bd` command `lib/grants.js` classifies as a write. A worker session,
+which is what all three originating sessions actually were, already carries an
+unrestricted allowlist and needs no grant to run it.
 
 
 ### Count the beads that carry a label or an edge — `b7e-census`
