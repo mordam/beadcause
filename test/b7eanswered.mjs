@@ -174,6 +174,44 @@ const WORLD = {
       notes: '',
       comments: [],
     },
+    // 7. bc-dgx7.95: closed as a ruling, no state.json record — the comment is the only
+    // trace of what was chosen, and it matches the 'gross' option verbatim.
+    'ws-self-nostate': {
+      id: 'ws-self-nostate',
+      title: 'Charge the platform fee on gross or net, answered by hand?',
+      status: 'closed',
+      issue_type: 'task',
+      priority: 2,
+      parent: null,
+      labels: [],
+      close_reason: 'Answered via Beadcause',
+      description: decisionBlock('Gross or net?', [
+        { id: 'gross', label: 'Gross', response: 'Gross — fee on the full charge amount.', recommended: true },
+        { id: 'net', label: 'Net', response: 'Net — fee after refunds.' },
+      ]),
+      design: '',
+      notes: '',
+      comments: [{ author: 'beadcause (neadamthal@gmail.com)', text: 'Gross — fee on the full charge amount.', created_at: '2026-07-01T10:00:00Z' }],
+    },
+    // 8. bc-dgx7.95: closed as a ruling, no state.json record, AND no comment at all —
+    // the gap this bead exists to name rather than mask as an empty "(closed)".
+    'ws-unrecorded': {
+      id: 'ws-unrecorded',
+      title: 'Split the fee epic — closed as a ruling with nothing on the thread',
+      status: 'closed',
+      issue_type: 'task',
+      priority: 2,
+      parent: null,
+      labels: [],
+      close_reason: 'Answered via Beadcause',
+      description: decisionBlock('Split now or later?', [
+        { id: 'now', label: 'Now', response: 'Split it now.', recommended: true },
+        { id: 'later', label: 'Not yet', response: 'Not yet.' },
+      ]),
+      design: '',
+      notes: '',
+      comments: [],
+    },
     // 6. Commissioned — open, `human` label gone, state.json has the record.
     'ws-commissioned': {
       id: 'ws-commissioned',
@@ -357,6 +395,57 @@ check('--json emits parseable, structurally complete output', () => {
   assert.equal(parsed.results[1].id, 'ws-parent');
   assert.equal(parsed.results[1].state, 'answered');
   assert.equal(parsed.carrier.id, 'ws-parent');
+});
+
+console.log('\nbc-dgx7.95: the ruling itself, from the tracker\n');
+
+check('acceptance: a ruling recorded only as a comment (no state.json) is resolved from the thread', () => {
+  const { status, stdout } = run(['-w', 'answered-ws', '-b', 'ws-self-nostate'], { configDir: CONFIG_DIR_NO_STATE });
+  assert.equal(status, 0);
+  assert.match(stdout, /ws-self-nostate — answered \(closed\)/);
+  assert.match(stdout, /chose: Gross \[gross\]/);
+  assert.match(stdout, /a comment carries the ruling.*Gross — fee on the full charge amount\./);
+  assert.match(stdout, /» Gross \[gross\] \(recommended, chosen\)/);
+  assert.match(stdout, /^\s+Net \[net\]$/m);
+});
+
+check('a ruling with no comment on the thread reads as answered-but-unrecorded, not an empty ruling', () => {
+  const { status, stdout } = run(['-w', 'answered-ws', '-b', 'ws-unrecorded'], { configDir: CONFIG_DIR_NO_STATE });
+  assert.equal(status, 0);
+  assert.match(stdout, /ws-unrecorded — answered \(answered-but-unrecorded\)/);
+  assert.doesNotMatch(stdout, /chose:/);
+  assert.match(stdout, /no comment recording what was chosen/);
+});
+
+check('--json carries the resolved option and the verbatim comment', () => {
+  const { status, stdout } = run(['-w', 'answered-ws', '-b', 'ws-self-nostate', '--json'], { configDir: CONFIG_DIR_NO_STATE });
+  assert.equal(status, 0);
+  const parsed = JSON.parse(stdout);
+  const r = parsed.results[0];
+  assert.equal(r.chosenOption.id, 'gross');
+  assert.equal(r.answerComment.text, 'Gross — fee on the full charge amount.');
+  assert.equal(r.answerComment.at, '2026-07-01T10:00:00Z');
+});
+
+check('acceptance: several beads in one invocation, including one that does not exist', () => {
+  const { status, stdout } = run(['-w', 'answered-ws', '-b', 'ws-self', '-b', 'ws-open,ws-nope']);
+  assert.equal(status, 0);
+  assert.match(stdout, /b7e-answered 3 beads/);
+  assert.match(stdout, /ws-self — answered \(closed\)/);
+  assert.match(stdout, /ws-open — unanswered/);
+  assert.match(stdout, /ws-nope — .*no issue found matching/);
+  assert.match(stdout, /1\/2 answered, 1 not found/);
+});
+
+check('multi-bead --json is one row per requested id, including the not-found one', () => {
+  const { status, stdout } = run(['-w', 'answered-ws', '-b', 'ws-self,ws-nope', '--json']);
+  assert.equal(status, 0);
+  const parsed = JSON.parse(stdout);
+  assert.deepEqual(parsed.beads, ['ws-self', 'ws-nope']);
+  assert.equal(parsed.results.length, 2);
+  assert.equal(parsed.results[0].bead, 'ws-self');
+  assert.equal(parsed.results[0].carrier.id, 'ws-self');
+  assert.equal(parsed.results[1].notFound, true);
 });
 
 console.log(`\n${failures ? `\x1b[31m${failures} failed\x1b[0m` : '\x1b[32mall passed\x1b[0m'}\n`);
