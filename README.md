@@ -19171,6 +19171,65 @@ sense as `b7e-siblings` just above: nothing here writes a ref, a commit or a wor
 file, which is what put `Bash(b7e-base:*)` straight on `DEFAULT_TOOL_LIST` in
 `lib/toolbelt.js` and `read` in `lib/grants.js` beside it.
 
+### Which ref a workspace actually delivers into, before anyone reads a file — `b7e-deliverbase`
+
+`bc-dgx7.58`, filed by the session audit (`lib/sessionaudit.js`) against six sessions in
+the *deluvia* workspace — `dv-90i`, `dv-i5v`, `dv-5f3`, `dv-2v3`, `dv-6cn`, `dv-3rn.3` —
+each of which worked out by hand, in six different ways, that the checkout's own branch
+is not the ref beadcause actually delivers that workspace's work into. `dv-6cn` found it
+by failure: a `grep` for a gate check against a script that turned out not to exist on
+this branch at all, then an `ls` showing four files where the real base has twelve, then
+finally recalling the memory note that says so. `dv-2v3` read a file with `git show
+<base>:<path>` "on purpose", without writing down how it knew to. `dv-90i` called
+getting this right "the thing that mattered most," after a worktree had already been
+built on the wrong branch and hit a gate check that could not possibly pass there. Six
+sessions is the same shape `bc-36xx.25` (`b7e-base`, just above) was filed over, one door
+along: that tool answers "is my branch current with main"; this one answers the question
+that has to be settled *first* — which ref "current" even means for this workspace, since
+one repo here (`deluvia`) does not deliver into `main` at all.
+
+```
+b7e-deliverbase -w deluvia                                  the base, and how the checkout compares
+b7e-deliverbase -w deluvia --show scripts/check_saga_audit.py   cat a file as it exists at the base
+b7e-deliverbase -w deluvia --json                            one object on stdout, for a caller
+```
+
+**The base is resolved exactly the way a real delivery would resolve it** — `baseFor` in
+`lib/prbase.js`, the same call `bin/deliver.js` makes before ever opening a pull request
+— rather than a second opinion that could drift from what a delivery actually does. For
+a single-repo workspace that is `pr.basePerWorkspace` (falling back to the install-wide
+`pr.base`, then the literal `main`); for a multi-repo workspace it is the repo's own
+default branch on GitHub, the same question a real delivery asks.
+
+**The checkout is `resolveSessionDir`, never `ws.dir`.** `ws.dir` is the *tracker's*
+directory — `~/beads/deluvia/.beads` on a personal install — and matching it against a
+git checkout path only coincidentally works; `resolveSessionDir` (`lib/session.js`) is
+the call ~25 other places already make for "which directory is this workspace's
+checkout," multi-repo case included. An earlier b7e-* command hand-rolled the `ws.dir`
+match instead and got away with it only because nothing there routed a `git`/`gh` call
+through the result — this one does, so it does not repeat that shortcut.
+
+Reports one block: the base ref and its sha; the checkout's current branch and whether
+it is an **ancestor** of the base (behind, or the mirror case — ahead, with the base an
+ancestor of it), **equal** to it, or **diverged**, with real ahead/behind counts either
+way; and — the part none of the six sessions above computed by hand — every top-level
+path the base's tree carries that the checkout's tree does not have *at all* (a partial
+overlap, some files under a shared directory name and not others, is not "absent here"
+and would be noise). `--show <path>` cats a file as it exists at the base, which
+succeeds exactly where a plain `Read` of the same path in the checkout fails, because
+the checkout never had it.
+
+**Refuses with exit `2` rather than guessing** in every case where the answer would
+otherwise be a shrug: an unknown `-w`, `pr.enabled: false` (nothing is delivered
+anywhere for this install, so there is no base to report), or a configured base that
+names no `origin/<base>` and no local `<base>` at all in the checkout.
+
+Built on the same `lib/gitref.js` primitives `b7e-base` is — `fetch`, `rev-parse`,
+`rev-list`, plus `ls-tree` and `show` for the tree comparison and `--show` — so it is
+read-only in the same construction sense: nothing here writes a ref, a commit or a
+working-tree file, which is what put `Bash(b7e-deliverbase:*)` on `DEFAULT_TOOL_LIST` in
+`lib/toolbelt.js` and `read` in `lib/grants.js` beside `b7e-base`.
+
 ### Whether the library is being used — the Skills view
 
 `/skills` (or `/candidates`) is the one screen the whole programme is visible from: the
