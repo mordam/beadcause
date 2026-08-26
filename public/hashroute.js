@@ -285,6 +285,96 @@
     return VIEWS.find((v) => v.paths.includes(here))?.id || null;
   };
 
+  /*
+    ## The other half of an address: which space you are in (bc-xnj67)
+
+    Everything above answers *which view*. This answers *which space and workspace the
+    page is scoped to*, and the two live in different halves of the URL on purpose:
+
+        /bdcoz/personal/deluvia#deluvia.briefs?b=README
+        \____ path: the scope ____/\____ hash: the view ____/
+
+    The first shape considered put the view in the path, and it would have meant reversing
+    bc-khoe.30.7 — a pane is chosen by the hash, a hash is never sent to a server, and the
+    302 is what puts the fragment on the address bar. This shape needs none of that.
+    Switching views rewrites only the hash, so **the path survives on its own**, which is
+    the whole point: the space you are in stops being something you have to re-pick and
+    starts being something you can send somebody.
+
+    **The scope is optional, and that is what keeps every old address meaning what it
+    meant.** `/` is the stored filter, exactly as it has always been — no scope segment has
+    never meant "no scope", it has meant "whatever you last picked", and that is still true
+    of `/history`, `/monitor`, `/prs` and the other sixteen in `pageAliases`.
+
+    **And a scope in the path is a page override, never a write.** The `{space, workspace}`
+    selection lives on the server in `state.json` rather than in localStorage because
+    `quietReasonFor` reads it from inside the push path, with no client in the loop, to
+    decide whether the phone rings. A path that wrote it would hand any link the power to
+    silence five repos on every device — the exact failure the "All stays, and stays the
+    default" paragraph in public/spacebar.js exists to prevent. So the picker still owns
+    the write, and this only narrows what one page is looking at. That is also what makes
+    the separation real: a phone on `/bdcoz/climative/architecture` and a laptop on
+    `/bdcoz/personal/deluvia` stop arguing over one server-side value.
+  */
+
+  /** The first segment of a scoped address. One word, so a scope is unmistakable. */
+  const SCOPE_ROOT = 'bdcoz';
+
+  /**
+   * The scope an address names, or `null` for an address that names none.
+   *
+   *   scopeOfPath('/bdcoz/personal/deluvia') -> { space: 'personal', workspace: 'deluvia' }
+   *   scopeOfPath('/bdcoz/personal')         -> { space: 'personal', workspace: '' }
+   *   scopeOfPath('/')                       -> null
+   *   scopeOfPath('/bdcoz')                  -> null
+   *
+   * `null` rather than an empty scope for the unscoped case, so a caller can tell "this
+   * address says nothing about the scope, leave the stored filter alone" from "this
+   * address says the whole space", which are different instructions and would otherwise
+   * both arrive as `{space: '', workspace: ''}`.
+   *
+   * Slugs, not names: what comes back is what was typed, lowercased, and resolving it to
+   * a configured space is `spaceBySlug`'s job in lib/spaces.js. This file has no config
+   * and holds no list of spaces — it could not check one if it wanted to, which is why an
+   * unknown slug is a scope like any other here and is dropped by whoever looks it up.
+   *
+   * A third segment is refused rather than ignored. `/bdcoz/personal/deluvia/briefs` is
+   * somebody carrying the view in the path — the shape this deliberately did not take —
+   * and answering it with the scope alone would silently drop the half they meant most.
+   *
+   * The decode is inside a `try` for the reason `parse` has one: `decodeURIComponent`
+   * throws on a lone `%`, this runs on boot, and a hand-edited URL must not throw out of
+   * it. A segment that will not decode is taken as written and then matches no space.
+   */
+  function scopeOfPath(p) {
+    const here = String(p == null ? '' : p).replace(/\/+$/, '');
+    const seg = here.split('/').filter(Boolean);
+    if (seg[0] !== SCOPE_ROOT || seg.length < 2 || seg.length > 3) return null;
+    const read = (s) => {
+      try {
+        return decodeURIComponent(s).toLowerCase();
+      } catch {
+        return String(s).toLowerCase();
+      }
+    };
+    return { space: read(seg[1]), workspace: seg.length > 2 ? read(seg[2]) : '' };
+  }
+
+  /**
+   * The address for one scope. `/` for no scope, which is the unscoped page.
+   *
+   * A workspace with no space is refused — `/bdcoz//deluvia` is not an address, and a
+   * three-segment form with an empty middle would be one. Callers that know only the
+   * workspace should look its space up first; `spaceFor` in lib/spaces.js is that lookup,
+   * and the server does exactly this to upgrade the `/v/<ws>/<id>` hop.
+   */
+  const pathForScope = (space, workspace) => {
+    const s = String(space == null ? '' : space).trim().toLowerCase();
+    const w = String(workspace == null ? '' : workspace).trim().toLowerCase();
+    if (!s) return '/';
+    return `/${SCOPE_ROOT}/${encodeURIComponent(s)}${w ? `/${encodeURIComponent(w)}` : ''}`;
+  };
+
   /**
    * Write the slot. The only line in the app that assigns to `location.hash`.
    *
@@ -369,6 +459,12 @@
     queryFor,
     hashForCard,
     viewOfPath,
+    /** The first segment that marks an address as scoped. */
+    SCOPE_ROOT,
+    /** The `{space, workspace}` an address names, or `null` for an unscoped one. */
+    scopeOfPath,
+    /** The address for one scope, `/` for none. */
+    pathForScope,
     go,
     /** Admit a repo's own view to the grammar. See `add` above. */
     add,

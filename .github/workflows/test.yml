@@ -18,8 +18,26 @@
 # `suites[i]` goes to shard `i % 4`, not a contiguous block, so the handful of expensive
 # suites spread across shards instead of piling into whichever one's slice happens to cover
 # them) and each shard runs under `bin/b7e-gate`, which does not bail at the first red: a
-# failing shard names every failing suite in it, not just the first. A GitHub runner is
-# otherwise uncontended, so `--jobs` parallelism within a shard is close to free.
+# failing shard names every failing suite in it, not just the first.
+#
+# ## Why `--jobs 3`, not higher (bc-mrm77.1)
+#
+# `macos-latest` is a 3-core runner, and this used to run `--jobs 4` on the reasoning that
+# a GitHub runner is otherwise uncontended, so parallelism within a shard is close to free
+# — true of *other tenants*, not of the shard oversubscribing its own three cores by 33%.
+# Three suites went red on `main` under exactly that self-contention on 2026-08-25
+# (`test/chromeprofile.mjs` twice, `test/claims.mjs`, `test/tls.mjs`), all fixture
+# weaknesses that are now fixed — but nothing says those three were the whole set of
+# suites that assume a process gets scheduled promptly, out of ~460.
+#
+# Measured (two shards, `--jobs` 1/2/3/4/6, CPU-constrained to 3 cores): the suites here
+# are substantially I/O- and subprocess-bound, so parallelism keeps paying off past the
+# core count, but with sharply diminishing returns — `--jobs 3` (which exactly saturates
+# three cores, no oversubscription) cost only ~12-19% more wall-clock than `--jobs 4` per
+# shard, and `--jobs 6` bought nothing further over `--jobs 4`. Per-shard wall-clock is a
+# couple of minutes even fully serial (`--jobs 1`), nowhere near `timeout-minutes: 20` —
+# the headroom this trade spends is real but small. `--jobs 3` removes the
+# self-oversubscription for a cost inside the noise of a single run.
 #
 # `SHARD_TOTAL` below and `matrix.index`'s `[0, 1, 2, 3]` must agree — there is nowhere to
 # compute the matrix list from the total short of a setup job, and that costs more than it
@@ -128,7 +146,7 @@ jobs:
       - name: Run this shard, no-bail
         run: |
           ONLY_ARGS=$(node bin/b7e-shard --index ${{ matrix.index }} --total ${{ env.SHARD_TOTAL }} | sed 's/^/--only=/' | tr '\n' ' ')
-          node bin/b7e-gate --jobs 4 $ONLY_ARGS
+          node bin/b7e-gate --jobs 3 $ONLY_ARGS
 
   test:
     name: test
