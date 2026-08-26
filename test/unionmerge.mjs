@@ -46,9 +46,18 @@
  *
  * That is the whole design, and it is why the counts are cross-checked rather than just
  * the names: a name-based scan that quietly stops matching passes forever over nothing,
- * which is the way every check of this shape rots. Here the text count has to *equal*
- * `Object.keys(GRANTS).length`, so a scan that stops seeing keys fails immediately
- * instead of going green.
+ * which is the way every check of this shape rots. The text count has to *equal* the
+ * number of hand-written keys, so a scan that stops seeing them fails immediately instead
+ * of going green.
+ *
+ * **Hand-written, not all of them, since bc-wbrhi.** `GRANTS` now spreads the b7e half in
+ * from `lib/tooldecl.js`, so the parsed object legitimately carries 34 more keys than the
+ * literal does; the derived ones are subtracted before the comparison. What the check is
+ * for survives that exactly — a duplicated literal still collapses in the object, so the
+ * text would carry one more key than the object has hand-written ones. The derived half
+ * cannot carry a duplicate at all for a different reason: two files declaring one command
+ * is something `readDeclarations` reports rather than an entry it repeats, and
+ * `test/tooldecl.mjs` owns that.
  *
  * ## The two halves of `package.json`
  *
@@ -61,10 +70,12 @@
  * ## What is deliberately not checked
  *
  * **That `package.json`'s bin map matches `bin/`.** It does not, on purpose:
- * `bin/router.js` and `bin/status.js` are spawned by path and are not npm entry points.
- * Deriving the map from the directory is bc-wbrhi's job and it will have to keep those
- * two out; asserting equality here would make a working repo red and teach somebody to
- * "fix" it by declaring two binaries that should not exist.
+ * `bin/router.js` and `bin/status.js` are spawned by path and are not npm entry points,
+ * and asserting equality here would make a working repo red and teach somebody to "fix"
+ * it by declaring two binaries that should not exist. bc-wbrhi landed the narrower
+ * version of that check — every `bin/b7e-*` file has an entry pointing at it and every
+ * `b7e-*` entry points at a file that exists — in `test/tooldecl.mjs`, scoped to the one
+ * family where a missing entry means a command an agent is told to run and cannot.
  *
  * **`README.md`.** It conflicts more often than anything except `lib/grants.js` and it is
  * still not on the union list, because it is 36,601 lines of prose. A duplicated list
@@ -86,7 +97,15 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
 
 const { GRANTS } = await import(path.join(ROOT, 'lib', 'grants.js'));
-const { DEFAULT_TOOL_LIST } = await import(path.join(ROOT, 'lib', 'toolbelt.js'));
+// The derived half, subtracted below so the literal count is compared against the
+// literal count. bc-wbrhi.
+const { B7E_GRANTS } = await import(path.join(ROOT, 'lib', 'tooldecl.js'));
+// `BASE_TOOL_LIST` since bc-wbrhi: the b7e half of the list is derived from the tools'
+// own `@grant` lines and is not a literal in this file any more, so what union merge can
+// duplicate here is the hand-written half and only that. test/tooldecl.mjs owns the
+// derived half, which cannot carry a duplicate for a different reason — two files
+// declaring one command is a problem it reports rather than an entry it repeats.
+const { BASE_TOOL_LIST } = await import(path.join(ROOT, 'lib', 'toolbelt.js'));
 
 let failures = 0;
 let ran = 0;
@@ -240,8 +259,17 @@ if (!grantsBlock) {
 } else {
   const keys = quotedKeys(grantsBlock);
   const dupes = duplicates(keys);
-  if (!dupes.length && keys.length === Object.keys(GRANTS).length)
-    ok(`GRANTS declares each of its ${keys.length} patterns once`);
+  /*
+   * Compared against the hand-written half, not the whole object — bc-wbrhi.
+   *
+   * `GRANTS` spreads `B7E_GRANTS` in, so the parsed object legitimately carries 34 more
+   * keys than the literal does and the old equality would now fail on every run for a
+   * reason that is not a duplicate. What this check is for survives the subtraction
+   * exactly: a duplicated *literal* still collapses in the object, so the text would have
+   * one more key than the object has hand-written ones, and that is what is asserted.
+   */
+  const written = Object.keys(GRANTS).length - Object.keys(B7E_GRANTS).length;
+  if (!dupes.length && keys.length === written) ok(`GRANTS declares each of its ${keys.length} hand-written patterns once`);
   else if (dupes.length)
     bad(
       `GRANTS declares ${dupes.length} pattern(s) twice: ${dupes.join(', ')}`,
@@ -249,37 +277,40 @@ if (!grantsBlock) {
     );
   else
     bad(
-      `GRANTS: ${keys.length} keys in the text against ${Object.keys(GRANTS).length} in the object`,
+      `GRANTS: ${keys.length} keys in the text against ${written} hand-written ones in the object`,
       'the scan and the module disagree, so one of them is not reading what it thinks it is'
     );
 
-  if (keys.length >= 60) ok('and it was read against the real list, not a handful of lines');
+  if (keys.length >= 40) ok('and it was read against the real list, not a handful of lines');
   else bad('GRANTS was read against the real list', `only ${keys.length} keys — the check above passed over nothing`);
 }
 
 const toolbeltSrc = fs.readFileSync(path.join(ROOT, 'lib', 'toolbelt.js'), 'utf8');
-const toolbeltBlock = blockLines(toolbeltSrc, /^export const DEFAULT_TOOL_LIST = \[/);
+const toolbeltBlock = blockLines(toolbeltSrc, /^export const BASE_TOOL_LIST = \[/);
 
 if (!toolbeltBlock) {
-  bad('the DEFAULT_TOOL_LIST literal is still found in lib/toolbelt.js', 'the scan below has nothing to read');
+  bad('the BASE_TOOL_LIST literal is still found in lib/toolbelt.js', 'the scan below has nothing to read');
 } else {
   const entries = quotedEntries(toolbeltBlock);
   const dupes = duplicates(entries);
-  if (!dupes.length && entries.length === DEFAULT_TOOL_LIST.length)
-    ok(`DEFAULT_TOOL_LIST names each of its ${entries.length} tools once`);
+  if (!dupes.length && entries.length === BASE_TOOL_LIST.length)
+    ok(`BASE_TOOL_LIST names each of its ${entries.length} grants once`);
   else if (dupes.length)
     bad(
-      `DEFAULT_TOOL_LIST names ${dupes.length} tool(s) twice: ${dupes.join(', ')}`,
+      `BASE_TOOL_LIST names ${dupes.length} grant(s) twice: ${dupes.join(', ')}`,
       'an array keeps both, so the tool is granted twice on every --allowedTools line'
     );
   else
     bad(
-      `DEFAULT_TOOL_LIST: ${entries.length} entries in the text against ${DEFAULT_TOOL_LIST.length} in the array`,
+      `BASE_TOOL_LIST: ${entries.length} entries in the text against ${BASE_TOOL_LIST.length} in the array`,
       'the scan is missing a line shape the list actually uses'
     );
 
-  if (entries.length >= 40) ok('and it too was read against the real list');
-  else bad('DEFAULT_TOOL_LIST was read against the real list', `only ${entries.length} entries`);
+  // 19 rather than 40 since bc-wbrhi — the hand-written half is what is left here, and a
+  // floor is still worth having: the failure this guards is a scan that quietly matches
+  // nothing, which reports zero duplicates out of zero entries and looks like a pass.
+  if (entries.length >= 15) ok('and it too was read against the real list');
+  else bad('BASE_TOOL_LIST was read against the real list', `only ${entries.length} entries`);
 }
 
 /* -------------------------------------------------------------- 3. the two bin maps */
