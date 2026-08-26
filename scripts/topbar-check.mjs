@@ -88,9 +88,10 @@ if (!fs.existsSync(CHROME)) {
 
 /* ---------------------------------------------------------------- the fixture */
 
-/* Six repos in two spaces, because the bar hides itself under two (`el.hidden` in
-   public/spacebar.js) and because the widest row in the dropdown is what has to fit,
-   not the shortest. The rows carry no numbers at all since bc-ka5y.1 — a repo name is
+/* Six repos in two groups, because the widest row in the dropdown is what has to fit, not
+   the shortest. It used to be six because the bar hid itself under two as well; it does
+   not any more (bc-mc71w — the last row adds one), and the one-repo case is measured on
+   its own below. The rows carry no numbers at all since bc-ka5y.1 — a repo name is
    the whole of a label now — so what is measured here is what ships.
 
    One of the six is deliberately over the twelve-character cut (bc-khoe.5). Every real
@@ -589,21 +590,25 @@ try {
     }
 
     /*
-      And the same thing again with the picker gone, on the one page that has a strip
-      stuck to the bar.
+      And the same thing again on one workspace, on the one page that has a strip stuck to
+      the bar.
 
-      `spacebar.js` hides the picker outright below two workspaces (`el.hidden`), and this
-      used to take the bar from 104px to 61px on the same build and the same page — which
-      is the whole reason the strip's offset is a variable and not a number: a `top: 104px`
-      hardcoded from a screenshot passed every assertion above and left a 43px hole between
-      the bar and the strip for anybody running one repo, who is, incidentally, everybody
-      on their first day.
+      This run used to assert the opposite. `spacebar.js` hid the picker outright below two
+      workspaces, and that took the bar from 104px to 61px on the same build and the same
+      page — which is the whole reason the strip's offset is a variable and not a number: a
+      `top: 104px` hardcoded from a screenshot passed every assertion above and left a 43px
+      hole between the bar and the strip for anybody running one repo, who is, incidentally,
+      everybody on their first day. Since bc-khoe.5 the two heights are the same anyway,
+      because the picker shares the mark's row rather than owning one.
 
-      Since bc-khoe.5 the two heights are the same, because the picker shares the mark's
-      row rather than owning one. That does not make this pass pointless — it makes it the
-      thing that would notice if the picker ever went back to being a row, and it is still
-      the only run in this file where the bar is drawn without one. Measured rather than
-      reasoned about, because these are the two states it actually ships in.
+      bc-mc71w ended the hiding: the picker's last row adds a bead-space, so one repo is a
+      choice now, and the install with one — or with none — is the one that needs the row
+      most. There is no longer any state in which the bar is drawn without the picker, so
+      what this run measures is the state that replaced it: the picker is *there* on one
+      workspace, the bar is the same height it is with six, and the strip still sits against
+      it through a scroll. That last pair is the assertion worth keeping whatever the picker
+      does, and it is measured rather than reasoned about because these are the states it
+      actually ships in.
     */
     {
       const ONE = { ...SPACEPAY, workspaces: ['beadcause'], spaces: [{ name: 'Personal', workspaces: ['beadcause'], count: 3, quiet: false }] };
@@ -613,20 +618,19 @@ try {
       await sleep(250);
       const m = await evalJs(s, PROBE);
       const at = `/monitor @${size.width}, one workspace`;
-      if (m.picker) {
-        bad(`${at}: the picker hides itself`, `it is still drawn at ${m.picker.w}px — see el.hidden in public/spacebar.js`);
+      if (!m.picker) {
+        bad(`${at}: the picker is drawn`, 'it hid itself — one repo is a choice now, because the last row adds another');
       } else {
         {
           const was = shownBarH.get(size.width);
-          /* Same height either way since bc-khoe.5, and that is the answer rather than a
-             hole in the check: the picker is a control on the mark's row now, so hiding it
-             takes width off that row and no longer takes a row off the bar. It used to be
-             104px → 61px, which is the whole reason the strip below the bar offsets itself
-             from a variable and not from a number read off a screenshot. */
+          /* The height is the thing, not the presence: the picker is a control on the
+             mark's row, so a page with one repo and a page with six are the same bar. A
+             difference here is the picker having gone back to being a row of its own,
+             which is what the strip below it offsets itself from a variable to survive. */
           ok(
             was === m.barH
-              ? `${at}: the picker hides itself, and the bar is ${m.barH}px — the same as with it, because it is not a row of its own any more`
-              : `${at}: the picker hides itself, and the bar is ${m.barH}px rather than ${was ?? '?'}px`
+              ? `${at}: the picker is drawn at ${m.picker.w}px and the bar is ${m.barH}px — the same as with six repos`
+              : `${at}: the picker is drawn, and the bar is ${m.barH}px rather than ${was ?? '?'}px`
           );
         }
         const before = await evalJs(s, SHELLPROBE);
@@ -637,10 +641,10 @@ try {
            A hole between the two is what a hardcoded offset used to buy on the day the
            picker hid itself, and it is still the shape of the mistake worth catching. */
         if (st.rowTop === st.barBottom && st.rowTop === before.rowTop)
-          ok(`${at}: the pill row sits against the picker-less bar at ${st.rowTop}px and stays there`);
+          ok(`${at}: the pill row sits against the bar at ${st.rowTop}px and stays there`);
         else
           bad(
-            `${at}: the pill row sits against the picker-less bar and stays there`,
+            `${at}: the pill row sits against the bar and stays there`,
             `the bar ends at ${st.barBottom}px, the row starts at ${st.rowTop}px (was ${before.rowTop}px before the scroll)`
           );
         const off = st.pinned || [];

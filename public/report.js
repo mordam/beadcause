@@ -57,6 +57,11 @@
   - **A 4xx.** Those are the daemon declining on purpose — a 409 close gate, a 403 for a
     feature switched off in the config, a 401 that means sign in again. `>= 500` is the
     line, because a 500 is the daemon failing rather than answering.
+  - **A 5xx the response itself says is not the daemon failing.** Two of them carry a
+    header saying so: the swap-drain 503 for a request lost to a handover (bc-xl7n.134),
+    and the view-data 502 for a repo's own generator failing with nothing held (bc-3wf1r).
+    Both are real failures of something, neither is a function of this daemon stopping,
+    and both are already on the screen where they happened. See the fetch wrapper below.
   - **The echo of a failure already reported.** A failed fetch is reported here *and*
     toasted by the caller a moment later; one incident must not be two beads. A red toast
     whose text carries the message of a fetch failure just reported is that same
@@ -358,6 +363,29 @@
   /* ----------------------------------------------------------------- handlers */
 
   /**
+   * Whether `event.filename`/`event.lineno` are actually where this error was thrown,
+   * rather than where something merely rethrew it.
+   *
+   * `public/viewhost.js` and `public/panestage.js` both catch a view's failure and
+   * rethrow it out of a `setTimeout`, on purpose, so one bad view cannot take the page
+   * down. But `Error.stack` is captured at construction and never moves, so for a
+   * rethrow it still names the real origin while `event.filename`/`event.lineno` name
+   * only the trampoline that rethrew it — every such failure, in every repo view, then
+   * reports the same file and line. The stack is the tiebreaker: when it is there, trust
+   * `filename`/`lineno` only if the stack's top actually agrees with them. A cache-busted
+   * script's query string does not always survive into a frame, so the bare path is
+   * checked too. Both V8 (`at fn (url:line:col)`) and Safari (`fn@url:line:col`) produce
+   * a frame containing `path:line:`. No stack at all (a cross-origin "Script error.", or
+   * a caller that never had one) is the ordinary case this leaves alone — there is
+   * nothing to contradict `filename`/`lineno` with, so they are trusted as before.
+   */
+  function attributed(stack, filename, lineno) {
+    if (typeof stack !== 'string' || !stack || !filename || !Number.isFinite(lineno)) return true;
+    const bare = String(filename).replace(/[?#].*$/, '');
+    return stack.includes(`${filename}:${lineno}:`) || stack.includes(`${bare}:${lineno}:`);
+  }
+
+  /**
    * An uncaught exception.
    *
    * Not in the capture phase, and that is the whole of how a failed `<img>` or a script
@@ -371,12 +399,14 @@
    */
   window.addEventListener('error', (event) => {
     if (!event || typeof event.message !== 'string' || !event.message) return;
+    const stack = event.error?.stack;
+    const real = attributed(stack, event.filename, event.lineno);
     report('error', {
       message: event.message,
-      source: event.filename,
-      line: event.lineno,
-      column: event.colno,
-      stack: event.error?.stack,
+      source: real ? event.filename : undefined,
+      line: real ? event.lineno : undefined,
+      column: real ? event.colno : undefined,
+      stack,
     });
   });
 
@@ -652,8 +682,27 @@
           // Whatever it says, something answered — which is what clears a parked path's
           // standing failure. See `PARKED`.
           answered(where.path);
-          // 4xx is the daemon declining on purpose. 5xx is the daemon failing.
-          if (res && res.status >= 500) {
+          // 4xx is the daemon declining on purpose. 5xx is the daemon failing — except
+          // the two shapes of it that say outright that they are not.
+          //
+          // `x-beadcause-swap-drain` is on a 503 from bin/router.js, when the request it
+          // lost was open on a backend it had already retired for a swap and a new one is
+          // already serving. See bc-xl7n.134, filed after this exact header-less 502 filed
+          // a P0 about a daemon that was working fine.
+          //
+          // `x-beadcause-view-generator` is on the 502 lib/server.js answers for a repo
+          // view whose own generator failed with nothing held to fall back on. What failed
+          // is a script this daemon spawned on another repo's behalf, and `pull` in
+          // public/viewhost.js has already drawn the reason in the place the board would
+          // be. bc-3wf1r, filed when deluvia's `studio` generator ran past its 30s.
+          // The literal is repeated from lib/repoviews.js because public/ has no import
+          // bridge to lib/; test/repoviews.mjs is what keeps the two in step.
+          //
+          // Neither files. `answered` above still clears any standing failure either way,
+          // and the caller's own retry (a poll simply asking again) is what recovers it.
+          const head = res && res.headers && typeof res.headers.get === 'function' ? res.headers : null;
+          const excused = head ? head.get('x-beadcause-swap-drain') || head.get('x-beadcause-view-generator') : null;
+          if (res && res.status >= 500 && !excused) {
             const message = `${where.method} ${where.path} failed — HTTP ${res.status}`;
             if (report('fetch', { message, source: where.path })) remember(`HTTP ${res.status}`, Date.now());
           }
