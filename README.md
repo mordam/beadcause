@@ -19541,8 +19541,9 @@ with `--write`, and the exit code is `2`.
 
 Exit codes: `0` nothing is stale, or a plan was printed, or `--write` applied it and the
 gate came back green. `2` refused — bad usage, no manifest, another gate run holds the
-lock, or a failure that is not a pair. `3` `--write` applied its edits and the gate is
-still red.
+lock, or a failure that is not a pair. `3` `--write` has had its go and the gate is still
+red — either its edits were not enough, or no site named the check it belongs to and there
+was nothing this command was willing to rewrite.
 
 Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-checks`/`b7e-gate` reason
 rather than the read-only shape of `b7e-def`/`b7e-count`: it runs another repo's gate

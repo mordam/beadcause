@@ -27,8 +27,9 @@
  * gate came back green. `2` refused: bad usage, no manifest recognises the repo, another
  * gate run holds the lock, or the gate failed about something that is not an expected/got
  * pair at all — a dangling pointer or a naming violation is a real finding, and rewriting
- * a baseline is never the answer to it. `3` `--write` applied its edits and the gate is
- * still red.
+ * a baseline is never the answer to it. `3` `--write` has had its go and the gate is still
+ * red — either its edits were not enough, or no site named the check it belongs to and
+ * there was nothing this command was willing to rewrite.
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';
@@ -172,9 +173,13 @@ try {
     printPlan(plan, run, write, after);
   }
 
+  // `3` means "--write has had its go and the gate is still red" — which includes the case
+  // where there was nothing this command was willing to rewrite, because a caller that
+  // asked for a write and got a red gate back needs the same answer either way. With
+  // `--no-recheck` nobody looked, so nobody may claim it.
   if (plan.outOfScope.length) exitCode = 2;
-  else if (write && after && !after.ok) exitCode = 3;
-  else if (write && !RECHECK) exitCode = 0;
+  else if (WRITE && RECHECK && after && !after.ok) exitCode = 3;
+  else if (WRITE && RECHECK && !after && !run.ok) exitCode = 3;
   else exitCode = 0;
 } finally {
   lock.release();
@@ -224,7 +229,11 @@ function printPlan(plan, run, write, after) {
     if (held.length) {
       say(`  ${dim('not rewritten')}`);
       for (const s of held) {
-        const why = s.ambiguous ? 'two stale assertions both claim it' : 'nothing here names this check';
+        const why = s.ambiguous
+          ? 'two stale assertions both claim it'
+          : s.reportLine
+            ? "this is the line that prints the failure, not the baseline behind it"
+            : 'nothing here names this check';
         say(dim(`    ${s.file}:${s.line}  ${s.oldText}  — ${why}`));
       }
     }
@@ -248,6 +257,9 @@ function printPlan(plan, run, write, after) {
     say(`rewrote ${write.applied} site${write.applied === 1 ? '' : 's'} in ${write.changed.length} file${write.changed.length === 1 ? '' : 's'}: ${write.changed.join(', ')}`);
     if (after) say(after.ok ? green(`the gate is green (${after.total} scripts)`) : red(`still red: ${after.failed.map((x) => x.name).join(', ')}`));
     else say(dim('--no-recheck: the gate was not re-run'));
+  } else if (WRITE && !plan.outOfScope.length) {
+    say(red(`nothing was rewritten: no site carrying ${plan.checks.length === 1 ? 'that number' : 'those numbers'} names the check it belongs to.`));
+    say(dim('the sites above are listed for you to decide about — the gate is still red'));
   } else {
     say(`${plan.checks.length} assertion${plan.checks.length === 1 ? '' : 's'} stale; ${scope} would change. Re-run with --write to apply.`);
   }

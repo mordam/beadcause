@@ -31,6 +31,7 @@ import {
   definitionSite,
   findSites,
   formatLike,
+  isReportLine,
   numberTokens,
   parseFailures,
   scriptPathsOf,
@@ -250,6 +251,23 @@ check('findSites: a site two stale assertions disagree about is nobody\'s to rew
   assert.ok(all.every((s) => s.ambiguous), `a contested site was still planned: ${JSON.stringify(all, null, 1)}`);
 });
 
+check('findSites: the line that PRINTS the failure is never the baseline behind it', () => {
+  // Found by this suite: a check that hardcodes its own numbers into its message —
+  // `print("FAIL [S8.1] widget count == 4090 -- got 4536")` — carries the old literal on a
+  // line its own check id anchors, so nothing else would have held it back. Rewriting it
+  // edits the message and leaves the gate exactly as red.
+  const dir = tmpTree('reportline', {
+    'scripts/check_widgets.py': 'WIDGETS = 4090\nprint("FAIL [S8.1] widget count == 4090 -- got 4536")\n',
+  });
+  const { pairs } = parseFailures('FAIL [S8.1] widget count == 4090 -- got 4536');
+  const [sites] = findSites(dir, pairs, { scriptPaths: new Set(['scripts/check_widgets.py']) });
+  const byLine = Object.fromEntries(sites.map((s) => [s.line, s]));
+  assert.equal(byLine[2].associated, false, 'the print() line was going to be rewritten');
+  assert.equal(byLine[2].reportLine, true);
+  assert.ok(isReportLine('print("FAIL [S8.1] widget count == 4090 -- got 4536")'));
+  assert.ok(!isReportLine('WIDGETS = 4090'));
+});
+
 check('definitionSite: the assigning line in the script, not the doc that mirrors it', () => {
   const dir = tmpTree('definition', {
     'scripts/check_saga_audit.py': '# [S3.1] Ch 4 prose words\nPROSE_WORDS = {\n    4: 4090,\n}\n',
@@ -464,6 +482,31 @@ check('a second --write over a green gate is a no-op that says so', () => {
   const r = run(['--dir', fx.dir, '--write']);
   assert.equal(r.status, 0, r.stderr);
   assert.ok(/nothing to re-baseline/.test(r.stdout), r.stdout);
+});
+
+/* ----------------------------------- a red gate nothing here is willing to rewrite */
+
+const UNANCHORED_PY = `#!/usr/bin/env python3
+import sys
+EXPECTED = 4090
+print("FAIL [S8.1] widget count == %d -- got %d" % (EXPECTED, 4536))
+sys.exit(1)
+`;
+
+const fxUnanchored = buildFixture({
+  name: 'b7e-rebaseline-unanchored',
+  steps: [
+    file('scripts/check_widgets.py', UNANCHORED_PY),
+    file('docs/VILLAGE.md', 'The village census counted 4090 households in the spring.\n'),
+    commit('a number written nowhere that names the check'),
+  ],
+});
+
+check('--write with nothing it may rewrite says so and exits 3, rather than claiming a fix', () => {
+  const r = run(['--dir', fxUnanchored.dir, '--write']);
+  assert.equal(r.status, 3, `expected exit 3, got ${r.status}\n${r.stdout}\n${r.stderr}`);
+  assert.ok(/nothing was rewritten/.test(r.stdout), r.stdout);
+  assert.deepEqual(gitStatus(fxUnanchored.dir), [], 'it wrote anyway');
 });
 
 /* ---------------------------------------------- a failure that is not a pair at all */
