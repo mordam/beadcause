@@ -1383,8 +1383,10 @@ The fourth of those is the newest and the sharpest example of why the grain matt
 `trustChecksAcrossDownmerge` turns on the queue [not waiting for a re-run after a clean
 downmerge](#a-clean-downmerge-does-not-pay-for-the-gate-twice),
 and whether that is safe is a fact about *one repo's CI* — specifically whether its test
-job also runs on the base, so a bad pairing is caught there instead. It does in
-`beadcause`. Nothing on this page assumes it does anywhere else, and the default is off.
+job also runs on the base, so a bad pairing is caught there instead. It is also, as that
+section explains, a setting **no repo here has on**: the arm it answers for only fires
+where GitHub enforces up-to-date branches, which is a rule `mordam/beadcause` does not
+have. It is per-repo because the question is per-repo, not because anything is using it.
 
 **One workspace, though, never one checkout inside one.** The overrides are keyed by
 workspace, and a workspace is a beads graph — which is exactly the grain
@@ -1403,7 +1405,7 @@ notification detail:
 "requireApprovalPerWorkspace": {},
 "reviewRequiredPerWorkspace":  {},
 "autoShipPerWorkspace":       { "beadcause": true },
-"trustChecksAcrossDownmergePerWorkspace": { "beadcause": true }
+"trustChecksAcrossDownmergePerWorkspace": {}
 ```
 
 | for one workspace | `true` | `false` | absent |
@@ -22659,6 +22661,87 @@ block, naming the bead that is the fix — which is what puts it under *Resolvin
 the queues board, whose note is already the right one: *something outside the queue has to
 move before it can merge*.
 
+### And the wait the hold leaves behind gets a producer
+
+The hold above lifts by itself, and that is not the whole of what a red base costs. GitHub
+builds `refs/pull/N/merge`, so every check that ran while the base was broken is a verdict
+on *a merge with a broken base* — and it stays on the pull request afterwards, because
+nothing re-runs it. Judged against a base that is green again, that stale red reads as a
+failure the branch introduced. #475 and #488 were both condemned that way on 2026-08-18,
+neither having ever been broken.
+
+So the lift stamps `heldUntil`, and the gate answers a run that finished before it with a
+**wait** rather than a refusal: *"its checks last finished before the base came back, so
+they are a verdict on a base that is no longer there rather than on this branch. Nothing is
+counted against it until they have run again."* It costs no attempt, which is right —
+nothing has been asked of this branch since the base came back.
+
+**Nothing ran them again.** The sentence's own docblock names the downmerge as what ends
+the wait, and stakes the safety claim on it: *a branch whose checks predate the repair is
+behind the repaired base by construction*. The git relationship is exactly that. **The
+field the downmerge tested is not.** `mergeStateStatus` is GitHub's *mergeability* state,
+and `BEHIND` there does not mean "the base has moved" — it means "the base has moved **and
+this repository refuses a merge until you update**", which is only ever true under a
+branch-protection rule requiring branches to be up to date. `mordam/beadcause` has no
+protection at all (`gh api repos/mordam/beadcause/branches/main/protection` answers *404
+Branch not protected*), so GitHub reports `CLEAN` however far a branch drifts and that arm
+had **never executed once**: `grep -c "brought .* into "` over 209,308 lines of the daemon
+log was `0`. Nothing else re-runs a check either — there is no `gh run rerun` anywhere in
+`lib/` or `bin/`, and nothing on the queue path pushes.
+
+A wait with no producer is a deadlock wearing a wait's clothes, and this one was invisible
+by construction, which is why it lasted five days. Because it deliberately costs no
+attempt it never ejects to a card, so it is not on the inbox and not in `givenUp`; the only
+trace anywhere was one log line per tick per branch. Twelve pull requests were held in a
+single tick — #652, #701, #702, #703, #717, #718, #719, #720, #731, #767, #772, #773 —
+four of them children of one epic, one of them **approved by Adam a day earlier**. And the
+repo looked healthy the whole time: ten pull requests merged normally the same afternoon.
+**It is a graveyard, not a jam** — anything delivered *since* the base moved gets fresh
+checks and lands, so new work flows straight past a cohort whose checks are pinned to a
+base that is gone and which can never leave. That asymmetry is the whole reason nobody
+noticed, and it is still the most likely way this gets read as fixed while every held pull
+request stays held.
+
+**The reading is taken in the checkout instead.** `behindBase` is `rev-list --count
+<head>..<base>`, which has no protection rule attached to it — it is the git relationship
+the docblock already reasons about, asked of the repo the queue is holding anyway.
+`origin`'s copy of the base first, for `pickBase`'s reason: local `main` on a Mac running
+twenty sessions is routinely behind the thing it is being compared against. And `null` is
+*could not tell* — a head this checkout has never fetched, a base ref that is not here, a
+directory that is not a repository — which must never read as zero: the caller waits rather
+than spending a GitHub write on a guess.
+
+**Only the stale branch uses it, and that boundary is the design rather than caution.**
+Widening the `BEHIND` arm to the git reading would be the obvious change and the wrong one:
+on a `main` that moves twenty times an hour *every* queued branch is behind it, so every
+one of them would take three fresh bases and three CI runs before the queue ever got as far
+as judging it — which is precisely the starvation `MAX_DOWNMERGES` was written about, and
+being behind is not by itself a reason GitHub refuses a merge. A branch whose checks are
+current is therefore judged exactly as it was. Both readings stay, because they answer
+different questions: GitHub's says *this merge needs an update*, and this one says *there is
+something to bring in*.
+
+It is bounded by the same counter, and there is one deliberate difference from the arm
+above: **the charge is spent on the ask rather than on the success.** Up there a refused
+update is usually a race with somebody else's merge landing a second earlier and the next
+tick asks again. Here git has already said there is something to bring in, so an update
+GitHub will not perform is a standing condition — and not counting it would spend a write
+every thirty seconds for ever. Still no *attempt*, unchanged: nothing has been asked of
+this branch's diff, so nothing has refused it.
+
+**And the hold that remains says so out loud.** The tick counts it apart from `waiting`,
+because it is the one wait here that nothing else would ever move, and names the pull
+requests rather than tallying them — *"merge queue: 4 held on checks older than the base
+(#652, #717, #718 and 1 more)"* — for the reason the line names the ones in line for a
+window: "which ones" was exactly what nobody could answer. A branch that has had its base
+brought in three times and is *still* stale, or one whose head this checkout cannot see, is
+no longer waiting on the queue at all, and that list is the only thing that would say so.
+
+`node test/mergequeue.mjs` drives both arms of the reading and the bound, and it starts
+from the case a suite over a red branch would have missed: #717 was `test: SUCCESS`,
+`MERGEABLE` and `CLEAN`, held purely because its green run finished on the wrong side of a
+hold. `node test/lapsedrefusals.mjs` still owns the verdict itself.
+
 ### Most conflicts never happen — four registries git is told to merge both ways
 
 A resolver is the right answer to two branches that disagree. Almost none of the conflicts
@@ -22764,10 +22847,27 @@ on `push` to `main`, so a bad pairing reddens the base within minutes, and
 and files the bead that is the fix. A repo whose CI does *not* run on its base has no
 such second chance, and should leave this off — which it is, unless it says otherwise.
 
-The other half of why this is worth taking here is the section above: with the four
-registries union-merged, a beadcause downmerge is now almost always git keeping both
-sides of one appended line. Paying a full gate run to re-prove that is the cost this
-removes, and 30 of the 34 branches open when it was measured were exactly that shape.
+### Where that can fire at all, which is narrower than it sounds
+
+**Not here, and the correction is worth more than the feature.** The arm this setting
+answers for tests `mergeStateStatus === 'BEHIND'`, and GitHub only ever reports that value
+under a branch-protection rule requiring branches to be up to date. `mordam/beadcause` has
+no protection rule at all — `gh api repos/mordam/beadcause/branches/main/protection` is a
+404 — so **that arm has never fired on this repo.** A green pull request here is judged and
+merged without any downmerge being asked for, and there is no wait for this to shorten.
+
+That is [bc-xl7n.121's finding](#and-the-wait-the-hold-leaves-behind-gets-a-producer), arrived at from
+the other direction: it is why `verdict.stale` takes its own reading from the checkout with
+`behindBase` rather than believing the field. This setting is therefore **off everywhere,
+including here**, and the honest description of it is: a switch for a repo whose GitHub
+enforces up-to-date branches, where "the base moved, so run the whole gate again before you
+may merge" is a rule somebody else is imposing.
+
+**And it is deliberately not wired into the stale path**, which is the one place a
+downmerge really is asked for on an unprotected repo. The checks there are stale in the
+precise sense that they are a verdict on a base that no longer exists — bc-91srt, #475,
+#488 — so they are exactly the checks that must *not* be trusted across a downmerge. The
+one path where this would fire here is the one path where it would be wrong.
 
 ### A conflict a resolver will not settle becomes a card
 
@@ -31455,7 +31555,7 @@ to be one.
 | `requireApprovalPerWorkspace` | whether **one workspace** needs an approving review first, same shape and same precedence (default `{}`). Only meaningful while its `autoMerge` is on — with that off, every delivery is already a question and answering it *is* the approval |
 | `reviewRequiredPerWorkspace` | whether **one workspace's** merges wait for [an agent's review](#the-review-gate--nothing-reaches-the-merge-without-a-verdict) first, same shape and same precedence (default `{}`). A second gate in front of the queue rather than a substitute for your own: where `requireApproval` is also on, the agent's approval is necessary and not sufficient. **Leave it off in a repo where nothing is reviewing** — on, with no reviewer, is a queue that stops rather than one that waits |
 | `autoShipPerWorkspace` | whether **one workspace's** merges run its declared deploy without waiting for **Ship**, same shape and same precedence (default `{}`). The setting this layer most needed: only one repo in a space of six here has a deploy this Mac can run, and saying so through the space armed the other five. An [epic may still override it in either direction](#auto-ship--the-merge-that-does-not-wait-for-the-tap) |
-| `trustChecksAcrossDownmergePerWorkspace` | whether **one workspace's** queue [judges a clean downmerge on the checks the branch already passed](#a-clean-downmerge-does-not-pay-for-the-gate-twice) instead of waiting for them to run again, same shape and same precedence — `{ "beadcause": true }`, which is what ships. The only one of the six that is a fact about a repo's *CI* rather than about who reads it: what makes it safe is the test job also running on the base, so a pairing that breaks it is caught there instead |
+| `trustChecksAcrossDownmergePerWorkspace` | whether **one workspace's** queue [judges a clean downmerge on the checks the branch already passed](#a-clean-downmerge-does-not-pay-for-the-gate-twice) instead of waiting for them to run again, same shape and same precedence (default `{}`, and empty here). The only one of the six that is a fact about a repo's *CI* rather than about who reads it: what makes it safe is the test job also running on the base. Ships empty on purpose — the arm it answers for only fires where GitHub enforces up-to-date branches, which no repo here does |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-a-merge-queue) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
 | `pr.basePerWorkspace` | [the workspaces that merge somewhere else](#a-workspace-whose-integration-branch-is-not-main), keyed by name — `{ "deluvia": "atlas/public-launch" }`, which is what ships. The setting for that workspace wherever `pr.base` would have been, so it still sits *underneath* a multi-repo workspace's per-repo answer and still loses to `--base`. A name that is absent, or a value that is not a branch name, falls through to `pr.base` |
