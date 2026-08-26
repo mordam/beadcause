@@ -1,0 +1,168 @@
+#!/usr/bin/env node
+/**
+ * `b7e-propagated` — one `CHANGE_LOG.md` entry's own propagation checklist, verified
+ * against the tree it names, instead of trusted from its own `[x]` marks.
+ *
+ *     b7e-propagated -w deluvia 108              entry 108, at the delivery base
+ *     b7e-propagated -w deluvia 108 --at <ref>   entry 108, at a specific ref
+ *     b7e-propagated -w deluvia --all            every [PROPAGATED]/PARTIALLY entry
+ *     b7e-propagated -w deluvia 108 --json       the machine-readable form
+ *     b7e-propagated --dir <root> 108            another tree — this is how it is tested
+ *
+ * `bc-dgx7.82`: four sessions (`dv-b5d.32`, `dv-2uu.5`, `dv-gr6.5`, `dv-5eu`) each
+ * independently found an entry stamped `[PROPAGATED]` whose checklist named a file as
+ * done while that file still carried the pre-ruling value — `dv-b5d.32`'s own case,
+ * `pipeline/lib/checks.py` still carrying Entry 108's pre-ruling Othen height ten days
+ * after the entry said every file was corrected. See `lib/propagated.js` for the
+ * verification itself; this is the argv parsing and the printing around it, the same
+ * split every other `b7e-*` command in this family already uses.
+ *
+ * Each checklist row is judged **VERIFIED** (the row's own old value is gone from its
+ * file and the new value is present), **STALE** (the old value is still there), or
+ * **UNVERIFIABLE** (the row names no path, the path does not exist at this ref, or the
+ * row's text stakes out no old/new literal to check) — reported, never silently
+ * skipped, so a human reading the output knows a box was never machine-checkable
+ * rather than assuming silence means it passed.
+ *
+ * Never writes to `CHANGE_LOG.md`, or anywhere else — every read is `git cat-file -p
+ * <ref>:<path>`, which is what makes this immune to a stale `.claude/worktrees/*`
+ * copy sitting on disk (the exact failure `dv-5eu`'s own tree `grep` hit).
+ *
+ * Exit codes: `0` every row was VERIFIED or UNVERIFIABLE. `1` at least one row is
+ * STALE (with `--all`: at least one swept entry has a STALE row). `2` bad usage. `4`
+ * `-w` named a workspace this Mac has no config for, or this checkout resolves to
+ * none and neither `-w` nor `--dir` was given. `5` the named entry does not exist in
+ * the file at the resolved ref.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { workspaceFor } from '../lib/claude.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { propagated } from '../lib/propagated.js';
+
+const USAGE = `usage: b7e-propagated [-w, --workspace <name>] [--dir <root>] [--at <ref>]
+                      [--file <path>] (<entry> | --all) [--json]
+
+Verifies one CHANGE_LOG.md entry's own "Chapters affected:" checklist against the
+tree it names, row by row, instead of trusting its own [x] marks or Status: line.
+
+  -w, --workspace <name>   which tracker names the checkout to scan (default: this
+                            checkout's own — see lib/claude.js workspaceFor)
+  --dir <root>             scan this directory directly, ignoring -w — this is how it
+                            is tested
+  --at <ref>               the ref to read CHANGE_LOG.md and every named file from
+                            (default: origin/main falling back to main — "the
+                            delivery base", so a stray .claude/worktrees/* copy is
+                            never read)
+  --file <path>            which file to scan (default: CHANGE_LOG.md)
+  <entry>                  the entry number to verify, e.g. 108 or 078b
+  --all                    verify every entry whose Status reads [PROPAGATED] or
+                            PARTIALLY PROPAGATED, instead of one named entry
+  --json                   the machine-readable form instead of the printed report`;
+
+const rawArgv = process.argv.slice(2);
+if (rawArgv.includes('--help') || rawArgv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+function fail(msg, code = 2) {
+  console.error(`b7e-propagated: ${msg}`);
+  process.exit(code);
+}
+
+let wsName = null;
+let dirGiven = null;
+let atRef = null;
+let file = 'CHANGE_LOG.md';
+let all = false;
+let jsonMode = false;
+let entry = null;
+
+for (let i = 0; i < rawArgv.length; i += 1) {
+  const a = rawArgv[i];
+  const next = () => {
+    const v = rawArgv[i + 1];
+    i += 1;
+    return v;
+  };
+  switch (a) {
+    case '-w':
+    case '--workspace':
+      wsName = next();
+      break;
+    case '--dir':
+      dirGiven = next();
+      break;
+    case '--at':
+      atRef = next();
+      break;
+    case '--file':
+      file = next();
+      break;
+    case '--all':
+      all = true;
+      break;
+    case '--json':
+      jsonMode = true;
+      break;
+    default:
+      if (a.startsWith('-')) fail(`unknown flag ${a}`);
+      if (entry !== null) fail(`only one entry number, already have ${entry}`);
+      entry = a;
+  }
+}
+
+if (!all && !entry) fail('give an entry number or --all', 5);
+if (all && entry) fail('an entry number and --all are mutually exclusive', 2);
+
+let ROOT;
+if (dirGiven) {
+  ROOT = path.resolve(dirGiven);
+} else {
+  const cfg = loadConfig();
+  const known = () => (cfg.workspaces || []).map((w) => w.name).join(', ');
+  const name = wsName || workspaceFor(cfg, process.cwd());
+  const ws = name ? (cfg.workspaces || []).find((w) => w.name === name) : null;
+  if (!ws) {
+    fail(
+      wsName
+        ? `no workspace called ${wsName} — ${known()}`
+        : `this checkout resolves to no workspace — name one with -w (${known()})`,
+      4
+    );
+  }
+  ROOT = resolveSessionDir(cfg, ws);
+}
+
+let result;
+try {
+  result = await propagated(ROOT, { ref: atRef, file, entry, all });
+} catch (err) {
+  fail(err.message, 5);
+}
+
+function printRow(row) {
+  const mark = row.verdict === 'VERIFIED' ? 'VERIFIED    ' : row.verdict === 'STALE' ? 'STALE       ' : 'UNVERIFIABLE';
+  const where = row.path ? row.path : '(no path named)';
+  console.log(`  [${row.checked ? 'x' : ' '}] ${mark} ${where}`);
+  if (row.claim) console.log(`        was: ${row.claim.oldValue}  now: ${row.claim.newValue}`);
+  if (row.path && row.exists === false) console.log(`        (does not exist at ${result.ref})`);
+}
+
+if (jsonMode) {
+  console.log(JSON.stringify(result, null, 2));
+} else {
+  console.log(`${result.file} at ${result.ref}`);
+  for (const e of result.entries) {
+    console.log('');
+    console.log(`Entry ${e.entry} — ${e.status || '(no Status: field)'}`);
+    for (const row of e.rows) printRow(row);
+  }
+  console.log('');
+  console.log(result.stale ? 'STALE — at least one row still carries its old value' : 'clean');
+}
+
+// Set the exit code rather than calling process.exit() so a --json payload has room
+// to finish flushing to stdout first (the same reasoning bin/b7e-entry gives).
+process.exitCode = result.stale ? 1 : 0;
