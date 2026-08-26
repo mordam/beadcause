@@ -1,0 +1,151 @@
+#!/usr/bin/env node
+/**
+ * `b7e-plate` — one labelled montage PNG from a directory or list of images, so a
+ * session can look at several stills in a single `Read` call instead of building its
+ * own rig.
+ *
+ *   b7e-plate webseries/episodes/kazran-orves/images
+ *   b7e-plate images/img_*.png title_card.png --max 12
+ *   b7e-plate images --cols 4 --width 240
+ *   b7e-plate images/img_003.png --crop 420,120,300,300
+ *   b7e-plate images --out /tmp/review/plate.png --json
+ *
+ * bc-dgx7.91 — see `lib/plate.js` for the fuller history (three deluvia sessions each
+ * hand-built this) and why the compositing is Pillow rather than ffmpeg's `tile` filter.
+ * This file is the argv parsing and the printing around `lib/plate.js`'s `buildPlate`,
+ * the same split every other `b7e-*` command in this family already uses.
+ *
+ * Exit codes: `0` the sheet was written. `2` refused — bad usage, no image resolved
+ * from the given targets, or one of `sips`/`python3`+Pillow is not runnable.
+ */
+import { buildPlate, toolsAvailable } from '../lib/plate.js';
+
+const USAGE = `usage: b7e-plate <path|glob> [<path|glob> ...] [--max N] [--cols N] [--width PX]
+                 [--crop x,y,w,h] [--out <path>] [--json]
+
+  <path|glob>       an image file, a directory (its own image files, sorted, not
+                     recursive), or a glob — repeatable, and read in the order given
+  --max N            keep only the first N resolved files (0, the default: no cap)
+  --cols N            columns in the grid (default: near-square, ceil(sqrt(n)))
+  --width PX          each tile's width in pixels, before labelling (default: 320)
+  --crop x,y,w,h       instead of a grid, one enlarged region of one source image —
+                     takes exactly one target
+  --out <path>         where to write the PNG (default: a fresh file under a temp
+                     directory, never inside a checkout)
+  --json              the manifest as JSON instead of the printed report
+
+Prints the sheet's absolute path, then one line per tile in the order it was placed,
+naming the source file and its NATIVE dimensions (not the tile's, which is what a
+caller asking "how big is that image really" wants). Running this twice against the
+same input and the same --out overwrites with a byte-identical PNG.`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+function value(flag, i) {
+  const v = argv[i + 1];
+  if (v === undefined) {
+    console.error(`b7e-plate: ${flag} needs a value`);
+    process.exit(2);
+  }
+  return v;
+}
+
+let max = 0;
+let cols = 0;
+let width = 320;
+let crop = null;
+let out = null;
+let json = false;
+const targets = [];
+
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  switch (a) {
+    case '--max':
+      max = Number(value(a, i));
+      i += 1;
+      break;
+    case '--cols':
+      cols = Number(value(a, i));
+      i += 1;
+      break;
+    case '--width':
+      width = Number(value(a, i));
+      i += 1;
+      break;
+    case '--crop':
+      crop = value(a, i);
+      i += 1;
+      break;
+    case '--out':
+      out = value(a, i);
+      i += 1;
+      break;
+    case '--json':
+      json = true;
+      break;
+    default:
+      if (a.startsWith('--')) {
+        console.error(`b7e-plate: unknown flag ${a}`);
+        process.exit(2);
+      }
+      targets.push(a);
+  }
+}
+
+if (targets.length === 0) {
+  console.error('b7e-plate: needs at least one <path|glob>\n');
+  console.error(USAGE);
+  process.exit(2);
+}
+if ((max && !Number.isInteger(max)) || (cols && !Number.isInteger(cols)) || !Number.isInteger(width) || width <= 0) {
+  console.error('b7e-plate: --max, --cols and --width want plain integers, --width greater than 0');
+  process.exit(2);
+}
+
+const availability = toolsAvailable();
+if (!availability.sips) {
+  console.error('b7e-plate: `sips` is not runnable on this machine (native dimensions need it)');
+  process.exit(2);
+}
+if (!availability.pil) {
+  console.error('b7e-plate: `python3 -c "import PIL"` failed — Pillow is not installed (the compositing needs it)');
+  process.exit(2);
+}
+
+let manifest;
+try {
+  manifest = buildPlate({ targets, max, cols, width, crop, out });
+} catch (err) {
+  console.error(`b7e-plate: ${err.message}`);
+  process.exit(2);
+}
+
+if (json) {
+  console.log(JSON.stringify(manifest, null, 2));
+  process.exit(0);
+}
+
+console.log(manifest.outPath);
+if (manifest.mode === 'crop') {
+  console.log(
+    `crop of ${manifest.source} at ${manifest.box.x},${manifest.box.y} ${manifest.box.w}x${manifest.box.h}` +
+      ` (native ${manifest.sourceNativeWidth}x${manifest.sourceNativeHeight})`
+  );
+} else {
+  for (const t of manifest.tiles) {
+    console.log(`${t.index}  ${t.file}  ${t.nativeWidth}x${t.nativeHeight}`);
+  }
+  console.log(`${manifest.tiles.length} tiles, ${manifest.cols} cols x ${manifest.rows} rows`);
+  if (manifest.dropped.length) {
+    console.log(`--max dropped ${manifest.dropped.length}: ${manifest.dropped.join(', ')}`);
+  }
+}
+if (manifest.problems.length) {
+  console.log(`problems: ${manifest.problems.join('; ')}`);
+}
+process.exit(0);
