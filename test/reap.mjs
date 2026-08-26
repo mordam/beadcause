@@ -764,6 +764,99 @@ await check('and a sweep that could not talk to iTerm does not take the tick wit
   victim.kill('SIGKILL');
 });
 
+/*
+ * bc-xl7n.131.1. `unreportedStuck` itself is pure and covered in test/cards.mjs; what is
+ * under test here is the half that is not — the `reportedStuck` Set's *lifetime* and the
+ * one call site that feeds it. Both are wiring, and wiring is invisible to a unit test:
+ * deleting the whole block from `sweepEmptyWindows`, or moving the Set's declaration
+ * inside the sweep so that every tick starts with a blank memory, left both suites green.
+ * The second of those is the exact once-a-tick log shape bc-xl7n.110 was filed over, so it
+ * has to be measured across ticks or it is not measured at all — hence the three ticks and
+ * the log, rather than another call to the pure function.
+ */
+
+/** Run `fn` with `console.log` collected, so a tick's own reporting can be read back. */
+async function saidWhile(fn) {
+  const said = [];
+  const realLog = console.log;
+  console.log = (...a) => said.push(a.map(String).join(' '));
+  try {
+    await fn();
+  } finally {
+    console.log = realLog;
+  }
+  return said;
+}
+
+/** The one line the stuck half of the sweep writes, whoever else logged this tick. */
+const stuckLines = (said) => said.filter((l) => l.includes('would not close'));
+
+/**
+ * A sweep that hands back a different pile each tick, clamping at the last one — so a
+ * check states what iTerm answers on tick 1, 2 and 3 and reads like the sequence it is.
+ */
+function sweepingStuck(piles) {
+  let tick = 0;
+  return () => ({
+    closed: 0,
+    ids: [],
+    error: null,
+    stuck: piles[Math.min(tick++, piles.length - 1)],
+  });
+}
+
+await check('a window that would not close is said once, not once a tick', async () => {
+  clearSessionRecords();
+  const { advocates, calls } = withNoWorkers({
+    show: async () => ({ id: 'al-1', status: 'open' }),
+    // The same two frames on the desk for two ticks, then a third joining them. A stuck
+    // window is stuck: that repetition is the premise here, not an edge case.
+    empty: sweepingStuck([
+      ['47768', '47792'],
+      ['47768', '47792'],
+      ['47768', '47792', '48037'],
+    ]),
+  });
+
+  const said = await saidWhile(async () => {
+    await advocates.tick();
+    await advocates.tick();
+    await advocates.tick();
+  });
+
+  assert.equal(calls.sweptEmpty, 3, 'three ticks, three sweeps');
+  const lines = stuckLines(said);
+  // Two lines out of three ticks is the whole property: one for the pair, one for the
+  // newcomer, and nothing at all for the tick that brought no news. A memory that did not
+  // outlive the tick would say all three, which is what the daemon did 2,330 times.
+  assert.equal(lines.length, 2, 'the second tick added nothing to say');
+  assert.match(lines[0], /2 iTerm window\(s\).*47768, 47792/);
+  assert.match(lines[1], /1 iTerm window\(s\).*48037/);
+  assert.ok(!lines[1].includes('47768'), 'and the newcomer is announced alone');
+});
+
+await check('and an id that leaves the desk and comes back is said again', async () => {
+  clearSessionRecords();
+  const { advocates } = withNoWorkers({
+    show: async () => ({ id: 'al-1', status: 'open' }),
+    // iTerm reuses window ids, so 47768 returning after a tick without it is a different
+    // frame that has never been reported. The memory forgets by what is on the desk rather
+    // than by uptime, and this is the direction of that forgetting the call site owes: it
+    // hands the same Set back every tick, so the pruning inside it is what is observed.
+    empty: sweepingStuck([['47768'], [], ['47768']]),
+  });
+
+  const said = await saidWhile(async () => {
+    await advocates.tick();
+    await advocates.tick();
+    await advocates.tick();
+  });
+
+  const lines = stuckLines(said);
+  assert.equal(lines.length, 2, 'said, forgotten, said again');
+  for (const l of lines) assert.match(l, /1 iTerm window\(s\).*47768/);
+});
+
 /* -------------------------------------- the window that opened and never ran anything */
 
 /*

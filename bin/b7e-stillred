@@ -1,0 +1,106 @@
+#!/usr/bin/env node
+/**
+ * `b7e-stillred` — is this suite already known red, whose bead, at what base, and has
+ * `origin/main` fixed it since?
+ *
+ *     b7e-stillred <suite>...          suites by path, as b7e-gate names them
+ *     b7e-stillred --from <gate-log>   take the failures out of a b7e-gate run instead
+ *     b7e-stillred --base <ref>        compare against this ref, not the computed merge-base
+ *     b7e-stillred --dir <root>        another tree — this is how it is tested
+ *     b7e-stillred --json              one object per suite instead of the printed report
+ *
+ * bc-dgx7.62: six sessions on 2026-08-24 (bc-ka5y.22, bc-ogicx.5, bc-9ntye.3, bc-beleq,
+ * bc-9ntye.5, bc-dgx7.52) each spent five to forty minutes answering this exact question
+ * about the exact same suite, no two the same way — see lib/stillred.js's header for what
+ * each one did. This answers it from records already on disk: `.claude/gate-runs` in the
+ * main checkout (every `b7e-gate` run on this Mac, any worktree), the tracker, and `git`.
+ * It never runs the suite and never builds a worktree — `b7e-blame` already does that,
+ * correctly and slowly, for the narrower "right now" question; this is the cheap first
+ * question to ask before reaching for it.
+ *
+ * Exit codes: `0` nothing here needs re-deriving (no suite given has any recorded
+ * failure, or every one that does already has a fix on `origin/main` since its base);
+ * `1` at least one suite is recorded red with no fix on `origin/main` since its base, or
+ * has no base to compare at all; `2` refused — bad usage, or no suites to look at.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { REPO_ROOT, stillRedAll, verdictLine, exitCodeFor } from '../lib/stillred.js';
+import { suitesFromGateLog } from '../lib/blame.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-stillred <suite>...          suites by path, as b7e-gate names them',
+      'b7e-stillred --from <gate-log>   take the failures out of a b7e-gate run instead',
+      'b7e-stillred --base <ref>        compare against this ref, not the computed merge-base',
+      'b7e-stillred --dir <root>        another tree — this is how it is tested',
+      'b7e-stillred --json              one object per suite instead of the printed report',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const JSON_MODE = has('--json');
+const BASE = value('--base', null);
+const FROM = value('--from', null);
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+function colorFor(verdict) {
+  if (verdict === 'no-record') return dim;
+  if (verdict === 'fixed-on-main') return green;
+  if (verdict === 'unclear-base') return amber;
+  return red; // still-red
+}
+
+let suites = argv.filter((a, i) => {
+  if (a.startsWith('-')) return false;
+  const prev = argv[i - 1];
+  if (prev === '--from' || prev === '--base' || prev === '--dir') return false;
+  return true;
+});
+
+if (FROM) {
+  let text;
+  try {
+    text = fs.readFileSync(FROM, 'utf8');
+  } catch (err) {
+    console.error(`b7e-stillred: could not read --from ${FROM}: ${err.message}`);
+    process.exit(2);
+  }
+  suites = [...suites, ...suitesFromGateLog(text)];
+}
+
+// Dedup, order of first appearance kept.
+suites = [...new Set(suites)];
+
+if (!suites.length) {
+  console.error('b7e-stillred: no suites given — pass one or more paths, or --from <gate-log>');
+  process.exit(2);
+}
+
+const results = await stillRedAll(ROOT, suites, { base: BASE || undefined });
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(results));
+} else {
+  for (const r of results) {
+    console.log(colorFor(r.verdict)(verdictLine(r)));
+  }
+}
+
+process.exit(exitCodeFor(results));

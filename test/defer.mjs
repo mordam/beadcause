@@ -8,8 +8,8 @@
  * There are two kinds of non-closing answer and for a while `closes: false` was the
  * only way to write either of them. One is a **commission** — "build both as written"
  * — which hands the bead to an agent, and test/commission.mjs is the suite for it. The
- * other is a **deferral**: *not yet, leave this on the list*, which hands the bead to
- * nobody and leaves the card exactly where it was.
+ * other is a **deferral**: *not yet, ask me again later*, which hands the bead to
+ * nobody and sets the card aside until what it is waiting on has cleared.
  *
  * bc-7qo.10 offered the second one and got the first. Its third option read
  *
@@ -35,7 +35,12 @@
  *      window having touched it and there is nothing there to preserve;
  *   5. the thread says **deferred**, not "handed back" — the reader is an agent
  *      deciding whether it has just been given work, and that sentence is the whole of
- *      what it has to go on.
+ *      what it has to go on;
+ *   6. and since bc-y9cof the card is **set aside** — it leaves `/api/questions` on a
+ *      dismissal record, and comes back when that record's trigger fires. Which is not
+ *      a contradiction of (3): the `human` label is what keeps the bead in the sweep,
+ *      and `withoutDismissed` only hides a bead the sweep still returns, so the label
+ *      is what makes the deferral reversible rather than a disappearance.
  *
  * And the three claims a regression breaks first, which is why all four endings are
  * driven against **one card**: an ordinary option still closes, a commissioning option
@@ -195,15 +200,49 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(CALLS)}, JSON.stringify(args) + '\\n');
 const DESC = ${JSON.stringify(BLOCK)};
 const PARK_ONLY = ${JSON.stringify(PARK_ONLY)};
+// Every 'comment' this fake has been told to write, so \`comment_count\` moves the way a
+// real tracker's does. That is what makes the ordering claim testable: \`setAside\` counts
+// the thread to decide what a *new* comment would be, and counting before the answer went
+// on would baseline it one short — on a gateless bead the answer would then read as the
+// new comment and drag the card straight back.
+const commentsOn = (id) => {
+  let n = 0;
+  try {
+    for (const line of fs.readFileSync(${JSON.stringify(CALLS)}, 'utf8').split('\\n')) {
+      if (!line) continue;
+      const a = JSON.parse(line);
+      if (a[0] === 'comment' && a[1] === id) n += 1;
+    }
+  } catch {}
+  return n;
+};
 const bead = (id) => ({
-  id, issue_type: 'task', status: 'open', title: 'Decide, order or defer', comment_count: 0,
+  id, issue_type: 'task', status: 'open', title: 'Decide, order or defer',
+  comment_count: commentsOn(id),
   priority: 1, labels: ['human'],
   description: id === 'zz-parkonly' ? PARK_ONLY : DESC,
-  dependencies: [],
+  // zz-gated is blocked by an open bead, which is the cheapest real gate there is —
+  // \`gateFor\` returns \`kind: 'blocked'\` for it before it looks at anything else.
+  dependencies: id === 'zz-gated'
+    ? [{ id: 'zz-dep', dependency_type: 'blocks', status: 'open', title: 'the thing it waits on' }]
+    : [],
 });
-if (args[0] === 'show') { process.stdout.write(JSON.stringify([bead(args[1])])); process.exit(0); }
+if (args[0] === 'show') {
+  // zz-unreadable goes unreadable the moment the answer is on the thread — a Dolt lock
+  // arriving in the one-call window between the comment and the set-aside. Keyed on the
+  // comment rather than on a call count so it cannot drift when the handler changes how
+  // many times it reads a bead on the way in.
+  if (args[1] === 'zz-unreadable' && commentsOn('zz-unreadable') > 0) {
+    process.stderr.write('database is locked');
+    process.exit(1);
+  }
+  process.stdout.write(JSON.stringify([bead(args[1])]));
+  process.exit(0);
+}
 if (args[0] === 'human' && args[1] === 'list') {
-  process.stdout.write(JSON.stringify([bead('zz-1'), bead('zz-2')]));
+  process.stdout.write(JSON.stringify(
+    ['zz-1', 'zz-2', 'zz-gated', 'zz-nogate', 'zz-unreadable'].map(bead)
+  ));
   process.exit(0);
 }
 if (args[0] === 'comments') { process.stdout.write('[]'); process.exit(0); }
@@ -433,6 +472,159 @@ check(
       `bd was told to: ${JSON.stringify(writes())}`
     ),
   'and writes the words and nothing else'
+);
+
+/* ------------------------------------------------- and the card is set aside (bc-y9cof) */
+
+/**
+ * The half of *not yet* that was missing long enough to look like a bug in the first.
+ *
+ * A deferral used to leave the card in the inbox with all its options still on it, so
+ * the next sweep drew the identical question with "⟳ You answered this 1m ago" above
+ * buttons still asking to be tapped — indistinguishable, from the phone, from the app
+ * having lost the answer. bc-xl7n.132 was answered *leave it open until 717 and 719 have
+ * merged* and was back a minute later wanting the same decision.
+ *
+ * So the answer now writes the record `/api/dismiss` writes, and the claims below are the
+ * ones a regression breaks. They are asserted against the *record* rather than only
+ * against the response, because the record is what `withoutDismissed` reads on every
+ * sweep from here on and the response is gone in three seconds.
+ */
+
+const readState = () => JSON.parse(fs.readFileSync(path.join(process.env.BEADCAUSE_CONFIG_DIR, 'state.json'), 'utf8'));
+
+const get = (pathname) =>
+  new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: '127.0.0.1', port, path: pathname, method: 'GET', headers: { 'x-beadcause-token': cfg.token } },
+      (res) => {
+        let out = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => (out += c));
+        res.on('end', () => resolve(JSON.parse(out || '{}')));
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
+
+const idsOf = (r) => (r.questions || []).map((x) => x.id);
+
+/* --- a bead with a gate: the gate is the trigger, and it is the one the answer meant */
+
+reset();
+const gated = await call('/api/respond', {
+  workspace: 'demo',
+  id: 'zz-gated',
+  response: 'Not yet. Leave this on the list.',
+  option: 'park',
+});
+
+check(() => assert.equal(gated.json.deferred, true), 'a gated bead still reports the deferral');
+check(() => assert.equal(gated.json.setAside, true), 'and reports that the card was set aside — the field that says it went');
+check(
+  () => assert.equal(gated.json.until, 'blocked by zz-dep'),
+  'and names what brings it back, in the gate’s own words, so the toast can say when'
+);
+check(() => {
+  const rec = readState().dismissed?.['demo/zz-gated'];
+  assert.ok(rec, `no record: ${JSON.stringify(readState().dismissed)}`);
+  assert.equal(rec.gate?.kind, 'blocked');
+  assert.equal(rec.gate?.reason, 'blocked by zz-dep');
+}, 'the record carries the bead’s gate — the same shape /api/dismiss writes, because it is the same record');
+check(
+  () => assert.ok(!writes().some((a) => a[0] === 'close'), `bd was told to: ${JSON.stringify(writes())}`),
+  'and nothing was written to the tracker to hide it — the bead is untouched but for the answer'
+);
+check(
+  () =>
+    assert.ok(
+      !writes().some((a) => a[0] === 'label' && a[1] === 'remove' && a[3] === 'human'),
+      `bd was told to: ${JSON.stringify(writes())}`
+    ),
+  'the `human` label still stays — it is what keeps the bead in the sweep, and only a bead in the sweep can be hidden'
+);
+
+const afterGated = await get('/api/questions');
+check(
+  () => assert.ok(!idsOf(afterGated).includes('zz-gated'), JSON.stringify(idsOf(afterGated))),
+  'and the card is GONE from the inbox — the whole point, and the thing the old behaviour got backwards'
+);
+check(
+  () => assert.ok(idsOf(afterGated).includes('zz-2'), JSON.stringify(idsOf(afterGated))),
+  'while a card nobody deferred is still there — a deferral hides one bead, not the list'
+);
+
+/* --- a bead with no gate: the comment count, with the answer we just wrote counted */
+
+reset();
+const gateless = await call('/api/respond', {
+  workspace: 'demo',
+  id: 'zz-nogate',
+  response: 'Not yet. Leave this on the list.',
+  option: 'park',
+});
+
+check(() => assert.equal(gateless.json.setAside, true), 'a bead with no gate is set aside too');
+check(
+  () => assert.equal(gateless.json.until, null),
+  'with nothing named — `until: null` is the ordinary "back on the next comment", not a failure'
+);
+check(() => {
+  const rec = readState().dismissed?.['demo/zz-nogate'];
+  assert.ok(rec, `no record: ${JSON.stringify(readState().dismissed)}`);
+  assert.equal(rec.gate, null);
+  // One, not zero: the answer's own comment. Counting it means the record says "come
+  // back on comment number two", which is what makes the trigger a reply from somebody
+  // else rather than the sentence that sent the card away.
+  assert.equal(rec.comments, 1, `comments: ${rec.comments}`);
+}, 'and its trigger is the thread with the answer already counted — set aside AFTER the comment, which is the ordering that matters');
+
+const afterGateless = await get('/api/questions');
+check(
+  () => assert.ok(!idsOf(afterGateless).includes('zz-nogate'), JSON.stringify(idsOf(afterGateless))),
+  'and it leaves the inbox on that trigger, exactly as the gated one did'
+);
+
+/* --- and a bd nobody can read leaves the card exactly where it is */
+
+/**
+ * The failure that must not be papered over.
+ *
+ * `bd.hold` hands back null for a bead it could not read, and the fallback beside it
+ * records *no gate and no comments* — which is not a neutral guess but a claim: that a
+ * bead with an open-children gate comes back on the next comment. A dismissal takes that
+ * trade because you asked for the card to go and a wrong trigger only brings it back
+ * early. A deferral may not, so `setAside` is called with `requireHold` and writes
+ * nothing at all when the read fails.
+ */
+reset();
+const unreadable = await call('/api/respond', {
+  workspace: 'demo',
+  id: 'zz-unreadable',
+  response: 'Not yet. Leave this on the list.',
+  option: 'park',
+});
+
+check(() => assert.equal(unreadable.status, 200), 'a bd that goes unreadable after the answer does not fail the answer');
+check(() => assert.equal(unreadable.json.deferred, true), 'which is still a deferral — the option said so and the thread has it');
+check(
+  () => assert.equal(unreadable.json.setAside, false),
+  'but the card was NOT set aside, and the response says so rather than leaving it to be inferred from a null `until`'
+);
+check(
+  () => assert.equal(readState().dismissed?.['demo/zz-unreadable'], undefined),
+  'no record was written on a trigger nobody measured — a card visible one sweep too long beats one hidden behind a guess'
+);
+check(
+  () => assert.ok(writes().some((a) => a[0] === 'comment'), `bd was told to: ${JSON.stringify(writes())}`),
+  'and the answer is on the thread regardless: that is the half that must never be lost'
+);
+
+const afterUnreadable = await get('/api/questions');
+check(
+  () => assert.ok(idsOf(afterUnreadable).includes('zz-unreadable'), JSON.stringify(idsOf(afterUnreadable))),
+  'so the card is still on the list, which is what the toast over it says'
 );
 
 for (const s of servers || []) s.close?.();
