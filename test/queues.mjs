@@ -631,6 +631,38 @@ const cachelib = await import('../lib/cache.js');
   forgetMerges();
 }
 
+/* bc-19vt.1. The block above shrinks `ceilingMs` alone, shrinking the slot and this call's
+   own wait together. `/api/queues` shrinks neither — it passes `waitMs` on its own and
+   leaves `ceilingMs` at `gatherMerges`'s real default, so the sweep the slot is holding
+   still gets the full 150 seconds while this one caller gives up in a few. */
+{
+  forgetMerges();
+  let release;
+  const held = cachelib.read('queues:merges', () => new Promise((resolve) => (release = resolve)), {
+    freshMs: 10_000,
+    ceilingMs: 5_000,
+  });
+  held.catch(() => {});
+
+  const was = console.error;
+  console.error = () => {};
+  let out;
+  try {
+    out = await gatherMerges({}, { workspaces: [{ name: 'beadcause' }, { name: 'sophab' }] }, { waitMs: 30 });
+  } finally {
+    console.error = was;
+  }
+
+  check('a short `waitMs` alone gives up in seconds, with `ceilingMs` left at gatherMerges\'s real default', () => {
+    assert.deepEqual(out.merges, []);
+    assert.match(out.errors[0]?.error || '', /did not answer within/);
+  });
+
+  release({ merges: [], errors: [] });
+  await held.catch(() => {});
+  forgetMerges();
+}
+
 /* ------------------------------------------------------------ against the real server */
 
 console.log('\nand the door onto it, against the real server\n');

@@ -116,8 +116,23 @@ const SETTLE_TICKS = 1;
  * so it can drive the slow-start path without pretending to be a busy machine.
  */
 const HEALTH_BASE = Number(cfg.healthTimeoutMs) > 0 ? Number(cfg.healthTimeoutMs) : HEALTH_BASE_MS;
-/** A parked long poll runs 55s. Anything still open past this is not coming back. */
-const DRAIN_MS = 60000;
+/**
+ * A parked long poll runs 55s, and a board sweep has been measured past 65s (bc-xl7n.134)
+ * — so this is not "anything still open past this is not coming back", it is "anything
+ * still open past this is killed anyway, and the proxy has to answer for that itself
+ * rather than let it read as the daemon failing". See `retire` and the `draining` check
+ * in the request handler. Overridable via `cfg.drainMs`, the same way `HEALTH_BASE` is —
+ * lower it only in a test that needs the kill to be reachable on demand.
+ */
+const DRAIN_MS = Number(cfg.drainMs) > 0 ? Number(cfg.drainMs) : 60000;
+/**
+ * Marks a response as "the backend that would have answered this was killed mid-swap,
+ * not broken" — bc-xl7n.134. `public/report.js` reads this header to skip filing a P0
+ * over it; there is no shared module between this process and a browser script to hold
+ * the literal in one place, so both sides carry it and a change here needs one there.
+ */
+const DRAIN_HEADER = 'x-beadcause-swap-drain';
+const DRAIN_ERROR_CODE = 'swap-drain';
 /** Between SIGTERM and SIGKILL for a drained backend. */
 const KILL_GRACE_MS = 5000;
 /** Keeps each backend's orphan guard fed, and notices a wedged one. */
@@ -853,9 +868,9 @@ function upgradeHeaders(req) {
  */
 const agent = new http.Agent({ keepAlive: false, maxSockets: Infinity });
 
-function json(res, code, obj) {
+function json(res, code, obj, headers) {
   if (res.headersSent) return res.destroy();
-  res.writeHead(code, { 'content-type': 'application/json' });
+  res.writeHead(code, { 'content-type': 'application/json', ...headers });
   res.end(JSON.stringify(obj));
 }
 
@@ -1070,6 +1085,23 @@ const handler = (req, res) => {
 
   upstream.on('error', (err) => {
     done();
+    // The backend this request was talking to was already superseded and DRAIN_MS ran
+    // out on it — see `retire`. `role` only reaches 'draining' there, and only a
+    // request still open when that happens can land here: a cleanly drained backend has
+    // nothing left with a socket to error. So this is not the daemon failing — a new
+    // backend has been serving for a while already — and answering the ordinary 502
+    // is what filed a P0 about a working daemon (bc-xl7n.134). `x-beadcause-build`
+    // cannot carry this instead, the way a real response does: the upstream never sent
+    // headers, so there is nothing on this response to attribute to a build.
+    if (target.role === 'draining' && !res.headersSent) {
+      warn(`proxy to pid ${target.pid} failed during drain — ${err.message} — telling the phone to retry`);
+      return json(
+        res,
+        503,
+        { error: 'backend was retired mid-handover — retry', code: DRAIN_ERROR_CODE },
+        { 'retry-after': '1', [DRAIN_HEADER]: '1' }
+      );
+    }
     warn(`proxy to pid ${target.pid} failed — ${err.message}`);
     json(res, 502, { error: 'backend unreachable' });
   });

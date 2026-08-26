@@ -1,0 +1,228 @@
+#!/usr/bin/env node
+/**
+ * `b7e-checks` — a workspace repo's own gate scripts, all of them, with a baseline.
+ *
+ *     b7e-checks -w deluvia                    # every check the repo's manifest finds
+ *     b7e-checks --dir <root>                   # another checkout, no beadcause workspace
+ *     b7e-checks -w deluvia --baseline origin/main   # + a third column vs that ref
+ *     b7e-checks -w deluvia --only 'scripts/check_g0*'
+ *     b7e-checks -w deluvia --skip 'scripts/check_atlas_deploy.py'
+ *     b7e-checks -w deluvia --json
+ *     b7e-checks -w deluvia --list              # what would run, without running it
+ *
+ * bc-dgx7.57: eight sessions (dv-3rn.3, dv-5i2.44, dv-ek4, dv-6cn, dv-gsh, dv-i5v,
+ * dv-nnk, dv-5f3) each hand-assembled "run every scripts/check_*.py and read its exit
+ * code, twice — once as a baseline, once before deliver.js" — a `for` loop the
+ * worktree-isolation guard refused as too complex to verify, a python heredoc, two
+ * scratchpad scripts, a spelling that piped through `tail` and silently read `tail`'s
+ * exit code instead of the check's. `lib/checks.js` carries the manifest, the running
+ * and the baseline diff; this file is the argv parsing and the printing around it, the
+ * same split `bin/b7e-gate` and `lib/gate.js` already use.
+ *
+ * Exit codes: `0` every check passed. `1` at least one failed (whatever a `--baseline`
+ * column says about it — that is context, not an excuse). `2` refused: bad usage, no
+ * manifest recognises the repo, or another `b7e-checks`/`b7e-gate` is already running on
+ * this root.
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { resolveSessionDir } from '../lib/session.js';
+import {
+  DEFAULT_TIMEOUT_MS,
+  acquireLock,
+  classifyAgainstBaseline,
+  discoverChecks,
+  makeRefWorktree,
+  manifestFor,
+  removeRefWorktree,
+  runChecks,
+  selectSuites,
+  summaryLine,
+} from '../lib/checks.js';
+
+const USAGE = `usage: b7e-checks -w <workspace> | --dir <root> [options]
+
+  -w, --workspace <name>   a beadcause workspace whose checkout is the repo to check
+  --dir <root>             a checkout directly, instead of a workspace name
+  --baseline <ref>         also run the same set at this git ref and mark each check
+                            ALREADY RED / newly red / green against it
+  --only <glob>            run only checks whose name matches (repeatable)
+  --skip <glob>            drop checks whose name matches (repeatable)
+  --jobs <n>               how many checks at once (default 4)
+  --timeout <s>            per-check seconds (default ${DEFAULT_TIMEOUT_MS / 1000})
+  --json                   one object per check, streamed, for a caller to parse
+  --list                   print what would run, without running it`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const has = (f) => argv.includes(f);
+const multi = (f) => {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === f && argv[i + 1] !== undefined) out.push(argv[++i]);
+    else if (argv[i].startsWith(`${f}=`)) out.push(argv[i].slice(f.length + 1));
+  }
+  return out;
+};
+const value = (f, fallback) => {
+  const inline = argv.find((a) => a.startsWith(`${f}=`));
+  if (inline) return inline.slice(f.length + 1);
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+let wsName = value('-w', value('--workspace', null));
+const dirArg = value('--dir', null);
+const BASELINE = value('--baseline', null);
+const ONLY = multi('--only');
+const SKIP = multi('--skip');
+const JOBS = Math.max(1, Number(value('--jobs', 4)) || 4);
+const TIMEOUT_ARG = value('--timeout', null);
+const TIMEOUT_MS = TIMEOUT_ARG == null ? DEFAULT_TIMEOUT_MS : Math.max(0, Number(TIMEOUT_ARG) || 0) * 1000;
+const JSON_MODE = has('--json');
+const LIST_MODE = has('--list');
+
+if (!wsName && !dirArg) {
+  console.error('b7e-checks: one of -w/--workspace or --dir is required');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (wsName && dirArg) {
+  console.error('b7e-checks: -w/--workspace and --dir are mutually exclusive');
+  process.exit(2);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+let ROOT;
+/** Set only when `-w` resolved a beadcause workspace — its `.dir` IS the repo's `BEADS_DIR`,
+ * so a check that shells out to `bd` (studio_status.py's DRIFT probe) queries the right
+ * graph rather than whatever this process happened to inherit. */
+let RUN_ENV;
+
+if (dirArg) {
+  ROOT = path.resolve(dirArg);
+} else {
+  const cfg = loadConfig();
+  const ws = cfg.workspaces.find((w) => w.name === wsName);
+  if (!ws) {
+    console.error(`b7e-checks: no workspace named "${wsName}"`);
+    console.error(`configured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`);
+    process.exit(2);
+  }
+  try {
+    ROOT = resolveSessionDir(cfg, ws);
+  } catch (err) {
+    console.error(`b7e-checks: ${err.message}`);
+    process.exit(2);
+  }
+  RUN_ENV = { BEADS_DIR: ws.dir };
+}
+
+const manifest = manifestFor(ROOT);
+if (!manifest) {
+  console.error(`b7e-checks: no manifest recognises ${ROOT} (no scripts/check_*.py found)`);
+  process.exit(2);
+}
+
+const ALL = discoverChecks(ROOT);
+const SELECTED = selectSuites(ALL.map((c) => c.name), { only: ONLY, skip: SKIP }).map((name) =>
+  ALL.find((c) => c.name === name)
+);
+
+if (LIST_MODE) {
+  console.log(SELECTED.map((c) => c.name).join('\n'));
+  process.exit(0);
+}
+
+if (!SELECTED.length) {
+  console.log(red(ONLY.length ? `nothing matches --only ${ONLY.join(', ')}` : 'no checks found'));
+  process.exit(1);
+}
+
+const lock = acquireLock(ROOT);
+if (!lock.ok) {
+  const since = lock.startedAt ? `${Math.round((Date.now() - lock.startedAt) / 1000)}s ago` : 'a while ago';
+  console.error(red(`a gate or checks run is already running on this tree — pid ${lock.pid}, started ${since}`));
+  console.error(dim('refusing rather than doubling the load; that run\'s own output is the one to read'));
+  process.exit(2);
+}
+
+let exitCode = 0;
+try {
+  const onResult = (r, done, total) => {
+    if (JSON_MODE) {
+      console.log(JSON.stringify({ index: done, total, name: r.name, ok: r.ok, seconds: Number((r.ms / 1000).toFixed(1)), detail: r.detail }));
+      return;
+    }
+    const mark = r.ok ? green('ok') : red('FAIL');
+    const secs = (r.ms / 1000).toFixed(1);
+    console.log(`${dim(`[${done}/${total}]`)} ${mark} ${r.name} ${dim(`${secs}s`)}`);
+    if (!r.ok) console.log(dim(`      ${r.detail || lastLineOf(r.out)}`));
+  };
+
+  const result = await runChecks(ROOT, SELECTED, { jobs: JOBS, timeoutMs: TIMEOUT_MS, onResult, env: RUN_ENV });
+
+  let classified = result.results;
+  if (BASELINE) {
+    if (!JSON_MODE) console.log(dim(`\nbaseline: running the same set at ${BASELINE}…`));
+    let refDir, refScratch;
+    try {
+      ({ dir: refDir, scratchRoot: refScratch } = makeRefWorktree(ROOT, BASELINE));
+      const baselineManifest = manifestFor(refDir);
+      const baselineAll = baselineManifest ? baselineManifest.discover(refDir) : [];
+      const baselineSelected = selectSuites(baselineAll.map((c) => c.name), { only: ONLY, skip: SKIP }).map(
+        (name) => baselineAll.find((c) => c.name === name)
+      );
+      const baselineResult = await runChecks(refDir, baselineSelected, { jobs: JOBS, timeoutMs: TIMEOUT_MS, env: RUN_ENV });
+      classified = classifyAgainstBaseline(result.results, baselineResult.results);
+    } catch (err) {
+      console.error(red(`b7e-checks: --baseline ${BASELINE} failed — ${err.message}`));
+      classified = result.results.map((r) => ({ ...r, baseline: 'unknown' }));
+    } finally {
+      if (refScratch) removeRefWorktree(ROOT, refDir, refScratch);
+    }
+  }
+
+  if (JSON_MODE) {
+    console.log(
+      JSON.stringify({
+        summary: true,
+        total: result.total,
+        passed: result.passed,
+        failed: result.failed.map((f) => f.name),
+        baseline: BASELINE
+          ? classified.filter((c) => !c.ok).map((c) => ({ name: c.name, baseline: c.baseline }))
+          : undefined,
+      })
+    );
+  } else {
+    if (BASELINE) {
+      console.log('');
+      for (const c of classified) {
+        if (c.ok) continue;
+        const tag = c.baseline === 'already-red' ? amber('ALREADY RED') : c.baseline === 'newly-red' ? red('newly red') : dim('unknown');
+        console.log(`  ${tag}  ${c.name}`);
+      }
+    }
+    console.log('');
+    console.log(result.ok ? green(summaryLine(result)) : red(summaryLine(result)));
+  }
+
+  exitCode = result.ok ? 0 : 1;
+} finally {
+  lock.release();
+}
+
+function lastLineOf(out) {
+  return String(out || '').trim().split('\n').slice(-1)[0] || '';
+}
+
+process.exit(exitCode);

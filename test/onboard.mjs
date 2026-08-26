@@ -47,6 +47,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { removeTreeSync } from './helpers/tmp.mjs';
+import { provisionBdWorkspace } from './helpers/bdtemplate.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -98,6 +99,17 @@ function bd(cwd, args, { allowFail = false } = {}) {
   return r;
 }
 
+/**
+ * A cached template stands in for `bd(cwd, ['init', '--skip-agents', '--prefix',
+ * prefix])` — see test/helpers/bdtemplate.mjs. This suite needs two independent
+ * workspaces (`tm`, the published tracker; `zz`, an unrelated one already in the way),
+ * so it is templated per prefix like every other real-bd suite.
+ */
+function initWorkspace(cwd, prefix) {
+  const r = provisionBdWorkspace({ prefix, destRoot: cwd });
+  if (!r.ok) throw new Error(`bd init --prefix ${prefix} in ${cwd}: ${r.reason}`);
+}
+
 /** The real script, with its own profile and its own config directory. */
 function onboard(teamFile, configDir, args = []) {
   const r = spawnSync('node', [path.join(ROOT, 'scripts', 'onboard.mjs'), ...args], {
@@ -121,7 +133,7 @@ const remote = path.join(tmp, 'remote');
 fs.mkdirSync(path.join(publisher, '.beads'), { recursive: true, mode: 0o700 });
 fs.mkdirSync(remote, { recursive: true });
 
-bd(publisher, ['init', '--skip-agents', '--prefix', 'tm']);
+initWorkspace(publisher, 'tm');
 const created = bd(publisher, ['create', '--title', 'the bead the team can see', '--type', 'task', '-p', '2']);
 const id = (created.stdout.match(/\b(tm-[a-z0-9]+)\b/) || [])[1];
 bd(publisher, ['dolt', 'remote', 'add', 'origin', `file://${remote}`]);
@@ -196,7 +208,7 @@ const configDir = path.join(tmp, 'config-second');
 
 const inTheWay = path.join(tmp, 'inTheWay', 'beads', 'acme');
 fs.mkdirSync(path.join(inTheWay, '.beads'), { recursive: true, mode: 0o700 });
-bd(inTheWay, ['init', '--skip-agents', '--prefix', 'zz']);
+initWorkspace(inTheWay, 'zz');
 bd(inTheWay, ['create', '--title', 'a bead of my own', '--type', 'task', '-p', '2']);
 
 {

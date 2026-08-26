@@ -69,12 +69,24 @@ const check = (name, fn) => {
 };
 
 /** public/hashroute.js in a room of its own. It touches nothing at load. */
-const route = (() => {
+const load = () => {
   const window = {};
   const ctx = vm.createContext({ window });
   vm.runInContext(read('public/hashroute.js'), ctx, { filename: 'hashroute.js' });
   return ctx.window.beadcause.route;
-})();
+};
+
+/** The one every check below reads. `VIEWS` is the five this app is, and stays five. */
+const route = load();
+
+/** A private copy, for the one thing that has to change the grammar: `add`, which admits
+ *  a repo's own view at runtime and would otherwise leave a sixth view lying in `VIEWS`
+ *  for every check that runs after it. */
+const withRepoView = (view) => {
+  const r = load();
+  assert.equal(r.add(view), true, `the grammar refused ${view.id}`);
+  return r;
+};
 
 console.log('\nthe grammar');
 
@@ -181,6 +193,42 @@ check('hashFor writes one, and refuses to hang one off Home', () => {
   // whatever this answers, and a refusal here would be a dead pill.
   assert.equal(route.hashFor('epics', 'status=closed'), '');
   assert.equal(route.hashFor('nope', 'status=closed'), null);
+});
+
+check('queryFor answers only the view the hash is talking to (bc-k7lrc)', () => {
+  // `parse` gives every hash a view, because there is always a pane to show. A *query*
+  // belongs to the view that was named, and a caller reading `parse(...).query` alone
+  // cannot tell "my filters" from "the pane next door's". That is harmless for the two
+  // callers that predate this — public/history.js and public/montabs.js each read for
+  // keys the other never writes, once, as their own pane is built — and it is not
+  // harmless for a repo view, whose `build` runs several hundred milliseconds after
+  // `/api/views` answers and so may run at a moment when the reader has moved on.
+  assert.equal(route.queryFor('history', '#history?status=closed'), 'status=closed');
+  assert.equal(route.queryFor('advocates', '#history?status=closed'), '', 'it answered another pane’s filters');
+  assert.equal(route.queryFor('history', '#history'), '');
+  assert.equal(route.queryFor('history', '#advocates?tab=prs'), '');
+  // A card is on Home and carries no query; Home has no name for one to hang off. Both
+  // answer `''` rather than null, so the answer goes straight into URLSearchParams.
+  assert.equal(route.queryFor('epics', route.hashForCard('beadcause/bc-khoe')), '');
+  assert.equal(route.queryFor('epics', ''), '');
+  assert.equal(route.queryFor('epics', '#wat?status=closed'), '', 'a hash nobody minted narrowed Home');
+  assert.equal(route.queryFor('history', undefined), '');
+});
+
+check('and a repo view carries one exactly like a built-in (bc-k7lrc)', () => {
+  // The whole of what makes a repo view deep-linkable to the thing it is showing rather
+  // than only to itself. `add` puts the id in `NAMED`, so the split at the first `?` finds
+  // it, and nothing in the grammar is special-cased for a repo.
+  const r = withRepoView({ id: 'deluvia.briefs', paths: ['/v/deluvia/briefs'] });
+  assert.equal(r.hashFor('deluvia.briefs', 'b=chapter-one'), '#deluvia.briefs?b=chapter-one');
+  const at = r.parse('#deluvia.briefs?b=chapter-one');
+  assert.equal(at.kind, 'view');
+  assert.equal(at.view, 'deluvia.briefs');
+  assert.equal(at.key, null, 'the dot kept it out of the card shapes — a `/` here would have opened the inbox');
+  assert.equal(r.queryFor('deluvia.briefs', '#deluvia.briefs?b=chapter-one'), 'b=chapter-one');
+  assert.equal(r.queryFor('deluvia.studio', '#deluvia.briefs?b=chapter-one'), '');
+  // And the id is still not a card under any of the three shapes, query or no query.
+  assert.equal(r.parse('#deluvia.briefs').kind, 'view');
 });
 
 check('a hash that will not decode does not throw out of boot', () => {
@@ -390,9 +438,10 @@ check('every page that loads viewbar.js or app.js loads hashroute.js before it',
       assert.ok(mine < at(f), `public/${page} loads hashroute.js after ${f}, so the call on boot throws`);
     }
   }
-  // Eleven since bc-khoe.30.15 took public/history.html out of `public/` entirely — the
-  // ledger's pill is drawn by index.html now, which was already one of the eleven.
-  assert.equal(seen, 11, `expected the eleven pages that draw the pill row, found ${seen}`);
+  // Ten since bc-khoe.30.22 took public/releases.html out of `public/` entirely, as
+  // bc-khoe.30.15 did for public/history.html before it — both pills are drawn by
+  // index.html now, which was already one of the count.
+  assert.equal(seen, 10, `expected the ten pages that draw the pill row, found ${seen}`);
 });
 
 check('and the service worker precaches it, because both callers call it flat', () => {

@@ -259,7 +259,7 @@ check('and it still says something during an outage that named no checks', () =>
  * where the answer is "carry on".
  */
 const world = ({ baseline = RED, rows = [], filed = 'zz-new', createThrows = null, closeThrows = null } = {}) => {
-  const did = { filed: [], closed: [], settled: 0, announced: [], opened: [], log: [] };
+  const did = { filed: [], closed: [], settled: 0, announced: [], opened: [], log: [], commented: [] };
   return {
     did,
     deps: {
@@ -273,6 +273,9 @@ const world = ({ baseline = RED, rows = [], filed = 'zz-new', createThrows = nul
       close: async (id, reason) => {
         if (closeThrows) throw closeThrows;
         did.closed.push({ id, reason });
+      },
+      comment: async (id, text) => {
+        did.commented.push({ id, text });
       },
       settle: async () => {
         did.settled += 1;
@@ -351,6 +354,32 @@ await acheck('a close bd refused leaves the hold on rather than pretending', asy
   assert.equal(out.act, 'stuck');
   assert.equal(out.hold.bead, 'zz-hold');
   assert.ok(w.did.log.some((l) => /would not close/.test(l)));
+});
+
+await acheck('AND IT IS SAID ON THE BEAD TOO, NOT ONLY A LOG LINE — bc-beleq.2', async () => {
+  // The log line above is real, but nothing tails it — a held card an hour after the
+  // base went green looks identical to one that has been red the whole time. The refusal
+  // goes on the bead itself, where a person looking at the card actually reads it.
+  const w = world({ baseline: GREEN, rows: [holdRow()], closeThrows: new Error('blocked by open issues [zz-x]') });
+  const out = await sweepBase(HERE_KEY, w.deps);
+  assert.equal(out.act, 'stuck');
+  assert.equal(w.did.commented.length, 1);
+  assert.equal(w.did.commented[0].id, 'zz-hold');
+  assert.match(w.did.commented[0].text, /green again/);
+  assert.match(w.did.commented[0].text, /blocked by open issues/, 'names the refusal, not just that one happened');
+});
+
+await acheck('a comment effect is optional, and a comment that fails does not throw out of the sweep', async () => {
+  const w = world({ baseline: GREEN, rows: [holdRow()], closeThrows: new Error('blocked by open issues [zz-x]') });
+  // No `comment` at all, matching every caller before this bead.
+  const { comment, ...noComment } = w.deps;
+  const out1 = await sweepBase(HERE_KEY, noComment);
+  assert.equal(out1.act, 'stuck', 'the sweep still completes with nothing to say it to');
+
+  // A `comment` that itself rejects must not turn a stuck hold into an unhandled one.
+  const w2 = world({ baseline: GREEN, rows: [holdRow()], closeThrows: new Error('blocked by open issues [zz-x]') });
+  const out2 = await sweepBase(HERE_KEY, { ...w2.deps, comment: async () => { throw new Error('bd comment: locked'); } });
+  assert.equal(out2.act, 'stuck');
 });
 
 await acheck('A TRACKER THAT COULD NOT BE ASKED CHANGES NOTHING AT ALL', async () => {

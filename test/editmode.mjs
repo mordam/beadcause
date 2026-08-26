@@ -65,6 +65,26 @@ function check(name, fn) {
   }
 }
 
+/**
+ * The same, awaited — for a check whose body is `async`.
+ *
+ * `check()` calls its function and does not wait for it, which for an `async` body means
+ * the ✓ is printed before the assertions have run and a failure arrives later as an
+ * unhandled rejection. The suite does still fail — Node exits non-zero on one — but it
+ * fails at the first one, after a screen of ticks, and names none of them.
+ */
+async function acheck(name, fn) {
+  ran += 1;
+  try {
+    await fn();
+    console.log(`  \x1b[32m✓\x1b[0m ${name}`);
+  } catch (err) {
+    failures += 1;
+    console.log(`  \x1b[31m✗\x1b[0m ${name}`);
+    console.log(`      ${err.message.split('\n')[0]}`);
+  }
+}
+
 console.log('\nedit mode');
 
 /* ================================================================ a fake document */
@@ -317,14 +337,17 @@ check('the vendored bundles are never read — they emit none of this app`s mark
   assert.deepEqual(host.fetched, ['/', '/app.js']);
 });
 
-check('a class named in a comment is not a site — prose is not where markup is emitted', async () => {
+await acheck('a class named in a comment is not a site — prose is not where markup is emitted', async () => {
   // The regression case, and it is not hypothetical: the first version of this counted
   // the paragraph at the top of public/editmode.js, which quotes `class="p0-title"`
   // while explaining why class names make good grep keys. Two sites reads as "ambiguous,
   // refuse the edit" — the wrong answer, reached by counting an English sentence.
+  // `/` is scanned too — it is the page itself, per sourceUrls() — so its markup must
+  // stay unrelated to the class under test; a `class="q"` here would be a second real
+  // site, not a masked one, and the assertion below would be asking for the wrong count.
   const host = load({
     files: {
-      '/': '<div class="q">x</div>',
+      '/': '<div>x</div>',
       '/a.js': ['// the .q class is drawn below', '/* and `class="q"` again, in a block */', 'h += `<i class="q">y</i>`;'].join('\n'),
     },
     scripts: ['/a.js'],
@@ -336,7 +359,7 @@ check('a class named in a comment is not a site — prose is not where markup is
   assert.equal(a.source.sites[0].line, 3, 'the site is on the wrong line — the blanking moved an offset');
 });
 
-check('but a comment`s spelling does not blank the code around it', async () => {
+await acheck('but a comment`s spelling does not blank the code around it', async () => {
   // `//` inside a string is not a comment, a quote inside a comment does not open one,
   // and this app nests template literals one inside another. All three on one line,
   // because all three are on real lines of public/app.js.
@@ -350,7 +373,7 @@ check('but a comment`s spelling does not blank the code around it', async () => 
   assert.equal(a.source.found, 1, `the scanner lost the line: ${JSON.stringify(a.source.tried)}`);
 });
 
-check('a regular expression holding a slash pair is not a comment either', async () => {
+await acheck('a regular expression holding a slash pair is not a comment either', async () => {
   const host = load({
     files: { '/a.js': ['const bare = /^https?:\\/\\//i.test(u) ? 1 : 2;', 'h += `<b class="after">z</b>`;'].join('\n') },
     scripts: ['/a.js'],
@@ -361,7 +384,7 @@ check('a regular expression holding a slash pair is not a comment either', async
   assert.equal(a.source.found, 1, `a regex ate the rest of the file: ${JSON.stringify(a.source.tried)}`);
 });
 
-check('an id beats a class, because an id is unique on the page by definition', async () => {
+await acheck('an id beats a class, because an id is unique on the page by definition', async () => {
   // `#refresh` is the ⟳ in the top bar, written once in index.html.
   const { anchor } = await realised(makeEl('button', { id: 'refresh', class: 'icon-btn' }, [], '⟳'));
   assert.equal(anchor.source.kind, 'id');
@@ -369,13 +392,13 @@ check('an id beats a class, because an id is unique on the page by definition', 
   assert.equal(anchor.source.sites[0].file, '/');
 });
 
-check('a data-act names the one handler branch that answers it', async () => {
+await acheck('a data-act names the one handler branch that answers it', async () => {
   const { anchor } = await realised(makeEl('button', { class: 'p0-advocate', 'data-act': 'advocate' }, [], 'Put an advocate on it'));
   assert.equal(anchor.source.found, 1, JSON.stringify(anchor.source.tried));
   assert.match(anchor.source.query, /data-act|p0-advocate/);
 });
 
-check('the chain stops at the nearest id rather than walking to the body', async () => {
+await acheck('the chain stops at the nearest id rather than walking to the body', async () => {
   const list = makeEl('main', { id: 'list', class: 'list' });
   const card = makeEl('div', { class: 'card', 'data-key': 'demo/bc-1' });
   const title = makeEl('div', { class: 'title' }, [], 'A question');
@@ -386,7 +409,7 @@ check('the chain stops at the nearest id rather than walking to the body', async
   assert.equal(anchor.key, 'demo/bc-1', 'the owning chunk is not on the anchor');
 });
 
-check('an element nothing in the source drew reports an honest none', async () => {
+await acheck('an element nothing in the source drew reports an honest none', async () => {
   const { anchor } = await realised(makeEl('div', { class: 'zzz-not-a-real-class' }, [], 'zzz not real text either'));
   assert.equal(anchor.source.found, 0, JSON.stringify(anchor.source.sites));
   assert.deepEqual([...anchor.source.sites], []);
@@ -397,7 +420,7 @@ check('an element nothing in the source drew reports an honest none', async () =
 
 /* ================================================== 3. source text versus tracker text */
 
-check('text written in this app`s source is source text, and may be retyped', async () => {
+await acheck('text written in this app`s source is source text, and may be retyped', async () => {
   const host = load({ files: { '/': '<button class="q">Refresh</button>' }, scripts: [] });
   host.edit.on();
   await host.edit.ready();
@@ -406,7 +429,7 @@ check('text written in this app`s source is source text, and may be retyped', as
   assert.equal(a.editable.ok, true, a.editable.why);
 });
 
-check('text the payload put there is tracker text, and may not be', async () => {
+await acheck('text the payload put there is tracker text, and may not be', async () => {
   const host = load({ files: { '/': '<div class="title"></div>' }, scripts: [] });
   host.edit.provideText(() => ['Edit the app from inside the app']);
   host.edit.on();
@@ -431,7 +454,7 @@ check('a bead titled "Refresh" is not the ⟳ button — data beats source', () 
   });
 });
 
-check('text written in two places is not retypable — picking one would be a guess', async () => {
+await acheck('text written in two places is not retypable — picking one would be a guess', async () => {
   const host = load({ files: { '/': '<a class="x">Open</a>', '/app.js': 'html += `<b>Open</b>`;' }, scripts: ['/app.js'] });
   host.edit.on();
   await host.edit.ready();
@@ -441,7 +464,7 @@ check('text written in two places is not retypable — picking one would be a gu
   assert.match(a.editable.why, /2 places/);
 });
 
-check('what counts as tracker text is frozen with the screen, not read live', async () => {
+await acheck('what counts as tracker text is frozen with the screen, not read live', async () => {
   // The poll keeps running while the mode is on, so `state` in app.js moves on while the
   // pixels do not. Asked live, the title on screen would not be in the answer and would
   // come back `unknown` — not refused, and one step from being filed as an edit to a
@@ -462,7 +485,7 @@ check('what counts as tracker text is frozen with the screen, not read live', as
   assert.equal(b.text.from, 'data', 'the snapshot outlived the mode that took it');
 });
 
-check('a data provider that throws is reported, not silently believed', async () => {
+await acheck('a data provider that throws is reported, not silently believed', async () => {
   const host = load({ files: { '/': '<div class="t">Whatever</div>' }, scripts: [] });
   host.edit.provideText(() => {
     throw new Error('state is not ready');
@@ -475,7 +498,7 @@ check('a data provider that throws is reported, not silently believed', async ()
   assert.equal(a.text.provider, null);
 });
 
-check('an element with no text at all says so rather than guessing', async () => {
+await acheck('an element with no text at all says so rather than guessing', async () => {
   const { anchor } = await realised(makeEl('span', { class: 'dot' }));
   assert.equal(anchor.text.from, 'empty');
   assert.equal(anchor.editable.ok, false);

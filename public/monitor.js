@@ -1969,7 +1969,7 @@
    * binds: every advocate card already quotes it, in its stepper's tooltip and in the
    * amber "Held by globalMaxWorkers" note the tick writes when it is what stopped a
    * launch. Until now it was also the one number on this page you could not change
-   * without editing ~/.beadcause/config.json and restarting the daemon — so the page
+   * without editing ~/.config/beadcause/config.json and restarting the daemon — so the page
    * could tell you exactly which number was holding your work up and offer you nothing
    * to do about it.
    *
@@ -2227,6 +2227,11 @@
       // With its sequence, so the inbox can tell whether the copy it is holding for this
       // page has been invalidated by anything since — see `MAINTAINED` in public/app.js.
       warm?.write?.('/api/work', work, Number(work?.seq) || 0);
+      // Whole and untrimmed — unlike `keep()` in public/app.js, which stores a named
+      // subset. Used to be able to erase a field a newer daemon had already stored, on a
+      // mixed fleet where this fetch's daemon predates it (bc-khoe.63); `write()` now
+      // merges onto the held entry for this one path, so an older payload here cannot
+      // undo what a fresher one elsewhere already wrote.
       if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
       adoptQuestions(questions);
       state.error = null;
