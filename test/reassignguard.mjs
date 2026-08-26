@@ -45,6 +45,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { provisionBdWorkspace } from './helpers/bdtemplate.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -241,7 +242,6 @@ if (!bdOnPath) {
 } else {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-reassignguard-'));
   const dir = path.join(tmp, '.beads');
-  fs.mkdirSync(dir, { recursive: true });
 
   // Spawned directly, never through a shell: `~/.zshenv` rewrites BEADS_DIR from the
   // shell's cwd, so a shell here would resolve to somebody's actual tracker and this
@@ -249,9 +249,11 @@ if (!bdOnPath) {
   const env = { ...process.env, BEADS_DIR: dir };
   const raw = (args) => spawnSync('bd', args, { env, cwd: tmp, encoding: 'utf8', timeout: 120_000 });
 
-  const init = raw(['init', '--skip-agents', '--prefix', 'rg']);
-  if (init.status !== 0) {
-    bad('a temp workspace can be made to ask in', (init.stderr || init.stdout || '').split('\n')[0]);
+  // A cached template stands in for `bd init --skip-agents --prefix rg` — see
+  // test/helpers/bdtemplate.mjs.
+  const init = provisionBdWorkspace({ prefix: 'rg', destRoot: tmp });
+  if (!init.ok) {
+    bad('a temp workspace can be made to ask in', init.reason);
   } else {
     const bd = new Bd({ bin: 'bd', actor: 'beadcause' });
     const ws = { name: 'reassignguard', dir };

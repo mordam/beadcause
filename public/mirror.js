@@ -336,10 +336,10 @@
         <button class="mir-btn primary" data-mact="respond" ${text.trim() ? '' : 'disabled'}>${
           // Same rule as the phone's: a choice marked `closes: false` is a
           // commission, so the button over it must not promise a close — and one
-          // marked `defers: true` promises less than either, because the card is
-          // still going to be here afterwards.
+          // marked `defers: true` promises less than either, because it leaves the
+          // bead exactly as it was and takes the card off the list (bc-y9cof).
           picked?.defers
-            ? 'Answer &amp; defer'
+            ? 'Answer &amp; set aside'
             : picked?.closes === false
               ? 'Answer &amp; commission'
               : 'Answer &amp; close'
@@ -384,10 +384,11 @@
             )}" data-response="${esc(o.response)}" aria-pressed="${o.id === picked?.id}">
               <span>${esc(o.label)}</span>${
                 // A deferral is `closes: false` too and means the opposite of a
-                // commission — nothing starts, and this card is still here — so it gets
-                // its own line rather than borrowing the one below it.
+                // commission — nothing starts, and this card goes off the list until
+                // what it waits on clears — so it gets its own line rather than
+                // borrowing the one below it.
                 o.defers
-                  ? '<small>↪ not yet — the card stays on your list</small>'
+                  ? '<small>↪ not yet — sets this card aside</small>'
                   : o.closes === false
                     ? '<small>↪ commissions the work — the bead stays open</small>'
                     : ''
@@ -699,11 +700,15 @@
         note(
           res?.handedBack
             ? 'Answered — left open and handed back as work.'
-            : // Before `needsChoice`, as on the phone: both leave the card on screen, and
-              // "a choice is still owed" over a deferral you have just made would read as
-              // the tap not having landed.
+            : // Before `needsChoice`, as on the phone: only one of the two leaves the card
+              // on screen now, and "a choice is still owed" over a deferral you have just
+              // made would read as the tap not having landed either way.
               res?.deferred
-              ? 'Deferred — the answer is on the thread and the card is still on your list.'
+              ? res?.setAside
+                ? `Set aside — the answer is on the thread, and it comes back when ${
+                    res.until ? `${res.until} clears` : 'someone comments'
+                  }.`
+                : 'Answered — nothing handed to an agent, and the card could not be set aside, so it is still on your list.'
               : res?.needsChoice
                 ? 'Saved — one of these options starts work, so pick one to commit it.'
                 : 'Answered — the card is closed.'
