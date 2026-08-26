@@ -52,10 +52,33 @@
 # points at: it is a cheap roll-up that `needs:` every `shard` leg and fails if any of them
 # did. The actual suite runs in `shard`, not in `test`.
 #
+# ## A pull request runs what it affects; the gate runs everything (bc-xlz32.8)
+#
+# `b7e-affected` answers "which suites cover this diff" and `b7e-shard --from` slices that
+# answer instead of the whole roster, so on a `pull_request` each shard runs only the part
+# of the narrowed list that belongs to it. Measured over the last thirty merges to `main`:
+# a median diff selects **4% of the suite's total time**, and one in thirty selects all of
+# it. On `merge_group` and `push: main` nothing is narrowed — those run all 530.
+#
+# That split is the whole safety argument. Narrowing can only be wrong by running too
+# little, and the place it would matter is the merge, which is exactly where it is turned
+# off: a branch narrowed wrongly is caught when it enters the queue, not in `main`. Three
+# things make the narrowing itself trustworthy rather than merely fast, and all three live
+# in `lib/affected.js`: a changed file it cannot place empties the list, which means *run
+# everything* rather than run nothing; a suite that walks a source directory is selected
+# for any change under it, which is what covers a brand-new file nothing names yet; and a
+# suite the gate has never heard of is dropped before `--only` ever sees it.
+#
+# **An empty slice must never become a bare `b7e-gate`.** With the full roster a shard is
+# never empty, so the old version of this step could interpolate `$ONLY_ARGS` unguarded.
+# A narrowed list shorter than `SHARD_TOTAL` leaves some shard with nothing, and
+# `b7e-gate` with no `--only` at all is every suite — the exact opposite of what that
+# shard was asked to do. Hence the `if [ -s ... ]`.
+#
 # ## Why three triggers
 #
 # - `pull_request` — the ordinary signal, so a red suite is visible on the PR page before
-#   anyone (or `bin/deliver.js`) merges it.
+#   anyone (or `bin/deliver.js`) merges it. The one trigger that narrows.
 # - `merge_group` — **the load-bearing one.** A merge queue builds a temporary ref of
 #   `main` + the entries ahead of yours + yours, and runs the required checks against
 #   *that*. Without this trigger the queue has nothing to wait for and every entry stalls.
@@ -119,6 +142,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The narrowing diffs against the merge-base with the PR's base branch, which a
+          # depth-1 checkout does not have. Full history on every event rather than only on
+          # `pull_request`, because a conditional `fetch-depth` is a second thing to get
+          # wrong for a clone this size.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -143,9 +172,37 @@ jobs:
       # public/vendor — it needs node_modules, which after this step it has.
       - run: npm ci
 
+      # On a pull request only. `b7e-affected` prints nothing and exits 1 when a changed
+      # file matched no suite — `|| true` keeps that from failing the step, because an
+      # empty list is `b7e-shard --from`'s own spelling of "the whole roster", which is
+      # exactly the fallback being asked for.
+      - name: Work out which suites this pull request affects
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE=$(git merge-base "${{ github.event.pull_request.base.sha }}" HEAD)
+          git diff --name-only "$BASE" HEAD > changed.txt
+          echo "changed files:"; cat changed.txt
+          # No changed files at all is not "narrow to nothing" — leave affected.txt absent
+          # and the next step runs the whole roster.
+          [ -s changed.txt ] || { echo "nothing changed — not narrowing"; exit 0; }
+          # Unquoted on purpose: this is the one place the file list has to become argv,
+          # and no path in this repo contains a space. A file outside bin/lib/public/
+          # scripts/test — package.json, this workflow — matches nothing, which empties
+          # the list, which runs everything. That is the conservative direction and it is
+          # the intended one.
+          node bin/b7e-affected $(cat changed.txt) > affected.txt || true
+          echo "affected suites: $(wc -l < affected.txt)"; cat affected.txt
+
       - name: Run this shard, no-bail
         run: |
-          ONLY_ARGS=$(node bin/b7e-shard --index ${{ matrix.index }} --total ${{ env.SHARD_TOTAL }} | sed 's/^/--only=/' | tr '\n' ' ')
+          FROM=""
+          [ -f affected.txt ] && FROM="--from affected.txt"
+          node bin/b7e-shard --index ${{ matrix.index }} --total ${{ env.SHARD_TOTAL }} $FROM > slice.txt
+          if [ ! -s slice.txt ]; then
+            echo "nothing for this shard to run — the narrowed list is shorter than SHARD_TOTAL"
+            exit 0
+          fi
+          ONLY_ARGS=$(sed 's/^/--only=/' slice.txt | tr '\n' ' ')
           node bin/b7e-gate --jobs 3 $ONLY_ARGS
 
   test:
