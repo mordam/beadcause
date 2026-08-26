@@ -282,6 +282,16 @@
       on: 'a merge runs this repo’s deploy without waiting for Ship',
       off: 'a merge waits for the Ship button',
     },
+    {
+      // Moot with auto-merge off for the two rows above's reason and one of its own: with
+      // every delivery already a question in your hand, there is no queue tick waiting on
+      // a re-run for this to shorten.
+      key: 'trustChecksAcrossDownmerge',
+      what: 'A clean downmerge keeps its checks',
+      moot: (r) => !r.autoMerge,
+      on: 'an already-passing pull request merges on the tick the base goes in',
+      off: 'every downmerge waits for the whole gate to run again',
+    },
   ];
 
   /**
@@ -519,6 +529,13 @@
         s.autoShip,
         g.autoShip
       ),
+      tri(
+        'trustChecksAcrossDownmerge',
+        'A clean downmerge keeps its checks',
+        'On means the queue judges an already-passing pull request on the checks it has, instead of waiting for a whole gate run against the base that just arrived — a branch can otherwise pay for three of those over a diff that never changed. Only where the downmerge went in with no conflict; a conflict still gets a resolver. Leave it off in a repo whose CI does not also run on its base, because that run is what would catch two branches breaking it together.',
+        s.trustChecksAcrossDownmerge,
+        g.trustChecksAcrossDownmerge
+      ),
     ].join('');
 
     // What each repo actually resolves to, which is not always what the space says:
@@ -575,6 +592,7 @@
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
               ${r.autoMerge && r.reviewRequired ? '<span class="tag warn">reviewed first</span>' : ''}
               <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
+              ${r.autoMerge && r.trustChecksAcrossDownmerge ? '<span class="tag ok">downmerge keeps its checks</span>' : ''}
               ${
                 // Only where Slack is on at all: a "no slack" tag on every repo of every
                 // install that has never configured it would be a column of noise about a
