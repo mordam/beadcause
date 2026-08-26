@@ -52,13 +52,23 @@ const checkAsync = async (name, fn) => {
 };
 
 const tmp = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'beadcause-gateslots-'));
-/** Every acquire in this file is pointed here, so nothing touches the real Mac-wide one. */
-const base = path.join(tmp, 'base');
-fs.mkdirSync(base, { recursive: true });
+/**
+ * Every acquire in this file is pointed under `tmp`, so nothing touches the real Mac-wide
+ * one — and each check gets a semaphore of its own, because a check that fails leaves its
+ * slots held and its pending acquire pending. Sharing one directory meant the next check
+ * waited on a slot nothing would ever free, so a one-line assertion failure came back as
+ * the whole suite timing out at 300s, which is what this red actually looked like in CI.
+ */
+const room = (name) => {
+  const dir = path.join(tmp, name);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+};
 
 console.log('\nhow many gates at once\n');
 
 await checkAsync('the first two hold slots and the third does not', async () => {
+  const base = room('two-at-once');
   const first = await gate.acquireSlot({ base, limit: 2, pid: process.pid, pollMs: 5 });
   const second = await gate.acquireSlot({ base, limit: 2, pid: process.pid, pollMs: 5 });
   assert.equal(first.held, true, 'first should hold');
@@ -88,7 +98,28 @@ await checkAsync('the first two hold slots and the third does not', async () => 
   assert.equal(gate.liveSlots(base).length, 0, 'released slots leave nothing behind');
 });
 
+await checkAsync('a gate arriving later never sorts ahead of one already holding', async () => {
+  // The bug that made this suite red on main, and it is not only a suite: the queue orders
+  // by `startedAt`, and `Date.now()` is a whole millisecond, so tickets taken back-to-back
+  // all landed inside one. Equal stamps fell through to the random suffix in each ticket's
+  // filename, and the newcomer sorted first about two times in three — taking a slot two
+  // gates ahead of it were already holding, which is `limit + 1` gates on the Mac at once.
+  // Sub-millisecond stamps are what make the order creation order, so assert exactly that.
+  const base = room('never-overtake');
+  const taken = [];
+  for (let i = 0; i < 6; i += 1) {
+    taken.push(await gate.acquireSlot({ base, limit: 6, pid: process.pid, pollMs: 5 }));
+  }
+  const stamps = gate.liveSlots(base).map((t) => t.startedAt);
+  assert.equal(stamps.length, 6);
+  for (let i = 1; i < stamps.length; i += 1) {
+    assert.ok(stamps[i] > stamps[i - 1], `ticket ${i} must sort after ${i - 1} — ${stamps.join(', ')}`);
+  }
+  taken.forEach((t) => t.release());
+});
+
 await checkAsync('a queue is FIFO — the gate that waited longest goes first', async () => {
+  const base = room('fifo');
   const holder = await gate.acquireSlot({ base, limit: 1, pid: process.pid, pollMs: 5 });
   const early = gate.acquireSlot({ base, limit: 1, pid: process.pid, pollMs: 5 });
   await new Promise((r) => setTimeout(r, 20));
@@ -104,6 +135,7 @@ await checkAsync('a queue is FIFO — the gate that waited longest goes first', 
 });
 
 await checkAsync('a holder killed with SIGKILL frees its slot', async () => {
+  const base = room('sigkill');
   const script = path.join(tmp, 'holder.mjs');
   fs.writeFileSync(
     script,
