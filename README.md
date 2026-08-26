@@ -19386,6 +19386,72 @@ ever reads a blob out of git's own object store and writes the copy under `os.tm
 never inside this repo's own tree and never touching `bd`, so it is on `DEFAULT_TOOL_LIST`
 in `lib/toolbelt.js`.
 
+### Every conflict hunk in the working tree, addressable, with both sides — `b7e-hunks`
+
+`bc-dgx7.78` names three deluvia sessions (`dv-3rn.1`, `dv-b5d.14`, `dv-gr6.43`) that each
+spent most of a run resolving merge conflicts one hunk at a time, each inventing its own
+enumerator. `dv-3rn.1` judged 118 hunks across seven stranded branches with at least four
+different listings — an `awk '/^<<<<<<< /{f=1} f{print NR": "$0} /^>>>>>>> /{f=0}'`, the
+same with `substr($0,1,220)` once a hunk was too wide, `grep -n '^<<<<<<< HEAD|^=======$|^>>>>>>> '`
+for line numbers, `grep -rc '^<<<<<<< HEAD' . --exclude-dir=.git | grep -v ':0$' | sort
+-t: -k2 -rn` to rank files — one listing overflowed the output cap at 124.7KB and was
+persisted unread — then resolved each with a dozen separate `re.subn` heredocs, one per
+file, per side. It also left `git add -A` having staged a file with markers still in it,
+because `git add` marks a conflict resolved by touching the file, not by reading it — the
+same failure `lib/conflicted.js`'s own committed-conflict-marker check exists to close off
+in the other direction (after a commit, rather than before staging). `dv-b5d.14` and
+`dv-gr6.43` did smaller
+versions of the same thing. Nobody was asking for automatic resolution — which side wins
+is the judgement, and it stays exactly that here; what was retyped every time was the
+enumeration, the safe printing of a wide hunk, and a take-a-side edit that does not leave
+a marker behind.
+
+```
+b7e-hunks                                    list every hunk, grouped by file, ordered
+                                              by hunk count
+b7e-hunks <file>#<n>...                      print one or more hunks in full
+b7e-hunks --take ours|theirs <file>#<n>...   replace named hunks with the chosen side —
+                                              all ids validated before anything is written
+b7e-hunks --stage [<file>...]                git add whatever has zero markers left;
+                                              refuses (does not stage) anything that still
+                                              has one
+b7e-hunks --dir <root>                       resolve against <root>'s repo, not the cwd's
+b7e-hunks --width <n>                        truncate a printed line to <n> chars (default
+                                              200) — the `substr($0,1,220)` workaround,
+                                              built in
+```
+
+Discovery is git's own unmerged-file list — `git diff --name-only --diff-filter=U`, the
+same set `git status` reports as `UU`/`AA`/`DD` — rather than a full-repo grep for
+`<<<<<<<`: this repo's own README is 600KB of Markdown, and `lib/conflicted.js` already
+documents why a bare `=======` is not safe to grep for on its own (it is a real setext
+`<h1>` underline). A hunk is still found purely structurally — `<<<<<<<` → an optional
+`|||||||` diff3 base section → `=======` → `>>>>>>>` — so that hazard never reaches the
+parser: it only looks for a separator once a real `<<<<<<<` has opened. A hunk's id is
+`<file>#<n>`, numbered by its position among the hunks *currently* in that file —
+resolving one hunk renumbers the ones after it in the same file, since there is genuinely
+one fewer hunk above them now, so `--take` accepts every id for a file in one call rather
+than one id per call across several.
+
+`--take` is all-or-nothing across the whole batch, the same shape `b7e-apply` uses for the
+same reason: every id is checked to name a real hunk, in every named file, before a single
+byte is written: an id that does not resolve stops the whole batch there, naming every bad
+one, with nothing written anywhere — including files whose other edits would have resolved
+cleanly. Edits to one file are applied bottom-up so replacing one hunk never shifts the
+line numbers of another hunk in the same file still waiting to be applied, and a hunk not
+named in the batch is left byte-for-byte untouched. `--stage` reuses `markersIn` from
+`lib/conflicted.js` — the exact detection the committed-conflict-marker check runs, not a
+second implementation that could disagree with it — so a file is only ever staged once it
+is provably marker-free; the dv-3rn.1 failure is refused rather than silently repeated.
+
+Exit codes: `0` no conflicts remain, anywhere in the working tree, after whatever this run
+did; `1` conflicts remain; `2` refused — bad usage, an id not shaped like `<file>#<n>` or
+naming no real hunk, or the target is not a git repository. See `lib/hunks.js`.
+
+Write-shaped — `--take` and `--stage` edit and stage files in the working tree directly,
+not a throwaway scratch copy — so, like `b7e-apply`/`b7e-commit`/`b7e-at`, it is not on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and carries no `lib/grants.js` classification.
+
 ### A *workspace repo's* own gate scripts, all of them, with a baseline — `b7e-checks`
 
 `b7e-gate` above runs *this* repo's own `test/*.mjs` — `lib/gate.js`'s `discoverSuites`
@@ -19467,6 +19533,92 @@ alone takes over a minute — heavier than a lighter version of `Bash(npm test:*
 read anything in `lib/grants.js` already classifies as one. `dispatch`, the one agent
 this list actually governs, has no more use for a battery of another repo's checks than
 it does for running this one's own suite.
+
+### Turn a gate's own "expected X — got Y" into the edit — `b7e-rebaseline`
+
+`b7e-checks` just above runs a workspace repo's gate scripts and tells you which are red.
+This is what five sessions did *next*, by hand. `bc-dgx7.76`, filed by the session audit
+(`lib/sessionaudit.js`), names `dv-gr6.41`, `dv-gr6.43`, `dv-b5d.4.3`, `dv-3rn.1` and
+`dv-b5d.14`: each changed a file a gate script measures, read the new number off the
+gate's own FAIL line, and then hand-propagated it into every other place the old one was
+written. `dv-gr6.41` got `FAIL [S3.1] Ch 4 prose words == 4090 -- got 4536`, `[S3.1] total
+shortfall == 25198 -- got 24752` and `[S3.2] Ch 4 delta == +2499 -- got +2945`, wrote
+`scratchpad/rebaseline.py` to rewrite three constants in `scripts/check_saga_audit.py`
+plus two tables in `SAGA_READINESS_AUDIT_2026-08-10.md`, and committed that as a commit of
+its own. `dv-gr6.43` did the same for chapters 10 and 11 with its own
+`scratchpad/rebaseline.py`, then had to do the whole thing *again* after merging
+`origin/main` — the merge conflicted in exactly those two files, because `dv-gr6.41` had
+re-baselined the same constants concurrently — and finished with a placeholder trick
+(write `0`, re-run the gate, `sed -i ''` the measured values back in), two more scripts and
+two inline heredocs. `dv-3rn.1` spent a throwaway `git worktree add --detach` and a hand
+reimplementation of the check's own `check_unreferenced`, copied out of the script's
+source, working out *why* an orphan count had moved. Four `beadcause-memory` notes already
+warn about this tax; every one of them is a warning to a human, and none of them does the
+arithmetic.
+
+```
+b7e-rebaseline -w <workspace>              the plan, touching nothing (the default)
+b7e-rebaseline --dir <root>                a checkout directly, no workspace needed
+b7e-rebaseline -w <workspace> --write      apply it, then re-run the gate to prove it
+b7e-rebaseline -w <workspace> --only S3.1  one assertion, by check id or label text
+b7e-rebaseline -w <workspace> --no-recheck with --write, skip the confirming second run
+b7e-rebaseline -w <workspace> --json       the whole plan as one object
+```
+
+**It is the other half of `b7e-count`, not a second copy of it.** `b7e-count` answers
+"where is this literal written, and how many times". This answers "what is that number
+*now*, read off the gate's own measurement, and which of those sites belong to that
+assertion" — the half every one of the five sessions had to do after finding the sites.
+
+**Running the gate is `lib/checks.js`, unchanged.** Discovery, the per-check `judge`, the
+per-tree lock and the concurrency are `manifestFor`/`discoverChecks`/`runChecks` — the
+same set `b7e-checks` runs, so the two commands can never disagree about what this repo's
+gate *is*. A root no manifest recognises is refused here exactly as it is there, and a new
+repo shape belongs in that file's `MANIFESTS` rather than in a private discovery rule here.
+
+**A site is only rewritten when its own context names the check.** The dangerous version
+of this command is the one that rewrites every `12` in the tree because a check measured
+12. So each stale pair carries anchors — its bracketed id (`[S5.2]`), the distinctive
+words of its label, and any qualifier number the label holds ("Ch **4** prose words") —
+and a site qualifies only when its line, the few lines above it, the nearest heading above
+it or the nearest constant assignment above it names one of them. Everything else carrying
+the old literal is still *listed*, under "not rewritten", because "here are five more
+places that number is written and I did not touch them" is exactly what `dv-b5d.4.3`
+needed and did not have. A site two stale assertions both claim, disagreeing about what it
+should become, is nobody's to rewrite — which is `dv-gr6.43`'s concurrent-re-baseline
+collision, caught rather than merged.
+
+**The sites are bucketed the way the five sessions thought about them** — "the script",
+"the doc it mirrors", "a selftest fixture", and `elsewhere` for anything that is none of
+the three, reported under its own heading rather than quietly filed as a doc. The
+definition site is called out separately: the assigning line in the gate script itself
+(`PROSE_WORDS = {`, `4: 4090,`), which is the one a human goes looking for first.
+
+**Formatting survives the rewrite.** A doc table saying `4,090` gets `4,536`, not `4536`,
+and a delta written `+2499` stays signed — not cosmetic, because a gate that parses its own
+doc back reads a regrouped number as a different one. A trailing comma in a dict literal
+(`4: 4090,`) is not a thousands group; a comma only joins a number when three digits
+follow it.
+
+**A failure that is not an expected/got pair is reported as out of scope and refuses the
+write.** A dangling pointer or a naming violation is a real finding about the tree, and
+moving a baseline is never the answer to it — so those are printed, nothing is written even
+with `--write`, and the exit code is `2`.
+
+Exit codes: `0` nothing is stale, or a plan was printed, or `--write` applied it and the
+gate came back green. `2` refused — bad usage, no manifest, another gate run holds the
+lock, or a failure that is not a pair. `3` `--write` has had its go and the gate is still
+red — either its edits were not enough, or no site named the check it belongs to and there
+was nothing this command was willing to rewrite.
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-checks`/`b7e-gate` reason
+rather than the read-only shape of `b7e-def`/`b7e-count`: it runs another repo's gate
+scripts as external processes for as long as `--timeout` allows — which `lib/grants.js`
+already calls a write on the strength of "nothing about run the tests is a read" — and with
+`--write` it rewrites tracked files in a checkout it does not own. `dispatch`, the one
+agent this list actually governs, answers one phone comment with one `bd comment`; it has
+no branch to re-baseline on and no way to commit or review the result. See
+`bin/b7e-rebaseline` and `lib/rebaseline.js`.
 
 ### Re-run a sweep's failures alone, and say which are real — `b7e-triage`
 
@@ -19721,6 +19873,55 @@ Read-only in exactly the same construction as `b7e-def` above: it only ever read
 `lib/`, `bin/` and `scripts/` off disk and prints what it finds — no `bd`, no `git`, no
 subprocess. `Bash(b7e-import:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` beside
 `b7e-def`, and `lib/grants.js` classifies it `read`.
+
+### Does lib/ already have a function for this — and is it exported — `b7e-already`
+
+`bc-dgx7.81` is the session audit: five beads (`bc-dgx7.64`, `bc-dgx7.62`, `bc-dgx7.61`,
+`bc-dgx7.63`, `bc-xl7n.76.3`) each asked "is there already something in `lib/` that does
+X" before writing their own, and each answered it with a different pile of speculative
+greps against 284 modules. `bc-dgx7.62` found `ago(ms)` in three calls and then spent a
+fourth discovering it was not exported. `bc-dgx7.64` grepped `^export function
+resolveSessionDir` twice and got nothing, because the real declaration is `export const
+resolveSessionDir = (cfg, workspace, bead = null) => ...` — an arrow assigned to a
+`const`, a shape that pattern structurally cannot match. `bc-dgx7.62` also spent four
+more calls enumerating what the `Bd` class offers, one grep at a time.
+
+```
+b7e-already <words>...            match against every declaration in lib/, bin/ and
+                                   scripts/ — name and the first line of its doc comment;
+                                   exported and private both, private labelled distinctly
+b7e-already <words>... --private  only the private (unexported) matches
+b7e-already --module <file>       everything one file declares, class methods included —
+                                   no search, the whole surface
+b7e-already --dir <root>          "this tree" is <root>
+```
+
+**Exported and private, in one call.** Unlike `b7e-import`'s `findExporters` — which
+only ever names where a symbol *is* exported from — a query here matches every top-level
+`function`/`const`/`let`/`class` declaration whether or not it is exported, because "it
+exists but you cannot import it" is exactly the answer that cost two of the five
+sessions a wasted search each. Each hit prints as `<file>:<line> <export|private>
+<signature> — <first line of its doc comment>`, best match first.
+
+**By description, not by literal string.** A query word matches if it appears anywhere
+in a candidate's name — split on camelCase/`SCREAMING_CASE` boundaries first, so
+`resolve session dir` matches `resolveSessionDir` the way `^export function
+resolveSessionDir` never could — or in the first line of its own doc comment. Not every
+word has to match: `time ago` still surfaces `ago(ms)`, whose doc ("How long ago, in the
+words a refusal can use.") never says "time".
+
+**`--module` is the other question** — not a search, the whole surface of one file:
+every declaration `lib/bd.js` makes, class methods included, which is what `bc-dgx7.62`
+spent four separate greps assembling by hand.
+
+Exit codes: `0` at least one match (or `--module` found declarations to list). `1`
+nothing matched — a legitimate answer, not a crash. `2` refused — bad usage, or
+`--module` named a file that can't be read.
+
+Read-only in the same construction as `b7e-def`/`b7e-import` above: its own acorn parse
+over `lib/`, `bin/` and `scripts/`, comments included — which `lib/imports.js` doesn't
+collect, since this is the one question that needs them. `Bash(b7e-already:*)` is on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
 
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
 
