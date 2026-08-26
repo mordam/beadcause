@@ -361,6 +361,102 @@ await check('and a downmerge GitHub refuses is a wait, not an attempt', async ()
   assert.equal(bd.calls.updates.length, 0);
 });
 
+/* --------------------------------- trusting the checks across a downmerge (bc-kbvhg) */
+
+/*
+ * `trustChecksAcrossDownmerge` is the repo saying it would rather not pay for a whole
+ * gate run to re-prove a diff that did not change. `MAX_DOWNMERGES` is 3 and `main`
+ * takes about forty merges a day here, so a branch that sits in the queue for two days
+ * can pay three times over.
+ *
+ * What it must not become is a way to merge something nobody looked at, so every check
+ * below is one of the three conditions, and each is written as a pair: the same branch
+ * with the condition and without it. A guard that has only ever been seen passing is a
+ * guard nobody knows the shape of.
+ *
+ * The policy is a plain option on the sweep, so `run` with no `policy` at all is the
+ * default everywhere — which is what every check above this line is already asserting.
+ */
+const TRUSTING = { policy: { trustChecksAcrossDownmerge: true } };
+const merging = () => fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+
+await check('WITH THE POLICY ON, A CLEAN DOWNMERGE OF A PASSING BRANCH MERGES ON THE SAME TICK', async () => {
+  const prApi = fakePr(openPr({ mergeState: 'BEHIND' }));
+  const out = await run(merging(), prApi, TRUSTING);
+  assert.deepEqual(prApi.calls.updates, [42], 'the base still went in — this skips the wait, not the downmerge');
+  assert.equal(prApi.calls.merges.length, 1, 'it downmerged and then stopped, exactly as it does with the policy off');
+  assert.deepEqual(out.merged, ['zz-merge']);
+});
+
+await check('and the identical branch with the policy off waits — which is what says the flag did it', async () => {
+  // The pair to the check above, and the only difference between them is the option.
+  // Without this one, "it merged" is equally true of a queue that stopped reading the
+  // policy at all.
+  const prApi = fakePr(openPr({ mergeState: 'BEHIND' }));
+  const out = await run(merging(), prApi);
+  assert.deepEqual(prApi.calls.updates, [42]);
+  assert.equal(prApi.calls.merges.length, 0, 'the default changed — every repo just started skipping its re-run');
+  assert.deepEqual(out.merged, []);
+});
+
+await check('the downmerge is still counted, so MAX_DOWNMERGES still bounds a branch that keeps being behind', async () => {
+  // Merging on the tick makes a downmerge cheap; it must not make it unlimited. The
+  // count is what stops a branch whose base moves every tick from downmerging for ever
+  // in the case where it does *not* go on to merge.
+  const bd = merging();
+  await run(bd, fakePr(openPr({ mergeState: 'BEHIND' })), TRUSTING);
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  assert.ok(written, 'nothing was written back, so the next tick would downmerge from zero');
+  assert.equal(queueState({ notes: written.notes }).downmerges, 1);
+  assert.equal(queueState({ notes: written.notes }).attempts, 0, 'a downmerge that merged spent an attempt as well');
+});
+
+await check('A BRANCH THAT WAS NOT ALREADY PASSING TAKES THE OLD PATH — pending is not evidence', async () => {
+  const pending = openPr({ mergeState: 'BEHIND', checks: { failed: [], failing: 0, pending: 2, total: 3, state: 'pending' } });
+  const prApi = fakePr(pending);
+  const out = await run(merging(), prApi, TRUSTING);
+  assert.deepEqual(prApi.calls.updates, [42]);
+  assert.equal(prApi.calls.merges.length, 0, 'it merged over checks that had not finished');
+  assert.deepEqual(out.merged, []);
+});
+
+await check('and a head commit nothing ran on is not the same as one that passed — bc-ysqd.1, #480', async () => {
+  // `state: 'none'` is the shape a push authored with the Actions token leaves behind:
+  // failing is 0 and pending is 0, so anything asking "is it not failing" says yes about
+  // a commit that was never tested. The condition here is `passing`, positively, for
+  // exactly that reason.
+  const nothing = openPr({ mergeState: 'BEHIND', checks: { failed: [], failing: 0, pending: 0, total: 0, state: 'none' } });
+  const prApi = fakePr(nothing);
+  await run(merging(), prApi, TRUSTING);
+  assert.deepEqual(prApi.calls.updates, [42]);
+  assert.equal(prApi.calls.merges.length, 0, 'a commit with zero checks was read as a commit that passed');
+});
+
+await check('a downmerge GitHub would not put in never reaches the verdict, policy or not', async () => {
+  // `updateBranch` refusing is how this loop finds out the base did not go in cleanly.
+  // The policy is about a downmerge that *worked*; nothing here may turn a refusal into
+  // a merge on the strength of checks that were about the old base.
+  const prApi = fakePr(openPr({ mergeState: 'BEHIND' }), { update: { updated: false, reason: 'the base moved under it' } });
+  const out = await run(merging(), prApi, TRUSTING);
+  assert.equal(prApi.calls.merges.length, 0);
+  assert.deepEqual(out.waiting, ['zz-merge']);
+});
+
+await check('AND A CONFLICT IS STILL A RESOLVER — this never decides a conflict is fine', async () => {
+  // The conflicted branch is handled above the downmerge, so the policy cannot reach it.
+  // Pinned anyway, because "it skips the gate" is the sentence somebody will remember
+  // about this setting, and the distance between that and "it skips the gate on a
+  // conflict" is the whole safety of it.
+  const dirty = openPr({ mergeState: 'BEHIND', mergeable: 'CONFLICTING' });
+  const prApi = fakePr(dirty);
+  const opened = [];
+  const out = await run(merging(), prApi, { ...TRUSTING, openResolver: async (entry, dir) => (opened.push(dir), true) });
+  assert.equal(opened.length, 1, 'a conflicted branch went somewhere other than a resolver');
+  assert.equal(prApi.calls.merges.length, 0);
+  assert.equal(prApi.calls.updates.length, 0, 'it asked GitHub to update a branch it already knew conflicts');
+  assert.deepEqual(out.merged, []);
+});
+
 /* --------------------------------------------------- taking a card back (bc-91srt) */
 
 /**
