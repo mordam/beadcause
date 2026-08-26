@@ -148,9 +148,10 @@ const STUB_READY_TIMEOUT_MS = 10_000;
  *
  * Each call site used to follow this with `settle(120)`: a guess that a `node -e` child is
  * up and inside its interval within a tenth of a second. On an idle Mac it is. On a
- * machine running four suites at once — which is `bin/b7e-gate --jobs 4`, which is what
- * both CI and every local gate run here is — it is not, and node has not finished booting
- * when the scenario starts measuring.
+ * machine running several suites at once — CI runs `bin/b7e-gate --jobs 3` on a 3-core
+ * runner (bc-mrm77.1; it was `--jobs 4`, oversubscribed, when this suite inverted below),
+ * and any concurrent local gate run is the same shape — it is not, and node has not
+ * finished booting when the scenario starts measuring.
  *
  * **The failure that causes is not a near miss, it is the suite inverting.** With nothing
  * writing into the profile, `killAndRemove` wins on its first attempt against a directory
