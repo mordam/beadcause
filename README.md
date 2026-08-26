@@ -18616,7 +18616,14 @@ caller walks straight past.
 
 Tickets rather than a counter, so two runs starting in the same millisecond cannot both
 read "one free" and both take it, and so a loser keeps its place instead of going to the
-back of the queue on every retry. A holder killed with `SIGKILL` frees its slot the same
+back of the queue on every retry. **The stamp on a ticket keeps its sub-millisecond part**,
+which is the half of that the first version got wrong: the queue is ordered by `startedAt`
+and `Date.now()` is a whole millisecond, so tickets taken back-to-back all landed inside one
+and the order fell through to the random suffix in each ticket's filename. A gate arriving
+third then sorted first about two times in three, and took a slot the two ahead of it were
+already holding — `limit + 1` gates on the Mac, which is the one thing the semaphore is for.
+`performance.now()` is monotonic within a process, so a later ticket is now always a larger
+number and the queue is creation order rather than a coin toss. A holder killed with `SIGKILL` frees its slot the same
 way a stale lock is reclaimed — by its pid being dead. Three runs never queue: CI (a
 GitHub runner is a machine of its own), anything that opted out, and **a runner started
 inside a gate**, which would otherwise wait for the slot its own parent is holding — both
