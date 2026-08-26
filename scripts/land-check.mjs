@@ -38,6 +38,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { provisionBdWorkspace } from '../test/helpers/bdtemplate.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP = process.argv.includes('--keep');
@@ -172,17 +173,22 @@ git(['add', '-A']);
 git(['commit', '-qm', 'first']);
 git(['push', '-q', '-u', 'origin', 'main']);
 
-// A scratch beads workspace. `bd init` from the workspace directory with --skip-agents,
-// which is the one incantation that does not scatter AGENTS.md/CLAUDE.md into a repo.
-try {
-  run(BD, ['init', '--prefix', 'lc', '--role', 'maintainer', '--skip-agents', '--non-interactive'], {
-    cwd: WS,
-    env: { ...process.env, BEADS_DIR },
+// A scratch beads workspace. A cached template stands in for `bd init --prefix lc
+// --role maintainer --skip-agents --non-interactive` — see test/helpers/bdtemplate.mjs
+// — `--skip-agents` is the one incantation that does not scatter AGENTS.md/CLAUDE.md
+// into a repo, and the template preserves it since it is baked into the cached build.
+{
+  const provisioned = provisionBdWorkspace({
+    prefix: 'lc',
+    destRoot: WS,
+    bdBin: BD,
+    extraArgs: ['--role', 'maintainer', '--non-interactive'],
   });
-} catch (err) {
-  console.error(`\ncannot build a scratch beads workspace with ${BD} — ${String(err.message).split('\n')[0]}`);
-  console.error('set BD_BIN if bd lives somewhere else.\n');
-  process.exit(2);
+  if (!provisioned.ok) {
+    console.error(`\ncannot build a scratch beads workspace with ${BD} — ${provisioned.reason}`);
+    console.error('set BD_BIN if bd lives somewhere else.\n');
+    process.exit(2);
+  }
 }
 
 fs.writeFileSync(

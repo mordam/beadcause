@@ -332,8 +332,6 @@ const ROUTES = {
   '/prs.html': '/monitor.html',
   '/console': '/console.html',
   '/endorse': '/endorse.html',
-  '/releases': '/releases.html',
-  '/deploys': '/releases.html',
   '/flow': '/flow.html',
   '/requirements': '/requirements.html',
   '/skills': '/skills.html',
@@ -430,9 +428,10 @@ function serve() {
  * serves one document for both and what is being asked is that arriving by either URL
  * lights the pill the row's own list says it should.
  *
- * `/history` is gone from here (bc-khoe.30.15): the ledger's row is drawn by
- * public/index.html now — already the `/` entry below — and public/history.html, the
- * document this row would once have lit up on, no longer exists to be driven.
+ * `/history` and `/releases` are gone from here (bc-khoe.30.15, bc-khoe.30.22): both
+ * rows are drawn by public/index.html now — already the `/` entry below — and
+ * public/history.html and public/releases.html, the documents these rows would once
+ * have lit up on, no longer exist to be driven.
  *
  * Six of these light *nothing* — `/console`, `/endorse`, `/flow`, `/requirements`,
  * `/skills`, `/admin`. No pill in `public/viewbar.js` claims their paths, and that is a
@@ -445,7 +444,6 @@ const PAGES = [
   { url: '/', file: 'index.html' },
   { url: '/monitor', file: 'monitor.html' },
   { url: '/prs', file: 'monitor.html' },
-  { url: '/releases', file: 'releases.html' },
   { url: '/console', file: 'console.html' },
   { url: '/endorse', file: 'endorse.html' },
   { url: '/flow', file: 'flow.html' },

@@ -18,9 +18,11 @@
  *    obvious query — the walk is what finds it.
  * 3. **A tracker with no roots at all reports no orphans.** The fail-open `hasRootAbove`
  *    already documents, at the scale of a whole workspace rather than one bead.
- * 4. **The Merge #NNN genre is excluded by label, not by title.** Counted into `unrooted`
- *    so the total stays honest, but never into `ordinary` — that is the number this bead
- *    exists to make visible, and delivery traffic must not move it.
+ * 4. **The two exclusions are by label, never by title** — the Merge #NNN genre, and a
+ *    bead already superseded. Both counted into `unrooted` so the total stays honest,
+ *    never into `ordinary` — that is the number this bead exists to make visible, and
+ *    neither delivery traffic nor work already decided against must move it. Each counts
+ *    itself, so `mergeGenre` can never absorb the other one as a residual.
  * 5. **The watch logs a new orphan once, not once per cycle.** The same restraint every
  *    other hold in this app already uses, and the reason a rising count is still
  *    noticeable without being a line every thirty seconds for as long as it holds.
@@ -48,6 +50,7 @@ const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 const { NO_ROOT_ABOVE } = await import(LIB('underroot.js'));
 const { MERGE_LABEL } = await import(LIB('mergebead.js'));
 const { DELIVERY_LABEL } = await import(LIB('delivery.js'));
+const { supersedeLabel } = await import(LIB('superseded.js'));
 
 let failures = 0;
 let ran = 0;
@@ -88,6 +91,21 @@ const build = () =>
       row('zz-orphan-closed', { status: 'closed' }),
       row('zz-merge-card', { labels: [MERGE_LABEL] }),
       row('zz-delivery-card', { labels: [DELIVERY_LABEL] }),
+    ].join('\n')
+  );
+
+/**
+ * A root, a bead nothing has decided, and a bead already decided *against* — the third
+ * population `ordinary` must not count. Kept out of `build()` on purpose: it is the only
+ * fixture that needs a `superseded-by:` label, and the counts every check above asserts
+ * over `build()` would otherwise all have to move to accommodate it.
+ */
+const supersededIdx = () =>
+  indexFrom(
+    [
+      row('zz-root', { priority: 0 }),
+      row('zz-gone', { labels: [supersedeLabel('zz-root')] }),
+      row('zz-orphan'),
     ].join('\n')
   );
 
@@ -134,6 +152,40 @@ await check('THE MERGE #NNN GENRE IS UNROOTED BUT NEVER ORDINARY', () => {
   assert.equal(c.mergeGenre, 2);
 });
 
+await check('A SUPERSEDED BEAD IS UNROOTED BUT NEVER ORDINARY', () => {
+  // A bead carrying `superseded-by:<id>` has been looked at and decided against, so it is
+  // exactly not a bead "nothing has decided above". `strandingsIn` (lib/rootclose.js) and
+  // `worthSaying` (lib/epicdone.js) both already drop it; this file used to count it.
+  // The label is spelled by lib/superseded.js's own helper, so a change to it lands here.
+  const c = orphanCensus(supersededIdx());
+  assert.deepEqual(c.ordinary, ['zz-orphan']);
+  assert.equal(c.superseded, 1);
+  assert.equal(c.unrooted, 2, 'still unrooted — having no root above it is true of it');
+});
+
+await check('AND `mergeGenre` DOES NOT ABSORB IT — a residual is only right with one exclusion', () => {
+  // `mergeGenre` was `unrooted - ordinary.length`, which reports every non-merge
+  // exclusion as a merge card. Each exclusion counts itself now, and the three add up.
+  const c = orphanCensus(supersededIdx());
+  assert.equal(c.mergeGenre, 0, 'no merge-queue or pr-delivery card in this fixture');
+  assert.equal(c.unrooted, c.ordinary.length + c.mergeGenre + c.superseded);
+});
+
+await check('a card that is both is reported as what filed it, not as decided against', () => {
+  // The documented order — merge genre asked first — so adding an exclusion can never
+  // change what an existing one counts.
+  const idx = indexFrom(
+    [
+      row('zz-root', { priority: 0 }),
+      row('zz-merge-gone', { labels: [MERGE_LABEL, supersedeLabel('zz-root')] }),
+    ].join('\n')
+  );
+  const c = orphanCensus(idx);
+  assert.equal(c.mergeGenre, 1);
+  assert.equal(c.superseded, 0);
+  assert.deepEqual(c.ordinary, []);
+});
+
 await check('nonClosed is every open/in-progress bead, orphan or not', () => {
   const c = orphanCensus(build());
   // Every row above except the two explicitly closed ones (zz-shut, zz-orphan-closed).
@@ -163,9 +215,10 @@ await check('A TRACKER WITH NO ROOTS AT ALL REPORTS NO ORPHANS', () => {
 });
 
 await check('an empty or unreadable index counts nothing rather than throwing', () => {
-  assert.deepEqual(orphanCensus(indexFrom('')), { nonClosed: 0, unrooted: 0, mergeGenre: 0, ordinary: [] });
-  assert.deepEqual(orphanCensus({}), { nonClosed: 0, unrooted: 0, mergeGenre: 0, ordinary: [] });
-  assert.deepEqual(orphanCensus(null), { nonClosed: 0, unrooted: 0, mergeGenre: 0, ordinary: [] });
+  const nothing = { nonClosed: 0, unrooted: 0, mergeGenre: 0, superseded: 0, ordinary: [] };
+  assert.deepEqual(orphanCensus(indexFrom('')), nothing);
+  assert.deepEqual(orphanCensus({}), nothing);
+  assert.deepEqual(orphanCensus(null), nothing);
 });
 
 /* ---------------------------------------------------------------------- describeOrphan */
@@ -219,6 +272,16 @@ await check('the first pass reports every ordinary orphan it finds as new', asyn
   );
   assert.equal(out.counts[0].workspace, 'zz');
   assert.equal(out.errors.length, 0);
+});
+
+await check('AND THE WATCH NEVER SPENDS A LINE NAMING WORK ALREADY DECIDED AGAINST', async () => {
+  // The harm end to end: a superseded bead reaching `newOrphans` is a `[census]` line in
+  // the daemon log about a duplicate whose real work lives somewhere else.
+  const idx = withRoot(row('zz-orphan'), row('zz-gone', { labels: [supersedeLabel('zz-root')] }));
+  const watch = createOrphanWatch({ bd: graphSeq(idx) });
+  const out = await watch.sweep([{ name: 'zz' }]);
+  assert.deepEqual(out.newOrphans.map((r) => r.id), ['zz-orphan']);
+  assert.equal(out.counts[0].superseded, 1, 'counted, just not named');
 });
 
 await check('a bead already reported does not log again while it stays held', async () => {

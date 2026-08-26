@@ -1,0 +1,136 @@
+#!/usr/bin/env node
+/**
+ * Run THIS checkout's own `bin/` command — not whichever copy `PATH` would find.
+ *
+ *   b7e-run <command> [args...]                run <root>/bin/<command>, root = the
+ *                                               caller's own worktree
+ *   b7e-run --dir <root> <command> [args...]   a checkout other than the caller's
+ *   b7e-run --which <command>                  resolve and report only; runs nothing
+ *
+ * bc-dgx7.87. `lib/foundation.js` puts the MAIN checkout's `bin/` on every agent's
+ * `PATH` (see memory note `only-an-extensionless-bin-resolves-on-path`), so a bare
+ * command name — or even a relative `./bin/x` typed from the wrong directory — does
+ * not reliably run the copy sitting in the worktree a session actually did its work in,
+ * and nothing says so when it silently doesn't. Three sessions (bc-dgx7.80, bc-dgx7.77,
+ * bc-dgx7.81) each hit this a different way; bc-dgx7.80 burned four hours gating the
+ * main checkout by mistake because a `--dir` argument it thought pointed at its own
+ * worktree did not. `lib/run.js` is the decision (pure, tested without spawning
+ * anything); this is the argv parsing, the one subprocess and the printing around it —
+ * the same split every other `b7e-*` command uses.
+ *
+ * Root resolution is `git rev-parse --show-toplevel` against the caller's own `cwd`,
+ * never this file's own path — this file always executes from the MAIN checkout
+ * regardless of which worktree invoked it, so its own path can never answer "where is
+ * the caller." See memory note `a-worktree-aware-bin-resolves-root-from-cwd-not-here`.
+ *
+ * Prints the resolved root and the file it is about to run to stderr before running it,
+ * every time — the whole point is to make that resolution visible instead of assumed.
+ * When the same command name would resolve to a *different* file on `PATH`, a second
+ * stderr line names that file and the checkout it belongs to.
+ *
+ * NOT on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`. This is a trampoline in the same
+ * sense `b7e-call` and `b7e-bound` are: it runs whatever `bin/` entry its own argument
+ * names, with whatever arguments follow — including `b7e-apply`, `b7e-commit` or
+ * `b7e-hunks --take`, each already refused a grant on its own for writing to the
+ * checkout with no argv shape a wildcard grant could carve the write back out of. There
+ * is no way to grant "resolve correctly" without also granting whatever the resolved
+ * command does.
+ *
+ * Exit codes: whatever the resolved command exits with, unchanged — including
+ * non-zero. `2` refused before anything ran: bad usage, or no such file at the resolved
+ * path.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { repoRoot, targetFor, divergenceWarning } from '../lib/run.js';
+import { onExit } from '../lib/teardown.js';
+
+const USAGE = `usage:
+  b7e-run <command> [args...]
+  b7e-run --dir <root> <command> [args...]
+  b7e-run --which <command>
+
+Runs THIS checkout's own bin/<command> — resolved from the caller's own cwd, not
+whichever copy PATH would find (which is always the MAIN checkout's). Prints the
+resolved root and file to stderr before running; if PATH would have picked a different
+file, a second stderr line names it and the checkout it belongs to.
+
+  --dir <root>      resolve against this checkout instead of the caller's own
+  --which <command>  resolve and report only; runs nothing, exits 0 if found else 2`;
+
+const argv = process.argv.slice(2);
+if (argv[0] === '--help' || argv[0] === '-h') {
+  console.log(USAGE);
+  process.exit(0);
+}
+if (argv.length === 0) {
+  console.error(`b7e-run: missing <command>\n${USAGE}`);
+  process.exit(2);
+}
+
+let i = 0;
+let dirGiven = null;
+let whichOnly = false;
+while (i < argv.length) {
+  if (argv[i] === '--dir') {
+    dirGiven = argv[i + 1];
+    if (dirGiven === undefined) {
+      console.error(`b7e-run: --dir needs a path\n${USAGE}`);
+      process.exit(2);
+    }
+    i += 2;
+    continue;
+  }
+  if (argv[i] === '--which') {
+    whichOnly = true;
+    i += 1;
+    continue;
+  }
+  break;
+}
+
+const command = argv[i];
+const childArgs = argv.slice(i + 1);
+if (!command || command.startsWith('-')) {
+  console.error(`b7e-run: missing <command>\n${USAGE}`);
+  process.exit(2);
+}
+if (whichOnly && childArgs.length > 0) {
+  console.error(`b7e-run: --which takes only a command name, no further arguments\n${USAGE}`);
+  process.exit(2);
+}
+
+const root = path.resolve(dirGiven || repoRoot());
+const target = targetFor(root, command);
+
+if (!fs.existsSync(target)) {
+  console.error(`b7e-run: no such command: ${target}`);
+  process.exit(2);
+}
+
+console.error(`b7e-run: ${root} -> ${target}`);
+const warning = divergenceWarning(target, command);
+if (warning) console.error(warning);
+
+if (whichOnly) {
+  process.exit(0);
+}
+
+const child = spawn(target, childArgs, { stdio: 'inherit' });
+// Node never forwards a signal to a spawned child on its own — killing this wrapper
+// would otherwise leave the real command running, orphaned, still holding whatever lock
+// it acquired (see memory note a-wrapper-that-spawns-b7e-gate-must-forward-its-own-kill-
+// signal, measured on bin/b7e-shipgate, which every b7e-run invocation of b7e-gate
+// re-exposes one level further out). Released the moment the child actually exits.
+const releaseKill = onExit(() => child.kill('SIGTERM'));
+
+child.on('error', (err) => {
+  console.error(`b7e-run: failed to run ${target}: ${err.message}`);
+  releaseKill();
+  process.exit(1);
+});
+child.on('exit', (code, signal) => {
+  releaseKill();
+  process.exit(signal ? 1 : (code ?? 1));
+});
