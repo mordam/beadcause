@@ -1,0 +1,185 @@
+#!/usr/bin/env node
+/**
+ * Apply the registrations a new bin/ command owes, instead of typing all four by hand
+ * and then linting them.
+ *
+ *   b7e-register b7e-x --kind read --why "<one sentence>"      grant it, and classify it
+ *   b7e-register b7e-x --kind withheld --why "<one sentence>"  record the decision not to
+ *   b7e-register b7e-x --kind read --why "…" --dry-run         print the patch, write nothing
+ *   b7e-register b7e-x --kind read --why "…" --after b7e-w     place it below a named sibling
+ *
+ * bc-dgx7.75 is the audit, and it is the other half of bc-khoe.27.11's. Five sessions
+ * (bc-dgx7.57, bc-dgx7.58, bc-dgx7.59, bc-dgx7.60, bc-dgx7.61) each shipped a b7e-*
+ * command and each ran `b7e-enroll <name>` afterwards to check its registrations — and
+ * all five typed those registrations by hand first, four different ways. package.json's
+ * bin map: each grepped two alphabetical neighbours to find the insertion point.
+ * package-lock.json's packages[""].bin: bc-dgx7.59 hand-Edited it and was told the file
+ * was already claimed by another worktree; bc-dgx7.60 and bc-dgx7.61 instead ran `npm
+ * install --package-lock-only` and diffed to confirm the one-line result — the same
+ * registry, two incompatible methods, in the same hour. lib/toolbelt.js and
+ * lib/grants.js: each grepped a read-only sibling for the entry format and the comment
+ * convention before writing a fresh paragraph.
+ *
+ * The linter for these checks already existed and is good. What did not exist was the
+ * applier, so the registry knowledge lived twice — once in b7e-enroll's checks and once
+ * in each session's fingers. Both halves now read lib/enroll.js, which is the point:
+ * what the checks match is what the edits produce.
+ *
+ * WHAT IT WRITES, and what it deliberately does not. The four mechanical registries —
+ * package.json's bin map, package-lock.json's packages[""].bin, lib/toolbelt.js's
+ * DEFAULT_TOOL_LIST, lib/grants.js — and nothing else. bin/<name> itself is the command
+ * (b7e-scaffold's job); test/<name>.mjs and the README's ### section are a proof and an
+ * explanation, and a generated one of either would be a registration pretending to be
+ * work. So a run ends by printing what b7e-enroll still says is owed, which after a
+ * successful register is exactly those two.
+ *
+ * --kind is not a default and cannot be guessed. A command that writes to the checkout,
+ * spawns a suite, builds a worktree or runs whatever its caller names is withheld from
+ * DEFAULT_TOOL_LIST (this command is itself one of those, and registered itself that
+ * way); a command that only reads is granted and classified. That is a real decision
+ * about a real capability — memory note
+ * b7e-command-write-shaped-check-grants-before-default-tool-list — and the one thing
+ * here a tool must not make on a session's behalf.
+ *
+ * Exit code: 0 when the registries agree with what bin/ serves, 1 when something the
+ * applier cannot write is still owed, 2 on a bad invocation.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  applyEdits,
+  deriveName,
+  loadContext,
+  problemsFor,
+  registerEdits,
+  repoRoot,
+  siblingsCleared,
+  unifiedDiff,
+} from '../lib/enroll.js';
+
+const USAGE = [
+  'b7e-register <name> --kind read|withheld --why "<one sentence>"',
+  '',
+  '  --kind read       grant Bash(<name>:*) to dispatch and classify it in lib/grants.js',
+  '  --kind withheld   record in DEFAULT_TOOL_LIST why dispatch does not get it',
+  '  --why "…"         the justification paragraph; required, it is the registration',
+  '  --after <sibling> place the bin-map entry below this key instead of alphabetically',
+  '  --dir <path>      a checkout other than the one cwd is in',
+  '  --dry-run         print the patch and write nothing',
+].join('\n');
+
+function parseArgs(argv) {
+  const opts = { name: null, kind: null, why: null, after: null, dir: null, dryRun: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    const next = () => {
+      const v = argv[i + 1];
+      if (v === undefined) throw new Error(`${a} needs a value`);
+      i += 1;
+      return v;
+    };
+    if (a === '--kind') opts.kind = next();
+    else if (a === '--why') opts.why = next();
+    else if (a === '--after') opts.after = next();
+    else if (a === '--dir') opts.dir = next();
+    else if (a === '--dry-run' || a === '-n') opts.dryRun = true;
+    else if (a === '--help' || a === '-h') opts.help = true;
+    else if (a.startsWith('-')) throw new Error(`unknown flag ${a}`);
+    else if (opts.name === null) opts.name = deriveName(a);
+    else throw new Error(`unexpected argument ${a} — one command at a time`);
+  }
+  return opts;
+}
+
+function main() {
+  let opts;
+  try {
+    opts = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(`${err.message}\n\n${USAGE}`);
+    process.exit(2);
+  }
+  if (opts.help || !opts.name) {
+    console.log(USAGE);
+    process.exit(opts.help ? 0 : 2);
+  }
+  if (opts.kind !== 'read' && opts.kind !== 'withheld') {
+    console.error(
+      `--kind read|withheld is required and has no default: whether dispatch may run ${opts.name} is a ` +
+        'decision about a real capability, not a registration to fill in. A command that writes to the ' +
+        'checkout, runs a suite, builds a worktree or runs whatever its caller names is withheld; one ' +
+        'that only reads is granted. Check lib/grants.js for the precedent first.'
+    );
+    process.exit(2);
+  }
+  if (!opts.why) {
+    console.error(
+      '--why is required: the justification paragraph IS the registration on the withheld side, and on ' +
+        'the granted side every other entry in DEFAULT_TOOL_LIST carries one saying what the command ' +
+        'reads and why that is not a write.'
+    );
+    process.exit(2);
+  }
+
+  const root = opts.dir ? path.resolve(opts.dir) : repoRoot();
+  const binFile = path.join(root, 'bin', opts.name);
+  if (!fs.existsSync(binFile) && !fs.existsSync(`${binFile}.js`)) {
+    console.error(
+      `bin/${opts.name}: nothing there to register. Write the command first — b7e-register wires up an ` +
+        'existing file, it does not create one.'
+    );
+    process.exit(2);
+  }
+
+  // The trap lib/toolbelt.js's own b7e-commit paragraph documents: allowlistProblem reads
+  // any occurrence of a name anywhere in the array as a recorded decision about that name,
+  // so a paragraph spelling an unrecorded sibling by its bare name silently closes that
+  // sibling's gap. Refused rather than warned, because the damage is invisible afterwards.
+  const toolbeltSrc = fs.readFileSync(path.join(root, 'lib', 'toolbelt.js'), 'utf8');
+  const cleared = siblingsCleared(opts.why, opts.name, toolbeltSrc);
+  if (cleared.length) {
+    console.error(
+      `--why names ${cleared.join(', ')}, which DEFAULT_TOOL_LIST has no decision about yet. Spelling a ` +
+        "sibling's bare name in this array is itself read as a decision about it (see the b7e-commit " +
+        'paragraph at the bottom of the array), so this would silently close its gap. Refer to it by ' +
+        'description instead, the way that paragraph refers to the say-command.'
+    );
+    process.exit(2);
+  }
+
+  let edits;
+  try {
+    edits = registerEdits(root, opts.name, { kind: opts.kind, why: opts.why, after: opts.after });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(2);
+  }
+
+  if (opts.dryRun) {
+    const patch = edits.map((e) => unifiedDiff(e.rel, e.before, e.after)).join('');
+    process.stdout.write(patch);
+    if (!patch) console.log(`${opts.name}: already registered in all four — nothing to apply`);
+  } else if (!edits.length) {
+    console.log(`${opts.name}: already registered in all four — nothing to apply`);
+  } else {
+    applyEdits(root, edits);
+    for (const e of edits) console.log(`registered ${opts.name} in ${e.rel}`);
+  }
+
+  // The same seven checks the linter runs, against the tree as it now stands — so one call
+  // both applies what it can and says what it could not, rather than sending the session
+  // off to run b7e-enroll to find out.
+  const ctx = loadContext(root);
+  const owed = problemsFor(opts.name, ctx);
+  if (!owed.length) {
+    console.log(`${opts.name}: nothing owed — every registry agrees with what bin/ serves`);
+    process.exit(0);
+  }
+  console.log(`\n${opts.name}: still owed${opts.dryRun ? ' (nothing was written)' : ''} —`);
+  for (const p of owed) console.log(`  ${p}`);
+  process.exit(1);
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) main();

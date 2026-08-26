@@ -18320,6 +18320,71 @@ construction in the same sense `b7e-def`/`b7e-owes`/`b7e-affected` are — it on
 calls `fs.readdirSync`/`readFileSync`/`statSync` over the files above and prints what
 it found — which is what put `Bash(b7e-enroll:*)` on `DEFAULT_TOOL_LIST` beside them.
 
+### Apply those registrations instead of typing them — `b7e-register`
+
+`bc-dgx7.75` is the other half of the bead above, found by the session audit the same
+way. Five sessions (`bc-dgx7.57`, `bc-dgx7.58`, `bc-dgx7.59`, `bc-dgx7.60`,
+`bc-dgx7.61`) each shipped a new `b7e-*` command, and all five ran `b7e-enroll <name>`
+afterwards to check the registrations — after typing those registrations by hand first,
+four different ways:
+
+- **`package.json`'s `bin` map** — each grepped two alphabetical neighbours to find the
+  insertion point ("Alphabetically, `b7e-def` comes right before `b7e-deliverbase`" —
+  `bc-dgx7.58`).
+- **`package-lock.json`'s `packages[""].bin`** — `bc-dgx7.59` hand-edited it and was told
+  the file was already claimed by `bc-dgx7.57` in another worktree; `bc-dgx7.60` and
+  `bc-dgx7.61` instead ran `npm install --package-lock-only` and diffed to confirm the
+  one-line result. The same registry, two incompatible methods, in the same hour.
+- **`lib/toolbelt.js`'s `DEFAULT_TOOL_LIST` and `lib/grants.js`** — each grepped a
+  read-only sibling for the entry format and the comment convention, then wrote a fresh
+  justification paragraph.
+
+`b7e-enroll` is the linter for exactly these checks and it is good. What did not exist
+was the applier, so the registry knowledge lived twice: once in `b7e-enroll`'s checks and
+once in each session's fingers, and the second copy was the one that went wrong. Both
+halves now read `lib/enroll.js` — what the checks match is what the edits produce.
+
+```
+b7e-register b7e-x --kind read --why "…"      grant it to dispatch, and classify it
+b7e-register b7e-x --kind withheld --why "…"  record why dispatch does not get it
+b7e-register b7e-x --kind read --why "…" -n   print the patch and write nothing
+b7e-register b7e-x --kind read --why "…" --after b7e-w   place it below a named sibling
+```
+
+It writes **four** of `b7e-enroll`'s seven, and deliberately not the other three.
+`bin/<name>` itself is the command rather than a registration; `test/<name>.mjs` and this
+README's `###` section are a proof and an explanation, and a generated one of either
+would be a registration pretending to be work. So a run ends by printing what
+`b7e-enroll` still says is owed, which after a successful register is exactly those two —
+that is the acceptance criterion, and `test/b7eregister.mjs` runs it on a fabricated
+checkout.
+
+The one rule worth knowing is where a new key lands in a `bin` map: **alphabetically
+within its own family**, a family being everything before the first dash. Not
+alphabetically in the file, because neither file is — `package.json` lists the
+`beadcause-*` worker tools in the order they were written and only the `b7e-*` block
+after them is sorted, while the lock is sorted throughout. Reading the family is what
+makes one rule right for both, and for a `b7e-*` name the lock line it produces is
+exactly the one `npm install --package-lock-only` would have written.
+
+Three things it refuses rather than decides:
+
+1. **`--kind` has no default.** Whether `dispatch` may run the command is a decision
+   about a real capability — a command that writes to the checkout, runs a suite, builds
+   a worktree or runs whatever its caller names is withheld, one that only reads is
+   granted — and `lib/grants.js` is where the precedent is. This command is itself
+   write-shaped and registered itself `--kind withheld`.
+2. **`--why` is required.** On the withheld side the paragraph *is* the registration;
+   on the granted side every other entry in `DEFAULT_TOOL_LIST` carries one.
+3. **A `--why` that names a sibling `DEFAULT_TOOL_LIST` has no decision about yet.**
+   `allowlistProblem` reads any occurrence of a name anywhere in that array as a recorded
+   decision about it, so spelling an undecided sibling's bare name would silently close
+   its gap — the trap the array's own `b7e-commit` paragraph documents about itself.
+   Naming one that is already decided about is fine, and half the real paragraphs do it.
+
+Exit code: `0` when nothing is owed, `1` when something the applier cannot write still
+is, `2` on a bad invocation.
+
 ### Which of these commands answers this question — `b7e-which`
 
 `bc-dgx7.65`, filed by the session audit against five sessions (`bc-9ntye.6`,
