@@ -19923,6 +19923,57 @@ over `lib/`, `bin/` and `scripts/`, comments included — which `lib/imports.js`
 collect, since this is the one question that needs them. `Bash(b7e-already:*)` is on
 `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
 
+### Was this bead's question answered, and which bead carries the answer — `b7e-answered`
+
+`bc-dgx7.84` is the session audit: four sessions (`bc-mwhkg.1`, `bc-jjdar.1`, `bc-jjdar.2`,
+`bc-mwhkg.2`) each opened on a bead they had been told was answered, and each spent its
+opening working out — a different way each time — whether that was true and where the
+answer actually was. It was on the parent twice, absent once. `bc-jjdar.1` ran `bd show`,
+`bd comments` ("No comments"), then `bd comments <parent> | tail -60` and found the
+answer there, then a JSON notes dump to confirm the bead itself carried no `decision`
+block — four calls. `bc-mwhkg.1` got the same brief and the brief was wrong: six calls to
+correct the premise and conclude the parent was unanswered too.
+
+```
+b7e-answered -w <workspace> -b <bead>            the bead alone
+b7e-answered -w <workspace> -b <bead> --family    also walk ancestors — parent, grandparent...
+b7e-answered -w <workspace> -b <bead> --json      the machine-readable form
+```
+
+**Two things it reads, because the fact was already recorded in both and nothing read
+them together.** `lib/decision.js` parses whichever `decision` block a bead's
+description/design/notes carries, if any — a bead with none is plain work, not a
+question. `lib/answered.js` is beadcause's own record of what you chose, kept in
+`state.json` precisely so a re-arriving card can say "you said this already" — and it is
+the *only* place a **deferred** answer shows up at all, because deferring answers a card
+without writing anything to the bead at all (see `lib/decision.js`'s `defersFlag`).
+Combined with the bead's own `status`/`close_reason` and its `human-replied` label —
+`/api/comment`'s own tell for a real reply that has not yet been processed — one call
+tells apart the three endings an answer can have: **closed** (`respond()`: a comment,
+then `bd close` with reason `Answered via Beadcause`), **commissioned** (`commission()`:
+a comment, the `human` label removed, reopened and unclaimed — an instruction to go
+build it, not a verdict), and **deferred** (nothing on the bead at all).
+
+**`--family` walks ancestors, not siblings.** Parent, grandparent, and so on, stopping at
+the first bead with no parent — the `bc-jjdar.1` shape, where the bead itself is plain
+work and the question it was opened over is actually on its parent. This is a different
+walk from `b7e-prior --family`, which widens to every other child under a shared parent;
+the two commands answer different questions and happen to share a flag name.
+
+One block per bead in the chain — whether it carries a `decision` block, whether it has
+been answered, which option was chosen (matched against the recorded response text), and
+the outcome — then one verdict line naming the bead the answer is actually on, or saying
+none of them in the chain carries one (the `bc-mwhkg.1` shape: nothing on the bead *or*
+its parent, despite the brief).
+
+Exit codes: `0` ran to completion, whatever the verdict — "nobody has answered this" is a
+legitimate answer, not a failure. `2` bad usage. `4` `-w`/`-b` named something this
+checkout's tracker does not have.
+
+Read-only: two `bd` reads per bead in the chain (`bd show --include-comments`) plus
+`state.json`'s own `answered` map, never a write. `Bash(b7e-answered:*)` is on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
+
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
 
 `test/swbump.mjs` (above) answers *whether* a branch owes a bump. Nothing answered
