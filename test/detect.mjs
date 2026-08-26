@@ -39,6 +39,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { cleanupTmp } from './helpers/tmp.mjs';
+import { provisionBdWorkspace } from './helpers/bdtemplate.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -91,12 +92,13 @@ let realWs = null;
 if (!bdOnPath) {
   console.log('  \x1b[33m—\x1b[0m skipped: no `bd` on PATH, so what Dolt writes cannot be asked here');
 } else {
-  fs.mkdirSync(realDir, { recursive: true });
   const env = { ...process.env, BEADS_DIR: realDir };
   const bdRun = (args) => spawnSync('bd', args, { env, cwd: realRoot, encoding: 'utf8', timeout: 120_000 });
-  const init = bdRun(['init', '--skip-agents', '--prefix', 'dt']);
-  if (init.status !== 0) {
-    bad('a temp workspace can be made to watch', (init.stderr || init.stdout || '').split('\n')[0]);
+  // A cached template stands in for `bd init --skip-agents --prefix dt` — see
+  // test/helpers/bdtemplate.mjs.
+  const init = provisionBdWorkspace({ prefix: 'dt', destRoot: realRoot });
+  if (!init.ok) {
+    bad('a temp workspace can be made to watch', init.reason);
   } else {
     realWs = { name: 'real', dir: realDir };
 

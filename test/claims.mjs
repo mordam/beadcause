@@ -471,6 +471,16 @@ const hook = (payload, { mode = 'guard', configDir = process.env.BEADCAUSE_CONFI
     child.stderr.on('data', (c) => (stderr += c));
     child.on('error', reject);
     child.on('close', (code) => resolve({ code, stdout: stdout.trim(), stderr: stderr.trim() }));
+    // The hook is a shell script that may reach its last line before this write lands, and
+    // a pipe whose reader has gone gives `EPIPE` on a stream with no `error` listener —
+    // which is not a rejected promise, it is an uncaught exception that takes the whole
+    // suite down with a stack trace in the middle of an unrelated assertion. That is how
+    // `main` went red on 2026-08-25: `test/claims.mjs` did not fail, it *crashed*, at this
+    // line, on a loaded CI runner. Swallowed rather than rejected because the hook's answer
+    // is on stdout and the `close` above is what is waited for — a hook that decided
+    // without reading its payload is a verdict this helper must let the assertions judge,
+    // not one it may turn into an exception of its own.
+    child.stdin.on('error', () => {});
     child.stdin.end(JSON.stringify(payload));
   });
 

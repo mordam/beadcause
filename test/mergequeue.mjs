@@ -33,6 +33,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cleanupTmp } from './helpers/tmp.mjs';
@@ -44,7 +45,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-mergequeue-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK, mergeReport } = await import(LIB('mergequeue.js'));
+const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK, mergeReport, behindBase } = await import(LIB('mergequeue.js'));
 const { MERGE_LABEL, MERGE_ASSIGNEE, MAX_ATTEMPTS, MAX_REVIEW_ROUNDS, mergeBeadBody, queueState, reviewState, withQueueBlock, withReviewBlock } =
   await import(LIB('mergebead.js'));
 const { MAX_DOWNMERGES } = await import(LIB('mergequeue.js'));
@@ -359,6 +360,291 @@ await check('and a downmerge GitHub refuses is a wait, not an attempt', async ()
   const out = await run(bd, fakePr(behind, { update: { updated: false, reason: 'the base moved under it' } }));
   assert.deepEqual(out.waiting, ['zz-merge']);
   assert.equal(bd.calls.updates.length, 0);
+});
+
+/* --------------------------------- trusting the checks across a downmerge (bc-kbvhg) */
+
+/*
+ * `trustChecksAcrossDownmerge` is the repo saying it would rather not pay for a whole
+ * gate run to re-prove a diff that did not change. `MAX_DOWNMERGES` is 3 and `main`
+ * takes about forty merges a day here, so a branch that sits in the queue for two days
+ * can pay three times over.
+ *
+ * What it must not become is a way to merge something nobody looked at, so every check
+ * below is one of the three conditions, and each is written as a pair: the same branch
+ * with the condition and without it. A guard that has only ever been seen passing is a
+ * guard nobody knows the shape of.
+ *
+ * The policy is a plain option on the sweep, so `run` with no `policy` at all is the
+ * default everywhere — which is what every check above this line is already asserting.
+ */
+const TRUSTING = { policy: { trustChecksAcrossDownmerge: true } };
+const merging = () => fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+
+await check('WITH THE POLICY ON, A CLEAN DOWNMERGE OF A PASSING BRANCH MERGES ON THE SAME TICK', async () => {
+  const prApi = fakePr(openPr({ mergeState: 'BEHIND' }));
+  const out = await run(merging(), prApi, TRUSTING);
+  assert.deepEqual(prApi.calls.updates, [42], 'the base still went in — this skips the wait, not the downmerge');
+  assert.equal(prApi.calls.merges.length, 1, 'it downmerged and then stopped, exactly as it does with the policy off');
+  assert.deepEqual(out.merged, ['zz-merge']);
+});
+
+await check('and the identical branch with the policy off waits — which is what says the flag did it', async () => {
+  // The pair to the check above, and the only difference between them is the option.
+  // Without this one, "it merged" is equally true of a queue that stopped reading the
+  // policy at all.
+  const prApi = fakePr(openPr({ mergeState: 'BEHIND' }));
+  const out = await run(merging(), prApi);
+  assert.deepEqual(prApi.calls.updates, [42]);
+  assert.equal(prApi.calls.merges.length, 0, 'the default changed — every repo just started skipping its re-run');
+  assert.deepEqual(out.merged, []);
+});
+
+await check('the downmerge is still counted, so MAX_DOWNMERGES still bounds a branch that keeps being behind', async () => {
+  // Merging on the tick makes a downmerge cheap; it must not make it unlimited. The
+  // count is what stops a branch whose base moves every tick from downmerging for ever
+  // in the case where it does *not* go on to merge.
+  const bd = merging();
+  await run(bd, fakePr(openPr({ mergeState: 'BEHIND' })), TRUSTING);
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  assert.ok(written, 'nothing was written back, so the next tick would downmerge from zero');
+  assert.equal(queueState({ notes: written.notes }).downmerges, 1);
+  assert.equal(queueState({ notes: written.notes }).attempts, 0, 'a downmerge that merged spent an attempt as well');
+});
+
+await check('A BRANCH THAT WAS NOT ALREADY PASSING TAKES THE OLD PATH — pending is not evidence', async () => {
+  const pending = openPr({ mergeState: 'BEHIND', checks: { failed: [], failing: 0, pending: 2, total: 3, state: 'pending' } });
+  const prApi = fakePr(pending);
+  const out = await run(merging(), prApi, TRUSTING);
+  assert.deepEqual(prApi.calls.updates, [42]);
+  assert.equal(prApi.calls.merges.length, 0, 'it merged over checks that had not finished');
+  assert.deepEqual(out.merged, []);
+});
+
+await check('and a head commit nothing ran on is not the same as one that passed — bc-ysqd.1, #480', async () => {
+  // `state: 'none'` is the shape a push authored with the Actions token leaves behind:
+  // failing is 0 and pending is 0, so anything asking "is it not failing" says yes about
+  // a commit that was never tested. The condition here is `passing`, positively, for
+  // exactly that reason.
+  const nothing = openPr({ mergeState: 'BEHIND', checks: { failed: [], failing: 0, pending: 0, total: 0, state: 'none' } });
+  const prApi = fakePr(nothing);
+  await run(merging(), prApi, TRUSTING);
+  assert.deepEqual(prApi.calls.updates, [42]);
+  assert.equal(prApi.calls.merges.length, 0, 'a commit with zero checks was read as a commit that passed');
+});
+
+await check('a downmerge GitHub would not put in never reaches the verdict, policy or not', async () => {
+  // `updateBranch` refusing is how this loop finds out the base did not go in cleanly.
+  // The policy is about a downmerge that *worked*; nothing here may turn a refusal into
+  // a merge on the strength of checks that were about the old base.
+  const prApi = fakePr(openPr({ mergeState: 'BEHIND' }), { update: { updated: false, reason: 'the base moved under it' } });
+  const out = await run(merging(), prApi, TRUSTING);
+  assert.equal(prApi.calls.merges.length, 0);
+  assert.deepEqual(out.waiting, ['zz-merge']);
+});
+
+await check('AND A CONFLICT IS STILL A RESOLVER — this never decides a conflict is fine', async () => {
+  // The conflicted branch is handled above the downmerge, so the policy cannot reach it.
+  // Pinned anyway, because "it skips the gate" is the sentence somebody will remember
+  // about this setting, and the distance between that and "it skips the gate on a
+  // conflict" is the whole safety of it.
+  const dirty = openPr({ mergeState: 'BEHIND', mergeable: 'CONFLICTING' });
+  const prApi = fakePr(dirty);
+  const opened = [];
+  const out = await run(merging(), prApi, { ...TRUSTING, openResolver: async (entry, dir) => (opened.push(dir), true) });
+  assert.equal(opened.length, 1, 'a conflicted branch went somewhere other than a resolver');
+  assert.equal(prApi.calls.merges.length, 0);
+  assert.equal(prApi.calls.updates.length, 0, 'it asked GitHub to update a branch it already knew conflicts');
+  assert.deepEqual(out.merged, []);
+});
+
+/* ================================= a verdict about a base that has moved (bc-xl7n.121)
+
+   `gateVerdict`'s stale branch is a *wait*, and its own docblock names the downmerge as
+   what ends it: "a branch whose checks predate the repair is behind the repaired base by
+   construction." The git relationship is exactly that. The field the `BEHIND` arm above
+   tests is not — `mergeStateStatus` only reaches `BEHIND` under a branch-protection rule
+   `mordam/beadcause` does not have — so that arm never fired, nothing else re-runs a
+   check, and the wait had no producer at all: twelve pull requests held for five days,
+   four of them green, none of them on any screen.
+
+   The sharpest case is the one these start with, and it is why a suite that only drove a
+   red branch would have missed it: #717 was `test: SUCCESS`, `MERGEABLE` and `CLEAN`, held
+   purely because its green run finished on the wrong side of a hold.
+*/
+
+/** A pull request whose checks ran at `OLD`, and a merge-bead whose hold lifted at `LIFTED`. */
+const OLD = '2026-08-24T22:00:00Z';
+const LIFTED = '2026-08-25T00:00:00Z';
+const stalePr = (over = {}) => openPr({ checks: { ...GREEN, at: OLD }, ...over });
+const staleBead = (queue = {}) => bead({ notes: withQueueBlock('', { attempts: 0, heldUntil: LIFTED, ...queue }) });
+/** The git reading, injected — `behindBase` in lib/mergequeue.js. */
+const drifted = (n) => async () => n;
+
+await check('A GREEN, CLEAN PULL REQUEST WHOSE CHECKS PREDATE THE BASE GETS ITS BASE BROUGHT IN', async () => {
+  const bd = fakeBd({ rows: [staleBead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [42], 'the wait still has no producer');
+  assert.deepEqual(out.updated, ['zz-merge']);
+  // Not merged on the strength of the old run — that is the whole reason the guard exists.
+  assert.equal(prApi.calls.merges.length, 0);
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  assert.equal(queueState({ notes: written.notes }).downmerges, 1);
+  // And still no attempt: nothing was asked of this branch's diff, so nothing refused it.
+  assert.equal(queueState({ notes: written.notes }).attempts, 0, 'a wait spent one of the three attempts');
+});
+
+await check('a branch whose checks are current is not touched — this is not the BEHIND arm widened', async () => {
+  // The failure the narrow fix avoids. `main` here moves twenty times an hour, so every
+  // queued branch is behind it by the git reading; downmerging on that alone would hand
+  // each one three fresh bases and three CI runs before ever judging it, which is exactly
+  // what `MAX_DOWNMERGES` was written about.
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr({ checks: { ...GREEN, at: '2026-08-26T00:00:00Z' } }));
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [], 'it downmerged a branch with nothing stale about it');
+  assert.deepEqual(out.merged, ['zz-merge']);
+});
+
+await check('and neither is a stale one with nothing to bring in', async () => {
+  const bd = fakeBd({ rows: [staleBead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: drifted(0) });
+  assert.deepEqual(prApi.calls.updates, []);
+  assert.deepEqual(out.merged, [], 'it merged on a verdict about a base that is gone');
+  assert.deepEqual(out.stale, [42]);
+});
+
+await check('a checkout that cannot answer waits rather than guesses', async () => {
+  // `null` is "could not tell" and it is not zero — a head this Mac has never fetched, a
+  // base ref that is not here. Asking GitHub to update on a guess spends a write every
+  // thirty seconds on a branch there may be nothing to do for.
+  const bd = fakeBd({ rows: [staleBead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: async () => null });
+  assert.deepEqual(prApi.calls.updates, []);
+  assert.deepEqual(out.stale, [42]);
+  assert.equal(queueState({ notes: bd.calls.updates.at(-1).notes }).attempts, 0);
+});
+
+await check('AND IT IS BOUNDED BY THE SAME COUNTER THE BEHIND ARM IS', async () => {
+  const bd = fakeBd({
+    rows: [staleBead({ downmerges: MAX_DOWNMERGES })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [], 'it brought the base in a fourth time');
+  assert.deepEqual(out.merged, [], 'and it must still not merge on the old run');
+  assert.deepEqual(out.stale, [42], 'a branch nothing can move any more says so');
+});
+
+await check('a refused update is counted here, unlike the BEHIND arm, because it is not a race', async () => {
+  // There a refusal is usually somebody else's merge landing a second earlier. Here git
+  // has already said there is something to bring in, so an update GitHub will not perform
+  // is a standing condition — and not counting it would spend a write every tick for ever.
+  const bd = fakeBd({ rows: [staleBead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(stalePr(), { update: { updated: false, reason: 'the base moved under it' } });
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(out.waiting, ['zz-merge']);
+  const after = queueState({ notes: bd.calls.updates.at(-1).notes });
+  // COUNTED AGAINST THE BUDGET, AND NOT AS A DOWNMERGE — bc-johbj. The shipped version
+  // wrote `downmerges: 1` here, so twelve pull requests GitHub had refused with a flat
+  // 404 were on their way to being told their base had been brought in three times.
+  assert.equal(after.downmergeRefusals, 1, 'the ask was not counted, so a standing refusal costs a write every tick');
+  assert.equal(after.downmerges, 0, 'a refusal was recorded as a downmerge that never happened');
+  assert.equal(after.downmergeRefusal, 'the base moved under it', 'the reason is gone, so nothing can say why');
+});
+
+await check('AND THE BOUND IS THE TWO TOGETHER, SO REFUSALS STILL CANNOT RUN FOR EVER', async () => {
+  const bd = fakeBd({
+    rows: [staleBead({ downmergeRefusals: MAX_DOWNMERGES })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr(), { update: { updated: false, reason: 'gh: Not Found (HTTP 404)' } });
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [], 'it kept asking GitHub after the budget was spent');
+  assert.deepEqual(out.stale, [42]);
+});
+
+await check('and a mixed budget spends both halves', async () => {
+  const bd = fakeBd({
+    rows: [staleBead({ downmerges: 2, downmergeRefusals: 1 })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [], 'two downmerges plus one refusal is three asks and the budget is three');
+  assert.deepEqual(out.stale, [42]);
+});
+
+await check('AN EXHAUSTED BRANCH THAT WAS NEVER ONCE DOWNMERGED DOES NOT CLAIM IT WAS', async () => {
+  /* The sentence bc-johbj exists to stop. `MAX_DOWNMERGES` refusals used to leave the tick
+     saying "Its base has been brought in 3 times already." about a base that had never
+     gone in — an invisible indefinite wait replaced by a visible permanent dead end
+     carrying a false explanation, which is worse than what it replaced. */
+  const lines = [];
+  const bd = fakeBd({
+    rows: [staleBead({ downmergeRefusals: MAX_DOWNMERGES, downmergeRefusal: 'gh: Not Found (HTTP 404)' })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr());
+  await run(bd, prApi, { behind: drifted(177), log: (m) => lines.push(String(m)) });
+  const said = lines.find((l) => l.includes('#42')) || '';
+  assert.doesNotMatch(said, /has been brought in/, said || 'no line about #42 at all');
+  assert.match(said, /could not be brought in at all/, said);
+  assert.match(said, /Not Found \(HTTP 404\)/, 'the refusal GitHub gave is the one fact that points at the cause');
+});
+
+await check('and one that really was downmerged says how many times, not the cap', async () => {
+  const lines = [];
+  const bd = fakeBd({
+    rows: [staleBead({ downmerges: 2, downmergeRefusals: 1 })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr());
+  await run(bd, prApi, { behind: drifted(177), log: (m) => lines.push(String(m)) });
+  const said = lines.find((l) => l.includes('#42')) || '';
+  assert.match(said, /brought in 2 times already/, said);
+});
+
+await check('the tick says out loud which pull requests are held on it', async () => {
+  // For five days the only trace of this was one log line per tick per branch: a stale
+  // refusal costs no attempt by design, so it never ejects to a card and never reaches
+  // `givenUp`. Named rather than counted, because "which ones" was the unanswerable bit.
+  const bare = { ok: true, merged: [], updated: [], refused: [], raised: [], waiting: [] };
+  const line = describeMergeQueue({ ...bare, stale: [652, 717, 718, 719] });
+  assert.match(line, /4 held on checks older than the base \(#652, #717, #718 and 1 more\)/, line);
+  // Optional, for `held`'s reason: a caller predating the field hands this a plain object.
+  assert.equal(describeMergeQueue(bare), '');
+});
+
+/* ------------------------------------- and the reading itself, against real git */
+
+await check('behindBase counts what the base has and the branch does not, from the checkout', async () => {
+  const repo = fs.mkdtempSync(path.join(tmp, 'behind-'));
+  const g = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo, stdio: 'pipe' });
+  g('init', '-b', 'main', '-q');
+  fs.writeFileSync(path.join(repo, 'a'), 'a');
+  g('add', '-A');
+  g('commit', '-qm', 'one');
+  const head = String(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo })).trim();
+  // Two commits land on the base after the branch left it.
+  for (const n of ['two', 'three']) {
+    fs.writeFileSync(path.join(repo, n), n);
+    g('add', '-A');
+    g('commit', '-qm', n);
+  }
+  assert.equal(await behindBase(repo, head, 'main'), 2);
+  assert.equal(await behindBase(repo, 'HEAD', 'main'), 0, 'the tip of the base is not behind it');
+  // The four ways it cannot answer, and none of them may read as zero: a commit this
+  // checkout has never seen, a base ref that is not here, a directory that is not a
+  // repository, and a question with a piece missing.
+  assert.equal(await behindBase(repo, 'f'.repeat(40), 'main'), null);
+  assert.equal(await behindBase(repo, head, 'no-such-base'), null);
+  assert.equal(await behindBase(path.join(tmp, 'nowhere'), head, 'main'), null);
+  assert.equal(await behindBase(repo, '', 'main'), null);
 });
 
 /* --------------------------------------------------- taking a card back (bc-91srt) */
@@ -975,6 +1261,22 @@ await check('the line it hands the card says what happened, or nothing at all', 
   assert.match(describeMergeQueue({ ok: false, reason: 'bd list failed' }), /bd list failed/);
 });
 
+await check('and it tells a review that is happening from one that is only owed, and names what is in line', async () => {
+  const bare = { ok: true, merged: [], updated: [], refused: [], raised: [], waiting: [] };
+  // bc-xl7n.129. `awaiting` is true of a pull request a reviewer is reading right now and
+  // of one nothing has ever looked at, so on its own the line cannot say which.
+  assert.match(describeMergeQueue({ ...bare, reviewing: ['a'] }), /1 being reviewed/);
+  assert.match(describeMergeQueue({ ...bare, answering: ['a', 'b'] }), /2 being answered/);
+  // And the wait this bead is about: a window asked for and not opened, which for three
+  // hours was reported as a window that had been.
+  const line = describeMergeQueue({ ...bare, inLine: [539, 626, 627] });
+  assert.match(line, /3 in line for a window \(#539, #626, #627\)/, line);
+  const long = describeMergeQueue({ ...bare, inLine: [539, 626, 627, 629, 631] });
+  assert.match(long, /5 in line for a window \(#539, #626, #627 and 2 more\)/, long);
+  // Optional, for `held`'s reason: a caller predating the fields hands this a plain object.
+  assert.equal(describeMergeQueue(bare), '');
+});
+
 /* ============================================================== the review gate
 
    bc-36xx.4. test/reviewgate.mjs pins the decision as a pure function; these are the
@@ -1210,6 +1512,21 @@ await check('comments waiting on the worker open the worker’s window', async (
   // No flag is written for it: whether the window is owed is the review block itself —
   // a comment with no answer on it — and it stops being true when the worker writes one.
   assert.match(bd.calls.updates.at(-1).notes, /waiting on the worker/);
+});
+
+await check('a window the Mac was too full to open is counted as in line, not as opened', async () => {
+  // bc-xl7n.129. The door returns `'queued'` when `resolveFor` put the pull request in
+  // line rather than opening a window — still truthy, so nothing that only asks yes-or-no
+  // changed, and counted apart so the card can say what is waiting. Before this a queued
+  // window and a live one were the same number, which is why 25 pull requests could sit in
+  // line for three hours with every log line on the path reading as success.
+  const rev = { round: 1, verdict: 'changes', reviewedSha: HEAD, comments: [{ id: 'c1', body: 'this leaks a handle' }] };
+  const bd = fakeBd({ rows: [reviewed(rev)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), { policy: REVIEW_ON, openAnswer: async () => 'queued' });
+  assert.deepEqual(out.answering, [], 'a window that never went up must not be reported as one that did');
+  assert.deepEqual(out.inLine, [42], 'the pull request number, because the card names them and bead ids are not what is in line');
+  assert.deepEqual(out.awaiting, ['zz-merge'], 'and it is still waiting on the worker either way');
+  assert.match(describeMergeQueue(out), /1 in line for a window \(#42\)/, describeMergeQueue(out));
 });
 
 await check('a refusal becomes a card, without waiting out the round cap', async () => {
@@ -1523,6 +1840,20 @@ await check('the report reaches the pull request and the bead, and names the pas
   );
 });
 
+await check('AND A BRANCH GITHUB WOULD NOT UPDATE IS NOT REPORTED AS STRAIGHT THROUGH', async () => {
+  // bc-johbj: nothing moved *because* the queue could not move it, and "straight through"
+  // is the most misleading line the report has — it reads as a branch that needed nothing.
+  const state = { attempts: 0, downmerges: 0, downmergeRefusals: 2, downmergeRefusal: 'gh: Not Found (HTTP 404)' };
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', state) })], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  await run(bd, prApi);
+  const onPr = prApi.calls.comments[0].text;
+  assert.doesNotMatch(onPr, /Straight through/, 'two refused updates were reported as a clean passage');
+  assert.match(onPr, /could not be brought in/, onPr);
+  assert.match(onPr, /Not Found \(HTTP 404\)/, 'the refusal is the half that says whose problem this is');
+  assert.doesNotMatch(onPr, /base moved under it/, 'a refusal was described as a downmerge');
+});
+
 await check('and it points at the advocate rather than paraphrasing it', async () => {
   // The one thing this report must not become: a summary of somebody else's account,
   // written by a process that did not watch the merge. The queue knows the passage; the
@@ -1620,6 +1951,67 @@ await check('and every sentence the merge writes names the bead the findings wen
   );
 });
 
+/* --------------------------------- the landed card can name the follow-up (bc-9ntye.5) */
+
+await check('the landed card is told the follow-up bead, which afterMerge never sees', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr());
+  const cards = [];
+  await run(bd, prApi, {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    afterMerge: async () => {}, // present and empty: proves the card comes from a separate seam
+    announceLanding: async (spec, issue, { findings }) => cards.push({ bead: spec.bead, findings }),
+  });
+  const follow = bd.calls.created[0].id;
+  assert.equal(cards.length, 1, 'the card is announced exactly once');
+  assert.equal(cards[0].bead, 'zz-work');
+  assert.match(cards[0].findings, new RegExp(follow), 'the sentence names the bead the findings went to');
+});
+
+await check("a clean merge's card is unchanged", async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const cards = [];
+  await run(bd, fakePr(openPr()), { announceLanding: async (spec, issue, { findings }) => cards.push(findings) });
+  assert.deepEqual(cards, [''], 'nothing was owed, so the card says nothing was owed');
+});
+
+await check('announceLanding runs after afterMerge, in the order the two callbacks were named for', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const seen = [];
+  await run(bd, fakePr(openPr()), {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    afterMerge: async () => seen.push('afterMerge'),
+    announceLanding: async () => seen.push('announceLanding'),
+  });
+  // afterMerge fires before `finish`, and `finish` is where the follow-up bead this card
+  // wants to name is minted — so this order is not incidental, it is the whole fix.
+  assert.deepEqual(seen, ['afterMerge', 'announceLanding']);
+});
+
+await check('a card that fails to send does not stand between the merge and either close', async () => {
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const out = await run(bd, fakePr(openPr()), {
+    announceLanding: async () => {
+      throw new Error('bus is down');
+    },
+  });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work']);
+});
+
+await check('a pull request merged outside the queue never rings the phone', async () => {
+  // The same door `markMerged` above proved is threaded to this path — `announceLanding`
+  // is deliberately not, for the reason in lib/server.js's own comment: a merge Adam did
+  // himself, from GitHub or the phone, is a tap of his and must not chime for it.
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const cards = [];
+  const prApi = fakePr(openPr({ state: 'MERGED', mergedAt: '2026-08-16T12:00:00Z', mergeCommit: 'a1b2c3d4e5' }));
+  await run(bd, prApi, { announceLanding: async () => cards.push('rang') });
+  assert.deepEqual(cards, []);
+});
+
 await check('the same verdict on the next tick files nothing a second time', async () => {
   // The failure this guards: `finish` is best-effort throughout, so a tick that died
   // between the filing and the close arrives back here at exactly this state.
@@ -1652,6 +2044,104 @@ await check('a tracker that will not file leaves the merge and both closes exact
   const out = await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true });
   assert.deepEqual(out.merged, ['zz-merge']);
   assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work'], 'a lost follow-up must not cost a close');
+});
+
+/* ------------------------- telling the root's advocate about it (bc-9ntye.3) */
+
+/**
+ * A filed follow-up is open, unclaimed work under a root — which is already what
+ * `bd ready` and the re-entry sweep mean. The one case neither covers is a root whose Epic
+ * Advocate window is **live**: the sweep will not open a second one, and the live one read
+ * `bd children` at the top of its turn and will not read them again. So the queue tells it.
+ *
+ * What these four pin is mostly the *silence*: told when there is an advocate, nothing at
+ * all when there is not, never twice, and never in a way that could reach the two closes.
+ */
+const ADVOCATED = {
+  beads: new Map([
+    ['zz-epic', { id: 'zz-epic', issue_type: 'epic', status: 'open', title: 'a theme', labels: ['owner:someone@example.com', 'advocate-assigned'] }],
+    ['zz-work', { id: 'zz-work', issue_type: 'task', priority: 2, status: 'open' }],
+  ]),
+  parents: new Map([['zz-work', 'zz-epic']]),
+  adopts: new Map(),
+  edges: new Map(),
+};
+
+await check('a follow-up under an advocated root tells that root\'s advocate, once', async () => {
+  const asked = [];
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } }, graph: ADVOCATED });
+  const out = await run(bd, fakePr(openPr()), {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    tellAdvocate: async (ask) => {
+      asked.push(ask);
+      return { state: 'told' };
+    },
+  });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.equal(asked.length, 1, 'the advocate was told once, or not at all');
+  assert.equal(asked[0].root, 'zz-epic', 'it told the root the follow-up was parented onto');
+  assert.equal(asked[0].title, 'a theme', "and named the epic, not only its id");
+  assert.equal(asked[0].followUp.id, bd.calls.created[0].id);
+});
+
+await check('a root nothing advocates is told nothing — an open bead under it is already bd ready', async () => {
+  const asked = [];
+  const bare = {
+    ...ADVOCATED,
+    // Open, owned, a root: `wantsAdvocate` says yes and there is still no advocate on it.
+    beads: new Map([...ADVOCATED.beads].map(([id, row]) => [id, id === 'zz-epic' ? { ...row, labels: ['owner:someone@example.com'] } : row])),
+  };
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } }, graph: bare });
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true, tellAdvocate: async (a) => asked.push(a) });
+  assert.equal(bd.calls.created.length, 3, 'the follow-up is filed either way');
+  assert.deepEqual(asked, [], 'it typed into a window about an epic that has no advocate');
+});
+
+await check('a merge that filed nothing reads no graph and tells nobody', async () => {
+  const asked = [];
+  const bd = fakeBd({ rows: [reviewed(APPROVED)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } }, graph: ADVOCATED });
+  let graphs = 0;
+  const graph = bd.graph;
+  bd.graph = async (...a) => {
+    graphs += 1;
+    return graph(...a);
+  };
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true, tellAdvocate: async (a) => asked.push(a) });
+  assert.deepEqual(asked, []);
+  assert.equal(graphs, 0, 'a clean approval paid for a graph read it had no use for');
+});
+
+await check('a follow-up an earlier tick filed is not announced a second time', async () => {
+  // The same guard `finish`'s own idempotence has, one step out: a tick that died between
+  // the filing and the close arrives back here, and the advocate has already been told.
+  const asked = [];
+  const bd = fakeBd({
+    rows: [reviewed(APPROVED_WITH_OPEN)],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+    graph: ADVOCATED,
+    followups: [{ id: 'zz-already', status: 'open' }],
+  });
+  await run(bd, fakePr(openPr()), { policy: REVIEW_ON, autoEndorse: true, tellAdvocate: async (a) => asked.push(a) });
+  assert.deepEqual(bd.calls.created, []);
+  assert.deepEqual(asked, [], 'it typed the same paragraph into a window that had already acted on it');
+});
+
+await check('an advocate that could not be reached costs neither the merge nor a close', async () => {
+  const bd = fakeBd({ rows: [reviewed(APPROVED_WITH_OPEN)], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } }, graph: ADVOCATED });
+  const out = await run(bd, fakePr(openPr()), {
+    policy: REVIEW_ON,
+    autoEndorse: true,
+    tellAdvocate: async () => {
+      throw new Error('Not authorised to send Apple events to iTerm2.');
+    },
+  });
+  assert.deepEqual(out.merged, ['zz-merge']);
+  assert.deepEqual(bd.calls.closes.map((c) => c.id), ['zz-merge', 'zz-work'], 'an unreachable window must not cost a close');
+  assert.ok(
+    bd.calls.closes.some((c) => c.id === 'zz-merge' && new RegExp(bd.calls.created[0].id).test(c.reason)),
+    'and the merge still named where the findings went'
+  );
 });
 
 /* ------------------------------------------------------------------------ done */

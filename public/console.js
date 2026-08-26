@@ -1577,6 +1577,14 @@
     // in the tooltip and in the field below. `|| []` because a draft kept on this phone
     // may predate the field (bc-42ow) — the sheet must not go blank over it.
     const files = b.files || [];
+    // `|| {}` for the same reason `files` falls back above: a draft kept on this phone
+    // may predate the field (bc-xl7n.87). Empty for the overwhelming majority of
+    // labels — a label the create would drop is the exception, not the rule.
+    const labelIssues = b.labelIssues || {};
+    const labelPill = (l) =>
+      labelIssues[l]
+        ? `<span class="pill muted" title="${esc(labelIssues[l])}">${esc(l)}</span>`
+        : `<span class="pill">${esc(l)}</span>`;
 
     const summary = `<button class="bead-head" data-toggle="${esc(b.ref)}" aria-expanded="${isOpen}">
       <span class="bead-title">${esc(b.title || 'Untitled bead')}</span>
@@ -1585,7 +1593,7 @@
         <span class="pill">${esc(b.type)}</span>
         ${b.parent ? `<span class="pill">under ${esc(b.parent)}</span>` : ''}
         ${b.dependsOn.length ? `<span class="pill">after ${esc(b.dependsOn.join(', '))}</span>` : ''}
-        ${b.labels.map((l) => `<span class="pill">${esc(l)}</span>`).join('')}
+        ${b.labels.map(labelPill).join('')}
         ${
           files.length
             ? `<span class="pill" title="${esc(files.join('\n'))}">${files.length} file${files.length === 1 ? '' : 's'}</span>`
@@ -1669,6 +1677,17 @@
           <input type="text" data-field="labels" data-ref="${esc(b.ref)}" value="${esc(b.labels.join(', '))}"
             placeholder="comma, separated" autocapitalize="none" autocorrect="off">
         </label>
+        ${
+          // Readable without a hover, because a `title` on the pill above is a tooltip
+          // and this is read on a phone. The same sentence the create's own warning
+          // uses (lib/proposedlabels.js), said before the button rather than after —
+          // that "after" is still there and unchanged, this is the earlier notice.
+          Object.keys(labelIssues).length
+            ? `<div class="warnings label-issues">${Object.entries(labelIssues)
+                .map(([l, why]) => `<span>${esc(l)} would be dropped on create — ${esc(why)}</span>`)
+                .join('')}</div>`
+            : ''
+        }
 
         <label class="field">
           <span>Files it expects to touch</span>

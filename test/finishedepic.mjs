@@ -397,7 +397,25 @@ const advocateCfg = (workspace, extra = {}) => ({
     flagNotInMain: false,
     // High enough that every ready bead in the small worlds below gets a slot — the
     // point under test is *which* beads are ready, not the rationing.
-    maxWorkers: 10,
+    //
+    // Both numbers, and that is the whole of bc-beleq. `maxWorkers` alone is only a
+    // *request*: `workerLimit` clamps it to `maxWorkersLimit`, which defaults to 3, so
+    // asking for ten quietly rationed every tick here to three sessions and left the
+    // comment above describing something the fixture was not doing. `MAX_WORKERS_CEILING`
+    // is 9, which is why 9 rather than 10 — a bigger number only earns a warning.
+    //
+    // What that cost, because it is the interesting half. Three slots made this fixture
+    // sensitive to the *order* `byPickOrder` picks work up in, and two pull requests that
+    // were each green alone turned main red together on 2026-08-24. bc-jvt0.5 (#673) added
+    // the whole-job beads — zz-ask, zz-cut, zz-plain, zz-two.1 — and bc-ibt8g.1 (#672)
+    // gave `byPickOrder` an id tie-break for beads sharing a `createdAt`, which every bead
+    // in this world does. Before the tie-break the three slots went in insertion order and
+    // `zz-work` was first; after it they go alphabetically and `zz-work` is last of seven,
+    // so the control assertion below stopped firing. Neither PR could see it: the semantic
+    // conflict only exists on the merge, which is bc-rcrt exactly. Enough slots for every
+    // ready bead is what makes this suite say what it means and stops it being a race.
+    maxWorkers: 9,
+    maxWorkersLimit: 9,
     ...extra,
   },
 });
