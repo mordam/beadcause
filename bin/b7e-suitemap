@@ -1,0 +1,150 @@
+#!/usr/bin/env node
+/**
+ * `b7e-suitemap` — the inside of an existing suite: what it imports from the module
+ * under test, its file-local fixtures and loaders, and every named check in order.
+ *
+ *     b7e-suitemap test/apperrors.mjs        the suite, by path
+ *     b7e-suitemap --for lib/errors.js       resolve the suite through lib/affected.js first
+ *     b7e-suitemap test/apperrors.mjs --json machine-readable
+ *     b7e-suitemap --dir <root> ...          another tree — this is how it is tested
+ *
+ * bc-dgx7.85 is the session audit: five sessions each added a check to a suite that
+ * already existed, and each began by reading several hundred lines of it — `sed`
+ * slices, greps for anchor strings, Reads at guessed line numbers — to learn the same
+ * three things a new check needs: what the fixture/loader helper is called, what the
+ * suite imports from the file under test, and which named check to anchor after.
+ * `b7e-affected` already names which suite covers a file; `b7e-harness` prints the
+ * house shape for a brand-new one. Neither says anything about the inside of a suite
+ * that already exists, which is where four of the five changes had to land.
+ *
+ * The parse is `lib/suitemap.js`, over acorn — the same reason `lib/already.js` and
+ * `lib/imports.js` parse rather than grep: a name is a binding, not a string a regex
+ * might also find inside a comment.
+ *
+ * Exit codes: `0` printed the map. `2` refused — bad usage. `4` the suite does not
+ * exist or does not parse, or `--for` named a file nothing covers.
+ */
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { REPO_ROOT, mapSuite, suiteFor, toRepoRel } from '../lib/suitemap.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback = null) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+const HELP = has('--help') || has('-h');
+if (HELP) {
+  console.log(
+    [
+      'b7e-suitemap <suite>          the suite\'s imports, helpers and checks, by line',
+      'b7e-suitemap --for <file>     resolve the suite that covers <file>, via lib/affected.js',
+      'b7e-suitemap ... --json       machine-readable',
+      'b7e-suitemap --dir <root>     "this tree" is <root>',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const DIR_GIVEN = value('--dir');
+const ROOT = path.resolve(DIR_GIVEN || REPO_ROOT);
+const CWD_BASE = DIR_GIVEN ? ROOT : process.cwd();
+const JSON_MODE = has('--json');
+const FOR_TARGET = value('--for');
+
+const FLAG_VALUES = new Set(['--dir', '--for']);
+const positionals = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--json' || a === '--help' || a === '-h') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('--')) {
+    console.error(`\x1b[31munrecognised flag: ${a}\x1b[0m`);
+    process.exit(2);
+  }
+  positionals.push(a);
+}
+
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+if (FOR_TARGET && positionals.length) {
+  console.error(red('refused — give a suite path or --for <file>, not both'));
+  process.exit(2);
+}
+if (!FOR_TARGET && positionals.length !== 1) {
+  console.error(red('refused — give exactly one suite path, or --for <file>'));
+  process.exit(2);
+}
+
+let suiteRel;
+let resolution = null;
+if (FOR_TARGET) {
+  const targetRel = toRepoRel(ROOT, CWD_BASE, FOR_TARGET);
+  resolution = suiteFor(ROOT, targetRel);
+  if (!resolution) {
+    console.error(red(`no suite covers ${targetRel} — see b7e-affected`));
+    process.exit(4);
+  }
+  suiteRel = resolution.suite;
+  console.error(dim(`--for ${targetRel} resolves to ${suiteRel} (${resolution.reasons.join(', ')})`));
+  if (resolution.others.length) {
+    const shown = resolution.others.slice(0, 8);
+    const more = resolution.others.length - shown.length;
+    console.error(dim(`  also matched, weaker: ${shown.join(', ')}${more > 0 ? `, and ${more} more` : ''}`));
+  }
+} else {
+  suiteRel = toRepoRel(ROOT, CWD_BASE, positionals[0]);
+}
+
+const map = mapSuite(ROOT, suiteRel);
+if (!map) {
+  console.error(red(`refused — ${suiteRel} does not exist under ${ROOT}, or does not parse`));
+  process.exit(4);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ for: FOR_TARGET ? { target: FOR_TARGET, ...resolution } : undefined, ...map }));
+  process.exit(0);
+}
+
+console.log(`${bold(map.suite)} — ${map.lines} lines, harness: ${map.harness.join('/') || dim('none found')}`);
+
+if (map.imports.length) {
+  console.log(`\n${bold('IMPORTS')}`);
+  for (const imp of map.imports) {
+    const dest = imp.resolved || dim(`${imp.spec} (unresolved)`);
+    const tag = imp.kind === 'vm-source' ? dim(' [vm-source]') : '';
+    console.log(`  ${String(imp.line).padStart(4)}  ${dest}${tag}  ${imp.names.join(', ')}`);
+  }
+}
+
+if (map.helpers.length) {
+  console.log(`\n${bold('HELPERS')}`);
+  for (const h of map.helpers) {
+    const returns = h.returns ? dim(`  -> { ${h.returns.join(', ')} }`) : '';
+    console.log(`  ${String(h.line).padStart(4)}  ${h.signature}${returns}`);
+  }
+}
+
+if (map.checks.length) {
+  console.log(`\n${bold('CHECKS')} (${map.checks.length})`);
+  let lastSection;
+  for (const c of map.checks) {
+    if (c.section !== lastSection) {
+      console.log(`  ${dim(`[${c.section ?? 'before the first section'}]`)}`);
+      lastSection = c.section;
+    }
+    console.log(`  ${String(c.line).padStart(4)}  ${c.title}`);
+  }
+} else {
+  console.log(`\n${dim('no titled check() calls found — this suite may use a different harness convention')}`);
+}
+
+process.exit(0);
