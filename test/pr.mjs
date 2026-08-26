@@ -196,6 +196,17 @@ if (a === 'api') {
   // submitted: it hands back the review it created, and that response is where the
   // permanent anchor to the approval comes from.
   var route = args.filter(function (x) { return x.indexOf('repos/') === 0; })[0] || '';
+  // The downmerge — bc-johbj. GitHub masks a missing push permission on this endpoint as
+  // a flat 404 rather than a 403, so state.updateBranch.token is the token that may write
+  // and every other one gets the sentence that made twelve pull requests look
+  // individually broken. Same shape as writeRefusal on pr create / pr merge; separate
+  // because this refusal does not look like a permission error to anything reading it.
+  if (/\\/pulls\\/\\d+\\/update-branch$/.test(route)) {
+    var ub = state.updateBranch || {};
+    if ((process.env.GH_TOKEN || null) !== (ub.token || null)) fail('gh: Not Found (HTTP 404)');
+    if (ub.refusal) fail(ub.refusal);
+    out(JSON.stringify({ message: 'Updating pull request branch.' }));
+  }
   if (/\\/pulls\\/\\d+\\/reviews$/.test(route)) {
     if (state.reviewRefusal) fail(state.reviewRefusal);
     var n = route.match(/pulls\\/(\\d+)/)[1];
@@ -632,6 +643,68 @@ check(
   'and so does everything else in that checkout',
   calls().length > 0 && calls().every((c) => c.token === 'tok-owner'),
   JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+
+/* THE DOWNMERGE, WHICH RAN AS THE WRONG ACCOUNT FOR AS LONG AS IT EXISTED — bc-johbj.
+
+   `updateBranch` was the one write in this file going out through bare `gh`, so it ran as
+   whatever `gh auth status` called active. On this Mac that is a READ-only login, and
+   GitHub answers a missing `push` on `update-branch` with a flat **404** rather than a
+   403 — so the merge queue read "gh: Not Found (HTTP 404)" as a fact about each branch,
+   twelve for twelve, in the same tick in which `pr.merge` merged #777 as the owner
+   account through `ghIn`. The daemon's environment was never the difference; the call
+   was. `state.updateBranch.token` here is the account that may write, and the fake 404s
+   every other one, which is the real endpoint's own masking. */
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+  updateBranch: { token: 'tok-owner' },
+  prs: { 42: rawPR() },
+});
+resetLog();
+const brought = await pr.updateBranch(REPO, 42);
+const updateCalls = calls().filter((c) => String(c.args.join(' ')).indexOf('update-branch') >= 0);
+check(
+  'THE DOWNMERGE RUNS AS THE ACCOUNT THAT MAY WRITE, NOT THE ONE THAT HAPPENS TO BE ACTIVE',
+  updateCalls.length === 1 && updateCalls[0].token === 'tok-owner',
+  JSON.stringify(calls().map((c) => [c.args.join(' '), c.token]))
+);
+check('and GitHub brings the base in', brought.updated === true && brought.reason === '', JSON.stringify(brought));
+
+// And the refusal half is unchanged: a conflict is still `{ updated: false, reason }`
+// rather than a throw, because every caller is inside a sweep.
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'readonlyacct', active: true },
+      { user: 'owneracct', active: false },
+    ],
+  },
+  tokens: { readonlyacct: 'tok-readonly', owneracct: 'tok-owner' },
+  repoByToken: {
+    '': { nameWithOwner: 'them/shared', viewerPermission: 'READ' },
+    'tok-owner': { nameWithOwner: 'them/shared', viewerPermission: 'ADMIN' },
+  },
+  updateBranch: { token: 'tok-owner', refusal: 'gh: merge conflict between base and head (HTTP 422)' },
+  prs: { 42: rawPR() },
+});
+resetLog();
+const conflicted = await pr.updateBranch(REPO, 42);
+check(
+  'a refusal comes back as a reason rather than a throw, on one line',
+  conflicted.updated === false && /merge conflict/.test(conflicted.reason) && conflicted.reason.indexOf('\n') < 0,
+  JSON.stringify(conflicted)
 );
 
 pr.forgetAvailability();
