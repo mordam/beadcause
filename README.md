@@ -19452,6 +19452,74 @@ Write-shaped — `--take` and `--stage` edit and stage files in the working tree
 not a throwaway scratch copy — so, like `b7e-apply`/`b7e-commit`/`b7e-at`, it is not on
 `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and carries no `lib/grants.js` classification.
 
+### The approval packet as one call — ask, label, and record the ward step — `b7e-packet`
+
+`bc-dgx7.80` names five sessions (`dv-gr6.38`, `dv-gr6.41`, `dv-gr6.43`, `dv-b5d.4.3`,
+`dv-5eu.1.1`) that each ended a Story-chain relay with the same five hand-typed calls, in
+the same order, and the same one failed every time: `ask.js` to file the question, two
+separate `bd label add` calls (`needs-approval`, then `human`), `relaystep --role ward
+--step file --next adam`, rejected because the relay vocabulary is role names and `adam`
+is not one, then a retry with some other role standing in for him (`vox`, `aria`,
+`script` — a different guess each time). Two labels applied one write apart leave a
+window where the bead carries only one, invisible to whatever desk query selects on both
+at once; and the rejection was never a typo — five sessions independently reasoned the
+packet goes to Adam, because it does, and retyping `--next` with a different role each
+time never fixed the actual mismatch.
+
+```
+b7e-packet -w <workspace> -b <bead> -t <question>  [-f packet.md] [--artifact <url>]
+                                                    [--from <role>] [--no-options]
+```
+
+The body is `-f <path>` or stdin, exactly like `bin/ask.js`, and is held to the same
+rule: it must end with a `decision` block (`lib/decision.js`) or the command refuses
+before anything is written, naming the fix and the one legitimate way past it
+(`--no-options`, for a packet that is a plain go/no-go). What it does past that gate:
+
+1. **Files the question with both packet labels in the one `bd create`** —
+   `needs-approval` and `human` (`lib/relay.js`'s `packetFor`, a per-workspace default),
+   plus the addressee label `bin/ask.js` also stamps — so there is no write between them
+   for a query to catch the bead carrying only one.
+2. **Parks `-b` behind the new question** (`lib/park.js`), with the same
+   fallback-to-`human` behaviour `bin/ask.js --blocks` has when the edge itself cannot be
+   written.
+3. **Records the filer's step on `-b`'s own relay trail** (`lib/relayjournal.js`) — role
+   `--from`, or the workspace relay's `filer` (`ward`, for deluvia) when neither is given;
+   step `file`; **no `--next`, ever** — that is the fix, not a caught rejection: the
+   command never builds the argument that was getting refused. Skipped, silently, on a
+   workspace with no relay and no `--from`: there is no trail to write a role onto, the
+   same rule `bin/relaystep.js` follows. `--from` is checked against the workspace's own
+   roles first, and an unknown one is refused (exit `3`) before the create, the same as
+   an unknown `-b` or a body with no `decision` tail.
+4. **Prints the packet id, the labels it now carries, and the relay line** (or that none
+   was recorded) **— then, only when `--artifact` was not given, the Rule 1 verdict** on
+   whether a repo path written from here would reach a phone (`lib/reachable.js`).
+   `dv-5eu.1.1`, `dv-gr6.41` and `dv-gr6.43` each re-derived that by hand — the main
+   checkout sits on a branch that is not trunk — and published an Artifact instead; this
+   is that derivation, made once rather than re-argued per session. It reads the local
+   `origin/HEAD` symbolic ref first, so no network call and no dependency on GitHub
+   knowing the repo, falling back to a local `main` or `master`; a checkout it cannot
+   read at all, or one with neither, answers `null` rather than a guessed `false`. Pass
+   `--artifact <url>` once you already have one — reachable by construction, nothing left
+   to verify — and the url is echoed back in its place.
+
+Exit codes: `1` usage, an unknown workspace, a body with no `decision` tail, or `-b`
+naming a bead this workspace does not have — all refused before the create, so nothing is
+on Adam's phone yet. `3` an unknown `--from` role, refused the same way. `0` otherwise:
+the packet exists past that point, so a failed park or a failed relay write is reported
+on stderr and the command still exits `0`, the same rule `bin/ask.js` follows and for the
+same reason — a caller told the whole thing failed, over a question already on a phone,
+either asks nothing or asks twice.
+
+**Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and no `lib/grants.js` entry either.**
+Unlike `b7e-def`/`b7e-show`'s read-only lookups, this is a tracker write — it files a
+bead, labels it, adds a dependency edge and appends to another bead's notes — and the one
+agent `DEFAULT_TOOL_LIST` actually reaches, `dispatch`, has no relay to be filing on
+behalf of and no delivery of its own to gate. A worker session, which is what actually
+ends a Story-chain relay, already carries an unrestricted allowlist and needs no grant to
+run it — the same call `b7e-say`'s own section makes. See `bin/b7e-packet`, `lib/relay.js`,
+`lib/relayjournal.js`, `lib/reachable.js` and `test/b7e-packet.mjs`/`test/reachable.mjs`.
+
 ### A *workspace repo's* own gate scripts, all of them, with a baseline — `b7e-checks`
 
 `b7e-gate` above runs *this* repo's own `test/*.mjs` — `lib/gate.js`'s `discoverSuites`
@@ -19921,6 +19989,57 @@ nothing matched — a legitimate answer, not a crash. `2` refused — bad usage,
 Read-only in the same construction as `b7e-def`/`b7e-import` above: its own acorn parse
 over `lib/`, `bin/` and `scripts/`, comments included — which `lib/imports.js` doesn't
 collect, since this is the one question that needs them. `Bash(b7e-already:*)` is on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
+
+### Was this bead's question answered, and which bead carries the answer — `b7e-answered`
+
+`bc-dgx7.84` is the session audit: four sessions (`bc-mwhkg.1`, `bc-jjdar.1`, `bc-jjdar.2`,
+`bc-mwhkg.2`) each opened on a bead they had been told was answered, and each spent its
+opening working out — a different way each time — whether that was true and where the
+answer actually was. It was on the parent twice, absent once. `bc-jjdar.1` ran `bd show`,
+`bd comments` ("No comments"), then `bd comments <parent> | tail -60` and found the
+answer there, then a JSON notes dump to confirm the bead itself carried no `decision`
+block — four calls. `bc-mwhkg.1` got the same brief and the brief was wrong: six calls to
+correct the premise and conclude the parent was unanswered too.
+
+```
+b7e-answered -w <workspace> -b <bead>            the bead alone
+b7e-answered -w <workspace> -b <bead> --family    also walk ancestors — parent, grandparent...
+b7e-answered -w <workspace> -b <bead> --json      the machine-readable form
+```
+
+**Two things it reads, because the fact was already recorded in both and nothing read
+them together.** `lib/decision.js` parses whichever `decision` block a bead's
+description/design/notes carries, if any — a bead with none is plain work, not a
+question. `lib/answered.js` is beadcause's own record of what you chose, kept in
+`state.json` precisely so a re-arriving card can say "you said this already" — and it is
+the *only* place a **deferred** answer shows up at all, because deferring answers a card
+without writing anything to the bead at all (see `lib/decision.js`'s `defersFlag`).
+Combined with the bead's own `status`/`close_reason` and its `human-replied` label —
+`/api/comment`'s own tell for a real reply that has not yet been processed — one call
+tells apart the three endings an answer can have: **closed** (`respond()`: a comment,
+then `bd close` with reason `Answered via Beadcause`), **commissioned** (`commission()`:
+a comment, the `human` label removed, reopened and unclaimed — an instruction to go
+build it, not a verdict), and **deferred** (nothing on the bead at all).
+
+**`--family` walks ancestors, not siblings.** Parent, grandparent, and so on, stopping at
+the first bead with no parent — the `bc-jjdar.1` shape, where the bead itself is plain
+work and the question it was opened over is actually on its parent. This is a different
+walk from `b7e-prior --family`, which widens to every other child under a shared parent;
+the two commands answer different questions and happen to share a flag name.
+
+One block per bead in the chain — whether it carries a `decision` block, whether it has
+been answered, which option was chosen (matched against the recorded response text), and
+the outcome — then one verdict line naming the bead the answer is actually on, or saying
+none of them in the chain carries one (the `bc-mwhkg.1` shape: nothing on the bead *or*
+its parent, despite the brief).
+
+Exit codes: `0` ran to completion, whatever the verdict — "nobody has answered this" is a
+legitimate answer, not a failure. `2` bad usage. `4` `-w`/`-b` named something this
+checkout's tracker does not have.
+
+Read-only: two `bd` reads per bead in the chain (`bd show --include-comments`) plus
+`state.json`'s own `answered` map, never a write. `Bash(b7e-answered:*)` is on
 `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
 
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
