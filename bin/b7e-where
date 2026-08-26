@@ -1,0 +1,132 @@
+#!/usr/bin/env node
+/**
+ * `b7e-where` — every surface a printed figure appears on, and whether they agree, in one
+ * call instead of one hand-rolled `grep` per surface.
+ *
+ *   b7e-where <text>              hits under source, docs, tests and served markup,
+ *                                  the registered audit-doc row (if any), and a verdict
+ *   b7e-where <text> --json       the same, as one JSON object
+ *   b7e-where <text> --dir <root> run against another tree — this is how it is tested
+ *   b7e-where <text> --regex      treat <text> as a real RegExp instead of a literal
+ *
+ * bc-dgx7.16 is the session audit: six sophab sessions (sp-0hw, sp-clh, sp-oyg, sp-mgq,
+ * sp-j8f, sp-weu) each answered "where is this figure written, and does every surface
+ * agree" by hand. Four opened with an unquoted `--include=*.py`, which zsh glob-expands
+ * before `grep` ever sees it — `(eval):1: no matches found: --include=*.py` — and all
+ * four retried with a different exclusion set. This never shells a `grep` at all (see
+ * `lib/where.js`'s doc comment), so there is no glob for a shell to reparse. `<text>` is
+ * a literal, not a pattern, by default — a search for `2x10` also finds `2×10`, the
+ * spelling one of those six sessions had to search for by hand a second time, because
+ * that spelling difference is exactly how a real defect (sp-ghq) hid.
+ *
+ * Root is resolved from `process.cwd()` (via `git rev-parse --show-toplevel`), never
+ * from where this script itself lives on disk — `bin/` of the *main checkout* is on
+ * every session's `PATH` regardless of which repo it is actually sitting in, so a session
+ * working inside sophab, or any other repo, gets an answer about its own tree.
+ *
+ * Exit codes: `0` ran to completion, whether or not anything was found — an empty answer
+ * is "not on any surface", not a failure. `2` bad usage.
+ */
+import path from 'node:path';
+import { repoRoot, searchSurfaces, SURFACE_LABELS, SURFACE_ORDER } from '../lib/where.js';
+
+const argv = process.argv.slice(2);
+const has = (...names) => names.some((n) => argv.includes(n));
+const value = (...names) => {
+  for (const n of names) {
+    const at = argv.indexOf(n);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-where <text> [--json] [--dir <root>] [--regex] [--ignore-case]
+
+Every surface a printed figure appears on, grouped, and whether they agree — instead of
+one hand-rolled grep per surface. <text> is matched as a literal by default (both x and
+× spellings of a figure like 2x10/2×10 always match each other); pass --regex to give it
+a real pattern instead.
+
+  --json         one JSON object instead of the printed report
+  --dir <root>   run against another tree instead of this process's own repo root — this
+                 is how it is tested
+  --regex        treat <text> as a RegExp, not a literal string
+  --ignore-case  case-insensitive match`;
+
+if (has('--help', '-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const FLAG_VALUES = new Set(['--dir']);
+let TERM;
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--json' || a === '--regex' || a === '--ignore-case') continue;
+  if (FLAG_VALUES.has(a)) {
+    i += 1;
+    continue;
+  }
+  if (a.startsWith('-')) {
+    console.error(`b7e-where: unrecognised flag: ${a}`);
+    console.error(USAGE);
+    process.exit(2);
+  }
+  if (TERM !== undefined) {
+    console.error('b7e-where: one search term at a time — quote it if it contains spaces');
+    console.error(USAGE);
+    process.exit(2);
+  }
+  TERM = a;
+}
+
+if (!TERM) {
+  console.error(USAGE);
+  process.exit(2);
+}
+
+const JSON_MODE = has('--json');
+const REGEX = has('--regex');
+const IGNORE_CASE = has('--ignore-case');
+const DIR_GIVEN = value('--dir');
+const ROOT = path.resolve(DIR_GIVEN || repoRoot());
+
+let result;
+try {
+  result = searchSurfaces(ROOT, TERM, { regex: REGEX, ignoreCase: IGNORE_CASE });
+} catch (err) {
+  console.error(`b7e-where: ${String(err?.message || err).split('\n')[0]}`);
+  process.exit(2);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(result));
+  process.exit(0);
+}
+
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+
+console.log(`${bold(TERM)} under ${ROOT} (${result.filesSearched} files searched)`);
+console.log('');
+
+for (const key of SURFACE_ORDER) {
+  const entries = result.bySurface[key];
+  const total = result.surfaceFileCounts[key];
+  if (!total) continue; // this repo has no such surface at all — nothing to print
+  console.log(bold(`${SURFACE_LABELS[key]} (${entries.length} file${entries.length === 1 ? '' : 's'})`));
+  for (const { file, hits } of entries) {
+    for (const h of hits) console.log(`  ${file}:${h.line} ${dim(h.text.trim())}`);
+  }
+  if (!entries.length) console.log(dim('  (no hits)'));
+  console.log('');
+}
+
+if (result.auditDoc) {
+  console.log(bold(`audit doc: ${result.auditDoc.file}`));
+  for (const h of result.auditDoc.hits) console.log(`  :${h.line} ${dim(h.text.trim())}`);
+  console.log('');
+}
+
+console.log(result.verdict);
+process.exit(0);
