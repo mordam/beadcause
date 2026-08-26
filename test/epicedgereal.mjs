@@ -49,6 +49,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { provisionBdWorkspace } from './helpers/bdtemplate.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { Bd } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
@@ -109,7 +110,6 @@ if (older) {
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-epicedge-'));
 const dir = path.join(tmp, '.beads');
-fs.mkdirSync(dir, { recursive: true });
 
 // Spawned directly, never through a shell: `~/.zshenv` rewrites BEADS_DIR from the
 // shell's cwd, so a shell here would resolve to somebody's actual tracker.
@@ -117,9 +117,11 @@ const env = { ...process.env, BEADS_DIR: dir };
 const bdRun = (args) => spawnSync('bd', args, { env, cwd: tmp, encoding: 'utf8', timeout: 120_000 });
 const saidBy = (r) => `${r.stderr || ''}${r.stdout || ''}`.trim().split('\n')[0];
 
-const init = bdRun(['init', '--skip-agents', '--prefix', 'ee']);
-if (init.status !== 0) {
-  bad('a temp workspace can be made to ask in', saidBy(init));
+// A cached template stands in for `bd init --skip-agents --prefix ee` — see
+// test/helpers/bdtemplate.mjs.
+const init = provisionBdWorkspace({ prefix: 'ee', destRoot: tmp });
+if (!init.ok) {
+  bad('a temp workspace can be made to ask in', init.reason);
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(`\n${failures}/${ran} failed\n`);
   process.exit(1);

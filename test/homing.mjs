@@ -74,6 +74,10 @@ const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 const { hasRootAbove } = await import(LIB('underroot.js'));
 const { fileBeads } = await import(LIB('filing.js'));
 const { Bd, forgetParents } = await import(LIB('bd.js'));
+const { RED_BASE_LABEL } = await import(LIB('redbase.js'));
+// The real string, not a copy — bc-mwhkg.2 pins homing.js's local literal against this
+// so a rename on either side fails loudly here rather than silently reopening the bug.
+const { ERROR_LABEL } = await import(LIB('errors.js'));
 
 /* --------------------------------------------------------------------- harness */
 
@@ -118,6 +122,17 @@ const LINES = [
   // label is only safe while it looks at roots alone.
   row('zz-home', { priority: 0, labels: [HOME_LABEL] }),
   row('zz-home.1', { labels: [HOME_LABEL], dependencies: [parentEdge('zz-home.1', 'zz-home')] }),
+  // bc-beleq.2: a red-base hold — a P0 with no parent, so it is its own root — and a
+  // second one hanging under a themed epic, for the "hold is not only ever a bare root"
+  // half of the same bug.
+  row('zz-hold', { priority: 0, labels: [RED_BASE_LABEL] }),
+  row('zz-hold-under', { priority: 0, labels: [RED_BASE_LABEL], dependencies: [parentEdge('zz-hold-under', 'zz-epic')] }),
+  // bc-mwhkg.2: an app-error P0, filed automatically by lib/errors.js and closed the
+  // moment the error stops — never a home for a discovery, however `rootOver` would
+  // ordinarily answer it. One standing alone, and one with a root above it, so both
+  // fallbacks (the next root up, and the backlog) are reachable.
+  row('zz-apperror', { priority: 0, labels: [ERROR_LABEL] }),
+  row('zz-apperror-nested', { priority: 0, labels: [ERROR_LABEL], dependencies: [parentEdge('zz-apperror-nested', 'zz-epic')] }),
 ];
 const INDEX = indexFrom(LINES.join('\n'));
 
@@ -134,6 +149,22 @@ await check('and nothing is over a bead nothing decided, or over a closed P0’s
   assert.equal(rootOver(INDEX, 'zz-done.1'), null, 'a closed P0 is not a root, so it is not a home either');
   assert.equal(rootOver(INDEX, 'zz-never-heard-of-it'), null);
   assert.equal(rootOver(INDEX, ''), null);
+});
+
+await check('A RED-BASE HOLD IS NEVER A HOME — bc-beleq.2', () => {
+  // A hold bead is a P0 with no parent, so it is its own root — the exact shape that
+  // parented bc-beleq.1 under bc-beleq (the hold itself) and left the hold unable to
+  // close, because bd refuses to close a bead with open children and `sweepBase` closes
+  // the hold the moment the base is green with no check for any of that.
+  assert.equal(rootOver(INDEX, 'zz-hold'), null, 'a bare hold has no root above it once itself is skipped');
+  // A hold hanging under an epic (unusual, but not impossible) skips past itself too —
+  // "the next root up", not just "give up".
+  assert.equal(rootOver(INDEX, 'zz-hold-under'), 'zz-epic');
+  // And `homeFor` carries it all the way through: no home found over the bare hold falls
+  // through to the unsorted backlog exactly as "nothing above it at all" already does.
+  assert.equal(homeFor(INDEX, { from: 'zz-hold' }).parent, 'zz-pile');
+  assert.notEqual(homeFor(INDEX, { from: 'zz-hold' }).parent, 'zz-hold', 'never a child of the hold it was found from');
+  assert.equal(homeFor(INDEX, { from: 'zz-hold-under' }).parent, 'zz-epic');
 });
 
 /* --------------------------------------------------------------- the backlog P0 */
@@ -230,6 +261,48 @@ await check('a from with nothing above it falls through to the backlog', () => {
   assert.equal(homeFor(INDEX, { from: 'zz-loose' }).parent, 'zz-pile');
   assert.equal(homeFor(INDEX, { from: 'zz-done.1' }).parent, 'zz-pile');
   assert.equal(homeFor(INDEX, {}).parent, 'zz-pile');
+});
+
+await check('ROOTOVER(..., {includeSelf:false}) SKIPS THE BEAD ITSELF, EVEN A ROOT', () => {
+  // The primitive the fix below is built on. The default is untouched — a root is still
+  // above itself, which every other caller of `rootOver` relies on.
+  assert.equal(rootOver(INDEX, 'zz-apperror'), 'zz-apperror', 'unchanged default: a root is over itself');
+  assert.equal(rootOver(INDEX, 'zz-apperror', { includeSelf: false }), null, 'nothing above it once it is skipped');
+  assert.equal(rootOver(INDEX, 'zz-apperror-nested', { includeSelf: false }), 'zz-epic', 'the next root up, once skipped');
+  assert.equal(rootOver(INDEX, 'zz-epic', { includeSelf: false }), null, 'zz-epic has nothing above it either');
+});
+
+await check('AN APP-ERROR P0 IS NEVER ITS OWN HOME — bc-mwhkg.2', () => {
+  // The whole bug: `rootOver` answers `from` itself whenever `from` is already a root,
+  // which is right for an epic (property 1, above) and wrong for a P0 that lib/errors.js
+  // closes the moment the fix ships, with no regard for what a session discovered while
+  // reading it. Filing under it strands the child the instant it closes.
+  const home = homeFor(INDEX, { from: 'zz-apperror' });
+  assert.notEqual(home.parent, 'zz-apperror', 'it closes as soon as the error stops — never a home');
+  assert.equal(home.parent, 'zz-pile', 'nothing else above it, so the backlog catches it, same as any orphan `from`');
+  assert.match(home.why, /zz-pile/);
+});
+
+await check('and one with a root above it falls through to that root, not the backlog', () => {
+  const home = homeFor(INDEX, { from: 'zz-apperror-nested' });
+  assert.equal(home.parent, 'zz-epic');
+  assert.notEqual(home.parent, 'zz-apperror-nested');
+  assert.match(home.why, /zz-epic/);
+});
+
+await check('AND AN ORDINARY EPIC IS UNAFFECTED — STILL ITS OWN HOME, EXACTLY AS BEFORE', () => {
+  // The property that makes this safe to land: nothing here changes unless `from` itself
+  // carries `app-error`. An epic — the case property 1 already pins — is untouched.
+  assert.equal(homeFor(INDEX, { from: 'zz-epic' }).parent, 'zz-epic');
+});
+
+await check('the label is pinned to lib/errors.js’s own ERROR_LABEL, not a copy that can drift', () => {
+  // Imported for real at the top of this file rather than typed as 'app-error' again —
+  // a rename in either lib/errors.js or lib/homing.js's local literal fails right here.
+  const one = indexFrom(row('zz-e', { priority: 0, labels: [ERROR_LABEL] }));
+  const home = homeFor(one, { from: 'zz-e' });
+  assert.notEqual(home.parent, 'zz-e');
+  assert.equal(home.parent, '', 'no unsorted pile in this tiny tracker, so nothing to fall to');
 });
 
 await check('UNSORTED: FALSE REFUSES THE BACKLOG AND KEEPS THE P0 — lib/release.js', () => {
@@ -456,6 +529,29 @@ await check('and with the home unraised it files exactly where it filed before',
     homeLabel: 'not-raised-yet',
   });
   assert.equal(res.home.parent, 'zz-epic', 'the old rule, unchanged, which is what makes this safe to land first');
+});
+
+await check('FILEBEADS DOES NOT PARENT A DISCOVERY UNDER THE APP-ERROR P0 THAT FOUND IT — bc-mwhkg.2', async () => {
+  // Asserted through the real seam and the real argv, not against `homeFor` alone, for
+  // property 5's reason: a unit test of the decision passes just as happily against a
+  // `fileBeads` that never called it. bc-mwhkg is exactly this shape — its own children
+  // landed parented to it and were stranded the moment it closed.
+  forgetParents();
+  const res = await fileBeads(bd, ws, [{ title: 'discovered while working the crash' }], { from: 'zz-apperror' });
+  assert.equal(res.failed.length, 0, JSON.stringify(res.failed));
+  assert.equal(res.home.parent, 'zz-pile', 'falls through to the unsorted backlog, not the P0 that will close first');
+  assert.notEqual(res.home.parent, 'zz-apperror');
+  assert.equal(world().parents.get(res.filed[0].id), 'zz-pile', 'and `--parent` really carried the backlog, not the P0');
+
+  // The acceptance criterion itself: closing the P0 that discovered it — exactly what
+  // happens to an app-error bead the moment its fix ships — must not strand the child.
+  const afterClose = JSON.parse(fs.readFileSync(WORLD, 'utf8'));
+  afterClose.lines = afterClose.lines.map((l) => {
+    const r = JSON.parse(l);
+    return JSON.stringify(r.id === 'zz-apperror' ? { ...r, status: 'closed' } : r);
+  });
+  fs.writeFileSync(WORLD, JSON.stringify(afterClose, null, 2));
+  assert.equal(hasRootAbove(world(), res.filed[0].id), true, 'still workable after the P0 that discovered it closes');
 });
 
 await check('A PARENT BD REFUSES COSTS THE PARENT, NEVER THE BEAD', async () => {
