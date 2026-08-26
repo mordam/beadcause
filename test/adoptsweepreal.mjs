@@ -44,6 +44,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { provisionBdWorkspace } from './helpers/bdtemplate.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { Bd } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
@@ -74,7 +75,6 @@ if (!bdOnPath) {
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-adoptreal-'));
 const dir = path.join(tmp, '.beads');
-fs.mkdirSync(dir, { recursive: true });
 
 // Spawned directly, never through a shell: `~/.zshenv` rewrites BEADS_DIR from the
 // shell's cwd, so a shell here would resolve to somebody's actual tracker — and this
@@ -83,9 +83,12 @@ const env = { ...process.env, BEADS_DIR: dir };
 const bdRun = (args) => spawnSync('bd', args, { env, cwd: tmp, encoding: 'utf8', timeout: 120_000 });
 const saidBy = (r) => `${r.stderr || ''}${r.stdout || ''}`.trim().split('\n')[0];
 
-const init = bdRun(['init', '--skip-agents', '--prefix', 'ar']);
-if (init.status !== 0) {
-  console.log(`  \x1b[31m✗\x1b[0m a temp workspace can be made to ask in\n      ${saidBy(init)}`);
+// A cached template stands in for `bd init --skip-agents --prefix ar` — see
+// test/helpers/bdtemplate.mjs. `ar` is not a free choice: the fixture below asserts
+// against a literal `ar-nope` id, so the prefix has to be this one.
+const init = provisionBdWorkspace({ prefix: 'ar', destRoot: tmp });
+if (!init.ok) {
+  console.log(`  \x1b[31m✗\x1b[0m a temp workspace can be made to ask in\n      ${init.reason}`);
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('\n1/1 failed\n');
   process.exit(1);

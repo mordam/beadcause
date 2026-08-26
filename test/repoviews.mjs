@@ -54,7 +54,10 @@ import {
   forgetPayloads,
   VIEW_DIR,
   MANIFEST,
+  GENERATOR_HEADER,
+  GENERATOR_CODE,
 } from '../lib/repoviews.js';
+const timing = await import('../lib/timing.js');
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -283,6 +286,26 @@ await check('a view with no generator says so rather than spawning anything', as
   writeManifest({ views: [{ id: 'board', script: 'board.js' }] });
   const out = await payloadFor(cfg, findView(cfg, WS, 'somerepo.board'), {});
   assert.match(out.problem, /no "data.run"/);
+});
+
+await check('a generator run is logged as cold, with its wall time attributed to it as a child process', async () => {
+  forgetPayloads();
+  timing.reset();
+  // Sleeps rather than returning instantly, so the generator's wall time is large enough
+  // to tell "attributed" from "not attributed" without a flaky margin.
+  writeGen('await new Promise((r) => setTimeout(r, 60)); console.log(JSON.stringify({ ok: true }));\n');
+  writeManifest({
+    views: [{ id: 'board', script: 'board.js', data: { run: [process.execPath, path.join(VIEW_DIR, 'gen.mjs')], ttl: 60 } }],
+  });
+  const v = findView(cfg, WS, 'somerepo.board');
+  const rec = timing.begin('GET /api/views/somerepo/board/data');
+  const out = await payloadFor(cfg, v);
+  timing.end(rec, 200);
+  assert.equal(out.data.ok, true);
+  const row = timing.snapshot().routes.find((r) => r.route === 'GET /api/views/somerepo/board/data');
+  assert.ok(row?.cold, `not recorded cold — got ${JSON.stringify(row)}`);
+  assert.equal(row.cold.calls, 1, 'charged the one generator spawn');
+  assert.ok(row.cold.subMs >= 40, `subMs ${row.cold.subMs}ms — the generator's wall time was not attributed to it`);
 });
 
 await check('allViews walks every workspace and keeps the config order', () => {
@@ -837,9 +860,26 @@ await check('it is behind the credential, like every other payload', async () =>
   assert.equal((await get('/api/views', { token: '' })).status, 401);
 });
 
+await check('a scoped address is served the shell, at the address it was asked for', async () => {
+  // bc-xnj67, and the one claim about it that reading the source cannot make: a rewrite
+  // rather than a hop, so the space stays in the address bar while the hash goes on naming
+  // the view. A 302 here would put the address on screen for one round trip and then take
+  // it away, which is the whole thing this shape exists to avoid.
+  const res = await get('/bdcoz/personal/demo');
+  assert.equal(res.status, 200, 'a scoped address did not serve the shell');
+  assert.match(res.headers['content-type'] || '', /text\/html/);
+  assert.ok(res.body.includes('data-pane='), 'what came back is not the shell');
+  // Any scope is served, including one naming no configured space. This file has no
+  // business being the place that knows which spaces exist, and a typo should show you the
+  // app rather than a 404 — the client drops an unknown scope back to the stored filter.
+  assert.equal((await get('/bdcoz/nosuchspace')).status, 200);
+});
+
 await check('/v/demo/board hops to the hash rather than serving the shell', async () => {
   const res = await get('/v/demo/board');
   assert.equal(res.status, 302, 'a rewrite here draws Home from every home-screen shortcut');
+  // Unscoped, because `demo` is in no configured space in this fixture — the hop upgrades
+  // to `/bdcoz/<space>/<ws>#…` only when there is a space to name (bc-xnj67).
   assert.equal(res.headers.location, '/#demo.board');
 });
 
@@ -874,6 +914,27 @@ await check('a view with no generator answers the data route with a reason, not 
   const res = await get('/api/views/demo/board/data');
   assert.equal(res.status, 502);
   assert.match(JSON.parse(res.body).error, /no "data.run"/);
+});
+
+await check('and that 502 says it is the generator failing, not the daemon — bc-3wf1r', async () => {
+  // public/report.js files a sev2 P0 for every 5xx that does not say otherwise, and this
+  // one is a script this daemon spawned on another repo's behalf — or, here, a manifest
+  // that named none. The header is what stops the false P0; the body's `code` is for a
+  // caller that has already parsed it.
+  const res = await get('/api/views/demo/board/data');
+  assert.equal(res.headers[GENERATOR_HEADER], '1', 'the view-data 502 carries no generator marker');
+  assert.equal(JSON.parse(res.body).code, GENERATOR_CODE);
+});
+
+await check('and the browser reads that same header literally, since public/ cannot import lib/', () => {
+  // The one thing that can silently break this: renaming the constant in lib/repoviews.js
+  // and leaving public/report.js matching the old string. Then every view-generator 502
+  // files a P0 again and nothing goes red. See the comment at the exemption in report.js.
+  const reporter = fs.readFileSync(new URL('../public/report.js', import.meta.url), 'utf8');
+  assert.ok(
+    reporter.includes(`'${GENERATOR_HEADER}'`),
+    `public/report.js does not excuse ${GENERATOR_HEADER}`
+  );
 });
 
 for (const s of servers) s.close();
