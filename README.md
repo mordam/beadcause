@@ -20977,6 +20977,69 @@ of what a skill needs, not to this bead. See `bin/b7e-handback`, `lib/handback.j
 `test/b7ehandback.mjs`.
 
 
+### Take a bead a studio role is holding — `b7e-take`
+
+`bc-dgx7.97`, moved here from deluvia (filed there as `dv-b5d.48`) after a session
+audit found seven sessions each hand-recovering from the same refusal. `bd update <id>
+--claim` refuses whenever a bead already carries an assignee, and for `dv-b5d.24`,
+`dv-b5d.26`, `dv-b5d.22`, `dv-gr6.40`, `dv-3rn.4`, `dv-3rn.2` and `dv-gr6.36` that
+assignee was never a live session — it was a studio role (`sinew`, `vox`, `aria`,
+`tally`, `clio`) the bead had only been *routed* to. All seven ran `bd update
+--claim`, hit `issue already claimed: already assigned to "<role>"`, read the memory
+explaining the refusal is not a collision, and only then issued the write that
+actually works: `bd update <id> --if-assignee=<role> --assignee=<actor>
+--status=in_progress`. Three round trips, byte-identical across seven runs, before
+any of them had read a line of the repo they were there to work.
+
+```
+b7e-take -w deluvia -b dv-b5d.24              take it, or claim it plainly if unheld
+b7e-take -w deluvia -b dv-b5d.24 --dry-run    decide and report; write nothing
+b7e-take -w deluvia -b dv-b5d.24 --release    give it back to the role it came from
+b7e-take -w deluvia -b dv-b5d.24 --json       the machine-readable form
+```
+
+`lib/bd.js`'s new `CLAIM_ROLE_GUARD_RE` / `claimedBy` name who a `--claim` refusal
+says holds a bead — a third wording next to `CLAIM_GUARD_RE` and `REASSIGN_GUARD_RE`,
+placed beside them as the bead asked. What bd's own wording cannot say is whether
+taking the bead over is *safe*: a role and a real live session refuse in exactly the
+same words. `lib/take.js` answers that by reading the calling checkout's own role
+roster instead of guessing — every directory under `<checkout>/ai-context/agents/`,
+deluvia's own convention rather than a beadcause one (its nineteen names are exactly
+the acceptance criteria's "19 studio roles", and all five roles above are among
+them). A holder outside that roster — a real person, or a live window actually
+working the bead — is refused by name, never taken on a hunch; a workspace that names
+no such directory reads back an empty roster and refuses every held bead, the
+conservative default rather than a silent guess.
+
+The take itself is atomic: `Bd.casAssign` (`lib/bd.js`) is `bd update <id>
+--if-assignee <role> --assignee <actor> --status in_progress --add-label
+taken-from:<role>` in one call, so the write only lands if the role was still the
+assignee the instant it ran. That label is what `--release` reads back to hand the
+bead to the same role it came from, and it is removed on release. A stale guard (bd
+1.2.1's own exit 13, "precondition guard did not match") means somebody else won the
+race between the read and the write — reported rather than retried, since retrying
+would recompare the same expected value against the same now-wrong assignee and lose
+the same way again.
+
+**Not on `DEFAULT_TOOL_LIST`, despite the bead's own wiring checklist saying it
+should be.** That checklist line is right for a read-only lookup (`b7e-def`,
+`b7e-claims`) and wrong for this one, for the same reason its closest sibling in
+shape, `b7e-handback`, is not on it either: a reassign is a tracker *write*,
+`DEFAULT_TOOL_LIST` is the read-only surface a constrained reply agent gets
+(`lib/toolbelt.js`'s own docstring: "the read-only surface every reply agent gets"),
+and the worker session this actually serves already has the Bash access to run it —
+the same way it already runs `bd update --claim` itself, by the name it resolves to
+on `PATH`. Adding it would hand a write to a reply agent the checklist was never
+written with in mind.
+
+`test/b7etake.mjs` drives all three of `lib/bd.js`'s claim-refusal wordings from a
+fake `bd`: the new one (taking over a role-held bead), and the two existing ones
+(`CLAIM_GUARD_RE`, `REASSIGN_GUARD_RE`) checked to prove the new pattern never
+misreads either of them. Also covers the role roster read from a fixture
+`ai-context/agents/` directory, an unrecognised holder refused by name, `--release`,
+`--dry-run`, and the CAS race. See `bin/b7e-take`, `lib/take.js`.
+
+
 ### A reviewer's own runnable copy of a pull request — `b7e-prtree`
 
 `bc-dgx7.38`, filed by the session audit against three sessions that each needed to
