@@ -138,6 +138,10 @@ const spied = () => {
 const READS = [
   ['listHuman', (bd) => bd.listHuman(WS)],
   ['listAgent', (bd) => bd.listAgent(WS)],
+  // The merge queue's second read (bc-uxrix), and on the same timer as the first: the two
+  // run in the same tick, so a ceiling on one and a default on the other is the split this
+  // file exists to catch.
+  ['listCards', (bd) => bd.listCards(WS, 'merge-advocate')],
   ['listStatus', (bd) => bd.listStatus(WS, 'open')],
   ['listLabel', (bd) => bd.listLabel(WS, 'human')],
   ['listAll', (bd) => bd.listAll(WS)],

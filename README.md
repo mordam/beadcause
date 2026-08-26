@@ -22705,6 +22705,67 @@ registry read beside the one that opens the window, and `test/mergequeue.mjs` dr
 halves — including two consecutive ticks on what the first one actually wrote, which is the
 only honest way to assert that the sentence is stable enough to count.
 
+### The queue reads its own cards, which for a long time it could not
+
+Handing a pull request over is a label swap: `merge-queue` comes off the merge-bead, `human`
+and the delivery label go on, and it appears in the inbox. The sweep's read of the tracker
+was `bd.listAgent`, which runs `bd list --exclude-label human` — for a good reason of its
+own, since the questions are already in hand from another read and a workspace like
+climative is 88KB of JSON when every row carries its whole description. Put those two
+sentences together and **the moment a merge-bead became a card it left the only list the
+queue ever read**.
+
+Nothing failed. Two things went quiet, which is worse.
+
+- **Taking a card back had never once run.** A card that outlives its reason is a leak, not
+  a handover — #475 was carded for a failing check, the check went green on its own, and it
+  merged within a minute of finally being put back a day later; #433 and #438 sat
+  conflicting with *passing* checks, and a conflict is the one thing this queue is best at.
+  The function that rescues those selects rows carrying `human` and not `merge-queue`, so
+  fed a list `human` had been filtered out of it could only ever return nothing. Five tests
+  covered it and all five passed, because the fake tracker handed its rows back unfiltered:
+  the seam was tested and the wiring was not.
+- **Every card was reported as a stranded pull request.** The strand report builds its cover
+  set from the same rows, so a card contributed none — and its own reasoning says the
+  opposite in as many words, that a card is a handover and reporting it here would bury the
+  real ones. Measured on 2026-08-26: 22 live cards, each producing *"#N is open and no
+  merge-bead is about it"* once per tick, on pull requests whose merge-bead was sitting
+  right there. Both halves of that sentence are false of a card — the Merge tap will merge
+  it — which made it the highest-volume untrue statement in the log.
+
+So the sweep does a **second read**, `bd.listCards`, narrowed by assignee to the cards this
+queue itself raised. The assignee is what keeps it from being the inbox read twice: a
+question Adam filed is not assigned to the merge advocate and has no business in a queue's
+row set. A card list that cannot be read suppresses both halves rather than running them on
+a set known to be short — a reclaim skipped costs a tick, where a strand report over half a
+tracker names pull requests that are perfectly well looked after.
+
+**A reviewer's veto is carved out of the reclaim, and that carve-out had to land in the same
+change.** The reclaim asks whether the *queue's* recorded sentence still holds, and a card
+that is genuinely a decision carries no lapsing sentence. A vetoed pull request carries
+both: the reviewer's refusal, and underneath it the queue's own stale *waiting on a review*
+line in a different block of the same field. So waking the reclaim up would have taken a
+green, clean, explicitly-refused branch back onto the queue and merged it, unattended, as a
+side effect of a bug fix — the merge gate does not consult the review gate at all. The test
+is the same one the escalation uses: a `refused` verdict, or a disagreement that has used up
+`MAX_REVIEW_ROUNDS`. **The reclaim is for cards the queue gave up on, not cards a reviewer
+gave up on.** A `changes` verdict mid-loop is not carved out — that is a round in progress,
+and nothing about it says this pull request will not be approved.
+
+**And the strand report stops truncating itself in silence.** It took the pull-request
+lister's default of 40 without saying so, and `gh` sorts newest first: against 75 open pull
+requests on this repo the query returned #656..#699, so 35 of them could not be reported as
+stranded whatever state they were in — and the 35 were the *oldest*, which is exactly where
+a strand accumulates. The tick's line read as a complete count and was not one. That is the
+failure the report exists to end, reproduced one layer up. `STRAND_SCAN_MAX` is 200, the
+cost is the same single query either way, and when a repository does reach it the sweep says
+so rather than presenting the partial answer as the whole one.
+
+`lib/bd.js` owns the second read, `lib/mergeadvocate.js` the carve-out, `lib/mergequeue.js`
+the wiring and the ceiling, and `test/mergequeue.mjs`'s fake tracker now applies the same
+`--exclude-label human` the real one does — which is what makes those five reclaim tests
+fail honestly if the second read is ever taken back out.
+
 ### The reviewer — a seventh agent kind, and the diff nobody reads
 
 Everything above judges a pull request by what *happened to it*: whether it conflicts,

@@ -44,7 +44,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-mergequeue-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK, mergeReport } = await import(LIB('mergequeue.js'));
+const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK, STRAND_SCAN_MAX, mergeReport } = await import(LIB('mergequeue.js'));
 const { MERGE_LABEL, MERGE_ASSIGNEE, MAX_ATTEMPTS, MAX_REVIEW_ROUNDS, mergeBeadBody, queueState, reviewState, withQueueBlock, withReviewBlock } =
   await import(LIB('mergebead.js'));
 const { MAX_DOWNMERGES } = await import(LIB('mergequeue.js'));
@@ -100,7 +100,7 @@ const bead = (over = {}, spec = {}, notes = '') => ({
  * `oweClose` path without a real tracker.
  */
 function fakeBd({ rows = [], issues = {}, refuse = null, comments = {}, followups = [], graph = null } = {}) {
-  const calls = { closes: [], comments: [], updates: [], reads: [], created: [], labelReads: [] };
+  const calls = { closes: [], comments: [], updates: [], reads: [], created: [], labelReads: [], cardReads: [] };
   return {
     calls,
     /**
@@ -120,7 +120,28 @@ function fakeBd({ rows = [], issues = {}, refuse = null, comments = {}, followup
     },
     /** The shape `homeIn` climbs to find a follow-up's parent. Empty is "no root anywhere". */
     graph: async () => graph || { beads: new Map(), parents: new Map(), adopts: new Map(), edges: new Map() },
-    listAgent: async () => rows,
+    /**
+     * **The `human` exclusion the real one does, and the reason this suite lied** —
+     * bc-uxrix.
+     *
+     * `Bd.listAgent` runs `bd list --exclude-label human`, and until this line it did not.
+     * Five take-a-card-back scenarios below hand `rows` a bead labelled `['human',
+     * 'pr-delivery']` and got it back, so all five passed against a production wiring that
+     * could not deliver such a row to `cardedFor` at all: the seam was tested and the wiring
+     * was not, for as long as the reclaim has existed. Applying the filter here is what
+     * makes those five fail honestly if the second read in `sweepMergeQueue` is ever taken
+     * back out.
+     */
+    listAgent: async () => rows.filter((r) => !(r?.labels || []).some((l) => String(l).trim() === 'human')),
+    /** The other half of the same read: this queue's own cards, by assignee — `Bd.listCards`. */
+    listCards: async (ws, assignee) => {
+      calls.cardReads.push(assignee);
+      return rows.filter(
+        (r) =>
+          (r?.labels || []).some((l) => String(l).trim() === 'human') &&
+          (!assignee || String(r?.assignee || '').trim().toLowerCase() === String(assignee).trim().toLowerCase())
+      );
+    },
     show: async (ws, id) => issues[id] || null,
     close: async (ws, id, reason) => {
       if (refuse && refuse(id)) throw new Error(`cannot close ${id}: blocked by open issues [zz-blocker]`);
@@ -151,9 +172,12 @@ const fakePr = (
     reviewer = null,
     approve = { submitted: true, reviewer: 'NeanderthalMan', url: 'https://github.com/acme/widgets/pull/42#pullrequestreview-1', at: '2026-08-23T00:00:00Z' },
     submitReview = { submitted: true, reviewer: 'NeanderthalMan', url: 'https://github.com/acme/widgets/pull/42#pullrequestreview-1', at: '2026-08-23T00:00:00Z' },
+    // The open pull requests in the checkout, when a scenario is about the strand report.
+    // `null` leaves `prApi.list` off the fake entirely — see below.
+    list = null,
   } = {}
 ) => {
-  const calls = { merges: [], updates: [], comments: [], approvals: [], reviews: [] };
+  const calls = { merges: [], updates: [], comments: [], approvals: [], reviews: [], lists: [] };
   const api = {
     calls,
     view: async () => view,
@@ -190,6 +214,18 @@ const fakePr = (
       return submitReview;
     },
   };
+  /**
+   * The open pull requests in a checkout — `list`, lib/pr.js — and opt-in for `comment`'s
+   * reason: the sweep guards on `typeof prApi?.list === 'function'`, so a scenario that is
+   * not about strands gets a `prApi` without one and the strand block is skipped entirely,
+   * exactly as it is for a caller that hands over no lister.
+   */
+  if (list) {
+    api.list = async (dir, opts) => {
+      calls.lists.push({ dir, ...opts });
+      return list;
+    };
+  }
   /**
    * `mergeability`, lib/pr.js — one `view` at `timeoutMs: 0`, plus the one thing the raw
    * read cannot say: whether GitHub has answered at all. That reading is what the queue's
@@ -431,6 +467,148 @@ await check('a merged pull request is never taken back, whatever its card says',
   });
   const out = await run(bd, fakePr(openPr({ state: 'MERGED' })));
   assert.deepEqual(out.restored, []);
+});
+
+/* ------------------------------------- the sweep can see its own cards (bc-uxrix) */
+
+/**
+ * The wiring under all five scenarios above, asserted rather than assumed.
+ *
+ * `Bd.listAgent` runs `--exclude-label human` and `raiseMergeCard` puts `human` on, so
+ * until bc-uxrix a card left the only list this sweep read the moment it was raised, and
+ * `cardedFor` could only ever return `[]` in the daemon. The five above passed anyway,
+ * because the fake handed its rows back unfiltered — the seam was tested and the wiring
+ * was not. `fakeBd.listAgent` now applies the same exclusion, so those five reach
+ * `cardedFor` only by way of the second read, and this one says so out loud.
+ */
+await check('the reclaim reads the cards through their own list, not through listAgent', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  assert.deepEqual(await bd.listAgent(), [], 'the real listAgent could not deliver this row and now neither can the fake');
+  const out = await run(bd, fakePr(openPr()));
+  assert.deepEqual(out.restored, ['zz-merge'], 'and the second read is what gets it there');
+  assert.deepEqual(bd.calls.cardReads, [MERGE_ASSIGNEE], 'narrowed to this queue own cards, not the whole inbox');
+});
+
+await check('a tracker with no card list reclaims nothing rather than guessing', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  delete bd.listCards;
+  const out = await run(bd, fakePr(openPr()));
+  assert.deepEqual(out.restored, [], 'a card it cannot read is a card it must not act on');
+  assert.equal(bd.calls.updates.length, 0);
+});
+
+/**
+ * bc-uxrix, answered by Adam 2026-08-24: **the reclaim is for cards the queue gave up on,
+ * not cards a reviewer gave up on.**
+ *
+ * This is the exact shape of #655 on the day it was measured — green, clean, and vetoed —
+ * and without the carve-out, making cards visible would have merged it over the reviewer's
+ * refusal, unattended, as a side effect of a bug fix. `gateVerdict` does not consult the
+ * review gate at all, so nothing further down would have caught it.
+ */
+const VETOED = withReviewBlock(withQueueBlock('', { attempts: 3, refused: 'waiting on a review.' }), {
+  round: 1,
+  verdict: 'refused',
+  reviewer: 'NeanderthalMan',
+  refused: 'the approach is wrong.',
+});
+
+await check('a card a reviewer vetoed is never taken back, however green the check has gone', async () => {
+  const bd = fakeBd({ rows: [bead({ labels: CARDED, notes: VETOED })] });
+  const prApi = fakePr(openPr());
+  const out = await run(bd, prApi);
+  assert.deepEqual(out.restored, [], 'a reviewer does not change their mind because a check went green');
+  assert.equal(prApi.calls.merges.length, 0, 'and nothing merged over the refusal');
+  assert.equal(bd.calls.updates.length, 0);
+});
+
+await check('and one that used up its rounds is the same decision, without the word refused', async () => {
+  const capped = withReviewBlock(withQueueBlock('', { attempts: 3, refused: 'waiting on a review.' }), {
+    round: MAX_REVIEW_ROUNDS,
+    verdict: 'changes',
+    reviewer: 'NeanderthalMan',
+    comments: [{ id: 'c1', body: 'this is still wrong', severity: 'blocking' }],
+  });
+  const out = await run(fakeBd({ rows: [bead({ labels: CARDED, notes: capped })] }), fakePr(openPr()));
+  assert.deepEqual(out.restored, [], 'two rounds is as many as this gets — that is an escalation, not a lapse');
+});
+
+await check('but a round still in progress is the queue own hold, and lapses like any other', async () => {
+  const midLoop = withReviewBlock(withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }), {
+    round: 1,
+    verdict: 'changes',
+    reviewer: 'NeanderthalMan',
+    comments: [{ id: 'c1', body: 'a suggestion', severity: 'suggestion' }],
+  });
+  const out = await run(fakeBd({ rows: [bead({ labels: CARDED, notes: midLoop })] }), fakePr(openPr()));
+  assert.deepEqual(out.restored, ['zz-merge'], 'nothing about a first-round comment says this will not be approved');
+});
+
+/* ------------------------------------------- the strand report (bc-91srt, bc-uxrix) */
+
+const strandPr = (n) => ({ number: n, state: 'OPEN', isDraft: false });
+const stillRed = { failed: ['test'], failing: 1, pending: 0, total: 3, state: 'failing' };
+
+await check('a carded pull request is cover, not a strand', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  const said = [];
+  // Its check is still red, so it stays a card — the point is what the strand report says
+  // about it, not whether the reclaim takes it.
+  const out = await run(bd, fakePr(openPr({ checks: stillRed }), { list: [strandPr(42), strandPr(77)] }), {
+    log: (l) => said.push(l),
+  });
+  assert.deepEqual(out.stranded, [77], '#42 has a merge-bead — it is carded, which is a handover and not a strand');
+  assert.ok(
+    !said.some((l) => /#42 in .* is open and no merge-bead/.test(l)),
+    `and the line the daemon repeated every tick is gone — said: ${said.join(' | ')}`
+  );
+});
+
+await check('a repo known only through a card is still swept for strands', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) })],
+  });
+  const prApi = fakePr(openPr({ checks: stillRed }), { list: [strandPr(42), strandPr(99)] });
+  const out = await run(bd, prApi);
+  // Nothing is queued at all here — every merge-bead in the workspace is a card — and the
+  // directory set used to be read off the queued half alone, so this reported nothing.
+  assert.equal(prApi.calls.lists.length, 1, 'the card named the checkout');
+  assert.deepEqual(out.stranded, [99]);
+});
+
+await check('and a card list that could not be read suppresses the report rather than crying strand', async () => {
+  const bd = fakeBd({
+    rows: [bead({ labels: CARDED, notes: withQueueBlock('', { attempts: 3, refused: '1 check failing (test).' }) }), bead({ id: 'zz-two' })],
+  });
+  bd.listCards = async () => {
+    throw new Error('dolt: database is locked');
+  };
+  const said = [];
+  const out = await run(bd, fakePr(openPr({ checks: stillRed }), { list: [strandPr(42)] }), { log: (l) => said.push(l) });
+  assert.deepEqual(out.stranded, [], 'a cover set known to be short cannot tell a strand from a handover');
+  assert.ok(
+    said.some((l) => /could not be read/.test(l)),
+    `and it says so — a report that went quiet reads as nothing being wrong: ${said.join(' | ')}`
+  );
+});
+
+await check('the strand report says when it hit its own ceiling', async () => {
+  const bd = fakeBd({ rows: [bead({ notes: withQueueBlock('', { attempts: MAX_ATTEMPTS }) })] });
+  const many = Array.from({ length: STRAND_SCAN_MAX }, (_, i) => strandPr(1000 + i));
+  const said = [];
+  const prApi = fakePr(openPr(), { list: many });
+  await run(bd, prApi, { log: (l) => said.push(l) });
+  assert.equal(prApi.calls.lists[0].limit, STRAND_SCAN_MAX, 'and it asks for a ceiling rather than taking the default of 40');
+  assert.ok(
+    said.some((l) => new RegExp(`at least ${STRAND_SCAN_MAX} open pull requests`).test(l)),
+    `a partial answer presented as the whole one is the bug: ${said.join(' | ')}`
+  );
 });
 
 /* ------------------------------------------------------------ the conflict */
