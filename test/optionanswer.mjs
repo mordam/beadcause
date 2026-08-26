@@ -232,13 +232,19 @@ check('and a commission says so rather than claiming to answer and close', () =>
 });
 
 check('and a deferral says *that*, which is neither of the other two', () => {
-  // bc-7qo.11. `defers: true` is `closes: false` plus "the card stays in the inbox", so an
+  // bc-7qo.11. `defers: true` is `closes: false` plus "nothing is put in motion", so an
   // armed button reading "commissions bc-aaa1" over it would name the one thing a deferral
   // is defined by not doing — and on a collapsed card the tap is the last chance to say
   // so, because the next one sends.
+  //
+  // It says *sets aside* rather than *defers* since bc-y9cof, and the wording is the
+  // claim rather than an accident of phrasing: the tap now takes the card off the list,
+  // so a button that named only the tracker's half would be silent about the only half
+  // you can see happen.
   const said = label({ id: 'park', label: 'Not yet', closes: false, defers: true }, true);
-  assert.match(said, /defers/i, `"${said}"`);
+  assert.match(said, /aside/i, `"${said}"`);
   assert.doesNotMatch(said, /commissions/i, `"${said}" reads as a build order`);
+  assert.doesNotMatch(said, /answers/i, `"${said}" reads as an ordinary close`);
   assert.ok(said.includes('bc-aaa1'), `"${said}" does not say which bead`);
 });
 

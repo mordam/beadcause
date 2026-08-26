@@ -1,0 +1,118 @@
+#!/usr/bin/env node
+/**
+ * `b7e-show` — read a file as it is at another ref, without inventing a redirect.
+ *
+ *   b7e-show <ref> <path>...            one openable copy per path, or exit 1 naming
+ *                                        whichever ones the ref does not have
+ *   b7e-show <ref> <path>... --dir <root>   <ref>/<path> resolve against <root>'s repo,
+ *                                        not the cwd's
+ *   b7e-show <ref> <path>... --diff     a unified diff of each path, ref vs. working tree
+ *   b7e-show <ref> <path>... --json     one JSON object, `{hits, misses}`, instead of
+ *                                        the printed report
+ *
+ * `bc-dgx7.72` names four sessions (`dv-3rn.12`, `dv-gr6.50`, `dv-gr6.48`, `dv-3rn`) that
+ * each needed the other side of a branch — `Read`/`Grep` take a path, never a ref — and
+ * each invented the materialising step by hand, differently. The one that matters:
+ * `dv-3rn.12` ran `git show ref:path > /tmp/x.md`, got nothing back (the redirect target's
+ * directory did not exist), and the very next `ls` showed an empty directory — a redirect
+ * that writes nothing and a `grep` that finds nothing read identically. This refuses a
+ * path the ref does not have instead of leaving an empty file behind, so that failure
+ * mode cannot happen here: presence is read from `git show`'s own exit code, not from
+ * whether a write landed. See `lib/show.js` for the git plumbing.
+ *
+ * Exit codes: `0` every path existed at `ref`; `1` at least one did not (named on
+ * stderr, and nothing was written for it); `2` refused — bad usage, `<ref>` does not
+ * resolve to a real revision, or `--dir`/the cwd is not inside a git repository. A bad
+ * `<ref>` is caught before anything is built, so it never leaves even an empty scratch
+ * directory behind.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { resolveRef, materialise, diffAgainstRef } from '../lib/show.js';
+
+const USAGE = `usage: b7e-show <ref> <path>... [--dir <root>] [--diff] [--json]
+
+Read a file as it is at another ref, without inventing a redirect.
+
+  <ref>              anything git rev-parse --verify accepts — a sha, a branch, a tag,
+                      HEAD~3 (not a "main...other" range: this reads one file at one
+                      revision, not a set of commits)
+  <path>...          one or more repo-relative paths
+  --dir <root>        resolve <ref>/<path> against <root>'s repo, not the cwd's
+  --diff             a unified diff of each path, <ref> vs. the working tree, instead
+                      of a materialised copy
+  --json             {hits: [{path, file}], misses: [{path, unsafe}]} instead of the
+                      printed report`;
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let DIR = null;
+const DIFF = argv.includes('--diff');
+const JSON_MODE = argv.includes('--json');
+const positionals = [];
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  if (a === '--dir') {
+    DIR = argv[i + 1];
+    i += 1;
+    continue;
+  }
+  if (a === '--diff' || a === '--json') continue;
+  if (a.startsWith('-') && a !== '-') {
+    console.error(`b7e-show: unrecognised flag: ${a}`);
+    console.error(USAGE);
+    process.exit(2);
+  }
+  positionals.push(a);
+}
+
+const [ref, ...paths] = positionals;
+if (!ref || paths.length === 0) {
+  console.error('b7e-show: needs a <ref> and at least one <path>');
+  console.error(USAGE);
+  process.exit(2);
+}
+
+let repoRoot;
+try {
+  repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd: DIR ? path.resolve(DIR) : process.cwd(),
+    encoding: 'utf8',
+    stdio: 'pipe',
+  }).trim();
+} catch {
+  repoRoot = '';
+}
+if (!repoRoot) {
+  console.error(`b7e-show: refusing — ${DIR ? path.resolve(DIR) : process.cwd()} is not inside a git repository`);
+  process.exit(2);
+}
+
+const resolved = await resolveRef(repoRoot, ref);
+if (resolved === null) {
+  console.error(`b7e-show: "${ref}" does not resolve to a real revision in ${repoRoot}`);
+  process.exit(2);
+}
+
+if (DIFF) {
+  const out = await diffAgainstRef(repoRoot, ref, paths);
+  process.stdout.write(out);
+  process.exit(0);
+}
+
+const { hits, misses } = await materialise(repoRoot, ref, paths);
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ hits, misses }));
+} else {
+  for (const h of hits) console.log(`${ref} ${h.path} ${h.file}`);
+  for (const m of misses)
+    console.error(`b7e-show: ${m.path} — ${m.unsafe ? 'refused (escapes the repo)' : `not found at ${ref}`}`);
+}
+
+process.exit(misses.length ? 1 : 0);

@@ -3104,10 +3104,10 @@
             // Worth saying before the tap rather than only in the toast after it:
             // this option is an instruction, and the bead stays open. A deferral is
             // also `closes: false` and means the opposite of an instruction — it puts
-            // nothing in motion and leaves this very card where it is — so the two
-            // cannot share one tag (lib/decision.js).
+            // nothing in motion and takes this card off the list until what it is
+            // waiting on clears — so the two cannot share one tag (lib/decision.js).
             o.defers
-              ? '<span class="hand-tag">↪ not yet — the card stays on your list</span>'
+              ? '<span class="hand-tag">↪ not yet — sets this card aside</span>'
               : o.closes === false
                 ? '<span class="hand-tag">↪ commissions the work</span>'
                 : ''
@@ -3365,9 +3365,12 @@
    * through `textContent` when paintPicked() repaints it.
    */
   function answerLabel(chosen, q) {
-    // *Answer & defer* is the third of these, and it is the only one of the three that
-    // promises the card will still be here afterwards.
-    if (chosen) return chosen.defers ? 'Answer & defer' : chosen.closes === false ? 'Answer & commission' : 'Answer & close';
+    // *Answer & set aside* is the third of these, and it is the only one of the three
+    // that finishes with the bead untouched: nothing closes, nothing is handed over,
+    // and the card goes off the list until what it is waiting on has cleared. It said
+    // *Answer & defer* until bc-y9cof, which was accurate about the tracker and silent
+    // about the only part you can see — that the card is going away.
+    if (chosen) return chosen.defers ? 'Answer & set aside' : chosen.closes === false ? 'Answer & commission' : 'Answer & close';
     // With nothing picked this describes a **typed** answer, and that is where a deferral
     // parts company with the gate predicate above. A typed answer on a card whose only
     // non-closing choice is a *not yet* closes: a deferral starts no work, so there is no
@@ -3398,7 +3401,7 @@
     !armed
       ? o.label
       : o.defers
-        ? `Tap again — defers ${q.id}`
+        ? `Tap again — sets ${q.id} aside`
         : o.closes === false
           ? `Tap again — commissions ${q.id}`
           : `Tap again — answers ${q.id}`;
@@ -8340,12 +8343,18 @@
                 // rather than off which button was pressed.
                 res?.handedBack
                 ? `Answered ${q.id} — handed back as work`
-                : // A deferral, where the card is *still there* and nothing was handed to
-                // anybody. Above `needsChoice` because the two are the only outcomes
-                // where the card survives the answer and they must not be confused: one
-                // is a decision you made, the other is a decision still owed.
+                : // A deferral: nothing was handed to anybody and the card has gone off
+                // the list until what you are waiting on clears. Same sentence as the
+                // dismissal above, off the same `until`, because since bc-y9cof it is
+                // the same record — and it is the whole of what this toast owes you,
+                // since a card that vanishes with "Deferred" on it reads as gone for
+                // good. The fallback matters: a set-aside that failed sends no `until`
+                // and the card is still there, so promising a return would be a lie
+                // about a card you can see.
                 res?.deferred
-                ? `Deferred ${q.id} — still on your list`
+                ? res?.setAside
+                  ? `${q.id} set aside — back when ${res.until ? `${res.until} clears` : 'someone comments'}`
+                  : `Not yet — ${q.id} answered, and still on your list`
                 : // The card did not go anywhere, and that is the one outcome a toast
                 // has to explain rather than confirm: everywhere else the card
                 // vanishing is the feedback. One of these options starts work, and a
