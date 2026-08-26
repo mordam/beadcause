@@ -1,0 +1,150 @@
+#!/usr/bin/env node
+/**
+ * Did the gate actually run this suite, and what did it say — one call, instead of
+ * grepping a persisted log for a basename.
+ *
+ *   b7e-ran <suite> ...        one row per named suite, against this worktree's most
+ *                              recent gate run
+ *   b7e-ran --missing          every suite the run selected that produced no result
+ *   b7e-ran --run <id>         a specific run, from any worktree
+ *   b7e-ran --json             the raw records
+ *   b7e-ran --dir <root>       another tree
+ *
+ * bc-dgx7.92, filed by the session audit against six sessions (bc-dgx7.80, .86, .82,
+ * .77, .81, .78) that each answered "did suite X run, and did it pass" by grepping
+ * `b7e-gate`'s own persisted log for the suite's basename — no two of them used the
+ * same pattern, and a basename match cannot tell "never ran" from "ran and is fine",
+ * nor be sure it did not also match an unrelated suite. bc-dgx7.80 built the real
+ * check by hand across four calls (`--list` to a file, the log's suite names to
+ * another, `comm -23` between them) and only that way found that its own two new
+ * suites had never run at all — a plain grep for one of their names had matched an
+ * unrelated file instead and read as "there".
+ *
+ * The data already existed: `lib/gaterun.js`'s `readRun` parses the JSONL
+ * `bin/b7e-gate` writes as it goes, one line per suite, precisely so nothing has to
+ * grep a log — this is `resultsFor`/`missingFrom`, the two reads that answer this
+ * question directly, wired to a CLI.
+ *
+ * A suite named that never ran reports `never-ran`, not a verdict — the ambiguity a
+ * grep for a basename could not resolve in the first place. `status` in the run's own
+ * JSONL is only ever `'ok'`/`'fail'` (`bin/b7e-gate` collapses `FAIL` and `TIMEOUT`
+ * before writing); `verdictFor` in `lib/gaterun.js` recovers `TIMEOUT` from the tail
+ * text a timed-out suite leaves behind, so the three-way verdict this prints is real,
+ * not guessed from a substring of a log.
+ *
+ * Exit codes: `0` every named suite ran with verdict `ok` (or, with `--missing`,
+ * nothing is missing); `1` at least one named suite never ran, or its verdict was
+ * `FAIL`/`TIMEOUT` (or, with `--missing`, at least one suite is missing); `2` refused —
+ * bad usage, no run found, or a suite name that does not exist in the repo at all.
+ */
+import fs from 'node:fs';
+import { runsDir, latestRunFor, readRun, runFile, worktreeSlug, resultsFor, missingFrom } from '../lib/gaterun.js';
+import { discoverSuites } from '../lib/gate.js';
+
+function arg(...names) {
+  for (const n of names) {
+    const i = process.argv.indexOf(n);
+    if (i > -1) return process.argv[i + 1];
+  }
+  return undefined;
+}
+const has = (n) => process.argv.includes(n);
+
+const USAGE = `usage: b7e-ran <suite> ... [--run <id>] [--json] [--dir <root>]
+       b7e-ran --missing [--run <id>] [--json] [--dir <root>]
+
+With one or more suite names, reports on this worktree's most recent gate run (started
+by \`b7e-gate\`): for each, whether it ran at all, and if so its verdict (ok | FAIL |
+TIMEOUT) and duration. --missing instead prints every suite the run selected that
+produced no result at all — the set \`comm -23\` between \`--list\` and the log used to
+answer by hand. --run <id> reports on a specific run, started by any session in any
+worktree — the id \`b7e-gate\` prints at the top of its own output. --json prints the
+raw record per line instead. --dir <root> points at another tree entirely.`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const cwd = has('--dir') ? arg('--dir') : process.cwd();
+const runId = arg('--run');
+const jsonMode = has('--json');
+const missingMode = has('--missing');
+const names = process.argv.slice(2).filter((a, i, all) => {
+  if (a.startsWith('-')) return false;
+  if (all[i - 1] === '--run' || all[i - 1] === '--dir') return false;
+  return true;
+});
+
+if (!missingMode && !names.length) {
+  console.error('b7e-ran: name at least one suite, or pass --missing');
+  console.error(USAGE);
+  process.exit(2);
+}
+if (missingMode && names.length) {
+  console.error('b7e-ran: --missing reports the whole set itself — it does not take suite names');
+  process.exit(2);
+}
+
+async function findFile() {
+  if (runId) {
+    const dir = await runsDir(cwd);
+    const f = runFile(dir, runId);
+    return fs.existsSync(f) ? f : null;
+  }
+  return latestRunFor(cwd);
+}
+
+function fmtElapsed(sec) {
+  if (sec === null || sec === undefined) return '?';
+  return `${Number(sec).toFixed(1)}s`;
+}
+
+async function main() {
+  const file = await findFile();
+  if (!file) {
+    const dir = await runsDir(cwd);
+    console.error(
+      runId
+        ? `b7e-ran: no run ${runId} found in ${dir}`
+        : `b7e-ran: no gate run found for worktree ${await worktreeSlug(cwd)} in ${dir} — start one with \`b7e-gate\``
+    );
+    process.exit(2);
+  }
+  const run = readRun(file);
+
+  if (!missingMode) {
+    // A typo must not read as "never-ran" — refuse it outright rather than reporting a
+    // real-sounding negative for a suite that was never a suite.
+    const repoSuites = new Set(discoverSuites(cwd));
+    const unknown = names.filter((n) => !repoSuites.has(n));
+    if (unknown.length) {
+      console.error(`b7e-ran: not a suite in this repo: ${unknown.join(', ')}`);
+      process.exit(2);
+    }
+  }
+
+  const records = missingMode
+    ? missingFrom(run).map((suite) => ({ suite, ran: false, status: null, verdict: null, elapsed: null, runId: run.runId }))
+    : resultsFor(run, names);
+
+  if (jsonMode) {
+    for (const r of records) console.log(JSON.stringify(r));
+  } else if (missingMode) {
+    if (!records.length) console.log(`run ${run.runId}: nothing missing — every selected suite produced a result`);
+    else for (const r of records) console.log(`${r.suite}: never-ran (run ${run.runId})`);
+  } else {
+    for (const r of records) {
+      if (!r.ran) console.log(`${r.suite}: never-ran (run ${r.runId})`);
+      else console.log(`${r.suite}: ran ${r.verdict} ${fmtElapsed(r.elapsed)} (run ${r.runId})`);
+    }
+  }
+
+  const bad = records.some((r) => !r.ran || (r.verdict && r.verdict !== 'ok'));
+  process.exit(bad ? 1 : 0);
+}
+
+main().catch((err) => {
+  console.error(`b7e-ran: ${err.message}`);
+  process.exit(1);
+});
