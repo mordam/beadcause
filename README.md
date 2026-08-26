@@ -21492,6 +21492,64 @@ not this one's. `Bash(b7e-entry:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.j
 `test/b7eentry.mjs`.
 
 
+### A `CHANGE_LOG.md` entry's own propagation checklist, verified against the tree — `b7e-propagated`
+
+`bc-dgx7.82`, a session audit against four sessions (`dv-b5d.32`, `dv-2uu.5`, `dv-gr6.5`,
+`dv-5eu`) that each independently discovered the same failure: an entry stamped
+`[PROPAGATED]`, or checked off `[x]` on one of its own rows, while the file that row
+names still carried the value the entry supposedly replaced. `dv-b5d.32`'s own case —
+Entry 108 capped Othens at 12'-15' and was stamped `[PROPAGATED]` the same day, and ten
+days later `pipeline/lib/checks.py` still carried the pre-ruling 12'-25' under a comment
+reading *"OPEN — do not narrow without dv-5i2.84"*, and `dv-5i2.84` *is* Entry 108, so any
+shot could stage a 25-ft Othen and pass every gate. Auditing the rest by hand turned up
+three more live statements of the old figure, and a fifth — `FAUNA_AND_FLORA.md`'s
+short-faced bear, "taller than an Othen", which the ruling inverts — was found by a later
+session whose own `grep -rn` matched a stale copy inside a `.claude/worktrees/*` checkout
+instead of the real file. Nothing had ever checked whether either kind of claim — the
+`Status:` line or a checklist row's own text — was actually true of the tree.
+
+```
+b7e-propagated -w deluvia 108              entry 108, at the delivery base
+b7e-propagated -w deluvia 108 --at <ref>   entry 108, at a specific ref
+b7e-propagated -w deluvia --all            every [PROPAGATED]/PARTIALLY entry
+b7e-propagated -w deluvia 108 --json       the machine-readable form
+b7e-propagated --dir <root> 108            another tree — this is how it is tested
+```
+
+**Not `b7e-count`: that needs you to already know the literal.** Here the input is an
+entry number, and working out the literals — the old value and the new — from the
+checklist row's own text is most of the job; `lib/count.js`'s occurrence census is the
+primitive underneath, reused for the actual old-value/new-value check once a row has
+staked one out. **Not `b7e-entry`: that allocates the next free entry number**, a
+different question about the same file.
+
+Each checklist row is judged **VERIFIED** (the row's own old value is gone from its file
+and the new value is present), **STALE** (the old value is still there), or
+**UNVERIFIABLE** (the row names no path, the path does not exist at this ref, or the row's
+own text stakes out no checkable literal at all) — reported, never silently skipped, so a
+human reading the output knows a box was never machine-checkable rather than assuming
+silence means it passed. Only two shapes of row text are recognised as staking out a
+checkable claim: a backtick-quoted arrow (`` `Barran Orves` → `Kazran Orves` ``) and a
+parenthetical "was OLD" paired with "now NEW" elsewhere in the row (the convention
+`dv-b5d.34`'s own fix used: *"(trait table, was 12'-22') — now 12'-15'."*). Most of Entry
+108's real rows describe what changed in prose without quoting either figure, and those
+are UNVERIFIABLE by design rather than guessed at.
+
+**Reads only ever by ref, never the working tree.** Every read is `git cat-file -p
+<ref>:<path>` (`lib/gitref.js`'s `readRefFile`), the same mechanism `b7e-count` and
+`b7e-entry` use and for the same reason: a `.claude/worktrees/*` copy is a second working
+directory on disk, invisible to a ref read, which is what makes "the bear line at the real
+path rather than in a worktree copy" true by construction rather than by discipline.
+
+**Never writes to `CHANGE_LOG.md`, or anywhere else.** `Bash(b7e-propagated:*)` is on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in `lib/grants.js` on that strength.
+Exit `1` means at least one row is STALE (with `--all`, at least one swept entry has one),
+so it can be a gate the same way `b7e-entry --check` is. See `bin/b7e-propagated`,
+`lib/propagated.js` and `test/b7epropagated.mjs` — the test fixture reproduces the shape
+of the real incident rather than pinning a commit in deluvia's own history, which this
+repo's CI never clones and which keeps moving anyway.
+
+
 ### Which requirement a change was for — `refs/beadcause/requirements`
 
 Climative records acceptance criteria as **requirements**: `resources/reqs/{product,technical}/*.yaml`
