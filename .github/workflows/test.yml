@@ -6,10 +6,79 @@
 # can still break `main` together — the merge is a third thing neither of them tested.
 # That is bc-rcrt, and this workflow is the half of it GitHub can enforce.
 #
+# ## Why this is sharded (bc-xlz32.4)
+#
+# `npm test` (`scripts/test.mjs`) is strictly serial and stops at the first red suite. The
+# suite grew from 135 files to 455 in twelve days; a serial run went from comfortably under
+# `timeout-minutes: 20` to 14-15 minutes against it, with the headroom shrinking every
+# week — and once it runs out, every PR and every merge-group entry fails on a *timeout*
+# instead of on a test, and the merge queue stalls on a required check that never reports.
+#
+# So the suite is split across 4 parallel `shard` jobs (`bin/b7e-shard`, stride-sliced —
+# `suites[i]` goes to shard `i % 4`, not a contiguous block, so the handful of expensive
+# suites spread across shards instead of piling into whichever one's slice happens to cover
+# them) and each shard runs under `bin/b7e-gate`, which does not bail at the first red: a
+# failing shard names every failing suite in it, not just the first.
+#
+# ## Why `--jobs 3`, not higher (bc-mrm77.1)
+#
+# `macos-latest` is a 3-core runner, and this used to run `--jobs 4` on the reasoning that
+# a GitHub runner is otherwise uncontended, so parallelism within a shard is close to free
+# — true of *other tenants*, not of the shard oversubscribing its own three cores by 33%.
+# Three suites went red on `main` under exactly that self-contention on 2026-08-25
+# (`test/chromeprofile.mjs` twice, `test/claims.mjs`, `test/tls.mjs`), all fixture
+# weaknesses that are now fixed — but nothing says those three were the whole set of
+# suites that assume a process gets scheduled promptly, out of ~460.
+#
+# Measured (two shards, `--jobs` 1/2/3/4/6, CPU-constrained to 3 cores): the suites here
+# are substantially I/O- and subprocess-bound, so parallelism keeps paying off past the
+# core count, but with sharply diminishing returns — `--jobs 3` (which exactly saturates
+# three cores, no oversubscription) cost only ~12-19% more wall-clock than `--jobs 4` per
+# shard, and `--jobs 6` bought nothing further over `--jobs 4`. Per-shard wall-clock is a
+# couple of minutes even fully serial (`--jobs 1`), nowhere near `timeout-minutes: 20` —
+# the headroom this trade spends is real but small. `--jobs 3` removes the
+# self-oversubscription for a cost inside the noise of a single run.
+#
+# `SHARD_TOTAL` below and `matrix.index`'s `[0, 1, 2, 3]` must agree — there is nowhere to
+# compute the matrix list from the total short of a setup job, and that costs more than it
+# saves at this shard count. Change both together.
+#
+# ## Why there are two jobs, `shard` and `test`
+#
+# Branch protection and the merge queue name the *required* check by its **job** name, and
+# splitting the suite into a matrix changes the reported check names — GitHub does not
+# complain when a required check stops matching, it waits forever for one that will never
+# report. Rather than touch branch protection, `test` stays the name every rule already
+# points at: it is a cheap roll-up that `needs:` every `shard` leg and fails if any of them
+# did. The actual suite runs in `shard`, not in `test`.
+#
+# ## A pull request runs what it affects; the gate runs everything (bc-xlz32.8)
+#
+# `b7e-affected` answers "which suites cover this diff" and `b7e-shard --from` slices that
+# answer instead of the whole roster, so on a `pull_request` each shard runs only the part
+# of the narrowed list that belongs to it. Measured over the last thirty merges to `main`:
+# a median diff selects **4% of the suite's total time**, and one in thirty selects all of
+# it. On `merge_group` and `push: main` nothing is narrowed — those run all 530.
+#
+# That split is the whole safety argument. Narrowing can only be wrong by running too
+# little, and the place it would matter is the merge, which is exactly where it is turned
+# off: a branch narrowed wrongly is caught when it enters the queue, not in `main`. Three
+# things make the narrowing itself trustworthy rather than merely fast, and all three live
+# in `lib/affected.js`: a changed file it cannot place empties the list, which means *run
+# everything* rather than run nothing; a suite that walks a source directory is selected
+# for any change under it, which is what covers a brand-new file nothing names yet; and a
+# suite the gate has never heard of is dropped before `--only` ever sees it.
+#
+# **An empty slice must never become a bare `b7e-gate`.** With the full roster a shard is
+# never empty, so the old version of this step could interpolate `$ONLY_ARGS` unguarded.
+# A narrowed list shorter than `SHARD_TOTAL` leaves some shard with nothing, and
+# `b7e-gate` with no `--only` at all is every suite — the exact opposite of what that
+# shard was asked to do. Hence the `if [ -s ... ]`.
+#
 # ## Why three triggers
 #
 # - `pull_request` — the ordinary signal, so a red suite is visible on the PR page before
-#   anyone (or `bin/deliver.js`) merges it.
+#   anyone (or `bin/deliver.js`) merges it. The one trigger that narrows.
 # - `merge_group` — **the load-bearing one.** A merge queue builds a temporary ref of
 #   `main` + the entries ahead of yours + yours, and runs the required checks against
 #   *that*. Without this trigger the queue has nothing to wait for and every entry stalls.
@@ -17,13 +86,6 @@
 #   not answer for `merge_group` events blocks the queue rather than gating it.
 # - `push` on `main` — so the history of `main` itself has a verdict, which is what makes
 #   "was main already broken when I branched?" answerable after the fact.
-#
-# ## Why the job is named `test` and must stay named `test`
-#
-# Branch protection and the merge queue name a required check by its **job** name. Rename
-# this job and the protection rule silently stops matching — GitHub does not complain, it
-# waits forever for a check that will never report. If you rename it, change the rule in
-# the same commit (`gh api repos/:owner/:repo/branches/main/protection`).
 #
 # ## Why the git identity step
 #
@@ -33,6 +95,15 @@
 # "Please tell me who you are", and the suite goes red for a reason that has nothing to do
 # with the change under test. Setting it globally on the runner is the cheap fix; making
 # every suite set its own is the right one, and is not this file's job.
+#
+# ## What this does not measure, on purpose
+#
+# `bd` is not installed on the runner, so the nine `test/*real.mjs` suites plus
+# `test/landcheck.mjs` — the ones that drive a real `bd` end to end — skip here. That is
+# roughly a quarter of the suite's actual cost, and CI is not exercising it at all. That is
+# a deliberate decision to keep this workflow cheap, not an oversight: installing `bd` on
+# the runner would put that whole quarter back and spend exactly the budget this workflow
+# exists to protect. If that coverage gap should close, it is its own bead.
 name: test
 
 on:
@@ -42,8 +113,8 @@ on:
     branches: [main]
 
 # One run per pull request: a branch pushed three times in a minute should not hold three
-# runners. Merge-group runs are never cancelled — cancelling one drops the entry from the
-# queue, which is the opposite of what the queue is for.
+# sets of runners. Merge-group runs are never cancelled — cancelling one drops the entry
+# from the queue, which is the opposite of what the queue is for.
 concurrency:
   group: test-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -51,15 +122,32 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  SHARD_TOTAL: 4
+
 jobs:
-  test:
+  shard:
+    name: shard ${{ matrix.index }}
     runs-on: macos-latest
-    # The suite is a few minutes locally. 20 is generous enough that a slow runner is not
-    # a false red, and short enough that a suite hanging on a port or a lock is killed
-    # rather than sitting in the queue ahead of everybody else.
+    strategy:
+      # A red shard must not cancel the other three — the whole point of no-bail gating is
+      # a verdict that names every failing suite, not just whichever shard failed first.
+      fail-fast: false
+      matrix:
+        index: [0, 1, 2, 3]
+    # The suite is a few minutes locally, sharded four ways and further parallelised within
+    # each shard by `--jobs`. 20 is generous enough that a slow runner is not a false red,
+    # and short enough that a suite hanging on a port or a lock is killed rather than
+    # sitting in the queue ahead of everybody else.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The narrowing diffs against the merge-base with the PR's base branch, which a
+          # depth-1 checkout does not have. Full history on every event rather than only on
+          # `pull_request`, because a conditional `fetch-depth` is a second thing to get
+          # wrong for a clone this size.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -84,4 +172,52 @@ jobs:
       # public/vendor — it needs node_modules, which after this step it has.
       - run: npm ci
 
-      - run: npm test
+      # On a pull request only. `b7e-affected` prints nothing and exits 1 when a changed
+      # file matched no suite — `|| true` keeps that from failing the step, because an
+      # empty list is `b7e-shard --from`'s own spelling of "the whole roster", which is
+      # exactly the fallback being asked for.
+      - name: Work out which suites this pull request affects
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE=$(git merge-base "${{ github.event.pull_request.base.sha }}" HEAD)
+          git diff --name-only "$BASE" HEAD > changed.txt
+          echo "changed files:"; cat changed.txt
+          # No changed files at all is not "narrow to nothing" — leave affected.txt absent
+          # and the next step runs the whole roster.
+          [ -s changed.txt ] || { echo "nothing changed — not narrowing"; exit 0; }
+          # Unquoted on purpose: this is the one place the file list has to become argv,
+          # and no path in this repo contains a space. A file outside bin/lib/public/
+          # scripts/test — package.json, this workflow — matches nothing, which empties
+          # the list, which runs everything. That is the conservative direction and it is
+          # the intended one.
+          node bin/b7e-affected $(cat changed.txt) > affected.txt || true
+          echo "affected suites: $(wc -l < affected.txt)"; cat affected.txt
+
+      - name: Run this shard, no-bail
+        run: |
+          FROM=""
+          [ -f affected.txt ] && FROM="--from affected.txt"
+          node bin/b7e-shard --index ${{ matrix.index }} --total ${{ env.SHARD_TOTAL }} $FROM > slice.txt
+          if [ ! -s slice.txt ]; then
+            echo "nothing for this shard to run — the narrowed list is shorter than SHARD_TOTAL"
+            exit 0
+          fi
+          ONLY_ARGS=$(sed 's/^/--only=/' slice.txt | tr '\n' ' ')
+          node bin/b7e-gate --jobs 3 $ONLY_ARGS
+
+  test:
+    name: test
+    needs: shard
+    runs-on: ubuntu-latest
+    # `if: always()` so this still runs (and can fail loudly) when a shard job failed —
+    # the default `needs:` condition would skip it instead, and a *skipped* required check
+    # is a worse signal than a *failed* one: it does not obviously say "a shard was red".
+    if: always()
+    steps:
+      - name: Fail if any shard failed
+        run: |
+          echo 'shard result: ${{ needs.shard.result }}'
+          if [ "${{ needs.shard.result }}" != "success" ]; then
+            echo "at least one shard failed or was cancelled — see the shard jobs above"
+            exit 1
+          fi

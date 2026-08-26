@@ -1,0 +1,302 @@
+#!/usr/bin/env node
+/**
+ * What a new bin/ command still owes before an agent can call it.
+ *
+ *   b7e-enroll                    every command in bin/ against every registry, right now
+ *   b7e-enroll b7e-x               just that one command's seven registrations
+ *   b7e-enroll bin/b7e-x.js        the command a brand-new file in bin/ WOULD be named,
+ *                                  checked the same way, before it is registered anywhere
+ *
+ * bc-khoe.27.11 is the audit: six sessions (bc-khoe.27.6, bc-khoe.27.7, bc-gdub.2,
+ * bc-gdub.3, bc-bmry.7, bc-zjab) each independently re-derived the same handful of
+ * places a new bin/ entry incurs debt in — grepping lib/toolbelt.js and lib/grants.js
+ * by hand, reading two memory notes every time, and at least once (bc-khoe.27.6)
+ * paying for the gap with a full 369-suite gate run that ended on
+ * `test/grants.mjs: dispatch grants Bash(b7e-apply:*), which nothing classified`.
+ * `bin/b7e-owes.js` already does this for routes, config keys, the evidence register
+ * and page aliases — this is the same shape, for the registries a *command*, not a
+ * route, owes.
+ *
+ * SEVEN CHECKS, run for every candidate name — a name already in package.json's
+ * `bin` map, or a stray `b7e-*` file under bin/ with no entry yet. Two are universal
+ * (any bin/ command owes them); five apply only to the `b7e-*` family — what
+ * bc-dgx7.2 calls "a skill": typed bare on PATH by the restricted `dispatch` agent,
+ * unlike the `beadcause-*` worker tools, which a worker's already-unrestricted Bash
+ * runs by absolute path (`node bin/deliver.js`) and which therefore need none of it —
+ * no exec bit (most, like bin/file.js and bin/ask.js, are plain `-rw-r--r--`), no
+ * dedicated README `###` section (they are documented in the surrounding prose
+ * instead), and no DEFAULT_TOOL_LIST entry at all. bc-bmry.7 lived this split for
+ * real, on a non-`b7e-` command (`bin/block.js`): it checked exactly package.json and
+ * package-lock.json, found nothing else it owed, and went looking for a *different*
+ * registry (lib/sessionaudit.js) that is out of scope here too.
+ *
+ *   1. bin/<name> itself exists, is executable, and starts with a node shebang — the
+ *      EXTENSIONLESS file specifically, for a name package.json does not register
+ *      yet: lib/foundation.js puts the main checkout's bin/ on PATH, so a command
+ *      resolves by the name it is typed as, and a package.json rename resolves only
+ *      after an `npm link` this install has never had (see memory note
+ *      only-an-extensionless-bin-resolves-on-path). Once a name IS already registered,
+ *      this trusts whatever file package.json already points to, `.js` suffix and
+ *      all — bc-jlop and bc-dgx7.2 own relitigating an *existing* mismatch (b7e-owes
+ *      and b7e-say both still have one), not this tool. `b7e-*` only.
+ *   2. `package.json`'s `bin` map has an entry for the name. Universal.
+ *   3. `package-lock.json`'s `packages[""].bin` agrees with it — test/lockfile.mjs is
+ *      pinned first in the sweep, so a lock that disagrees stops every later suite.
+ *      Universal.
+ *   4. Some file under test/ actually spawns it — `path.join(ROOT, 'bin', '<name>')`
+ *      (with or without `.js`) appearing anywhere under test/, not a fixed filename:
+ *      the family's own test files disagree with each other on that (test/b7e-say.mjs
+ *      keeps the dash, test/b7eowes.mjs drops it, test/eyeball.mjs is named for
+ *      neither b7e-eyeball nor any dash-dropped spelling of it), so a name-based check
+ *      would be wrong for most of the family that already ships correctly. `b7e-*` only.
+ *   5. README.md has a `### ` heading naming it, backtick-quoted — a feature is not
+ *      finished here until the README says it exists. `b7e-*` only.
+ *   6. `lib/toolbelt.js`'s `DEFAULT_TOOL_LIST` either grants `Bash(<name>:*)` to
+ *      `dispatch`, or the array's own comments say the name and why not — nine of
+ *      this family are deliberately NOT granted (b7e-apply, b7e-gate, b7e-worktree,
+ *      b7e-eyeball, b7e-blame, b7e-swbump, b7e-watch, b7e-call, b7e-triage), each with
+ *      a paragraph explaining what it writes or spawns, and that decision is exactly
+ *      as real as being on the list — it is only unpaid when NEITHER is true, i.e.
+ *      `dispatch` cannot reach it and nobody said why not. `b7e-*` only.
+ *   7. If (6) grants it, `lib/grants.js` classifies `Bash(<name>:*)` — test/grants.mjs
+ *      fails the moment something is on DEFAULT_TOOL_LIST unclassified, "deny by
+ *      default" being the whole design of that file. `b7e-*` only.
+ *
+ * Exit code is a linter's: 0 when nothing is owed, 1 when something is.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** Used only when `cwd` is not inside any git worktree at all — this file's own checkout. */
+const FALLBACK_ROOT = path.join(HERE, '..');
+
+/**
+ * The root to check: the CALLING session's own worktree, not this script's. Per memory
+ * note only-an-extensionless-bin-resolves-on-path, the bin/ file that actually executes
+ * for any b7e-* command is always the MAIN CHECKOUT's copy — lib/foundation.js puts the
+ * main checkout's bin/ first on PATH — so a HERE-based root would always answer for the
+ * main checkout regardless of which worktree the agent is really sitting in, which is
+ * backwards for a tool whose whole job is catching an uncommitted, not-yet-merged
+ * registration before it ships. Same repoRoot(cwd) pattern as lib/repogrep.js
+ * (bc-4r10.21): shell out to git rather than walk up looking for a marker file, so a
+ * worktree resolves to its own root and not its main checkout's.
+ */
+export function repoRoot(cwd = process.cwd()) {
+  try {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return FALLBACK_ROOT;
+  }
+}
+export const ROOT = repoRoot();
+
+const readJson = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
+const readText = (p) => fs.readFileSync(p, 'utf8');
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/* ===================================================================== *
+ * naming a candidate
+ * ===================================================================== */
+
+/**
+ * The command name an argv token or a bin/ filename resolves to: a bare command name
+ * passes through unchanged, `bin/b7e-x.js` or `b7e-x.js` becomes `b7e-x` — the same
+ * derivation whether the file is registered yet or was just created.
+ */
+export function deriveName(arg) {
+  let base = arg.includes('/') ? path.basename(arg) : arg;
+  if (base.endsWith('.js')) base = base.slice(0, -3);
+  return base;
+}
+
+/**
+ * Every command worth checking with no argument given: every key in package.json's
+ * `bin` map, plus any `b7e-*` file directly under bin/ that map does not already
+ * point to — a stray, freshly-added skill with no registration yet. Restricted to
+ * `b7e-*` on purpose: bin/ also holds scripts like `router.js` and `status.js` that
+ * are never meant to be a package.json `bin` entry at all (spawned by absolute path,
+ * not typed by name), and sweeping every unregistered file in bin/ reported those as
+ * "missing a bin entry" — noise this tool exists to cut through, not add to.
+ */
+export function candidateNames(root, pkg) {
+  const fromPkg = Object.keys(pkg.bin || {});
+  const binDir = path.join(root, 'bin');
+  const files = fs.readdirSync(binDir).filter((f) => fs.statSync(path.join(binDir, f)).isFile());
+  const registeredTargets = new Set(Object.values(pkg.bin || {}).map((v) => path.basename(v)));
+  const strays = files
+    .filter((f) => f.startsWith('b7e-') && !registeredTargets.has(f))
+    .map((f) => (f.endsWith('.js') ? f.slice(0, -3) : f));
+  return [...new Set([...fromPkg, ...strays])].sort();
+}
+
+/* ===================================================================== *
+ * 1. the bin/ file itself
+ * ===================================================================== */
+
+export function binFileProblem(name, root, pkg) {
+  const registered = pkg.bin && pkg.bin[name];
+  const rel = registered || path.join('bin', name);
+  const file = path.join(root, rel);
+  if (!fs.existsSync(file)) {
+    if (registered) return `${rel}: file is missing — package.json's "bin" entry points here and nothing is there`;
+    return (
+      `bin/${name}: no extensionless file here yet — a new command needs one (a package.json rename ` +
+      `resolves only after an npm link this install has never had; see memory note ` +
+      `only-an-extensionless-bin-resolves-on-path)`
+    );
+  }
+  const stat = fs.statSync(file);
+  if (!(stat.mode & 0o111)) return `${rel}: not executable — chmod +x`;
+  if (!readText(file).startsWith('#!/usr/bin/env node')) return `${rel}: no '#!/usr/bin/env node' shebang`;
+  return null;
+}
+
+/* ===================================================================== *
+ * 2 & 3. package.json and package-lock.json
+ * ===================================================================== */
+
+export function packageJsonProblem(name, pkg) {
+  const got = pkg.bin && pkg.bin[name];
+  if (got !== undefined) return null;
+  return `package.json: no "bin" entry for ${name} — add "${name}": "bin/${name}"`;
+}
+
+export function packageLockProblem(name, pkg, lock) {
+  const pkgVal = pkg.bin && pkg.bin[name];
+  if (pkgVal === undefined) return null; // packageJsonProblem already names this gap
+  const lockVal = lock.packages && lock.packages[''] && lock.packages[''].bin && lock.packages[''].bin[name];
+  if (lockVal === undefined) {
+    return `package-lock.json packages[""].bin: no ${name} (test/lockfile.mjs, pinned first)`;
+  }
+  if (lockVal !== pkgVal) {
+    return (
+      `package-lock.json packages[""].bin: ${name} -> ${JSON.stringify(lockVal)}, ` +
+      `package.json says ${JSON.stringify(pkgVal)} (test/lockfile.mjs)`
+    );
+  }
+  return null;
+}
+
+/* ===================================================================== *
+ * 4. a test that spawns it
+ * ===================================================================== */
+
+export function testFileProblem(name, testDir) {
+  const files = fs.readdirSync(testDir).filter((f) => f.endsWith('.mjs'));
+  const re = new RegExp(`path\\.join\\(\\s*ROOT,\\s*'bin',\\s*'${escapeRe(name)}(?:\\.js)?'\\s*\\)`);
+  for (const f of files) {
+    if (re.test(readText(path.join(testDir, f)))) return null;
+  }
+  return (
+    `test/: no test spawns bin/${name} (no path.join(ROOT, 'bin', '${name}') anywhere under test/ — ` +
+    `scripts/test.mjs discovers a new test/<name>.mjs with no wiring, but nothing exists yet)`
+  );
+}
+
+/* ===================================================================== *
+ * 5. README.md
+ * ===================================================================== */
+
+export function readmeProblem(name, readmeSrc) {
+  const re = new RegExp('^### .*`' + escapeRe(name) + '`', 'm');
+  if (re.test(readmeSrc)) return null;
+  return `README.md: no ### section names ${name} — a feature is not finished here until the README says it exists`;
+}
+
+/* ===================================================================== *
+ * 6 & 7. the DEFAULT_TOOL_LIST / lib/grants.js allowlist pair
+ * ===================================================================== */
+
+export function allowlistProblem(name, toolbeltSrc, grantsSrc) {
+  const idx = toolbeltSrc.indexOf('export const DEFAULT_TOOL_LIST');
+  const listText = idx === -1 ? toolbeltSrc : toolbeltSrc.slice(idx);
+  const grantedRe = new RegExp(`'Bash\\(${escapeRe(name)}:\\*\\)'`);
+  const granted = grantedRe.test(listText);
+  if (!granted) {
+    if (listText.includes(name)) return null; // a recorded decision not to grant it
+    return (
+      `lib/toolbelt.js: no Bash(${name}:*) on DEFAULT_TOOL_LIST, and no comment in the array says why not ` +
+      `— dispatch cannot call ${name} at all until this is decided`
+    );
+  }
+  const classifiedRe = new RegExp(`'Bash\\(${escapeRe(name)}:\\*\\)'\\s*:`);
+  if (!classifiedRe.test(grantsSrc)) {
+    return `lib/grants.js: Bash(${name}:*) is on DEFAULT_TOOL_LIST and unclassified (test/grants.mjs)`;
+  }
+  return null;
+}
+
+/* ===================================================================== *
+ * all seven, for one name
+ * ===================================================================== */
+
+export function problemsFor(name, ctx) {
+  const { root, pkg, lock, readmeSrc, toolbeltSrc, grantsSrc, testDir } = ctx;
+  const problems = [packageJsonProblem(name, pkg), packageLockProblem(name, pkg, lock)];
+  // The other five are the `b7e-*` "skill" checklist — see the header comment for why
+  // the rest of bin/ (worker tools, run by absolute path with no PATH resolution, no
+  // exec bit and no dedicated README section) does not owe any of them.
+  if (name.startsWith('b7e-')) {
+    problems.push(
+      binFileProblem(name, root, pkg),
+      testFileProblem(name, testDir),
+      readmeProblem(name, readmeSrc),
+      allowlistProblem(name, toolbeltSrc, grantsSrc)
+    );
+  }
+  return problems.filter(Boolean);
+}
+
+function loadContext(root) {
+  return {
+    root,
+    pkg: readJson(path.join(root, 'package.json')),
+    lock: readJson(path.join(root, 'package-lock.json')),
+    readmeSrc: readText(path.join(root, 'README.md')),
+    toolbeltSrc: readText(path.join(root, 'lib', 'toolbelt.js')),
+    grantsSrc: readText(path.join(root, 'lib', 'grants.js')),
+    testDir: path.join(root, 'test'),
+  };
+}
+
+/* ------------------------------------------------------------------- run */
+
+function main() {
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log(
+      [
+        "b7e-enroll               every command in bin/ against every registry, right now",
+        'b7e-enroll <name>        just that command',
+        'b7e-enroll <bin/file.js> the command a new bin/ file would be named, checked the same way',
+      ].join('\n')
+    );
+    process.exit(0);
+  }
+
+  const ctx = loadContext(ROOT);
+  const names = argv.length ? argv.map(deriveName) : candidateNames(ROOT, ctx.pkg);
+
+  let findings = [];
+  for (const name of names) {
+    for (const p of problemsFor(name, ctx)) findings.push(`${name}: ${p}`);
+  }
+
+  if (!findings.length) {
+    console.log('nothing owed — every registry agrees with what bin/ actually serves');
+    process.exit(0);
+  }
+  for (const f of findings) console.log(f);
+  process.exit(1);
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) main();

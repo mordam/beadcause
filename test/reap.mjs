@@ -56,9 +56,19 @@ const SESSIONS = path.join(tmp, 'claude-sessions');
 fs.mkdirSync(SESSIONS, { recursive: true });
 
 const { createAdvocates } = await import(LIB('advocate.js'));
-const { decide, closingFor, namesBead, beadInName, saidDone, saidFinished, sweepCandidate, REAP_DEFAULTS } = await import(
-  LIB('reap.js')
-);
+const {
+  decide,
+  closingFor,
+  closingNeverStartedFor,
+  closeNeverStartedWindow,
+  decideNeverStarted,
+  namesBead,
+  beadInName,
+  saidDone,
+  saidFinished,
+  sweepCandidate,
+  REAP_DEFAULTS,
+} = await import(LIB('reap.js'));
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -753,6 +763,175 @@ await check('and a sweep that could not talk to iTerm does not take the tick wit
   assert.equal(card(advocates).closing.length, 1, 'the rest of the tick still happened');
   victim.kill('SIGKILL');
 });
+
+/*
+ * bc-xl7n.131.1. `unreportedStuck` itself is pure and covered in test/cards.mjs; what is
+ * under test here is the half that is not — the `reportedStuck` Set's *lifetime* and the
+ * one call site that feeds it. Both are wiring, and wiring is invisible to a unit test:
+ * deleting the whole block from `sweepEmptyWindows`, or moving the Set's declaration
+ * inside the sweep so that every tick starts with a blank memory, left both suites green.
+ * The second of those is the exact once-a-tick log shape bc-xl7n.110 was filed over, so it
+ * has to be measured across ticks or it is not measured at all — hence the three ticks and
+ * the log, rather than another call to the pure function.
+ */
+
+/** Run `fn` with `console.log` collected, so a tick's own reporting can be read back. */
+async function saidWhile(fn) {
+  const said = [];
+  const realLog = console.log;
+  console.log = (...a) => said.push(a.map(String).join(' '));
+  try {
+    await fn();
+  } finally {
+    console.log = realLog;
+  }
+  return said;
+}
+
+/** The one line the stuck half of the sweep writes, whoever else logged this tick. */
+const stuckLines = (said) => said.filter((l) => l.includes('would not close'));
+
+/**
+ * A sweep that hands back a different pile each tick, clamping at the last one — so a
+ * check states what iTerm answers on tick 1, 2 and 3 and reads like the sequence it is.
+ */
+function sweepingStuck(piles) {
+  let tick = 0;
+  return () => ({
+    closed: 0,
+    ids: [],
+    error: null,
+    stuck: piles[Math.min(tick++, piles.length - 1)],
+  });
+}
+
+await check('a window that would not close is said once, not once a tick', async () => {
+  clearSessionRecords();
+  const { advocates, calls } = withNoWorkers({
+    show: async () => ({ id: 'al-1', status: 'open' }),
+    // The same two frames on the desk for two ticks, then a third joining them. A stuck
+    // window is stuck: that repetition is the premise here, not an edge case.
+    empty: sweepingStuck([
+      ['47768', '47792'],
+      ['47768', '47792'],
+      ['47768', '47792', '48037'],
+    ]),
+  });
+
+  const said = await saidWhile(async () => {
+    await advocates.tick();
+    await advocates.tick();
+    await advocates.tick();
+  });
+
+  assert.equal(calls.sweptEmpty, 3, 'three ticks, three sweeps');
+  const lines = stuckLines(said);
+  // Two lines out of three ticks is the whole property: one for the pair, one for the
+  // newcomer, and nothing at all for the tick that brought no news. A memory that did not
+  // outlive the tick would say all three, which is what the daemon did 2,330 times.
+  assert.equal(lines.length, 2, 'the second tick added nothing to say');
+  assert.match(lines[0], /2 iTerm window\(s\).*47768, 47792/);
+  assert.match(lines[1], /1 iTerm window\(s\).*48037/);
+  assert.ok(!lines[1].includes('47768'), 'and the newcomer is announced alone');
+});
+
+await check('and an id that leaves the desk and comes back is said again', async () => {
+  clearSessionRecords();
+  const { advocates } = withNoWorkers({
+    show: async () => ({ id: 'al-1', status: 'open' }),
+    // iTerm reuses window ids, so 47768 returning after a tick without it is a different
+    // frame that has never been reported. The memory forgets by what is on the desk rather
+    // than by uptime, and this is the direction of that forgetting the call site owes: it
+    // hands the same Set back every tick, so the pruning inside it is what is observed.
+    empty: sweepingStuck([['47768'], [], ['47768']]),
+  });
+
+  const said = await saidWhile(async () => {
+    await advocates.tick();
+    await advocates.tick();
+    await advocates.tick();
+  });
+
+  const lines = stuckLines(said);
+  assert.equal(lines.length, 2, 'said, forgotten, said again');
+  for (const l of lines) assert.match(l, /1 iTerm window\(s\).*47768/);
+});
+
+/* -------------------------------------- the window that opened and never ran anything */
+
+/*
+ * bc-xl7n.113.3. `finish` in lib/advocate.js already tells this bead's window apart from
+ * every one `closingFor` above closes — it comes in as the `never-started` kind, with no
+ * pid at all — so what is under test here is only the part that is new: the record built
+ * from `term` instead of a pid, and the decision made from a fresh read of the handle
+ * rather than a live-sessions lookup. End-to-end wiring through a tick is
+ * test/neverstarted.mjs, which already has the fixture for triggering the outcome; this
+ * file stays with the pure decision and the one real call that must send no Apple event.
+ */
+
+console.log('\nclosing a window that never ran anything\n');
+
+await check('no term handle, no closing record', () => {
+  assert.equal(closingNeverStartedFor({ id: 'al-1', title: 'a bead' }), null);
+  assert.equal(closingNeverStartedFor({ id: 'al-1', title: 'a bead', term: '' }), null);
+  assert.equal(closingNeverStartedFor(null), null);
+});
+
+await check('a term handle makes a record addressed by it, not by a pid', () => {
+  const rec = closingNeverStartedFor({ id: 'al-1', title: 'a bead', term: 'ITERM-SESS-1' });
+  assert.deepEqual(rec, { id: 'al-1', title: 'a bead', term: 'ITERM-SESS-1', at: rec.at });
+  assert.equal(closingNeverStartedFor({ id: 'al-1', term: 'x' }).title, 'al-1', 'falls back to the id');
+});
+
+await check('the window being gone is the ordinary, expected ending', () => {
+  assert.deepEqual(decideNeverStarted(entry(), null), { act: 'drop', why: 'the window is gone' });
+});
+
+await check('a tab that no longer names the bead is left alone — the term id is not enough on its own', () => {
+  const verdict = decideNeverStarted(entry(), { tty: '/dev/ttys011', name: 'Alpha - al-9 something else' });
+  assert.equal(verdict.act, 'drop');
+  assert.match(verdict.why, /no longer names al-1/);
+});
+
+await check('a claude process on its tty means it is not never-started any more', () => {
+  const tab = { tty: '/dev/ttys011', name: 'Alpha - al-1 a bead' };
+  assert.equal(decideNeverStarted(entry(), tab, { hasClaude: true }).act, 'drop');
+  // An unanswered question about whether an agent is there is never permission to close —
+  // same as `null` reading as `true` everywhere else this kind of guard appears.
+  assert.equal(decideNeverStarted(entry(), tab, { hasClaude: null }).act, 'drop');
+});
+
+await check('nothing running, tab still names the bead: close it', () => {
+  const tab = { tty: '/dev/ttys011', name: 'Alpha - al-1 a bead' };
+  const verdict = decideNeverStarted(entry(), tab, { hasClaude: false });
+  assert.equal(verdict.act, 'close');
+  const verdict2 = decideNeverStarted(entry(), tab);
+  assert.equal(verdict2.act, 'close', 'hasClaude defaults to false, not to "unknown"');
+});
+
+await check('the subtask/parent id trap applies here too', () => {
+  assert.equal(
+    decideNeverStarted(entry({ id: 'al-1' }), { tty: '/dev/ttys011', name: 'Alpha - al-1.2 the subtask' }).act,
+    'drop'
+  );
+  assert.equal(
+    decideNeverStarted(entry({ id: 'al-1.2' }), { tty: '/dev/ttys011', name: 'Alpha - al-1.2 the subtask' }).act,
+    'close'
+  );
+});
+
+await check(
+  'the real closer sends no Apple event inside a suite, and says why — this process may not close a window either',
+  async () => {
+    // No stubbing at all: this is the function lib/advocate.js calls for real.
+    // `mayLaunch` reads `startedByASuite` off `process.argv`, which for this process is
+    // `node test/reap.mjs` — the same gate `closeEmptyWindows` (lib/iterm.js) checks
+    // before its own osascript call, asked here first and before any of the three round
+    // trips a real close would otherwise make.
+    const verdict = await closeNeverStartedWindow({ id: 'al-1', title: 'a bead', term: 'ITERM-SESS-1' });
+    assert.deepEqual(verdict, { act: 'refused', why: 'this process may not send Apple events' });
+  }
+);
 
 /* ---------------------------------------------------------------------- out */
 

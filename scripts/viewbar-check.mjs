@@ -332,9 +332,6 @@ const ROUTES = {
   '/prs.html': '/monitor.html',
   '/console': '/console.html',
   '/endorse': '/endorse.html',
-  '/history': '/history.html',
-  '/releases': '/releases.html',
-  '/deploys': '/releases.html',
   '/flow': '/flow.html',
   '/requirements': '/requirements.html',
   '/skills': '/skills.html',
@@ -431,6 +428,11 @@ function serve() {
  * serves one document for both and what is being asked is that arriving by either URL
  * lights the pill the row's own list says it should.
  *
+ * `/history` and `/releases` are gone from here (bc-khoe.30.15, bc-khoe.30.22): both
+ * rows are drawn by public/index.html now — already the `/` entry below — and
+ * public/history.html and public/releases.html, the documents these rows would once
+ * have lit up on, no longer exist to be driven.
+ *
  * Six of these light *nothing* — `/console`, `/endorse`, `/flow`, `/requirements`,
  * `/skills`, `/admin`. No pill in `public/viewbar.js` claims their paths, and that is a
  * decision recorded there rather than an omission here, so what each of them is asked is
@@ -442,8 +444,6 @@ const PAGES = [
   { url: '/', file: 'index.html' },
   { url: '/monitor', file: 'monitor.html' },
   { url: '/prs', file: 'monitor.html' },
-  { url: '/history', file: 'history.html' },
-  { url: '/releases', file: 'releases.html' },
   { url: '/console', file: 'console.html' },
   { url: '/endorse', file: 'endorse.html' },
   { url: '/flow', file: 'flow.html' },
@@ -464,17 +464,15 @@ const PAGES = [
  * from `PAGES` in the same edit, and every assertion in this file would go on passing
  * about the pages that were left, which is precisely the state the bar's own check would
  * have had to be in to stop mattering.
+ *
+ * `history.html` is the one entry that has come out of it, and on purpose (bc-khoe.30.15):
+ * that document is gone, not merely renamed, and its pill lives on `index.html` — already
+ * a member of this list — instead. "History does not move" is about an accidental drift
+ * between a page and `PAGES`; bc-khoe.30 folding pages into the shell one at a time is a
+ * deliberate retirement of the *document*, and the guard above would otherwise fail this
+ * whole file for exactly the change the epic asks for.
  */
-const REACHED = [
-  'index.html',
-  'monitor.html',
-  'history.html',
-  'admin.html',
-  'console.html',
-  'endorse.html',
-  'flow.html',
-  'requirements.html',
-];
+const REACHED = ['index.html', 'monitor.html', 'admin.html', 'console.html', 'endorse.html', 'flow.html', 'requirements.html'];
 
 /* 360×640 is the cheap Android this app is for and the width every trade in this epic was
    argued at; 393×852 is the phone in the hand. Both, because a rule that holds at one

@@ -497,6 +497,58 @@ await check('three reports of one error at once are still one bead', async () =>
   );
 });
 
+await check('two reports sharing only the source, at once, are still one bead (bc-jjdar.1)', async () => {
+  // The bug this pair of checks is here for. The *match* is an OR — `--label-any`, and
+  // `pickMatch` takes a row carrying either label — but the chain key used to be an AND
+  // (`workspace::atLabel::msgLabel`). Two reports from one throw site with different
+  // messages therefore got different keys, never queued behind each other, and both ran
+  // the lookup before either `bd create` landed. Observed: bc-jjdar and bc-mwhkg, 27ms
+  // apart, one root cause, two P0s, two unattended windows opened on it.
+  await reset();
+  const outs = await Promise.all([
+    intake(bd, ws, REPORT),
+    intake(bd, ws, { ...REPORT, message: "Cannot read properties of undefined (reading 'name')" }),
+  ]);
+  assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
+  assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the two filed it');
+  assert.equal(issues()[0].comments.length, 1, 'and the other became a comment on it');
+});
+
+await check('two reports sharing only the message, at once, are still one bead', async () => {
+  // The mirror of it: an edit above the throw site moves the line, and the two reports
+  // share nothing but the message. Same OR in the lookup, so the same key has to hold.
+  await reset();
+  const outs = await Promise.all([intake(bd, ws, REPORT), intake(bd, ws, { ...REPORT, line: 3402 })]);
+  assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
+  assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the two filed it');
+});
+
+await check('a report with no source at all still queues behind the one it matches', async () => {
+  // A cross-origin `window.onerror` says "Script error." and nothing else, so it has a
+  // message fingerprint and no source one. This is why the key cannot be a primary with
+  // a fallback: `atLabel || msgLabel` would key this one on its message and the report
+  // it matches on its source, and the two would miss each other exactly as before.
+  await reset();
+  const outs = await Promise.all([
+    intake(bd, ws, REPORT),
+    intake(bd, ws, { ...REPORT, source: '', line: null, column: null, stack: '' }),
+  ]);
+  assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
+  assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the two filed it');
+});
+
+await check('and a chain of three, each sharing one key with the next, is one bead', async () => {
+  // Transitivity, which is what waiting on *both* keys buys over picking one: A and C
+  // share nothing, but B shares the source with A and the message with C, so all three
+  // land in order behind each other rather than A and C racing.
+  await reset();
+  const b = { ...REPORT, message: 'Failed to fetch' };
+  const c = { ...b, line: 3402 };
+  const outs = await Promise.all([intake(bd, ws, REPORT), intake(bd, ws, b), intake(bd, ws, c)]);
+  assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
+  assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the three filed it');
+});
+
 await check('two different errors at once are not serialised behind each other', async () => {
   await reset();
   const [a, b] = await Promise.all([
@@ -647,13 +699,13 @@ const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
 const port = await boundPort(servers);
 
-const post = (pathname, body) =>
+const post = (pathname, body, onPort = port) =>
   new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = http.request(
       {
         host: '127.0.0.1',
-        port,
+        port: onPort,
         path: pathname,
         method: 'POST',
         headers: {
@@ -733,9 +785,79 @@ await check('the endpoint is registered once, on POST', async () => {
   assert.ok(!routes.includes('GET /api/error'), 'and only on POST — a GET must not file anything');
 });
 
+/* ------------------------------------------------- whose board an unnamed report lands on */
+
+/**
+ * The workspace a page's error defaults to — bc-xl7n.130.
+ *
+ * Every check above runs against a daemon with exactly ONE workspace, where the first
+ * configured one and the daemon's own are the same graph and the routing cannot be
+ * observed at all. That is why this shipped broken: the endpoint defaulted to
+ * `workspaces[0]`, discovery sorts workspaces by name, and on a Mac whose own repo does
+ * not win the alphabet every browser-reported crash was filed onto a *different team's*
+ * tracker — by beadcause, at P0, under a personal identity.
+ *
+ * So the fixture is the fixture the bug needs: two workspaces, and the daemon's own is
+ * deliberately LAST. `sessionDirs` is what makes it the daemon's own — it is the question
+ * `ownWorkspace` asks, "which workspace's sessions open in this checkout".
+ */
+const otherDir = path.join(tmp, 'other', '.beads');
+const ownDir = path.join(tmp, 'own', '.beads');
+for (const d of [otherDir, ownDir]) fs.mkdirSync(d, { recursive: true });
+
+const OTHER = { name: 'aaa-somebody-else', dir: otherDir };
+const OWN = { name: 'zzz-this-app', dir: ownDir };
+
+const ownedCfg = {
+  ...cfg,
+  port: 0,
+  workspaces: [OTHER, OWN],
+  sessionDirs: { [OWN.name]: path.join(HERE, '..') },
+};
+const ownedApp = createApp(ownedCfg);
+const ownedServers = listen(ownedCfg, ownedApp.handler);
+const ownedPort = await boundPort(ownedServers);
+
+// The same two workspaces, and nothing tying either to this checkout — the install that
+// cannot answer the question at all.
+const rootlessCfg = { ...cfg, port: 0, workspaces: [OTHER, OWN], sessionDirs: {} };
+const rootlessApp = createApp(rootlessCfg);
+const rootlessServers = listen(rootlessCfg, rootlessApp.handler);
+const rootlessPort = await boundPort(rootlessServers);
+
+await check("an unnamed report goes to the daemon's own workspace, not the first configured one", async () => {
+  await reset();
+  const res = await post('/api/error', REPORT, ownedPort);
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.ok, true, JSON.stringify(res.json));
+  assert.match(
+    String(res.json.key),
+    new RegExp(`^${OWN.name}/`),
+    `a crash in this app must not be filed onto whichever tracker sorts first — got ${res.json.key}`
+  );
+});
+
+await check('a caller that does name a workspace is still obeyed', async () => {
+  await reset();
+  const res = await post('/api/error', { ...REPORT, workspace: OTHER.name }, ownedPort);
+  assert.equal(res.json.ok, true, JSON.stringify(res.json));
+  assert.match(String(res.json.key), new RegExp(`^${OTHER.name}/`), 'an explicit workspace outranks the default');
+});
+
+await check('a daemon that cannot name its own workspace still files, rather than refusing', async () => {
+  // Deliberately unlike POST /api/edits, which refuses when it cannot tell. An edit pass
+  // that is turned away is still on the screen to retype; a crash report that is turned
+  // away is gone. A bead on the wrong board can be moved — one never filed is not news.
+  await reset();
+  const res = await post('/api/error', REPORT, rootlessPort);
+  assert.equal(res.status, 200, JSON.stringify(res.json));
+  assert.equal(res.json.ok, true, 'a report is never dropped for want of a routing answer');
+  assert.match(String(res.json.key), new RegExp(`^${OTHER.name}/`), 'and it falls back to the first workspace');
+});
+
 /* -------------------------------------------------------------------- the result */
 
-for (const s of servers) s.close();
+for (const s of [...servers, ...ownedServers, ...rootlessServers]) s.close();
 await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);
