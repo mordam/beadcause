@@ -22639,6 +22639,87 @@ block, naming the bead that is the fix — which is what puts it under *Resolvin
 the queues board, whose note is already the right one: *something outside the queue has to
 move before it can merge*.
 
+### And the wait the hold leaves behind gets a producer
+
+The hold above lifts by itself, and that is not the whole of what a red base costs. GitHub
+builds `refs/pull/N/merge`, so every check that ran while the base was broken is a verdict
+on *a merge with a broken base* — and it stays on the pull request afterwards, because
+nothing re-runs it. Judged against a base that is green again, that stale red reads as a
+failure the branch introduced. #475 and #488 were both condemned that way on 2026-08-18,
+neither having ever been broken.
+
+So the lift stamps `heldUntil`, and the gate answers a run that finished before it with a
+**wait** rather than a refusal: *"its checks last finished before the base came back, so
+they are a verdict on a base that is no longer there rather than on this branch. Nothing is
+counted against it until they have run again."* It costs no attempt, which is right —
+nothing has been asked of this branch since the base came back.
+
+**Nothing ran them again.** The sentence's own docblock names the downmerge as what ends
+the wait, and stakes the safety claim on it: *a branch whose checks predate the repair is
+behind the repaired base by construction*. The git relationship is exactly that. **The
+field the downmerge tested is not.** `mergeStateStatus` is GitHub's *mergeability* state,
+and `BEHIND` there does not mean "the base has moved" — it means "the base has moved **and
+this repository refuses a merge until you update**", which is only ever true under a
+branch-protection rule requiring branches to be up to date. `mordam/beadcause` has no
+protection at all (`gh api repos/mordam/beadcause/branches/main/protection` answers *404
+Branch not protected*), so GitHub reports `CLEAN` however far a branch drifts and that arm
+had **never executed once**: `grep -c "brought .* into "` over 209,308 lines of the daemon
+log was `0`. Nothing else re-runs a check either — there is no `gh run rerun` anywhere in
+`lib/` or `bin/`, and nothing on the queue path pushes.
+
+A wait with no producer is a deadlock wearing a wait's clothes, and this one was invisible
+by construction, which is why it lasted five days. Because it deliberately costs no
+attempt it never ejects to a card, so it is not on the inbox and not in `givenUp`; the only
+trace anywhere was one log line per tick per branch. Twelve pull requests were held in a
+single tick — #652, #701, #702, #703, #717, #718, #719, #720, #731, #767, #772, #773 —
+four of them children of one epic, one of them **approved by Adam a day earlier**. And the
+repo looked healthy the whole time: ten pull requests merged normally the same afternoon.
+**It is a graveyard, not a jam** — anything delivered *since* the base moved gets fresh
+checks and lands, so new work flows straight past a cohort whose checks are pinned to a
+base that is gone and which can never leave. That asymmetry is the whole reason nobody
+noticed, and it is still the most likely way this gets read as fixed while every held pull
+request stays held.
+
+**The reading is taken in the checkout instead.** `behindBase` is `rev-list --count
+<head>..<base>`, which has no protection rule attached to it — it is the git relationship
+the docblock already reasons about, asked of the repo the queue is holding anyway.
+`origin`'s copy of the base first, for `pickBase`'s reason: local `main` on a Mac running
+twenty sessions is routinely behind the thing it is being compared against. And `null` is
+*could not tell* — a head this checkout has never fetched, a base ref that is not here, a
+directory that is not a repository — which must never read as zero: the caller waits rather
+than spending a GitHub write on a guess.
+
+**Only the stale branch uses it, and that boundary is the design rather than caution.**
+Widening the `BEHIND` arm to the git reading would be the obvious change and the wrong one:
+on a `main` that moves twenty times an hour *every* queued branch is behind it, so every
+one of them would take three fresh bases and three CI runs before the queue ever got as far
+as judging it — which is precisely the starvation `MAX_DOWNMERGES` was written about, and
+being behind is not by itself a reason GitHub refuses a merge. A branch whose checks are
+current is therefore judged exactly as it was. Both readings stay, because they answer
+different questions: GitHub's says *this merge needs an update*, and this one says *there is
+something to bring in*.
+
+It is bounded by the same counter, and there is one deliberate difference from the arm
+above: **the charge is spent on the ask rather than on the success.** Up there a refused
+update is usually a race with somebody else's merge landing a second earlier and the next
+tick asks again. Here git has already said there is something to bring in, so an update
+GitHub will not perform is a standing condition — and not counting it would spend a write
+every thirty seconds for ever. Still no *attempt*, unchanged: nothing has been asked of
+this branch's diff, so nothing has refused it.
+
+**And the hold that remains says so out loud.** The tick counts it apart from `waiting`,
+because it is the one wait here that nothing else would ever move, and names the pull
+requests rather than tallying them — *"merge queue: 4 held on checks older than the base
+(#652, #717, #718 and 1 more)"* — for the reason the line names the ones in line for a
+window: "which ones" was exactly what nobody could answer. A branch that has had its base
+brought in three times and is *still* stale, or one whose head this checkout cannot see, is
+no longer waiting on the queue at all, and that list is the only thing that would say so.
+
+`node test/mergequeue.mjs` drives both arms of the reading and the bound, and it starts
+from the case a suite over a red branch would have missed: #717 was `test: SUCCESS`,
+`MERGEABLE` and `CLEAN`, held purely because its green run finished on the wrong side of a
+hold. `node test/lapsedrefusals.mjs` still owns the verdict itself.
+
 ### A conflict a resolver will not settle becomes a card
 
 A conflicted branch gets [a resolver](#a-conflict-is-work-so-it-gets-a-session), and that

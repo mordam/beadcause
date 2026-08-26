@@ -33,6 +33,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cleanupTmp } from './helpers/tmp.mjs';
@@ -44,7 +45,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-mergequeue-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK, mergeReport } = await import(LIB('mergequeue.js'));
+const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK, mergeReport, behindBase } = await import(LIB('mergequeue.js'));
 const { MERGE_LABEL, MERGE_ASSIGNEE, MAX_ATTEMPTS, MAX_REVIEW_ROUNDS, mergeBeadBody, queueState, reviewState, withQueueBlock, withReviewBlock } =
   await import(LIB('mergebead.js'));
 const { MAX_DOWNMERGES } = await import(LIB('mergequeue.js'));
@@ -359,6 +360,137 @@ await check('and a downmerge GitHub refuses is a wait, not an attempt', async ()
   const out = await run(bd, fakePr(behind, { update: { updated: false, reason: 'the base moved under it' } }));
   assert.deepEqual(out.waiting, ['zz-merge']);
   assert.equal(bd.calls.updates.length, 0);
+});
+
+/* ================================= a verdict about a base that has moved (bc-xl7n.121)
+
+   `gateVerdict`'s stale branch is a *wait*, and its own docblock names the downmerge as
+   what ends it: "a branch whose checks predate the repair is behind the repaired base by
+   construction." The git relationship is exactly that. The field the `BEHIND` arm above
+   tests is not — `mergeStateStatus` only reaches `BEHIND` under a branch-protection rule
+   `mordam/beadcause` does not have — so that arm never fired, nothing else re-runs a
+   check, and the wait had no producer at all: twelve pull requests held for five days,
+   four of them green, none of them on any screen.
+
+   The sharpest case is the one these start with, and it is why a suite that only drove a
+   red branch would have missed it: #717 was `test: SUCCESS`, `MERGEABLE` and `CLEAN`, held
+   purely because its green run finished on the wrong side of a hold.
+*/
+
+/** A pull request whose checks ran at `OLD`, and a merge-bead whose hold lifted at `LIFTED`. */
+const OLD = '2026-08-24T22:00:00Z';
+const LIFTED = '2026-08-25T00:00:00Z';
+const stalePr = (over = {}) => openPr({ checks: { ...GREEN, at: OLD }, ...over });
+const staleBead = (queue = {}) => bead({ notes: withQueueBlock('', { attempts: 0, heldUntil: LIFTED, ...queue }) });
+/** The git reading, injected — `behindBase` in lib/mergequeue.js. */
+const drifted = (n) => async () => n;
+
+await check('A GREEN, CLEAN PULL REQUEST WHOSE CHECKS PREDATE THE BASE GETS ITS BASE BROUGHT IN', async () => {
+  const bd = fakeBd({ rows: [staleBead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [42], 'the wait still has no producer');
+  assert.deepEqual(out.updated, ['zz-merge']);
+  // Not merged on the strength of the old run — that is the whole reason the guard exists.
+  assert.equal(prApi.calls.merges.length, 0);
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  assert.equal(queueState({ notes: written.notes }).downmerges, 1);
+  // And still no attempt: nothing was asked of this branch's diff, so nothing refused it.
+  assert.equal(queueState({ notes: written.notes }).attempts, 0, 'a wait spent one of the three attempts');
+});
+
+await check('a branch whose checks are current is not touched — this is not the BEHIND arm widened', async () => {
+  // The failure the narrow fix avoids. `main` here moves twenty times an hour, so every
+  // queued branch is behind it by the git reading; downmerging on that alone would hand
+  // each one three fresh bases and three CI runs before ever judging it, which is exactly
+  // what `MAX_DOWNMERGES` was written about.
+  const bd = fakeBd({ rows: [bead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(openPr({ checks: { ...GREEN, at: '2026-08-26T00:00:00Z' } }));
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [], 'it downmerged a branch with nothing stale about it');
+  assert.deepEqual(out.merged, ['zz-merge']);
+});
+
+await check('and neither is a stale one with nothing to bring in', async () => {
+  const bd = fakeBd({ rows: [staleBead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: drifted(0) });
+  assert.deepEqual(prApi.calls.updates, []);
+  assert.deepEqual(out.merged, [], 'it merged on a verdict about a base that is gone');
+  assert.deepEqual(out.stale, [42]);
+});
+
+await check('a checkout that cannot answer waits rather than guesses', async () => {
+  // `null` is "could not tell" and it is not zero — a head this Mac has never fetched, a
+  // base ref that is not here. Asking GitHub to update on a guess spends a write every
+  // thirty seconds on a branch there may be nothing to do for.
+  const bd = fakeBd({ rows: [staleBead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: async () => null });
+  assert.deepEqual(prApi.calls.updates, []);
+  assert.deepEqual(out.stale, [42]);
+  assert.equal(queueState({ notes: bd.calls.updates.at(-1).notes }).attempts, 0);
+});
+
+await check('AND IT IS BOUNDED BY THE SAME COUNTER THE BEHIND ARM IS', async () => {
+  const bd = fakeBd({
+    rows: [staleBead({ downmerges: MAX_DOWNMERGES })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(stalePr());
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(prApi.calls.updates, [], 'it brought the base in a fourth time');
+  assert.deepEqual(out.merged, [], 'and it must still not merge on the old run');
+  assert.deepEqual(out.stale, [42], 'a branch nothing can move any more says so');
+});
+
+await check('a refused update is counted here, unlike the BEHIND arm, because it is not a race', async () => {
+  // There a refusal is usually somebody else's merge landing a second earlier. Here git
+  // has already said there is something to bring in, so an update GitHub will not perform
+  // is a standing condition — and not counting it would spend a write every tick for ever.
+  const bd = fakeBd({ rows: [staleBead()], issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } } });
+  const prApi = fakePr(stalePr(), { update: { updated: false, reason: 'the base moved under it' } });
+  const out = await run(bd, prApi, { behind: drifted(177) });
+  assert.deepEqual(out.waiting, ['zz-merge']);
+  assert.equal(queueState({ notes: bd.calls.updates.at(-1).notes }).downmerges, 1);
+});
+
+await check('the tick says out loud which pull requests are held on it', async () => {
+  // For five days the only trace of this was one log line per tick per branch: a stale
+  // refusal costs no attempt by design, so it never ejects to a card and never reaches
+  // `givenUp`. Named rather than counted, because "which ones" was the unanswerable bit.
+  const bare = { ok: true, merged: [], updated: [], refused: [], raised: [], waiting: [] };
+  const line = describeMergeQueue({ ...bare, stale: [652, 717, 718, 719] });
+  assert.match(line, /4 held on checks older than the base \(#652, #717, #718 and 1 more\)/, line);
+  // Optional, for `held`'s reason: a caller predating the field hands this a plain object.
+  assert.equal(describeMergeQueue(bare), '');
+});
+
+/* ------------------------------------- and the reading itself, against real git */
+
+await check('behindBase counts what the base has and the branch does not, from the checkout', async () => {
+  const repo = fs.mkdtempSync(path.join(tmp, 'behind-'));
+  const g = (...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: repo, stdio: 'pipe' });
+  g('init', '-b', 'main', '-q');
+  fs.writeFileSync(path.join(repo, 'a'), 'a');
+  g('add', '-A');
+  g('commit', '-qm', 'one');
+  const head = String(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo })).trim();
+  // Two commits land on the base after the branch left it.
+  for (const n of ['two', 'three']) {
+    fs.writeFileSync(path.join(repo, n), n);
+    g('add', '-A');
+    g('commit', '-qm', n);
+  }
+  assert.equal(await behindBase(repo, head, 'main'), 2);
+  assert.equal(await behindBase(repo, 'HEAD', 'main'), 0, 'the tip of the base is not behind it');
+  // The four ways it cannot answer, and none of them may read as zero: a commit this
+  // checkout has never seen, a base ref that is not here, a directory that is not a
+  // repository, and a question with a piece missing.
+  assert.equal(await behindBase(repo, 'f'.repeat(40), 'main'), null);
+  assert.equal(await behindBase(repo, head, 'no-such-base'), null);
+  assert.equal(await behindBase(path.join(tmp, 'nowhere'), head, 'main'), null);
+  assert.equal(await behindBase(repo, '', 'main'), null);
 });
 
 /* --------------------------------------------------- taking a card back (bc-91srt) */
