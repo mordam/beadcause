@@ -2319,7 +2319,7 @@
     if (phase === 'OPEN') {
       const armed = state.armed === `${row.key}|merge`;
       buttons.push(`<button class="primary${armed ? ' confirm' : ''}" data-act="pr-merge-go" data-key="${esc(row.key)}"
-        ${busy ? 'disabled' : ''}>${armed ? `Tap again · merge #${p.number}` : prMergeLabel(p, live)}</button>`);
+        ${busy ? 'disabled' : ''}>${armed ? `Tap again · queue #${p.number}` : prMergeLabel(p, live)}</button>`);
       buttons.push(`<button class="secondary danger" data-act="pr-close" data-key="${esc(row.key)}"
         ${busy ? 'disabled' : ''}>Close it</button>`);
     }
@@ -2342,11 +2342,19 @@
       ${note}`;
   }
 
-  /** What the merge button promises, which must never overstate what it will do. */
+  /**
+   * What the merge button promises, which must never overstate what it will do.
+   *
+   * Since bc-02ldo it promises rather less, because it does rather less: the tap hands
+   * the pull request to the merge queue and the queue merges it once its gates pass, so
+   * every one of these says *queue*. A draft and a red rollup are still worth naming on
+   * the button — the queue will refuse both, and being told that before the tap is better
+   * than a card coming back an hour later to say it.
+   */
   function prMergeLabel(p, live) {
-    if (live?.draft ?? p.draft) return `Merge #${p.number} anyway (draft)`;
-    if ((live?.checks || p.checks)?.state === 'failing') return `Merge #${p.number} — checks red`;
-    return `Merge & push #${p.number}`;
+    if (live?.draft ?? p.draft) return `Queue #${p.number} anyway (draft)`;
+    if ((live?.checks || p.checks)?.state === 'failing') return `Queue #${p.number} — checks red`;
+    return `Queue #${p.number} to merge`;
   }
 
   /**
@@ -9756,26 +9764,30 @@
     }
 
     /**
-     * Merge it, from the full view. Two taps, and the first sends nothing.
+     * Queue it, from the full view. Two taps, and the first sends nothing.
      *
-     * The same arming as `/prs` and the delivery card, with the same 6-second window —
-     * this is the one control on this screen whose consequence is outside this Mac and
-     * cannot be taken back, and a phone in a pocket must not be able to do it on one tap.
+     * The same arming as `/prs` and the delivery card, with the same 6-second window.
+     * The tap no longer merges — bc-02ldo — but the arming is unchanged and for a reason
+     * that survived the change: what the second tap makes is the **approval**, which the
+     * queue then acts on unattended, and a phone in a pocket must not be able to approve
+     * a merge on one touch.
      *
      * `POST /api/pr/merge` is the board's own endpoint, not the delivery card's answer
-     * path: there is no bead being answered here. It merges, brings this Mac's base up
-     * behind it, and retires any delivery card that was asking about this same pull
-     * request — which is what stops the inbox from carrying a question that has been
-     * settled by the screen next door.
+     * path: there is no bead being answered here. It admits the pull request to the merge
+     * queue — filing the queue entry, or relabelling the card that was already asking
+     * about it into one, which is what takes that question out of the inbox.
      */
     if (act === 'pr-merge-go') {
       const row = byKey(key);
       if (!row?.pr) return;
       if (armFirst(key, 'merge')) return;
       await actOnPr(row, '/api/pr/merge', {}, (res) => {
-        const land = res.land?.note ? ` ${res.land.note}.` : '';
-        const cards = (res.cards || []).filter((c) => c.closed).map((c) => c.id);
-        return `Merged #${row.pr.number}.${land}${cards.length ? ` Closed ${cards.join(', ')}.` : ''}`;
+        // Never "merged" — the queue does that a minute or two from now, and a sentence
+        // claiming it already happened is one you would go looking for in `main`.
+        const others = (res.others || []).length ? ` ${res.others.join(', ')} is also open about it — close or supersede it.` : '';
+        if (res.alreadyMerged) return `#${row.pr.number} was already merged — nothing to queue.`;
+        if (!res.queued) return `#${row.pr.number} was already on the merge queue${res.id ? ` as ${res.id}` : ''}.${others}`;
+        return `Queued #${row.pr.number}${res.id ? ` as ${res.id}` : ''} — it merges once the queue's gates pass.${others}`;
       });
       return;
     }
