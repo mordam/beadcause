@@ -1,0 +1,127 @@
+#!/usr/bin/env node
+/**
+ * `b7e-answered` — was this bead's question answered, and which bead in the family
+ * actually carries the answer?
+ *
+ *     b7e-answered -w beadcause -b bc-jjdar.1
+ *     b7e-answered -w beadcause -b bc-jjdar.1 --family
+ *     b7e-answered -w beadcause -b bc-jjdar.1 --json
+ *
+ * bc-dgx7.84: four sessions answered this by hand, four different ways, over a bead
+ * they had each been told was already answered. It was on the parent twice, absent
+ * once. See lib/beadanswer.js for the design — the reading is over lib/answered.js
+ * (beadcause's own record of what you chose) and lib/decision.js (the `decision`
+ * block), same split as bin/b7e-already and bin/b7e-prior: argv and printing here,
+ * the logic there.
+ *
+ * `--family` walks **ancestors** — parent, grandparent, and so on — stopping at the
+ * first bead with no parent. That is a different walk from `b7e-prior --family`,
+ * which widens to *siblings* under a shared parent; the two commands answer
+ * different questions and happen to share a flag name.
+ *
+ * Exit codes: `0` ran to completion, whatever the verdict — "nobody has answered
+ * this" is a legitimate answer, not a failure. `2` bad usage. `4` `-w`/`-b` named
+ * something this checkout's tracker does not have.
+ */
+import { loadConfig, loadState } from '../lib/config.js';
+import { Bd } from '../lib/bd.js';
+import { beadAnswer } from '../lib/beadanswer.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-answered -w <workspace> -b <bead> [--family] [--json]
+
+Was this bead's question answered, and which bead in the family actually carries
+the answer? One block per bead checked: whether it carries a \`decision\` block,
+whether it has been answered, by when and with what, and whether the answer closed
+the bead, commissioned the work, or deferred the question. Then one verdict line
+naming the bead the answer is actually on, or saying none of them carries one.
+
+  -w, --workspace <name>   which tracker (required; one of the configured workspaces)
+  -b, --bead <id>          the bead to check (required)
+  --family                 also walk ancestors — parent, grandparent, and so on
+  --json                   the machine-readable form instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const wsName = value('-w', '--workspace');
+const beadId = value('-b', '--bead');
+const FAMILY = has('--family');
+const JSON_MODE = has('--json');
+
+function fail(msg, code = 2) {
+  console.error(`b7e-answered: ${msg}`);
+  process.exit(code);
+}
+
+if (!wsName) fail(`-w/--workspace is required\n${USAGE}`);
+if (!beadId) fail(`-b/--bead is required\n${USAGE}`);
+
+const cfg = loadConfig();
+const ws = cfg.workspaces.find((w) => w.name === wsName);
+if (!ws) {
+  fail(`no workspace named "${wsName}"\nconfigured workspaces: ${cfg.workspaces.map((w) => w.name).join(', ') || 'none'}`, 4);
+}
+
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
+
+let first;
+try {
+  first = await bd.show(ws, beadId);
+} catch (err) {
+  fail(`${ws.name} has no bead ${beadId}: ${String(err?.message || err).split('\n')[0]}`, 4);
+}
+if (!first) fail(`${ws.name} has no bead ${beadId}`, 4);
+
+const answered = loadState().answered || {};
+const result = await beadAnswer(bd, ws, beadId, { family: FAMILY, answered });
+
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+
+const STATE_LABEL = { answered: green('answered'), unanswered: amber('unanswered'), 'not-a-question': dim('not a question') };
+
+function printRow(r) {
+  console.log(`${r.id} — ${STATE_LABEL[r.state] || r.state}${r.outcome ? ` (${r.outcome})` : ''}`);
+  if (r.question) console.log(`  question: ${r.question}`);
+  if (r.chosenOption) console.log(`  chose: ${r.chosenOption.label} [${r.chosenOption.id}]`);
+  for (const line of r.evidence) console.log(`  ${dim(line)}`);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify(result, null, 2));
+  process.exitCode = 0;
+} else {
+  console.log(
+    `b7e-answered ${beadId} · ${ws.name}${FAMILY ? ` (chain of ${result.results.length})` : ''}\n`,
+  );
+  for (const r of result.results) {
+    printRow(r);
+    console.log('');
+  }
+  if (result.carrier) {
+    console.log(green(`verdict: answered — on ${result.carrier.id}${result.carrier.id !== beadId ? ' (an ancestor, not the bead itself)' : ''}.`));
+  } else {
+    console.log(
+      red(
+        `verdict: not answered — nothing in the chain checked (${result.results.map((r) => r.id).join(', ')}) carries an answer.`,
+      ),
+    );
+  }
+  process.exitCode = 0;
+}
