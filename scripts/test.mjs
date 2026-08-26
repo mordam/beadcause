@@ -50,6 +50,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { NO_LAUNCH } from '../lib/launchguard.js';
 import { onExit } from '../lib/teardown.js';
+import { HELD_ENV, acquireSlot, waitingLine } from '../lib/gate.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -90,6 +91,33 @@ if (!suites.length) {
   console.log(`\x1b[31mno suites found under ${testDir}\x1b[0m`);
   process.exit(1);
 }
+
+/**
+ * This runner takes the same machine-wide slot `b7e-gate` does — bc-xlz32.1.
+ *
+ * A semaphore only the gate respects is one the heaviest caller walks straight past, and
+ * this is that caller: the two runs measured at 41 and 51 minutes elapsed on 2026-08-24,
+ * while load average sat at 99, were both plain `node scripts/test.mjs`. They are also
+ * invisible to every overlap metric, because nothing here writes a run record — so the
+ * honest count of what is on this Mac has to be taken at the point of entry, not from the
+ * logs afterwards.
+ *
+ * Below `--list`, deliberately and load-bearingly: `b7e-gate` shells `--list` on every
+ * single run to discover suites, so a slot taken above this line would be a gate waiting
+ * for a slot its own discovery is holding. `--list` still takes nothing and creates nothing.
+ */
+let saidAt = 0;
+const slot = await acquireSlot({
+  root: ROOT,
+  onWait: (state) => {
+    const now = Date.now();
+    if (saidAt && now - saidAt < 30_000) return;
+    saidAt = now;
+    console.log(`\x1b[33m${waitingLine(state, now)}\x1b[0m`);
+  },
+});
+onExit(slot.release);
+if (slot.waitedMs > 1000) console.log(`\x1b[2mwaited ${Math.round(slot.waitedMs / 1000)}s for a slot on this Mac\x1b[0m`);
 
 /**
  * A `$TMPDIR` per suite, taken away by *this* process when the suite exits — bc-5isv.
@@ -142,7 +170,9 @@ for (const [i, suite] of suites.entries()) {
     // of the suites below start a real daemon, and a daemon is running `bin/router.js` —
     // nothing about that process looks like a test. Inherited by every child of every
     // child, which is exactly the reach that is wanted. lib/launchguard.js says why.
-    env: { ...process.env, [NO_LAUNCH]: '1', TMPDIR: sandbox },
+    // `HELD_ENV`: this run already holds a machine-wide slot, so a runner started by a
+    // suite is inside it rather than queueing behind its own parent. See lib/gate.js.
+    env: { ...process.env, [NO_LAUNCH]: '1', [HELD_ENV]: '1', TMPDIR: sandbox },
   });
   const broke = run.error || run.signal || run.status !== 0;
   if (!broke) {
