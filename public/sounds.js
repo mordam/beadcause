@@ -216,4 +216,48 @@
   }
 
   draw();
+
+  /* -------------------------------------------------------------------- haptic */
+  /*
+    bc-ka5y.15.18: the buzz that already exists, and the tick it is being weighed
+    against, side by side before either one costs a channel.
+
+    Gated on the bridge methods rather than on any user-agent sniff — the same test
+    app.js already uses for openInBrowser. An APK that predates this bead simply has
+    no feelBuzz/feelTick, and the section stays hidden rather than drawing pads that
+    would throw on tap. There is no web fallback: navigator.vibrate has no amplitude
+    and no primitive, so a browser pad would be comparing 20ms against 20ms and
+    answering the question wrongly.
+  */
+  const HAPTICS = [
+    {
+      id: 'buzz',
+      call: 'feelBuzz',
+      name: 'The channel buzz',
+      detail: '`longArrayOf(0, 20)` — the exact pattern answers_v1 is cut with. 20ms is the floor a channel’s vibrationPattern can express at all.',
+    },
+    {
+      id: 'tick',
+      call: 'feelTick',
+      name: 'A single tick',
+      detail: 'EFFECT_TICK, a device-tuned haptic primitive rather than a raw motor pulse — what a channel has no way to ask for.',
+    },
+  ];
+
+  if (HAPTICS.every((h) => typeof window.BeadcauseNative?.[h.call] === 'function')) {
+    const section = document.getElementById('haptic-section');
+    const haptic = document.getElementById('haptic');
+    for (const h of HAPTICS) {
+      const row = el('div', 'sound-row');
+      const b = el('button', 'sound-play', 'Feel');
+      b.type = 'button';
+      b.setAttribute('aria-label', `Feel ${h.name}`);
+      b.addEventListener('click', () => window.BeadcauseNative[h.call]());
+      const words = el('div', 'sound-words');
+      words.append(el('strong', null, h.name), el('p', 'sound-detail', h.detail));
+      row.append(b, words);
+      haptic.append(row);
+    }
+    section.hidden = false;
+  }
 })();

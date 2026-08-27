@@ -7381,12 +7381,12 @@ every `.pagescroll` inside a pane on the way out and writes it back on the way i
 same turn as the unhide: the content was never unbuilt, only unpainted, so there is no
 height still to arrive and no frame to wait for.
 
-**A pane can be present and unshowable, and one is.** `data-pending` names the
-bead that fills a container, and it is load-bearing rather than a note: a pending pane is
-registered nowhere, can never be shown, and the pill row asks the same question, so its pill
-stays the `<a href>` it has always been and still loads its own document. That is what let
-the shell land on its own. The alternative was two of seven pills leading to a blank screen
-until two further beads merged, on an app that
+**A pane can be present and unshowable, and every one of them has been at some point.**
+`data-pending` names the bead that fills a container, and it is load-bearing rather than a
+note: a pending pane is registered nowhere, can never be shown, and the pill row asks the
+same question, so its pill stays the `<a href>` it has always been and still loads its own
+document. That is what let the shell land on its own. The alternative was two of seven
+pills leading to a blank screen until two further beads merged, on an app that
 [deploys itself](#ship-it--the-same-merge-and-then-the-deploy) the moment a branch lands.
 History's attribute came off when
 [bc-khoe.30.5 filled its container](#the-ledger-as-a-pane-and-its-filters-in-the-hash),
@@ -7395,12 +7395,14 @@ Releases' with bc-khoe.30.14, and Advocates' — the last of the four the shell 
 went **on** afterwards, which is the direction worth noticing: bc-khoe.50 gave the row a
 fifth view because a pill pointing at a page that is not a view marks nothing current on the
 page it points at, and a view the grammar knows owes a container the same day. **bc-khoe.60**
-fills it. So the attribute is how a view arrives rather than a debt the shell was born with.
-The attribute names the bead whose
-merge *deletes* it, which is why it named bc-khoe.4 rather than bc-khoe.30.6: that bead
-ruled how the fold goes rather than folding it. The mechanism is not retired with the last
-of them; it is how the next view arrives, and `test/panes.mjs` covers it against fixtures
-now that the shell itself has none.
+filled it, and its going with nothing behind it is the fact worth stating: every view the
+grammar knows has a live pane now, and the attribute is how a view *arrives* rather than a
+debt the shell was born with — the next one to join `VIEWS` will carry it exactly the same
+way. The attribute names the bead whose merge *deletes* it, which is why History's and
+Releases' named the fold rather than the ruling that decided it, and why Advocates' named
+**bc-khoe.4** rather than bc-khoe.30.6: that bead ruled how the fold goes rather than
+folding it. `test/panes.mjs` covers the mechanism against fixtures now that the shell
+itself has none left to read it off of.
 
 **The row asks; it does not require.** `public/viewbar.js` is drawn on twelve pages and one
 of them is the shell, so it reaches for `window.beadcause.panes` with `?.` and takes *no* as
@@ -9077,6 +9079,19 @@ a `space.adopt()`, which ends in `paint()` — so the one repaint that thawed th
 repainted the bar above it in the same tick. Deleting the picker's counts deleted that
 call, and nothing else on the inbox reaches `spacebar.js` on a repaint, so the bar would
 have come out of the mode still holding the options it went in with.
+
+**Only the rows wait, not the whole paint (bc-ka5y.33).** The `<select>`'s options are
+the one thing a rebuild can move out from under a thumb, so those are what the freeze
+above covers. The bar's shown label, the control's `title` and the control's own `value`
+name nothing that is not already true — `state.filter` was updated by `adopt()`, or by
+the pick itself, before `paint()` ever runs — so all three are still written on every
+paint, frozen or not. Without that split, a pick made *during* the freeze fell through
+the same cracks the poll did: the browser moves a `<select>`'s value on the tap itself,
+no code involved, so the dropdown already held the new space while `paint()`'s early
+return left the bar's label and title naming the one the tap replaced, under a banner
+promising the screen was held still. It stayed that way, exactly as long as the mode
+did, because nothing but the next `paint()` — held by the same guard — could have said
+otherwise.
 
 **What is still allowed to move, and why none of it is a thing you can point at:** the
 toast (an overlay over nothing, raised only by an act already in flight when the mode
@@ -12282,6 +12297,54 @@ a browser can make: that the pill stopped being an `<a>`, that a tap loads no do
 all, and that the scroll position comes back — measured at a deliberately short viewport,
 because at phone height the board fits and an assertion about a scroll position that was
 never there would pass while proving nothing.
+
+### Config as a pane, and the fetch it deliberately does not make
+
+Everything above describes `/config`, a document. It is a **pane of the shell** now:
+`[data-pane="config"]` in `public/index.html`, shown by a `display: none` swap with nothing
+fetched and nothing rebuilt. `/config`, `/settings` and `/config.html` still answer — any of
+them can be sitting on a phone's home screen — but as a **302 onto the pane** since
+bc-khoe.60 rather than as the document. `public/config.js` is still one file written to run
+in either, deciding which by asking whether the one it is in has panes at all;
+`public/config.html` is still on disk and reachable exactly as it always was — unlike
+`public/history.html` and `public/releases.html`, nothing has deleted it, because that is a
+cleanup for once the hop has taken traffic for a while rather than a condition of landing
+it. It is the third view to make this move, after
+[the ledger](#the-ledger-as-a-pane-and-its-filters-in-the-hash) and
+[Releases](#releases-as-a-pane-and-the-two-clocks-it-brought-with-it), and the smallest —
+what is worth writing down is the one place it went a different way.
+
+**It has no `wake` and no clock, where both of the other two have at least one.** Nothing
+about a space's settings changes except a press on this card or the picker moving to a
+different space, so there is no event a poll could carry that a fetch this file already
+made would not already answer. It registers with the stager as `{ build }` alone, the same
+bare shape `public/app.js` registers Home with, and it means a genuine cost rather than an
+oversight: a setting changed on another device does not reach this pane until the picker
+moves or ⟳ is pressed, where the document it replaced got a free re-read on every
+navigation back to it. That is the trade this whole epic is making, paid here in the open
+rather than hidden behind a mechanism that looks complete.
+
+**Two element ids moved with it, and one of them for a reason the ledger and Releases did
+not have.** `id="cfg-observing"` rather than the bare `observing` — not because `#config`
+is a fragment target (nothing in this pane is named that), but because the Advocates pane
+already holds the bare name, the same collision `rel-observing` exists to dodge. The chip
+moved *inside* the pane rather than staying beside the mark, for the reason Releases'
+did: the top bar belongs to every view now, and which group is being watched is a fact
+about one of them. `id="space"` did not move — nothing else in the shell wanted it.
+
+**Presence reporting is dropped in the shell rather than carried over.** The document
+version reports `{ view: 'config', space }` to `public/mirror.js` on every load and every
+picker move; the pane does not, matching `public/history.js` and `public/releases.js`,
+neither of which reports anything once folded. The mirror does not yet know how to say
+"this device is on a pane other than Home", and teaching it that is a shell-wide question
+none of the three pane folds has answered — this one just states the gap explicitly rather
+than leaving it to be rediscovered.
+
+`node scripts/space-check.mjs` is the browser half, and the claims a static read cannot
+make: that a navigation to `/config` lands on the pane rather than the document, that the
+pill on the row is lit while it is up, and that a press under a repaint mid-flight cannot
+take a half-typed Slack channel id away — the whole reason that check exists, unchanged by
+which document is drawing the card.
 
 ### The row is the bead, not a summary of it
 
@@ -19337,6 +19400,44 @@ sense as `b7e-siblings` just above: nothing here writes a ref, a commit or a wor
 file, which is what put `Bash(b7e-base:*)` straight on `DEFAULT_TOOL_LIST` in
 `lib/toolbelt.js` and `read` in `lib/grants.js` beside it.
 
+### What this branch actually delivers, against its own merge base and nobody else's — `b7e-diff`
+
+`bc-dgx7.17` is the same session audit, naming a narrower question five sophab sessions
+(`sp-weu`, `sp-jb1`, `sp-clh`, `sp-j8f`, `sp-6bt.1`) each answered by hand right before
+delivering, in five different shapes — `git diff main...HEAD --name-only`, `git diff
+--cached --stat`, `git rev-list --count HEAD..main`, a hand-run `git merge-base`. None
+of the five would have caught what `sp-weu` needed caught: it squashed with `git reset
+--soft main`, and the resulting `git status` carried five files two *other* branches
+had already merged into `main` while it worked — sitting there uncommitted and
+indistinguishable from `sp-weu`'s own change until a human read every line by eye.
+`main` had simply moved past `sp-weu`'s fork point in the meantime.
+
+```
+b7e-diff                  merge-base against local main, report the branch's own diff
+b7e-diff --base develop   merge-base against a ref other than main
+b7e-diff --json           one object on stdout, for a caller
+```
+
+Reports: the merge-base sha; whether `--base` has advanced past it and by how many
+commits; this branch's own commits since the merge-base; the file list of
+`merge-base...HEAD`; and — the part nobody hand-rolled, and the one that would have
+caught `sp-weu` without a human noticing — every uncommitted path `git status` names
+that belongs to no commit this branch actually made. Exits `1` when that last set is
+non-empty, the same gate shape `b7e-owes` uses.
+
+**`--base` is a literal ref, `main` by default, and never fetched.** This asks a
+narrower, cheaper question than `b7e-base` (above): not "has the upstream moved" but
+"does everything sitting in this checkout right now belong to a commit this branch
+actually made" — meant to run against whatever `main` already is in this checkout,
+immediately before a delivery, with no network round-trip. `bc-khoe.27.10`
+(`b7e-shipcheck`) asks a different question again — whether a delivery will be
+refused — and this bead's own decision comment says explicitly the two stay separate
+commands rather than folding one into the other.
+
+Built on `lib/gitref.js`'s `git()`/`gitCode()`, the same runner `b7e-base` uses just
+above. Read-only in the same sense: nothing here writes a ref, a commit or a
+working-tree file, which is what put `Bash(b7e-diff:*)` on `DEFAULT_TOOL_LIST`.
+
 ### Which ref a workspace actually delivers into, before anyone reads a file — `b7e-deliverbase`
 
 `bc-dgx7.58`, filed by the session audit (`lib/sessionaudit.js`) against six sessions in
@@ -22212,6 +22313,56 @@ parsing and the printing around it. `Bash(b7e-moment:*)` is on `DEFAULT_TOOL_LIS
 write anything either. See `bin/b7e-moment`, `lib/moment.js` and `test/b7emoment.mjs`.
 
 
+### The numbers a named building actually produces, in one call — `b7e-model`
+
+`bc-dgx7.15` is the session audit's finding: five sophab sessions (`sp-oyg`, `sp-0hw`,
+`sp-j8f`, `sp-clh`, `sp-weu`) each needed "what does the model say for THIS size, versus
+the as-built one" and each built the params from scratch, differently — a raw
+`(length, run, rise)` tuple, `dataclasses.replace`, `engine.build_params` by hand, or
+`SolariumParams()` directly. `sp-j8f` burned three failed calls before discovering
+`costing.takeoff()` returns `(items, summary)`, not a list of dicts.
+
+```
+b7e-model 24x14x12 50x22x20                                   as-built vs a projection
+b7e-model 24x14x12 --rib closed --shape 1.2 --place "fredericton, nb"
+b7e-model 24x14x12 50x22x20 --costing                           + the takeoff total
+b7e-model 24x14x12 --json                                        one object per size
+```
+
+Each size is `LxRxH` in feet, the same order `engine.build_params(length, run, rise,
+...)` takes. Per size: section (breadth × depth, `A`, `I`, `Sx`), the governing NBCC
+combo, rib and beam utilisation, base reactions (`R_base_kN`, `thrust_kN`), and whether
+it is over capacity or past the calibrated section ladder — every one of those fields is
+`tools/planset_sweep.py::numbers_for()`'s own, not a re-derivation: it already calls
+`engine.build_params` and the same `fea_report` functions production does ("a sweep that
+re-derived the load path would be checking its own arithmetic"). With `--costing`, also
+`costing.takeoff()` on the same params object, reporting the total and the top 5 line
+items by extended cost. A size whose geometry the model itself refuses is reported
+(`error`/`error_type`) and does not stop the others.
+
+**This is a beadcause `lib/` file that shells out to sophab, not a file written into the
+sophab checkout**, even though the bead's own "belongs at" line — filed while it still
+lived in the sophab tracker — named `tools/b7e_model.py` there. Every wiring requirement
+the bead also lists (`package.json`/lockfile bin entries, `test/*.mjs`, a
+`DEFAULT_TOOL_LIST` entry, this section) is beadcause-repo machinery, and the bead's own
+move-comment says the work lands in the beadcause repo. Splitting the deliverable across
+two repos — a sophab-side Python file needing its own PR, review and merge on top of
+this one — would owe a second delivery nothing here asks for. So the whole thing lives
+here: `lib/b7e_model.js` only *reads* sophab (`sys.path.insert` onto its checkout, then
+`import`), and never writes into it. The interpreter is resolved from the sophab
+checkout itself (`.venv/bin/python3` if it has one, else plain `python3`) — never from
+the caller's own `.venv`, which is what makes `b7e-model` work from a beadcause
+worktree, which has no `.venv` at all and never will.
+
+`lib/b7e_model.js` is the Python bridge (one `python3 -c` process, a JSON job on stdin,
+a JSON array on the last line of stdout — the same shape `lib/plate.js`'s
+`RENDER_SCRIPT` already uses) and the report formatting; `bin/b7e-model` is the argv
+parsing and the printing around it. `Bash(b7e-model:*)` is on `DEFAULT_TOOL_LIST` in
+`lib/toolbelt.js` and `read` in `lib/grants.js` — everything it does is an import and a
+subprocess, never a write to either checkout. See `bin/b7e-model`, `lib/b7e_model.js`
+and `test/b7emodel.mjs`.
+
+
 ### The next free `CHANGE_LOG.md` entry number, across every branch — `b7e-entry`
 
 `bc-dgx7.61`, a session audit against a repo like deluvia's, where `CHANGE_LOG.md` is
@@ -22381,6 +22532,59 @@ Exit codes: whatever the resolved command exits with, unchanged — including no
 `onExit`), the same fix `b7e-shipgate` needed for the identical trap — a wrapper that
 composes `b7e-gate` and does not forward its own kill signal orphans the gate, still
 holding its per-tree lock. See `bin/b7e-run`, `lib/run.js` and `test/b7erun.mjs`.
+
+
+### Mutation-test a change without hand-rolling the backup-mutate-restore dance — `b7e-mutate`
+
+`bc-dgx7.12`, a session audit against ten sessions (`sp-mgq`, `sp-0l0`, `sp-zg9`,
+`sp-42u`, `sp-2cw`, `sp-vbm`, `sp-zli`, `sp-dei.2`, `sp-h3z`, `sp-sp9`) that each proved a
+fix actually gets caught by mutating the code and re-running the tests — this repo's rule
+that a green test proves nothing until it has been seen fail — and each wrote the
+backup-mutate-restore loop by hand, no two of them the same way. Two failure modes
+recurred across them: a stale `__pycache__` can mask a same-length mutation (the test
+reports "caught" over bytecode that was never recompiled), and a mutation whose text never
+actually matched anything can silently "pass" as though it had been applied.
+
+```
+b7e-mutate --file <path> --from <literal> --to <literal> --test <cmd> [--label <text>]
+b7e-mutate --plan <file|-> [--test <cmd>] [--keep-going] [--dir <root>] [--json]
+```
+
+A plan is YAML — a bare list, or `{ mutations: [...] }` — of `{ file, from, to, label?,
+test? }` records; a record's own `test` overrides the plan-wide `--test`. Every distinct
+test command a plan actually uses is run once, unmutated, before any file is touched —
+refusing the whole run if any of them is already red, since a mutation test against a
+failing suite proves nothing. By default a run stops at the first mutation that
+`SURVIVED` (the test still passed after the bug was introduced) or that errored (its
+`--from` matched nothing, or its file could not be read); `--keep-going` runs the rest of
+the plan regardless.
+
+**Always restores from a copy held outside the working tree, and only as a `Buffer`.**
+Each mutated file is backed up to a real file under `os.tmpdir()` before it is touched,
+never just a JS string kept in this process, and restored from that exact backup as raw
+bytes rather than round-tripped through a string — so the tree comes back byte-identical
+regardless of the file's encoding.
+
+**Restoring even when the process is killed mid-run.** Restoration is armed through
+`lib/teardown.js`'s `onExit` the instant a file is mutated. The test command itself runs
+via async `spawn`, not `spawnSync`, on purpose: a process blocked inside a synchronous
+child-process call does not reliably service an incoming signal until that call returns
+on its own — measured directly building this command, where `SIGTERM` sent to a
+`spawnSync`-based run had no effect until the mutation's own test finished naturally,
+several seconds later. Keeping the event loop free while the test runs is what lets
+`SIGINT`/`SIGTERM`/`SIGHUP` restore the file within milliseconds instead of only after the
+test would have finished anyway. `SIGKILL` cannot be caught by anything and is out of
+scope here too, same as everywhere else `lib/teardown.js` is used.
+
+**Not on `DEFAULT_TOOL_LIST` or in `lib/grants.js`.** Same reasoning `b7e-handback`
+already gives for itself: it mutates a file on disk, however briefly, so it widens
+nothing an agent could not already reach with the write tools it holds, and adding it to
+the read-only allowlist would be the two-word diff `lib/grants.js`'s own header warns
+against.
+
+Exit codes: `0` every mutation was caught. `2` bad usage. `3` a baseline test command was
+already red — nothing was mutated. `1` at least one mutation `SURVIVED` or errored. See
+`bin/b7e-mutate`, `lib/mutate.js` and `test/b7emutate.mjs`.
 
 
 ### End a delivered run — `b7e-signoff`
@@ -37389,6 +37593,66 @@ file is a read," and it is pointless for `dispatch` regardless — no directory 
 is ever in front of one phone comment. Its occasion is a worker session with a branch of
 its own, and `worker`'s tool list is the unrestricted CLI default, so a grant would widen
 nothing that agent cannot already reach.
+
+### Named sophab drawing sheets at named sizes — `b7e-sheet`
+
+`bc-dgx7.13`, filed by the session audit against three sophab sessions (`sp-zg9`,
+`sp-vbm`, `sp-0l0`) that each hand-built the same three-part preamble to *look at* an
+end-wall or engineering-set sheet at a given size — force the Agg backend, build params
+through `webapp.engine.build_params`, call the sheet's builder, save. `sp-zg9` wrote
+`render.py`, then `render2.py`, then `crop.py`; `sp-vbm` wrote `audit_e.py`, which
+crashed first time on `import engine` (it lives at `webapp.engine`, not top level) and
+had to be `sed`-repaired; `sp-0l0` wrote the same preamble inline in a heredoc, four
+times over. The project's own rule — you cannot tell what a sheet prints by reading the
+f-strings, you build it and look — means this preamble was never going to stop getting
+rewritten on its own.
+
+```
+b7e-sheet E1 --size small                         one sheet, the funnel's smallest corner
+b7e-sheet all --size small,big,asbuilt,tall        every sheet at four named sizes
+b7e-sheet S7 --size 15x12x20 --text                a literal size, plus every string drawn
+b7e-sheet E1,E5 --size 22x20x8 --out /tmp/look     explicit sheets, a fixed output dir
+```
+
+**The rendering itself cannot live in this repo.** E1-E9 (`end_wall.py`) and S1-S10
+(`engineering_set.py`) are sophab's own matplotlib domain modules, so `bin/b7e-sheet` is
+a thin spawn wrapper (`lib/sheet.js`) around a companion file, `tools/sheet_probe.py`, in
+the sophab checkout itself (shipped alongside this as
+`github.com/NeanderthalMan/sophab#54`). It runs through sophab's own shared
+`.venv/bin/python3` — the same interpreter every sophab worktree already uses for
+`tools/partest.py` — which is what makes this work from a sophab worktree with no
+`.venv` of its own: there is none to have, every worktree there shares the main
+checkout's.
+
+**Sizes** are a literal `<run>x<rise>x<length>` triple in feet, or one of four names
+resolved from `webapp/pages/start.html`'s own `#length`/`#run`/`#rise` slider min/max at
+call time — never a fourth hardcoded copy of the funnel's numbers, the same reasoning
+`tools/planset_sweep.py` already applies to the same three ranges. `small`/`big` are the
+funnel's own min/max corner; `tall` is shortest length with the deepest, tallest arch —
+the "short and deep" corner in `tests/test_plan_set.py`'s `FUNNEL_CORNERS` fixture, and
+the one that flips `end_wall.py`'s own `wide = (run+61) > 2.2*(rise+75)` split, so an
+elevation actually reads as tall rather than wide. `asbuilt` is not a slider corner at
+all — it renders the as-built reference itself (`solarium.DEFAULT`).
+
+`--text` prints every string a rendered sheet actually drew — `Figure.text`,
+`Axes.text`, `Axes.annotate` (how the leadered dimensions on S3-S6 are placed) — via the
+same monkeypatch `tests/test_plan_set.py`'s `_build_capturing` already uses, and for the
+same reason: matplotlib subsets its fonts, so grepping the rendered PNG's bytes for a
+string finds nothing. This is the part `sp-vbm`'s `audit_e.py` had to collect by hand
+into a list of 1,718 strings.
+
+A sheet that fails to render at a given size is reported on stderr and skipped rather
+than aborting the whole run — `engineering_set.build_set_into`'s own `strict=False`
+rationale, so one size a parametric layout cannot yet handle does not cost every other
+render in the same call. Output goes to a fresh tempdir by default, never inside the
+sophab checkout, so a render run mid-session never dirties a worktree a delivery's dirty
+guard is watching.
+
+**Deliberately NOT on `DEFAULT_TOOL_LIST`** (`lib/toolbelt.js`), on the same reading as
+`b7e-plate` just above: it writes PNG files, which is a write regardless of whether it
+touches `bd`, and it is pointless for `dispatch` besides — no drawing sheet is ever in
+front of one phone comment. Its occasion is a worker session with a branch of its own,
+which already has the unrestricted CLI default.
 
 ## Notes on bd
 

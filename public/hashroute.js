@@ -149,12 +149,11 @@
     // rather than one, because the screen has two honest names — the *config* of a space
     // and where its *settings* are — and the `.html` is what the service worker precaches.
     //
-    // **Its pane is still `data-pending` (bc-khoe.60), and that is what keeps these three
-    // documents.** A view whose container is empty must not hop: `public/panes.js` answers
-    // a hash naming a pending pane by showing Home, so a 302 here would put the phone on
-    // the inbox from a home-screen shortcut. test/pagealias.mjs holds both directions of
-    // that — a filled pane owes hops, a pending one must not have them — so the flip
-    // happens in bc-khoe.60's commit and cannot happen early by accident.
+    // Its pane was `data-pending` until bc-khoe.60 filled it, which is what let these
+    // three addresses become hops: `public/panes.js` answers a hash naming a pending pane
+    // by showing Home, so a 302 landing on one would have put the phone on the inbox from
+    // a home-screen shortcut. test/pagealias.mjs holds both directions of that — a filled
+    // pane owes hops, a pending one must not have them.
     { id: 'config', hash: '#config', paths: ['/config', '/settings', '/config.html'] },
   ];
 
