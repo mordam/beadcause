@@ -54,6 +54,8 @@ import {
   verifyRef,
 } from '../lib/evidence.js';
 import { ARCHIVE_REF } from '../lib/agentarchive.js';
+import { KEEP as DEPLOY_KEEP } from '../lib/deploy.js';
+import { KEEP_DAYS as RELEASE_KEEP_DAYS } from '../lib/release.js';
 import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -182,6 +184,27 @@ await check('the agent run log is registered, and bc-eqn1.7 closed its gap', () 
   assert.ok(logs.writers.includes('lib/agentlog.js'));
   assert.ok(logs.writers.includes('lib/agentarchive.js'));
   assert.ok(logs.where.some((w) => w.includes(ARCHIVE_REF)), 'the chain is not named in `where`');
+});
+
+await check('deployment-record\'s disposal prose names the numbers deploy.js and release.js actually prune to', () => {
+  // bc-khoe.17: the register used to say "Neither is pruned today", which was false in
+  // both halves — deploy.js's prune() has always kept only the last KEEP records, and
+  // release.js's prune() has always dropped a settled entry after KEEP_DAYS. Rather than
+  // pin the prose (which the next drift would silently outdate), pin it to the constants
+  // the code actually uses, so a KEEP or KEEP_DAYS change that nobody brings back here
+  // fails loudly instead of leaving the register internally consistent and externally
+  // false again.
+  const dep = REGISTER.find((e) => e.id === 'deployment-record');
+  assert.ok(dep, 'deployment-record is not registered at all');
+  assert.ok(
+    dep.disposal.includes(String(DEPLOY_KEEP)),
+    `disposal does not name deploy.js's current KEEP (${DEPLOY_KEEP}) — it drifted:\n${dep.disposal}`
+  );
+  assert.ok(
+    dep.disposal.includes(String(RELEASE_KEEP_DAYS)),
+    `disposal does not name release.js's current KEEP_DAYS (${RELEASE_KEEP_DAYS}) — it drifted:\n${dep.disposal}`
+  );
+  assert.ok(!/neither is pruned/i.test(dep.disposal), 'the disposal text still claims nothing is pruned, which prune() contradicts');
 });
 
 /* ------------------------------------------------------------ the inventory */

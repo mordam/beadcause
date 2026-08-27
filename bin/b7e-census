@@ -25,6 +25,8 @@
  *
  * Exit codes: `0` the call answered (however many rows matched, zero included). `1` a
  * bad predicate or missing workspace. `2` `bd export` itself failed.
+ *
+ * @grant read
  */
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';

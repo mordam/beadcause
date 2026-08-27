@@ -33,6 +33,8 @@
  * question, it does not gate anything. `2` bad usage, or nothing to check. `4` `-w`, an
  * *explicit* `-b`, or `--agent`, named something real does not have — an inherited
  * `$BEADCAUSE_BEAD` that does not resolve is not a failure, it is one fewer store checked.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import { loadConfig } from '../lib/config.js';

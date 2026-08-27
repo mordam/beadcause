@@ -39,6 +39,8 @@
  * Exit codes: whatever the resolved command exits with, unchanged — including
  * non-zero. `2` refused before anything ran: bad usage, or no such file at the resolved
  * path.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';
