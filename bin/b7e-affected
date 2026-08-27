@@ -44,6 +44,22 @@ const value = (f, fallback) => {
   return at === -1 ? fallback : (argv[at + 1] ?? fallback);
 };
 
+// bc-dgx7.31: this used to fall into the "unrecognised flag" branch further down —
+// `--help` reads as bad usage rather than as a request for it, so it exited 2 with an
+// error rather than answering. Checked first, before anything else touches argv.
+if (has('--help') || has('-h')) {
+  console.log(
+    [
+      'b7e-affected                          # the diff since origin/main, plus anything uncommitted',
+      'b7e-affected lib/advocate.js public/spacebar.js',
+      'b7e-affected --why lib/advocate.js    # one line per suite, with the reason it matched',
+      'b7e-affected --json lib/advocate.js   # one object per changed file, then a summary',
+      'b7e-affected --dir <root>             # another tree — this is how it is tested',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
 const DIR_GIVEN = value('--dir', null);
 const ROOT = path.resolve(DIR_GIVEN || REPO_ROOT);
 const WHY = has('--why');
