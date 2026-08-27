@@ -42,6 +42,8 @@
  * fact); `4` the role is real but one or more of its sections could not be found — the
  * profile file is not on disk, the charter has no block for it, or its file declares no
  * output section. Everything findable is still printed; `4` just says something is not.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';

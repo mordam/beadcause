@@ -21,9 +21,13 @@
  * - **The time is the fact the card is read for.** "clio, checking, forty minutes ago" is
  *   the sentence that separates stalled from progressing, and a timestamp an agent types by
  *   hand is one that can be wrong in the only direction that matters. It is stamped here.
- * - **A role name is checkable, and a typo in one is silent.** The workspace's relay
- *   definition already lists every role that exists, so `--role clip` is refused with the
+ * - **A role name is checkable, and a typo in one is silent.** The relay definitions this
+ *   workspace has already list every role that exists, so `--role clip` is refused with the
  *   list rather than written into a trail where it reads as an agent nobody has heard of.
+ *   Since bc-ogicx.7 that is the *union* of every relay's roles across every checkout the
+ *   workspace has, because this command is handed no bead and no checkout and so cannot
+ *   know which relay a role was meant to belong to — see `rolesAcross` in lib/relaydefs.js
+ *   for why a wider list is the correct trade here and a `--relay` flag is not.
  *
  * What it deliberately does not check is the *order*: whether `check` may follow `draft` on
  * this bead is a question about the chain, and the chain is derived from the assignee, which
@@ -46,7 +50,9 @@
 import fs from 'node:fs';
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
-import { relayFor, rolesOf } from '../lib/relay.js';
+import { rolesAcross } from '../lib/relaydefs.js';
+import { multiRepo, repoList } from '../lib/repos.js';
+import { resolveSessionDir } from '../lib/session.js';
 import { relayEntryBlock, relayTrail, RELAY_STEPS } from '../lib/relayjournal.js';
 
 function arg(...names) {
@@ -98,12 +104,45 @@ if (!RELAY_STEPS.includes(step)) {
   process.exit(3);
 }
 
+/**
+ * Every checkout this workspace has, because a relay definition now lives in one.
+ *
+ * A single-repo workspace has exactly one and `resolveSessionDir` is what names it — the
+ * same door every other launch goes through, so this asks the same question the advocate
+ * would. A multi-repo workspace has one per approved repo that resolved, and `repoList`
+ * has already said in a warning why any that did not are missing; a checkout nobody can
+ * find contributes no roles, which is the safe direction here.
+ *
+ * `[]` rather than a throw for a workspace whose directory cannot be resolved at all: the
+ * role list then falls back to `cfg`, which is what this command checked against before a
+ * checkout could define anything, and refusing to write a trail entry because a directory
+ * moved would be the wrong end of the stick.
+ */
+function checkoutsOf(cfg, ws) {
+  if (multiRepo(cfg, ws.name)) return repoList(cfg, ws.name).repos.map((r) => r.dir).filter(Boolean);
+  try {
+    return [resolveSessionDir(cfg, ws)];
+  } catch {
+    return [];
+  }
+}
+
 // Only where the workspace has a relay at all. An install with no `relays` entry for this
-// workspace has no list to check against, and refusing there would make the journal
-// unusable by anything but deluvia — which is a rule about roles, not about trails.
-const def = relayFor(cfg, ws.name);
-if (def) {
-  const roles = rolesOf(def);
+// workspace and no `.beadcause/relays.yaml` in any of its checkouts has no list to check
+// against, and refusing there would make the journal unusable by anything but deluvia —
+// which is a rule about roles, not about trails.
+//
+// **Against every relay's roles at once, and not against one relay's.** This command is
+// handed a workspace, a role and a step — no bead and no checkout — so under named relays
+// it cannot know which relay a `--role` was meant to belong to, and `rolesAcross` says why
+// the union is the right answer rather than a weaker one. A `--relay` flag would be a
+// second routing decision typed by hand at the one place that cannot verify it.
+const { roles, problems } = rolesAcross(cfg, ws.name, checkoutsOf(cfg, ws));
+// Said, never enforced: a refused file falls through to `cfg` and so *narrows* this list,
+// and a role turned down because a file somewhere would not parse reads as a bug in this
+// command rather than in that file.
+for (const problem of problems) warn(problem);
+if (roles.size) {
   for (const [what, who] of [
     ['--role', role],
     ['--next', next],

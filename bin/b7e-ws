@@ -32,6 +32,8 @@
  * write to a tracker. Anything else (create, update, close, claim, label, dep, …) is
  * refused rather than forwarded, on purpose — this is a lookup, not a second door into
  * `bd`.
+ *
+ * @grant read
  */
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';

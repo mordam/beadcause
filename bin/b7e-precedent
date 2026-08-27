@@ -23,6 +23,8 @@
  * Exit codes: `0` ran to completion, whether or not anything landed — a family with
  * nothing on `main` yet is the ordinary "no precedent", not a failure. `2` bad usage.
  * `4` `-w`/`-b` named something this checkout's tracker does not have.
+ *
+ * @grant read
  */
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';

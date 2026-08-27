@@ -289,8 +289,41 @@ await check('a workspace with roots but no pile says so rather than filing quiet
   assert.equal(status, 200, JSON.stringify(body));
   assert.equal(body.parent, '');
   assert.equal(body.warnings.length, 1, JSON.stringify(body.warnings));
+  assert.match(
+    body.warnings[0],
+    /^filed/,
+    'a bead that was filed should read as filed, not open with words a rejection would use'
+  );
   assert.match(body.warnings[0], /nothing to hang this under/);
   assert.match(body.warnings[0], /unsorted/, 'the warning does not say how to fix it');
+});
+
+await check('an epic filed with no parent there is workable on its own and is not warned about', async () => {
+  // isRoot: an epic needs nothing above it to be workable (lib/underroot.js), so the
+  // warning above — true of an ordinary bead on this same workspace — would be a false
+  // claim about this one. bc-xl7n.115: filing an epic this way read as a refusal.
+  resetCalls();
+  const { status, body } = await post('/api/bead/create', {
+    workspace: ROOTED.name,
+    title: 'A second epic, decided on its own',
+    type: 'epic',
+  });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.parent, '');
+  assert.deepEqual(body.warnings, [], JSON.stringify(body.warnings));
+});
+
+await check('a P0 filed with no parent there is workable on its own and is not warned about', async () => {
+  // A P0 is a root the same way an epic is (isRoot = isP0 || isEpic), whatever its type.
+  resetCalls();
+  const { status, body } = await post('/api/bead/create', {
+    workspace: ROOTED.name,
+    title: 'Urgent, and nothing above it yet',
+    priority: 0,
+  });
+  assert.equal(status, 200, JSON.stringify(body));
+  assert.equal(body.parent, '');
+  assert.deepEqual(body.warnings, [], JSON.stringify(body.warnings));
 });
 
 await check('a daemon-owned label is dropped with a warning, not refused', async () => {
