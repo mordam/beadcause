@@ -25293,6 +25293,104 @@ predates it. `test/modelcard.mjs` covers the derivation, the field arriving on b
 payloads, both renderers run for real over the five shapes that matter, and the rule that
 every class either of them draws has a rule behind it.
 
+### Whether the hour fitted — `ctx:<verdict>`
+
+Everything above records *which* model. None of it records how much room that model had,
+and that is the number the tier is actually a bet about: `low` and `medium` route to
+Sonnet, whose window is 200k, and Sonnet-routed workers are hitting it. A session that
+hits the wall spends part of an unattended hour auto-compacting — the "botched session"
+outcome [the expensive fallback](#which-model-a-session-comes-up-on--the-tier-at-spawn-time)
+exists to avoid, arriving through the tiers somebody *did* rate rather than through the ones
+nobody did.
+
+Worse, the decision had no feedback of any kind. The agent that rates a bead `medium` — the
+proposer, or a session filing a discovery with the files still open — has never been able to
+find out how the last rating turned out. So a finished session now lands one more label:
+`ctx:fit`, `ctx:tight` or `ctx:over`, and `lib/sessiontokens.js` is the whole of it.
+
+**Peak occupancy cannot say it, and that is the trap the file is built around.** The obvious
+measure is how close the context got to the limit, and on its own it is worthless: the
+harness compacts *before* the window is exceeded, so a session that ran out of room reads
+~90% full and one with plenty to spare reads the same. The number that never crosses its
+limit is not evidence about the limit.
+
+What is evidence is the compaction. Claude Code writes a `system` event with
+`subtype: 'compact_boundary'`, carrying `compactMetadata.trigger` (`auto` when the harness
+ran out of room, `manual` when somebody typed `/compact`), `preTokens`, `postTokens` and
+`cumulativeDroppedTokens`. An `auto` boundary is the definitive "this needed more window
+than it had", written by the thing that made the decision. So the verdict rests on the
+boundary, and occupancy is kept for the case the boundary cannot cover — a session that
+fitted, and by how much. "Fitted at 41%" and "fitted at 94%" are the same outcome and
+different advice, which is why there are three verdicts and not two. A `manual` boundary is
+counted as a compaction and **not** as an overflow, while the occupancy it measured still
+raises the peak: how the compaction was started and how full the window was are two facts.
+
+**The window is not in the transcript, so it comes off the selection.** `message.model` is
+`claude-opus-5` whether the session was opened on the 200k model or the 1M variant — the
+`[1m]` marker belongs to the *selection* and is written to no turn, and no field anywhere in
+the file names the context limit. So the window is derived from the model string beadcause
+itself passed to `--model`, which it already stores in `meta.json`, by the same rule the
+status line uses: a string mentioning `1m` is the long window, anything else is 200k. A
+session whose selection was never recorded is refused a grade rather than given the default
+one — `fit` is a claim about a limit, and inventing the limit would manufacture reassurance.
+
+**A subagent's tokens are on the bill and not in the window.** Sidechain turns ride in the
+same transcript with `isSidechain: true`. Folded into the peak, a session that fanned out to
+six readers would look like one about to overflow — exactly backwards, since fanning out is
+how a session *avoids* filling its window. So the totals include them, the peak does not,
+and `meta.json` counts them apart so no reader has to know that.
+
+**A label, a set, and protected, for the reasons [`ran:`](#and-what-it-actually-ran-on--the-ran-label)
+is all three.** `bd list --label ctx:over` is then the list of beads whose tier was wrong,
+askable today from any machine on the workspace. A bead that fitted in March and overflowed
+in June keeps both labels, and that pair is the most useful thing the tracker can say about
+it: the work grew and the tier did not. `isCtxLabel` joins `isRanLabel` in
+`isProtectedLabel`, because losing this one costs more than losing most records here — it is
+the only feedback the tier decision has ever had, and a bead whose `ctx:over` was dropped by
+an unrelated title edit goes back into the queue rated exactly as badly as the first time.
+A create cannot state it either: a bead being proposed has never run, and the refusal says
+to set `complexity:` instead.
+
+**`ctx:fit` is written rather than left implicit**, and the sheet's row deliberately does not
+draw it. Those are not in tension. The absence of `ctx:over` is ambiguous in the direction
+that matters — nearly every bead in the tracker has never been measured, and a rater reading
+"no overflow label" off one of those is reading reassurance out of a bead nothing has ever
+run on — so the label is written for all three outcomes. The row is read by somebody looking
+for what to fix, and "the routing did what it promised" is not that, so it draws
+`⚠ ran out of context` and `context was tight` and stays quiet about the third.
+
+**The numbers go in the archive.** Every session's `meta.json` gains `tokens`: the turns
+(and the sidechain turns apart from them), the fresh input, cache reads, cache creations and
+output, the peak occupancy, the window it was routed into, that peak as a percentage of it,
+the compaction counts and what they dropped, and the verdict — stored rather than left to be
+recomputed, because it is the question the record exists to answer and it should be
+answerable from the file alone. `null`, not a record of zeroes, for a session that left
+nothing measurable and for every entry archived before the field existed: zeroes would read
+as "this session spent nothing", and there are hundreds of the other thing.
+
+Read off the same single pass that already reads the transcript for the log and the
+`ran:` ids — a transcript runs to megabytes and that is the one place in the archive it is
+already open — and written whether or not the workspace keeps a session log, for the reason
+`ran:` is: `sessionLog: false` means "do not put a log in this repo", not "do not know what
+the hour cost". An overflow is said out loud once in the daemon log, with the numbers on it,
+because "it overflowed" alone is not enough to re-rate anything.
+
+**One thing this does not fix, and it is worth knowing.**
+[`MODEL_BY_TIER`](#which-model-a-session-comes-up-on--the-tier-at-spawn-time) sends `high` to
+plain `opus`, which is *also* a 200k window. Rating a bead `high` today buys a better model
+and not one token more room, so a bead that overflows Sonnet on breadth rather than on
+difficulty has nowhere in the current vocabulary to go. Whether the tier should pick the
+window as well as the family is bc-nc6o.9, and it was unanswerable before this: it needs
+these numbers over a corpus of runs, and until now no run had left any.
+
+`test/sessiontokens.mjs` covers it: the six traps above stated as assertions, a transcript
+built to contain a `usage` block quoted inside tool output, the earlier-run-survives case,
+an adjust that would have stripped the label, a log long enough to blow the 4MB rendering
+cap (because the long session is the one most likely to have run out of window), a session
+split across two project slugs, the real `archiveSession` against a throwaway repo and
+`$HOME`, and a real advocate tick down all three routes — archived, unlogged, and archive
+failed.
+
 ### Where the *ruling* is — the second axis, beside the pull request
 
 [`lib/prstage.js`](#the-ladder-in-one-place) owns one ladder and it is about a branch: review, merged, pushed,

@@ -89,6 +89,9 @@ check('an untiered bead is routed to the expensive fallback, and says which way 
     problem: null,
     ran: [],
     diverged: false,
+    // Nothing has measured whether a session on it fitted its window either — and `[]` is
+    // not `['fit']` on purpose (bc-nc6o.8, `pressuresSeen`).
+    pressures: [],
   });
 });
 
@@ -100,6 +103,7 @@ check('a rated bead is routed by its tier, and is not a fallback', () => {
     problem: null,
     ran: [],
     diverged: false,
+    pressures: [],
   });
   assert.equal(modelCard(bead(['complexity:medium'])).model, 'sonnet');
   assert.equal(modelCard(bead(['complexity:high'])).model, 'opus');
