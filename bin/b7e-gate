@@ -89,13 +89,42 @@ const value = (f, fallback) => {
   return at === -1 ? fallback : (argv[at + 1] ?? fallback);
 };
 
+/** Everything after a literal `--` — forwarded verbatim as `tools/partest.py`'s own argv. */
+const DASH_DASH_AT = argv.indexOf('--');
+/**
+ * `--help` (or any other of this command's own flags) after a literal `--` belongs to
+ * the far side, not to this one — the same split `bin/b7e-detach`'s HEAD/TAIL already
+ * draws, for the same reason: without it, a `--help` meant for `tools/partest.py` would
+ * print usage instead of starting the run it was forwarded to be part of.
+ */
+const OWN_ARGV = DASH_DASH_AT === -1 ? argv : argv.slice(0, DASH_DASH_AT);
+
+// bc-dgx7.31: this used to fall through to a real run — `--help` on argv matched none
+// of the flags above, so it read as "no suites to skip, no dir given" and started the
+// whole gate. Checked first, before ROOT or the lock, so it runs nothing at all.
+if (OWN_ARGV.includes('--help') || OWN_ARGV.includes('-h')) {
+  console.log(
+    [
+      'b7e-gate                              # every suite scripts/test.mjs --list would run',
+      'b7e-gate --only test/gate.mjs --only test/b7e*.mjs',
+      'b7e-gate --skip test/browse.mjs       # known-flaky-under-concurrency, say so and drop it',
+      'b7e-gate --jobs 4                     # how many suites at once (default: from the load)',
+      'b7e-gate --timeout 120                # per-suite seconds, overriding the slow-suite default',
+      'b7e-gate --json                       # one object per suite, streamed, for a caller to parse',
+      'b7e-gate --log /path/to/gate.log      # also write every line here (default: a tmp file, named at the end)',
+      'b7e-gate --list                       # what would run, without running it',
+      'b7e-gate --dir <root>                 # another tree — this is how it is tested',
+      'b7e-gate --dir <sophab worktree> -- tests.test_report   # the tools/partest.py arm',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
 const ROOT = path.resolve(value('--dir', REPO_ROOT));
 const ONLY = multi('--only');
 const SKIP = multi('--skip');
 /** `PY_ARM`: the tree at `ROOT` is `tools/partest.py`'s shape, not `scripts/test.mjs`'s. */
 const PY_ARM = isPythonShaped(ROOT);
-/** Everything after a literal `--` — forwarded verbatim as `tools/partest.py`'s own argv. */
-const DASH_DASH_AT = argv.indexOf('--');
 const EXTRA_ARGS = DASH_DASH_AT === -1 ? [] : argv.slice(DASH_DASH_AT + 1);
 /**
  * `--jobs` given wins outright — an explicit ask from whoever is running the gate is a real
