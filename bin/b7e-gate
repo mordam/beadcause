@@ -5,7 +5,7 @@
  *     b7e-gate                              # every suite scripts/test.mjs --list would run
  *     b7e-gate --only test/gate.mjs --only test/b7e*.mjs
  *     b7e-gate --skip test/browse.mjs       # known-flaky-under-concurrency, say so and drop it
- *     b7e-gate --jobs 4                     # how many suites at once (default 6)
+ *     b7e-gate --jobs 4                     # how many suites at once (default: from the load)
  *     b7e-gate --timeout 120                # per-suite seconds, overriding the slow-suite default
  *     b7e-gate --json                       # one object per suite, streamed, for a caller to parse
  *     b7e-gate --log /path/to/gate.log      # also write every line here (default: a tmp file, named at the end)
@@ -27,8 +27,16 @@
  * than throwing, because a suite runner refusing to run over a bookkeeping failure would
  * be a worse bug than the one this exists to fix.
  *
+ * Two things decide how much of the Mac this takes, and both say so in the opening line.
+ * `--jobs` given wins outright; given nothing, it is chosen from the load at start
+ * (`chooseJobs`, bc-xlz32.5). And before the pool starts, the run takes one of the
+ * machine's gate slots (`acquireSlot`, bc-xlz32.1) — a third gate **waits** for the first
+ * two rather than running on top of them, saying what it is waiting for on stderr.
+ * `BEADCAUSE_GATE_SLOTS=0` opts out; CI is exempt without asking.
+ *
  * Exit codes: `0` every suite passed, `1` at least one failed or timed out, `2` refused —
- * bad usage, or another `b7e-gate` on this same tree is already running.
+ * bad usage, or another `b7e-gate` on this same tree is already running. Waiting for a slot
+ * is not a refusal and never exits: it is a queue.
  *
  * @grant excluded
  */
@@ -38,11 +46,16 @@ import path from 'node:path';
 import {
   REPO_ROOT,
   acquireLock,
+  acquireSlot,
+  chooseJobs,
   discoverSuites,
+  jobsLine,
   runGate,
   selectSuites,
+  slotLimit,
   summaryLine,
   toJsonRecord,
+  waitingLine,
 } from '../lib/gate.js';
 import { appendResult, endRun, startRun } from '../lib/gaterun.js';
 import { onExit } from '../lib/teardown.js';
@@ -68,7 +81,16 @@ const value = (f, fallback) => {
 const ROOT = path.resolve(value('--dir', REPO_ROOT));
 const ONLY = multi('--only');
 const SKIP = multi('--skip');
-const JOBS = Math.max(1, Number(value('--jobs', 6)) || 6);
+/**
+ * `--jobs` given wins outright — an explicit ask from whoever is running the gate is a real
+ * ask, the rule `--timeout` already follows. Given nothing, `chooseJobs` reads the machine
+ * (bc-xlz32.5) instead of the constant 6 that was wrong whether the Mac was idle or buried.
+ */
+const JOBS_ARG = value('--jobs', null);
+const JOBS_EXPLICIT = JOBS_ARG != null && Number(JOBS_ARG) > 0;
+const CORES = os.availableParallelism();
+const LOAD = os.loadavg()[0];
+const JOBS = JOBS_EXPLICIT ? Math.max(1, Math.floor(Number(JOBS_ARG))) : chooseJobs({ cores: CORES, load: LOAD });
 const TIMEOUT_ARG = value('--timeout', null);
 const TIMEOUT_MS = TIMEOUT_ARG == null ? null : Math.max(0, Number(TIMEOUT_ARG) || 0) * 1000;
 const JSON_MODE = has('--json');
@@ -98,6 +120,27 @@ if (!lock.ok) {
   await leave(2);
 }
 const releaseLock = onExit(lock.release);
+
+/**
+ * Then one of the machine's slots (bc-xlz32.1) — this waits rather than refusing, because a
+ * session told to go away runs `node scripts/test.mjs` instead and that is worse. On stderr
+ * so `--json`'s stream stays parseable, and throttled: once when the wait starts, then
+ * every 30s, so a twenty-minute wait is not twenty minutes of scrolling.
+ */
+let lastSaid = 0;
+const slot = await acquireSlot({
+  root: ROOT,
+  onWait: (state) => {
+    const now = Date.now();
+    if (lastSaid && now - lastSaid < 30_000) return;
+    lastSaid = now;
+    console.error(amber(waitingLine(state, now)));
+  },
+});
+const releaseSlot = onExit(slot.release);
+if (slot.waitedMs > 1000 && !JSON_MODE) {
+  console.log(dim(`waited ${Math.round(slot.waitedMs / 1000)}s for a slot on this Mac`));
+}
 
 /**
  * `record` is `null` when nothing could be started (a non-git `--dir`, most likely) —
@@ -152,6 +195,11 @@ const onResult = (r, done, total) => {
 };
 
 if (!JSON_MODE) {
+  // Said out loud, because the number is no longer a constant anybody can assume: a gate
+  // that took twice as long as yesterday's should be explicable from its own first lines.
+  const limit = slotLimit();
+  const budget = limit ? `, ${limit} gate${limit === 1 ? '' : 's'} at a time on this Mac` : '';
+  console.log(dim(`${jobsLine({ jobs: JOBS, cores: CORES, load: LOAD, explicit: JOBS_EXPLICIT })}${budget}`));
   console.log(dim(`log: ${logPath}`));
   if (record) console.log(dim(`run: ${record.runId} — \`b7e-watch\` reports on it while this runs and after`));
   console.log('');
@@ -169,6 +217,7 @@ try {
   });
 } finally {
   releaseLock();
+  releaseSlot();
 }
 
 if (!result.total) {

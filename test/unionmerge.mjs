@@ -214,7 +214,18 @@ console.log('\nthe union-merged registries carry no entry twice\n');
 
 /* ------------------------------------------------------------------ 1. the declaration */
 
-const EXPECTED = ['lib/grants.js', 'lib/toolbelt.js', 'package.json', 'package-lock.json'];
+/*
+ * Two, not the four bc-8479e started with — bc-wbrhi took `lib/grants.js` and
+ * `lib/toolbelt.js` off, and the argument is in `.gitattributes` beside them.
+ *
+ * The short version: union is for a file that is *appended to*, and those two stopped
+ * being appended to when the b7e half of both became derived. What was left was union's
+ * other half, which bc-8479e did not have to reckon with and this one did — **union
+ * refuses deletions**. Where one side removes a block and the other edits it, keeping
+ * both sides means keeping the block. bc-wbrhi's downmerge restored 34 entries it had
+ * deleted, reported the merge clean, and said nothing.
+ */
+const EXPECTED = ['package.json', 'package-lock.json'];
 const attributesPath = path.join(ROOT, '.gitattributes');
 
 if (!fs.existsSync(attributesPath)) {
@@ -246,6 +257,24 @@ if (!fs.existsSync(attributesPath)) {
     bad(
       `${prose.length} document union-merged: ${prose.join(', ')}`,
       'a section quietly appearing twice in 36,601 lines of prose is caught by nothing'
+    );
+
+  /*
+   * And the two the derivation restructures are named, not merely absent — bc-wbrhi.
+   *
+   * `EXPECTED` above already fails on a fifth file, so this is not about coverage. It is
+   * about the reason: these two are the files bc-wbrhi *deletes from*, and union's answer
+   * to a deletion is to undo it. Somebody looking at a conflict in `lib/grants.js` and
+   * reaching for the four-line fix that worked last time would put it straight back, and
+   * the next branch that removes a block would have it silently restored. Named here so
+   * that diff fails a suite instead of merging clean.
+   */
+  const derived = ['lib/grants.js', 'lib/toolbelt.js'].filter((p) => declared.includes(p));
+  if (!derived.length) ok('and neither derived registry is union-merged — union undoes a deletion, silently');
+  else
+    bad(
+      `${derived.length} derived registry union-merged again: ${derived.join(', ')}`,
+      'bc-wbrhi deletes from these; union would restore what a branch removed and call the merge clean'
     );
 }
 
