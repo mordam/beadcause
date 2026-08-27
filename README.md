@@ -37213,6 +37213,66 @@ is ever in front of one phone comment. Its occasion is a worker session with a b
 its own, and `worker`'s tool list is the unrestricted CLI default, so a grant would widen
 nothing that agent cannot already reach.
 
+### Named sophab drawing sheets at named sizes — `b7e-sheet`
+
+`bc-dgx7.13`, filed by the session audit against three sophab sessions (`sp-zg9`,
+`sp-vbm`, `sp-0l0`) that each hand-built the same three-part preamble to *look at* an
+end-wall or engineering-set sheet at a given size — force the Agg backend, build params
+through `webapp.engine.build_params`, call the sheet's builder, save. `sp-zg9` wrote
+`render.py`, then `render2.py`, then `crop.py`; `sp-vbm` wrote `audit_e.py`, which
+crashed first time on `import engine` (it lives at `webapp.engine`, not top level) and
+had to be `sed`-repaired; `sp-0l0` wrote the same preamble inline in a heredoc, four
+times over. The project's own rule — you cannot tell what a sheet prints by reading the
+f-strings, you build it and look — means this preamble was never going to stop getting
+rewritten on its own.
+
+```
+b7e-sheet E1 --size small                         one sheet, the funnel's smallest corner
+b7e-sheet all --size small,big,asbuilt,tall        every sheet at four named sizes
+b7e-sheet S7 --size 15x12x20 --text                a literal size, plus every string drawn
+b7e-sheet E1,E5 --size 22x20x8 --out /tmp/look     explicit sheets, a fixed output dir
+```
+
+**The rendering itself cannot live in this repo.** E1-E9 (`end_wall.py`) and S1-S10
+(`engineering_set.py`) are sophab's own matplotlib domain modules, so `bin/b7e-sheet` is
+a thin spawn wrapper (`lib/sheet.js`) around a companion file, `tools/sheet_probe.py`, in
+the sophab checkout itself (shipped alongside this as
+`github.com/NeanderthalMan/sophab#54`). It runs through sophab's own shared
+`.venv/bin/python3` — the same interpreter every sophab worktree already uses for
+`tools/partest.py` — which is what makes this work from a sophab worktree with no
+`.venv` of its own: there is none to have, every worktree there shares the main
+checkout's.
+
+**Sizes** are a literal `<run>x<rise>x<length>` triple in feet, or one of four names
+resolved from `webapp/pages/start.html`'s own `#length`/`#run`/`#rise` slider min/max at
+call time — never a fourth hardcoded copy of the funnel's numbers, the same reasoning
+`tools/planset_sweep.py` already applies to the same three ranges. `small`/`big` are the
+funnel's own min/max corner; `tall` is shortest length with the deepest, tallest arch —
+the "short and deep" corner in `tests/test_plan_set.py`'s `FUNNEL_CORNERS` fixture, and
+the one that flips `end_wall.py`'s own `wide = (run+61) > 2.2*(rise+75)` split, so an
+elevation actually reads as tall rather than wide. `asbuilt` is not a slider corner at
+all — it renders the as-built reference itself (`solarium.DEFAULT`).
+
+`--text` prints every string a rendered sheet actually drew — `Figure.text`,
+`Axes.text`, `Axes.annotate` (how the leadered dimensions on S3-S6 are placed) — via the
+same monkeypatch `tests/test_plan_set.py`'s `_build_capturing` already uses, and for the
+same reason: matplotlib subsets its fonts, so grepping the rendered PNG's bytes for a
+string finds nothing. This is the part `sp-vbm`'s `audit_e.py` had to collect by hand
+into a list of 1,718 strings.
+
+A sheet that fails to render at a given size is reported on stderr and skipped rather
+than aborting the whole run — `engineering_set.build_set_into`'s own `strict=False`
+rationale, so one size a parametric layout cannot yet handle does not cost every other
+render in the same call. Output goes to a fresh tempdir by default, never inside the
+sophab checkout, so a render run mid-session never dirties a worktree a delivery's dirty
+guard is watching.
+
+**Deliberately NOT on `DEFAULT_TOOL_LIST`** (`lib/toolbelt.js`), on the same reading as
+`b7e-plate` just above: it writes PNG files, which is a write regardless of whether it
+touches `bd`, and it is pointless for `dispatch` besides — no drawing sheet is ever in
+front of one phone comment. Its occasion is a worker session with a branch of its own,
+which already has the unrestricted CLI default.
+
 ## Notes on bd
 
 - **`bd human respond` is broken in bd 1.1.2** — it dies with `storage is nil`.
