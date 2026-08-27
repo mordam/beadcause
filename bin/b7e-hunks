@@ -26,6 +26,8 @@
  * Exit codes: `0` no conflicts remain (after whatever this run did); `1` conflicts remain;
  * `2` refused — bad usage, an id that does not name a real hunk, or the target is not a
  * git repository.
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import {

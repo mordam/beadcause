@@ -33,6 +33,8 @@
  * `-w` named a workspace this Mac has no config for, or this checkout resolves to
  * none and neither `-w` nor `--dir` was given. `5` the named entry does not exist in
  * the file at the resolved ref.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';

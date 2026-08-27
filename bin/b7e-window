@@ -29,6 +29,8 @@
  * window names the bead (nobody else is on it, or it could not tell — never a false
  * "somebody else is here"). `1` two or more are live, and their pids are named. `2` bad
  * usage. `4` `-w`/`-b` named something this checkout's tracker does not have.
+ *
+ * @grant read
  */
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';

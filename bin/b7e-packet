@@ -155,8 +155,10 @@ const id = created.id || created.issue?.id;
 
 // The question exists from here on — see the header. park() and the relay write both
 // report rather than throw.
-const { parked, note } = park(bd, beadId, id);
-if (!parked) console.error(`b7e-packet: ${note}`);
+// `note` rather than `!parked`: a park that worked can still have had to take a prose
+// mention's see-also off the pair to do it (bc-arj0.23), and that is worth a line.
+const { note } = park(bd, beadId, id);
+if (note) console.error(`b7e-packet: ${note}`);
 
 let relayLine = 'relay: none recorded (no --from, and this workspace has no relay filer)';
 if (role) {

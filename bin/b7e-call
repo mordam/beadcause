@@ -26,6 +26,8 @@
  * one calls whatever export the argument names — including a write. See the comment in
  * lib/toolbelt.js next to the other write-shaped exclusions (b7e-apply, b7e-gate,
  * b7e-worktree) for the same argument made about those.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';

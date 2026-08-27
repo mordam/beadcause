@@ -217,13 +217,29 @@ await check('but an open one is a discovery, not work in flight', async () => {
 });
 
 await check('the exclusions are the labels themselves, not a title match', () => {
-  assert.deepEqual(NOT_WORK, ['ship', 'promote', 'container']);
+  assert.deepEqual(NOT_WORK, ['ship', 'promote', 'container', 'card']);
   assert.equal(whyNotWork({ labels: [' ship '] }), 'ship', 'whitespace on a label is still that label');
   assert.equal(whyNotWork({ labels: ['human', 'p0'] }), '', 'a bead that went to Adam mid-flight is still work');
   assert.equal(whyNotWork({ labels: ['promoted'] }), '', 'the epic marker is one letter from the bead label');
   assert.equal(whyNotWork({}), '', 'and a row with no labels at all is work rather than a crash');
   assert.equal(isWork({ labels: ['ship'] }), false);
   assert.equal(isWork({ labels: [] }), true);
+});
+
+/**
+ * bc-7qo.9's own acceptance criteria, modelled directly on its two named exemplars:
+ * bc-xl7n.15 (a sweep card — closing it was a report and a tap) and bc-xl7n.35 (a bug a
+ * session fixed in code), both closed under bc-9d37 carrying `inbox`/`tracker`/`unsorted`.
+ * Neither carried `card` when they were filed, because the label did not exist yet — this
+ * pins the label alone as what a *future* pair like them would be told apart by.
+ */
+await check('a card the daemon filed reads apart from work, by the label alone', () => {
+  const daemonCard = { labels: ['inbox', 'tracker', 'unsorted', 'card'] };
+  const codeThatLanded = { labels: ['inbox', 'tracker', 'unsorted'] };
+  assert.equal(whyNotWork(daemonCard), 'card');
+  assert.equal(isWork(daemonCard), false);
+  assert.equal(whyNotWork(codeThatLanded), '', 'no `card` label, so it reads as work — same shape bc-xl7n.35 has today');
+  assert.equal(isWork(codeThatLanded), true);
 });
 
 await check('open work is reported apart from the list rather than folded into it', async () => {

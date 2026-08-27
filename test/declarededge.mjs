@@ -331,7 +331,13 @@ check('a prose mention still never draws over an edge somebody declared', () => 
   // skips any pair the graph already joins, so there is no demotion to reason about at
   // all. Read off the source rather than re-tested — test/mentions.mjs owns that.
   const src = fs.readFileSync(path.join(HERE, '..', 'lib', 'mentions.js'), 'utf8');
-  const fn = src.slice(src.indexOf('export function planFor'));
+  const from = src.indexOf('export function planFor');
+  assert.ok(from >= 0, 'planFor is still in lib/mentions.js');
+  // To the next export and no further. Slicing to the end of the file made this read
+  // every function below it too, and lib/mentions.js gained one that removes edges on
+  // purpose — `addDeclaredEdge`, bc-arj0.23. The claim here is about planFor alone.
+  const next = src.indexOf('\nexport ', from + 1);
+  const fn = src.slice(from, next === -1 ? src.length : next);
   assert.ok(/if \(already\.has\(mentioned\)\) continue;/.test(fn), 'planFor no longer skips a linked pair');
   assert.ok(!/dropDep|dep., .remove/.test(fn), 'planFor must not remove anything');
 });

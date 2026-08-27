@@ -31,6 +31,8 @@
  * workspace/bead). `5` something was written but the readback did not come back
  * open-and-unassigned — the case none of the four hand sessions checked for. `1` an
  * unexpected error from `bd` itself (a lock, a timeout) partway through.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import { loadConfig } from '../lib/config.js';
