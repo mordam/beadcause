@@ -23,6 +23,8 @@
  *
  * Exit codes: `0` at least one group returned something, `1` all three came back
  * empty, `2` refused — bad usage, or `bd show` could not find the bead.
+ *
+ * @grant read
  */
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';

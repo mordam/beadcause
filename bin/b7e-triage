@@ -18,6 +18,8 @@
  * Exit codes: `0` every failure given was explained away (a flake, or fixed by
  * `scripts/vendor.js`); `1` at least one is still `real`, or could not be resolved to a
  * suite in this tree at all; `2` refused — bad usage, or nothing to triage.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';

@@ -24,6 +24,8 @@
  *
  * Exit codes: `0` every changed file matched at least one suite. `1` at least one did
  * not (stdout is empty in this case — see above). `2` refused — bad usage.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import {
@@ -83,7 +85,13 @@ if (!changedFiles.length) {
   await leave(0);
 }
 
-const { results, unmatched, suites } = findAffected(ROOT, changedFiles);
+const { results, unmatched, suites, manifests } = findAffected(ROOT, changedFiles);
+
+// Said out loud, on stderr, every time — a narrowed list is only trustworthy if the
+// reason it is short is visible at the point it is read. bc-xlz32.7.
+for (const file of manifests) {
+  console.error(dim(`${file} is a @manifest — suites that merely import it are not selected, only ones that name it`));
+}
 
 if (JSON_MODE) {
   for (const file of changedFiles) {

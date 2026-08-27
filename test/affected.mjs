@@ -259,7 +259,210 @@ check('an ordinary suite naming the same page gets the plain reason, not "serves
 });
 
 /* ===================================================================== *
- * 6. never a shrug — unmatched files are named, not silently dropped
+ * 6. the naming convention — "shares its name" (bc-xlz32.9)
+ * ===================================================================== */
+
+console.log('\nthe suite this repo\'s naming convention would give a file\n');
+
+check('test/<stem>.mjs matches lib/<stem>.js with no import and no text reference anywhere', () => {
+  const dir = tree('same-name-lib', {
+    'lib/panestage.js': "export const PANE = 1;\n",
+    'test/panestage.mjs': "console.log('drives the page through a browser, never reads or imports it');\n",
+  });
+  const { results, unmatched } = affected.findAffected(dir, ['lib/panestage.js']);
+  assert.deepEqual(unmatched, []);
+  assert.deepEqual(results[0].matches, [{ suite: 'test/panestage.mjs', reasons: ['shares its name'] }]);
+});
+
+check('a public page loaded by a <script> tag matches its suite the same way — the bc-xlz32.9 case', () => {
+  const dir = tree('same-name-public', {
+    'public/panestage.js': "function draw() {}\n",
+    'test/panestage.mjs': "console.log('nothing');\n",
+  });
+  const { suites, unmatched } = affected.findAffected(dir, ['public/panestage.js']);
+  assert.deepEqual(unmatched, []);
+  assert.deepEqual(suites, ['test/panestage.mjs']);
+});
+
+check('the bin/b7e-* family pairs through the dash-stripped stem', () => {
+  const dir = tree('same-name-dashes', {
+    'bin/b7e-bound': "#!/usr/bin/env node\n",
+    'test/b7ebound.mjs': "console.log('nothing');\n",
+  });
+  const { suites } = affected.findAffected(dir, ['bin/b7e-bound']);
+  assert.deepEqual(suites, ['test/b7ebound.mjs']);
+});
+
+check('a lib/ module whose suite is named after the tool in front of it still pairs', () => {
+  const dir = tree('same-name-b7e-prefix', {
+    'lib/precedent.js': "export const PRECEDENT = 1;\n",
+    'test/b7eprecedent.mjs': "console.log('nothing');\n",
+  });
+  const { suites } = affected.findAffected(dir, ['lib/precedent.js']);
+  assert.deepEqual(suites, ['test/b7eprecedent.mjs']);
+});
+
+check('a stem with no suite behind it is still unmatched — the rule invents nothing', () => {
+  const dir = tree('same-name-absent', {
+    'lib/lonely.js': "export const LONELY = 1;\n",
+    'test/somethingelse.mjs': "console.log('nothing');\n",
+  });
+  const { results, unmatched } = affected.findAffected(dir, ['lib/lonely.js']);
+  assert.deepEqual(results, []);
+  assert.deepEqual(unmatched, ['lib/lonely.js']);
+});
+
+check('a stronger reason is still reported, with the shared stem last', () => {
+  const dir = tree('same-name-plus-import', {
+    // A side-effect import, so `imports it` is the only *other* reason in play — naming
+    // the exported binding would add "names it in a string" and stop this saying anything
+    // about ordering.
+    'lib/thing.js': "export const THING = 1;\n",
+    'test/thing.mjs': "import '../lib/thing.js';\n",
+  });
+  const { results } = affected.findAffected(dir, ['lib/thing.js']);
+  assert.deepEqual(results[0].matches, [{ suite: 'test/thing.mjs', reasons: ['imports it', 'shares its name'] }]);
+});
+
+check('the stem is the file name, not a substring — test/pane.mjs is not the suite for lib/panestage.js', () => {
+  const dir = tree('same-name-not-substring', {
+    'lib/panestage.js': "export const PANE = 1;\n",
+    'test/pane.mjs': "console.log('nothing');\n",
+  });
+  const { results, unmatched } = affected.findAffected(dir, ['lib/panestage.js']);
+  assert.deepEqual(results, []);
+  assert.deepEqual(unmatched, ['lib/panestage.js']);
+});
+
+/* ===================================================================== *
+ * 6a. walks the tree — the convention suites (bc-xlz32.8)
+ * ===================================================================== */
+
+console.log('\nsuites that walk a source directory cover what they cannot name\n');
+
+// This suite is itself a candidate suite against the real repo — the same hazard section
+// 11 joins its paths in segments for, aimed at a different rule. A fixture written out as
+// a literal `readdirSync(path.join(ROOT, 'lib'))` would make *this file* claim to walk
+// `lib/`, and `test/affected.mjs` would then match every lib/ and public/ change in the
+// repo. Built from a parameter, the only quoted segment inside a `readdir(...)` here is
+// `${dir}`, which names no source directory.
+const walks = (dir, verb = 'fs.readdirSync') => `import fs from 'node:fs';\n${verb}(path.join(ROOT, '${dir}'));\n`;
+
+check('a walk comes along when something else covers the file', () => {
+  const dir = tree('walks-lib', {
+    'lib/brandnew.js': "export const NEW = 1;\n",
+    'test/brandnew.mjs': "console.log('the suite for it');\n",
+    'test/convention.mjs': walks('lib'),
+  });
+  const { suites, unmatched } = affected.findAffected(dir, ['lib/brandnew.js']);
+  assert.deepEqual(unmatched, []);
+  assert.deepEqual(suites, ['test/brandnew.mjs', 'test/convention.mjs']);
+});
+
+check('a walk on its own is not cover — the file is still unmatched, and the gate still runs whole', () => {
+  const dir = tree('walks-only', {
+    'lib/brandnew.js': "export const NEW = 1;\n",
+    'test/convention.mjs': walks('lib'),
+  });
+  const { results, unmatched } = affected.findAffected(dir, ['lib/brandnew.js']);
+  assert.deepEqual(results, []);
+  assert.deepEqual(unmatched, ['lib/brandnew.js']);
+});
+
+check('it covers only the directory it actually walks', () => {
+  const dir = tree('walks-one-dir-only', {
+    'public/page.js': "function draw() {}\n",
+    'test/convention.mjs': walks('lib'),
+  });
+  const { results, unmatched } = affected.findAffected(dir, ['public/page.js']);
+  assert.deepEqual(results, []);
+  assert.deepEqual(unmatched, ['public/page.js']);
+});
+
+check('a readdir of somewhere that is not a source dir is not a walk', () => {
+  assert.deepEqual([...affected.walkedDirs(walks('fixtures'))], []);
+  assert.deepEqual([...affected.walkedDirs(walks('lib'))], ['lib']);
+  assert.deepEqual([...affected.walkedDirs(walks('public', 'await fs.promises.readdir'))], ['public']);
+});
+
+check('reading a single file out of a source dir is not walking it', () => {
+  const dir = tree('reads-not-walks', {
+    'lib/brandnew.js': "export const NEW = 1;\n",
+    'test/reader.mjs': walks('lib', 'fs.readFileSync').replace(/\)\);/, ", 'other.js'));"),
+  });
+  const { results } = affected.findAffected(dir, ['lib/brandnew.js']);
+  assert.deepEqual(results, []);
+});
+
+/* ===================================================================== *
+ * 6b. @manifest — data an import edge does not propagate from (bc-xlz32.7)
+ * ===================================================================== */
+
+console.log('\n@manifest — an import edge does not propagate out of data\n');
+
+const MANIFEST = "/**\n * The list.\n *\n * @manifest\n */\nexport const BIG_TOOL_LIST = ['a'];\n";
+
+check('a suite that merely imports a manifest is not selected', () => {
+  const dir = tree('manifest-import-only', {
+    'lib/manifested.js': MANIFEST,
+    'lib/consumer.js': "import { BIG_TOOL_LIST } from './manifested.js';\nexport const passthrough = BIG_TOOL_LIST;\n",
+    // Imports the consumer, so the manifest is two hops inside its closure — and says
+    // nothing about either. This is the 196-of-205 shape.
+    'test/downstream.mjs': "import { passthrough } from '../lib/consumer.js';\nconsole.log(passthrough);\n",
+  });
+  const { results, unmatched } = affected.findAffected(dir, ['lib/manifested.js']);
+  assert.deepEqual(results, []);
+  assert.deepEqual(unmatched, ['lib/manifested.js']);
+});
+
+check('a suite that names what is in the manifest is still selected', () => {
+  const dir = tree('manifest-named', {
+    'lib/manifested.js': MANIFEST,
+    'test/asserts.mjs': "console.log('BIG_TOOL_LIST must still contain a');\n",
+  });
+  const { results } = affected.findAffected(dir, ['lib/manifested.js']);
+  assert.deepEqual(results[0].matches, [{ suite: 'test/asserts.mjs', reasons: ['names it in a string'] }]);
+});
+
+check('the tag is refused to a file that declares a function — and the edge comes back', () => {
+  const dir = tree('manifest-with-function', {
+    'lib/manifested.js': "/**\n * @manifest\n */\nexport function notData() { return 1; }\n",
+    'test/downstream.mjs': "import { notData } from '../lib/manifested.js';\nconsole.log(1);\n",
+  });
+  const { suites, manifests } = affected.findAffected(dir, ['lib/manifested.js']);
+  assert.deepEqual(manifests, []);
+  assert.deepEqual(suites, ['test/downstream.mjs']);
+  assert.deepEqual(affected.manifestProblems("/** @manifest */\nexport function f() {}\n"), [
+    'it declares a function — a manifest is data, not behaviour',
+  ]);
+});
+
+check('the tag is refused to a file that imports something — a manifest is a leaf', () => {
+  const dir = tree('manifest-with-import', {
+    'lib/base.js': "export const BASE = 1;\n",
+    'lib/manifested.js': "/**\n * @manifest\n */\nimport { BASE } from './base.js';\nexport const LIST = [BASE];\n",
+    'test/downstream.mjs': "import { LIST } from '../lib/manifested.js';\nconsole.log(1);\n",
+  });
+  const { suites, manifests } = affected.findAffected(dir, ['lib/manifested.js']);
+  assert.deepEqual(manifests, []);
+  assert.ok(suites.includes('test/downstream.mjs'), 'the import edge still propagates');
+});
+
+check('a file that mentions the tag mid-sentence has not claimed it', () => {
+  assert.equal(affected.isManifestSource(' * a file may declare @manifest in its header\n'), false);
+  assert.equal(affected.isManifestSource(' * @manifest\n'), true);
+});
+
+check('the manifest is reported, not silently applied', () => {
+  const dir = tree('manifest-reported', {
+    'lib/manifested.js': MANIFEST,
+    'test/asserts.mjs': "console.log('BIG_TOOL_LIST');\n",
+  });
+  assert.deepEqual(affected.findAffected(dir, ['lib/manifested.js']).manifests, ['lib/manifested.js']);
+});
+
+/* ===================================================================== *
+ * 7. never a shrug — unmatched files are named, not silently dropped
  * ===================================================================== */
 
 console.log('\nnever the whole directory as a shrug\n');
@@ -286,7 +489,7 @@ check('one matched file and one unmatched file are reported independently', () =
 });
 
 /* ===================================================================== *
- * 7. candidateSuites — the two existing inventories, unioned
+ * 8. candidateSuites — the two existing inventories, unioned
  * ===================================================================== */
 
 console.log('\ncandidateSuites reuses discoverSuites and checkaudit.discover\n');
@@ -310,7 +513,7 @@ check('candidateSuites is test/*.mjs, the pinned scripts/ entries, and every *-c
 });
 
 /* ===================================================================== *
- * 8. defaultChangedFiles — the real git diff, against a fabricated repo
+ * 9. defaultChangedFiles — the real git diff, against a fabricated repo
  * ===================================================================== */
 
 console.log('\ndefaultChangedFiles — a real git repo, no origin/main\n');
@@ -354,7 +557,7 @@ console.log('\ndefaultChangedFiles — a real git repo, no origin/main\n');
 }
 
 /* ===================================================================== *
- * 9. the CLI — argv, exit codes, the empty-stdout fallback
+ * 10. the CLI — argv, exit codes, the empty-stdout fallback
  * ===================================================================== */
 
 console.log('\nthe CLI\n');
@@ -409,7 +612,7 @@ console.log('\nthe CLI\n');
 }
 
 /* ===================================================================== *
- * 10. the real repo — bc-khoe.40's own two acceptance cases
+ * 11. the real repo — bc-khoe.40's own two acceptance cases
  * ===================================================================== */
 
 console.log("\nthe real repo — bc-khoe.40's own acceptance\n");
@@ -424,11 +627,27 @@ const rel = (...segs) => segs.join('/');
 check('public/spacebar.js: exactly the suites that read its source text, matching on text and not on import', () => {
   // Three since bc-mc71w: test/addspace.mjs reads the picker to assert that the row it
   // draws is wired to the dialog behind it. The list is spelled out rather than counted
-  // because the claim is *which* suites, not how many — a fourth appearing is either a
-  // real reader or the matcher having gone back to propagating through imports.
-  const { suites, results } = affected.findAffected(affected.REPO_ROOT, [rel('public', 'spacebar.js')]);
-  assert.deepEqual(suites, ['test/addspace.mjs', 'test/editfreeze.mjs', 'test/sweepfail.mjs']);
-  for (const m of results[0].matches) assert.deepEqual(m.reasons, ['reads its source text']);
+  // because the claim is *which* suites, not how many — a fifth appearing is either a real
+  // reader or the matcher having gone back to propagating through imports.
+  //
+  // Four since bc-xnj67, and that one is a real reader of the least usual kind: it lifts
+  // `slugOf` out of the source and runs it. That function is a copy of `spaceSlug` in
+  // lib/spaces.js — one on each side of the browser/daemon line, with no module readable
+  // from both — and what the suite asserts is that the two copies still agree.
+  // Five since bc-xlz32.9, and the fifth is the embarrassing one: `test/spacebar.mjs` is
+  // *the* suite for this file — the space picker's own — and none of the three original
+  // reasons could see it, because it drives the picker through a browser rather than
+  // importing it and builds its paths in segments rather than as a literal. bc-khoe.40's
+  // own acceptance case was missing its most obvious suite for as long as this list said
+  // four. That is the whole argument for matching on the naming convention.
+  const { results } = affected.findAffected(affected.REPO_ROOT, [rel('public', 'spacebar.js')]);
+  const by = (reason) => results[0].matches.filter((m) => m.reasons.includes(reason)).map((m) => m.suite);
+  assert.deepEqual(by('reads its source text'), ['test/addspace.mjs', 'test/editfreeze.mjs', 'test/spacepaths.mjs', 'test/sweepfail.mjs']);
+  assert.deepEqual(by('shares its name'), [rel('test', 'spacebar.mjs')]);
+  // Everything else on the list walks public/ — the convention checks, which cover this
+  // file the way they cover every other entry in that directory and name none of them.
+  const rest = results[0].matches.filter((m) => !m.reasons.includes('reads its source text') && !m.reasons.includes('shares its name'));
+  for (const m of rest) assert.deepEqual(m.reasons, ['walks the tree'], `${m.suite} is on the list for ${m.reasons.join('; ')}`);
 });
 
 check('lib/advocate.js: a real, bounded floor — not the whole test directory, and not every suite that shares a hub with it', () => {
@@ -439,6 +658,30 @@ check('lib/advocate.js: a real, bounded floor — not the whole test directory, 
   assert.ok(suites.includes('test/inmain.mjs'), 'imports lib/advocate.js directly via LIB()');
   assert.ok(suites.includes('test/superseded.mjs'), 'imports lib/advocate.js directly via LIB()');
   assert.ok(suites.includes('test/filter.mjs'), 'imports lib/advocate.js transitively through lib/server.js');
+});
+
+check('every @manifest file in the real repo is genuinely data — no imports, no functions', () => {
+  const tagged = [...affected.listJsFiles(affected.REPO_ROOT), ...affected.listAssetFiles(affected.REPO_ROOT)]
+    .filter((f) => affected.isManifestSource(fs.readFileSync(path.join(affected.REPO_ROOT, f), 'utf8')));
+  // Spelled out rather than counted: the tag takes ~200 suites off a file's list, so a
+  // new one appearing here is a decision somebody should have to make on purpose.
+  assert.deepEqual(tagged, [rel('lib', 'toolbelt.js')]);
+  for (const f of tagged) {
+    const problems = affected.manifestProblems(fs.readFileSync(path.join(affected.REPO_ROOT, f), 'utf8'));
+    assert.deepEqual(problems, [], `${f} claims @manifest but ${problems.join('; ')}`);
+  }
+});
+
+check('lib/toolbelt.js selects the suites that name the tool list, not everything that imports it', () => {
+  const { suites } = affected.findAffected(affected.REPO_ROOT, [rel('lib', 'toolbelt.js')]);
+  const total = affected.candidateSuites(affected.REPO_ROOT).length;
+  // 205 of 530 before bc-xlz32.7, 196 of those for no reason but the edge.
+  assert.ok(suites.length < total / 10, `expected a short, named list; got ${suites.length} of ${total}`);
+  // `BASE_TOOL_LIST` since bc-wbrhi — the `bd` verbs this suite is about are the
+  // hand-written half, which is what stayed in toolbelt.js when the b7e half became
+  // derived. test/allowlist.mjs names it for exactly this reason.
+  assert.ok(suites.includes(rel('test', 'allowlist.mjs')), 'names BASE_TOOL_LIST');
+  assert.ok(suites.includes(rel('test', 'loadorder.mjs')), 'names the file — it is the cycle guard toolbelt.js exists for');
 });
 
 check('a file nothing references is reported unmatched against the real repo too', () => {

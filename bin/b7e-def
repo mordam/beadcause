@@ -29,6 +29,8 @@
  * same tradeoff test/lockfile.mjs makes against a real `npm ci --dry-run`. Good
  * enough for the application code in this repo; not a substitute for reading the
  * file when the shape is unusual.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';

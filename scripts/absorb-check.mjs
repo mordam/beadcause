@@ -192,7 +192,12 @@ const TYPED = 'Net, because the ledger already nets the fees before it writes a 
 // — so the difference is on the wire: three taps used to put three writes in the air
 // at once against a tracker that is a single Dolt writer, and now they go in single
 // file. Nothing in the DOM says which of those just happened; the server does.
-const write = { delay: 3500, fail: false, seen: 0, inAir: 0, mostInAir: 0 };
+// `landed` is the other half of a refusal, and the one the page cannot invent: an answer
+// is several acts in a row with the answer written last, so a write that fails may be
+// standing over a merge that already happened. The daemon puts what it performed on the
+// failure body (`performed` in lib/server.js); here it is a knob, because what is being
+// measured is what the card does with it.
+const write = { delay: 3500, fail: false, landed: null, seen: 0, inAir: 0, mostInAir: 0 };
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -245,7 +250,7 @@ function serve() {
       write.mostInAir = Math.max(write.mostInAir, write.inAir);
       const t = setTimeout(() => {
         write.inAir--;
-        return write.fail ? json({ error: 'bd: database is locked' }, 500) : json({ ok: true });
+        return write.fail ? json({ error: 'bd: database is locked', ...(write.landed ? { landed: write.landed } : {}) }, 500) : json({ ok: true });
       }, write.delay);
       return t.unref?.();
     }
@@ -649,6 +654,31 @@ try {
     Boolean(cleared) && !cleared.marked && !cleared.note && keptDraft === TYPED,
     cleared?.note ? 'the note stayed' : keptDraft === TYPED ? 'red gone, draft intact' : 'it ate the draft'
   );
+
+  // And the one refusal that may not say nothing was written. bc-e59w: the merge runs
+  // before the answer does, so bd dying in between puts *nothing was written and nothing
+  // was lost* on a card whose pull request is merged and whose branch is gone — read as
+  // *try again*, which is wrong in the expensive direction. When the daemon says what it
+  // performed, the reassurance is replaced rather than joined.
+  write.landed = ['Merged #7 as c5004cce — closed `zz-work`.'];
+  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}][data-act="toggle"]`);
+  await waitFor(s, `!!document.querySelector('#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-role="answer"]')`);
+  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="answer"]`);
+  await waitFor(s, `!!document.querySelector('#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] .failed-note')`, 60, 150);
+  const overMerge = await evalJs(s, FAILED(PLAIN_KEY));
+  check(
+    'a refusal standing over an act that landed says what landed',
+    Boolean(overMerge?.note) && /Merged #7 as c5004cce/.test(overMerge.note),
+    overMerge?.note ? `“${overMerge.note.slice(0, 90)}…”` : 'no note on the card at all'
+  );
+  check(
+    'and stops claiming nothing was written, because it was',
+    Boolean(overMerge?.note) && !/Nothing was written/.test(overMerge.note),
+    overMerge?.note ? `“${overMerge.note.slice(0, 90)}…”` : 'no note at all'
+  );
+  write.landed = null;
+  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="failed-dismiss"]`);
+  await sleep(220);
 
   /* =============== 3. a comment, which closes nothing ======================== */
 

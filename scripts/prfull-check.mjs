@@ -256,7 +256,8 @@ function serve() {
       return void req.on('end', () => {
         (p === '/api/error' ? errors : writes).push({ path: p, ...JSON.parse(body || '{}') });
         // Enough of each answer for the card to say what happened.
-        if (p === '/api/pr/merge') return json({ ok: true, pr: { number: 42 }, land: { note: 'fast-forwarded main' }, cards: [] });
+        if (p === '/api/pr/merge')
+          return json({ ok: true, alreadyMerged: false, queued: true, action: 'admit', id: 'bc-q1', bead: 'bc-abc', others: [] });
         if (p === '/api/pr/close') return json({ ok: true, number: 42, reason: 'not the one', beads: ['bc-abc'] });
         if (p === '/api/pr/conflicts') return json({ ok: true, number: 43, branch: DIRTY.branch, dir: '/tmp/demo', mode: 'auto' });
         json({ ok: true });
@@ -434,7 +435,7 @@ try {
   check('and the datetimes are', Boolean(sheet.facts.opened && sheet.facts.touched), JSON.stringify(sheet.facts));
 
   /* ---- 3. merge is armed: the first press sends nothing, and takes nothing either ---- */
-  check('merge is offered', /Merge & push #42/.test(sheet.merge), JSON.stringify(sheet.merge));
+  check('queuing is offered', /Queue #42 to merge/.test(sheet.merge), JSON.stringify(sheet.merge));
   /* Half a comment first, with part of it picked out — and picked out *backwards*, so the
      direction is a claim about the selection rather than the default a collapsed caret
      would answer with anyway. Arming redraws this one card in place (paintPrCard), and so
@@ -488,10 +489,16 @@ try {
   await evalJs(s, `${CARD(42)}.querySelector('[data-act="pr-merge-go"]')?.click()`);
   await sleep(600);
   const merged = real().filter((w) => w.path === '/api/pr/merge');
-  check('the second press merges', merged.length === 1, JSON.stringify(real().map((w) => w.path)));
+  check('the second press queues it', merged.length === 1, JSON.stringify(real().map((w) => w.path)));
   check('naming the pull request and the repo', merged[0]?.number === 42 && merged[0]?.workspace === 'demo', JSON.stringify(merged[0]));
   const after = await evalJs(s, SHEET(42));
-  check('and the card says what happened', /Merged #42/.test(after.said), JSON.stringify(after.said));
+  // bc-02ldo: the tap admits it to the merge queue and the queue merges it later, so the
+  // card must say queued and must not claim a merge that has not happened.
+  check(
+    'and the card says it is queued, naming the bead',
+    /Queued #42/.test(after.said) && /bc-q1/.test(after.said),
+    JSON.stringify(after.said)
+  );
 
   /* ---- 4. close keeps its reason box, and the words go over the wire ---- */
   writes.length = 0;

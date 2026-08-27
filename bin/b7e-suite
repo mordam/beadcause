@@ -25,6 +25,17 @@
  * — bad usage, a name that resolves to nothing, or another gate already running on this
  * tree (the lock is the same one `bin/b7e-gate` takes, keyed by the resolved root, so
  * the two can never double up the load on one Mac).
+ *
+ * Deliberately NOT on `DEFAULT_TOOL_LIST`, for `b7e-gate`'s reason rather than a
+ * read-only one: it runs every suite it is given, concurrently, through the same
+ * `lib/gate.js` pool `b7e-gate` itself uses — which is `Bash(npm test:*)`'s own shape,
+ * already a write held by merge-advocate alone on "nothing about run the tests is a
+ * read". Its whole occasion is a worker session wanting a handful of suites after an
+ * edit, without the worktree guard refusing the shell loop that used to be the only way
+ * to ask for more than one by name; `dispatch`, the one agent that list governs, has no
+ * branch and no suite of its own to re-run.
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import { REPO_ROOT, acquireLock, discoverSuites, runGate, summaryLine } from '../lib/gate.js';

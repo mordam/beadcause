@@ -1130,6 +1130,9 @@ if (autoMerge) {
     // work still lands — what is lost is the guarantee that this session cannot close its
     // own bead, which is worth a line somebody will read in the log.
     console.error(`beadcause-deliver: ${beadId} is NOT parked behind ${mergeId} — ${note}`);
+  } else if (note) {
+    // Parked, but an edge had to come off the pair to get there (bc-arj0.23).
+    console.error(`beadcause-deliver: ${note}`);
   }
 
   try {
@@ -1266,8 +1269,8 @@ const questionId = created.id || created.issue?.id;
 // closed by the merge, and a label nothing takes back off would leave it in the
 // inbox as a card with no question on it forever.
 {
-  const { parked, note } = park(bd, beadId, questionId, { label: false });
-  if (!parked) console.error(`beadcause-deliver: ${note}`);
+  const { note } = park(bd, beadId, questionId, { label: false });
+  if (note) console.error(`beadcause-deliver: ${note}`);
 }
 
 try {
