@@ -2479,6 +2479,33 @@ box* below — so the sentence you were in the middle of is in its draft and its
 one tap away, still marked amber. The alternative is a write nobody knows did not
 happen, which is the failure this whole section exists to stop.
 
+**And it does not always get to say nothing was written.** An answer is several acts in a
+row — the merge behind a delivery card, an endorsement a sentence asked for, the beads a
+"yes" files — and the answer itself is written **last**, deliberately: a merge GitHub
+refuses has to leave the question answerable, and a question closed on a promise nobody
+kept is the ending this app exists to prevent. The cost of that ordering is a second in
+which the act has happened and the answer has not. bd goes away inside it — restarted,
+locked, a 500 — and the card said *nothing was written and nothing was lost* over a pull
+request that is merged, a branch that is gone and a work bead that closed. That reads as
+*try again*, and it is wrong in the direction that costs an afternoon. bc-s2d8 closed the
+one path that reached it in practice; this is the class.
+
+So the failure carries what happened. `performed` in lib/server.js collects the notes each
+act composed — the same sentences the thread would have carried, rather than a second
+vocabulary invented for the failure case, which would be two accounts of one act that can
+disagree — the handler's own catch puts them on the JSON body as `landed`, and
+`failedNoteHtml` draws them **in place of** the reassurance rather than beside it, because
+the two cannot both be true. Minus their markup, which is the same call `shipWhat` makes
+one screen up: an alert full of rendered markdown would stop being the shape `gateNoteHtml`
+is, and being that shape is the point of it. A refusal with nothing behind it still says
+nothing was written, because it is true — a note that hedged on every refusal would teach
+you to ignore the one that matters.
+
+`node test/landednote.mjs` drives a real `POST /api/respond` with a bd that dies mid-write,
+over a delivery card whose merge has already gone through, and lifts `failedNoteHtml` out
+of public/app.js into a vm for the sentence itself. The browser half is in
+`scripts/absorb-check.mjs`, whose fixture can now put a `landed` on its refusal.
+
 **It joins the close gate's family rather than being a second mechanism.** Same shape as
 `gateNoteHtml` — a sentence naming the bead and the reason, a paragraph saying what that
 leaves, a row with the way out — because a refused close and a refused *write* are two
