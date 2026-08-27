@@ -23056,6 +23056,61 @@ of the real incident rather than pinning a commit in deluvia's own history, whic
 repo's CI never clones and which keeps moving anyway.
 
 
+### One `CHANGE_LOG.md` entry, sliced by rule instead of by a guessed line range — `b7e-changelog`
+
+`bc-dgx7.100`, a session audit against seven sessions (`dv-gr6.47`, `dv-gr6.46`,
+`dv-gr6.45`, `dv-gr6.44`, `dv-3rn.2`, `dv-b5d.29`, `dv-gr6.36`) that each had to read one
+entry's body before it could edit anything, and each invented a different way to find it.
+`dv-gr6.47`'s `grep -n "Entry 107"` matched prose mentions from other entries and it fell
+back to guessing `sed -n` windows, once landing on `sed -n '3600,3640p'` — Entry 023, not
+107. `dv-gr6.36`'s `awk '/^## Entry 109/,/^## Entry 108/'` only worked because 109 and 108
+happen to be adjacent; the file's 120 `## Entry ` headings (two of them the template) run
+in **descending, non-contiguous** order, so the same shape of range built from arithmetic
+on a missing number — `awk '/^## Entry 117/,/^## Entry 116/'` when Entry 116 does not
+exist — runs straight past 117 into 115.
+
+```
+b7e-changelog -w deluvia 107                 entry 107's full detail
+b7e-changelog -w deluvia 107 --field status   just its Status: line
+b7e-changelog -w deluvia 107 --field body     just its body, with line numbers
+b7e-changelog -w deluvia --list               the index: every entry, in file order
+b7e-changelog -w deluvia 107 --ref origin/main
+b7e-changelog -w deluvia 107 --json           the machine-readable form
+b7e-changelog --dir <root> 107                another tree — this is how it is tested
+```
+
+**Not `b7e-entry`: that allocates the next free entry number.** **Not `b7e-propagated`:
+that verifies a checklist against the tree it names.** Neither hands back the entry's own
+text or the line span an `Edit` has to target, which is what every one of the seven
+sessions above actually wanted first. All three now share one parser — `entryHeadings` in
+`lib/changelog.js` walks headings in **file order**, never by doing arithmetic on the
+entry number, so a missing number costs nothing: entry 117 ends wherever the next heading
+actually is, not at a 116 that was guessed into existence. `checklistRows` and `findEntry`
+moved into `lib/changelog.js` too, out of `lib/propagated.js` (still re-exported from
+there for anything already importing them), so `b7e-propagated`'s own checklist parsing
+and this command's are the same code, not two copies that can drift apart.
+
+The line numbers are real: `startLine`/`endLine` bound the heading through its last
+non-blank line, and every checklist row and every body line carries the file line it
+actually sits on — the exact thing every one of the seven sessions had to reconstruct by
+hand before an `Edit` could aim at it. `--list` prints the index — every entry's number,
+date and starting line — so a caller can jump straight to one instead of re-deriving
+`entryDetail` for every entry just to skim them.
+
+**Reads only ever by ref, never the working tree**, the same as `b7e-entry` and
+`b7e-propagated` and for the same reason: `readRefFile` (`git cat-file -p <ref>:<path>`)
+never sees a stray `.claude/worktrees/*` copy sitting on disk. Never writes to
+`CHANGE_LOG.md`, or anywhere else. `@grant read` in its own header docblock is what puts
+it on `DEFAULT_TOOL_LIST` and classifies it in `lib/grants.js` — see
+`b7e-tool-grant-is-now-a-self-declared-header-tag` for the mechanism, which replaced a
+hand-maintained line in each of those two files. See `bin/b7e-changelog`,
+`lib/changelog.js` (`entryDetail`, `entryIndex`, `changelogLookup`) and
+`test/b7echangelog.mjs` — the fixture reproduces the shape (non-contiguous numbering, a
+wrapped checklist continuation, the two template headings) rather than pinning a commit
+in deluvia's own history, for the same reason `b7e-entry` and `b7e-propagated` already
+give.
+
+
 ### Run this checkout's own `bin/` command, not whichever copy `PATH` found — `b7e-run`
 
 `bc-dgx7.87`, a session audit against three sessions (`bc-dgx7.80`, `bc-dgx7.77`,
