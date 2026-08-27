@@ -36,6 +36,8 @@
  * nothing is missing); `1` at least one named suite never ran, or its verdict was
  * `FAIL`/`TIMEOUT` (or, with `--missing`, at least one suite is missing); `2` refused —
  * bad usage, no run found, or a suite name that does not exist in the repo at all.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import { runsDir, latestRunFor, readRun, runFile, worktreeSlug, resultsFor, missingFrom } from '../lib/gaterun.js';

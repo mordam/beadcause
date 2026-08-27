@@ -24,6 +24,13 @@
  * Exit codes: `0` ran to completion, whether or not anything was found — `nowhere` is the
  * ordinary answer for a query nothing has, not a failure. `2` bad usage. `4` `--branch`
  * or `--pr` named something this checkout does not have.
+ *
+ * Read-only in the same construction sense as `b7e-prior`: every path through it is a
+ * `git`/`gh` read (`git grep`, `git cat-file`, `git diff`, `gh pr list`/`gh pr view`)
+ * against refs already fetched, and nothing it does ever touches a working tree or a
+ * branch of its own.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { REPO_ROOT } from '../lib/gate.js';

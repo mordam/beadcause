@@ -131,12 +131,6 @@ const PAGES = [
     marker: '/endorse.js',
     paths: ['/endorse', '/queue', '/endorsements', '/endorse.html'],
   },
-  // The selected space's settings (bc-khoe.10). Two paths for the same reason the queue
-  // has three: the screen has two honest names — it is the *config* of a space, which is
-  // the word the chip it used to be was labelled with, and it is where its *settings*
-  // are, which is what somebody types. Not `/space`: that reads as the picker rather than
-  // as the thing the picker selects.
-  { what: "the space's settings", marker: '/config.js', paths: ['/config', '/settings', '/config.html'] },
   // The skill library and whether anything uses it (bc-dgx7.5). Two paths, because the
   // page is reached both by what it holds and by what the programme calls the things
   // waiting to become one. No pill claims either, which is the recorded decision in
@@ -259,6 +253,15 @@ const REDIRECTS = [
   { path: '/releases', to: '/#releases', what: 'the releases view, which is a pane of the shell now' },
   { path: '/deploys', to: '/#releases', what: 'the same, under the word somebody types' },
   { path: '/releases.html', to: '/#releases', what: 'the same, under the name the worker used' },
+  // The selected space's own settings (bc-khoe.10), a pane since bc-khoe.60. Three paths
+  // for the same reason the queue has three: the screen has two honest names — it is the
+  // *config* of a space, which is the word the chip it used to be was labelled with, and
+  // it is where its *settings* are, which is what somebody types — and `.html` is the
+  // name the service worker precached it under. Not `/space`: that reads as the picker
+  // rather than as the thing the picker selects.
+  { path: '/config', to: '/#config', what: 'the space’s settings, which is a pane of the shell now' },
+  { path: '/settings', to: '/#config', what: 'the same, under the word somebody types' },
+  { path: '/config.html', to: '/#config', what: 'the same, under the name the worker used' },
 ];
 
 /* The sessions view's own files. Deleted with it, and named here so a stray copy
