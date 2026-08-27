@@ -23037,6 +23037,12 @@ b7e-plancheck bc-jk4m -w beadcause --json                 the same facts, machin
 b7e-plancheck bc-jk4m -w beadcause --check plan.yaml      would this candidate be accepted?
 cat plan.yaml | b7e-plancheck bc-jk4m -w beadcause --check
                                                            same, from stdin
+b7e-plancheck bc-jk4m -w beadcause --out plan.yaml        the current plan, as the literal
+                                                           YAML beadcause-plan -f accepts
+b7e-plancheck bc-jk4m -w beadcause --out | beadcause-plan bc-jk4m -w beadcause -f -
+                                                           revise a plan by editing a file
+                                                           instead of retyping it from
+                                                           `bd comments` by hand
 ```
 
 **Named `b7e-plancheck` rather than the `bin/b7e-plan` the bead itself asked for.**
@@ -23074,9 +23080,27 @@ One `bd export` (`Bd.graph`, already cached a minute) answers both `unplanned`'s
 edges and `dispatchable`'s live-bead guess together — the same status map also backs
 `isClosed`'s `unclosed`/`done` verdict, so nothing here pays for a second read of it.
 
+**`--out [file]` (`bc-dgx7.79`) is default mode's own document, back out as the literal
+write shape.** Found by a session audit against three *deluvia* planning sessions that
+each needed to *revise* an existing plan and each rebuilt the read by hand to get there:
+`bd comments --json` piped through a Python pass to pull the fenced block and list group
+keys in order, one of them then resubmitting six times (4355 → … → 3994 characters) to
+land back under `MAX_PROMPT_CHARS` by hand. `lib/plan.js` already has the read — `planFrom`
+parses exactly what is stored — `--out` is that document printed in the shape
+`beadcause-plan -f` takes, to `<file>` or stdout if none is given. Piping it straight into
+`--check` (or into `beadcause-plan -f`) reproduces the stored plan byte-for-byte, because
+`validatePlan` rebuilds every group in the same fixed key order regardless of what order
+the YAML gave it — that round-trip is `bc-dgx7.79`'s whole acceptance test. Only the YAML
+goes to stdout/`<file>`; the per-group budget line and the unplanned list still print, but
+to stderr, so a group whose stored prompt already exceeds `MAX_PROMPT_CHARS` (reachable
+only by hand-editing a comment or by a cap that shrank after the plan was filed — never
+through this tool's own write paths) is flagged in the same run rather than only
+discovered on a later `--check`.
+
 Exit codes: `0` printed — a plan or whole-job decision exists, or `--check` reports a
-candidate that would be accepted. `1` bad usage. `2` the tracker would not answer, or the
-epic does not exist. `3`/`4` — see above. `Bash(b7e-plancheck:*)` is on
+candidate that would be accepted. `1` bad usage. `2` the tracker would not answer, the
+epic does not exist, or `--out` was asked for an epic with neither a plan nor a whole-job
+decision — nothing to write out. `3`/`4` — see above. `Bash(b7e-plancheck:*)` is on
 `DEFAULT_TOOL_LIST`, declared `@grant read` in the command's own header: every `bd` verb
 it spawns (`show`, `comments`, `children`, `export`, `ready`, a batched `show` for surface
 notes) is a read, and `--check` validates in memory only. See `bin/b7e-plancheck` and
