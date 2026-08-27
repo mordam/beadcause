@@ -51,23 +51,41 @@
  *      would be wrong for most of the family that already ships correctly. `b7e-*` only.
  *   5. README.md has a `### ` heading naming it, backtick-quoted — a feature is not
  *      finished here until the README says it exists. `b7e-*` only.
- *   6. `lib/toolbelt.js`'s `DEFAULT_TOOL_LIST` either grants `Bash(<name>:*)` to
- *      `dispatch`, or the array's own comments say the name and why not — nine of
- *      this family are deliberately NOT granted (b7e-apply, b7e-gate, b7e-worktree,
- *      b7e-eyeball, b7e-blame, b7e-swbump, b7e-watch, b7e-call, b7e-triage), each with
- *      a paragraph explaining what it writes or spawns, and that decision is exactly
- *      as real as being on the list — it is only unpaid when NEITHER is true, i.e.
- *      `dispatch` cannot reach it and nobody said why not. `b7e-*` only.
+ *   6. Its own header carries a `@grant` line — `read`, `write` or `excluded` — which
+ *      is what puts `Bash(<name>:*)` on `DEFAULT_TOOL_LIST` for `dispatch` or
+ *      deliberately keeps it off. Twenty-nine of this family are excluded, each with a
+ *      paragraph in lib/tooldecl.js explaining what it writes or spawns, and that
+ *      decision is exactly as real as being on the list — it is only unpaid when the
+ *      tool declares NOTHING, i.e. `dispatch` cannot reach it and nobody said why not.
+ *      `b7e-*` only.
  *   7. If (6) grants it, `lib/grants.js` classifies `Bash(<name>:*)` — test/grants.mjs
  *      fails the moment something is on DEFAULT_TOOL_LIST unclassified, "deny by
  *      default" being the whole design of that file. `b7e-*` only.
  *
+ * SIX AND SEVEN WERE TWO REGISTRIES UNTIL bc-wbrhi, and reading them was this tool's
+ * whole reason for existing — the six sessions above were grepping lib/toolbelt.js and
+ * lib/grants.js by hand. Both now derive their b7e half from the declaration, so there
+ * is one thing to read and it is the thing that decides. That makes check 6 STRICTER in
+ * the one direction it was wrong: "the name appears in a comment" could not tell a
+ * decision from a mention, so a tool named in passing inside somebody else's paragraph
+ * read as settled. It also makes check 7 nearly tautological, and it is kept anyway —
+ * asserting the wiring is intact costs nothing and the day it is not is the day
+ * test/grants.mjs goes red for a reason nobody can see from here.
+ *
  * Exit code is a linter's: 0 when nothing is owed, 1 when something is.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+
+// bc-wbrhi: checks 6 and 7 read a tool's own `@grant` line rather than two registries'
+// source text, because that is where the answer lives now. `declarationsIn` is the one
+// reader of it and `KINDS` the one list of what it may say.
+import { declarationsIn, KINDS } from '../lib/tooldecl.js';
+import { GRANTS } from '../lib/grants.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Used only when `cwd` is not inside any git worktree at all — this file's own checkout. */
@@ -140,6 +158,23 @@ export function candidateNames(root, pkg) {
 /* ===================================================================== *
  * 1. the bin/ file itself
  * ===================================================================== */
+
+/**
+ * A tool's own source, or `''` when there is nothing to read.
+ *
+ * Resolved the way `binFileProblem` resolves it — through `package.json`'s `bin` entry
+ * when there is one, so the two `.js`-suffixed names (`b7e-owes`, `b7e-say`) are read
+ * from the file they actually point at rather than from an extensionless one that does
+ * not exist.
+ */
+export function sourceOf(name, root, pkg) {
+  const rel = (pkg.bin && pkg.bin[name]) || path.join('bin', name);
+  try {
+    return readText(path.join(root, rel));
+  } catch {
+    return '';
+  }
+}
 
 export function binFileProblem(name, root, pkg) {
   const registered = pkg.bin && pkg.bin[name];
@@ -215,20 +250,39 @@ export function readmeProblem(name, readmeSrc) {
  * 6 & 7. the DEFAULT_TOOL_LIST / lib/grants.js allowlist pair
  * ===================================================================== */
 
-export function allowlistProblem(name, toolbeltSrc, grantsSrc) {
-  const idx = toolbeltSrc.indexOf('export const DEFAULT_TOOL_LIST');
-  const listText = idx === -1 ? toolbeltSrc : toolbeltSrc.slice(idx);
-  const grantedRe = new RegExp(`'Bash\\(${escapeRe(name)}:\\*\\)'`);
-  const granted = grantedRe.test(listText);
-  if (!granted) {
-    if (listText.includes(name)) return null; // a recorded decision not to grant it
+/**
+ * Checks 6 and 7, now one question asked of the tool's own file — bc-wbrhi.
+ *
+ * These used to be two readings of two registries' source text: `Bash(<name>:*)` appearing
+ * in `DEFAULT_TOOL_LIST` meant granted, the bare name appearing anywhere in that array's
+ * comments meant *decided not to grant*, and a granted name absent from `lib/grants.js`
+ * meant unclassified. Both registries now derive their `b7e-*` half from the declaration
+ * in each tool's header, so there is one thing to read and it is the thing that decides.
+ *
+ * **This is stricter than what it replaces, in the one direction that was wrong.** The old
+ * "the name appears in a comment" reading could not tell a decision from a mention: a tool
+ * named in passing inside somebody else's paragraph read as settled, and the `b7e-hunks`
+ * paragraph in lib/tooldecl.js says so out loud — it exists partly to *make* a decision
+ * that had been implied by an accidental name collision. `@grant excluded` cannot be
+ * written by accident.
+ *
+ * Check 7 comes free and is kept as an assertion rather than dropped: `lib/grants.js`
+ * spreads exactly the granted declarations, so a granted tool cannot be unclassified
+ * unless the two have been wired apart — which is worth failing on rather than assuming.
+ */
+export function allowlistProblem(name, src, grants) {
+  const [kind] = declarationsIn(src || '');
+  if (!kind) {
     return (
-      `lib/toolbelt.js: no Bash(${name}:*) on DEFAULT_TOOL_LIST, and no comment in the array says why not ` +
-      `— dispatch cannot call ${name} at all until this is decided`
+      `bin/${name}: no @grant line in its header — dispatch cannot call ${name} at all until this is decided. ` +
+      `Say '@grant read', '@grant write', or '@grant excluded' with the reason beside it (lib/tooldecl.js)`
     );
   }
-  const classifiedRe = new RegExp(`'Bash\\(${escapeRe(name)}:\\*\\)'\\s*:`);
-  if (!classifiedRe.test(grantsSrc)) {
+  if (kind === 'excluded') return null; // a recorded decision not to grant it
+  if (!KINDS.includes(kind)) {
+    return `bin/${name}: @grant ${kind} is not one of ${KINDS.join(', ')} (lib/tooldecl.js)`;
+  }
+  if (!grants[`Bash(${name}:*)`]) {
     return `lib/grants.js: Bash(${name}:*) is on DEFAULT_TOOL_LIST and unclassified (test/grants.mjs)`;
   }
   return null;
@@ -239,7 +293,7 @@ export function allowlistProblem(name, toolbeltSrc, grantsSrc) {
  * ===================================================================== */
 
 export function problemsFor(name, ctx) {
-  const { root, pkg, lock, readmeSrc, toolbeltSrc, grantsSrc, testDir } = ctx;
+  const { root, pkg, lock, readmeSrc, grants, testDir } = ctx;
   const problems = [packageJsonProblem(name, pkg), packageLockProblem(name, pkg, lock)];
   // The other five are the `b7e-*` "skill" checklist — see the header comment for why
   // the rest of bin/ (worker tools, run by absolute path with no PATH resolution, no
@@ -249,7 +303,11 @@ export function problemsFor(name, ctx) {
       binFileProblem(name, root, pkg),
       testFileProblem(name, testDir),
       readmeProblem(name, readmeSrc),
-      allowlistProblem(name, toolbeltSrc, grantsSrc)
+      // The tool's own file. `binFileProblem` above has already reported a missing one,
+      // so this reads it tolerantly rather than reporting the same absence twice — an
+      // empty string carries no declaration, which is the honest answer for a file that
+      // is not there.
+      allowlistProblem(name, sourceOf(name, root, pkg), grants)
     );
   }
   return problems.filter(Boolean);
@@ -261,8 +319,12 @@ function loadContext(root) {
     pkg: readJson(path.join(root, 'package.json')),
     lock: readJson(path.join(root, 'package-lock.json')),
     readmeSrc: readText(path.join(root, 'README.md')),
-    toolbeltSrc: readText(path.join(root, 'lib', 'toolbelt.js')),
-    grantsSrc: readText(path.join(root, 'lib', 'grants.js')),
+    // The classification map itself rather than lib/grants.js's text — since bc-wbrhi the
+    // b7e half of it is derived, so there is nothing in that file to grep for. Note this
+    // is *this* checkout's map even under `--dir <root>`: the two registries agree by
+    // construction now, so what check 7 is really asserting is that the wiring is intact,
+    // and that is a property of the code doing the reading rather than of the tree read.
+    grants: GRANTS,
     testDir: path.join(root, 'test'),
   };
 }

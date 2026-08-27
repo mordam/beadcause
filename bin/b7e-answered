@@ -34,6 +34,8 @@
  * this" is a legitimate answer, not a failure; with several beads, `0` means at least
  * one of them was findable. `2` bad usage. `4` `-w` named a workspace this checkout's
  * tracker does not have, or (single-bead form only) `-b` named a bead it does not have.
+ *
+ * @grant read
  */
 import { loadConfig, loadState } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';

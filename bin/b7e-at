@@ -30,6 +30,8 @@
  * (built and printed the path, or listed/reaped with nothing to report), `2` refused —
  * bad usage, or not run from inside a git repository, `3` building the tree failed (a bad
  * `ref`, or `git worktree add` itself failing).
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';

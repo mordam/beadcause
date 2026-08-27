@@ -42,6 +42,8 @@
  * `$(...)` before the command they are quoting ever runs. Once read into this process,
  * the text goes to `execFile` as one argv element with no shell in between, so nothing
  * about *that* hop needs escaping — see the constructor note in lib/bd.js.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import { loadConfig } from '../lib/config.js';

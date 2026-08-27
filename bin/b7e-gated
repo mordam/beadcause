@@ -34,6 +34,8 @@
  * describes the tree in front of you; `1` the tree has moved under it (the files
  * responsible are named) or nothing can confirm it did not; `2` the run named, or
  * found for this worktree, does not exist.
+ *
+ * @grant read
  */
 import { runsDir, latestRunFor, readRun, runFile, worktreeSlug, compareToTree } from '../lib/gaterun.js';
 

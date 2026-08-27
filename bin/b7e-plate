@@ -17,6 +17,8 @@
  *
  * Exit codes: `0` the sheet was written. `2` refused — bad usage, no image resolved
  * from the given targets, or one of `sips`/`python3`+Pillow is not runnable.
+ *
+ * @grant excluded
  */
 import { buildPlate, toolsAvailable } from '../lib/plate.js';
 

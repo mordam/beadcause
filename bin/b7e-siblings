@@ -22,6 +22,8 @@
  * Exit codes: `0` ran to completion, whether or not anything collided — an empty answer is
  * the ordinary "nothing holds this", not a failure (see lib/siblings.js). `2` bad usage.
  * `4` `--bead` or `-w` named something this checkout's tracker does not have.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';

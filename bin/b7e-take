@@ -20,6 +20,8 @@
  * bad usage. `3` refused before writing anything (closed bead, unrecognised
  * holder, unknown workspace/bead, nothing to release). `1` an unexpected error
  * from `bd` itself partway through (a lock, a timeout, a lost race).
+ *
+ * @grant excluded
  */
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';

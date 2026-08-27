@@ -18367,6 +18367,64 @@ nobody asserts prose on prints nothing and exits `0` — and `2` only for a modu
 that does not resolve to a file. Read-only by construction: every path through it is a
 `readFileSync` and a regex, and it never runs a suite or calls the module it reads.
 
+### A new tool declares its own grant, and edits no registry
+
+Adding one `b7e-*` tool used to mean editing three shared lists it had nothing to do with:
+a line in `lib/grants.js` saying it reads rather than writes, seven in `lib/toolbelt.js`
+putting it on `DEFAULT_TOOL_LIST` with the paragraph arguing for it, and a line in
+`package.json`'s `bin` map mirrored again in `package-lock.json`. Four files, on top of the
+three that were actually new — and every one of those lines went in at the same place in
+its file.
+
+Which is why they collided. On 2026-08-26, **ten of the fourteen open pull requests touching
+`lib/grants.js` were inserting at line 333**, right after the last `b7e` grant, because
+there was only one place to put it. One of them landing conflicted the other nine — not by
+bad luck, by construction. [`merge=union`](#most-conflicts-never-happen--four-registries-git-is-told-to-merge-both-ways)
+made those conflicts resolve themselves; this makes them not happen.
+
+A tool now says what it is once, in its own header, next to the argument for it:
+
+```
+ * @grant read        on the list, and lib/grants.js classifies it a read
+ * @grant write       on the list, and classified a write
+ * @grant excluded    deliberately NOT on the list
+```
+
+`lib/tooldecl.js` reads `bin/` and assembles `DEFAULT_TOOL_LIST` from the hand-written half
+in `lib/toolbelt.js` plus every tool that declares itself granted; `lib/grants.js` spreads
+the same declarations. **Adding a tool now touches only new files** — `bin/b7e-X`,
+`lib/X.js`, `test/b7eX.mjs` — and the pattern is built from the filename rather than typed,
+because `Bash(b7e-window:*)` written out by hand is one more thing that can be written
+wrong, and a grant that does not match its command is a grant for nothing.
+
+**`excluded` is a decision, and that is the part that got stricter.** Twenty-nine of the
+family are deliberately off the list. `b7e-enroll` has always treated that as exactly as
+real as being on it — a tool is unpaid only when *neither* is true — but it used to
+establish it by looking for the tool's name anywhere in the array's comments, which cannot
+tell a decision from a mention. A tool named in passing inside somebody else's paragraph
+read as settled. The `b7e-hunks` paragraph in `lib/tooldecl.js` says so in as many words:
+it exists partly to *make* a decision that an accidental name collision had already implied.
+A `@grant` line cannot be written by accident.
+
+Two tools declare nothing — `b7e-packet` and `b7e-say` — because nobody has decided about
+them. `b7e-enroll` reported both as unpaid before this and reports both after it. The
+migration deliberately did not decide on their behalf.
+
+**What did not move is the argument.** Every paragraph explaining why one of these is on the
+list, or why it is not, is in `lib/tooldecl.js`, in the order it was written and not one
+word of it rewritten. That was not tidiness: twenty-six of the thirty-four blocks name a
+sibling tool and seventeen do it positionally — *"just above"*, *"the four above"*, *"beside
+them"* — and two of them are essays rather than entries, one running to 173 lines and naming
+28 other tools. It is a document that argues by cross-reference, so it survives being moved
+whole and would not have survived being cut into sixty-three pieces and filed one per tool.
+The facts moved; the reasoning stayed where it reads.
+
+The one thing this costs is a blind spot worth knowing about: `lib/affected.js` narrows a
+gate by reading imports, and `lib/tooldecl.js` reads the filesystem instead. Adding or
+removing a tool is visible either way, because the file itself is new or gone — but editing
+a `@grant` line *inside* an existing tool is not, so it selects that tool's own suite rather
+than `test/tooldecl.mjs`. The full gate covers it, and the file says so in its own header.
+
 ### What a new bin/ command still owes before an agent can call it — `b7e-enroll`
 
 `bc-khoe.27.11` is the same shape breaking repeatedly rather than once, for a *command*
@@ -18418,14 +18476,22 @@ owed, and went looking for a different registry (`lib/sessionaudit.js`) instead.
    of it).
 5. **`README.md` has a `###` heading** naming it, backtick-quoted — a feature is not
    finished here until the README says it exists.
-6. **`lib/toolbelt.js`'s `DEFAULT_TOOL_LIST`** either grants `Bash(<name>:*)` to the
-   restricted `dispatch` agent, or the array's own comments name it and say why not —
-   nine of the family are deliberately not granted, each with a paragraph explaining
-   what it writes or spawns, and that decision is exactly as real as being on the list.
-   It is only unpaid when neither is true.
+6. **Its own header carries a `@grant` line** — `read`, `write` or `excluded` — which is
+   what puts `Bash(<name>:*)` on `DEFAULT_TOOL_LIST` for the restricted `dispatch` agent
+   or deliberately keeps it off. Twenty-nine of the family are excluded, each with a
+   paragraph explaining what it writes or spawns, and that decision is exactly as real as
+   being on the list. It is only unpaid when the tool declares nothing at all.
 7. **If (6) grants it, `lib/grants.js` classifies `Bash(<name>:*)`** — `test/grants.mjs`
    fails the moment something is on `DEFAULT_TOOL_LIST` unclassified, "deny by default"
-   being the whole design of that file.
+   being the whole design of that file. Since bc-wbrhi this cannot come apart on its own:
+   the classification is built from the same declaration, so check 7 is asserting the
+   wiring rather than a second thing somebody had to remember.
+
+Checks 6 and 7 were two readings of two registries' source text until bc-wbrhi — and the
+second reading was the one that could be wrong in the direction that matters. "Not granted,
+but a comment in the array names it" cannot tell a decision from a mention, so a tool named
+in passing inside somebody else's paragraph read as settled. See
+[the tools declare their own grants](#a-new-tool-declares-its-own-grant-and-edits-no-registry).
 
 Run with no argument against main as this was written, it named exactly one thing:
 `b7e-say` has neither a `DEFAULT_TOOL_LIST` entry nor a comment saying why not — the
@@ -18545,7 +18611,7 @@ dangerous in those three still has to keep them short or paste them from a comme
 `--tests-file` alongside the summary's existing `--file`, most likely) and it is a
 different, separately-reviewable diff — filed rather than folded in here.
 
-It is not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, unlike `b7e-def` and `b7e-owes`.
+It is not on `DEFAULT_TOOL_LIST`, unlike `b7e-def` and `b7e-owes`.
 Both of those are read-only lookups any reply agent benefits from; this is a write tool
 for ending a worker's own run, and the one agent `DEFAULT_TOOL_LIST` actually reaches —
 `dispatch`, "the comment answerer" — has no bead of its own to debrief, no repo notes to
@@ -18588,7 +18654,7 @@ message with the same tree staged is a legitimate call. It prints the staged fil
 before the sha and subject it wrote, so the confirmation of scope and the confirmation of
 the commit are never two different numbers.
 
-Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the same reason as
+Deliberately not on `DEFAULT_TOOL_LIST`, for the same reason as
 `b7e-say`: staging and committing the whole tree is a write no reading of "the read-only
 surface every reply agent gets" can cover, and `dispatch` — the one agent that list
 reaches — has no branch of its own to commit onto and no delivery waiting on one. A
@@ -18703,7 +18769,7 @@ incomparable. An explicit `--jobs N` still wins outright, the rule `--timeout` a
 follows, and the opening line says which number was picked and why, so a slow gate can be
 accounted for after the fact.
 
-**Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, for a sharper version of
+**Deliberately not on `DEFAULT_TOOL_LIST`**, for a sharper version of
 the reason `b7e-say` is not there: `lib/grants.js` already classifies `Bash(npm test:*)` —
 running this repository's own suites — as a `write`, "spawns daemons, binds ports and
 writes scratch directories," and grants it to `merge-advocate` alone. `b7e-gate` does
@@ -18714,6 +18780,36 @@ use for running the whole suite than it does for
 `b7e-say`'s seven write actions. A worker session, which is what actually hits the
 shape this bead is about, already carries an unrestricted allowlist and needs no grant to
 run it.
+
+**A second arm, learned from the tree rather than a name — `bc-khoe.61`.** `bc-khoe.39`
+above is the *beadcause* arm: this repo's own `scripts/test.mjs` discovery, a suite list,
+a concurrent pool. `bc-khoe.61` names ten sophab sessions (`sp-2cw`, `sp-zg9`, `sp-42u`,
+`sp-vbm`, `sp-h3z`, `sp-zli`, `sp-0l0`, `sp-sp9`, `sp-dei.2`, `sp-6bt.1`) that each hand-
+assembled `PYTHONPATH=. .venv/bin/python tools/partest.py` from a worktree instead — nine
+hardcoded the main checkout's absolute interpreter path, because a fresh worktree never has
+its own `.venv`, and the suite prints `ERROR:` lines and a logging-teardown traceback on a
+run that still passes, so scraping its stdout for a verdict is actively wrong (its own exit
+code — a count of tests run against a count discovered — is the only honest signal).
+
+`--dir <root>` (or its default, this repo's own root) still names the tree; `lib/pygate.js`'s
+`isPythonShaped(root)` — does `tools/partest.py` exist there — decides which arm runs, a
+marker on the tree itself rather than a workspace name or a config lookup, so a third repo
+shaped the same way picks this arm up for free and nothing here has to learn its name.
+`findInterpreter` checks `<root>/.venv/bin/python(3)` first and, failing that, walks up via
+`git rev-parse --git-common-dir` to the main checkout's own `.venv` — the one call every
+hand-rolled interpreter path above was standing in for. `--only`/`--skip` are the Node arm's
+own suite-glob selection and are refused outright on this arm rather than silently doing
+nothing; a module filter is `tools/partest.py`'s own positional argument, so it is forwarded
+verbatim through a literal `--` (`b7e-gate --dir <sophab worktree> -- tests.test_report`).
+Everything else about the command is shared, unchanged, between both arms: the per-tree
+lock, the machine-wide slot queue, `--json`, `--log`, and the `.claude/gate-runs` record
+`bin/b7e-watch` reads — the whole reason a run longer than the caller's own timeout is
+retrievable rather than restarted, on this arm exactly as on the first.
+
+Also **deliberately not on `DEFAULT_TOOL_LIST`**, and for the identical reason as the arm
+above rather than a new one: it is still `Bash(npm test:*)`-shaped load — a subprocess that
+runs a whole suite for minutes — in a second repo, and which repo it happens to be running
+against changes nothing about who should be allowed to ask for it.
 
 ### The `--index`-th of `--total` shards, one suite per line — `b7e-shard`
 
@@ -18741,7 +18837,7 @@ hole CI would never notice, since the run still goes green) and nothing duplicat
 local repro) — for a synthetic list, for every shard count the workflow actually uses,
 and against this repo's own suite list live.
 
-**Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`.** It is read-only by
+**Deliberately not on `DEFAULT_TOOL_LIST`.** It is read-only by
 construction, the same shape as `b7e-affected` just below — but unlike `b7e-affected`,
 which answers "what does my diff touch" for whoever is looking at one, `b7e-shard`
 answers a question that only exists because of how CI happens to be sliced this week.
@@ -18791,7 +18887,7 @@ entry that renames a `.js` file only resolves after an `npm link` this install h
 had — the same reasoning `b7e-apply` and `b7e-worktree` give for the same choice
 elsewhere in this file.
 
-**Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, for the `b7e-call`
+**Deliberately not on `DEFAULT_TOOL_LIST`**, for the `b7e-call`
 reason rather than the `b7e-gate` one: `b7e-call` runs whatever export its argument names,
 and `b7e-bound` runs whatever command its argument names — there is no argv shape to check
 for "reaches a write", because reaching whatever the caller points it at is the entire
@@ -18867,7 +18963,7 @@ the right fallback; each unmatched file still gets a loud, explicit line on stde
 cannot corrupt the pipe. Exit `1` when any file is unmatched, `0` when every one matched
 at least one suite.
 
-**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, unlike `b7e-gate` just above — this is the
+**On `DEFAULT_TOOL_LIST`**, unlike `b7e-gate` just above — this is the
 `b7e-def`/`b7e-owes` shape, not the `npm test` shape. It never spawns a daemon, binds a
 port or runs a suite; it reads `git diff` and the text of this repo's own source once and
 prints a list. `lib/grants.js` classifies it `read`, the same as `b7e-def` and `b7e-owes`.
@@ -18945,7 +19041,7 @@ fabricated tree the way `test/gate.mjs` and `test/affected.mjs` do, including a 
 fails inside the narrowed set, a forwarded `--skip`, and that killing the wrapper mid-run
 actually ends the gate underneath it rather than orphaning it.
 
-**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**: deliberately NOT on it, for the same
+**On `DEFAULT_TOOL_LIST`**: deliberately NOT on it, for the same
 reason as `b7e-gate` just above — every run this does is still `Bash(npm test:*)`-shaped
 underneath, which `lib/grants.js` already classifies as a write held by merge-advocate
 alone, only narrower.
@@ -19003,7 +19099,7 @@ call, and the printing.
 Exit `0` when at least one group returned something, `1` when all three came back empty,
 `2` when refused — bad usage, or `bd show` could not find the bead.
 
-**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**: the `b7e-def`/`b7e-owes`/`b7e-affected`
+**On `DEFAULT_TOOL_LIST`**: the `b7e-def`/`b7e-owes`/`b7e-affected`
 shape again, not the `npm test`/`b7e-gate` one. Its one write-shaped-looking step is
 already covered by an existing grant — `Bash(bd show:*)` is on the same list — and it
 never claims, labels or comments. `lib/grants.js` classifies it `read`.
@@ -19058,7 +19154,7 @@ the page.
 
 Like `b7e-def`, `b7e-owes` and `b7e-affected` this is read-only by construction — it reads
 `README.md` once per call and prints where things are — which is what put
-`Bash(b7e-readme:*)` straight on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-readme:*)` straight on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js` beside the other three. `lib/readme.js` does the parsing and the matching;
 `bin/b7e-readme` is the argv shell around it, and it is also where `test/anchors.mjs`'s own
 slug function now lives — the two used to keep separate copies of GitHub's heading-slug
@@ -19121,7 +19217,7 @@ evidence does not depend on anyone still being logged in to have produced it.
 Like `b7e-def`, `b7e-owes`, `b7e-affected` and `b7e-readme` above, this is read-only by
 construction — `git worktree list`, `git diff`/`git log` against refs, a `bd show` for
 `--bead` that never writes, and a read of `~/.claude/sessions/*.json` — which is what put
-`Bash(b7e-siblings:*)` straight on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-siblings:*)` straight on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js` beside the other four. `lib/siblings.js` does the survey; `bin/b7e-siblings`
 is the argv shell around it.
 
@@ -19426,7 +19522,7 @@ It refuses (exit `2`) outside a `.claude/worktrees/<name>` checkout — this exi
 a fresh worktree, never to touch the main checkout — and exits `1`, after linking and
 building regardless, when the worktree turns out to be behind main.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the same reason as `b7e-say` and
+Not on `DEFAULT_TOOL_LIST`, for the same reason as `b7e-say` and
 `b7e-gate`: its whole occasion is a worktree `EnterWorktree` just made, which only a
 `worker` session ever does, and `worker`'s `allowedTools` is `null` — unrestricted
 already, so a grant here would widen nothing it can reach. `dispatch`, the one agent
@@ -19492,7 +19588,7 @@ failing on `origin/main` with the same named checks, or passed outright); `1` at
 one suite carries a failure `origin/main` does not have, in full or in part, or could
 not be checked against it at all; `2` refused — bad usage, or no suites to look at.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the same reason as `b7e-gate`
+Not on `DEFAULT_TOOL_LIST`, for the same reason as `b7e-gate`
 rather than the read-only shape of `b7e-def`/`b7e-owes`/`b7e-affected`: it runs a suite,
 twice, which `lib/grants.js` already classifies as a write — `Bash(npm test:*)` is held
 by `merge-advocate` alone, on the argument that "nothing about run the tests is a read"
@@ -19558,7 +19654,7 @@ Exit codes: with a command, whatever that command itself exited with. Otherwise 
 usage, or not run from inside a git repository, `3` building the tree failed (a bad
 `ref`, or `git worktree add` itself failing).
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-blame`/`b7e-worktree`
+Not on `DEFAULT_TOOL_LIST`, for the `b7e-blame`/`b7e-worktree`
 reason and the `b7e-call`/`b7e-bound` one together: it creates a real (if detached and
 short-lived) `git worktree` — the same write-shaped step `b7e-blame` is withheld for —
 and, given a command, runs whatever the caller names with whatever arguments the caller
@@ -19675,7 +19771,7 @@ naming no real hunk, or the target is not a git repository. See `lib/hunks.js`.
 
 Write-shaped — `--take` and `--stage` edit and stage files in the working tree directly,
 not a throwaway scratch copy — so, like `b7e-apply`/`b7e-commit`/`b7e-at`, it is not on
-`DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and carries no `lib/grants.js` classification.
+`DEFAULT_TOOL_LIST` and carries no `lib/grants.js` classification.
 
 ### The approval packet as one call — ask, label, and record the ward step — `b7e-packet`
 
@@ -19736,7 +19832,7 @@ on stderr and the command still exits `0`, the same rule `bin/ask.js` follows an
 same reason — a caller told the whole thing failed, over a question already on a phone,
 either asks nothing or asks twice.
 
-**Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and no `lib/grants.js` entry either.**
+**Not on `DEFAULT_TOOL_LIST`, and no `lib/grants.js` entry either.**
 Unlike `b7e-def`/`b7e-show`'s read-only lookups, this is a tracker write — it files a
 bead, labels it, adds a dependency edge and appends to another bead's notes — and the one
 agent `DEFAULT_TOOL_LIST` actually reaches, `dispatch`, has no relay to be filing on
@@ -19818,7 +19914,7 @@ refuses rather than doubling the load, whichever of the two commands holds it.
 Exit codes: `0` every check passed. `1` at least one failed. `2` refused — bad usage, no
 manifest recognises the repo, or another run already holds the lock on this root.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the same reason as `b7e-gate` and
+Not on `DEFAULT_TOOL_LIST`, for the same reason as `b7e-gate` and
 `b7e-blame` just above rather than the read-only shape most of this list is: it spawns
 external processes for as long as `--timeout` allows, per check, and one of the
 selftests this command runs against deluvia today (`check_g0_canon_lock_selftest.py`)
@@ -19904,7 +20000,7 @@ lock, or a failure that is not a pair. `3` `--write` has had its go and the gate
 red — either its edits were not enough, or no site named the check it belongs to and there
 was nothing this command was willing to rewrite.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-checks`/`b7e-gate` reason
+Not on `DEFAULT_TOOL_LIST`, for the `b7e-checks`/`b7e-gate` reason
 rather than the read-only shape of `b7e-def`/`b7e-count`: it runs another repo's gate
 scripts as external processes for as long as `--timeout` allows — which `lib/grants.js`
 already calls a write on the strength of "nothing about run the tests is a read" — and with
@@ -19971,7 +20067,7 @@ Exit codes: `0` every failure given was explained away (a flake, or fixed by
 `scripts/vendor.js`); `1` at least one is still `real`, or could not be resolved to a
 suite in this tree at all; `2` refused — bad usage, or nothing to triage.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the same reason as `b7e-gate` and
+Not on `DEFAULT_TOOL_LIST`, for the same reason as `b7e-gate` and
 `b7e-blame` rather than the read-only shape of `b7e-def`/`b7e-owes`/`b7e-affected`: it
 re-runs a suite, which `lib/grants.js` already classifies as a write — `Bash(npm
 test:*)` is held by `merge-advocate` alone, on the argument that "nothing about run the
@@ -20039,7 +20135,7 @@ one suite passed both ways, or was skipped as unresolved under `--keep-going`; `
 refused outright — bad usage, an unresolved suite name without `--keep-going`, a `--at`
 that does not resolve, or the lock already held.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-triage`/`b7e-blame` reason
+Not on `DEFAULT_TOOL_LIST`, for the `b7e-triage`/`b7e-blame` reason
 and then some: it re-runs a suite, which `lib/grants.js` already classifies as a write,
 and it also writes to the tracked tree while it runs, if only for the run. `dispatch`,
 the one agent that list governs, has no branch and no new check of its own to prove.
@@ -20093,7 +20189,7 @@ when more than one runner is mine at once, the same concurrent-gate hazard this 
 own notes already name as a source of false reds; `--end-mine --stale` is what to run in
 that case, sparing the newest.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`. `--end-mine` sends `SIGTERM`/`SIGKILL`
+Not on `DEFAULT_TOOL_LIST`. `--end-mine` sends `SIGTERM`/`SIGKILL`
 to a live process — a write with no undo — and the allowlist has no syntax to grant the
 plain report while withholding that one flag from the same binary. `dispatch`, the one
 agent this list governs, has no gate of its own running and no branch to have started one
@@ -20164,7 +20260,7 @@ the tree still references it. `2` refused — bad usage.
 
 Read-only in exactly the same construction as `b7e-def` above: it only ever reads
 `lib/`, `bin/` and `scripts/` off disk and prints what it finds — no `bd`, no `git`, no
-subprocess. `Bash(b7e-import:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` beside
+subprocess. `Bash(b7e-import:*)` is on `DEFAULT_TOOL_LIST` beside
 `b7e-def`, and `lib/grants.js` classifies it `read`.
 
 ### Does lib/ already have a function for this — and is it exported — `b7e-already`
@@ -20214,7 +20310,7 @@ nothing matched — a legitimate answer, not a crash. `2` refused — bad usage,
 Read-only in the same construction as `b7e-def`/`b7e-import` above: its own acorn parse
 over `lib/`, `bin/` and `scripts/`, comments included — which `lib/imports.js` doesn't
 collect, since this is the one question that needs them. `Bash(b7e-already:*)` is on
-`DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
+`DEFAULT_TOOL_LIST`, and `lib/grants.js` classifies it `read`.
 
 ### Was this bead's question answered, and which bead carries the answer — `b7e-answered`
 
@@ -20296,7 +20392,7 @@ Read-only: one `bd` read per bead in the chain (`bd show --include-comments`) in
 batch form; the single-bead form keeps its original extra existence check, so two for the
 bead named on `-b` and one for each further ancestor `--family` walks to. Plus
 `state.json`'s own `answered` map. Never a write. `Bash(b7e-answered:*)` is on
-`DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
+`DEFAULT_TOOL_LIST`, and `lib/grants.js` classifies it `read`.
 
 ### Is another live window already on this bead — `b7e-window`
 
@@ -20353,7 +20449,7 @@ acceptance criteria ask for. Kept separate rather than merged into one, the way
 once `b7e-onbead` actually lands, if that reads better then.
 
 Read-only: one `ps` read, plus (for `--family`) one `bd export` — never a write, never
-touches a worktree. `Bash(b7e-window:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`,
+touches a worktree. `Bash(b7e-window:*)` is on `DEFAULT_TOOL_LIST`,
 and `lib/grants.js` classifies it `read`. See `bin/b7e-window` and `lib/window.js`.
 
 ### Every surface a printed figure appears on, and whether they agree — `b7e-where`
@@ -20417,7 +20513,7 @@ defects first showed themselves.
 
 Read-only by construction — `git ls-files`/`fs.readFileSync` and nothing else, never a
 write or a shelled-out `grep` — which is what put `Bash(b7e-where:*)` on
-`DEFAULT_TOOL_LIST` in `lib/toolbelt.js` rather than behind an elevation; `lib/grants.js`
+`DEFAULT_TOOL_LIST` rather than behind an elevation; `lib/grants.js`
 classifies it `read`.
 
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
@@ -20462,7 +20558,7 @@ downmerge direction — `origin/main` merged *into* this branch, so git's "ours"
 note staying on this branch and "theirs" is the one already on `origin/main` — and does
 not try to detect a rebase, which flips that; resolve a rebase's add/add by hand.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-apply` reason rather than
+Not on `DEFAULT_TOOL_LIST`, for the `b7e-apply` reason rather than
 `b7e-gate`/`b7e-blame`'s: it writes to whatever checkout it runs in, with no branch of
 its own and no path to commit or review the result, and `dispatch` — the one agent that
 list governs — has no oversight loop to catch a bad write.
@@ -20566,7 +20662,7 @@ deliberately does not depend on a browser, so `runEyeball` takes an injected dri
 `test/eyeball.mjs` drives the whole of it — plan, generated document, fixture server,
 verdict, PNGs — with a fake one.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, on the same reading as `b7e-gate`: it
+Not on `DEFAULT_TOOL_LIST`, on the same reading as `b7e-gate`: it
 launches a browser, binds a port and writes files, which is the shape `lib/grants.js`
 already calls a write. It would also be pointless there — `dispatch`, the one agent that
 list governs, answers a phone comment with one `bd comment` and has no page of its own to
@@ -20623,7 +20719,7 @@ already putting on the Mac, for an answer ("still running") the caller does not 
 until the gate is done. A currently-red suite in a running gate is reported by name
 alone, with no verdict tag, until the run ends.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-blame` reason rather than
+Not on `DEFAULT_TOOL_LIST`, for the `b7e-blame` reason rather than
 the read-only shape of `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme`: reading a
 finished run's own record is free, but once any suite in it is still red this reruns
 every one of them through `runBlame`, which is the same "runs a suite, twice, and builds
@@ -20700,7 +20796,7 @@ double-check, not a wrong answer trusted as a right one.
 comparison can be pointed at the index instead: "if I commit exactly what's staged,
 does that still match what was gated?"
 
-**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, unlike `b7e-watch`/`b7e-gate`/
+**On `DEFAULT_TOOL_LIST`**, unlike `b7e-watch`/`b7e-gate`/
 `b7e-blame` just above: it never runs a suite and never calls `runBlame` — the whole
 comparison is `git` reads with no working-tree or index side effects (`stash create`,
 `write-tree`, `hash-object`, `diff --name-only`, `rev-parse`) against a run's own
@@ -20785,7 +20881,7 @@ or every one that does already has a fix on `origin/main` since its base); `1` a
 one suite is recorded red with no fix since its base, or has no base to compare at all;
 `2` refused — bad usage, or no suites to look at.
 
-**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, for the `b7e-gated` reason just above
+**On `DEFAULT_TOOL_LIST`**, for the `b7e-gated` reason just above
 rather than the `b7e-gate`/`b7e-watch`/`b7e-blame`/`b7e-triage` one: it never runs a suite
 and never builds a `git worktree`, so it carries none of the "runs the tests" write
 `lib/grants.js` already classifies `Bash(npm test:*)` as.
@@ -20845,7 +20941,7 @@ is missing); `1` at least one named suite never ran or came back `FAIL`/`TIMEOUT
 with `--missing`, at least one suite is missing); `2` refused — bad usage, no run found,
 or a suite name that is not in the repo at all.
 
-**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, the same read-only argument as
+**On `DEFAULT_TOOL_LIST`**, the same read-only argument as
 `b7e-gated`/`b7e-stillred` just above: it only parses an already-written JSONL record
 and, to refuse a typo, shells to `scripts/test.mjs --list` — it never runs a suite and
 never touches `bd`.
@@ -20888,7 +20984,7 @@ list of workspaces that are, so "not found" can never again mean "wrong graph."
 anything else (`create`, `update`, `close`, `claim`, `label`, `dep`, …) is refused before
 a workspace is even resolved. That is what makes this read-only *by construction*, the
 same shape as `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme`, and what earns it a place
-on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` alongside them — this is a lookup, not a
+on `DEFAULT_TOOL_LIST` alongside them — this is a lookup, not a
 second door into `bd`.
 
 
@@ -21000,7 +21096,7 @@ in `lib/bd.js`**: the bead that carries the label has to be the one being depend
 *on* — the blocker — not the one carrying the dependency, and only while it is still
 open. A closed blocker is finished work, not a live gate on anything still in progress.
 
-Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` for a free ride — it earns its place the
+Not on `DEFAULT_TOOL_LIST` for a free ride — it earns its place the
 same way `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme`/`b7e-ws` do: it runs exactly one
 `bd` verb (`export`) and there is no argv path through it that reaches a write. See
 `bin/b7e-census` and `lib/census.js`.
@@ -21128,7 +21224,7 @@ order), `branches`, `remote` and `suites` instead of the bare path, so a later `
 <sha>` or `--only <suite>` argument to whatever this fixture is built for can be quoted
 from here rather than derived by hand the way `bc-68ou.15` derived its line numbers.
 
-Deliberately **not** on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` — same precedent as
+Deliberately **not** on `DEFAULT_TOOL_LIST` — same precedent as
 `b7e-sandbox` just below, which needs no entry either: `dispatch`, the one agent that
 list governs, answers one comment and exits, and has no more occasion to build a
 throwaway git tree than it does to build a throwaway tracker. See `bin/b7e-fixture`,
@@ -21188,7 +21284,7 @@ a real id; both `--bd` modes hand back the *real* assigned ids, dotted the way e
 in this tracker already is (`zz-1`, `zz-1.1`, …) in fake mode, and `bd`'s own scheme in
 real mode.
 
-Deliberately **not** on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`: that list is the
+Deliberately **not** on `DEFAULT_TOOL_LIST`: that list is the
 read-mostly allowlist the one-shot `dispatch` reply agent gets (see `b7e-worktree` and
 `b7e-gate` above for the same argument), and `dispatch` answers one comment and exits —
 it has no more occasion to build a throwaway tracker than it does to enter a worktree.
@@ -21247,7 +21343,7 @@ workspaceName, bead)`) still runs to completion and still prints a tally; it is 
 command's job to know every export's calling convention, only to call it the one way
 that is true for all of them and say plainly what came back.
 
-**Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, unlike its read-only siblings above.**
+**Not on `DEFAULT_TOOL_LIST`, unlike its read-only siblings above.**
 Unlike `b7e-def`/`b7e-census`/`b7e-owes`, which each run exactly one fixed, read-only
 operation, this one calls whatever export its argument names — including a write, three
 imports deep, with no argv shape to check for it. See the exclusion comment in
@@ -21303,7 +21399,7 @@ one this workspace never gave a home. `b7e-orient` says so plainly (`this bead h
 tracker parent, so only ITS OWN prior runs are covered here`) rather than let an empty
 section read as "nobody has ever worked this family".
 
-`Bash(b7e-orient:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-orient:*)` is on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js`, next to the other read-only surveys above: every path through it spawns
 `bd show`, `bd export` or `bd comments` and nothing else. See `bin/b7e-orient` and
 `test/b7eorient.mjs`.
@@ -21365,7 +21461,7 @@ in:title,body' })` — which is GitHub's own issue-search syntax passed straight
 as `--search`, verified live against this repo: it correctly surfaces PR #488 for
 `bc-5e85`, opened for `bc-1eru`'s own branch, entirely from its body text.
 
-`Bash(b7e-prior:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-prior:*)` is on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js`: every path through it is `bd show` (plus `bd export` under `--family`)
 and `git`/`gh` reads, nothing that writes anywhere. See `bin/b7e-prior`, `lib/prior.js`
 and `test/b7eprior.mjs`.
@@ -21423,7 +21519,7 @@ A sibling's files, and a `--file` diff, are always `git diff <sha>^1 <sha>` — 
 for both an ordinary commit and the merge queue's own two-parent shape, and the exact
 comparison `bc-khoe.30.22` ran six times by hand.
 
-`Bash(b7e-precedent:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-precedent:*)` is on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js`: every path through it is `bd show`, `bd export` and `git log`/`git
 diff`/`git merge-base` reads, nothing that writes anywhere. See `bin/b7e-precedent`,
 `lib/precedent.js` and `test/b7eprecedent.mjs`.
@@ -21588,7 +21684,7 @@ suite that imports a real dependency runs without a `npm ci` inside the throwawa
 suites. Neither is required — a tree with neither still has everything `git archive`
 put there, which is every suite that touches no dependency and no browser bundle.
 
-Deliberately **not** on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-sandbox`
+Deliberately **not** on `DEFAULT_TOOL_LIST`, for the `b7e-sandbox`
 argument rather than the `b7e-gate`/`b7e-blame` one: its whole job is real disk and
 network activity — a `git fetch`, a `git archive`, optionally a `scripts/vendor.js` run
 — even though none of it touches the tree it runs in. `dispatch`, the one agent that
@@ -21692,7 +21788,7 @@ that does not know a regex from a division reads as the start of a forty-line st
 `blankLiterals` handled both, 241 of the 411 suites were parsed as one statement each and
 handed the vote nothing.
 
-`Bash(b7e-harness:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-harness:*)` is on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js` — it is the plainest read on that list, spawning no subprocess at all: it
 reads `test/*.mjs` and `public/app.js` off disk and writes to stdout. See `bin/b7e-harness`,
 `lib/harness.js` and `test/harness.mjs`.
@@ -21750,7 +21846,7 @@ registrations, a `lib/grants.js` classification, `DEFAULT_TOOL_LIST`, this secti
 — but it is for the rare session extending the toolset, not the ordinary one using it, and
 baking it in here would lengthen every unrelated session's brief for a case it is not in.
 
-`Bash(b7e-brief:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-brief:*)` is on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js`, the same shape as `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme` above:
 it reads README.md and this repo's own memory store and prints a brief. The one
 subprocess it spawns is `node scripts/test.mjs --list`, and only ever `--list` — never a
@@ -21839,7 +21935,7 @@ key" is as real an answer as a hit.
 — the only imports here are `lib/memory.js` and `lib/sessionlog.js`, neither of which
 takes one, and `test/known.mjs` asserts the source names no such path.
 
-`Bash(b7e-known:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-known:*)` is on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js`: every path through it is `bd show` (only when `-b` is given) plus the
 three memory-store reads above, nothing that writes anywhere. See `bin/b7e-known`,
 `lib/memory.js`'s `nearestEntries` and `test/known.mjs`.
@@ -21992,7 +22088,7 @@ example id from another workspace quoted in passing (this file uses a few, illus
 what another tracker's ids look like) is never resolved, by design: resolving it would
 need a live `bd` call against a tracker this Mac may not even have configured.
 
-`Bash(b7e-cites:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-cites:*)` is on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js`, the same shape as `b7e-def`/`b7e-siblings`/`b7e-census` above: its file
 walk never leaves the fixed roots, and the only `bd` verbs it spawns — `list --limit 1`
 (to learn this tracker's own prefix) and one batched `show` — are both reads. See
@@ -22056,7 +22152,7 @@ at risk, both verified against deluvia's real, current `main` this session. `tes
 b7eclaims.mjs` reproduces the same shapes on a fabricated fixture instead of depending on
 that live, separately-changing checkout, which CI does not have at all.
 
-`Bash(b7e-claims:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in
+`Bash(b7e-claims:*)` is on `DEFAULT_TOOL_LIST` and `read` in
 `lib/grants.js`, the same shape as `b7e-def`/`b7e-cites`/`b7e-census` above: it only ever
 reads files under a given tree and prints what it found, and spawns nothing at all. See
 `bin/b7e-claims`, `lib/corpus.js`, `lib/probes.js` and `test/b7eclaims.mjs`.
@@ -22167,7 +22263,7 @@ before comparing.
 for-each-ref` and `git cat-file -p <ref>:<file>` (`lib/gitref.js`'s `readRefFile`)
 against whatever this Mac's git object store already has — no fetch, no checkout.
 Picking the number and splicing in the entry stays a human's job, or a later command's,
-not this one's. `Bash(b7e-entry:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and
+not this one's. `Bash(b7e-entry:*)` is on `DEFAULT_TOOL_LIST` and
 `read` in `lib/grants.js` on that strength. See `bin/b7e-entry`, `lib/changelog.js` and
 `test/b7eentry.mjs`.
 
@@ -22222,7 +22318,7 @@ directory on disk, invisible to a ref read, which is what makes "the bear line a
 path rather than in a worktree copy" true by construction rather than by discipline.
 
 **Never writes to `CHANGE_LOG.md`, or anywhere else.** `Bash(b7e-propagated:*)` is on
-`DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in `lib/grants.js` on that strength.
+`DEFAULT_TOOL_LIST` and `read` in `lib/grants.js` on that strength.
 Exit `1` means at least one row is STALE (with `--all`, at least one swept entry has one),
 so it can be a gate the same way `b7e-entry --check` is. See `bin/b7e-propagated`,
 `lib/propagated.js` and `test/b7epropagated.mjs` — the test fixture reproduces the shape
@@ -22277,7 +22373,7 @@ make for themselves: it runs whatever `bin/` entry its own argument names, with 
 arguments follow, so there is no argv shape to check for "reaches a write" — reaching
 whatever the caller points it at is the entire job, including commands already refused a
 grant here on their own for exactly that reason. See the comment beside
-`DEFAULT_TOOL_LIST` in `lib/toolbelt.js`.
+`DEFAULT_TOOL_LIST`.
 
 Exit codes: whatever the resolved command exits with, unchanged — including non-zero.
 `2` refused before anything ran: bad usage, or no file at the resolved path. Killing

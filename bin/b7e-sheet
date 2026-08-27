@@ -17,6 +17,8 @@
  * Exit codes: `0` every requested sheet rendered. `1` sheet_probe.py ran but at least
  * one sheet failed (still prints the paths that did render). `2` refused — bad usage,
  * or the sophab checkout / its `.venv` / the companion script isn't there.
+ *
+ * @grant excluded
  */
 import { defaultSophabRoot, sheetProbeProblem, runSheetProbe } from '../lib/sheet.js';
 
