@@ -471,8 +471,11 @@ check('THE DEFAULT IS TO DO IT WHOLE, AND IT SAYS SO', () => {
   // And it is not left as a conclusion in a conversation nobody keeps: the label is what
   // the queue reads, so a decision that does not write it is an epic that stays held.
   assert.ok(text.includes(WHOLE_LABEL), 'the label the queue reads is not named');
-  assert.ok(text.includes(WHOLE_OPEN) && text.includes(WHOLE_CLOSE), 'the block it has to write is not quoted');
-  assert.match(text, new RegExp(`"epic": "${p0().id}"`), 'the block it is handed does not name its own epic');
+  // bc-jvt0.6: it is handed a command to run, not a block to retype by hand — the door
+  // that validates before anything is written, rather than markers it cannot check itself.
+  assert.match(text, new RegExp(`beadcause-epicplan -w beadcause -b ${p0().id}`), 'the validated door is not named');
+  assert.ok(!text.includes(WHOLE_OPEN) && !text.includes(WHOLE_CLOSE), 'it is still quoting the raw markers to retype');
+  assert.match(text, /whole:\s*\n\s*why: \|/, 'the YAML shape it is handed does not match what beadcause-epicplan reads');
   assert.match(text, new RegExp(`floor of\\s+${MIN_WHY_CHARS} characters`), 'the reason has no stated floor');
 });
 
