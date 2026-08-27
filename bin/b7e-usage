@@ -1,0 +1,116 @@
+#!/usr/bin/env node
+/**
+ * `b7e-usage` — what a repo command takes, without running it to find out.
+ *
+ *     b7e-usage                    every command in package.json's bin map, one line each
+ *     b7e-usage --json             the same, structured
+ *     b7e-usage <command>          one command's invocation lines and exit codes, by name
+ *     b7e-usage <path>             the same command, by path — bin/b7e-owes.js resolves
+ *                                  the same as b7e-owes
+ *     b7e-usage <command> --json   the same, structured
+ *
+ * bc-dgx7.31: six sessions (bc-zjab.9, bc-zjab.7, bc-zjab.8, bc-xl7n.102, bc-y3qk.13,
+ * bc-zjab.6) each needed the flags of a `bin/` command they were about to call, and no
+ * two got them the same way — running `--help` and starting a real gate sweep (twice,
+ * `bin/b7e-gate` had no branch that did not), grepping `USAGE\|process.argv`, reading
+ * the file cold. Every command already carries a header doc comment naming its own
+ * invocations and exit codes; `lib/usage.js` reads that text and nothing else — never
+ * by executing the command itself, which is the whole point.
+ *
+ * Given a name or a path, prints that command's one-line summary, its invocation
+ * lines (with whatever `Flags:` paragraph follows them — `bin/b7e-sandbox`'s shape),
+ * and its exit codes, exactly as the header states them. Given nothing, lists every
+ * command `package.json`'s `bin` map registers, one line each with its own summary —
+ * `beadcause-*` worker tools and the `b7e-*` family both, since both are commands a
+ * `bin/` entry names.
+ *
+ * Exit codes: `0` printed something; `1` the command is registered but its file
+ * carries no header doc comment to read; `2` refused — bad usage, or the name or path
+ * given does not resolve to anything `package.json`'s `bin` map has.
+ *
+ * @grant read
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { ROOT, loadBinMap, resolveCommand, parseUsage } from '../lib/usage.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+
+const HELP = [
+  "b7e-usage                    every command in package.json's bin map, one line each",
+  'b7e-usage --json             the same, structured',
+  "b7e-usage <command>          one command's invocation lines and exit codes, by name",
+  'b7e-usage <path>             the same command, by path — bin/b7e-owes.js resolves the same as b7e-owes',
+  'b7e-usage <command> --json   the same, structured',
+].join('\n');
+
+if (has('--help') || has('-h')) {
+  console.log(HELP);
+  process.exit(0);
+}
+
+const JSON_MODE = has('--json');
+const positional = argv.filter((a) => a !== '--json');
+if (positional.length > 1) {
+  console.error(`b7e-usage: one command at a time, not ${positional.length} (${positional.join(', ')})`);
+  process.exit(2);
+}
+const target = positional[0];
+
+const summaryFor = (name, relPath) => {
+  const src = fs.readFileSync(path.join(ROOT, relPath), 'utf8');
+  const { summary } = parseUsage(src, name);
+  return summary || '(no header doc comment)';
+};
+
+if (!target) {
+  const bin = loadBinMap();
+  const names = Object.keys(bin).sort();
+  if (JSON_MODE) {
+    const roster = names.map((name) => ({ name, path: bin[name], summary: summaryFor(name, bin[name]) }));
+    console.log(JSON.stringify(roster));
+    process.exit(0);
+  }
+  const width = names.reduce((w, n) => Math.max(w, n.length), 0);
+  for (const name of names) {
+    console.log(`${name.padEnd(width)}  ${summaryFor(name, bin[name])}`);
+  }
+  process.exit(0);
+}
+
+const resolved = resolveCommand(target);
+if (!resolved) {
+  console.error(`b7e-usage: no registered command matches "${target}"`);
+  process.exit(2);
+}
+
+const filePath = path.join(ROOT, resolved.relPath);
+if (!fs.existsSync(filePath)) {
+  console.error(`b7e-usage: ${resolved.relPath} is registered in package.json but not on disk`);
+  process.exit(2);
+}
+
+const src = fs.readFileSync(filePath, 'utf8');
+const usage = parseUsage(src, resolved.name);
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ name: resolved.name, path: resolved.relPath, ...usage }));
+  process.exit(usage.summary || usage.invocation.length || usage.exitCodes ? 0 : 1);
+}
+
+if (!usage.summary && !usage.invocation.length && !usage.exitCodes) {
+  console.error(`b7e-usage: ${resolved.relPath} has no header doc comment to read`);
+  process.exit(1);
+}
+
+console.log(`${resolved.name} — ${usage.summary || '(no summary)'}`);
+console.log('');
+if (usage.invocation.length) {
+  console.log(usage.invocation.join('\n'));
+} else {
+  console.log('(no invocation lines found in the header)');
+}
+console.log('');
+console.log(usage.exitCodes || '(no exit codes documented)');
+process.exit(0);

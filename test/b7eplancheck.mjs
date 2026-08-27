@@ -18,6 +18,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
+import { formatPlan, validatePlan } from '../lib/plan.js';
 import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -157,6 +159,50 @@ const WHOLE_WHY = 'This epic is one edit to one file and splitting it would file
 const WHOLE_OBJ = { epic: 'pc-whole', whole: true, why: WHOLE_WHY };
 const WHOLE_TEXT = ['**pc-whole is one job.**', '', WHOLE_WHY, '', WHOLE_OPEN, '```json', JSON.stringify(WHOLE_OBJ, null, 2), '```', WHOLE_CLOSE].join('\n');
 
+// A stored plan whose prompt is already over MAX_PROMPT_CHARS (4000) — not reachable
+// through this tool's own --check/--out, both of which validate before anything is
+// written, but reachable by hand-editing a comment or by a cap that shrank after the
+// plan was filed. Built directly, the same way PLAN_TEXT is, rather than through
+// validatePlan, which would refuse it.
+const OVER_PROMPT = 'x'.repeat(4010);
+const OVER_OBJ = {
+  epic: 'pc-over',
+  groups: [
+    {
+      name: 'grp-over',
+      repo: 'plan-ws',
+      beads: ['pc-over.1'],
+      files: [],
+      prs: [{ repo: 'plan-ws', title: 'Ship the oversized group' }],
+      prompt: OVER_PROMPT,
+    },
+  ],
+};
+const OVER_TEXT = ['Plan for pc-over.', '', PLAN_OPEN, '```json', JSON.stringify(OVER_OBJ, null, 2), '```', PLAN_CLOSE].join('\n');
+
+// A plan built through the real write path (validatePlan → formatPlan), the way
+// bin/plan.js actually stores one — unlike PLAN_TEXT above, which is hand-rolled test
+// prose around the same JSON shape. This is what the byte-identical round-trip check
+// below needs: PLAN_TEXT's own prose line ("Plan for pc-epic.") is this suite's fixture
+// convention, not formatPlan's, and asserting against it would be asserting the wrong
+// thing.
+const ROUND_PROMPT = 'Do the one thing pc-round.1 is under pc-round for.';
+const ROUND_NORMALIZED = validatePlan(
+  {
+    groups: [
+      {
+        name: 'grp-round',
+        beads: ['pc-round.1'],
+        files: ['lib/round.js'],
+        prs: [{ repo: 'plan-ws', title: 'Ship the round-trip group' }],
+        prompt: ROUND_PROMPT,
+      },
+    ],
+  },
+  { epic: 'pc-round', children: [{ id: 'pc-round.1' }] }
+);
+const ROUND_TEXT = formatPlan(ROUND_NORMALIZED);
+
 const WORLD = {
   issues: {
     'pc-epic': issue('pc-epic', { title: 'The plan under test', issue_type: 'epic', labels: ['planned'] }),
@@ -169,12 +215,18 @@ const WORLD = {
     'pc-check': issue('pc-check', { title: 'For --check candidates', issue_type: 'epic' }),
     'pc-check.1': child('pc-check.1', 'pc-check', { title: 'A real child of pc-check' }),
     'pc-other': issue('pc-other', { title: 'Not under pc-check at all' }),
+    'pc-over': issue('pc-over', { title: 'Its stored prompt is already over the cap', issue_type: 'epic', labels: ['planned'] }),
+    'pc-over.1': child('pc-over.1', 'pc-over', { title: 'The one bead of the oversized group' }),
+    'pc-round': issue('pc-round', { title: 'Its plan was written the real way, for the round-trip check', issue_type: 'epic', labels: ['planned'] }),
+    'pc-round.1': child('pc-round.1', 'pc-round', { title: 'The one bead of the round-trip group' }),
   },
   comments: {
     'pc-epic': [{ id: 1, issue_id: 'pc-epic', author: 'beadcause', text: PLAN_TEXT, created_at: '2026-01-01T00:00:00Z' }],
     'pc-whole': [{ id: 2, issue_id: 'pc-whole', author: 'beadcause', text: WHOLE_TEXT, created_at: '2026-01-01T00:00:00Z' }],
     'pc-empty': [],
     'pc-check': [],
+    'pc-over': [{ id: 3, issue_id: 'pc-over', author: 'beadcause', text: OVER_TEXT, created_at: '2026-01-01T00:00:00Z' }],
+    'pc-round': [{ id: 4, issue_id: 'pc-round', author: 'beadcause', text: ROUND_TEXT, created_at: '2026-01-01T00:00:00Z' }],
   },
 };
 
@@ -390,6 +442,84 @@ check('--check refuses a whole-job candidate on an epic that already has childre
   const { status, stderr } = run(['pc-check', '-w', 'plan-ws', '--check'], { input: `whole:\n  why: |\n    ${WHOLE_WHY}\n` });
   assert.equal(status, 4);
   assert.match(stderr, /already has 1 child/);
+});
+
+/* ------------------------------------------------------------------------ --out (bc-dgx7.79) */
+
+check('--out prints the current plan as YAML on stdout, and only the YAML', () => {
+  const { status, stdout } = run(['pc-epic', '-w', 'plan-ws', '--out']);
+  assert.equal(status, 0);
+  const doc = YAML.parse(stdout);
+  assert.equal(doc.groups.length, 2);
+  const live = doc.groups.find((g) => g.name === 'grp-live');
+  assert.deepEqual(live.beads, ['pc-epic.1', 'pc-epic.2']);
+  assert.deepEqual(live.files, ['lib/a.js']);
+  assert.deepEqual(live.prs, [{ repo: 'plan-ws', title: 'Ship the live group' }]);
+  assert.equal(live.prompt, LIVE_PROMPT);
+  assert.doesNotMatch(stdout, /unplanned/);
+  assert.doesNotMatch(stdout, /dispatchable/);
+});
+
+check('--out sends the budget line and the unplanned list to stderr, not stdout', () => {
+  const { stdout, stderr } = run(['pc-epic', '-w', 'plan-ws', '--out']);
+  assert.doesNotMatch(stdout, /prompt \d+\/4000/);
+  assert.match(stderr, new RegExp(`grp-live .* prompt ${LIVE_PROMPT.length}/4000`));
+  assert.match(stderr, /unplanned \(freezes the subtree until grouped\): pc-epic\.3/);
+});
+
+check('--out <file> writes the YAML there instead of stdout', () => {
+  const file = path.join(tmp, 'out-plan.yaml');
+  const { status, stdout } = run(['pc-epic', '-w', 'plan-ws', '--out', file]);
+  assert.equal(status, 0);
+  assert.equal(stdout, '');
+  const doc = YAML.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(doc.groups.length, 2);
+});
+
+check('the acceptance test: --out piped into --check reports the round-trip clean', () => {
+  const { status: outStatus, stdout: yaml } = run(['pc-epic', '-w', 'plan-ws', '--out']);
+  assert.equal(outStatus, 0);
+  const { status, stdout } = run(['pc-epic', '-w', 'plan-ws', '--check'], { input: yaml });
+  assert.equal(status, 0);
+  assert.match(stdout, /would be accepted — pc-epic, 2 groups/);
+});
+
+check('--out reproduces the stored plan byte-identically once round-tripped through beadcause-plan', () => {
+  // The exact acceptance test bc-dgx7.79 names: b7e-plancheck --out, then feeding that
+  // straight to lib/plan.js's own validate+format (what `beadcause-plan -f` runs) must
+  // reproduce the comment already on the bead byte-for-byte — not merely an equivalent
+  // one. pc-round's stored plan was itself written the real way (validatePlan then
+  // formatPlan, above), so this is the actual shape a filed plan is in, not test prose.
+  const { status, stdout: yaml } = run(['pc-round', '-w', 'plan-ws', '--out']);
+  assert.equal(status, 0);
+  const spec = YAML.parse(yaml);
+  const normalized = validatePlan(spec, { epic: 'pc-round', children: [{ id: 'pc-round.1' }] });
+  assert.equal(formatPlan(normalized), ROUND_TEXT);
+});
+
+check('--out on a whole-job epic emits the whole-job YAML, and it round-trips through --check', () => {
+  const { status, stdout } = run(['pc-whole', '-w', 'plan-ws', '--out']);
+  assert.equal(status, 0);
+  const doc = YAML.parse(stdout);
+  assert.equal(doc.whole.why, WHOLE_WHY);
+  const checked = run(['pc-whole', '-w', 'plan-ws', '--check'], { input: stdout });
+  assert.equal(checked.status, 0);
+  assert.match(checked.stdout, /would be accepted — pc-whole is one job/);
+});
+
+check('--out on an epic with neither a plan nor a whole-job decision refuses, writing nothing', () => {
+  const { status, stdout, stderr } = run(['pc-empty', '-w', 'plan-ws', '--out']);
+  assert.equal(status, 2);
+  assert.equal(stdout, '');
+  assert.match(stderr, /pc-empty has no plan and no whole-job decision on it — nothing to write out/);
+});
+
+check('--out reports a prompt already over MAX_PROMPT_CHARS, in the same run, on stderr', () => {
+  const { status, stdout, stderr } = run(['pc-over', '-w', 'plan-ws', '--out']);
+  assert.equal(status, 0);
+  const doc = YAML.parse(stdout);
+  assert.equal(doc.groups[0].prompt.length, OVER_PROMPT.length);
+  assert.match(stderr, /grp-over .* prompt 4010\/4000 · OVER by 10/);
 });
 
 console.log(failures ? `\n${failures} failed\n` : '\nall passed\n');
