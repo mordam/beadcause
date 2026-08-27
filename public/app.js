@@ -3616,15 +3616,45 @@
    * cards further on — and a toast that fades after five seconds over an unrelated
    * question is indistinguishable from the answer having landed. The note stays until
    * the card is answered again or you dismiss it.
+   *
+   * **And it does not always get to say nothing was written.** An answer is several acts
+   * in a row and the answer itself is written last — deliberately, so a merge GitHub
+   * refuses leaves the question answerable — which means the window between the last act
+   * and the write is a window in which the act landed and the answer did not. *Nothing
+   * was written and nothing was lost* over a pull request that is merged, a branch that
+   * is gone and a work bead that closed is the most expensive sentence this app can
+   * print: it is read as *try again*, and it is wrong in the one direction that costs an
+   * afternoon. `f.landed` is the server's own account of what did happen (`performed` in
+   * lib/server.js) and it takes the reassurance's place rather than sitting beside it,
+   * because the two cannot both be true.
+   *
+   * The server's own sentences, minus their markup. `Merged #7 as c5004cce — closed
+   * zz-work` is the line the thread would have carried, and inventing a second
+   * vocabulary for the failure case would mean two accounts of one act that can
+   * disagree — but it arrives as bd prose, with the emphasis and the backticks the
+   * thread wanted, and this note is not a document. Same call `shipWhat` makes one
+   * screen up, for the same reason: paragraphs of markdown inside an alert would make it
+   * a different shape from `gateNoteHtml`, which is the whole point of it being a
+   * sibling.
    */
+  const plainly = (s) => String(s || '').replace(/\*\*/g, '').replace(/`/g, '');
+
   function failedNoteHtml(q) {
     const f = q.failed;
     if (!f) return '';
     const verb = f.from === 'dismiss' ? 'set aside' : f.from === 'comment' ? 'commented on' : 'answered';
+    const landed = Array.isArray(f.landed) ? f.landed.filter(Boolean) : [];
     return `<div class="failed-note">
       <strong>${esc(q.id)} was not ${verb} — ${esc(f.reason)}</strong>
-      <p>Nothing was written and nothing was lost. What you typed is still in the box
-      below; press the button under it again when you are ready to try.</p>
+      ${
+        landed.length
+          ? `<p><strong>But part of it had already happened, and that stands:</strong></p>
+      ${landed.map((line) => `<p>${esc(plainly(line))}</p>`).join('\n      ')}
+      <p>Only the answer itself did not go through. What you typed is still in the box
+      below; press the button under it again when you are ready to try.</p>`
+          : `<p>Nothing was written and nothing was lost. What you typed is still in the box
+      below; press the button under it again when you are ready to try.</p>`
+      }
       <div class="row">
         <button class="secondary" data-act="failed-dismiss" data-key="${esc(q.key)}">Dismiss this</button>
       </div>
@@ -8416,7 +8446,16 @@
         // question is indistinguishable from having been answered. So it goes on the
         // row, in the close gate's own family (`failedNoteHtml`), and stays there
         // until the card is answered again or you dismiss the note.
-        else q.failed = { reason: err.message || 'the write did not go through', from: dismiss ? 'dismiss' : close ? 'answer' : 'comment' };
+        // `landed` beside the reason, and it is not decoration: the server sends it only
+        // when this answer performed something before the write failed, and it is what
+        // stops the note claiming nothing was written over a merge that landed. Absent on
+        // almost every failure, which is what it should be — see `failedNoteHtml`.
+        else
+          q.failed = {
+            reason: err.message || 'the write did not go through',
+            from: dismiss ? 'dismiss' : close ? 'answer' : 'comment',
+            landed: Array.isArray(err.body?.landed) ? err.body.landed : null,
+          };
         // Reverse the travel first, then re-open the card underneath where the beads
         // came down. A tracker that refused the answer must not be shown swallowing it.
         await flight?.recall();
