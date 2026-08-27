@@ -10379,9 +10379,15 @@ down six things, because an unattended session with a vague scope invents one:
    run `git merge --abort`. That one is the second layer under the de-duplication below,
    for the two resolvers that are already up rather than the second one that must not be
    opened;
-5. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
-   working tree;
-6. **push the branch, release the lock, then stop** — the merge stays a tap here.
+5. **push, and let the pull request's own checks be the gate** — a clean merge of two
+   working branches is not a working tree, so the suite has to run over the merge, but the
+   resolver does not have to be what runs it. The push starts the checks on the merge commit
+   itself and `lib/mergeadvocate.js` will not merge over a red rollup, a pending one or a
+   head commit nothing ran on at all (`bc-ysqd.1`), so an unverified push cannot land by
+   being ignored — where sitting on the local gate instead means an hour behind `3 gates
+   ahead of you` for the answer GitHub gives in a minute. The local gate is still named, for
+   a workspace with no CI wired up: there it is the only one;
+6. **release the lock, then stop** — the merge stays a tap here.
 
 It is armed like merge, because it starts something unattended. It refuses unless GitHub
 reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
