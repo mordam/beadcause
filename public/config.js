@@ -43,21 +43,57 @@
   anyway, rather than a second request for one bit.
 */
 (() => {
+  /** The view id this file draws, in public/hashroute.js's vocabulary. */
+  const VIEW = 'config';
+
+  const panes = (window.beadcause && window.beadcause.panes) || null;
+  const route = (window.beadcause && window.beadcause.route) || null;
+
+  /**
+   * Is this the shell's Config pane, or the `/config` (also `/settings`,
+   * `/config.html`) document it also still is?
+   *
+   * Asked of the document rather than of a flag, and asked of `panes` rather than of
+   * the path, for the reason public/releases.js gives: the eleven pages that are not
+   * the shell have no `window.beadcause.panes` at all, and a pane still marked
+   * `data-pending` answers `has()` false — which was this container's own state until
+   * bc-khoe.60 filled it.
+   */
+  const inShell = Boolean(panes && typeof panes.has === 'function' && panes.has(VIEW) && route);
+
   /* The pairing token, picked out of `?t=` once and kept — the same pickup every page in
      the app does, and the reason a link in a notification works on a phone that has never
-     scanned the QR. */
-  const token = (() => {
-    const fromUrl = new URLSearchParams(location.search).get('t');
-    if (fromUrl) {
-      localStorage.setItem('beadcause.token', fromUrl);
-      history.replaceState(null, '', location.pathname + location.hash);
-    }
-    return localStorage.getItem('beadcause.token') || '';
-  })();
+     scanned the QR.
+
+     Skipped in the shell: public/accountbar.js has already read `?t=` into localStorage
+     by the time this script runs — it loads first and does not strip the query, "the
+     page's own pickup will complain if it matters" — and public/app.js's `bootToken` is
+     the shell's own page and the one that does the stripping. A second strip here would
+     race it for nothing: this script parses on every load of the shell, not only one
+     that lands on Config, so an unconditional strip would take `?t=` off a link that
+     opened a *different* pane before that pane's own script (or app.js) had a turn to
+     want it. */
+  const token = inShell
+    ? localStorage.getItem('beadcause.token') || ''
+    : (() => {
+        const fromUrl = new URLSearchParams(location.search).get('t');
+        if (fromUrl) {
+          localStorage.setItem('beadcause.token', fromUrl);
+          history.replaceState(null, '', location.pathname + location.hash);
+        }
+        return localStorage.getItem('beadcause.token') || '';
+      })();
 
   const out = document.getElementById('space');
-  const pulse = document.getElementById('pulse');
-  const observing = document.getElementById('observing');
+  /* The brand dot. Left alone in the shell for the reason public/releases.js leaves it
+     alone: it is the whole document's there, driven off public/report.js's own count of
+     what is in flight, and a second writer toggling `busy` on it would clear it under a
+     fetch of the inbox's that is still out. */
+  const pulse = inShell ? null : document.getElementById('pulse');
+  /* `cfg-observing` rather than the `observing` this page used before bc-khoe.60 — see
+     the id's own comment in public/config.html and public/index.html. One id across
+     both documents, so this lookup does not need to ask which one it is in. */
+  const observing = document.getElementById('cfg-observing');
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -915,49 +951,96 @@
     state.slackDraft = { space: spaceName(), text: e.target.value };
   };
 
-  out?.addEventListener('click', onClick);
-  out?.addEventListener('input', onInput);
-
-  /* The ⟳. One `/api/space` read of the daemon's config object, with no `bd` and no `gh`
-     behind it — which is why this page can offer one at all without it being a button
-     that sweeps every tracker on the Mac. */
-  document.getElementById('refresh')?.addEventListener('click', () => load());
-
-  /* The space picker moved, so this is a different space's config and it is fetched.
-     Painted first all the same: the card says it is reading rather than sitting on the
-     previous space's answers under the new space's name.
-
-     The picker's *fine* level matters here too and costs nothing — `onlyRepo` narrows the
-     repo panel to the one repo you pinned, which is a repaint with no fetch involved. */
-  window.beadcause?.space?.onChange(() => {
-    state.spaceSaid = null;
-    render();
-    tellPresence();
-    loadSpace().then(render);
-  });
-
-  /* Where this device is, for anything mirroring it. Reported once at boot and again
-     whenever the picker moves, because *which space* is half of what the mirror says
-     this screen is showing. `config` is already one of `VIEWS` in lib/presence.js and
-     already has a sentence in public/mirror.js — it was a chip on the console before it
-     was a page, and neither of those had to change when it moved. */
+  /* Where this device is, for anything mirroring it — but only outside the shell.
+     public/history.js and public/releases.js report nothing here once they are a pane
+     (their VIEW never reaches public/presence.js), and this file matches them rather
+     than inventing a different answer for the one pane that still could: the mirror
+     does not yet know how to distinguish "this device is on the Config pane" from "this
+     device is on Home", and teaching it that is a shell-wide question, not this bead's.
+     `config` is already one of `VIEWS` in lib/presence.js and already has a sentence in
+     public/mirror.js from when this was a chip on the console; both go on being read
+     correctly for the standalone document and are dead code for the pane until that
+     question is answered. */
   const tellPresence = () =>
     window.beadcause?.presence?.report({ view: 'config', space: spaceName() || '', detail: spaceName() || 'every group' });
 
-  /* Draw whatever the picker already says before the first request lands: with no space
-     selected that is the "pick a space" line, which is the final answer rather than a
-     placeholder, and with one it is "Reading this space…". */
-  if (!token) {
-    // The whole page is behind the token, where on the console this card was one pane of
-    // four and could afford to answer "no settings" in the daemon's words. Said plainly
-    // instead, and said before anything is fetched: a screen of controls under a 401 is a
-    // screen that looks broken rather than one that looks locked.
-    out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
-  } else {
+  /**
+   * Everything this view does on the way up, in one function so the shell can time it.
+   *
+   * It was the last dozen lines of this IIFE and it still is on the document; what the
+   * stager buys is the other case — a load that lands on Home builds this after the
+   * first paint, and a load that lands on `/#config` builds it first and the inbox
+   * after.
+   *
+   * Every registration is in here rather than at module scope, and that is the trap
+   * this shape exists to avoid: `space.onChange` left outside would have the picker
+   * announce itself before there was anything to repaint, and the click/input
+   * listeners below would bind against a container a pending pane does not have.
+   */
+  function build() {
+    out?.addEventListener('click', onClick);
+    out?.addEventListener('input', onInput);
+
+    /* ⟳. The page's own on the document; the app's, shared with every other view, in
+       the shell — which is why the handler asks whether this pane is the one showing
+       before it does anything. One tap must not read two views' settings and draw
+       one of them. */
+    const refreshBtn = document.getElementById('refresh');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => {
+        if (inShell && panes.showing() !== VIEW) return;
+        load();
+      });
+    }
+
+    /* The space picker moved, so this is a different space's config and it is fetched.
+       Painted first all the same: the card says it is reading rather than sitting on
+       the previous space's answers under the new space's name.
+
+       The picker's *fine* level matters here too and costs nothing — `onlyRepo`
+       narrows the repo panel to the one repo you pinned, which is a repaint with no
+       fetch involved. */
+    window.beadcause?.space?.onChange(() => {
+      state.spaceSaid = null;
+      render();
+      if (!inShell) tellPresence();
+      loadSpace().then(render);
+    });
+
+    /* Draw whatever the picker already says before the first request lands: with no
+       space selected that is the "pick a space" line, which is the final answer rather
+       than a placeholder, and with one it is "Reading this space…". */
+    if (!token) {
+      // The whole page is behind the token, where on the console this card was one
+      // pane of four and could afford to answer "no settings" in the daemon's words.
+      // Said plainly instead, and said before anything is fetched: a screen of
+      // controls under a 401 is a screen that looks broken rather than one that looks
+      // locked.
+      out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
+      return;
+    }
     render();
     load();
-    tellPresence();
+    if (!inShell) tellPresence();
   }
+
+  /*
+    Offered to the stager, and built here when there is no stager to take it — the
+    `/config`, `/settings` and `/config.html` documents, or a service worker cache from
+    before public/panestage.js existed. `register` answering false has to leave this
+    file exactly as it was, which is why `build` is the function it would have called on
+    its own rather than something only reachable through the shell.
+
+    No `wake` and no `want`, unlike public/history.js and public/releases.js beside it:
+    this view follows no event stream — nothing changes what it draws except a press on
+    it or the picker moving — so there is nothing a poll could tell it that a fetch it
+    already made did not. That is the same reasoning the header comment at the top of
+    this file gives for why the page makes one request and no more. A cost of the choice:
+    a setting changed on another device does not reach this pane until the picker moves
+    or ⟳ is pressed, where the old document got a free read on every navigation back to
+    it — the trade this whole epic is making, paid here rather than hidden.
+  */
+  if (!window.beadcause?.stage?.register?.(VIEW, { build })) build();
 
   /* What `scripts/space-check.mjs` drives to prove a repaint landing under your thumb
      cannot take a half-typed channel id away — the same door
