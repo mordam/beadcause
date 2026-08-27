@@ -37,6 +37,8 @@
  * never had. NOT on lib/toolbelt.js's DEFAULT_TOOL_LIST — see the comment there, next to
  * b7e-call's for the same reason: this runs whatever the caller names, so there is no
  * argv shape to check for "reaches a write".
+ *
+ * @grant excluded
  */
 import os from 'node:os';
 import { spawn } from 'node:child_process';

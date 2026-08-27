@@ -39,6 +39,12 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+// This suite spawns real runners, and both of them now take a machine-wide gate slot
+// (bc-xlz32.1). Under a gate they inherit `BEADCAUSE_GATE_HELD` and skip it; run alone
+// while two other gates are live they would queue behind them and time out, so opt out
+// here — the semaphore itself is proved in test/gateslots.mjs, against its own directory.
+process.env.BEADCAUSE_GATE_SLOTS = '0';
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
 const RUNNER = path.join(ROOT, 'scripts', 'test.mjs');

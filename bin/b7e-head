@@ -26,6 +26,8 @@
  * Exit codes: `0` ran to completion. `2` bad usage. `1` `gh`/`git` refused — no such
  * pull request, a `--file` path that does not exist in the head tree, or a `--grep`
  * pattern `git` itself would not take.
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import * as head from '../lib/head.js';
