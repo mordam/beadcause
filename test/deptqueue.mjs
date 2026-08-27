@@ -462,6 +462,17 @@ await check('a definition that will not load dispatches everything, and is said 
     assert.match(r.card.relayProblems[0].why, /does not start with "dept:"/);
     assert.match(r.card.note, /does not start with "dept:"/, 'the tick note carries it');
     assert.match(r.card.note, /without a relay/);
+    // And the note stays one line. That refusal is 218 characters, because it is written
+    // for somebody looking at the file they broke — the right length for the log line and
+    // the pill's tooltip beside it, and the wrong length for a card. It is trimmed from the
+    // end, where the argument is, never from the front, where the filename and the fault
+    // are; the pill still carries the whole of it.
+    const full = r.card.relayProblems[0].why;
+    assert.ok(full.length > 200, 'this refusal is one of the long ones — otherwise the case proves nothing');
+    assert.match(r.card.note, /…/, 'the note says it was cut');
+    assert.ok(!r.card.note.includes(full), 'the whole sentence went onto the card');
+    assert.ok(!r.card.note.includes(full.slice(-40)), 'trimmed from the front, which is where the diagnosis is');
+    assert.ok(r.card.note.includes(full.slice(0, 60)), 'and the filename and the fault survived');
   } finally {
     writeDefinition(DEFINITION);
   }
