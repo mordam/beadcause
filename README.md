@@ -14332,12 +14332,46 @@ either name beads under the epic or they do not. Here the reason *is* the decisi
 "one job" with nothing behind it is indistinguishable from a window that ran out of turn and
 reached for the cheapest exit. The worker opened on that epic reads it before the diff.
 
-lib/plan.js owns the format, `validateWhole` owns the refusals, and lib/epicadvocate.js
-quotes the block rather than spelling it out — an Epic Advocate writes it with `bd comment`
-and `bd label add`, exactly as it already writes the plan, so the two writers of one document
-cannot drift. `test/wholejob.mjs` drives the real `bin/plan.js` against a fake `bd` for the
-three writes and their order; `test/epicqueue.mjs` pins the hold and every way out of it;
-`test/epicadvocate.mjs` pins one case per answer.
+lib/plan.js owns the format and `validateWhole` owns the refusals. `test/wholejob.mjs` drives
+the real `bin/plan.js` against a fake `bd` for the three writes and their order;
+`test/epicqueue.mjs` pins the hold and every way out of it; `test/epicadvocate.mjs` pins one
+case per answer.
+
+### An Epic Advocate reaches that same door through `beadcause-epicplan`, not by hand-typing the markers
+
+The door above assumes whoever writes the document can run `beadcause-plan` — a real
+`node` process — which is true of a planning **worker** (`worker`'s `allowedTools` is the
+unrestricted CLI default) and was not true of the **Epic Advocate** (bc-jvt0.6). Its
+allowlist (lib/foundation.js's `epic-advocate` role) has no `Bash(node:*)` grant — far too
+wide to add just for this — and `beadcause-plan` is not on PATH regardless, being a
+package.json rename of `bin/plan.js` that only resolves after an `npm link` this install has
+never had (bc-jlop). So until this bead, the one agent that actually writes both of these
+documents wrote them by hand instead: a `bd comment` whose body it typed to match
+`WHOLE_OPEN`/`WHOLE_CLOSE` by eye, then a separate `bd label add`. Nothing checked that what
+it typed was the document it meant — a malformed block reads as no decision at all, and
+silently: the label still goes on, the epic still dispatches, and the reason nobody can
+parse the comment is the only record of why.
+
+`bin/beadcause-epicplan` is the fix, and it is deliberately thin: an extensionless,
+filename-is-the-command wrapper — the same shape `beadcause-get` and
+`beadcause-requirements` already use — that spawns `node bin/plan.js` with its own argv and
+stdin unchanged and exits with whatever that exits with, the same composition
+`b7e-shipgate` uses to spawn `b7e-gate` rather than reimplementing it. It is deliberately
+*not* named `b7e-plan`: lib/tooldecl.js turns any `bin/b7e-*` file's `@grant` header into an
+entry on `DEFAULT_TOOL_LIST`, the read-only surface every `dispatch` reply agent gets, and
+this is neither read-only nor for `dispatch` — it is a tracker write, scoped to the one
+agent that plans epics. It decides nothing of its own: `bin/plan.js` stays the one place
+either document's format, validation and the three-write order live, so a rename there
+cannot leave the wrapper out of step. `Bash(beadcause-epicplan:*)` is on the Epic
+Advocate's allowlist and nowhere else, classified in lib/grants.js as a tracker write held
+only by `epic-advocate` — hand-written there exactly as `beadcause-get` is, rather than
+through `lib/tooldecl.js`'s `@grant` mechanism, because writing a bead's plan is not
+something `dispatch` does at all. lib/epicadvocate.js's brief now tells the agent to pipe
+its YAML into `beadcause-epicplan` for either answer, rather than quoting the markers for
+it to retype. `test/epicplanwrite.mjs` drives the real `bin/beadcause-epicplan` against the
+same fake-`bd` fixture `test/wholejob.mjs` uses, and proves the wrapper is transparent: a
+valid decision reaches the tracker, a refused one is refused with `bin/plan.js`'s own exit
+code and writes nothing, and the flags and stdin survive the extra hop.
 
 **And what happens when that job lands** is the section below: an epic worked as one job is
 delivered by a pull request that merges, and the merge queue deliberately leaves an epic open.
@@ -18430,6 +18464,72 @@ nobody asserts prose on prints nothing and exits `0` — and `2` only for a modu
 that does not resolve to a file. Read-only by construction: every path through it is a
 `readFileSync` and a regex, and it never runs a suite or calls the module it reads.
 
+### What a module exports, with the one line that says what each export is for — `b7e-surface`
+
+`bc-dgx7.28` is the same shape breaking five times rather than once, found by
+[the audit agent](#the-agent-a-session-ending-starts--reading-the-archive-back-for-repeated-work)
+watching five sessions (`bc-bmry.10`, `bc-bmry.11`, `bc-bmry.12`, `bc-khoe.33`,
+`bc-xl7n.102`) each ask "what is in here that I can call" before writing against a
+`lib/` file, and each invent a regex for it — `grep -n "^export"`, `grep -n "^export
+function\|^export const"`, four more spellings across the other four. The tell is in
+what came back empty: `bc-bmry.12` guessed `grep -n "^export function isRoot\|
+^export function isEpic\|^export function isP0"` against `lib/ownership.js` and got
+nothing, because all three are real — as arrow-valued `const`s, which the guessed
+shape does not match — and an empty grep looks exactly like "this file has none of
+those" whichever one is true. `grep`-for-`export` cannot answer the question at all
+against a file whose surface is a *class*: `bc-bmry.10`'s
+`grep -n "show(\|comments(\|list(\|ready(\|search("` against `lib/bd.js` came back
+with nothing, because `show`, `comments` and the rest are methods on `Bd`, and a
+class method carries no `export` keyword of its own. `b7e-def` cannot answer this
+either — it takes a symbol name, and the whole point of the question is that the
+name is not yet known.
+
+```
+b7e-surface <path> [<path> …]      one line per export: kind, name, signature,
+                                     line number, first sentence of its doc comment
+b7e-surface --all <path>           + module-private functions, consts and classes
+b7e-surface --class <Name> <path>  only <Name>'s methods, whichever class it is
+```
+
+A module-level `export function`/`export class`/`export const|let|var` is found the
+same way `b7e-def` finds a definition — matched against the trimmed start of a
+line — restricted to lines at curly-brace depth `0`, so a same-shaped line inside a
+function body is never mistaken for a second top-level export. **A file whose whole
+surface is a class does not read as empty**: every class found this way (exported,
+or — with `--all` — not) has its direct methods listed nested underneath it, found
+the same disambiguated way `b7e-def` tells a method definition apart from a call —
+the token immediately after the method head's own `(...)` closes must be `{` — and
+at exactly one brace-depth deeper than the class's own body, which is what keeps a
+bare `if (x) {` or `catch (e) {` *inside* a method from reading as a second, phantom
+method of the class. `lib/bd.js`, whose module-level exports are five guard
+functions and `Bd`, reads as those five and then `Bd` with its ~60 methods under
+it — not as five lines and then silence.
+
+A path that does not resolve to a real, readable source file is a refusal (a
+message on stderr, exit `2`) — never empty output, which is exactly the shape that
+cost `bc-bmry.11` and `bc-bmry.12` a lost call each: a guess that finds nothing
+prints nothing, and nothing looks identical whether the guess was wrong or the file
+was.
+
+**What this does not do.** Destructured exports (`export const { a, b } = x`) are
+not matched, the same bound `b7e-def` accepts for destructured imports. A class
+field assigned an arrow function (`onClick = () => {}`) is not read as a method —
+this codebase's classes use method-shorthand throughout — and comments are not
+blanked before scanning, the same tradeoff `b7e-def` already makes. Signatures are
+read off the source text by the same small hand-rolled scanner as the rest of this
+family, not a real parser, and are truncated for display.
+
+**A regex literal with a quote inside its own pattern is not a string.** `lib/bd.js`'s
+`CLAIM_GUARD_RE` matches a `bd` error that itself quotes an assignee's name back —
+`"[^"]*"` inside the pattern — and the first version of this tool read that
+embedded `"` as a string opening, which put every brace and quote for the rest of
+the file on the wrong side of it and lost all ~60 of `Bd`'s methods. Division and a
+regex literal share the same leading `/` in JavaScript's own grammar, and this tool
+resolves it the way a real tokenizer does: by the character immediately before —
+an identifier, a number, or a value that just closed leaves a value behind, so `/`
+next divides it; anything else — an operator, an open bracket, or nothing yet —
+starts a regex.
+
 ### A new tool declares its own grant, and edits no registry
 
 Adding one `b7e-*` tool used to mean editing three shared lists it had nothing to do with:
@@ -18568,6 +18668,52 @@ Exit code is a linter's: `0` when nothing is owed, `1` when something is. Read-o
 construction in the same sense `b7e-def`/`b7e-owes`/`b7e-affected` are — it only ever
 calls `fs.readdirSync`/`readFileSync`/`statSync` over the files above and prints what
 it found — which is what put `Bash(b7e-enroll:*)` on `DEFAULT_TOOL_LIST` beside them.
+
+### What a repo command takes — without running it to find out — `b7e-usage`
+
+`bc-dgx7.31`, filed by the session audit against `bc-zjab.9`, `bc-zjab.7`, `bc-zjab.8`,
+`bc-xl7n.102`, `bc-y3qk.13` and `bc-zjab.6`: six sessions each needed a `bin/` command's
+flags before calling it, and no two got them the same way. Two of the six ran the
+command itself with `--help` to find out and started a real 400-suite gate sweep
+instead — `b7e-gate` had no branch that did not run the whole thing — and a third
+polled the resulting run for eleven minutes before noticing what had launched it. The
+rest grepped `USAGE\|process.argv` in the file, or read it cold. Every command in this
+repo already carries its own invocation lines and exit codes in its header doc
+comment; this reads that text and nothing else.
+
+```
+b7e-usage                    every command in package.json's bin map, one line each
+b7e-usage --json             the same, structured
+b7e-usage <command>          one command's invocation lines and exit codes, by name
+b7e-usage <path>             the same command, by path — bin/b7e-owes.js resolves the
+                              same as b7e-owes
+b7e-usage <command> --json   the same, structured
+```
+
+`lib/usage.js` does the parsing: the header comment's first paragraph is the one-line
+summary (the name-dash pattern where a header has one, its first sentence otherwise),
+the first run of consecutive paragraphs whose own first line starts with the command's
+*registered* name — not always its filename; `beadcause-deliver` is `bin/deliver.js`,
+`b7e-owes` is `bin/b7e-owes.js` — is the invocation block, plus a trailing `Flags:`
+paragraph where one follows (`b7e-sandbox`'s shape), and the first paragraph anywhere
+that opens "Exit code" is the exit codes. None of it executes the file being read
+about — `fs.readFileSync` and string matching are the whole of it, which is the point:
+asking a command what it takes must never be how a real run of it gets started.
+
+**The second half of what makes this safe to trust is that `--help` on the command
+itself is inert**, everywhere in the family, so running one by hand to check this
+tool's answer never repeats the six sessions' own mistake. `b7e-gate` fell through
+`--help` into a real run before this landed; `b7e-affected`, `b7e-apply`, `b7e-card`,
+`b7e-notes`, `b7e-shard` and `b7e-packet` turned it away as an unrecognised flag, a
+missing positional, or (worst, for `b7e-packet`) a hang on a stdin nothing was ever
+going to write to. All seven now answer `--help` with their own usage line and exit
+`0` before touching real work, and `test/eyeball.mjs` spawns every `bin/b7e-*` file
+with `--help` and a closed stdin to keep it that way.
+
+Exit codes: `0` printed; `1` the command is registered but its file carries no header
+doc comment to read; `2` refused — bad usage, or the name or path given does not
+resolve to anything `package.json`'s `bin` map has. `@grant read`: it only ever reads
+`package.json` and the files under `bin/` it is asked about.
 
 ### Which of these commands answers this question — `b7e-which`
 
@@ -19166,6 +19312,141 @@ Exit `0` when at least one group returned something, `1` when all three came bac
 shape again, not the `npm test`/`b7e-gate` one. Its one write-shaped-looking step is
 already covered by an existing grant — `Bash(bd show:*)` is on the same list — and it
 never claims, labels or comments. `lib/grants.js` classifies it `read`.
+
+### Say what the phone will show for this bead's card — `b7e-card`
+
+`bc-dgx7.19`: three sessions (`bc-xl7n.101`, `bc-ka5y.15`, `bc-1kwl`) each hand-wrote a
+`decision` block onto an *existing* bead's notes and then a scratchpad script of their
+own to find out whether it had actually parsed — `beadcause-ask` refuses a body whose
+tail is not a decision block, but only when *creating* a new bead. `bc-xl7n.101` wrote
+its first block with `bd update --append-notes`, then a `dbg.mjs` reporting `notes has
+decision fence: true … question: <the bead's own title>` with no options — the silent
+degradation. A second `dbg.mjs` run against `BLOCK_RE` found the cause: `hint: Costs
+nothing — superseded-by: already keeps it out` — a bead label's colon-space made YAML
+read a nested mapping, and `bd update` had reported success anyway. `bc-1kwl` lost
+`beadcause:waiting`/`beadcause:inmain` markers the same way, writing over `notes` with
+`--notes` rather than appending. `lib/decision.js` (`toQuestion`, `parseDecision`,
+`decisionTail`) already knows how to answer both questions; this is the command that
+asks it, instead of a scratchpad.
+
+```
+b7e-card <bead-id>                          what toQuestion() makes of the bead now
+b7e-card <bead-id> --field notes            just one field, not all three
+b7e-card <bead-id> --file card.md           validate a draft before writing it
+b7e-card <bead-id> --file card.md --field description
+b7e-card <bead-id> --json
+```
+
+**With no `--file`, this is the *after*:** it reads the bead with one `bd show`, runs it
+through `toQuestion` — the identical function the inbox itself calls — and prints the
+question, every option (id, label, hint, `recommended`/`closes:false`/`defers:true`),
+and any parse errors, in the app's own terms rather than implied by a raw field dump.
+`--field` narrows the read to one of `description`/`design`/`notes` instead of all
+three. A bead carrying no `decision` block at all is not a failure — most beads are not
+questions — so `question` falls back to the title and the exit code stays `0`.
+
+**With `--file`, this is the *before*:** the draft is read off disk instead of off the
+bead, parsed the same way, and reported the same way — so a card can be checked before
+it is ever written. A `decision` block that fails to parse — the exact bc-xl7n.101
+shape, a colon inside an unquoted scalar read as a nested mapping — exits non-zero with
+the YAML error *and* the offending source line appended (`→ line 5: hint: Costs nothing
+— superseded-by: already keeps it out`), naming the fix rather than a line/column pair
+nobody wants to go count. Because two of the three sessions above lost markers by
+overwriting `notes` wholesale, the live bead's current content in the target field is
+also scanned for `<!-- beadcause:... -->` markers the draft does not carry, and a write
+that would silently drop one of those (`bc-1kwl`'s failure exactly) is flagged before it
+happens rather than found after.
+
+**Markers, not just the block.** Any `<!-- beadcause:... -->` HTML comment anywhere in
+the field(s) being read — `beadcause:waiting`/`/beadcause:waiting` (`lib/epicadvocate.js`)
+and `beadcause:inmain <branch>` (`lib/inmain.js`) both being the acceptance case here —
+is listed, without needing to import either module's own constants: a generic marker
+scan outlives any one family of them, and this tool has no business knowing every
+family's own opening/closing spelling.
+
+Exit codes: `0` clean, including "no decision block at all" — an ordinary bead, not a
+failure; `1` a decision block is present (on the bead or in the file) and failed to
+parse; `2` refused — bad usage, or the bead was not found.
+
+**On `DEFAULT_TOOL_LIST`**: `@grant read` in its own header — the `b7e-def`/`b7e-owes`/
+`b7e-notes` shape. It runs one `bd show`, reads a file if `--file` is given, and never
+writes anything; `lib/tooldecl.js` classifies it `read` from the declaration alone.
+
+### Retire the answered block and put the next question where the card reads it — `b7e-recard`
+
+`b7e-card` just above says what the phone *will* show. This is the write half: the bead
+has been answered, the answer commissioned work rather than closing anything, and the
+card is still drawing a question that is settled.
+
+`bc-dgx7.27`: three sessions — `bc-khoe.33`, `bc-xl7n.77.1`, `bc-1kwl.29` — each opened
+on exactly that bead and each built the same transaction from scratch. `bc-khoe.33`
+dumped `design` to `/tmp`, assembled the archival comment in `python3`, posted it, wrote
+a new `design` from a heredoc, and ran a third `python3` to cut the stale block out of
+`notes` — which came back `--notes replaced existing notes (use --append-notes to
+preserve)`. `bc-xl7n.77.1` wrote `newdesc.md`, updated, verified through `toQuestion`,
+commented, labelled `human` — and then did the whole thing again the next day as
+`newdesc2.md` when the answer changed. `bc-1kwl.29` wrote a scratchpad script that
+prepended a banner and replaced the trailing question while asserting the body stayed
+byte-identical, then ran its own "which block would render" check.
+
+```
+b7e-recard -w beadcause -b bc-xyz < next.md          the next question, from stdin
+b7e-recard -w beadcause -b bc-xyz -f next.md         …or from a file
+b7e-recard -w beadcause -b bc-xyz -f next.md --dry-run
+b7e-recard -w beadcause -b bc-xyz -f next.md --reason "split-30, answered 2026-08-22"
+b7e-recard -w beadcause -b bc-xyz -f next.md --field design --no-keep
+```
+
+**The trap all three were working around is field precedence.** `toQuestion`
+(`lib/decision.js`) reads `description`, then `design`, then `notes`, and takes the
+**first** block it finds — so a new block appended to `notes` on a bead whose `design`
+still holds a spent one renders nothing new. `bd update` succeeds, the notes read
+perfectly, and the phone draws the old question; the answer Adam then taps is recorded
+against a question nobody asked. That is the whole of the repo memory note
+`a-spent-decision-block-in-design-outranks-a-new-one-in-notes`, and it is a rule a
+command should hold rather than a fact each session rediscovers.
+
+So one call does six things, in this order: validate the new text against `decisionTail`
+(a block, last, with a recommendation on it if it has options); read the bead and find
+**every** block on it; archive the ones it is about to cut, verbatim, in one comment;
+write the new text into `--field` (default `description`) after that field's surviving
+prose and a one-line banner; clear the competing blocks out of the other two fields; and
+read the bead back through `toQuestion` — the same code the phone runs — refusing to
+call it done unless exactly one block survives and the card asks what went in.
+
+**A malformed block writes nothing at all**, which is why validation is step one and
+happens before the tracker is read: no block, a block that is not last, a block whose
+YAML will not parse, options with nothing `recommended` — each exits `2` having spawned
+no `bd` at all.
+
+**It never clobbers a field.** Every write is that field's own prose with the blocks cut
+out of it, so a `<!-- beadcause:… -->` marker anywhere in the three survives — and a
+computed body that has lost one is refused rather than written, because `alreadyAsked`
+(`lib/superseded.js`) matches those across all three fields and dropping one re-asks a
+question that has already been asked. The banner is the one line it writes of its own,
+and a second run replaces the first one's rather than stacking them; every retirement is
+recorded with its `--reason` in the archive comment anyway.
+
+**It says out loud when a cut block was a machine sweep's.** `supersedeAsk`,
+`inMainAsk` and `finishedEpicAsk` each raise their card by appending a block *and* a
+marker to `notes`, and that produces two things worth naming, either of which can happen
+alone. A block is **shadowed** when the bead's description already carried one — that
+card was never drawn and nobody ever saw it, so cutting it changes nothing anybody could
+read. A block is **final** when its field carries a `<!-- beadcause:… -->` marker, drawn
+or not: `alreadyAsked` (`lib/superseded.js`) reads that marker across all three fields
+and will not ask again, and the marker stays, because it is what stops the sweep asking
+twice. Neither is a refusal — retiring a question is the whole job — but both are said
+rather than quietly done.
+
+Exit codes: `0` written, or `--dry-run` printed; `1` the writes went out and the readback
+disagreed — the card on the phone is not the question that was handed in; `2` refused
+before anything was written.
+
+**On `DEFAULT_TOOL_LIST`**: `@grant excluded` in its own header — the `b7e-say`/
+`b7e-write` shape, not the `b7e-card` one beside it. It rewrites the question a bead is
+asking, and `dispatch`, the one agent that list governs, answers a single comment and
+exits. The workers this was built for already carry an unrestricted allowlist. See
+`bin/b7e-recard`, `stripDecisionBlocks` in `lib/decision.js`, and `test/b7erecard.mjs`.
 
 ### Where in README.md something belongs — `b7e-readme`
 
@@ -20830,6 +21111,84 @@ the background; `dispatch`, the one agent this list governs, has no branch and s
 gate of its own to watch.
 
 
+### Starting a gate that outlives the call that started it — `b7e-detach`
+
+`bc-dgx7.25`, filed by the session audit against five sessions — `bc-bmry.9`,
+`bc-bmry.11`, `bc-bmry.12`, `bc-y3qk.11`, `bc-khoe.47` — that each had to solve *"make
+the sweep survive the turn that started it"*, and no two of them solved it the same way.
+A full sweep here is 400+ suites and eight minutes or more, longer than a single tool
+call may run, and `bin/b7e-gate` deliberately never forks: it runs the sweep in its own
+foreground process. So one session used a bare `&` inside a backgrounded tool call, one
+`nohup … & disown` plus two `Monitor` loops and five filler turns, one wrote its own
+double-fork daemon into a scratchpad and had the first invocation refused by the worktree
+guard, and `bc-khoe.47` tried four spellings, read a stale log as a corpse, and ran
+`pkill -9 -f "bin/b7e-gate"` — which killed a *different* live session's gate in another
+worktree and had to be apologised for over `SendMessage`.
+
+```
+b7e-detach                              the whole sweep, in a session of its own
+b7e-detach --only <suite>|<glob> ...    every b7e-gate flag, forwarded unchanged
+b7e-detach --log <path>                 the detached run's whole console output
+b7e-detach --start-timeout <seconds>    how long to wait for the record (default 20; 0 answers at once)
+```
+
+One line back — `run <id> — pid <pid>, log <path>` — and all three of those are what a
+later reader needs: the id for `b7e-watch --run <id> --wait`, the pid for `kill <pid>`,
+and the log for the case where something went wrong before any of it started.
+
+**What actually detaches it**, which is the whole reason this is not a wrapper around
+`nohup`: `spawn(…, { detached: true })` is `setsid(2)` — a session of its own, no
+controlling terminal, and no membership in the process group the calling tool call is
+about to be reaped with. That last part is what the two memory notes on this were
+circling: a `&` from a tool call leaves the child in the caller's group, and the observed
+symptom was a sweep dying at ~5 minutes around suite 88 with the log simply stopping
+after a normally-completed suite, which reads exactly like a crash and is not one. Its
+stdio is three file descriptors and never a pipe, because a pipe whose reader has gone
+hands the child a `SIGPIPE` on its next line of output. `test/b7edetach.mjs` asserts the
+mechanism rather than the symptom: the child's process-group id is its own pid.
+
+**The run id is minted before the child exists.** `bin/b7e-gate` grew one flag for this,
+`--run-id <id>`, passed through to `lib/gaterun.js`'s `startRun` instead of minting one
+there — so the answer is known without reading a log back for it, which is what defeated
+`bc-ka5y.15.3` (by ANSI colour) and `bc-khoe.47` (by reading a stale one). The id is
+still `lib/gaterun.js`'s to build, via the exported `mintRunId`, so a detached run sorts
+and reads identically to one started by hand. `--run-id` refuses anything that is not a
+bare filename — it decides a path — and refuses an id whose run file already exists,
+rather than appending a second `start` line to somebody else's run.
+
+**Having said the id, it then waits for the record.** Briefly — `--start-timeout`
+seconds, 20 by default — so that by the time the line is printed a plain `b7e-watch` with
+no arguments already reports on it. Two things can make that wait expire, and they are
+told apart rather than merged: the child exiting early (a refusal, a bad `--dir`, a
+crash) is reported with the tail of its own log and a non-zero exit, and the child still
+running is the gate queued behind another on this Mac (`acquireSlot`) — a queue, not a
+failure, so the line is printed and the id stays good for whenever the slot frees.
+
+**It refuses the same things `b7e-gate` refuses, before the fork rather than after it.**
+A gate already running on this tree (`gateLockStatus`, the read-only half of the same
+per-tree lock) and a `--dir` that is not a git checkout are both exit `2` with nothing
+started — a child that exits a tenth of a second after being detached is a worse way to
+say "already running" than not detaching at all. There is nothing to clean up either way,
+which is the other half of `bc-khoe.47`'s incident: `b7e-gate` releases both its lock and
+its machine-wide slot on `SIGTERM` (`lib/teardown.js`), so the printed pid is a clean
+`kill`, and a pattern kill — which would reach every other session's gate on this Mac — is
+never the answer.
+
+`--log` is this command's own and is deliberately **not** forwarded: the child's whole
+console goes to that file, which is already every line `b7e-gate --log` would have written
+plus the startup lines that explain a launch that never got going. Everything else —
+`--only`, `--skip`, `--jobs`, `--timeout`, `--json`, `--dir`, and anything after a literal
+`--` — is forwarded verbatim, so this adds no second opinion about what a suite is or how
+many run at once.
+
+Not on `DEFAULT_TOOL_LIST`, for the `b7e-gate` reason exactly: what it starts *is* a
+`b7e-gate` run, and starting one in the background rather than the foreground does not
+make it a lighter capability than the `Bash(npm test:*)` `lib/grants.js` already holds to
+`merge-advocate` alone. Its occasion is a worker session with a branch to gate;
+`dispatch`, the one agent that list governs, answers a phone comment with one `bd comment`
+and has no sweep of its own to start.
+
+
 ### Does a gate run still describe the tree you are about to deliver? — `b7e-gated`
 
 `bc-dgx7.39`, filed by the session audit against four sessions that each launched
@@ -21147,6 +21506,75 @@ general-purpose write into any configured tracker, which is strictly more capabi
 any single mutating `bd` command `lib/grants.js` classifies as a write. A worker session,
 which is what all three originating sessions actually were, already carries an
 unrestricted allowlist and needs no grant to run it.
+
+
+### Which call does this to a bead — `b7e-bd`
+
+`bc-dgx7.20`, filed by the session audit (`lib/sessionaudit.js`) against five sessions
+that each spent real minutes on the same hunt, from opposite ends. `bc-xl7n.114` ran
+`bd --version`, `bd --help`, `bd show --help`, `bd update --help | grep -i "lease\|claim"`,
+`bd ready --help`, `bd heartbeat --help`, `bd reclaim --help`, plus `bd ready --id
+bc-xl7n.114` → `Error: unknown flag: --id` — and eight greps through `lib/` and `bin/` for
+`reclaim`, `heartbeat`, `reclaimStale`, `leaseReclaim`, one of which ran past the 120s
+tool timeout. `bc-khoe.33` and `bc-khoe.48` each ran `bd update --help | grep -i parent`
+a day apart, hunting for how to detach a child. `bc-xl7n.117` and `bc-jvt0.4` each ran
+four greps through `lib/bd.js` for `addLabel`, `reopen`, `children`, `reopenAbandoned` —
+the same four greps, twice, to answer "which method does the write". The answers are
+load-bearing and easy to get wrong: `Bd.addLabel` is `bd label add <id> <label>`, id
+first, label last.
+
+```
+b7e-bd label                    # which Bd method does this, and which raw bd command
+b7e-bd reparent
+b7e-bd close force
+b7e-bd lease
+b7e-bd --method reopenAbandoned # the reverse lookup: everything about one named method
+b7e-bd label --json
+```
+
+**Two questions, one command.** Given an intent — a verb or a short phrase — this
+answers "which `Bd` method (`lib/bd.js`) wraps that" *and* "what does the raw `bd`
+binary installed on this machine call that", side by side, plus any
+`beadcause-memory` note whose key or text names it. `lib/bdintrospect.js` does the
+work and none of it runs `bd` write-shaped: the `Bd` half is read straight out of the
+source (parsed with `acorn`, never executed, never imported), and the raw-`bd` half is
+nothing but `bd --help` and `bd <verb> --help` — informational, no workspace ever
+touched.
+
+**The `Bd`-method search is `lib/already.js`'s `scoreEntry`, reused rather than
+reinvented** — the same convention `b7e-already` (`bc-dgx7.81`) already searches
+`lib/` with: a query word must appear, as a substring, in the method's name or the
+*first line* of its doc comment. That first-line rule is why `b7e-bd reparent` finds
+no `Bd` method: `Bd.graph()`'s doc comment does say, eleven paragraphs down, "the thing
+being cached moves only when somebody deliberately *reparents* a bead" — but that
+sentence is not the first line, and `Bd.update()` — the method that actually builds
+every `--flag` it will ever pass — never touches `--parent` at all; `Bd.adopt()` owns
+that flag alone. Reusing the existing scorer rather than a second, subtly different one
+is what keeps "no `Bd` method wraps this" an honest answer instead of an accident.
+
+**The raw-`bd` search reads every top-level command's *full* `--help` text, not just
+its one-line summary**, which is the other half of the `reparent` answer: `bd --help`'s
+own one-liner for `update` is "Update one or more issues" — nothing about a parent
+anywhere — and the only place the word shows up at all is the `--parent` flag's own
+description, one level down ("New parent issue ID (**reparents** the issue, ...)").
+Fetching every subcommand's full `--help` (still under two seconds for the ~50 this
+install has) is what makes that findable with no hand-maintained synonym table to keep
+in sync with the next `bd` release. Matching is anchored to a *left* word boundary only
+(`\bword`, not `\bword\b`) — `\blease` correctly skips the "lease" sitting inside
+"re**lease**" while still matching "reparent**s**" for the query `reparent`, which a
+two-sided boundary would have missed.
+
+**The argv is read out of the source, never executed.** Most `Bd` methods call
+`this.run(workspace, [literal, array], { retries: N })` directly and that array is
+resolved element by element — a string prints as itself, a parameter like `id` or
+`label` prints as `<id>`, anything more exotic falls back to its own source text. A
+handful (`update`, `create`, `closeAnswered`, …) build the argv into a local `const
+args = [...]` and grow it with conditional `args.push(...)` calls through the body;
+those are resolved too, each push labelled with the `if`/`for` that guards it, which is
+exactly how `update()` is shown to never push `--parent`.
+
+**On `DEFAULT_TOOL_LIST`** via its own `@grant read` header (`bc-wbrhi`) — it never
+writes anything, so there is nothing here `lib/grants.js` would classify a write.
 
 
 ### Count the beads that carry a label or an edge — `b7e-census`
@@ -22659,6 +23087,172 @@ against.
 Exit codes: `0` every mutation was caught. `2` bad usage. `3` a baseline test command was
 already red — nothing was mutated. `1` at least one mutation `SURVIVED` or errored. See
 `bin/b7e-mutate`, `lib/mutate.js` and `test/b7emutate.mjs`.
+
+
+### Read the plan on an epic, or check a candidate before filing it — `b7e-plancheck`
+
+`bc-dgx7.18`, filed by the session audit against three planners that each needed exactly
+this and each built a different one-off. `bc-ka5y.15` filed a `plan.yaml` and was refused
+for a prompt over `MAX_PROMPT_CHARS`, then ran ten successive `python3 - <<'PY'` heredocs
+re-measuring every group's dedented length after each trim, guessing at how the writer's
+own indentation was being stripped, and was refused a second time. `bc-1kwl` was a
+*replan* and needed the plan already on the bead back first: five scratchpad programs —
+`replan.cjs` (reconstructing through `planFrom` over `bd comments --json`), a Python
+trimmer, two versions of an `addgroup.cjs`, and a `verify.mjs` to run `dispatchable` and
+`unplanned` against the live queue by hand. `bc-khoe.33` did the same job a third way,
+with a `dump.mjs` and a `python3 -` pass over the dump to print `prompt len` per group.
+`lib/plan.js` already exported everything all three needed — this is the argv and the
+printing around it, and it never writes.
+
+```
+b7e-plancheck bc-jk4m -w beadcause                       the plan (or whole-job decision)
+                                                           on the bead right now
+b7e-plancheck bc-jk4m -w beadcause --json                 the same facts, machine-readable
+b7e-plancheck bc-jk4m -w beadcause --check plan.yaml      would this candidate be accepted?
+cat plan.yaml | b7e-plancheck bc-jk4m -w beadcause --check
+                                                           same, from stdin
+```
+
+**Named `b7e-plancheck` rather than the `bin/b7e-plan` the bead itself asked for.**
+`bc-jvt0.6` landed a *different* command at that exact path while this one was being
+built — a thin write-shaped proxy that spawns `node bin/plan.js` unchanged, so an Epic
+Advocate (whose allowlist has no `node` grant) can reach the door that already writes and
+validates a plan or a whole-job decision. Opposite direction from this one — theirs
+writes, `@grant excluded`; this one only ever reads, `@grant read` — the same shape as
+`bc-dgx7.86`'s `b7e-write` renaming off `b7e-bd`: two beads settling on one name for
+opposite jobs, resolved by moving the reader rather than the writer, since the writer is
+what an allowlist and a role already depend on by that exact name.
+
+**Default mode prints whichever document actually governs the epic**, by the label the
+epic carries — `planned` or `whole-job` — rather than by which comment merely parses,
+because a comment can outlive a label write that failed (`bin/plan.js` warns and carries
+on rather than refusing). `--check` runs a candidate through the same
+`validatePlan`/`validateWhole` `bin/plan.js` would — same refusals, same exit codes (`3`
+for a shape `bin/plan.js` itself refuses at the YAML/document level, `4` for a legal
+document `validatePlan`/`validateWhole` refuses) — without writing the comment, the
+label, or the handback.
+
+**Both modes end with the two verdicts a planner actually needs.** `unplanned` — every
+ready bead under the epic no group names, the one that freezes the whole subtree until
+it is cleared, at whatever depth the export's parent edges reach (see
+"A plan may now name a bead under its epic at any depth" above). And `dispatchable` —
+which groups a tick could actually open a window on. The second is **best-effort**: which
+windows are already live is `a.workers`, in-memory state inside the daemon's own process
+that nothing outside it can read (see `DISPATCHED_PREFIX`'s own header in
+`lib/advocate.js`) — so a group is treated as live here when the tracker itself shows one
+of its beads `in_progress`, the same mark a real worker window's first line
+(`bd update --claim`) leaves. Close to `a.workers`, not identical to it: a bead claimed by
+hand outside dispatch reads the same way.
+
+One `bd export` (`Bd.graph`, already cached a minute) answers both `unplanned`'s parent
+edges and `dispatchable`'s live-bead guess together — the same status map also backs
+`isClosed`'s `unclosed`/`done` verdict, so nothing here pays for a second read of it.
+
+Exit codes: `0` printed — a plan or whole-job decision exists, or `--check` reports a
+candidate that would be accepted. `1` bad usage. `2` the tracker would not answer, or the
+epic does not exist. `3`/`4` — see above. `Bash(b7e-plancheck:*)` is on
+`DEFAULT_TOOL_LIST`, declared `@grant read` in the command's own header: every `bd` verb
+it spawns (`show`, `comments`, `children`, `export`, `ready`, a batched `show` for surface
+notes) is a read, and `--check` validates in memory only. See `bin/b7e-plancheck` and
+`test/b7eplancheck.mjs`.
+
+
+### One field of a bead, raw, and the readback that proves a write landed — `b7e-field`
+
+`bc-dgx7.26`, filed by the session audit against five sessions that each needed the
+exact bytes of one field of one bead and each wrote its own extractor, none of them the
+same one: a `node -e` piped from `bd show --json`, a different `node -e` for a different
+field, four separate `python3 -c` snippets in one session, five in another (one of which
+dumped `design` to a scratch file and reported its length by hand), a scratchpad
+`extract.py` that got refused by the classifier and was redone inline. Two of the five
+could not use `bd show` at all without a detour — it emitted 37.8 KB and 83.8 KB, both
+persisted to a tool-result file that then had to be read back and grepped before the
+session could see the one field it wanted. The other half of the same shape is
+*verifying a write landed* — `byte-identical: True 4147`, `before 6178 after 5772` — the
+same question asked three ways, none of them reusable.
+
+```
+b7e-field -w beadcause -b bc-xyz notes                     the notes body, raw
+b7e-field -w beadcause -b bc-xyz description acceptance    two fields, each under a
+                                                             ── <field> rule
+b7e-field -w beadcause -b bc-xyz --all                      every field with a value
+b7e-field -w beadcause -b bc-xyz notes --len                notes 453             (bytes,
+                                                             not the body)
+b7e-field -w beadcause -b bc-xyz notes --verify expect.txt  nothing + exit 0 if identical,
+                                                             a unified diff + exit 1 if not
+```
+
+A field name is one of a fixed set — `description`, `design`, `notes`, `acceptance`,
+`labels`, `status`, `assignee`, `priority`, `title` — never a raw `bd --json` key, so
+`acceptance` (not `acceptance_criteria`) is what a caller types. `labels` prints one
+label per line; every other field prints exactly what `bd show --json` holds for it,
+with no added or stripped newline in single-field mode — the byte-for-byte case the
+bead's own acceptance criteria names. An unset field prints empty rather than being
+refused; a field name that is not one of the nine is refused, naming the ones that are.
+
+**`--verify <file>` is the write-landed half.** It reads the one named field, compares
+it against `<file>` byte for byte, and either prints nothing and exits `0`, or prints a
+unified diff and exits `1` — `git diff --no-index` against a scratch copy of the live
+field, the same trick `lib/show.js` uses for a ref, applied here to two arbitrary files
+rather than a ref and a working tree. It needs exactly one field: combined with `--all`
+or with more than one field name, or with `--len`, it is refused rather than guessing
+which field to compare.
+
+Exit codes: `0` printed, or `--verify` found no difference. `1` `--verify` found a
+difference. `2` refused — bad usage, an unrecognised field name, an unconfigured
+workspace, or the bead does not exist. `Bash(b7e-field:*)` is on `DEFAULT_TOOL_LIST`,
+declared `@grant read` in the command's own header: the only `bd` verb it ever spawns is
+`show`. See `bin/b7e-field` and `test/b7efield.mjs`.
+
+
+### The house skeleton for a new bin/ command — `b7e-scaffold`
+
+`bc-dgx7.32`, filed by the session audit against four sessions (`bc-zjab.7`, `bc-zjab.9`,
+`bc-zjab.10`, `bc-zjab.6`) that each built a new `b7e-*` command by reading two or three
+existing ones for their shape — `bc-zjab.7` read `bin/b7e-def` and `bin/b7e-census` in
+full, then `sed -n '40,219p' bin/b7e-call`; `bc-zjab.10` read `bin/b7e-worktree` and
+`bin/b7e-orient` in full plus `bin/b7e-siblings` — and then disagreed with each other on
+nearly everything they had just copied: extensionless naming vs `bin/b7e-owes.js` and
+`bin/b7e-say.js`, everything in the bin file vs a paired `lib/` module, exit code `1` vs
+`2` for a bad argv. The shape had already been written down as an assertion —
+`test/eyeball.mjs`'s "the registrations a new bin/ command owes" block — but nothing
+produced the file that block describes.
+
+```
+b7e-scaffold b7e-thing > bin/b7e-thing                    the bare skeleton
+b7e-scaffold b7e-thing --workspace-arg > bin/b7e-thing     with the -w/-b + loadConfig()
+                                                            block bin/b7e-field's shape uses
+b7e-scaffold b7e-thing --json-mode > bin/b7e-thing         with a --json flag and branch
+b7e-scaffold b7e-thing --lib                               bin file, then a marked-off
+                                                            lib/thing.js stub — split them
+                                                            yourself, this prints both
+```
+
+It **prints, it never writes** — the bare and flag-combined cases are one file, ready to
+redirect straight to `bin/<name>`; `--lib` adds a second, clearly delimited section
+naming the `lib/` path to save it under, because two files cannot both come out of one
+redirect. A name that does not start with `b7e-`, or that already exists in `bin/`, is
+refused rather than silently producing something that would overwrite a real command.
+
+**What the printed skeleton bakes in, and why each is a decision already made
+elsewhere, not a guess this command invents:** extensionless naming, because only that
+resolves on `PATH` from `lib/foundation.js`'s `bin/`-first prefix; exit `2` for a refused
+bad argv, the majority convention across the existing `b7e-*` family; and, for `--grant`,
+**no default at all** — the printed header carries a TODO naming the three real choices
+(`@grant read` / `@grant write` / `@grant excluded`) rather than picking one, because
+`lib/tooldecl.js` treats leaving a tool undeclared as a real, checked state (the same one
+`b7e-packet` and `b7e-say` are in today) and a scaffold that guessed would be deciding an
+allowlist question on the author's behalf. The TODO prose is written so it cannot
+accidentally match `lib/tooldecl.js`'s own `@grant` pattern — `test/scaffold.mjs` asserts
+that directly, so a scaffolded-but-unfinished command can never read as already decided.
+
+The templates live in `lib/scaffold.js`, so `test/scaffold.mjs` can assert what they say
+without spawning a process for every case; `bin/b7e-scaffold` is the argv parsing and the
+refusals around them. Exit codes: `0` printed. `2` refused — bad usage, a name that
+isn't `b7e-<word>` shaped, or a name that collides with a file already in `bin/`.
+`Bash(b7e-scaffold:*)` is on `DEFAULT_TOOL_LIST`, declared `@grant read` in the command's
+own header — it reads `bin/` and prints text, nothing it does ever writes. See
+`bin/b7e-scaffold`, `lib/scaffold.js` and `test/scaffold.mjs`.
 
 
 ### Which requirement a change was for — `refs/beadcause/requirements`
@@ -28322,8 +28916,9 @@ word-set comparison solves — loosening the bar on a graph of several hundred l
 similarly-worded titles (this repo's own convention) would trade a sweep that misses
 real pairs for one that wires unrelated beads together every cycle. So this sweep
 catches what its acceptance criterion actually asks for — a near-verbatim title with
-no edge — and the harder case of the same bug in different words is still open work,
-not a bug in this file.
+no edge — and the harder case of the same bug in different words is
+[the section after next](#and-the-harder-case-the-same-job-in-different-words), not a
+bug in this file.
 
 `node test/dupesweep.mjs` (in `npm test`) covers the plan against real `bd export`
 JSONL through `indexFrom` — an unjoined near-verbatim pair, a pair already linked by
@@ -28331,6 +28926,71 @@ any edge type, one merely sharing a few words, a closed bead, a question on eith
 side, a deterministic three-way tie — and the round trip against a fake `bd`: what it
 writes, that the graph refreshes once per batch rather than once per write, and a
 rejected write landing in the answer rather than throwing into the poll cycle.
+
+### And the harder case: the same job in different words
+
+The section above leaves the hard half open, and this is it. A 0.9 word-set bar catches a
+bead typed twice and nothing else, which is worth having and is not what this graph
+actually produces. The measurement, on beadcause itself: **twelve live beads carry
+`superseded-by:`**, each one a duplicate a worker found by hand and could not close.
+Scored against the bead each duplicates, with this repo's own `titleSimilarity`, they run
+**0.07 to 0.64** — median 0.30, top of the range 0.64. Not one is within reach of 0.9.
+Eleven of the twelve carry `agent-filed`: they came through `beadcause-file`, from a
+session deep in one bead that had not read the tracker.
+
+Lowering the bar does not work, and that was measured too, over all 45,451 live
+non-`human` pairs:
+
+| bar | flags | catches |
+|---|---|---|
+| `dice >= 0.50` | 11 pairs | 2 of 12 |
+| `dice >= 0.40` | 45 pairs | 4 of 12 |
+| `dice >= 0.35` | 100 pairs | 5 of 12 |
+
+Eight times more noise than signal at the loosest bar that catches even five. Requiring a
+shared source file alongside it halves the flags and adds no recall; structure alone is
+worse, with 583 of those pairs sharing files at Jaccard ≥ 0.5 against twelve real
+duplicates. **No lexical threshold separates the two populations**, because what separates
+them is what the words mean.
+
+So `lib/samejob.js` shortlists cheaply and judges semantically:
+
+1. **The shortlist** is pure — no model, no spawn. Three signals, none decisive: a shared
+   file surface (declared *and* prose, unioned, where `surfaceOf` takes one or the other),
+   kinship — two beads in one epic's family, which is three of the twelve pairs — and title
+   similarity at `TITLE_FLOOR` (0.25), far below the near-verbatim bar. Anything clearing
+   any signal is a candidate; the top eight by combined score go on. Replayed over the
+   twelve pairs at the moment the second of each was filed, the first is in that top eight
+   **ten times**. The two misses are epics with generic titles naming no path at all, and
+   they are named in the suite rather than buried in a ratio.
+2. **The judge** is one headless `claude -p` over those eight rows, running as the chat
+   session's foundation for lib/sessionaudit.js's reason — a read-only judge needs exactly
+   the read-only surface every reading agent has, and a new foundation kind owes five
+   registrations before it can run. It is affordable because the shortlist handed it eight
+   rows and not three hundred: about 7 KB of prompt.
+
+**This one refuses, where the create-time flag does not.** lib/dupe.js's rule is that
+refusing loses work nobody can send back — true of a crash the daemon files on itself at
+04:00, and not true here. A session ran `beadcause-file` and is still holding the context
+that produced it, so it is told which bead covers the work, **what it wrote is committed as
+a comment on that bead** rather than dropped, and `--force` files anyway in the same breath.
+The observation survives the refusal; that is the whole reason a refusal is affordable.
+Refused filings exit **5**, distinct from 4 — both mean "you did not get every bead you
+asked for", and only one of them is worth retrying.
+
+Every failure is a pass. A judge that cannot start, times out, answers nonsense, or names
+a bead it was never shown files the bead and says so on stderr. The errors are not
+symmetric and the prompt says so out loud: a wrong `none` costs one duplicate bead, which
+is ordinary and gets tidied later, while a wrong name throws away a discovery a session
+cannot find again.
+
+`node test/samejob.mjs` (in `npm test`) covers the shortlist against the real corpus —
+`test/fixtures/samejob-pairs.json` is those twelve pairs, real titles and descriptions,
+each oriented as a create-time check would meet it — plus the exclusions (closed, `human`,
+ignored), the cap, the deterministic tie order, and the verdict plumbing through an
+injected runner: an invented id, `none`, unparseable YAML, no block at all and a spawn that
+throws are each asserted **not** to be a refusal.
+
 
 ### What you just filed, one tap away
 
