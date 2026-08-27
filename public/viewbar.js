@@ -271,9 +271,10 @@
     // bc-khoe.50 put it in the table. Nothing here changed to make that work, which is
     // the point of asking rather than knowing.
     //
-    // Its pane in index.html is still `data-pending` (bc-khoe.60), so `panes?.has` says
-    // no on the shell and this stays the `<a>` it has always been there — the same
-    // two-step History, Advocates and Releases each went through.
+    // Its pane in index.html was `data-pending` until bc-khoe.60 filled it — the same
+    // two-step History, Advocates and Releases each went through, and nothing here
+    // changed to make that work either: `panes?.has` answers yes on the shell now, and
+    // this pill draws as the row's control rather than this `<a>` the moment it does.
     { id: 'config', href: '/config', icon: '🎛', label: 'Config' },
   ];
 

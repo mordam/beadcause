@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+/**
+ * `beadcause-epicplan` — the one door an Epic Advocate can walk through to record either
+ * answer for a childless epic (or a group plan), validated, instead of hand-typing the
+ * markers.
+ *
+ *   beadcause-epicplan -w <workspace> -b <epic> < plan.yaml
+ *
+ * bc-jvt0.6. `bin/plan.js` (`beadcause-plan`) already owns both documents — `groups:` and
+ * `whole:` — and validates, writes and hands the epic back atomically, in that order. The
+ * Epic Advocate (lib/foundation.js's `epic-advocate` role) cannot run it: its allowlist has
+ * no `node` grant (`Bash(node:*)` would be far too wide — see the role's own comment beside
+ * `writes: true`), and `beadcause-plan` is not on PATH regardless, because it is a
+ * package.json rename of `bin/plan.js` and this install has never had the `npm link` that
+ * would make the mapped name resolve (bc-jlop). So the one agent that actually writes these
+ * documents wrote them by hand instead — a `bd comment` whose body it typed to match the
+ * markers by eye, then a separate `bd label add` — and nothing checked that what it typed
+ * was the document it meant. A malformed block reads as no decision at all, silently: the
+ * label goes on, the epic dispatches, and the reason nobody can parse the comment is the
+ * only record of why.
+ *
+ * This is *not* named `b7e-plan` on purpose, even though it is a command an agent runs by
+ * name — lib/tooldecl.js's `@grant` header turns any `bin/b7e-*` file into an entry on
+ * `DEFAULT_TOOL_LIST`, the read-only surface every `dispatch` reply agent gets, and this is
+ * neither read-only nor for `dispatch`. It is a tracker *write*, scoped to the one agent
+ * that plans epics, classified directly in `lib/grants.js`'s `GRANTS` and granted only to
+ * `epic-advocate` in lib/foundation.js — the same shape `beadcause-get` and
+ * `beadcause-requirements` already use for a hand-written, single-purpose grant. That is
+ * also why it is filename-is-the-command rather than a `package.json` rename: no `npm
+ * link` this install has ever had stands between an agent and running it.
+ *
+ * It decides nothing of its own: it spawns `node bin/plan.js` with this process's own argv
+ * and stdin, unchanged, and exits with whatever that exits with — the same composition
+ * `bin/b7e-shipgate` uses to spawn `bin/b7e-gate` rather than reimplementing it.
+ * `bin/plan.js` stays the one place either document's format, validation and the
+ * three-write order live; this only changes who can reach it without a wide `node` grant.
+ */
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const PLAN_BIN = path.join(HERE, 'plan.js');
+
+const result = spawnSync(process.execPath, [PLAN_BIN, ...process.argv.slice(2)], { stdio: 'inherit' });
+if (result.error) {
+  console.error(`beadcause-epicplan: could not run bin/plan.js — ${result.error.message}`);
+  process.exit(1);
+}
+process.exit(result.status ?? 1);
