@@ -50,6 +50,8 @@
  * Exit codes: whatever `b7e-gate` exits with — `0` every selected suite passed, `1` at
  * least one failed or timed out (`0`, with nothing run, when every matched suite was a
  * browser check). `2` refused: bad usage, or `b7e-affected` itself refused.
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';

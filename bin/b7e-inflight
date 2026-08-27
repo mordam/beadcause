@@ -29,6 +29,17 @@
  * itself could not be asked (no CLI, not authenticated, GitHub unreachable, or a
  * transient failure) — printed as "unknown", never folded into "nothing open". `4`
  * `--bead` or `-w` named something this checkout's tracker does not have.
+ *
+ * Read-only in construction as well: it asks `gh` (pr list/view/diff, all reads) and
+ * `bd show`, and never writes to a pull request or a bead. bc-4r10.19 is the argument —
+ * three sessions (bc-4r10.1, bc-khoe.30.6, bc-khoe.30.5) each hand-rolled a different
+ * raw-`gh` survey of what the open pull requests were actually doing, one of them nearly
+ * reading a three-day-old, 593-commits-stale check run as its own branch's breakage. See
+ * lib/prsurvey.js — **not** lib/inflight.js, which is a different, pre-existing module
+ * (which bead is held behind an open pull request, for the advocate) that this work nearly
+ * overwrote by picking its name; lib/prsurvey.js's own header keeps the same distinction.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';

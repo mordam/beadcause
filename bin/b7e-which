@@ -6,7 +6,7 @@
  *   b7e-which "run the whole suite" ranked matches — b7e-gate above b7e-gates
  *   b7e-which flaky                 a bare word works the same way as a phrase
  *   b7e-which --json                one JSON object per line instead of the printed report
- *   b7e-which --dir <root>          another tree's bin/, README.md and lib/toolbelt.js —
+ *   b7e-which --dir <root>          another tree's bin/ and README.md —
  *                                   this is how it is tested
  *
  * Filed by the session audit (`lib/sessionaudit.js`) against five sessions that each
@@ -21,6 +21,8 @@
  * result, not a failure this treats as bad usage. Exit codes: `0` ran to completion,
  * whatever it found; `2` refused — bad usage, or `--dir` names something that is not a
  * checkout with a bin/ of its own.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,7 +39,7 @@ why not) and its README.md section, and ranks them against what you ask.
   (no argument)       the whole index, every command, sorted by name
 
   --json             one JSON object per line instead of the printed report
-  --dir <root>        another tree's bin/, README.md and lib/toolbelt.js`;
+  --dir <root>        another tree's bin/ and README.md`;
 
 const argv = process.argv.slice(2);
 if (argv.includes('--help') || argv.includes('-h')) {

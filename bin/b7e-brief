@@ -44,6 +44,8 @@
  * Exit codes: `0` always, once argv parses — there is no "found nothing" here, only
  * sections that are shorter because a key is not currently set. `2` bad usage
  * (an unrecognised --section value).
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
