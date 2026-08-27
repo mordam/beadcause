@@ -364,8 +364,17 @@ try {
     });
   }
 } finally {
+  // Two calls each, not one — bc-dgx7.40. `onExit` hands back a *disarm*: it marks the job
+  // done and splices it out of the list, and it never runs `fn` itself. So the disarm alone
+  // does not release anything; it only guarantees the exit handler behind it will not.
+  // Calling it and nothing else is how a clean run came to leave its lock file in the OS
+  // temp dir forever, harmless only because the next `acquireLock` reads a dead pid and
+  // reclaims it as stale. This is the two-call shape `scripts/helpers/chrome.mjs`'s
+  // teardown and `lib/counterproof.js` already use: disarm, then do the release for real.
   releaseLock();
+  lock.release();
   releaseSlot();
+  slot.release();
 }
 
 if (!result.total) {

@@ -27,6 +27,10 @@
  *    relay a `--role` was meant to belong to. Asserted both as `rolesAcross` and by running
  *    the real command, because the interesting half is *which directories it decides to
  *    ask*, and that lives in the bin rather than in lib.
+ * 5. **A repo-defined relay is not a route around the endorsement gate** (bc-ogicx.9). The
+ *    epic's one non-negotiable, and the only criterion of that bead nothing in this repo
+ *    covered: a definition may change what a window is briefed with and may not change
+ *    whether the window opens at all.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -50,6 +54,7 @@ process.env.TMPDIR = SPOOL;
 
 const { forgetRelayDefs, rolesAcross, RELAY_DIR } = await import(path.join(ROOT, 'lib', 'relaydefs.js'));
 const { openWorkSession } = await import(path.join(ROOT, 'lib', 'session.js'));
+const { UNENDORSED } = await import(path.join(ROOT, 'lib', 'endorse.js'));
 
 /* --------------------------------------------------------------------- the fixture */
 
@@ -339,6 +344,67 @@ await check('bin/relaystep.js checks --role against the union, in the workspace�
   assert.match(typo.err, /is not a role in demo/);
   assert.match(typo.err, /mien/, 'the list it offered was not the union');
   assert.ok(!/lore/.test(typo.err), 'the config relay leaked past a checkout that defines');
+});
+
+/* ===================== 5. the endorsement gate is unmoved by a repo-defined relay */
+
+/**
+ * bc-ogicx.9's last criterion, and the epic's own non-negotiable: **a repo-defined relay
+ * must not be a route to dispatching unendorsed work.**
+ *
+ * Everything else in this suite is about a definition changing what a window is *briefed
+ * with*. This is the one thing a definition must not be able to change at all — and it is
+ * the one worth an assertion of its own rather than an argument from the source, because
+ * the two facts that make it true are in different files and neither mentions the other.
+ * `assertEndorsed` (lib/endorse.js) is the first thing `openWorkSession` does; the relay is
+ * resolved forty lines further down, off the row that gate returned. Reordering those, or
+ * resolving a relay before the gate so a chain could be logged for a held bead, would break
+ * nothing else in this repo.
+ *
+ * The refusal is told apart from every other way a launch can fail by its own two fields:
+ * `unendorsed: true`, and **no `prompt`** — lib/launchguard.js hangs the brief it refused on
+ * its error, so an error carrying one is a launch that got as far as building a brief. There
+ * is nothing to assert about a window not opening otherwise; the whole point is that this
+ * refusal happens before the checkout is even read.
+ */
+const held = (over = {}) => row({ assignee: 'aria', labels: [UNENDORSED], ...over });
+
+await check('a bead in a repo-defined relay would relay — the control for the two below', async () => {
+  const dir = checkout({ 'relays.yaml': TWO_RELAYS });
+  const brief = await briefFor(cfgFor(dir), dir, row({ assignee: 'aria' }));
+  assert.match(brief, /This window is a relay/, 'the refusals below would prove nothing');
+  assert.match(brief, /1\. draft {2}aria/);
+});
+
+await check('an unendorsed bead in a repo-defined relay refuses at the launcher door', async () => {
+  const dir = checkout({ 'relays.yaml': TWO_RELAYS });
+  const bead = held();
+  const err = await openWorkSession(cfgFor(dir), ws(dir), bead, { bd: { show: async () => bead } }).then(
+    () => null,
+    (e) => e,
+  );
+  assert.ok(err, 'an unendorsed bead opened a window');
+  assert.equal(err.unendorsed, true, `refused, but not by the endorsement gate: ${err.message}`);
+  assert.match(err.message, new RegExp(UNENDORSED));
+  assert.equal(err.prompt, undefined, 'a brief was built for a bead that may not be worked');
+  assert.notEqual(err.noLaunch, true, 'it reached the launch guard, so the gate did not stop it');
+});
+
+await check('the tracker decides it, not the row the relay would have been resolved off', async () => {
+  // The advocate's queue row is not evidence: `assertEndorsed` asks `bd show` regardless,
+  // and this is the case that says so — a caller-supplied row with no marker on it, over a
+  // bead the tracker says is held, in a checkout that ships a definition naming its role.
+  const dir = checkout({ 'relays.yaml': TWO_RELAYS });
+  const looksFine = row({ assignee: 'aria' });
+  const err = await openWorkSession(cfgFor(dir), ws(dir), looksFine, {
+    bd: { show: async () => ({ ...looksFine, labels: [UNENDORSED] }) },
+  }).then(
+    () => null,
+    (e) => e,
+  );
+  assert.ok(err, 'the caller’s own row was taken as proof of endorsement');
+  assert.equal(err.unendorsed, true, `refused, but not by the endorsement gate: ${err.message}`);
+  assert.equal(err.prompt, undefined);
 });
 
 await cleanupTmp(tmp);

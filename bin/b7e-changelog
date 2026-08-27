@@ -1,0 +1,190 @@
+#!/usr/bin/env node
+/**
+ * `b7e-changelog` — one `CHANGE_LOG.md` entry's line span, `Type:`/`Status:` fields,
+ * `Chapters affected:` checklist and body, all with **real file line numbers** —
+ * sliced by parsing the file's own headings, not by a `grep`-then-`sed` guess at where
+ * one entry ends and the next begins.
+ *
+ *     b7e-changelog -w deluvia 107                 entry 107's full detail
+ *     b7e-changelog -w deluvia 107 --field status   just its Status: line
+ *     b7e-changelog -w deluvia 107 --field body     just its body, with line numbers
+ *     b7e-changelog -w deluvia --list               the index: every entry, in order
+ *     b7e-changelog -w deluvia 107 --ref origin/main
+ *     b7e-changelog -w deluvia 107 --json           the machine-readable form
+ *     b7e-changelog --dir <root> 107                another tree — this is how it is tested
+ *
+ * `bc-dgx7.100`: a session audit found seven sessions (`dv-gr6.47`, `dv-gr6.46`,
+ * `dv-gr6.45`, `dv-gr6.44`, `dv-3rn.2`, `dv-b5d.29`, `dv-gr6.36`) each independently
+ * hand-derived the line span of one `CHANGE_LOG.md` entry before it could edit it —
+ * `grep`/`sed`/`awk` guesses that sometimes landed on the wrong entry entirely
+ * (`dv-gr6.47`'s `sed -n '3600,3640p'` for "Entry 107" is Entry 023). The file is 4,062
+ * lines with 120 `## Entry ` headings (two of them the template, matching no digits),
+ * in **descending, non-contiguous** order — Entry 116 does not exist, so a range built
+ * from arithmetic on the number (`awk '/^## Entry 117/,/^## Entry 116/'`) runs straight
+ * past 117 into 115. See `lib/changelog.js` (`entryDetail`, `entryIndex`) for the read:
+ * headings are found in **file order**, never invented from a number, so a gap in the
+ * numbering costs nothing.
+ *
+ * Distinct from what this family already ships: `bin/b7e-entry` answers "what is the
+ * next free number"; `bin/b7e-propagated` verifies an entry's checklist against the
+ * tree it names. Neither hands back the entry's own text or the line span an `Edit`
+ * has to target, which is what every one of the seven sessions above actually wanted
+ * first — this command, and only this one, does.
+ *
+ * Every read is `readRefFile` (`git cat-file -p <ref>:<path>`) against a resolved ref,
+ * never `fs.readFileSync` against whatever happens to be checked out — so it reads a
+ * worktree's own uncommitted edits not at all and a `.claude/worktrees/*` copy of the
+ * repo not by accident either. Never writes to `CHANGE_LOG.md`, or anywhere else.
+ *
+ * Exit codes: `0` found. `2` bad usage. `4` `-w` named a workspace this Mac has no
+ * config for, or this checkout resolves to none and neither `-w` nor `--dir` was
+ * given. `5` the named entry does not exist in the file at the resolved ref.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { loadConfig } from '../lib/config.js';
+import { workspaceFor } from '../lib/claude.js';
+import { resolveSessionDir } from '../lib/session.js';
+import { changelogLookup } from '../lib/changelog.js';
+
+const USAGE = `usage: b7e-changelog [-w, --workspace <name>] [--dir <root>] [--ref <git-ref>]
+                     [--file <path>] (<entry> | --list) [--field status|type|checklist|body]
+                     [--json]
+
+One CHANGE_LOG.md entry's line span, Type:/Status: fields, checklist and body, all
+with real file line numbers — instead of a grep-then-sed guess at where it starts
+and ends.
+
+  -w, --workspace <name>   which tracker names the checkout to scan (default: this
+                            checkout's own — see lib/claude.js workspaceFor)
+  --dir <root>             scan this directory directly, ignoring -w — this is how it
+                            is tested
+  --ref <git-ref>          the ref to read CHANGE_LOG.md from (default: origin/main
+                            falling back to main — "the delivery base", so a stray
+                            .claude/worktrees/* copy is never read)
+  --file <path>            which file to scan (default: CHANGE_LOG.md)
+  <entry>                  the entry number to look up, e.g. 107 or 078b
+  --list                   print the index of every entry instead of one entry's detail
+  --field <name>           print only this one field: status | type | checklist | body
+  --json                   the machine-readable form instead of the printed report`;
+
+const rawArgv = process.argv.slice(2);
+if (rawArgv.includes('--help') || rawArgv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+function fail(msg, code = 2) {
+  console.error(`b7e-changelog: ${msg}`);
+  process.exit(code);
+}
+
+const FIELDS = ['status', 'type', 'checklist', 'body'];
+
+let wsName = null;
+let dirGiven = null;
+let ref = null;
+let file = 'CHANGE_LOG.md';
+let list = false;
+let field = null;
+let jsonMode = false;
+let entry = null;
+
+for (let i = 0; i < rawArgv.length; i += 1) {
+  const a = rawArgv[i];
+  const next = () => {
+    const v = rawArgv[i + 1];
+    i += 1;
+    return v;
+  };
+  switch (a) {
+    case '-w':
+    case '--workspace':
+      wsName = next();
+      break;
+    case '--dir':
+      dirGiven = next();
+      break;
+    case '--ref':
+      ref = next();
+      break;
+    case '--file':
+      file = next();
+      break;
+    case '--list':
+      list = true;
+      break;
+    case '--field':
+      field = next();
+      break;
+    case '--json':
+      jsonMode = true;
+      break;
+    default:
+      if (a.startsWith('-')) fail(`unknown flag ${a}`);
+      if (entry !== null) fail(`only one entry number, already have ${entry}`);
+      entry = a;
+  }
+}
+
+if (!list && !entry) fail('give an entry number or --list', 5);
+if (list && entry) fail('an entry number and --list are mutually exclusive', 2);
+if (field && list) fail('--field applies to one entry, not --list', 2);
+if (field && !FIELDS.includes(field)) fail(`--field must be one of: ${FIELDS.join(', ')}`, 2);
+
+let ROOT;
+if (dirGiven) {
+  ROOT = path.resolve(dirGiven);
+} else {
+  const cfg = loadConfig();
+  const known = () => (cfg.workspaces || []).map((w) => w.name).join(', ');
+  const name = wsName || workspaceFor(cfg, process.cwd());
+  const ws = name ? (cfg.workspaces || []).find((w) => w.name === name) : null;
+  if (!ws) {
+    fail(
+      wsName
+        ? `no workspace called ${wsName} — ${known()}`
+        : `this checkout resolves to no workspace — name one with -w (${known()})`,
+      4
+    );
+  }
+  ROOT = resolveSessionDir(cfg, ws);
+}
+
+let result;
+try {
+  result = await changelogLookup(ROOT, { ref, file, entry, list });
+} catch (err) {
+  fail(err.message, 5);
+}
+
+if (jsonMode) {
+  console.log(JSON.stringify(result, null, 2));
+} else if (list) {
+  console.log(`${result.file} at ${result.ref} — ${result.entries.length} ${result.entries.length === 1 ? 'entry' : 'entries'}`);
+  for (const e of result.entries) {
+    console.log(`  ${e.entry.padStart(4)}  line ${e.startLine}${e.date ? `  ${e.date}` : ''}`);
+  }
+} else if (field === 'status') {
+  console.log(result.status ?? '(no Status: field)');
+} else if (field === 'type') {
+  console.log(result.type ?? '(no Type: field)');
+} else if (field === 'checklist') {
+  for (const row of result.checklist) console.log(`  ${row.line}: [${row.checked ? 'x' : ' '}] ${row.text}`);
+} else if (field === 'body') {
+  for (const row of result.body) console.log(`${row.line}: ${row.text}`);
+} else {
+  console.log(`${result.file} at ${result.ref} — Entry ${result.entry}, lines ${result.startLine}-${result.endLine}`);
+  console.log(result.heading);
+  if (result.type) console.log(`Type: ${result.type}`);
+  if (result.status) console.log(`Status: ${result.status}`);
+  if (result.checklist.length) {
+    console.log('Chapters affected:');
+    for (const row of result.checklist) console.log(`  ${row.line}: [${row.checked ? 'x' : ' '}] ${row.text}`);
+  }
+  console.log('Body:');
+  for (const row of result.body) console.log(`${row.line}: ${row.text}`);
+}
+
+process.exitCode = 0;
