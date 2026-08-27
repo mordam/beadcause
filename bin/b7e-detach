@@ -1,0 +1,238 @@
+#!/usr/bin/env node
+/**
+ * `b7e-detach` — start the gate so it outlives the call that started it, and hand back
+ * the run id in one line.
+ *
+ *     b7e-detach                                # the whole sweep, in the background
+ *     b7e-detach --only 'test/b7e*.mjs'         # every b7e-gate flag, forwarded unchanged
+ *     b7e-detach --jobs 6 --skip test/browse.mjs
+ *     b7e-detach --log /tmp/mygate.log          # where the run's console output goes
+ *     b7e-detach --start-timeout 0              # do not wait for the record; print and go
+ *
+ * bc-dgx7.25, filed by the session audit (`lib/sessionaudit.js`) against five sessions —
+ * bc-bmry.9, bc-bmry.11, bc-bmry.12, bc-y3qk.11, bc-khoe.47 — that each had to solve
+ * "make the gate survive the turn that started it", and no two of them solved it the
+ * same way. A full sweep here is 400+ suites and eight minutes or more, longer than a
+ * single Bash call may run, and `bin/b7e-gate` deliberately never forks: it runs the
+ * sweep in its own foreground process. So every one of those sessions wrote its own
+ * launcher, and the two memory notes that speak to it disagree — one measured a plain
+ * `nohup … &` dying at ~5 minutes around suite 88 with the log simply stopping, the
+ * other prescribes a real double-fork daemon. Both are describing the same thing: a
+ * `&` from a tool call leaves the child in the caller's own process group and session,
+ * and it is reaped with it. `bc-khoe.47` went furthest wrong — four failed launches, a
+ * stale log read as a corpse, and then a `pkill -9 -f "bin/b7e-gate"` that killed a
+ * *different* live session's gate in another worktree, which it had to apologise for
+ * over `SendMessage`.
+ *
+ * **What actually detaches it**, and why this is not a wrapper around `nohup`:
+ * `spawn(…, { detached: true })` calls `setsid(2)` in the child — a new session with no
+ * controlling terminal, which is exactly what the hand-written double-fork daemon was
+ * for — and its stdio is three file descriptors, never a pipe back to this process. So
+ * nothing here is the child's parent by the time this exits, no terminal hangup can
+ * reach it, and `unref()` means this process is free to leave the moment it has an
+ * answer. There is nothing to `pkill`: the one line printed carries the child's own pid,
+ * and `b7e-gate` releases both its per-tree lock and its machine-wide slot on `SIGTERM`
+ * (`lib/teardown.js`), so `kill <pid>` is a clean stop.
+ *
+ * **The run id is minted here, not read back out of the child's log.** `--run-id` is
+ * passed straight through to `bin/b7e-gate`, which hands it to `lib/gaterun.js`'s
+ * `startRun` instead of minting one — so the answer is known before the child has done
+ * anything at all, and no caller ever has to grep a log for it (which is what defeated
+ * `bc-ka5y.15.3` by ANSI colour, and `bc-khoe.47` by reading a stale one). Having said
+ * it, this then *waits* — briefly, `--start-timeout` seconds, default 20 — for the run
+ * record to actually appear on disk, so that by the time the line is printed a plain
+ * `b7e-watch` with no arguments already reports on it.
+ *
+ * Two things can make that wait expire, and they are told apart rather than merged:
+ * the child exiting early (a refusal, a bad `--dir`, a crash) is reported with the tail
+ * of its own log and a non-zero exit, and the child still running is the gate queued
+ * behind another on this Mac (`acquireSlot`, bc-xlz32.1) — a queue, not a failure, so
+ * the line is printed and the id stays good for whenever the slot frees.
+ *
+ * `--log` is this command's own and is deliberately **not** forwarded to `b7e-gate`:
+ * the child's whole console goes to that file, which is already every line the gate's
+ * own `--log` would have written plus the startup lines that explain a launch that
+ * never got going. Every other flag — `--only`, `--skip`, `--jobs`, `--timeout`,
+ * `--json`, `--dir`, and anything after a literal `--` — is forwarded verbatim, so this
+ * adds no second opinion about what a suite is or how many run at once.
+ *
+ * Exit codes: `0` the run is started (or queued for a slot); `1` the gate died before
+ * it recorded anything; `2` refused — bad usage, a tree that is not a git checkout, or
+ * a gate already running on this same tree.
+ *
+ * @grant excluded
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { REPO_ROOT, gateLockStatus } from '../lib/gate.js';
+import { GATE_BIN } from '../lib/shipgate.js';
+import { mintRunId, runFile, runsDir } from '../lib/gaterun.js';
+import { git, ok } from '../lib/gitref.js';
+
+const argv = process.argv.slice(2);
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+const USAGE = `usage: b7e-detach [--log <path>] [--start-timeout <seconds>] [b7e-gate flags...]
+
+Starts \`b7e-gate\` in a session of its own — it survives this call, this turn and this
+terminal — and prints one line: the run id, the pid and the log.
+
+  --log <path>              the detached run's whole console output (default: a tmp file)
+  --start-timeout <sec>     how long to wait for the run record before answering anyway
+                            (default 20; 0 answers immediately)
+
+Every other flag is forwarded to \`b7e-gate\` unchanged — --only, --skip, --jobs,
+--timeout, --json, --dir, and anything after a literal --. Read the run back with
+\`b7e-watch\` (no arguments) or \`b7e-watch --run <id> --wait\`; stop it with \`kill <pid>\`,
+never a pattern kill, which would reach every other session's gate on this Mac.`;
+
+/**
+ * Everything after a literal `--` belongs to `tools/partest.py` on `b7e-gate`'s Python arm
+ * and is nobody else's to read or rewrite — so both the flag reader and the forwarder work
+ * over `HEAD` only, and `TAIL` is appended untouched. Without this split a `b7e-detach
+ * --dir <tree> -- --log x` would have its own `--log` recognised inside somebody else's argv.
+ */
+const DASH_AT = argv.indexOf('--');
+const HEAD = DASH_AT === -1 ? argv : argv.slice(0, DASH_AT);
+const TAIL = DASH_AT === -1 ? [] : argv.slice(DASH_AT);
+
+/** `--flag value` and `--flag=value`, read without removing it from the forwarded argv. */
+const value = (flag, fallback) => {
+  const inline = HEAD.find((a) => a.startsWith(`${flag}=`));
+  if (inline) return inline.slice(flag.length + 1);
+  const at = HEAD.indexOf(flag);
+  return at === -1 ? fallback : (HEAD[at + 1] ?? fallback);
+};
+
+/**
+ * Everything `b7e-gate` should see: this command's own flags removed, in both spellings,
+ * and nothing else touched.
+ */
+function forwarded(own) {
+  const out = [];
+  for (let i = 0; i < HEAD.length; i++) {
+    const a = HEAD[i];
+    if (own.includes(a)) {
+      i += 1; // its value goes with it
+      continue;
+    }
+    if (own.some((f) => a.startsWith(`${f}=`))) continue;
+    out.push(a);
+  }
+  return [...out, ...TAIL];
+}
+
+if (HEAD.includes('--help') || HEAD.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const startTimeoutArg = value('--start-timeout', null);
+if (startTimeoutArg != null && (startTimeoutArg === '' || !Number.isFinite(Number(startTimeoutArg)))) {
+  console.error(red(`--start-timeout wants a number of seconds, not ${startTimeoutArg}`));
+  process.exit(2);
+}
+const startTimeoutMs = startTimeoutArg == null ? 20_000 : Math.max(0, Number(startTimeoutArg)) * 1000;
+
+/**
+ * A tree that is not a git checkout records nothing — `startRun` needs `git rev-parse`
+ * for the branch, the sha and the tree snapshot, and `b7e-gate` catches that failure and
+ * runs anyway. That is right for `b7e-gate`, whose job is to run suites; it is wrong
+ * here, where the whole deliverable is a run id somebody can come back to. Refuse up
+ * front rather than spend `--start-timeout` seconds waiting for a record that can never
+ * be written.
+ */
+if ((await ok(git(ROOT, ['rev-parse', '--git-dir']))) === null) {
+  console.error(red(`${ROOT} is not a git checkout`));
+  console.error(dim('a detached run is only worth starting if its record can be written; `b7e-gate --dir` runs one there without a record'));
+  process.exit(2);
+}
+
+/**
+ * The same refusal `b7e-gate` itself makes, made before the fork rather than after it —
+ * a child that exits 2 a tenth of a second after being detached is a worse way to say
+ * "already running" than not detaching at all. The window between this read and the
+ * child taking the lock is covered too: it exits 2, and the early-exit branch below
+ * reports that exactly as this does.
+ */
+const held = gateLockStatus(ROOT);
+if (held) {
+  const since = held.startedAt ? `${Math.round((Date.now() - held.startedAt) / 1000)}s ago` : 'a while ago';
+  console.error(red(`a gate is already running on this tree — pid ${held.pid}, started ${since}`));
+  console.error(dim('refusing rather than doubling the load; `b7e-watch` reports on that run'));
+  process.exit(2);
+}
+
+/**
+ * Minted here so the answer exists before the child does — but minted by `lib/gaterun.js`
+ * rather than spelled a second time here, so a run started this way carries the same
+ * `<worktree>-<timestamp>-<rand>` id `startRun` would have chosen and sorts alongside
+ * every other run in the same directory.
+ */
+const runId = await mintRunId(ROOT);
+
+const logPath = path.resolve(
+  value('--log', path.join(fs.realpathSync(os.tmpdir()), `beadcause-detach-${runId}.log`))
+);
+fs.mkdirSync(path.dirname(logPath), { recursive: true });
+const logFd = fs.openSync(logPath, 'a');
+
+// `--run-id` is stripped as well as this command's own two: the id is this command's to
+// decide, and a caller who passed one would otherwise be answered with an id that is not
+// the one the child was given.
+const gateArgv = ['--run-id', runId, ...forwarded(['--log', '--start-timeout', '--run-id'])];
+
+/**
+ * `detached: true` is `setsid(2)`: a session of its own, no controlling terminal, and no
+ * membership in the process group this call is about to be reaped with — the whole
+ * difference between this and the `nohup … &` that died at suite 88. stdio is three
+ * descriptors and never a pipe, because a pipe whose reader has gone gives the child a
+ * `SIGPIPE` on its next line of output.
+ */
+const child = spawn(process.execPath, [GATE_BIN, ...gateArgv], {
+  cwd: ROOT,
+  detached: true,
+  stdio: ['ignore', logFd, logFd],
+});
+child.unref();
+fs.closeSync(logFd);
+
+let exited = null;
+child.on('exit', (code, signal) => {
+  exited = { code, signal };
+});
+
+const file = runFile(await runsDir(ROOT), runId);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const deadline = Date.now() + startTimeoutMs;
+let recorded = fs.existsSync(file);
+while (!recorded && !exited && Date.now() < deadline) {
+  await sleep(200);
+  recorded = fs.existsSync(file);
+}
+
+const line = `run ${runId} — pid ${child.pid}, log ${logPath}`;
+
+if (!recorded && exited) {
+  const tail = fs.readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean).slice(-10);
+  console.error(red(`the gate exited before it recorded anything — ${exited.signal || `code ${exited.code}`}`));
+  for (const l of tail) console.error(dim(`      ${l}`));
+  console.error(dim(`full log: ${logPath}`));
+  process.exit(exited.code === 2 ? 2 : 1);
+}
+
+console.log(line);
+if (!recorded) {
+  console.error(
+    amber(`no run record after ${Math.round(startTimeoutMs / 1000)}s — the gate is queued behind another on this Mac`)
+  );
+  console.error(dim(`the id is still good: \`b7e-watch --run ${runId}\` finds it once a slot frees`));
+} else {
+  console.error(dim(`\`b7e-watch --run ${runId} --wait\` reports on it; \`kill ${child.pid}\` stops it cleanly`));
+}
+process.exit(0);
