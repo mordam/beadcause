@@ -94,6 +94,7 @@
     "b7e-say": "bin/b7e-say.js",
     "b7e-sh": "bin/b7e-sh",
     "b7e-shard": "bin/b7e-shard",
+    "b7e-sheet": "bin/b7e-sheet",
     "b7e-shipgate": "bin/b7e-shipgate",
     "b7e-show": "bin/b7e-show",
     "b7e-siblings": "bin/b7e-siblings",
