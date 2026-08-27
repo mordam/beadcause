@@ -119,6 +119,7 @@ if (ALL) {
   if (missing.length) {
     for (const m of missing) console.log(red(`MISSING ${m.input}${m.reason ? ` — ${m.reason}` : ''}`));
     releaseLock();
+    lock.release();
     await leave(2);
   }
   suites = resolved;
@@ -139,7 +140,14 @@ let result;
 try {
   result = await runGate(ROOT, { suites, jobs: JOBS, onResult, signalAbort: onExit });
 } finally {
+  // Two calls, not one — bc-dgx7.40, and `bin/b7e-gate`'s teardown carries the same pair.
+  // `onExit` hands back a *disarm*: it marks the job done and splices it out of the list,
+  // and it never runs `fn` itself. So `releaseLock()` alone does not release anything; it
+  // only guarantees the exit handler behind it will not. Disarm, then release for real —
+  // otherwise a clean run leaves its lock file in the OS temp dir for ever, harmless only
+  // because the next `acquireLock` reads a dead pid and reclaims it as stale.
   releaseLock();
+  lock.release();
 }
 
 console.log('');

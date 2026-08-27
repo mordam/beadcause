@@ -26,6 +26,7 @@ const BIN = path.join(ROOT, 'bin', 'b7e-suite');
 
 const suiteLib = await import(path.join(ROOT, 'lib', 'suite.js'));
 const { resolveName, resolveNames } = suiteLib;
+const gate = await import(path.join(ROOT, 'lib', 'gate.js'));
 
 let failures = 0;
 const ok = (name) => console.log(`  \x1b[32m✓\x1b[0m ${name}`);
@@ -226,6 +227,45 @@ await checkAsync('a second invocation on a tree already locked by a gate is refu
   } finally {
     first.kill('SIGKILL');
   }
+});
+
+/*
+ * And the lock file is gone afterwards — bc-dgx7.40, the same pair `test/gate.mjs` holds
+ * still for `bin/b7e-gate`.
+ *
+ * `onExit` hands back a *disarm*, not a release: it marks the job done and splices it out,
+ * and never runs `fn`. Calling only that leaves `beadcause-gate-<hash>.lock` in the OS temp
+ * dir for ever, one permanent file per tree that has ever run — and nothing notices,
+ * because `acquireLock` reads a lock whose pid is dead as stale and reclaims it, so the
+ * next run on that tree works every time. So this is checked against the real CLI, on both
+ * of its exit arms: the unit is fine and always was, and it is the binary's two-call shape
+ * that is the thing to hold still. MISSING is the arm b7e-gate does not have — it releases
+ * and leaves before `runGate` is ever reached, which is its own release site.
+ *
+ * The lock path is learned by taking and immediately releasing the lock ourselves, which is
+ * the same `lockPathFor(root)` the CLI will compute — `lockPathFor` is not exported.
+ */
+const lockPathOf = (dir) => {
+  const probe = gate.acquireLock(dir);
+  assert.equal(probe.ok, true, 'the probe acquire should not be refused on a fresh tree');
+  probe.release();
+  return probe.lockPath;
+};
+
+check('a clean run removes its own lock file rather than leaving it to be reclaimed as stale', () => {
+  const dir = tree('cli-lock-clean', { 'test/wasfine.mjs': alwaysPass() });
+  const lockPath = lockPathOf(dir);
+  const run = spawnSync(process.execPath, [BIN, '--dir', dir, 'wasfine'], { encoding: 'utf8' });
+  assert.equal(run.status, 0, `expected a clean exit, got ${run.status}: ${run.stderr}`);
+  assert.equal(fs.existsSync(lockPath), false, `a clean run left ${lockPath} behind`);
+});
+
+check('a MISSING name releases the lock too — it leaves before runGate, on its own release site', () => {
+  const dir = tree('cli-lock-missing', { 'test/wasfine.mjs': alwaysPass() });
+  const lockPath = lockPathOf(dir);
+  const run = spawnSync(process.execPath, [BIN, '--dir', dir, 'ghostname'], { encoding: 'utf8' });
+  assert.equal(run.status, 2, `expected the MISSING exit code 2, got ${run.status}: ${run.stderr}`);
+  assert.equal(fs.existsSync(lockPath), false, `a MISSING run left ${lockPath} behind`);
 });
 
 /* --------------------------------------------------------------------- */
