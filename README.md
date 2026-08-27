@@ -19201,6 +19201,65 @@ shape again, not the `npm test`/`b7e-gate` one. Its one write-shaped-looking ste
 already covered by an existing grant — `Bash(bd show:*)` is on the same list — and it
 never claims, labels or comments. `lib/grants.js` classifies it `read`.
 
+### Say what the phone will show for this bead's card — `b7e-card`
+
+`bc-dgx7.19`: three sessions (`bc-xl7n.101`, `bc-ka5y.15`, `bc-1kwl`) each hand-wrote a
+`decision` block onto an *existing* bead's notes and then a scratchpad script of their
+own to find out whether it had actually parsed — `beadcause-ask` refuses a body whose
+tail is not a decision block, but only when *creating* a new bead. `bc-xl7n.101` wrote
+its first block with `bd update --append-notes`, then a `dbg.mjs` reporting `notes has
+decision fence: true … question: <the bead's own title>` with no options — the silent
+degradation. A second `dbg.mjs` run against `BLOCK_RE` found the cause: `hint: Costs
+nothing — superseded-by: already keeps it out` — a bead label's colon-space made YAML
+read a nested mapping, and `bd update` had reported success anyway. `bc-1kwl` lost
+`beadcause:waiting`/`beadcause:inmain` markers the same way, writing over `notes` with
+`--notes` rather than appending. `lib/decision.js` (`toQuestion`, `parseDecision`,
+`decisionTail`) already knows how to answer both questions; this is the command that
+asks it, instead of a scratchpad.
+
+```
+b7e-card <bead-id>                          what toQuestion() makes of the bead now
+b7e-card <bead-id> --field notes            just one field, not all three
+b7e-card <bead-id> --file card.md           validate a draft before writing it
+b7e-card <bead-id> --file card.md --field description
+b7e-card <bead-id> --json
+```
+
+**With no `--file`, this is the *after*:** it reads the bead with one `bd show`, runs it
+through `toQuestion` — the identical function the inbox itself calls — and prints the
+question, every option (id, label, hint, `recommended`/`closes:false`/`defers:true`),
+and any parse errors, in the app's own terms rather than implied by a raw field dump.
+`--field` narrows the read to one of `description`/`design`/`notes` instead of all
+three. A bead carrying no `decision` block at all is not a failure — most beads are not
+questions — so `question` falls back to the title and the exit code stays `0`.
+
+**With `--file`, this is the *before*:** the draft is read off disk instead of off the
+bead, parsed the same way, and reported the same way — so a card can be checked before
+it is ever written. A `decision` block that fails to parse — the exact bc-xl7n.101
+shape, a colon inside an unquoted scalar read as a nested mapping — exits non-zero with
+the YAML error *and* the offending source line appended (`→ line 5: hint: Costs nothing
+— superseded-by: already keeps it out`), naming the fix rather than a line/column pair
+nobody wants to go count. Because two of the three sessions above lost markers by
+overwriting `notes` wholesale, the live bead's current content in the target field is
+also scanned for `<!-- beadcause:... -->` markers the draft does not carry, and a write
+that would silently drop one of those (`bc-1kwl`'s failure exactly) is flagged before it
+happens rather than found after.
+
+**Markers, not just the block.** Any `<!-- beadcause:... -->` HTML comment anywhere in
+the field(s) being read — `beadcause:waiting`/`/beadcause:waiting` (`lib/epicadvocate.js`)
+and `beadcause:inmain <branch>` (`lib/inmain.js`) both being the acceptance case here —
+is listed, without needing to import either module's own constants: a generic marker
+scan outlives any one family of them, and this tool has no business knowing every
+family's own opening/closing spelling.
+
+Exit codes: `0` clean, including "no decision block at all" — an ordinary bead, not a
+failure; `1` a decision block is present (on the bead or in the file) and failed to
+parse; `2` refused — bad usage, or the bead was not found.
+
+**On `DEFAULT_TOOL_LIST`**: `@grant read` in its own header — the `b7e-def`/`b7e-owes`/
+`b7e-notes` shape. It runs one `bd show`, reads a file if `--file` is given, and never
+writes anything; `lib/tooldecl.js` classifies it `read` from the declaration alone.
+
 ### Where in README.md something belongs — `b7e-readme`
 
 `bc-khoe.46` is the session audit agent naming the same shape a sixth time: six sessions
@@ -22756,6 +22815,54 @@ epic does not exist. `3`/`4` — see above. `Bash(b7e-plancheck:*)` is on
 it spawns (`show`, `comments`, `children`, `export`, `ready`, a batched `show` for surface
 notes) is a read, and `--check` validates in memory only. See `bin/b7e-plancheck` and
 `test/b7eplancheck.mjs`.
+
+
+### One field of a bead, raw, and the readback that proves a write landed — `b7e-field`
+
+`bc-dgx7.26`, filed by the session audit against five sessions that each needed the
+exact bytes of one field of one bead and each wrote its own extractor, none of them the
+same one: a `node -e` piped from `bd show --json`, a different `node -e` for a different
+field, four separate `python3 -c` snippets in one session, five in another (one of which
+dumped `design` to a scratch file and reported its length by hand), a scratchpad
+`extract.py` that got refused by the classifier and was redone inline. Two of the five
+could not use `bd show` at all without a detour — it emitted 37.8 KB and 83.8 KB, both
+persisted to a tool-result file that then had to be read back and grepped before the
+session could see the one field it wanted. The other half of the same shape is
+*verifying a write landed* — `byte-identical: True 4147`, `before 6178 after 5772` — the
+same question asked three ways, none of them reusable.
+
+```
+b7e-field -w beadcause -b bc-xyz notes                     the notes body, raw
+b7e-field -w beadcause -b bc-xyz description acceptance    two fields, each under a
+                                                             ── <field> rule
+b7e-field -w beadcause -b bc-xyz --all                      every field with a value
+b7e-field -w beadcause -b bc-xyz notes --len                notes 453             (bytes,
+                                                             not the body)
+b7e-field -w beadcause -b bc-xyz notes --verify expect.txt  nothing + exit 0 if identical,
+                                                             a unified diff + exit 1 if not
+```
+
+A field name is one of a fixed set — `description`, `design`, `notes`, `acceptance`,
+`labels`, `status`, `assignee`, `priority`, `title` — never a raw `bd --json` key, so
+`acceptance` (not `acceptance_criteria`) is what a caller types. `labels` prints one
+label per line; every other field prints exactly what `bd show --json` holds for it,
+with no added or stripped newline in single-field mode — the byte-for-byte case the
+bead's own acceptance criteria names. An unset field prints empty rather than being
+refused; a field name that is not one of the nine is refused, naming the ones that are.
+
+**`--verify <file>` is the write-landed half.** It reads the one named field, compares
+it against `<file>` byte for byte, and either prints nothing and exits `0`, or prints a
+unified diff and exits `1` — `git diff --no-index` against a scratch copy of the live
+field, the same trick `lib/show.js` uses for a ref, applied here to two arbitrary files
+rather than a ref and a working tree. It needs exactly one field: combined with `--all`
+or with more than one field name, or with `--len`, it is refused rather than guessing
+which field to compare.
+
+Exit codes: `0` printed, or `--verify` found no difference. `1` `--verify` found a
+difference. `2` refused — bad usage, an unrecognised field name, an unconfigured
+workspace, or the bead does not exist. `Bash(b7e-field:*)` is on `DEFAULT_TOOL_LIST`,
+declared `@grant read` in the command's own header: the only `bd` verb it ever spawns is
+`show`. See `bin/b7e-field` and `test/b7efield.mjs`.
 
 
 ### End a delivered run — `b7e-signoff`
