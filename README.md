@@ -19171,10 +19171,11 @@ of the six sessions above needed a literal wildcard) never runs into this either
 Exit codes: `0` at least one match, `1` none, `2` bad usage — an unrecognised flag, an
 unknown `--in` root, or (without `--fixed`) a pattern that is not a valid regex.
 
-**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, the same `b7e-def`/`b7e-owes`/`b7e-affected`
-shape: it never spawns a daemon, binds a port or runs a suite, only reads this repo's own
-source and prints what it found. `lib/grants.js` classifies it `read` beside the other
-three.
+**On the read-only surface**, the same `b7e-def`/`b7e-owes`/`b7e-affected` shape: it never
+spawns a daemon, binds a port or runs a suite, only reads this repo's own source and prints
+what it found. It says so itself — `@grant read` in `bin/b7e-grep`'s own header, which is
+where `lib/tooldecl.js` reads it from since bc-wbrhi, so neither `lib/toolbelt.js` nor
+`lib/grants.js` is edited to add it.
 
 ### Where in README.md something belongs — `b7e-readme`
 

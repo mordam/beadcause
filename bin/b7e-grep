@@ -28,6 +28,8 @@
  * simply found nothing, same reading `b7e-affected` gives an all-matched diff. `2` bad
  * usage: an unrecognised flag, an unknown `--in` root, or a pattern that isn't a valid
  * regex (only reachable without `--fixed`).
+ *
+ * @grant read
  */
 import path from 'node:path';
 import { repoRoot, search, ROOT_KEYS } from '../lib/repogrep.js';
