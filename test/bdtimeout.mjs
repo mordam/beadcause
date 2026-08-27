@@ -38,7 +38,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
 const SRC = fs.readFileSync(path.join(ROOT, 'lib', 'bd.js'), 'utf8');
 
-const { Bd, BD_TIMEOUT } = await import(path.join(ROOT, 'lib', 'bd.js'));
+const { Bd, BD_TIMEOUT, QUARANTINE_MS, QUARANTINE_MAX_MS } = await import(path.join(ROOT, 'lib', 'bd.js'));
 
 let failures = 0;
 const ok = (name) => console.log(`  ✓ ${name}`);
@@ -290,6 +290,97 @@ check(
   doltSpent < 1200,
   `${doltSpent}ms, which is more than one ceiling`
 );
+
+/* ---- a workspace that just proved it cannot answer, asked again ---- */
+
+console.log('\nbc-xl7n.140: a workspace that just timed out is not asked again at full cost');
+
+// One `Bd` instance for the whole section — the quarantine lives on the instance
+// (`bd.quarantines`, keyed by workspace name), which is what a real daemon shares
+// across every route, and what keeps this file's other fake-bd cases — a fresh `Bd`
+// each — from ever seeing each other's state.
+const qBd = bdOf(HANGS);
+
+const firstBegan = Date.now();
+const first = await caught(qBd.run(WS, ['list', '--all'], { timeout: 300 }));
+const firstSpent = Date.now() - firstBegan;
+check('the first call against a hung bd pays the ceiling, same as ever', first?.timedOut === true, String(first));
+check('and takes about that long', firstSpent >= 250, `${firstSpent}ms`);
+
+const secondBegan = Date.now();
+const second = await caught(qBd.run(WS, ['list', '--all'], { timeout: 300 }));
+const secondSpent = Date.now() - secondBegan;
+check('the very next call is refused rather than spawning another bd', second instanceof Error, String(second));
+check(
+  'and it does not wait for the ceiling — the whole point of remembering the first one',
+  secondSpent < 100,
+  `${secondSpent}ms, which is not much less than the 300ms ceiling`
+);
+check('it still reads as a timeout to anything that only checks the flag', second?.timedOut === true, String(second));
+check('and is separately flagged, for a caller that wants to tell the two apart', second?.quarantined === true, String(second?.quarantined));
+check(
+  'and says so in words, on the phone-facing half of the message',
+  /refused in beadcause: it timed out/.test(second?.message || ''),
+  second?.message
+);
+
+const OTHER_WS = { name: 'other-workspace', dir: tmp };
+const otherBegan = Date.now();
+const other = await caught(qBd.run(OTHER_WS, ['list', '--all'], { timeout: 300 }));
+const otherSpent = Date.now() - otherBegan;
+check(
+  'a different workspace on the same instance is not held by the first one\'s quarantine',
+  other?.timedOut === true && !other?.quarantined,
+  String(other)
+);
+check('so it pays its own ceiling rather than being refused for free', otherSpent >= 250, `${otherSpent}ms`);
+
+// A repeat timeout backs off rather than reusing the same window forever — asserted
+// against the map directly (there is no `now` parameter on `run`, unlike `pr.available()`,
+// so this is the same white-box style `bd.opts` already uses above) rather than by
+// sleeping out a 20s default in a test suite.
+check(
+  'the first timeout quarantines for the base window',
+  qBd.quarantines.get(WS.name)?.wait === QUARANTINE_MS,
+  JSON.stringify(qBd.quarantines.get(WS.name))
+);
+qBd.quarantines.set(WS.name, { ...qBd.quarantines.get(WS.name), until: Date.now() - 1 });
+await caught(qBd.run(WS, ['list', '--all'], { timeout: 300 }));
+check(
+  'and a second real timeout doubles it rather than repeating the same window',
+  qBd.quarantines.get(WS.name)?.wait === QUARANTINE_MS * 2,
+  JSON.stringify(qBd.quarantines.get(WS.name))
+);
+for (let i = 0; i < 10; i += 1) {
+  qBd.quarantines.set(WS.name, { ...qBd.quarantines.get(WS.name), until: Date.now() - 1 });
+  await caught(qBd.run(WS, ['list', '--all'], { timeout: 300 }));
+}
+check(
+  'and the backoff is capped well under BD_TIMEOUT, so quarantine never costs what it exists to save',
+  qBd.quarantines.get(WS.name)?.wait === QUARANTINE_MAX_MS && QUARANTINE_MAX_MS < BD_TIMEOUT,
+  JSON.stringify(qBd.quarantines.get(WS.name))
+);
+
+// The refusal expires on its own — a tracker that comes back must not stay quarantined
+// until the daemon is restarted. Proved two ways: a short real wait past a near
+// expiry, and a real answer clearing it outright.
+const shortLived = bdOf(FAILS);
+await caught(shortLived.run(WS, ['show', 'bc-nope']));
+check('a real failure is a real answer, so it never quarantines in the first place', !shortLived.quarantines.has(WS.name), 'quarantined after a plain failure');
+
+const expiring = bdOf(HANGS);
+await caught(expiring.run(WS, ['list', '--all'], { timeout: 50 }));
+check('quarantined right after its own timeout', expiring.quarantines.has(WS.name));
+expiring.quarantines.set(WS.name, { ...expiring.quarantines.get(WS.name), until: Date.now() + 30 });
+await new Promise((r) => setTimeout(r, 60));
+expiring.bin = FAILS;
+const afterExpiry = await caught(expiring.run(WS, ['show', 'bc-nope']));
+check(
+  'once the window passes, the next call is asked for real rather than refused again',
+  / failed in beadcause: /.test(afterExpiry?.message || ''),
+  afterExpiry?.message
+);
+check('and answering it clears the quarantine outright', !expiring.quarantines.has(WS.name), 'still quarantined after a real answer');
 
 /* ------------------------------------------------------------------ verdict */
 

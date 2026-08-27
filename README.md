@@ -1189,7 +1189,7 @@ more detail on your phone than you are going to get.
 
 **And the rows in that panel are controls.** Four settings are ones a space is the wrong
 unit for — see
-[One repo may answer for itself](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters)
+[One repo may answer for itself](#one-repo-may-answer-for-itself-on-the-six-settings-where-it-matters)
 — so each repo carries four rows of three buttons under its tags: On, Off, and *Inherit*,
 which names what the space resolves to. Whether its agents' filings arrive endorsed,
 whether its workers merge their own pull requests, whether an approving review has to come
@@ -1317,7 +1317,7 @@ and for the same reason.
 a group of repos, the way the two above are, and they are the two halves of
 [landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue) — but
 unlike the two above, one repo inside the space
-[may answer for itself](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters):
+[may answer for itself](#one-repo-may-answer-for-itself-on-the-six-settings-where-it-matters):
 
 | on a space | what it does |
 |---|---|
@@ -1355,14 +1355,14 @@ agent-filed` is how you see what arrived while you were asleep.
 | `"autoEndorse": false` | they are held for your tap, even where the global says yes |
 | unset | follows the global `autoEndorse`, which is `false` unless you changed it |
 
-### One repo may answer for itself, on the five settings where it matters
+### One repo may answer for itself, on the six settings where it matters
 
 Most of a space groups cleanly. "Don't buzz me about work at the weekend" and "post this
 lot to that channel" are properties of a *set* of repos, and a space is that set — which
 is why the settings above are, as `lib/spaces.js` puts it, ones you give once for a group
 of repos rather than per repo.
 
-Four of them are not like that, and the shape of a real config is what showed it. There
+Five of them are not like that, and the shape of a real config is what showed it. There
 are two spaces here: **Personal**, holding `beadcause`, `deluvia`, `ehatt`, `sophab` and
 two more, and **Climative**, holding one.
 
@@ -1372,12 +1372,21 @@ is a fact about *that tracker*. It is not true of the five repos sitting beside 
 none of them moved. With the space as the finest thing that could answer, saying yes to
 one meant saying yes to six.
 
-The other three are the same argument applied to the sentence that costs more: **does
+The other four are the same argument applied to the sentence that costs more: **does
 finished work land and go live without a tap.** `beadcause` is the one repo in that space
 with a deploy this Mac can actually run, the one whose whole suite runs on GitHub against
 every pull request, and the one nobody else reads — so it is the one where a worker
 should merge its own work and the merge should ship itself. Saying that through the space
 armed `deluvia`, `ehatt` and `sophab` at the same time, which nobody had asked for.
+
+The fourth of those is the newest and the sharpest example of why the grain matters:
+`trustChecksAcrossDownmerge` turns on the queue [not waiting for a re-run after a clean
+downmerge](#a-clean-downmerge-does-not-pay-for-the-gate-twice),
+and whether that is safe is a fact about *one repo's CI* — specifically whether its test
+job also runs on the base, so a bad pairing is caught there instead. It is also, as that
+section explains, a setting **no repo here has on**: the arm it answers for only fires
+where GitHub enforces up-to-date branches, which is a rule `mordam/beadcause` does not
+have. It is per-repo because the question is per-repo, not because anything is using it.
 
 **One workspace, though, never one checkout inside one.** The overrides are keyed by
 workspace, and a workspace is a beads graph — which is exactly the grain
@@ -1386,7 +1395,7 @@ who else reads this graph, and would they mind an agent working it unasked. So `
 may answer for itself here like any other workspace, and still gives one answer for all
 forty of its checkouts; nothing on this page lets one of them out of it.
 
-So five settings have a per-workspace override, and each **outranks the space**, exactly
+So six settings have a per-workspace override, and each **outranks the space**, exactly
 the way `ntfy.minimalWorkspaces` and `slack.excludeWorkspaces` already outrank it for
 notification detail:
 
@@ -1395,7 +1404,8 @@ notification detail:
 "autoMergePerWorkspace":      { "beadcause": true },
 "requireApprovalPerWorkspace": {},
 "reviewRequiredPerWorkspace":  {},
-"autoShipPerWorkspace":       { "beadcause": true }
+"autoShipPerWorkspace":       { "beadcause": true },
+"trustChecksAcrossDownmergePerWorkspace": {}
 ```
 
 | for one workspace | `true` | `false` | absent |
@@ -1405,6 +1415,7 @@ notification detail:
 | `requireApproval` | green checks are not enough — it needs an approving review | green checks are enough | ” |
 | `reviewRequired` | nothing merges until [an agent has read the diff](#the-review-gate--nothing-reaches-the-merge-without-a-verdict) | the queue merges without anything reading it | ” |
 | `autoShip` | its merges run its declared deploy without waiting for **Ship** | merges wait for the button | ” |
+| `trustChecksAcrossDownmerge` | an already-passing pull request merges on the tick a clean downmerge goes in | every downmerge waits for the whole gate to run again | ” |
 
 A boolean per repo rather than a list of names, because both directions have to be
 sayable: a repo held inside a space that endorses is the same kind of exception as the
@@ -1413,13 +1424,24 @@ other way round, and a list can only ever say one of them. Keyed by workspace na
 — that array is rediscovered under [`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) on every start, so anything written
 onto it by hand is gone at the next restart.
 
-**None of the three new ones loosens a gate**, which is worth being exact about, because
-"the worker ships its own work" and "the worker ships work nobody checked" are one word
-apart. `autoMerge` decides who presses merge, never what merge means: `bin/deliver.js`
-still waits for the pull request's checks, still refuses over a red one or one that never
-reported, and still falls back to the question with the reason written on it. `autoShip`
-only ever reaches a merge that is already on `origin/main`, and the only ways to get
-there are that gated merge or your own thumb. What these move is the tap, not the test.
+**None of `autoMerge`, `requireApproval` or `autoShip` loosens a gate**, which is worth
+being exact about, because "the worker ships its own work" and "the worker ships work
+nobody checked" are one word apart. `autoMerge` decides who presses merge, never what
+merge means: `bin/deliver.js` still waits for the pull request's checks, still refuses
+over a red one or one that never reported, and still falls back to the question with the
+reason written on it. `autoShip` only ever reaches a merge that is already on
+`origin/main`, and the only ways to get there are that gated merge or your own thumb.
+What these move is the tap, not the test.
+
+**`trustChecksAcrossDownmerge` is the one that does move a test, and it is on this list
+for that reason rather than in spite of it.** It does not skip the gate — the branch it
+merges is one that already passed, and a branch that is anything but green takes the old
+path and waits. What it declines to pay for is the *re-run* against the base that just
+arrived, which is the run that would catch two branches breaking the base together. That
+catch does not disappear; it moves to the push on the base, where the same job runs and
+[a red base holds the whole queue](#when-main-itself-is-red--the-queue-holds-and-something-is-put-on-the-fix).
+Whether that is a good trade is a fact about one repo's CI, which is exactly why it is a
+per-repo answer and why it is off unless a repo says otherwise.
 
 **Set them from the repo row**, on the space details card at
 [`/monitor`](#space-details--every-setting-a-space-has-on-a-page-of-its-own): each row under
@@ -1906,7 +1928,7 @@ Adam happens to merge that way:
 | door | what happens now |
 |---|---|
 | a tap on a delivery card (`lib/server.js`) | since bc-xl7n.135 it admits the pull request to the merge queue rather than merging; the epic guard lives on the queue's own merge, in `lib/mergequeue.js`'s `finish`, which calls `finishWorkBead` the moment it actually lands one |
-| the PR board's Merge (`lib/server.js`) | the same, and for the same reason (bc-02ldo) |
+| the PR board's **Queue to merge** (`lib/server.js`) | the same, and for the same reason (bc-02ldo): it does not close anything either — the tap admits the pull request to the queue, and the queue's own merge is where the close happens |
 | a worker's own `beadcause-deliver` | merges, prints `landed #n`, comments, and says on stderr that the epic stays open |
 | the sweep that notices a merge on github.com (`lib/landed.js`) | reports the epic as a skip, and writes nothing to it |
 
@@ -6854,6 +6876,26 @@ have lied about:
   the first millisecond already knew. Fine while a refused edge was an accident; not fine
   on `/api/console/create`, which is a tap on a phone.
 
+**And the rule reaches two writers that are not in the daemon at all.** `Bd.addDep` is
+the funnel for every declared edge the daemon writes, and it is `async` all the way down
+because everything around it is. Two more run in a worker's terminal over a synchronous
+`(argv) => stdout` runner — `park`, which is what `beadcause-ask --blocks`,
+`beadcause-propose --kind conflict` and `beadcause-deliver` use to hold work behind a
+question, and `mark`, which puts a `superseded-by:` marker on a duplicate. Neither could
+reach the funnel, so neither carried the rule. `addDeclaredEdge` in `lib/mentions.js` is
+the synchronous half of it: the same `demoteRows` judgement, the same both-ends demotion,
+the same one retry and no loop, and a refusal over anything that is not a see-also is
+thrown back at the caller in bd's own words exactly as before.
+
+Worth doing before either path could actually collide, because the two failures are not
+the same size. `mark`'s fallback is a note — the `superseded-by:` label holds the bead
+whether or not the edge went in, so the collision costs the graph record. `park`'s
+fallback is to label the *work* bead `human`, which takes it out of every queue **and does
+not come off when the question is answered**. So there a collision does not lose an edge,
+it strands the bead until somebody goes back to it deliberately — and a bead whose
+description says why it is waiting on `bc-x`, which is the description doing its job, is
+exactly the bead a mention would have got to first.
+
 One thing it does not fix, deliberately: the `blocks N` pill at first paint is
 `dependent_count` straight from bd, which counts every edge pointing at a bead — children
 already, and now see-alsos too. It is replaced by the real rows the moment
@@ -6864,7 +6906,11 @@ argv, and the two client-side spellings in source) and by `test/graphwaits.mjs`,
 where the `relates-to` spelling is held to not blocking anything. The precedence rule has
 its own two: `test/declarededge.mjs` against a fake `bd` that remembers its own edges, and
 `test/declarededgereal.mjs`, which files a bead whose description names the bead it depends
-on against the real binary and asks bd what is left.
+on against the real binary and asks bd what is left. The synchronous half is pinned where
+each of its two callers already is — `test/park.mjs`, whose stub `bd` grew bd's
+one-row-per-ordered-pair rule so a park can be refused over a mention and go in anyway,
+and `test/superseded.mjs`, where the same collision is staged against a `bd` with a graph
+behind it.
 
 ### The glass in the middle
 
@@ -9315,8 +9361,9 @@ none of them is that window's to merge.
 
 That is the whole of it, because the merge queue is the only
 [door into `main`](#landing-work--a-branch-a-pull-request-and-a-merge-queue) that nobody
-taps: the delivery card, the PR board's **Merge**, and a merge made on github.com are all
-already you. An in-app edit never reaches the queue at all — `bin/deliver.js` files the
+taps: the delivery card, the PR board's **Queue to merge** — which since bc-02ldo hands
+its pull request to that same queue rather than merging beside it — and a merge made on
+github.com are all already you. An in-app edit never reaches the queue at all — `bin/deliver.js` files the
 card instead, whatever the space says. The pull request says why it is sitting there, and so does the bead's
 thread — a green pull request open for two days with nothing on it to explain itself is
 the state this whole fallback exists not to be mysterious about.
@@ -10178,7 +10225,7 @@ page](#the-board-is-a-pane-too), is where you act on one. Both draw the row from
 renderer, `public/prcard.js`; there were two before that bead, and a fact added to one
 screen was a fact missing from the other.
 
-A row on the board folds open to what you can *do* — Merge & push, Ship, Comment, and
+A row on the board folds open to what you can *do* — Queue to merge, Ship, Comment, and
 **Full view**, which is a link into the inbox's own full-screen sheet for that pull request
 rather than a second copy of it. The status sub-filter widens itself when that link names a
 rung it is hiding (`revealPr` in `public/app.js`): the board's whole subject is what has
@@ -10229,7 +10276,7 @@ It carries what a merge decision needs and nothing else:
   goes through — it is the only text on the screen that came from outside this Mac;
 - **the branch and base, the bead, the authoring agent, and the datetimes** — opened, last
   touched, merged where there is one, and the merge commit;
-- **Merge & push**, **Close it** and **Comment on GitHub**;
+- **Queue #N to merge**, **Close it** and **Comment on GitHub**;
 - and, where GitHub reports a conflict, **Resolve conflicts** and **Cancel** in place of
   merge.
 
@@ -10387,11 +10434,12 @@ already ruled it out.
 A sweep is only worth having if it happens whichever way the merge happened, and there are
 three ways into `main` here:
 
-- a tap on **Merge** on the [PR board](#where-you-read-it-an-inbox-card-and-the-board);
 - **the merge queue**, which is how most work lands — a worker files a merge-bead as its
-  last act and the daemon merges it (`lib/mergequeue.js`), and since bc-xl7n.135 the
-  delivery card's own Merge tap sends its pull request here too, rather than merging on
-  the spot;
+  last act and the daemon merges it (`lib/mergequeue.js`), and both taps now send their
+  pull request here rather than merging on the spot: the [PR board's **Queue to
+  merge**](#the-three-buttons) since bc-02ldo, and the delivery card's own Merge tap
+  since bc-xl7n.135;
+- **a worker's own merge**, `beadcause-deliver` in a space with no queue in front of it;
 - the **merge button on github.com**, from a phone browser or from somebody else, which
   nothing here performs and `reconcileLanded` notices afterwards.
 
@@ -11285,19 +11333,38 @@ says **no bead named** rather than borrowing one.
 
 ### The three buttons
 
-- **Merge & push** — `gh pr merge`, with lib/pr.js's own preflight in front of it, so
-  an already-merged, closed or conflicting PR is refused *here* with a sentence that
-  says which. GitHub's merge puts the commit on `origin/<base>` itself, so the work is
-  off the laptop the moment it lands; the "& push" half is bringing this Mac's own
-  `<base>` up with it, and it **will not touch a checkout with edited work in
-  it** — it says so instead, naming the paths in the way. Untracked residue it steps
-  past, and says so
-  ([why](#landing-work--a-branch-a-pull-request-and-a-merge-queue)). Both halves are always reported separately: a merge that
-  landed and a fast-forward refused because you have files open is a good outcome, and
-  one flat word over the pair would send you to the Mac to find out which happened.
+- **Queue to merge** — hands the pull request to the [merge queue](#landing-work--a-branch-a-pull-request-and-a-merge-queue),
+  and does not merge it. It is `beadcause-merge` from the phone: the same `admitPlan`
+  decides which bead this pull request already *is* — a merge-bead the queue handed back,
+  a delivery card asking about it, one already queued, or nothing open at all — and the
+  same `admitToQueue` writes the approval into the queue's own block in `notes`, where
+  `gateVerdict` reads it. Then every gate still applies: the base comes into the branch,
+  the checks are judged against what the base is already failing, one merge per repo at a
+  time, and a branch that broke something comes back as a card with the approval still on
+  it. A draft, a closed pull request, or one already merged is refused *here* with a
+  sentence saying which.
+
+  **It used to merge, and that was the bug** (bc-02ldo). The tap was `gh pr merge`
+  straight through — no downmerge, no baseline comparison, no one-at-a-time, and no
+  record in the tracker that anybody had decided anything. deluvia merged three pull
+  requests on one afternoon in August 2026: #53 and #54 went through `/merge` and each
+  left a merge-bead closed with the commit it landed as, #55 went through this button and
+  its approval exists nowhere. Two doors into `main` that disagreed about what merging
+  was, while the `/merge` skill named this endpoint by path as the thing not to do.
+
+  **The cost is that it stops being instant, and it is the reason the button no longer
+  says "Merge".** The queue's "is anything waiting" read is cached, so the merge lands a
+  minute or two later; a button still promising a merge would look broken for exactly
+  that long, which is what made the same pull request get tapped three times. What comes
+  back names the bead the queue will act on, says it is *not* merged yet, and names any
+  other open bead about the same pull request — two of those is a work bead that cannot
+  close, and the phone has no stderr to print them to.
+
   It takes **two taps**, with the consequence written into the button between them —
   the same arming pattern as the destructive control on /admin, and for the same
-  reason: a `confirm()` on a phone is a system sheet you dismiss by reflex.
+  reason: a `confirm()` on a phone is a system sheet you dismiss by reflex. The arming
+  survived the change on its own argument: what the second tap makes is the *approval*,
+  which the queue then acts on unattended.
 - **Ship** — **runs this repo's declared deploy** ([below](#deploying-a-repo-when-it-says-how))
   where there is one, and opens an iTerm session with a deploy-only brief where there is
   not. Which of the two it will do is on the button before you press it — *Ship* against
@@ -11469,7 +11536,7 @@ It is a space setting for the same reason `autoMerge` is one, with the same thre
 `release.autoShip`, **off**, which is what every install does today.
 
 **And it is not the last word at either end.** Below the space, a single repo
-[answers for itself](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters)
+[answers for itself](#one-repo-may-answer-for-itself-on-the-six-settings-where-it-matters)
 through `autoShipPerWorkspace`, which is the level this setting most needed: only one of
 the six repos in the Personal space here has a deploy this Mac can run at all, so saying
 "ships itself" through the space armed five repos nobody had asked about.
@@ -12091,7 +12158,7 @@ a number with no door behind it, and no way at all to see which three from a pho
 **A space — or a single repo — can opt out of this screen entirely**, and it is worth
 knowing before you read the rest of it: `autoEndorse` on the space
 ([above](#spaces--keeping-work-out-of-your-evening)), or
-[`autoEndorsePerWorkspace` on one repo](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters)
+[`autoEndorsePerWorkspace` on one repo](#one-repo-may-answer-for-itself-on-the-six-settings-where-it-matters)
 where the space is the wrong unit, files without the hold — so those workspaces'
 discoveries never appear in this queue at all: they go straight to `bd ready` and the
 advocate picks them up. Off unless you ask for it, and the bead still says on its face
@@ -14713,8 +14780,21 @@ somebody can act on. Nothing throws, and the ordinary answer for a repo with no
 `.beadcause/` at all costs one failed `stat`: no read, no parse, no directory listing, which
 is what lets the advocate ask per checkout on every tick.
 
-Reading the file is wired; *dispatching* off it is `bc-ogicx.5`, so until that lands a
-checkout's file is read and validated and the chain still comes from `relays` above.
+**And the launcher asks the bead's own checkout.** `openWorkSession` resolves the relay off
+the directory `resolveSessionRepo` already picked for the bead, not off the workspace name —
+which is what makes *several relays in one workspace* fall out for a multi-repo workspace as
+well, because each checkout answers for itself and nothing in the launcher has to know a
+workspace can hold more than one. The `packet` stays the config's either way, since a repo
+file naming one is refused. `bc-ogicx.5`, `node test/relaywiring.mjs`.
+
+`bin/relaystep.js` is the other consumer and it asks a different question. It is handed a
+workspace, a role and a step — no bead, no checkout — so under named relays it cannot know
+which relay a `--role` was meant to belong to, and it checks against the **union** of every
+relay's roles across every checkout the workspace has. Deliberately wider than any one
+relay: what that list is for is catching `--role clip` for `clio`, not enforcing routing,
+and the same command already declines to check step *order* for exactly that reason. A
+`--relay` flag would be a second routing decision typed by hand at the one place that cannot
+verify it. `bc-ogicx.7`.
 
 ### The relay journal — every step and handoff, on the bead and on the epic card
 
@@ -18494,7 +18574,7 @@ on top, and two of those were refused by the worktree guard before finding a sha
 b7e-gate                              every suite scripts/test.mjs --list would run
 b7e-gate --only <suite>|<glob> ...    repeatable — an exact path or a * glob, never a regex
 b7e-gate --skip <suite>|<glob> ...    repeatable, applied after --only
-b7e-gate --jobs N                     how many suites at once (default 6)
+b7e-gate --jobs N                     how many suites at once (default: chosen from the load)
 b7e-gate --timeout <s>                per-suite seconds, overriding the slow-suite default
 b7e-gate --json                       one object per suite, streamed, for a caller to parse
 b7e-gate --log <path>                 also write every line here (default: a tmp file, named at the end)
@@ -18537,6 +18617,52 @@ first is still running would double the load a busy Mac is already under, so it 
 the resolved root, holding the running pid. A lock whose pid is no longer alive is stale
 and is silently reclaimed on the next attempt, because a runner that leaves a permanent
 lock behind after a crash is worse than the race it exists to prevent.
+
+**And two gates on the Mac, with the third in a queue — `bc-xlz32.1`.** That refusal was
+right and too narrow: the doubling happens just as thoroughly from a different worktree,
+and there are ~20 of those. Measured from the 60 run records in `.claude/gate-runs`, which
+carry per-suite elapsed and had never been read: a gate with nothing overlapping it is a
+mean **9.6 min** (n=16); the same run with >=1.5 concurrent sibling gates is **16.7 min**
+(n=13). Identical work, 74% slower, and nobody gains — the machine has the same 12 cores
+whether one gate or six are asking for them. Six were in flight at once at load average 99,
+and the loaded runs are also the ones that manufacture false reds: a full gate came back
+434/440 with six reds that same day and **all six passed** re-run serially, same tree, no
+changes.
+
+So a third gate now **waits** — `acquireSlot` in `lib/gate.js`, a FIFO semaphore of two
+(`BEADCAUSE_GATE_SLOTS` to change it, `0` to opt out) — and says what it is waiting for:
+`1 gate ahead of you, oldest started 4m ago`. Waiting rather than refusing is the whole
+design: a session told to go away runs `node scripts/test.mjs` instead, which is invisible
+to every overlap metric and worse for everyone. Which is also why **`npm test` takes the
+same token** — the two runs measured at 41 and 51 minutes elapsed on the load-99 Mac were
+both the plain serial runner, and a semaphore only `b7e-gate` respects is one the heaviest
+caller walks straight past.
+
+Tickets rather than a counter, so two runs starting in the same millisecond cannot both
+read "one free" and both take it, and so a loser keeps its place instead of going to the
+back of the queue on every retry. **The stamp on a ticket keeps its sub-millisecond part**,
+which is the half of that the first version got wrong: the queue is ordered by `startedAt`
+and `Date.now()` is a whole millisecond, so tickets taken back-to-back all landed inside one
+and the order fell through to the random suffix in each ticket's filename. A gate arriving
+third then sorted first about two times in three, and took a slot the two ahead of it were
+already holding — `limit + 1` gates on the Mac, which is the one thing the semaphore is for.
+`performance.now()` is monotonic within a process, so a later ticket is now always a larger
+number and the queue is creation order rather than a coin toss. A holder killed with `SIGKILL` frees its slot the same
+way a stale lock is reclaimed — by its pid being dead. Three runs never queue: CI (a
+GitHub runner is a machine of its own), anything that opted out, and **a runner started
+inside a gate**, which would otherwise wait for the slot its own parent is holding — both
+runners mark every suite child with `BEADCAUSE_GATE_HELD` for exactly that.
+
+**`--jobs` is chosen from the load, not from a constant — `bc-xlz32.5`.** 6 was wrong in
+both directions. Too few on a quiet Mac: the longest single suite is `test/landcheck.mjs`
+at 307s against ~50 min of total suite work, so a pool does not begin waiting on a
+straggler until roughly 15 jobs, and at 6 on an idle 12-core Mac half the machine sits
+unused. Too many on a busy one: six sessions each asking for 6 is 36 concurrent suites on
+12 cores. `chooseJobs` clamps `cores - loadavg1` between 2 and `cores - 2`, sampled once at
+start — a pool that resized itself mid-run would make two runs of the same suite
+incomparable. An explicit `--jobs N` still wins outright, the rule `--timeout` already
+follows, and the opening line says which number was picked and why, so a slow gate can be
+accounted for after the fact.
 
 **Deliberately not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, for a sharper version of
 the reason `b7e-say` is not there: `lib/grants.js` already classifies `Bash(npm test:*)` —
@@ -19076,6 +19202,65 @@ sense as `b7e-siblings` just above: nothing here writes a ref, a commit or a wor
 file, which is what put `Bash(b7e-base:*)` straight on `DEFAULT_TOOL_LIST` in
 `lib/toolbelt.js` and `read` in `lib/grants.js` beside it.
 
+### Which ref a workspace actually delivers into, before anyone reads a file — `b7e-deliverbase`
+
+`bc-dgx7.58`, filed by the session audit (`lib/sessionaudit.js`) against six sessions in
+the *deluvia* workspace — `dv-90i`, `dv-i5v`, `dv-5f3`, `dv-2v3`, `dv-6cn`, `dv-3rn.3` —
+each of which worked out by hand, in six different ways, that the checkout's own branch
+is not the ref beadcause actually delivers that workspace's work into. `dv-6cn` found it
+by failure: a `grep` for a gate check against a script that turned out not to exist on
+this branch at all, then an `ls` showing four files where the real base has twelve, then
+finally recalling the memory note that says so. `dv-2v3` read a file with `git show
+<base>:<path>` "on purpose", without writing down how it knew to. `dv-90i` called
+getting this right "the thing that mattered most," after a worktree had already been
+built on the wrong branch and hit a gate check that could not possibly pass there. Six
+sessions is the same shape `bc-36xx.25` (`b7e-base`, just above) was filed over, one door
+along: that tool answers "is my branch current with main"; this one answers the question
+that has to be settled *first* — which ref "current" even means for this workspace, since
+one repo here (`deluvia`) does not deliver into `main` at all.
+
+```
+b7e-deliverbase -w deluvia                                  the base, and how the checkout compares
+b7e-deliverbase -w deluvia --show scripts/check_saga_audit.py   cat a file as it exists at the base
+b7e-deliverbase -w deluvia --json                            one object on stdout, for a caller
+```
+
+**The base is resolved exactly the way a real delivery would resolve it** — `baseFor` in
+`lib/prbase.js`, the same call `bin/deliver.js` makes before ever opening a pull request
+— rather than a second opinion that could drift from what a delivery actually does. For
+a single-repo workspace that is `pr.basePerWorkspace` (falling back to the install-wide
+`pr.base`, then the literal `main`); for a multi-repo workspace it is the repo's own
+default branch on GitHub, the same question a real delivery asks.
+
+**The checkout is `resolveSessionDir`, never `ws.dir`.** `ws.dir` is the *tracker's*
+directory — `~/beads/deluvia/.beads` on a personal install — and matching it against a
+git checkout path only coincidentally works; `resolveSessionDir` (`lib/session.js`) is
+the call ~25 other places already make for "which directory is this workspace's
+checkout," multi-repo case included. An earlier b7e-* command hand-rolled the `ws.dir`
+match instead and got away with it only because nothing there routed a `git`/`gh` call
+through the result — this one does, so it does not repeat that shortcut.
+
+Reports one block: the base ref and its sha; the checkout's current branch and whether
+it is an **ancestor** of the base (behind, or the mirror case — ahead, with the base an
+ancestor of it), **equal** to it, or **diverged**, with real ahead/behind counts either
+way; and — the part none of the six sessions above computed by hand — every top-level
+path the base's tree carries that the checkout's tree does not have *at all* (a partial
+overlap, some files under a shared directory name and not others, is not "absent here"
+and would be noise). `--show <path>` cats a file as it exists at the base, which
+succeeds exactly where a plain `Read` of the same path in the checkout fails, because
+the checkout never had it.
+
+**Refuses with exit `2` rather than guessing** in every case where the answer would
+otherwise be a shrug: an unknown `-w`, `pr.enabled: false` (nothing is delivered
+anywhere for this install, so there is no base to report), or a configured base that
+names no `origin/<base>` and no local `<base>` at all in the checkout.
+
+Built on the same `lib/gitref.js` primitives `b7e-base` is — `fetch`, `rev-parse`,
+`rev-list`, plus `ls-tree` and `show` for the tree comparison and `--show` — so it is
+read-only in the same construction sense: nothing here writes a ref, a commit or a
+working-tree file, which is what put `Bash(b7e-deliverbase:*)` on `DEFAULT_TOOL_LIST` in
+`lib/toolbelt.js` and `read` in `lib/grants.js` beside `b7e-base`.
+
 ### Whether the library is being used — the Skills view
 
 `/skills` (or `/candidates`) is the one screen the whole programme is visible from: the
@@ -19343,6 +19528,184 @@ names, the same "no argv shape to check for reaches a write" `b7e-call` is withh
 to want a runnable copy of, and no oversight loop past its own single `bd comment` for
 whatever a caller-named command might do.
 
+### Read a file as it is at another ref, without inventing a redirect — `b7e-show`
+
+`bc-dgx7.72` names four sessions (`dv-3rn.12`, `dv-gr6.50`, `dv-gr6.48`, `dv-3rn`) that
+each needed the other side of a branch — `Read` and `Grep` take a path, never a ref — and
+each invented the materialising step by hand, differently. `dv-3rn.12` ran `git show
+worktree-canon-audit-apply-b7e:reference/GEOGRAPHY_SUMMARY_TABLES.md > /tmp/branch_geo.md`,
+got nothing back — the very next `ls` shows an empty directory — and only on retry used a
+real scratch directory. `dv-gr6.50` tried a redirect plus a `diff <(git show …) …`, was
+refused as too complex, and fell back to `git diff main -- <path>`. `dv-gr6.48` and
+`dv-3rn` piped `git show origin/main:CHANGE_LOG.md` into `grep` from the main checkout, and
+`dv-3rn` then looped that over four stranded branches. The failure mode that matters:
+`dv-3rn.12`'s first attempt — a redirect that writes nothing because its target directory
+does not exist — looks identical to a `grep` that legitimately finds nothing. A command
+that refuses a path absent at the ref, instead of leaving an empty file, is the difference.
+
+```
+b7e-show <ref> <path>...                one openable copy per path, or exit 1 naming
+                                         whichever ones the ref does not have
+b7e-show <ref> <path>... --dir <root>   <ref>/<path> resolve against <root>'s repo, not
+                                         the cwd's
+b7e-show <ref> <path>... --diff         a unified diff of each path, ref vs. working tree
+b7e-show <ref> <path>... --json         {hits, misses} instead of the printed report
+```
+
+`<ref>` is a single revision — a sha, a branch, a tag, `HEAD~3` — resolved with `git
+rev-parse --verify`, never `b7e-at`'s wider `main...other` merge-base syntax: this reads
+one file at one revision, not a set of commits. Presence is read from `git show`'s own
+exit code, one call per path, never from whether a write landed — so a path absent at the
+ref is named on stderr and nothing is written for it, and a `<ref>` that does not resolve
+at all is caught before anything is built, leaving no scratch directory behind either. A
+present path is materialised as a `Buffer`, never a string — `git show <ref>:<path>` read
+with `utf8` would corrupt exactly the binary content `public/vendor`'s own bundles are —
+under a fresh directory below `os.tmpdir()`, built lazily so a call where every path is
+absent leaves nothing on disk at all. `--diff` skips materialising anything and prints
+`git diff <ref> -- <path>...` directly. See `lib/show.js`.
+
+Exit codes: `0` every path existed at `ref`; `1` at least one did not; `2` refused — bad
+usage, `<ref>` does not resolve, or `--dir`/the cwd is not inside a git repository.
+
+Read-only in the same construction sense as `b7e-def`/`b7e-claims`/`b7e-which`: it only
+ever reads a blob out of git's own object store and writes the copy under `os.tmpdir()`,
+never inside this repo's own tree and never touching `bd`, so it is on `DEFAULT_TOOL_LIST`
+in `lib/toolbelt.js`.
+
+### Every conflict hunk in the working tree, addressable, with both sides — `b7e-hunks`
+
+`bc-dgx7.78` names three deluvia sessions (`dv-3rn.1`, `dv-b5d.14`, `dv-gr6.43`) that each
+spent most of a run resolving merge conflicts one hunk at a time, each inventing its own
+enumerator. `dv-3rn.1` judged 118 hunks across seven stranded branches with at least four
+different listings — an `awk '/^<<<<<<< /{f=1} f{print NR": "$0} /^>>>>>>> /{f=0}'`, the
+same with `substr($0,1,220)` once a hunk was too wide, `grep -n '^<<<<<<< HEAD|^=======$|^>>>>>>> '`
+for line numbers, `grep -rc '^<<<<<<< HEAD' . --exclude-dir=.git | grep -v ':0$' | sort
+-t: -k2 -rn` to rank files — one listing overflowed the output cap at 124.7KB and was
+persisted unread — then resolved each with a dozen separate `re.subn` heredocs, one per
+file, per side. It also left `git add -A` having staged a file with markers still in it,
+because `git add` marks a conflict resolved by touching the file, not by reading it — the
+same failure `lib/conflicted.js`'s own committed-conflict-marker check exists to close off
+in the other direction (after a commit, rather than before staging). `dv-b5d.14` and
+`dv-gr6.43` did smaller
+versions of the same thing. Nobody was asking for automatic resolution — which side wins
+is the judgement, and it stays exactly that here; what was retyped every time was the
+enumeration, the safe printing of a wide hunk, and a take-a-side edit that does not leave
+a marker behind.
+
+```
+b7e-hunks                                    list every hunk, grouped by file, ordered
+                                              by hunk count
+b7e-hunks <file>#<n>...                      print one or more hunks in full
+b7e-hunks --take ours|theirs <file>#<n>...   replace named hunks with the chosen side —
+                                              all ids validated before anything is written
+b7e-hunks --stage [<file>...]                git add whatever has zero markers left;
+                                              refuses (does not stage) anything that still
+                                              has one
+b7e-hunks --dir <root>                       resolve against <root>'s repo, not the cwd's
+b7e-hunks --width <n>                        truncate a printed line to <n> chars (default
+                                              200) — the `substr($0,1,220)` workaround,
+                                              built in
+```
+
+Discovery is git's own unmerged-file list — `git diff --name-only --diff-filter=U`, the
+same set `git status` reports as `UU`/`AA`/`DD` — rather than a full-repo grep for
+`<<<<<<<`: this repo's own README is 600KB of Markdown, and `lib/conflicted.js` already
+documents why a bare `=======` is not safe to grep for on its own (it is a real setext
+`<h1>` underline). A hunk is still found purely structurally — `<<<<<<<` → an optional
+`|||||||` diff3 base section → `=======` → `>>>>>>>` — so that hazard never reaches the
+parser: it only looks for a separator once a real `<<<<<<<` has opened. A hunk's id is
+`<file>#<n>`, numbered by its position among the hunks *currently* in that file —
+resolving one hunk renumbers the ones after it in the same file, since there is genuinely
+one fewer hunk above them now, so `--take` accepts every id for a file in one call rather
+than one id per call across several.
+
+`--take` is all-or-nothing across the whole batch, the same shape `b7e-apply` uses for the
+same reason: every id is checked to name a real hunk, in every named file, before a single
+byte is written: an id that does not resolve stops the whole batch there, naming every bad
+one, with nothing written anywhere — including files whose other edits would have resolved
+cleanly. Edits to one file are applied bottom-up so replacing one hunk never shifts the
+line numbers of another hunk in the same file still waiting to be applied, and a hunk not
+named in the batch is left byte-for-byte untouched. `--stage` reuses `markersIn` from
+`lib/conflicted.js` — the exact detection the committed-conflict-marker check runs, not a
+second implementation that could disagree with it — so a file is only ever staged once it
+is provably marker-free; the dv-3rn.1 failure is refused rather than silently repeated.
+
+Exit codes: `0` no conflicts remain, anywhere in the working tree, after whatever this run
+did; `1` conflicts remain; `2` refused — bad usage, an id not shaped like `<file>#<n>` or
+naming no real hunk, or the target is not a git repository. See `lib/hunks.js`.
+
+Write-shaped — `--take` and `--stage` edit and stage files in the working tree directly,
+not a throwaway scratch copy — so, like `b7e-apply`/`b7e-commit`/`b7e-at`, it is not on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and carries no `lib/grants.js` classification.
+
+### The approval packet as one call — ask, label, and record the ward step — `b7e-packet`
+
+`bc-dgx7.80` names five sessions (`dv-gr6.38`, `dv-gr6.41`, `dv-gr6.43`, `dv-b5d.4.3`,
+`dv-5eu.1.1`) that each ended a Story-chain relay with the same five hand-typed calls, in
+the same order, and the same one failed every time: `ask.js` to file the question, two
+separate `bd label add` calls (`needs-approval`, then `human`), `relaystep --role ward
+--step file --next adam`, rejected because the relay vocabulary is role names and `adam`
+is not one, then a retry with some other role standing in for him (`vox`, `aria`,
+`script` — a different guess each time). Two labels applied one write apart leave a
+window where the bead carries only one, invisible to whatever desk query selects on both
+at once; and the rejection was never a typo — five sessions independently reasoned the
+packet goes to Adam, because it does, and retyping `--next` with a different role each
+time never fixed the actual mismatch.
+
+```
+b7e-packet -w <workspace> -b <bead> -t <question>  [-f packet.md] [--artifact <url>]
+                                                    [--from <role>] [--no-options]
+```
+
+The body is `-f <path>` or stdin, exactly like `bin/ask.js`, and is held to the same
+rule: it must end with a `decision` block (`lib/decision.js`) or the command refuses
+before anything is written, naming the fix and the one legitimate way past it
+(`--no-options`, for a packet that is a plain go/no-go). What it does past that gate:
+
+1. **Files the question with both packet labels in the one `bd create`** —
+   `needs-approval` and `human` (`lib/relay.js`'s `packetFor`, a per-workspace default),
+   plus the addressee label `bin/ask.js` also stamps — so there is no write between them
+   for a query to catch the bead carrying only one.
+2. **Parks `-b` behind the new question** (`lib/park.js`), with the same
+   fallback-to-`human` behaviour `bin/ask.js --blocks` has when the edge itself cannot be
+   written.
+3. **Records the filer's step on `-b`'s own relay trail** (`lib/relayjournal.js`) — role
+   `--from`, or the workspace relay's `filer` (`ward`, for deluvia) when neither is given;
+   step `file`; **no `--next`, ever** — that is the fix, not a caught rejection: the
+   command never builds the argument that was getting refused. Skipped, silently, on a
+   workspace with no relay and no `--from`: there is no trail to write a role onto, the
+   same rule `bin/relaystep.js` follows. `--from` is checked against the workspace's own
+   roles first, and an unknown one is refused (exit `3`) before the create, the same as
+   an unknown `-b` or a body with no `decision` tail.
+4. **Prints the packet id, the labels it now carries, and the relay line** (or that none
+   was recorded) **— then, only when `--artifact` was not given, the Rule 1 verdict** on
+   whether a repo path written from here would reach a phone (`lib/reachable.js`).
+   `dv-5eu.1.1`, `dv-gr6.41` and `dv-gr6.43` each re-derived that by hand — the main
+   checkout sits on a branch that is not trunk — and published an Artifact instead; this
+   is that derivation, made once rather than re-argued per session. It reads the local
+   `origin/HEAD` symbolic ref first, so no network call and no dependency on GitHub
+   knowing the repo, falling back to a local `main` or `master`; a checkout it cannot
+   read at all, or one with neither, answers `null` rather than a guessed `false`. Pass
+   `--artifact <url>` once you already have one — reachable by construction, nothing left
+   to verify — and the url is echoed back in its place.
+
+Exit codes: `1` usage, an unknown workspace, a body with no `decision` tail, or `-b`
+naming a bead this workspace does not have — all refused before the create, so nothing is
+on Adam's phone yet. `3` an unknown `--from` role, refused the same way. `0` otherwise:
+the packet exists past that point, so a failed park or a failed relay write is reported
+on stderr and the command still exits `0`, the same rule `bin/ask.js` follows and for the
+same reason — a caller told the whole thing failed, over a question already on a phone,
+either asks nothing or asks twice.
+
+**Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and no `lib/grants.js` entry either.**
+Unlike `b7e-def`/`b7e-show`'s read-only lookups, this is a tracker write — it files a
+bead, labels it, adds a dependency edge and appends to another bead's notes — and the one
+agent `DEFAULT_TOOL_LIST` actually reaches, `dispatch`, has no relay to be filing on
+behalf of and no delivery of its own to gate. A worker session, which is what actually
+ends a Story-chain relay, already carries an unrestricted allowlist and needs no grant to
+run it — the same call `b7e-say`'s own section makes. See `bin/b7e-packet`, `lib/relay.js`,
+`lib/relayjournal.js`, `lib/reachable.js` and `test/b7e-packet.mjs`/`test/reachable.mjs`.
+
 ### A *workspace repo's* own gate scripts, all of them, with a baseline — `b7e-checks`
 
 `b7e-gate` above runs *this* repo's own `test/*.mjs` — `lib/gate.js`'s `discoverSuites`
@@ -19424,6 +19787,92 @@ alone takes over a minute — heavier than a lighter version of `Bash(npm test:*
 read anything in `lib/grants.js` already classifies as one. `dispatch`, the one agent
 this list actually governs, has no more use for a battery of another repo's checks than
 it does for running this one's own suite.
+
+### Turn a gate's own "expected X — got Y" into the edit — `b7e-rebaseline`
+
+`b7e-checks` just above runs a workspace repo's gate scripts and tells you which are red.
+This is what five sessions did *next*, by hand. `bc-dgx7.76`, filed by the session audit
+(`lib/sessionaudit.js`), names `dv-gr6.41`, `dv-gr6.43`, `dv-b5d.4.3`, `dv-3rn.1` and
+`dv-b5d.14`: each changed a file a gate script measures, read the new number off the
+gate's own FAIL line, and then hand-propagated it into every other place the old one was
+written. `dv-gr6.41` got `FAIL [S3.1] Ch 4 prose words == 4090 -- got 4536`, `[S3.1] total
+shortfall == 25198 -- got 24752` and `[S3.2] Ch 4 delta == +2499 -- got +2945`, wrote
+`scratchpad/rebaseline.py` to rewrite three constants in `scripts/check_saga_audit.py`
+plus two tables in `SAGA_READINESS_AUDIT_2026-08-10.md`, and committed that as a commit of
+its own. `dv-gr6.43` did the same for chapters 10 and 11 with its own
+`scratchpad/rebaseline.py`, then had to do the whole thing *again* after merging
+`origin/main` — the merge conflicted in exactly those two files, because `dv-gr6.41` had
+re-baselined the same constants concurrently — and finished with a placeholder trick
+(write `0`, re-run the gate, `sed -i ''` the measured values back in), two more scripts and
+two inline heredocs. `dv-3rn.1` spent a throwaway `git worktree add --detach` and a hand
+reimplementation of the check's own `check_unreferenced`, copied out of the script's
+source, working out *why* an orphan count had moved. Four `beadcause-memory` notes already
+warn about this tax; every one of them is a warning to a human, and none of them does the
+arithmetic.
+
+```
+b7e-rebaseline -w <workspace>              the plan, touching nothing (the default)
+b7e-rebaseline --dir <root>                a checkout directly, no workspace needed
+b7e-rebaseline -w <workspace> --write      apply it, then re-run the gate to prove it
+b7e-rebaseline -w <workspace> --only S3.1  one assertion, by check id or label text
+b7e-rebaseline -w <workspace> --no-recheck with --write, skip the confirming second run
+b7e-rebaseline -w <workspace> --json       the whole plan as one object
+```
+
+**It is the other half of `b7e-count`, not a second copy of it.** `b7e-count` answers
+"where is this literal written, and how many times". This answers "what is that number
+*now*, read off the gate's own measurement, and which of those sites belong to that
+assertion" — the half every one of the five sessions had to do after finding the sites.
+
+**Running the gate is `lib/checks.js`, unchanged.** Discovery, the per-check `judge`, the
+per-tree lock and the concurrency are `manifestFor`/`discoverChecks`/`runChecks` — the
+same set `b7e-checks` runs, so the two commands can never disagree about what this repo's
+gate *is*. A root no manifest recognises is refused here exactly as it is there, and a new
+repo shape belongs in that file's `MANIFESTS` rather than in a private discovery rule here.
+
+**A site is only rewritten when its own context names the check.** The dangerous version
+of this command is the one that rewrites every `12` in the tree because a check measured
+12. So each stale pair carries anchors — its bracketed id (`[S5.2]`), the distinctive
+words of its label, and any qualifier number the label holds ("Ch **4** prose words") —
+and a site qualifies only when its line, the few lines above it, the nearest heading above
+it or the nearest constant assignment above it names one of them. Everything else carrying
+the old literal is still *listed*, under "not rewritten", because "here are five more
+places that number is written and I did not touch them" is exactly what `dv-b5d.4.3`
+needed and did not have. A site two stale assertions both claim, disagreeing about what it
+should become, is nobody's to rewrite — which is `dv-gr6.43`'s concurrent-re-baseline
+collision, caught rather than merged.
+
+**The sites are bucketed the way the five sessions thought about them** — "the script",
+"the doc it mirrors", "a selftest fixture", and `elsewhere` for anything that is none of
+the three, reported under its own heading rather than quietly filed as a doc. The
+definition site is called out separately: the assigning line in the gate script itself
+(`PROSE_WORDS = {`, `4: 4090,`), which is the one a human goes looking for first.
+
+**Formatting survives the rewrite.** A doc table saying `4,090` gets `4,536`, not `4536`,
+and a delta written `+2499` stays signed — not cosmetic, because a gate that parses its own
+doc back reads a regrouped number as a different one. A trailing comma in a dict literal
+(`4: 4090,`) is not a thousands group; a comma only joins a number when three digits
+follow it.
+
+**A failure that is not an expected/got pair is reported as out of scope and refuses the
+write.** A dangling pointer or a naming violation is a real finding about the tree, and
+moving a baseline is never the answer to it — so those are printed, nothing is written even
+with `--write`, and the exit code is `2`.
+
+Exit codes: `0` nothing is stale, or a plan was printed, or `--write` applied it and the
+gate came back green. `2` refused — bad usage, no manifest, another gate run holds the
+lock, or a failure that is not a pair. `3` `--write` has had its go and the gate is still
+red — either its edits were not enough, or no site named the check it belongs to and there
+was nothing this command was willing to rewrite.
+
+Not on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, for the `b7e-checks`/`b7e-gate` reason
+rather than the read-only shape of `b7e-def`/`b7e-count`: it runs another repo's gate
+scripts as external processes for as long as `--timeout` allows — which `lib/grants.js`
+already calls a write on the strength of "nothing about run the tests is a read" — and with
+`--write` it rewrites tracked files in a checkout it does not own. `dispatch`, the one
+agent this list actually governs, answers one phone comment with one `bd comment`; it has
+no branch to re-baseline on and no way to commit or review the result. See
+`bin/b7e-rebaseline` and `lib/rebaseline.js`.
 
 ### Re-run a sweep's failures alone, and say which are real — `b7e-triage`
 
@@ -19678,6 +20127,259 @@ Read-only in exactly the same construction as `b7e-def` above: it only ever read
 `lib/`, `bin/` and `scripts/` off disk and prints what it finds — no `bd`, no `git`, no
 subprocess. `Bash(b7e-import:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` beside
 `b7e-def`, and `lib/grants.js` classifies it `read`.
+
+### Does lib/ already have a function for this — and is it exported — `b7e-already`
+
+`bc-dgx7.81` is the session audit: five beads (`bc-dgx7.64`, `bc-dgx7.62`, `bc-dgx7.61`,
+`bc-dgx7.63`, `bc-xl7n.76.3`) each asked "is there already something in `lib/` that does
+X" before writing their own, and each answered it with a different pile of speculative
+greps against 284 modules. `bc-dgx7.62` found `ago(ms)` in three calls and then spent a
+fourth discovering it was not exported. `bc-dgx7.64` grepped `^export function
+resolveSessionDir` twice and got nothing, because the real declaration is `export const
+resolveSessionDir = (cfg, workspace, bead = null) => ...` — an arrow assigned to a
+`const`, a shape that pattern structurally cannot match. `bc-dgx7.62` also spent four
+more calls enumerating what the `Bd` class offers, one grep at a time.
+
+```
+b7e-already <words>...            match against every declaration in lib/, bin/ and
+                                   scripts/ — name and the first line of its doc comment;
+                                   exported and private both, private labelled distinctly
+b7e-already <words>... --private  only the private (unexported) matches
+b7e-already --module <file>       everything one file declares, class methods included —
+                                   no search, the whole surface
+b7e-already --dir <root>          "this tree" is <root>
+```
+
+**Exported and private, in one call.** Unlike `b7e-import`'s `findExporters` — which
+only ever names where a symbol *is* exported from — a query here matches every top-level
+`function`/`const`/`let`/`class` declaration whether or not it is exported, because "it
+exists but you cannot import it" is exactly the answer that cost two of the five
+sessions a wasted search each. Each hit prints as `<file>:<line> <export|private>
+<signature> — <first line of its doc comment>`, best match first.
+
+**By description, not by literal string.** A query word matches if it appears anywhere
+in a candidate's name — split on camelCase/`SCREAMING_CASE` boundaries first, so
+`resolve session dir` matches `resolveSessionDir` the way `^export function
+resolveSessionDir` never could — or in the first line of its own doc comment. Not every
+word has to match: `time ago` still surfaces `ago(ms)`, whose doc ("How long ago, in the
+words a refusal can use.") never says "time".
+
+**`--module` is the other question** — not a search, the whole surface of one file:
+every declaration `lib/bd.js` makes, class methods included, which is what `bc-dgx7.62`
+spent four separate greps assembling by hand.
+
+Exit codes: `0` at least one match (or `--module` found declarations to list). `1`
+nothing matched — a legitimate answer, not a crash. `2` refused — bad usage, or
+`--module` named a file that can't be read.
+
+Read-only in the same construction as `b7e-def`/`b7e-import` above: its own acorn parse
+over `lib/`, `bin/` and `scripts/`, comments included — which `lib/imports.js` doesn't
+collect, since this is the one question that needs them. `Bash(b7e-already:*)` is on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
+
+### Was this bead's question answered, and which bead carries the answer — `b7e-answered`
+
+`bc-dgx7.84` is the session audit: four sessions (`bc-mwhkg.1`, `bc-jjdar.1`, `bc-jjdar.2`,
+`bc-mwhkg.2`) each opened on a bead they had been told was answered, and each spent its
+opening working out — a different way each time — whether that was true and where the
+answer actually was. It was on the parent twice, absent once. `bc-jjdar.1` ran `bd show`,
+`bd comments` ("No comments"), then `bd comments <parent> | tail -60` and found the
+answer there, then a JSON notes dump to confirm the bead itself carried no `decision`
+block — four calls. `bc-mwhkg.1` got the same brief and the brief was wrong: six calls to
+correct the premise and conclude the parent was unanswered too.
+
+```
+b7e-answered -w <workspace> -b <bead>                    the bead alone
+b7e-answered -w <workspace> -b <bead> --family            also walk ancestors — parent, grandparent...
+b7e-answered -w <workspace> -b <bead> --json              the machine-readable form
+b7e-answered -w <workspace> -b <bead1> -b <bead2>          several beads, one call — repeat `-b`...
+b7e-answered -w <workspace> -b <bead1>,<bead2>             ...or comma-join them
+```
+
+**Two things it reads, because the fact was already recorded in both and nothing read
+them together.** `lib/decision.js` parses whichever `decision` block a bead's
+description/design/notes carries, if any — a bead with none is plain work, not a
+question. `lib/answered.js` is beadcause's own record of what you chose, kept in
+`state.json` precisely so a re-arriving card can say "you said this already" — and it is
+the *only* place a **deferred** answer shows up at all, because deferring answers a card
+without writing anything to the bead at all (see `lib/decision.js`'s `defersFlag`).
+Combined with the bead's own `status`/`close_reason` and its `human-replied` label —
+`/api/comment`'s own tell for a real reply that has not yet been processed — one call
+tells apart the three endings an answer can have: **closed** (`respond()`: a comment,
+then `bd close` with reason `Answered via Beadcause`), **commissioned** (`commission()`:
+a comment, the `human` label removed, reopened and unclaimed — an instruction to go
+build it, not a verdict), and **deferred** (nothing on the bead at all).
+
+**`--family` walks ancestors, not siblings.** Parent, grandparent, and so on, stopping at
+the first bead with no parent — the `bc-jjdar.1` shape, where the bead itself is plain
+work and the question it was opened over is actually on its parent. This is a different
+walk from `b7e-prior --family`, which widens to every other child under a shared parent;
+the two commands answer different questions and happen to share a flag name.
+
+One block per bead in the chain — whether it carries a `decision` block, whether it has
+been answered, which option was chosen (matched against the recorded response text), and
+the outcome — then one verdict line naming the bead the answer is actually on, or saying
+none of them in the chain carries one (the `bc-mwhkg.1` shape: nothing on the bead *or*
+its parent, despite the brief).
+
+**`bc-dgx7.95`: `close_reason` says a ruling happened, never what it was.** Every bead
+`respond()` closes gets the identical constant string, `Answered via Beadcause` — that
+is the whole of what the old fallback had to show once `state.json`'s own record had
+gone (past its 30-day TTL, or the bead was answered by hand with a plain `bd comment`
+rather than through the app). The actual choice is the comment `respond()` wrote
+immediately before closing, and this now searches the thread for it — most-recent-first,
+so anything said on the bead *after* the ruling does not get mistaken for it — and
+resolves the chosen option from that text exactly as it would from a `state.json`
+record. The option list prints with the taken one marked and `recommended` kept where it
+was set; the comment's own text and timestamp print alongside it. A still-open bead
+carrying `human-replied` gets the same search. The one case nothing can answer — closed
+as a ruling with no comment on the thread at all — reads as the outcome
+**`answered-but-unrecorded`**, not as an empty `(closed)`: the gap is real and the report
+says so, rather than reading like a ruling with nothing behind it.
+
+**Several beads in one call**, for the case `dv-3rn.2` needed it: 32 beads answered by
+hand, where a `bd show`/`bd comments` pair per bead ran so slowly under contention that a
+backgrounded script hadn't finished in five minutes. `-b` may be repeated
+(`-b a -b b`) or comma-joined (`-b a,b`), or both. The batch form skips the extra
+existence-checking `bd show` the single-bead form still does — a bead `beadAnswer`
+itself cannot find comes back with an empty chain, which already says "not found" — so
+it costs one `bd` read per bead in the chain rather than two, the other half of the
+64-calls-for-32-beads this bead was filed to cut. `--json` becomes `{ beads, results }`,
+one entry per requested id in the order given, `notFound: true` on the ones that
+weren't there.
+
+Exit codes: `0` ran to completion, whatever the verdict(s) — "nobody has answered this"
+is a legitimate answer, not a failure; with several beads, `0` means at least one of them
+was findable. `2` bad usage. `4` `-w` named a workspace this checkout's tracker does not
+have, or (single-bead form only) `-b` named a bead it does not have.
+
+Read-only: one `bd` read per bead in the chain (`bd show --include-comments`) in the
+batch form; the single-bead form keeps its original extra existence check, so two for the
+bead named on `-b` and one for each further ancestor `--family` walks to. Plus
+`state.json`'s own `answered` map. Never a write. `Bash(b7e-answered:*)` is on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js`, and `lib/grants.js` classifies it `read`.
+
+### Is another live window already on this bead — `b7e-window`
+
+`bc-dgx7.88` is the session audit: seven sessions in the deluvia tracker each opened by
+asking whether a second agent window was already working the same bead, and each wrote
+its own `ps` pipeline for it. No two were the same, and the variation was not cosmetic —
+one flooded 50KB of output to a file nobody read then retried twice; one got a **false
+negative** on the one question this exists to get right, and only found the second
+window a call later by luck. The bracket idiom that keeps a `grep` from matching its own
+invocation (`grep 'beadcaus[e]/<id>'`) was independently rediscovered by all seven.
+
+```
+b7e-window -w <workspace> -b <bead>            one line per live window naming it
+b7e-window -w <workspace> -b <bead> --family   also census every bead under its nearest root
+b7e-window -w <workspace> -b <bead> --json     the machine-readable form
+```
+
+**A self-check, not the dispatch-time door.** `lib/onewindow.js` (`bc-7qo.19`) refuses at
+*dispatch* time, when the daemon already knows a bead is live. This is for a window that
+cannot assume that door caught every case — a hand-opened session, a race, a stale lease
+— and wants the answer for itself, with an exit code it can act on: `0` at most one live
+window names the bead, `1` two or more do (their pids are named). `2` bad usage. `4`
+`-w`/`-b` named something this checkout's tracker does not have.
+
+One `ps -Ao pid=,etime=,args=` read is the whole of the evidence, matched with the same
+word-boundary rule (`namesBead`, `lib/reap.js`) the rest of the codebase already trusts
+for this — including its guarantee against a *dotted child* reading as a match (a live
+window on `bc-x.1.3` does not make `bc-x.1` look occupied). "This session's own window"
+is found by walking up the process tree from `ps -Ao pid=,ppid=` until a pid with a live
+`~/.claude/sessions/<pid>.json` record turns up — the same walk
+`~/.claude/rename-session.sh` does in shell, ported to JS.
+
+**`--family` widens to the nearest root (P0 or epic) above the bead, and everything
+under it** — the per-bead census a couple of the deluvia sessions (`dv-b5d.23`,
+`dv-b5d.40`) assembled by hand for a whole epic's worth of live windows. Under
+`--family` this is a report, not a gate: a sibling bead worked in a different window is
+ordinary, not a competitor, so the exit code stays `0` regardless of what turns up. Worth
+knowing before trusting a wide `--family` census: a live process's argv can carry its
+whole loaded context, and this repo's own memory notes are free to *quote* another
+bead's qualified id as example text — measured live while building this, `--family`
+against a large epic picked up two ordinary sessions as "live on" a sibling bead purely
+because a note in their context quoted that bead's qualified id in a worked
+`beadcause-supersede` example. Not a false positive this tool introduces — the same
+trade-off the rest of the codebase already accepts for the single-id case, just visible
+at fifty times the width.
+
+**Not `b7e-onbead` (`bc-7qo.24`), a closely related but distinct question, still
+unmerged as of this writing (PR #656, conflicted, no resolver).** `b7e-onbead` is an
+investigative report for *reaching* a live peer — worktree, dirty disk state, a
+`SendMessage`-able name; this command is a fast boolean gate for a session's *own*
+self-check, with an exit code and a `--family` census neither of `b7e-onbead`'s
+acceptance criteria ask for. Kept separate rather than merged into one, the way
+`b7e-siblings` and `b7e-onbead` were kept separate before them — worth folding together
+once `b7e-onbead` actually lands, if that reads better then.
+
+Read-only: one `ps` read, plus (for `--family`) one `bd export` — never a write, never
+touches a worktree. `Bash(b7e-window:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`,
+and `lib/grants.js` classifies it `read`. See `bin/b7e-window` and `lib/window.js`.
+
+### Every surface a printed figure appears on, and whether they agree — `b7e-where`
+
+`bc-dgx7.16` is the session audit: six sophab sessions (`sp-0hw`, `sp-clh`, `sp-oyg`,
+`sp-mgq`, `sp-j8f`, `sp-weu`) each answered "where is this figure written, and does every
+surface agree" by hand. Four of them opened with an unquoted `--include=*.py` — zsh
+glob-expands it before `grep` ever runs, so the whole line dies with `(eval):1: no
+matches found: --include=*.py` and nothing on stdout to explain why — and all four
+retried with a different exclusion set. The four that got past that walked each surface
+in a separate call, and `sp-clh` had to search both `2x10` and `2×10` by hand: the
+E-sheets and S-sheets spell the same board two different ways, and that spelling
+difference is exactly how a real defect (`sp-ghq`) hid.
+
+```
+b7e-where <text>                hits under source, docs, tests and served markup, the
+                                  registered audit-doc row (if any), and a verdict
+b7e-where <text> --json         the same, as one JSON object
+b7e-where <text> --dir <root>   run against another tree — this is how it is tested
+b7e-where <text> --regex        treat <text> as a real RegExp instead of a literal
+```
+
+It never shells out to a system `grep` — the same defence `lib/repogrep.js` (`b7e-grep`)
+and `lib/cites.js` (`b7e-cites`) already documented for the same reason — so there is no
+`--include`/`--exclude` glob for a shell to reparse in the first place, and `<text>` is
+matched as a literal by default, not a pattern. `<text>` is normalised so `x`, `X` and `×`
+all match each other, the one figure-spelling problem the bead itself names: a query for
+`2x10` finds a `2×10` line and vice versa, with no second call.
+
+**The surface list is not a fixed set of directories, unlike `b7e-grep`/`b7e-cites`.**
+Those two intentionally only ever search *beadcause's own* `lib`/`bin`/`test`/`scripts`/
+`public`/`android` — `bin/` of the main checkout is on every session's `PATH` regardless
+of which repo it is actually sitting in, so this one has to work from inside sophab, or
+any other repo, on its own tree. The four surfaces are classified by convention, checked
+in this order: a path under a `test`/`tests` directory (or named `test_*.py`/`*_test.py`/
+`*.spec.*`) is **tests**, whatever its extension, because a fixture belongs with the
+other tests rather than with the docs or markup it happens to resemble; a `.md`/`.rst`
+file is **docs**; an `.html`/`.htm` file, or anything under a `static`/`public`/`pages`/
+`templates`/`views` directory, is **served markup**; everything else is **source**. Root
+is resolved from `process.cwd()` via `git rev-parse --show-toplevel`, never from where
+this script itself lives on disk (see the memory note this is built against,
+`a-worktree-aware-bin-resolves-root-from-cwd-not-here`) — the same reason a worktree's own
+uncommitted edits are searched too: the file list is `git ls-files -z --cached --others
+--exclude-standard`, which honours whatever `.gitignore` the target repo already has with
+no exclusion list of our own to keep in sync, and falls back to a small fixed-skip-list
+walk only when the root is not a git repository at all.
+
+**The audit-doc row.** A docs file with `audit` in its name (`docs/plan_set_number_audit.md`
+in sophab) is treated as the registered ledger for "does this figure agree" — its matching
+lines print under their own heading, in addition to counting toward the `docs` surface,
+so the one file that is supposed to already answer the question is never buried among
+however many other doc hits there are.
+
+**The verdict is presence, not a value comparison** — the same "good enough to replace
+the hand grep, not a substitute for reading the file" tradeoff `b7e-def`'s own doc
+comment makes. It names which of the surfaces that actually exist in this repo have a
+hit and which don't (`2x10 found in source, docs, tests — not in served markup`); it
+cannot tell you a value printed on two surfaces disagrees, only that one surface never
+mentions the figure at all — which is nonetheless how several of the six sessions' real
+defects first showed themselves.
+
+Read-only by construction — `git ls-files`/`fs.readFileSync` and nothing else, never a
+write or a shelled-out `grep` — which is what put `Bash(b7e-where:*)` on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js` rather than behind an elevation; `lib/grants.js`
+classifies it `read`.
 
 ### Which number a sw-cache bump takes, and the renumber a downmerge forces — `b7e-swbump`
 
@@ -20050,6 +20752,66 @@ and never builds a `git worktree`, so it carries none of the "runs the tests" wr
 `lib/grants.js` already classifies `Bash(npm test:*)` as.
 
 
+### Did the gate actually run this suite, and what did it say — `b7e-ran`
+
+`bc-dgx7.92`, filed by the session audit against six sessions (`bc-dgx7.80`, `.86`,
+`.82`, `.77`, `.81`, `.78`) that each added a new `test/*.mjs`, ran a gate, and then
+had to work out by hand whether that file had actually been in the run — no two of
+them the same way. `bc-dgx7.86` grepped a persisted log for `"b7ewrite\|b7e-write"`,
+then again under a different spelling. `bc-dgx7.77` tried three greps in a row before
+giving up and searching for `"test/role"` plain. `bc-dgx7.80` is the one that shows why
+a basename grep is not an answer: it built the real check by hand across four calls —
+`b7e-gate --list` to a file, the log's own suite names to another, `sort -u` both,
+`comm -23` between them — and only that way found that its own two new suites had
+*never run at all*; a plain grep for one of their names had matched an unrelated file
+instead and read as "there."
+
+The data already existed: `lib/gaterun.js`'s `readRun` already parses the JSONL
+`b7e-gate` writes, one line per suite, precisely so nothing has to grep a log — it just
+had no way to ask about one named suite, or which selected suites produced no result at
+all. `resultsFor`/`missingFrom` are that read, wired to a CLI.
+
+```
+b7e-ran <suite> ...        one row per named suite, against this worktree's most
+                            recent gate run
+b7e-ran --missing          every suite the run selected that produced no result
+b7e-ran --run <id>         a specific run, from any worktree
+b7e-ran --json             the raw records
+b7e-ran --dir <root>       another tree
+```
+
+**`never-ran` is its own answer, not a verdict.** A suite that never produced a
+`result` line in the run — never selected, or a run that stopped before reaching it —
+reports `never-ran`, distinct from any `ok`/`FAIL`/`TIMEOUT`. That is exactly the
+ambiguity a basename grep collapses: it cannot tell "not there" from "there and green"
+from "matched something else entirely."
+
+**`TIMEOUT` is recovered from the tail, not stored as its own status.** `b7e-gate`'s own
+`onResult` collapses `FAIL` and `TIMEOUT` into the JSONL's `status: 'fail'` before
+writing — see its header. `lib/gaterun.js`'s `verdictFor` tells them apart the only way
+the record still can: by matching the `"timed out after Xs — killed"` line `runSuite`
+(`lib/gate.js`) appends to a suite's own tail when it is killed for running past its
+timeout, which `appendResult` keeps as the last lines of `tail` for any non-`ok` result.
+
+**A typo is refused, not reported as `never-ran`.** Named suites are checked against
+`discoverSuites` (`scripts/test.mjs --list`, the same list `b7e-gate` itself selects
+from) before anything is read from the run; a name that is not a real suite in the repo
+exits `2` rather than printing a real-sounding negative for something that was never a
+suite. `--missing` does not need this check — it reads names straight out of the run's
+own `start` line, which `b7e-gate` only ever populated from a real `discoverSuites` call
+in the first place.
+
+Exit codes: `0` every named suite ran with verdict `ok` (or, with `--missing`, nothing
+is missing); `1` at least one named suite never ran or came back `FAIL`/`TIMEOUT` (or,
+with `--missing`, at least one suite is missing); `2` refused — bad usage, no run found,
+or a suite name that is not in the repo at all.
+
+**On `DEFAULT_TOOL_LIST` in `lib/toolbelt.js`**, the same read-only argument as
+`b7e-gated`/`b7e-stillred` just above: it only parses an already-written JSONL record
+and, to refuse a typo, shells to `scripts/test.mjs --list` — it never runs a suite and
+never touches `bd`.
+
+
 ### Read another workspace's tracker by name — `b7e-ws`
 
 `bc-bmry.10`, filed by the session audit (`lib/sessionaudit.js`) against three sessions
@@ -20089,6 +20851,66 @@ a workspace is even resolved. That is what makes this read-only *by construction
 same shape as `b7e-def`/`b7e-owes`/`b7e-affected`/`b7e-readme`, and what earns it a place
 on `DEFAULT_TOOL_LIST` in `lib/toolbelt.js` alongside them — this is a lookup, not a
 second door into `bd`.
+
+
+### One `bd` write that survives contention, instead of a blind retry that double-posts — `b7e-write`
+
+`bc-dgx7.86`, re-filed from `dv-k4n.14` (the session audit, `lib/sessionaudit.js`).
+`b7e-ws` above forwards read verbs and refuses to mutate anything "on purpose — this is a
+lookup, not a second door into bd". Every mutating call three sessions needed therefore
+went out as raw `bd` from a Bash tool call, against a workspace where embedded Dolt's
+single writer was contended all afternoon, under the harness's own 120s ceiling — and each
+session invented something different, one of them destructive. `dv-k4n.8`'s `bd comment`
+timed out; its own check read raced the still-queued write and answered "No comments", so
+the session retried — both writes landed, the same finding twice. `dv-b5d.43` spent seven
+round-trips (`ps | grep`, hand-written `until ! kill -0` loops) confirming a backgrounded
+`--claim`. `dv-gr6.65` abandoned per-bead reads entirely after one hung for two minutes and
+exited 143.
+
+```
+b7e-write -w deluvia comment dv-vry <<'EOF'      text from --file or stdin, never argv
+Whatever happened, however many backticks or heredoc terminators it needs.
+EOF
+b7e-write -w deluvia claim dv-vry                shorthand for `bd update dv-vry --claim`
+b7e-write -w deluvia unclaim dv-vry
+b7e-write -w deluvia close dv-vry --reason "duplicate"
+b7e-write -w deluvia update dv-vry --status=open
+b7e-write -w deluvia label add dv-vry human
+b7e-write -w deluvia dep add dv-vry dv-abc
+```
+
+**The retry logic already exists and is already correct.** `lib/bd.js`'s `run` never
+retries a timeout, whatever `retries` says — a timeout means the machine has just proved
+it is too busy, and asking again inside the same ceiling wastes the ceiling twice. What was
+missing is the step between "the write timed out" and "is it safe to ask again": a
+verification read that can tell "the write is not there" apart from "I could not find
+out", because `dv-k4n.8`'s read was exactly the second case dressed as the first. On a
+timeout, this command runs exactly one such read — on a *fresh* `Bd` instance, never the
+one the write just used, because `run`'s quarantine is keyed per-instance and fires the
+moment a write times out; reusing it would have the verification read refused before it
+ever spawned, on every single timeout, which is the one case this command exists to
+answer — and reports one of four outcomes: **landed** (wrote first try), **already
+landed** (the write timed out but the read found it — nothing retried), **not landed**
+(the read found no trace of it — safe to retry), or **unconfirmed** (the read could not
+answer either, so nothing is retried and the bead needs a human look).
+
+**Only the mutating set `b7e-ws` itself refuses is accepted** — `comment`, `update`,
+`close`, `claim`, `unclaim`, `label`, `dep` — anything else (a read verb, `create`, a
+typo) is refused before a workspace is even resolved, pointing a read at `b7e-ws`
+instead. `claim` is not a real `bd` verb; it is shorthand for `bd update <id> --claim`,
+offered because that is the one shape almost every worker brief in this repo runs first.
+Comment text is always `--file <path>` or stdin, never a positional argument — the
+`b7e-say` rule (bc-gdub.2) that a Bash tool call's own double-quoted argv re-parses
+backticks and `$(...)` before the command they are quoting ever runs; once read into this
+process the text goes to `execFile` as one argv element with no shell in between, so that
+hop needs no escaping at all.
+
+**Deliberately NOT on `DEFAULT_TOOL_LIST`.** Unlike `b7e-ws`, this command *is* the write
+door — granting it to `dispatch`, the one agent that list governs, would be a
+general-purpose write into any configured tracker, which is strictly more capability than
+any single mutating `bd` command `lib/grants.js` classifies as a write. A worker session,
+which is what all three originating sessions actually were, already carries an
+unrestricted allowlist and needs no grant to run it.
 
 
 ### Count the beads that carry a label or an edge — `b7e-census`
@@ -20612,6 +21434,69 @@ brief already tells it to reach `bin/deliver.js`: by absolute path, through the 
 grant it already has. Wiring it onto the allowlist belongs to `bc-dgx7.2`'s definition
 of what a skill needs, not to this bead. See `bin/b7e-handback`, `lib/handback.js` and
 `test/b7ehandback.mjs`.
+
+
+### Take a bead a studio role is holding — `b7e-take`
+
+`bc-dgx7.97`, moved here from deluvia (filed there as `dv-b5d.48`) after a session
+audit found seven sessions each hand-recovering from the same refusal. `bd update <id>
+--claim` refuses whenever a bead already carries an assignee, and for `dv-b5d.24`,
+`dv-b5d.26`, `dv-b5d.22`, `dv-gr6.40`, `dv-3rn.4`, `dv-3rn.2` and `dv-gr6.36` that
+assignee was never a live session — it was a studio role (`sinew`, `vox`, `aria`,
+`tally`, `clio`) the bead had only been *routed* to. All seven ran `bd update
+--claim`, hit `issue already claimed: already assigned to "<role>"`, read the memory
+explaining the refusal is not a collision, and only then issued the write that
+actually works: `bd update <id> --if-assignee=<role> --assignee=<actor>
+--status=in_progress`. Three round trips, byte-identical across seven runs, before
+any of them had read a line of the repo they were there to work.
+
+```
+b7e-take -w deluvia -b dv-b5d.24              take it, or claim it plainly if unheld
+b7e-take -w deluvia -b dv-b5d.24 --dry-run    decide and report; write nothing
+b7e-take -w deluvia -b dv-b5d.24 --release    give it back to the role it came from
+b7e-take -w deluvia -b dv-b5d.24 --json       the machine-readable form
+```
+
+`lib/bd.js`'s new `CLAIM_ROLE_GUARD_RE` / `claimedBy` name who a `--claim` refusal
+says holds a bead — a third wording next to `CLAIM_GUARD_RE` and `REASSIGN_GUARD_RE`,
+placed beside them as the bead asked. What bd's own wording cannot say is whether
+taking the bead over is *safe*: a role and a real live session refuse in exactly the
+same words. `lib/take.js` answers that by reading the calling checkout's own role
+roster instead of guessing — every directory under `<checkout>/ai-context/agents/`,
+deluvia's own convention rather than a beadcause one (its nineteen names are exactly
+the acceptance criteria's "19 studio roles", and all five roles above are among
+them). A holder outside that roster — a real person, or a live window actually
+working the bead — is refused by name, never taken on a hunch; a workspace that names
+no such directory reads back an empty roster and refuses every held bead, the
+conservative default rather than a silent guess.
+
+The take itself is atomic: `Bd.casAssign` (`lib/bd.js`) is `bd update <id>
+--if-assignee <role> --assignee <actor> --status in_progress --add-label
+taken-from:<role>` in one call, so the write only lands if the role was still the
+assignee the instant it ran. That label is what `--release` reads back to hand the
+bead to the same role it came from, and it is removed on release. A stale guard (bd
+1.2.1's own exit 13, "precondition guard did not match") means somebody else won the
+race between the read and the write — reported rather than retried, since retrying
+would recompare the same expected value against the same now-wrong assignee and lose
+the same way again.
+
+**Not on `DEFAULT_TOOL_LIST`, despite the bead's own wiring checklist saying it
+should be.** That checklist line is right for a read-only lookup (`b7e-def`,
+`b7e-claims`) and wrong for this one, for the same reason its closest sibling in
+shape, `b7e-handback`, is not on it either: a reassign is a tracker *write*,
+`DEFAULT_TOOL_LIST` is the read-only surface a constrained reply agent gets
+(`lib/toolbelt.js`'s own docstring: "the read-only surface every reply agent gets"),
+and the worker session this actually serves already has the Bash access to run it —
+the same way it already runs `bd update --claim` itself, by the name it resolves to
+on `PATH`. Adding it would hand a write to a reply agent the checklist was never
+written with in mind.
+
+`test/b7etake.mjs` drives all three of `lib/bd.js`'s claim-refusal wordings from a
+fake `bd`: the new one (taking over a role-held bead), and the two existing ones
+(`CLAIM_GUARD_RE`, `REASSIGN_GUARD_RE`) checked to prove the new pattern never
+misreads either of them. Also covers the role roster read from a fixture
+`ai-context/agents/` directory, an unrecognised holder refused by name, `--release`,
+`--dry-run`, and the CAS race. See `bin/b7e-take`, `lib/take.js`.
 
 
 ### A reviewer's own runnable copy of a pull request — `b7e-prtree`
@@ -21248,6 +22133,121 @@ not this one's. `Bash(b7e-entry:*)` is on `DEFAULT_TOOL_LIST` in `lib/toolbelt.j
 `test/b7eentry.mjs`.
 
 
+### A `CHANGE_LOG.md` entry's own propagation checklist, verified against the tree — `b7e-propagated`
+
+`bc-dgx7.82`, a session audit against four sessions (`dv-b5d.32`, `dv-2uu.5`, `dv-gr6.5`,
+`dv-5eu`) that each independently discovered the same failure: an entry stamped
+`[PROPAGATED]`, or checked off `[x]` on one of its own rows, while the file that row
+names still carried the value the entry supposedly replaced. `dv-b5d.32`'s own case —
+Entry 108 capped Othens at 12'-15' and was stamped `[PROPAGATED]` the same day, and ten
+days later `pipeline/lib/checks.py` still carried the pre-ruling 12'-25' under a comment
+reading *"OPEN — do not narrow without dv-5i2.84"*, and `dv-5i2.84` *is* Entry 108, so any
+shot could stage a 25-ft Othen and pass every gate. Auditing the rest by hand turned up
+three more live statements of the old figure, and a fifth — `FAUNA_AND_FLORA.md`'s
+short-faced bear, "taller than an Othen", which the ruling inverts — was found by a later
+session whose own `grep -rn` matched a stale copy inside a `.claude/worktrees/*` checkout
+instead of the real file. Nothing had ever checked whether either kind of claim — the
+`Status:` line or a checklist row's own text — was actually true of the tree.
+
+```
+b7e-propagated -w deluvia 108              entry 108, at the delivery base
+b7e-propagated -w deluvia 108 --at <ref>   entry 108, at a specific ref
+b7e-propagated -w deluvia --all            every [PROPAGATED]/PARTIALLY entry
+b7e-propagated -w deluvia 108 --json       the machine-readable form
+b7e-propagated --dir <root> 108            another tree — this is how it is tested
+```
+
+**Not `b7e-count`: that needs you to already know the literal.** Here the input is an
+entry number, and working out the literals — the old value and the new — from the
+checklist row's own text is most of the job; `lib/count.js`'s occurrence census is the
+primitive underneath, reused for the actual old-value/new-value check once a row has
+staked one out. **Not `b7e-entry`: that allocates the next free entry number**, a
+different question about the same file.
+
+Each checklist row is judged **VERIFIED** (the row's own old value is gone from its file
+and the new value is present), **STALE** (the old value is still there), or
+**UNVERIFIABLE** (the row names no path, the path does not exist at this ref, or the row's
+own text stakes out no checkable literal at all) — reported, never silently skipped, so a
+human reading the output knows a box was never machine-checkable rather than assuming
+silence means it passed. Only two shapes of row text are recognised as staking out a
+checkable claim: a backtick-quoted arrow (`` `Barran Orves` → `Kazran Orves` ``) and a
+parenthetical "was OLD" paired with "now NEW" elsewhere in the row (the convention
+`dv-b5d.34`'s own fix used: *"(trait table, was 12'-22') — now 12'-15'."*). Most of Entry
+108's real rows describe what changed in prose without quoting either figure, and those
+are UNVERIFIABLE by design rather than guessed at.
+
+**Reads only ever by ref, never the working tree.** Every read is `git cat-file -p
+<ref>:<path>` (`lib/gitref.js`'s `readRefFile`), the same mechanism `b7e-count` and
+`b7e-entry` use and for the same reason: a `.claude/worktrees/*` copy is a second working
+directory on disk, invisible to a ref read, which is what makes "the bear line at the real
+path rather than in a worktree copy" true by construction rather than by discipline.
+
+**Never writes to `CHANGE_LOG.md`, or anywhere else.** `Bash(b7e-propagated:*)` is on
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js` and `read` in `lib/grants.js` on that strength.
+Exit `1` means at least one row is STALE (with `--all`, at least one swept entry has one),
+so it can be a gate the same way `b7e-entry --check` is. See `bin/b7e-propagated`,
+`lib/propagated.js` and `test/b7epropagated.mjs` — the test fixture reproduces the shape
+of the real incident rather than pinning a commit in deluvia's own history, which this
+repo's CI never clones and which keeps moving anyway.
+
+
+### Run this checkout's own `bin/` command, not whichever copy `PATH` found — `b7e-run`
+
+`bc-dgx7.87`, a session audit against three sessions (`bc-dgx7.80`, `bc-dgx7.77`,
+`bc-dgx7.81`) that each had to invoke a `b7e-*` command from inside their own worktree
+and each worked out how differently, because `lib/foundation.js` puts the MAIN
+checkout's `bin/` on every agent's `PATH` — so a bare command name, or even a relative
+`./bin/x` typed from the wrong place, does not reliably run the copy sitting in the
+worktree a session is actually doing its work in, and nothing says so when it silently
+doesn't. `bc-dgx7.80` burned four hours gating the main checkout by mistake because a
+`--dir` argument it believed pointed at its own worktree pointed at the main checkout
+instead. `bc-dgx7.77` carried an absolute path as a shell variable through a dozen
+consecutive Bash calls purely to be sure. `bc-dgx7.81` used a relative path that happened
+to work, then hit `./bin/b7e-gate --help` — not a help flag — and silently started a real
+478-suite run against the wrong tree.
+
+```
+b7e-run <command> [args...]                run <root>/bin/<command>, root = the caller's
+                                            own worktree — resolved from cwd, never from
+                                            this file's own path
+b7e-run --dir <root> <command> [args...]   a checkout other than the caller's
+b7e-run --which <command>                  resolve and report only; runs nothing
+```
+
+**Resolution is by `cwd`, not by this file's own location.** `git rev-parse
+--show-toplevel` against `process.cwd()` — deliberately not the `path.join(HERE, '..')`
+pattern several existing `b7e-*` commands use for their own default root, because `HERE`
+is always the MAIN checkout's `lib/` directory: this file always executes from the main
+checkout's `bin/` regardless of which worktree invoked it, so its own path can never
+answer "where is the caller actually sitting." See memory note
+`a-worktree-aware-bin-resolves-root-from-cwd-not-here`.
+
+**No extension guessing, no `package.json` lookup.** The target is exactly
+`<root>/bin/<command>` — the same file a shell would run for `bin/<command>` typed from
+that root. A name registered under a different filename (`b7e-owes` → `bin/b7e-owes.js`)
+has to be typed as that filename.
+
+**Prints the resolution before running it, every time.** One stderr line names the root
+it resolved and the file it is about to run. When the same command name would resolve to
+a *different* file on `PATH`, a second stderr line names that file and the checkout it
+belongs to — the exact gap that cost `bc-dgx7.80` four hours, made visible instead of
+silent.
+
+**Not on `DEFAULT_TOOL_LIST`.** The same argument `b7e-call` and `b7e-bound` already
+make for themselves: it runs whatever `bin/` entry its own argument names, with whatever
+arguments follow, so there is no argv shape to check for "reaches a write" — reaching
+whatever the caller points it at is the entire job, including commands already refused a
+grant here on their own for exactly that reason. See the comment beside
+`DEFAULT_TOOL_LIST` in `lib/toolbelt.js`.
+
+Exit codes: whatever the resolved command exits with, unchanged — including non-zero.
+`2` refused before anything ran: bad usage, or no file at the resolved path. Killing
+`b7e-run` forwards the signal to whatever it spawned first (`lib/teardown.js`'s
+`onExit`), the same fix `b7e-shipgate` needed for the identical trap — a wrapper that
+composes `b7e-gate` and does not forward its own kill signal orphans the gate, still
+holding its per-tree lock. See `bin/b7e-run`, `lib/run.js` and `test/b7erun.mjs`.
+
+
 ### Which requirement a change was for — `refs/beadcause/requirements`
 
 Climative records acceptance criteria as **requirements**: `resources/reqs/{product,technical}/*.yaml`
@@ -21776,7 +22776,7 @@ Nine things follow, and they are the whole of the change:
   reliably did. In between, every new worktree branched from before the delivery, and the
   session that got it paid with a downmerge of work it had never heard of. So a delivery
   ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
-  cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
+  cannot move anyway — and it is the same `landLocally` the merge queue's own `afterMerge` uses,
   refusal and all: *a checkout with edited work in it is not touched*, it says so on
   the bead instead, and Adam's open files are worth more than a tidy `main`. **It names
   the paths that stopped it.**
@@ -22067,6 +23067,214 @@ shares a workspace with thirty-nine others that are quiet.
 block, naming the bead that is the fix — which is what puts it under *Resolving issues* on
 the queues board, whose note is already the right one: *something outside the queue has to
 move before it can merge*.
+
+### And the wait the hold leaves behind gets a producer
+
+The hold above lifts by itself, and that is not the whole of what a red base costs. GitHub
+builds `refs/pull/N/merge`, so every check that ran while the base was broken is a verdict
+on *a merge with a broken base* — and it stays on the pull request afterwards, because
+nothing re-runs it. Judged against a base that is green again, that stale red reads as a
+failure the branch introduced. #475 and #488 were both condemned that way on 2026-08-18,
+neither having ever been broken.
+
+So the lift stamps `heldUntil`, and the gate answers a run that finished before it with a
+**wait** rather than a refusal: *"its checks last finished before the base came back, so
+they are a verdict on a base that is no longer there rather than on this branch. Nothing is
+counted against it until they have run again."* It costs no attempt, which is right —
+nothing has been asked of this branch since the base came back.
+
+**Nothing ran them again.** The sentence's own docblock names the downmerge as what ends
+the wait, and stakes the safety claim on it: *a branch whose checks predate the repair is
+behind the repaired base by construction*. The git relationship is exactly that. **The
+field the downmerge tested is not.** `mergeStateStatus` is GitHub's *mergeability* state,
+and `BEHIND` there does not mean "the base has moved" — it means "the base has moved **and
+this repository refuses a merge until you update**", which is only ever true under a
+branch-protection rule requiring branches to be up to date. `mordam/beadcause` has no
+protection at all (`gh api repos/mordam/beadcause/branches/main/protection` answers *404
+Branch not protected*), so GitHub reports `CLEAN` however far a branch drifts and that arm
+had **never executed once**: `grep -c "brought .* into "` over 209,308 lines of the daemon
+log was `0`. Nothing else re-runs a check either — there is no `gh run rerun` anywhere in
+`lib/` or `bin/`, and nothing on the queue path pushes.
+
+A wait with no producer is a deadlock wearing a wait's clothes, and this one was invisible
+by construction, which is why it lasted five days. Because it deliberately costs no
+attempt it never ejects to a card, so it is not on the inbox and not in `givenUp`; the only
+trace anywhere was one log line per tick per branch. Twelve pull requests were held in a
+single tick — #652, #701, #702, #703, #717, #718, #719, #720, #731, #767, #772, #773 —
+four of them children of one epic, one of them **approved by Adam a day earlier**. And the
+repo looked healthy the whole time: ten pull requests merged normally the same afternoon.
+**It is a graveyard, not a jam** — anything delivered *since* the base moved gets fresh
+checks and lands, so new work flows straight past a cohort whose checks are pinned to a
+base that is gone and which can never leave. That asymmetry is the whole reason nobody
+noticed, and it is still the most likely way this gets read as fixed while every held pull
+request stays held.
+
+**The reading is taken in the checkout instead.** `behindBase` is `rev-list --count
+<head>..<base>`, which has no protection rule attached to it — it is the git relationship
+the docblock already reasons about, asked of the repo the queue is holding anyway.
+`origin`'s copy of the base first, for `pickBase`'s reason: local `main` on a Mac running
+twenty sessions is routinely behind the thing it is being compared against. And `null` is
+*could not tell* — a head this checkout has never fetched, a base ref that is not here, a
+directory that is not a repository — which must never read as zero: the caller waits rather
+than spending a GitHub write on a guess.
+
+**Only the stale branch uses it, and that boundary is the design rather than caution.**
+Widening the `BEHIND` arm to the git reading would be the obvious change and the wrong one:
+on a `main` that moves twenty times an hour *every* queued branch is behind it, so every
+one of them would take three fresh bases and three CI runs before the queue ever got as far
+as judging it — which is precisely the starvation `MAX_DOWNMERGES` was written about, and
+being behind is not by itself a reason GitHub refuses a merge. A branch whose checks are
+current is therefore judged exactly as it was. Both readings stay, because they answer
+different questions: GitHub's says *this merge needs an update*, and this one says *there is
+something to bring in*.
+
+It is bounded by the same counter, and there is one deliberate difference from the arm
+above: **the charge is spent on the ask rather than on the success.** Up there a refused
+update is usually a race with somebody else's merge landing a second earlier and the next
+tick asks again. Here git has already said there is something to bring in, so an update
+GitHub will not perform is a standing condition — and not counting it would spend a write
+every thirty seconds for ever. Still no *attempt*, unchanged: nothing has been asked of
+this branch's diff, so nothing has refused it.
+
+**And the hold that remains says so out loud.** The tick counts it apart from `waiting`,
+because it is the one wait here that nothing else would ever move, and names the pull
+requests rather than tallying them — *"merge queue: 4 held on checks older than the base
+(#652, #717, #718 and 1 more)"* — for the reason the line names the ones in line for a
+window: "which ones" was exactly what nobody could answer. A branch that has had its base
+brought in three times and is *still* stale, or one whose head this checkout cannot see, is
+no longer waiting on the queue at all, and that list is the only thing that would say so.
+
+`node test/mergequeue.mjs` drives both arms of the reading and the bound, and it starts
+from the case a suite over a red branch would have missed: #717 was `test: SUCCESS`,
+`MERGEABLE` and `CLEAN`, held purely because its green run finished on the wrong side of a
+hold. `node test/lapsedrefusals.mjs` still owns the verdict itself.
+
+### Most conflicts never happen — four registries git is told to merge both ways
+
+A resolver is the right answer to two branches that disagree. Almost none of the conflicts
+here were that.
+
+Measured on 2026-08-26 by merging all 34 open pull requests onto `origin/main` in a
+scratch clone, in the order they would have reached the head of the queue: **13 of the 34
+conflicted**, and the files they conflicted in were `lib/grants.js` ten times,
+`lib/toolbelt.js` five, `package.json` and `package-lock.json` twice, `README.md` three —
+and `lib/server.js` **once**. That last one is the only conflict in the whole set where the
+two sides had anything to say to each other. Every other one was both sides adding a line.
+
+The reason is that adding one `b7e` tool is mostly new files — a `bin/b7e-X`, a `lib/X.js`,
+a `test/b7eX.mjs`, none of which anything else has ever seen — plus one line in each of
+four lists that every other branch in flight is also appending to. And there is only one
+place to put each line: ten of the fourteen branches touching `lib/grants.js` insert at
+line 333, after the last `b7e` grant. So one of them landing conflicts the other nine, not
+by bad luck but by construction, and each of those nine costs [a resolver
+window](#a-conflict-is-work-so-it-gets-a-session) — one of this Mac's two session slots —
+plus a full `npm test` re-run, to add a line nobody had to think about.
+
+`.gitattributes` is four lines and it is the whole fix:
+
+    lib/grants.js      merge=union
+    lib/toolbelt.js    merge=union
+    package.json       merge=union
+    package-lock.json  merge=union
+
+`union` is git's built-in driver for exactly this shape: where both sides added lines in
+the same place, keep both, in that order, rather than stopping to ask. Re-running the same
+34-branch simulation with those four lines took the conflicts from **13 to 4**, and all
+four survivors are `README.md`. The tree it produced was right rather than merely
+parseable — 112 bin entries with no duplicate anywhere, both registries parsing, and
+`test/grants.mjs`, `test/loadorder.mjs`, `test/lockfile.mjs` and `test/anchors.mjs` green
+over the whole 30-branch merge.
+
+**What union costs is that it is silent.** Keeping both sides is right when both sides
+*appended*. When the two sides *edited* the same line — two branches moving one grant from
+`read` to `write` — union leaves the key in the file twice, and a JS object literal and a
+JSON object both keep the last and discard the first without a word. The file parses, the
+suites pass, and one of the two branches has quietly lost.
+
+Nothing here could see that, and `test/grants.mjs` structurally cannot: by the time it
+holds `GRANTS`, the duplicate has already collapsed. So `test/unionmerge.mjs` asks the
+**source text** instead, and asks it the same way in all four files — more keys in the text
+than in the parsed value means one was swallowed. It fails the repo on a duplicate in any
+of the four, checks that `package-lock.json`'s copy of the bin map still names exactly what
+`package.json` does (union merges the two independently, so divergence is the new failure
+mode this introduces), and cross-checks every count against the module rather than trusting
+its own regex, because a scan that quietly stops matching passes forever over nothing.
+
+**`README.md` is deliberately not on the list**, and it is the file that conflicts second
+most often. It is 36,601 lines and all of it is prose. A duplicated list entry is something
+a scan can see and now reddens a suite; a duplicated *paragraph* in 2.6MB of documentation
+reads as writing, and there is nothing anywhere that would catch it. A conflict in a
+document is a question worth stopping on. It also needs it least: the `b7e` sections append
+at scattered anchors rather than at one shared line, so most of them merge clean on their
+own — three of 34, against `lib/grants.js`'s ten.
+
+This narrows what a resolver is for rather than replacing it. The conflict that is left is
+the `lib/server.js` one, where two branches really did edit the same code — which is the
+case the resolver was built for, and the only case worth a window.
+
+### A clean downmerge does not pay for the gate twice
+
+Bringing the base into a branch re-runs its checks, and the queue's second outcome ends
+the tick there — judging the old ones would be judging a diff that no longer exists.
+That is the right instinct and it has a price nobody was reading. `MAX_DOWNMERGES` is 3,
+`main` here takes about forty merges a day, and a branch that sits in the queue for two
+days can therefore pay for **three whole gate runs over a diff that never changed**.
+
+`trustChecksAcrossDownmerge` is a repo declining that bill. With it on, a downmerge that
+GitHub put in **with no conflict**, on a branch whose checks were **already passing**,
+carries straight on to the verdict and merges on the same tick.
+
+Three conditions, and each is doing work:
+
+- **The repo asked for it.** Off everywhere by default. It is a
+  [per-repo answer](#one-repo-may-answer-for-itself-on-the-six-settings-where-it-matters)
+  because the thing that makes it safe is a property of one repo's CI, not of beadcause
+  as a piece of software.
+- **The downmerge went in cleanly.** `pr.updateBranch` refuses on conflict and says so,
+  so reaching the question at all is GitHub reporting the base merged. A conflicted
+  branch never gets here: it was handed to a resolver one branch earlier, and that
+  resolver's brief still tells it to run the repo's own gate. Nothing here ever decides
+  a conflict was fine.
+- **The branch was passing, positively.** Not *not failing* — `rollup` reports four
+  states and two of them mean nothing ran. `pending` is a run in progress and `none` is a
+  head commit with no checks at all, which is the shape that
+  [condemned #480](#a-red-check-says-what-it-said--not-just-that-it-was-red). Either one
+  takes the old path and waits, which is what it would have done anyway. This can only
+  ever shorten the life of a pull request that was already green.
+
+**What it gives up is bc-rcrt's, and it is worth naming rather than burying.**
+`.github/workflows/test.yml` runs on every pull request because two branches that each
+pass alone can still break `main` together — the merge is a third thing neither of them
+tested — and the downmerge is where that gets caught before it lands. Skipping the re-run
+takes that risk deliberately.
+
+What makes it bearable is that the catch moves rather than disappears. The same job runs
+on `push` to `main`, so a bad pairing reddens the base within minutes, and
+[a red base holds the entire queue](#when-main-itself-is-red--the-queue-holds-and-something-is-put-on-the-fix)
+and files the bead that is the fix. A repo whose CI does *not* run on its base has no
+such second chance, and should leave this off — which it is, unless it says otherwise.
+
+### Where that can fire at all, which is narrower than it sounds
+
+**Not here, and the correction is worth more than the feature.** The arm this setting
+answers for tests `mergeStateStatus === 'BEHIND'`, and GitHub only ever reports that value
+under a branch-protection rule requiring branches to be up to date. `mordam/beadcause` has
+no protection rule at all — `gh api repos/mordam/beadcause/branches/main/protection` is a
+404 — so **that arm has never fired on this repo.** A green pull request here is judged and
+merged without any downmerge being asked for, and there is no wait for this to shorten.
+
+That is [bc-xl7n.121's finding](#and-the-wait-the-hold-leaves-behind-gets-a-producer), arrived at from
+the other direction: it is why `verdict.stale` takes its own reading from the checkout with
+`behindBase` rather than believing the field. This setting is therefore **off everywhere,
+including here**, and the honest description of it is: a switch for a repo whose GitHub
+enforces up-to-date branches, where "the base moved, so run the whole gate again before you
+may merge" is a rule somebody else is imposing.
+
+**And it is deliberately not wired into the stale path**, which is the one place a
+downmerge really is asked for on an unprotected repo. The checks there are stale in the
+precise sense that they are a verdict on a base that no longer exists — bc-91srt, #475,
+#488 — so they are exactly the checks that must *not* be trusted across a downmerge. The
+one path where this would fire here is the one path where it would be wrong.
 
 ### A conflict a resolver will not settle becomes a card
 
@@ -23057,6 +24265,29 @@ out a Dolt lock, a failed `bd export` and bd's hierarchy rules in turn, all wron
 **parent-child edge wins and the `discovered-from` goes**: it loses nothing, because a
 parent link to the bead you were working is the same trail drawn more prominently, and the
 notes say *filed by an agent while working X* either way.
+
+**Except a red-base hold, which is never that root — bc-beleq.2.** "A root counts as
+being above itself" is right for an ordinary work-bearing P0: it closes the same way any
+bead does, by someone deciding the work is finished, and bd's own children-first rule is
+exactly the safety a person would want there too. (An `app-error` P0 is the *other*
+exception, landed alongside this one as bc-mwhkg.2 and for its own reason — `lib/errors.js`
+files it automatically and it closes the moment the error stops being reported, so a
+discovery parented under one is stranded the instant it closes. The two skips are separate
+in `rootOver` and both apply.) A [red-base hold](#when-main-itself-is-red--the-queue-holds-and-something-is-put-on-the-fix)
+is not that — it is a *standing condition*, closed automatically the moment the base is
+green, by `sweepBase`'s own `bd.close(..., { overClaim: true })`, which lifts the claim
+guard and not the children guard. A worker opened on the hold, following this very
+section's own "found more work, file it" instruction, used to land the discovery as the
+hold's child — and the next tick's close was then refused every time, holding every
+branch in the repo behind a base that was already fixed, with nothing louder than a log
+line saying so. `lib/homing.js`'s `rootOver` now skips a hold bead as a candidate home
+the same way it skips a closed one, so a discovery made while working a hold climbs past
+it to whatever real root is above (there usually is none) and falls through to the
+unsorted backlog exactly as "nothing above it at all" already did. And the refusal
+itself, on the rarer path where something does still block the close, is no longer only
+a log line: `sweepBase` now comments it onto the hold bead (`stuckReason` in
+`lib/redbase.js`), so a card that still reads "holding" after the base went green carries
+the reason rather than a green check on GitHub that contradicts it.
 
 **What a refusal says is now what bd said.** `Bd.run` builds its error as `bd <every
 argument> failed in <ws>: <reason>`, and a `create` carries `--description` — so the
@@ -29576,9 +30807,9 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], advocates, presence, observing}` **plus the whole `/api/questions` screen** when something moved — the same `inboxPayload()` builds both, so a client can refresh itself from either and get the same inbox. `questions`, `requests` and `spaces` are `null` rather than `[]` when nothing moved: an empty array means the channel is empty, and a poll that timed out never asked. `want=presence` says the questions are not wanted, which is what makes a quiet poll cost no `bd` at all |
 | POST | `/api/landed` | `{workspace, bead, repo, number, url, title, base, sha, owed}` | announces a merge that landed in **another process**, so the phone hears about it. The one caller is `bin/deliver.js` recording a branch that was already merged on github.com; every other landing is the merge queue's, which is inside this daemon and calls the bus directly. Takes the config token and *not* a sign-in, and cannot choose its own event type — `landedEvent()` in `lib/news.js` composes it — so the worst a wrong caller can do is announce a landing that did not happen. `400` without a pull request number |
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue) |
-| GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
+| GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` — and so does a **tracker that did not answer in time**, which used to escape the bead read at the top as a 500 carrying bd's command line, and so filed a sev2 P0 about a daemon that was serving every other route (bc-4jkjv). Only a `bd` *timeout*: a `bd` that answered and said no still reaches the route error handler as itself |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. One card per **repo** — `key` is `beadcause` or `climative/athena-service`, and it is what every row and every button below is addressed by, because a pull request number is only unique inside a repo. `workspace` is still accepted everywhere `key` is and means the same thing for a workspace that is one repo; see [why](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them). Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
-| POST | `/api/pr/merge` | `{key, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. Only *edited* files refuse it: untracked residue is stepped past and named, because this checkout is shared with every session on the Mac and one stray `.DS_Store` used to stop all of them. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
+| POST | `/api/pr/merge` | `{key, number, method?}` | **admits it to the merge queue — it does not merge** (bc-02ldo). `admitPlan` picks the bead this pull request already is (a merge-bead the queue handed back, a delivery card asking about it, one already queued, or nothing open at all) and `admitToQueue` writes `approved`/`approvedBy` into the queue block in its `notes`, where `gateVerdict` reads it — the same two functions `beadcause-merge` calls, because two copies of that sequence is two copies that drift. Answers `{queued, action, id, bead, why, others, warnings}`: `queued` is false on `approve` (it was already on the queue and moving, and claiming a move nothing made is the one thing this must not do) and `others` names any second open bead about the same pull request, which is a work bead that cannot close. A pull request already merged is `{alreadyMerged: true}` and a 200, because "it is already in" is the outcome the tap wanted; a draft or a closed one is a 409. **It used to merge, fast-forward this Mac's base and retire the inbox card** — all three now happen on the queue path, where `afterMerge` does the first two the moment the merge lands and the card is *converted* into the queue entry rather than closed behind it |
 | POST | `/api/pr/ship` | `{key, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | GET | `/api/queues` | `?refresh=1` | [the two queues](#the-two-queues-and-where-a-bead-is-in-either), keyed by repo: `{at, repos[], orphans[], counts, unavailable, errors[], observing}`. Each repo carries `merge[]` — one entry per bead with an unmerged branch, from the moment its PR joined the queue — and `release[]`, one per merged PR in the batch it will ship with. Every entry names its bead, its pull request and its `stage`, plus `rungs[]`: the whole ladder with each rung `done` · `now` · `pending` · **`untracked`**, which is what the three stages nothing records yet come back as and is never `done`. A repo with no declared deploy and no visible build returns merge entries and **no release entries**. A release entry is kept one release past the one that made it live (`ago`), then it is gone. Reads nothing of its own: the 25-second board `/api/prs` shares, the deploy journal, and merge-beads kept 20s behind the same `bd.graph()` gate the queue's own tick uses |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
@@ -29628,6 +30859,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
 | POST | `/api/bead/adjust` | `{workspace, ids[], edits, endorse?}` | the ✎ of the proposal card, aimed at a bead that exists. `edits` may name `title, type, priority, description, acceptance, labels`, through the same clamps a proposed bead goes through; the two labels the daemon owns (`unendorsed`, `agent-filed`) are not yours to set. **Keeps the marker** unless `endorse: true`. A title may not be given to a group |
 | POST | `/api/bead/changes` | `{workspace, ids[], note}` | your objection on the thread and nothing else — the bead stays held, so the next session that touches it reads what is wrong instead of re-filing it next week. The note is required, because a changes-requested with nothing said is indistinguishable from having done nothing |
+| POST | `/api/bead/edit` | `{workspace, id, edits}` | **the bead detail sheet's ✎**, aimed at a bead that is already real. The same six fields as `/api/bead/adjust` through the same clamps — but **it does not inherit adjust's refusal**, because that one is a verdict on a proposal and this one is not: it works on any **open** bead, endorsed or not, and it moves no marker at all. What it does keep are the protections that were never about endorsement (`isProtectedLabel`): `unendorsed` and `agent-filed` are the daemon's, and `owner:`, `for:`, `ran:` and `filed-while:` are prefixes no card offers you to type, so a save that posted the label set it was showing would lose them by omission — `owner:` moves through [`/api/bead/owner`](#http-api) and nowhere else. One id, never a list. A **closed** bead is a `409`: its description is the record of what was done rather than an instruction, and a comment is the door for that. A bead a session is **working** is edited, and the thread line says a session was on it — refusing would mean it could never be fixed, since `in_progress` goes to closed. Answers `{id, changed, fields[], title, status, inProgress, held}`, and `changed: false` with no `bd` write at all is the ordinary answer for a form that saves on every field. `held` is what makes the endorsement queue redraw: a held bead’s title, priority and labels are what that list *is*, so editing one from the sheet drops its cache the way a verdict does |
 | POST | `/api/bead/discuss` | `{workspace, id, text, agent?}` | your question on the thread, and a reply agent sent to answer it — the one thing you can do to a held bead that is **not** a verdict. The comment is the only write: no label moves, the `unendorsed` marker stays, and a bead endorsed since the queue was drawn is a `409`. One id only, never a list. Answers `{thread[], dispatched, agent, reason}`, and `reason` is why nobody was sent when nobody was |
 | GET | `/api/bead/thread` | `?workspace=&id=` | `{thread[], running, activity}` — the comments on one bead with each author resolved against the roster, plus whether an agent is still writing. What the discussion panel polls, because nothing pushes a reply on a bead that is not a `human` question |
 | GET | `/api/jira/ticket` | `?workspace=&key=&epic=` | `{read, epic, children[], childrenError, cancelled}` — what the [ticket view](#the-ticket-opened-over-the-tab--and-the-way-back-from-a-cancelled-one) opens with, and deliberately *not* the whole ticket: the summary, the status and when it moved are on the row already and refresh on the inbox poll. `read` is the description, the thread (newest 40, with `omitted`), the type, the priority, the labels and the ticket's JIRA parent — or `{ok: false, error}`, because a JIRA that will not answer must not take the view with it. `epic` is passed *in*, since the row has it and the server would otherwise pay a `bd list --all` for it. The only `GET` of the four: nothing about opening a ticket decides anything |
@@ -30725,11 +31957,12 @@ to be one.
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
 | `autoEndorse` | beads an agent files itself arrive **endorsed** — workable, queued, launchable — instead of held for your tap (default `false`). The one policy default here that is the restrictive one, and the only one that needs a literal `true`: its worst case is an unattended session on work nobody has read. Set it **per [space](#spaces--keeping-work-out-of-your-evening)** rather than here; the P2 ceiling, `agent-filed` and the `discovered-from` edge all still go on either way |
-| `autoEndorsePerWorkspace` | the same answer for **one workspace**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. One of [five settings a space is the wrong unit for](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters): "nobody but me reads this tracker" is true of one graph and not of the five beside it in the same space — and not of one checkout inside a workspace, which [stays the space's answer](#policy-stays-per-space-even-when-a-workspace-is-forty-repos). Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters) |
+| `autoEndorsePerWorkspace` | the same answer for **one workspace**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. One of [six settings a space is the wrong unit for](#one-repo-may-answer-for-itself-on-the-six-settings-where-it-matters): "nobody but me reads this tracker" is true of one graph and not of the five beside it in the same space — and not of one checkout inside a workspace, which [stays the space's answer](#policy-stays-per-space-even-when-a-workspace-is-forty-repos). Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-on-the-six-settings-where-it-matters) |
 | `autoMergePerWorkspace` | whether **one workspace's** workers merge their own pull requests, same shape and same precedence (default `{}`). It moves who presses merge and nothing else: a worker still waits for the checks and still refuses over a red one |
 | `requireApprovalPerWorkspace` | whether **one workspace** needs an approving review first, same shape and same precedence (default `{}`). Only meaningful while its `autoMerge` is on — with that off, every delivery is already a question and answering it *is* the approval |
 | `reviewRequiredPerWorkspace` | whether **one workspace's** merges wait for [an agent's review](#the-review-gate--nothing-reaches-the-merge-without-a-verdict) first, same shape and same precedence (default `{}`). A second gate in front of the queue rather than a substitute for your own: where `requireApproval` is also on, the agent's approval is necessary and not sufficient. **Leave it off in a repo where nothing is reviewing** — on, with no reviewer, is a queue that stops rather than one that waits |
 | `autoShipPerWorkspace` | whether **one workspace's** merges run its declared deploy without waiting for **Ship**, same shape and same precedence (default `{}`). The setting this layer most needed: only one repo in a space of six here has a deploy this Mac can run, and saying so through the space armed the other five. An [epic may still override it in either direction](#auto-ship--the-merge-that-does-not-wait-for-the-tap) |
+| `trustChecksAcrossDownmergePerWorkspace` | whether **one workspace's** queue [judges a clean downmerge on the checks the branch already passed](#a-clean-downmerge-does-not-pay-for-the-gate-twice) instead of waiting for them to run again, same shape and same precedence (default `{}`, and empty here). The only one of the six that is a fact about a repo's *CI* rather than about who reads it: what makes it safe is the test job also running on the base. Ships empty on purpose — the arm it answers for only fires where GitHub enforces up-to-date branches, which no repo here does |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-a-merge-queue) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
 | `pr.basePerWorkspace` | [the workspaces that merge somewhere else](#a-workspace-whose-integration-branch-is-not-main), keyed by name — `{ "deluvia": "atlas/public-launch" }`, which is what ships. The setting for that workspace wherever `pr.base` would have been, so it still sits *underneath* a multi-repo workspace's per-repo answer and still loses to `--base`. A name that is absent, or a value that is not a branch name, falls through to `pr.base` |
@@ -30737,6 +31970,7 @@ to be one.
 | `pr.autoMerge` | a delivery goes on the merge queue, which merges it once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer. Since bc-r941 the worker never merges under either setting — what this picks is which of the two things receives the pull request |
 | `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
 | `pr.reviewRequired` | [the merge queue holds a pull request until an agent has reviewed it](#the-review-gate--nothing-reaches-the-merge-without-a-verdict) (default `false`). Different from `pr.requireApproval` above and in series with it: that one is your own tap, this one is the ReviewAdvocate's verdict, and neither satisfies the other. The default is off because the gate *holds* — turning it on where nothing writes a verdict stops the queue on every branch at once. Per space and per workspace, like `autoMerge` |
+| `pr.trustChecksAcrossDownmerge` | [a clean downmerge does not pay for the gate twice](#a-clean-downmerge-does-not-pay-for-the-gate-twice) (default `false`). On, a downmerge GitHub put in with no conflict, on a branch whose checks were already passing, merges on the same tick instead of waiting for a whole run against the base that just arrived — `MAX_DOWNMERGES` is 3, so a branch can otherwise pay three times over a diff that never changed. A conflict still gets a resolver and a branch that was not green still waits. Off by default because it takes bc-rcrt's risk deliberately: the run it skips is the one that catches two branches breaking the base together, and what makes that bearable is the same job running on the push to the base. Per space and per workspace, like `autoMerge` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 15 min — the suite takes about five on a runner). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
 | `advocates.enabled` | the whole feature's off switch (default `true`). `false` turns every advocate off, whatever `workspaces` says, and the console draws no switch to say so — see [Which repos have one](#which-repos-have-one-from-the-console) |
@@ -32332,7 +33566,7 @@ are the same workspace.
 and the second is the one that settles it.
 
 One of the five does take a finer answer, and it is a different question: `autoEndorse`
-has a [per-workspace override](#one-repo-may-answer-for-itself-on-the-five-settings-where-it-matters)
+has a [per-workspace override](#one-repo-may-answer-for-itself-on-the-six-settings-where-it-matters)
 that outranks the space, so one workspace in a space may answer for itself. That is the
 grain the second reason below is about — a graph and who reads it — and it leaves this
 section's question exactly where it is: no setting here answers per checkout *inside* a
@@ -32562,6 +33796,55 @@ get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain 
 *be* the inventory; the directory is now), that the two `scripts/` entries which are not
 `test/*.mjs` survive, that the three pinned positions hold, and that a failure still
 stops the run, propagates its exit code, and does not run what comes after it.
+
+### Nine real-`bd` suites share one cached workspace template — `test/helpers/bdtemplate.mjs`
+
+Nine suites drive the real `bd` binary rather than a stub of it (the argument for that
+is at the top of `test/adoptsweepreal.mjs`, and it still holds — nothing here fakes
+`bd`): `test/landcheck.mjs` (by way of `scripts/land-check.mjs`), `test/closegatereal.mjs`,
+`test/promoterunbin.mjs`, `test/epicedgereal.mjs`, `test/adoptsweepreal.mjs`,
+`test/declarededgereal.mjs`, `test/reassignguard.mjs`, `test/onboard.mjs` and
+`test/detect.mjs`. Between them they used to spend about a quarter of the gate's total
+suite-seconds (bc-xlz32.3), and almost none of that was the assertions — it was that
+each one opened by running its own `bd init --skip-agents --prefix <x>`, which builds a
+fresh embedded Dolt database from nothing. Measured at ~28s on a loaded Mac, nine times
+a run.
+
+`test/helpers/bdtemplate.mjs` builds that empty workspace once per `(bd version,
+prefix, extra flags)` and every suite above copies it rather than building its own.
+Copying is a `fs.cpSync` of a small directory (a couple of megabytes) with directory
+modes mirrored back afterward — `bd` sets `.beads` to `0700` and warns below it, which a
+plain recursive copy does not preserve on its own — and it is fast enough that the
+*second* suite asking for a given prefix pays single-digit milliseconds instead of
+seconds. `test/bdtemplate.mjs` is where the three properties every caller relies on are
+actually checked against the real binary, not assumed: a copy is independent (a write in
+one is invisible from a sibling copy and from the template itself), several suites
+asking for the same prefix at once build it once and the rest wait rather than race, and
+the cache is keyed on `bd version` so an upgraded `bd` can never hand back a stale
+database.
+
+**The prefix is not rewritten after copy.** At least one suite
+(`test/adoptsweepreal.mjs`) asserts against a literal `ar-nope` id, which makes the
+prefix load-bearing content rather than a label — and the embedded engine names both
+the on-disk database directory and the database itself after the prefix it was given,
+which makes renaming one after the fact a second, riskier problem. Building the ten
+distinct templates this repo's suites actually use (nine prefixes, plus `test/onboard.mjs`
+needing a second, unrelated one) once each is cheap enough that this file does not need
+to solve that instead.
+
+**The cache lives at a hardcoded `/tmp/beadcause-bd-template`, never under
+`os.tmpdir()` or `os.homedir()`.** `os.tmpdir()` is the usual place for scratch state in
+this repo (see `lib/fixture.js`), but `lib/gate.js` and `scripts/test.mjs` each hand a
+suite's *child process* its own private `$TMPDIR` and delete it the moment the suite
+exits (bc-5isv) — a template built there would be built, and thrown away, by every
+suite that asked for it, which is exactly the cost this file exists to remove. And
+`os.homedir()` looked like the obvious fix until `bd init` itself refused there for a
+reason that has nothing to do with `BEADS_DIR`: it walks up from `cwd` looking for an
+ancestor that already has a `.beads`, and on a machine that also runs `bd` for its own
+personal tracking (this one does — see the beads section of the global CLAUDE.md) that
+ancestor is `$HOME` itself, so every path under it inherited the refusal regardless of
+`BEADS_DIR` or `--prefix`. `BEADCAUSE_BD_TEMPLATE_DIR` moves the cache, mainly so
+`test/bdtemplate.mjs` never touches the real one.
 
 ### GitHub runs it too — `.github/workflows/test.yml`
 
@@ -35025,8 +36308,9 @@ temp directory is what made `test/browse.mjs` flaky through four separate bug re
 
 **The fake browser is waited for, not slept on** — and getting that wrong did not weaken
 the suite, it inverted it. Each scenario used to follow the spawn with a flat 120ms, which
-is a guess that a `node -e` child is up and inside its interval by then. Under
-`b7e-gate --jobs 4` — CI, and every local gate run here — it is not. With nothing writing,
+is a guess that a `node -e` child is up and inside its interval by then. Under several
+concurrent suites — CI ran `b7e-gate --jobs 4` on a 3-core runner at the time, and every
+local gate run here is the same shape — it is not. With nothing writing,
 `killAndRemove` wins on its first attempt against a directory nobody is defending: the
 control that must fail passes, the escalation window is never reached, and the profile that
 "could not be removed" is removed. Three of the file's assertions go red together, and they
@@ -35827,6 +37111,69 @@ one box height, which `scripts/design/baseline.mjs` is what proved. A type scale
 layout on a 360px phone, so which one to snap to is a design decision rather than a
 normalization, and it is filed rather than guessed. When it is settled its allowed set
 belongs in `test/metricscale.mjs` beside the other two.
+
+### One labelled montage PNG from a directory of images — `b7e-plate`
+
+`bc-dgx7.91`, filed by the session audit (`lib/sessionaudit.js`) against three deluvia
+publicity sessions that each hand-built a version of this, none the same way. `dv-2uu.6`
+made a scratch directory and ran `sips -Z 620 -s format jpeg` over eleven stills in two
+batches (its first attempt, a shell `for` loop, was refused by the worktree guard as "too
+complex to verify"), then issued twelve separate `Read` calls, one per file — and did the
+whole thing again at `-Z 560` and `-Z 420` for a later review packet. `dv-2uu.5` skipped
+downscaling altogether and `Read` six full-resolution 1376×768 PNGs straight off disk, in
+two rounds — the most expensive form of the same question. `dv-2uu.3` wrote three
+different PIL scripts into the scratchpad: a five-still montage that also printed each
+file's native dimensions, two more inline montages over other directories, then a crop-
+and-enlarge script, twice, to look closer at one garment in one plate. Three sessions,
+three rigs, for one question: *what does this whole directory of stills actually look
+like*, in a shape a session can `Read` in one call.
+
+```
+b7e-plate webseries/episodes/kazran-orves/images    a directory — its own images, sorted
+b7e-plate images/img_*.png title_card.png --max 12  explicit targets, capped
+b7e-plate images --cols 4 --width 240               grid shape and tile size
+b7e-plate images/img_003.png --crop 420,120,300,300 one enlarged region of one source
+b7e-plate images --out /tmp/review/plate.png --json  a fixed path, machine-readable
+```
+
+Prints the sheet's absolute path, then one line per tile in the order it was placed,
+naming the source file and its **native** dimensions — not the tile's, which is what
+`dv-2uu.3`'s own montage script printed by hand and what a session asking "how big is
+that image really" wants. A directory target expands to its own recognised image files
+(`lib/plate.js`'s `IMAGE_EXTENSIONS`), sorted by name, **not recursively** — a stray
+subdirectory of thumbnails is never silently pulled onto the sheet, which is exactly the
+`thumbs/` trap `test/plate.mjs` fabricates and checks for. `--max` caps at the first N in
+resolved order and always names what it dropped; there is no silent truncation.
+
+**The bead's own text named ffmpeg's `tile` filter for the compositing, and that turned
+out not to work on this machine.** `ffmpeg -filters` here (homebrew, 8.1.1) has no
+`drawtext` line — this build was compiled without libfreetype — so a sheet built with
+`tile` alone would have no filenames on it, which is the one thing all three sessions
+kept re-deriving by hand. `python3`'s Pillow, already installed on this machine and what
+`dv-2uu.3` used directly three times over, does the compositing and the labelling in
+ffmpeg's place; `sips` still does the one thing it is uniquely cheap at — reading a whole
+batch of native dimensions in a single call (`sips -g pixelWidth -g pixelHeight -g format
+<files>`), which is one process instead of N. That batch output is parsed **positionally**,
+not by matching each block's header back to the path passed in: `sips` echoes `/tmp` back
+as `/private/tmp` on this machine, so a string-keyed match would silently drop every file
+under `/tmp`, and `sips` prints one block per file in call order regardless.
+
+**Idempotent by construction, not by luck.** Nothing in the render job carries a
+timestamp, and Pillow's default font (`ImageFont.load_default()`) is a bundled bitmap
+font rather than a system one, so the labelling owes nothing to what happens to be
+installed. Two calls against the same input and the same `--out` overwrite with a
+byte-identical PNG — `test/plate.mjs` proves this against a real render, not just against
+the manifest, whenever `sips` and `python3`+Pillow are both actually runnable on the
+machine running the suite; it skips that block loudly otherwise, the same shape
+`test/adoptsweepreal.mjs` uses for a missing `bd`.
+
+**Deliberately NOT on `DEFAULT_TOOL_LIST`** (`lib/toolbelt.js`), on the same reading as
+`b7e-eyeball`: shelling out to composite and write an image file is the shape
+`lib/grants.js` already calls a write on the strength of "nothing about writing an image
+file is a read," and it is pointless for `dispatch` regardless — no directory of stills
+is ever in front of one phone comment. Its occasion is a worker session with a branch of
+its own, and `worker`'s tool list is the unrestricted CLI default, so a grant would widen
+nothing that agent cannot already reach.
 
 ## Notes on bd
 

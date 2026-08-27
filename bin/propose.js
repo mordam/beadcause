@@ -200,8 +200,11 @@ const id = created.id || created.issue?.id;
 // open a second session onto the same wall. A discovery blocks nothing — the work
 // that found it carries on.
 if (kind === 'conflict' && from) {
-  const { parked, note } = park(bd, from, id);
-  if (!parked) console.error(`beadcause-propose: ${note}`);
+  // `note` rather than `!parked`: a park that worked can still have had to take a prose
+  // mention's see-also off the pair to do it, and an edge deleted in silence is the one
+  // thing this repo asks nothing to do (bc-arj0.23).
+  const { note } = park(bd, from, id);
+  if (note) console.error(`beadcause-propose: ${note}`);
 }
 
 console.log(id);
