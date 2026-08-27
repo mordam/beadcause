@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+/**
+ * `b7e-mutate` — mutation-test a change without hand-rolling the backup-mutate-restore
+ * dance. See lib/mutate.js for the ten sessions this replaces and what it does about the
+ * two failure modes they hit inconsistently (stale `__pycache__`, a `--from` that matches
+ * nothing).
+ *
+ *     b7e-mutate --file webapp/accounts.py --from "x == 1" --to "x == 2" \
+ *       --test "python3 -m pytest tests/test_accounts.py"
+ *
+ *     b7e-mutate --plan mutations.yaml --test "python3 -m pytest tests/" --keep-going
+ *
+ * A plan is YAML, on stdin (`--plan -`) or a file (`--plan <path>`): a bare list, or
+ * `{ mutations: [...] }`, each record `{ file, from, to, label?, test? }` — a record's own
+ * `test` overrides the `--test` given on the command line.
+ *
+ * A baseline run of every distinct test command happens first, unmutated; any of them
+ * already red refuses the whole run before a single file is touched. By default the run
+ * stops at the first SURVIVED mutation or the first one whose `--from` matched nothing;
+ * `--keep-going` runs the rest of the plan regardless.
+ *
+ * Exit codes: `0` every mutation was caught. `2` bad usage (no file/plan, no test command
+ * anywhere). `3` the baseline itself was already red. `1` at least one mutation SURVIVED
+ * or errored (its `--from` matched nothing, its file could not be read, or the restore did
+ * not take).
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import YAML from 'yaml';
+import { parsePlan, runMutations, describeResults } from '../lib/mutate.js';
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (...names) => {
+  for (const f of names) {
+    const inline = argv.find((a) => a.startsWith(`${f}=`));
+    if (inline) return inline.slice(f.length + 1);
+    const at = argv.indexOf(f);
+    if (at > -1) return argv[at + 1];
+  }
+  return undefined;
+};
+
+const USAGE = `usage: b7e-mutate --file <path> --from <literal> --to <literal> --test <cmd> [--label <text>]
+       b7e-mutate --plan <file|-> [--test <cmd>] [options]
+
+Mutate one thing (or a whole plan), run the test command, and say which mutations were
+caught and which SURVIVED — always restored from a backup held outside the working tree,
+however the process ends.
+
+  --file <path>        the file to mutate (single-mutation mode)
+  --from <literal>      the literal text to replace — every occurrence
+  --to <literal>        what to replace it with
+  --label <text>        a name for this mutation in the report (default: the file)
+  --plan <file|->       YAML: a list of { file, from, to, label?, test? }, or "-" for stdin
+  --test <cmd>          the test command; a plan record's own "test" overrides this
+  --keep-going          run the whole plan even after a SURVIVED mutation or an error
+  --dir <root>          resolve files and run the test command from here (default: cwd)
+  --json                the machine-readable form instead of the printed report`;
+
+if (has('--help') || has('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+function fail(msg, code = 2) {
+  console.error(`b7e-mutate: ${msg}`);
+  process.exit(code);
+}
+
+const file = value('--file');
+const from = value('--from');
+const to = value('--to');
+const label = value('--label') ?? null;
+const planArg = value('--plan');
+const testCmd = value('--test') ?? null;
+const keepGoing = has('--keep-going');
+const dir = value('--dir') ? path.resolve(value('--dir')) : process.cwd();
+const JSON_MODE = has('--json');
+
+if (planArg && file) fail('--plan and --file are mutually exclusive');
+if (!planArg && !file) fail(`--file or --plan is required\n${USAGE}`);
+
+let specs;
+if (planArg) {
+  let text;
+  try {
+    text = planArg === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(planArg, 'utf8');
+  } catch (err) {
+    fail(`could not read the plan (${String(err?.message || err).split('\n')[0]})`);
+  }
+  try {
+    specs = parsePlan(YAML, text);
+  } catch (err) {
+    fail(`bad plan: ${String(err?.message || err).split('\n')[0]}`);
+  }
+  if (specs.length === 0) fail('the plan names no mutations');
+} else {
+  if (from === undefined) fail('--from is required');
+  if (to === undefined) fail('--to is required');
+  specs = [{ file, from, to, label, test: null }];
+}
+
+if (!testCmd && specs.some((s) => !s.test)) {
+  fail('--test is required (no default, and a plan record leaves it unset)');
+}
+
+const { refused, results } = await runMutations(specs, { defaultTest: testCmd, cwd: dir, keepGoing });
+
+if (refused) {
+  if (JSON_MODE) {
+    console.log(JSON.stringify({ refused, results: [] }, null, 2));
+  } else {
+    console.error(`b7e-mutate: ${refused}`);
+  }
+  process.exit(3);
+}
+
+if (JSON_MODE) {
+  console.log(JSON.stringify({ refused: null, results }, null, 2));
+} else {
+  for (const line of describeResults(results)) console.log(line);
+}
+
+const problem = results.some((r) => r.error || r.survived);
+process.exit(problem ? 1 : 0);
