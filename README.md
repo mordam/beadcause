@@ -38648,6 +38648,8 @@ parsed back.
 
 **`@grant read`** (`bin/b7e-manifest`'s own header) — it only ever reads files.
 
+## Notes on bd
+
 - **`bd human respond` is broken in bd 1.1.2** — it dies with `storage is nil`.
   Beadcause does the two steps it documents (`bd comment` then `bd close`) itself.
   If a later bd fixes it, the two-step is still fine.
