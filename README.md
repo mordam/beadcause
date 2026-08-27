@@ -19018,7 +19018,15 @@ first is still running would double the load a busy Mac is already under, so it 
 (exit `2`) rather than doing that — a lock file under the system temp directory, keyed by
 the resolved root, holding the running pid. A lock whose pid is no longer alive is stale
 and is silently reclaimed on the next attempt, because a runner that leaves a permanent
-lock behind after a crash is worse than the race it exists to prevent.
+lock behind after a crash is worse than the race it exists to prevent. That reclaim is a
+backstop and not the ordinary path: a run that ends at all — cleanly, red, or signalled —
+removes its own lock file, which for a long time it did not (bc-dgx7.40). `onExit` hands
+back a *disarm*, which marks the teardown done without running it, so calling only that on
+the happy path meant the file was never removed at all — and because the path is keyed by
+the root, that is one permanent `beadcause-gate-<hash>.lock` for every tree that has ever
+run a gate, outliving the worktree itself by however long the temp directory lasts.
+Measured on this Mac while fixing it: **108** of them. The stale-lock reclaim above is
+exactly why nobody noticed — the next run on that tree worked every time.
 
 **And two gates on the Mac, with the third in a queue — `bc-xlz32.1`.** That refusal was
 right and too narrow: the doubling happens just as thoroughly from a different worktree,
