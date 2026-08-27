@@ -70,6 +70,7 @@
     "b7e-diff": "bin/b7e-diff",
     "b7e-enroll": "bin/b7e-enroll",
     "b7e-entry": "bin/b7e-entry",
+    "b7e-episode": "bin/b7e-episode",
     "b7e-eyeball": "bin/b7e-eyeball",
     "b7e-field": "bin/b7e-field",
     "b7e-fixture": "bin/b7e-fixture",
