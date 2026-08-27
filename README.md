@@ -14917,6 +14917,11 @@ somebody can act on. Nothing throws, and the ordinary answer for a repo with no
 `.beadcause/` at all costs one failed `stat`: no read, no parse, no directory listing, which
 is what lets the advocate ask per checkout on every tick.
 
+One department key is not about the chain at all: `capacity:` is how many windows that
+department may hold at once, and it is the one number in this file that changes what
+dispatches — see [Department capacity](#department-capacity--the-first-thing-a-relay-does-to-dispatch-rather-than-to-a-brief)
+below for why only a *department* may state it and why it can only ever subtract.
+
 **And the launcher asks the bead's own checkout.** `openWorkSession` resolves the relay off
 the directory `resolveSessionRepo` already picked for the bead, not off the workspace name —
 which is what makes *several relays in one workspace* fall out for a multi-repo workspace as
@@ -14932,6 +14937,89 @@ relay: what that list is for is catching `--role clip` for `clio`, not enforcing
 and the same command already declines to check step *order* for exactly that reason. A
 `--relay` flag would be a second routing decision typed by hand at the one place that cannot
 verify it. `bc-ogicx.7`.
+
+### Department capacity — the first thing a relay does to dispatch rather than to a brief
+
+Everything above decorates. The advocate picked the bead first — by priority, then by age —
+and the chain was computed afterwards, at launch, out of whatever bead the queue had already
+chosen. So a department with four beads near the top of a workspace's queue could take every
+window the workspace had, and one with a single bead could wait all day behind it. Nothing
+was wrong and nothing said anything.
+
+A **department** may now declare `capacity: N`, and `candidates` drops a bead whose
+department is already at it. `lib/relaydefs.js`, `node test/deptqueue.mjs`.
+
+```yaml
+relays:
+  studio:
+    departments:
+      dept:story:
+        members: [aria, clio]
+        check: [muse]
+        capacity: 1
+```
+
+**Only a department may declare one, and a capacity can only ever subtract.** Those two
+sentences are the same decision from either side. A relay-level `capacity:` is a second
+spelling of `advocates.perWorkspace.<ws>.maxWorkers` — that number is *yours*, it lives in
+the config on this Mac, and two switches for one limit is the failure this family objects to
+everywhere else; so it is an unknown key, and it refuses the whole file. What is left is
+counted *inside* `maxWorkers` and inside `globalMaxWorkers` and can never raise either, which
+is the whole reason a file a pull request can edit is allowed to state it at all: a repo may
+slow its own department down, and may not take a window from anybody.
+
+**The department comes from the graph, and it could not have come from the queue row.** A
+relay is keyed off the bead's **assignee**, and `bd ready --json` carries no `assignee` field
+— not one the survey drops, one the payload does not contain. A filter reading the row could
+see a `dept:` label and nothing else: a ceiling that applied to the beads somebody had
+happened to label and silently not to the rest. So it is read off the tick's own `bd export`,
+which the roster and the pause set have already paid for. A graph that would not answer this
+tick means **no cap**, never an empty one.
+
+**Both sides of the count ask the same question.** A bead is under a ceiling only where it
+would get a *chain* — not merely where `departmentOf` would match a label. A bead labelled
+`dept:story` whose assignee is a person resolves no chain, so its window records no
+department and could never be counted as occupying one; holding it would be a ceiling that
+subtracts for ever. And the window's department is written down **at launch**, because the
+first thing that window does is `bd update --claim`, which overwrites the assignee — a
+department re-derived a minute later is `null` for every window that has started work, and a
+ceiling counted that way never binds at all.
+
+**It binds within the tick as well as across it.** A tick opens `min(free, globalFree,
+ready)` windows straight down one list, so a ceiling counted only against *running* windows
+would let three windows into a department capped at one and only notice on the next tick.
+Every candidate kept therefore counts too. The cost is deliberate: a bead can be held behind a
+same-tick sibling that then does not launch because the worker limit ran out first, and it
+comes back on the next tick with nothing to release — exactly as a same-tick surface collision
+does. The sentence on the card says which of the two is holding it, so a full department and a
+busy tick are never reported as each other.
+
+**And it is said out loud**, which is the half that is not optional. A held bead joins the
+`heldBy*` family as `heldByDept`, with the department named as well as the bead, because the
+department is where the number is. `heldBySurface` is the only other hold that is not counted
+into the "nothing ready" block, and for the same reason: this one subtracts from `candidates`
+and not from the queue, so it can never be what empties one — its sentence goes on the line
+that reports a queue with nothing pickable in it and on the line that says how many windows
+are opening. A silent subtraction is what `bc-xl7n.111` cost a bead's finished work, and the
+sixty lines above `givenUp` in `lib/advocate.js` are that argument at length.
+
+**A definition that will not load is said out loud too, and holds nothing.** A checkout whose
+`.beadcause/relays.yaml` fails to parse or validate dispatches every one of its beads exactly
+as it did before the file existed — without a relay. So it gets one sentence on the tick note,
+one log line per spell of being broken, a `p1` pill of its own, and **no** `heldBy*` entry,
+because nothing is waiting. What is wrong is that a repo believes it has departments and has
+none, which nothing else can say: the launcher has carried the sentence as far as
+`relayProblem` since `bc-ogicx.5`, and `test/relaywiring.mjs` pins that with *"the problem
+dies inside the launcher"*. This is where it stops dying. Note `repoList().warnings` is
+deliberately **not** the model — it reads well and is read by nobody; the pattern that reaches
+a surface is a sentence on the advocate's record plus one guarded line, which is what
+`repoProblem` already does. `bc-ogicx.6`.
+
+Deliberately **not** here, and argued against rather than merely deferred: making the relay
+influence pick *order* — round-robin, per-department weighting. That is a scheduler, it
+interacts with `byPickOrder`, `maxAttemptsPerBead` and the lease, and it buys much less than
+the cap does. Cap first; propose weighting only if starvation is observed with the cap in
+place.
 
 ### The relay journal — every step and handoff, on the bead and on the epic card
 
