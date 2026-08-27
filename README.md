@@ -2479,6 +2479,38 @@ box* below — so the sentence you were in the middle of is in its draft and its
 one tap away, still marked amber. The alternative is a write nobody knows did not
 happen, which is the failure this whole section exists to stop.
 
+**And it does not always get to say nothing was written.** An answer is several acts in a
+row — the merge behind a delivery card, an endorsement a sentence asked for, the beads a
+"yes" files — and the answer itself is written **last**, deliberately: a merge GitHub
+refuses has to leave the question answerable, and a question closed on a promise nobody
+kept is the ending this app exists to prevent. The cost of that ordering is a second in
+which the act has happened and the answer has not. bd goes away inside it — restarted,
+locked, a 500 — and the card said *nothing was written and nothing was lost* over a pull
+request that is merged, a branch that is gone and a work bead that closed. That reads as
+*try again*, and it is wrong in the direction that costs an afternoon. bc-s2d8 closed the
+one path that reached it in practice; this is the class.
+
+So the failure carries what happened. `performed` in lib/server.js collects the notes each
+act composed — the same sentences the thread would have carried, rather than a second
+vocabulary invented for the failure case, which would be two accounts of one act that can
+disagree — the handler's own catch puts them on the JSON body as `landed`, and
+`failedNoteHtml` draws them **in place of** the reassurance rather than beside it, because
+the two cannot both be true. Minus their markup, which is the same call `shipWhat` makes
+one screen up: an alert full of rendered markdown would stop being the shape `gateNoteHtml`
+is, and being that shape is the point of it. A refusal with nothing behind it still says
+nothing was written, because it is true — a note that hedged on every refusal would teach
+you to ignore the one that matters.
+
+One act does not wait for `performed`, because it can half-happen: a batch of creates is
+beads made one at a time, and it throws out of `createProposed` before the handler has
+composed anything at all. That catch already commented what it managed on the thread; it
+puts the same sentence on the failure now, so the thread and the card agree.
+
+`node test/landednote.mjs` drives a real `POST /api/respond` with a bd that dies mid-write,
+over a delivery card whose merge has already gone through, and lifts `failedNoteHtml` out
+of public/app.js into a vm for the sentence itself. The browser half is in
+`scripts/absorb-check.mjs`, whose fixture can now put a `landed` on its refusal.
+
 **It joins the close gate's family rather than being a second mechanism.** Same shape as
 `gateNoteHtml` — a sentence naming the bead and the reason, a paragraph saying what that
 leaves, a row with the way out — because a refused close and a refused *write* are two
@@ -14403,14 +14435,21 @@ single derivation both ends call.
 
 Three things it deliberately does, each of which is a way of being wrong on purpose:
 
-- **It over-includes.** Ship beads, promotion beads, containers and superseded ones are cut
-  — nothing was built for any of them — and nothing else is. There is no label separating
-  landed work from a card the daemon filed and Adam answered: bc-xl7n.15 (*#244 left 1
-  conflicting pull request behind it*) and bc-xl7n.35 (*a sweep card whose record is dropped
-  can never close*) are both closed under bc-9d37 and both carry `inbox`, and only the
-  second was built. bc-9d37 therefore derives 29 rows where fourteen are its own work. The
-  titles separate them in a glance; the alternative is silently testing four of nine and
-  passing.
+- **It over-includes.** Ship beads, promotion beads, containers, superseded ones and, since
+  bc-7qo.9, `card` beads are cut — nothing was built for any of them — and nothing else is.
+  Before bc-7qo.9 there was no label separating landed work from a card the daemon filed and
+  Adam answered: bc-xl7n.15 (*#244 left 1 conflicting pull request behind it*) and bc-xl7n.35
+  (*a sweep card whose record is dropped can never close*) are both closed under bc-9d37 and
+  both carry `inbox`, and only the second was built. Now a bead a sweep or an advocate raises
+  purely to ask a question — never to be built — carries `card` (lib/card.js) from the moment
+  it is filed, and `NOT_WORK` (lib/promote.js) excludes it the same way it excludes `ship` and
+  `promote`. `card` is narrower than `human`: a decision made mid-flight through a bead that
+  still owes code once answered keeps `human` without `card`, so it still counts as work —
+  pinned by `whyNotWork({labels:['human','p0']}) === ''` in test/promotework.mjs. Beads filed
+  before `card` existed carry no such marker and still over-include — bc-xl7n.15 and
+  bc-xl7n.35 among them, since neither was backfilled by hand. bc-9d37 therefore still derives
+  29 rows where fourteen are its own work, on beads this old. The titles separate them in a
+  glance either way; the alternative is silently testing four of nine and passing.
 - **`unendorsed` is not an exclusion, though it reads like the strongest one there is.**
   bc-9d37.12 and bc-9d37.14 are closed, still carry it, and are two of that epic's nine —
   a session working a neighbour fixed them and nothing takes the label off. Cutting it
