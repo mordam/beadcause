@@ -1,0 +1,145 @@
+#!/usr/bin/env node
+/**
+ * `b7e-prtree` — a reviewer's own runnable copy of a pull request, made once, from a sha
+ * nothing else on the Mac can move.
+ *
+ *   b7e-prtree 622                cd "$(b7e-prtree 622)" is the whole workflow
+ *   b7e-prtree 622 --merge        GitHub's own test-merge commit, not the head
+ *   b7e-prtree --sha <sha>        an explicit sha, no `gh` call at all
+ *   b7e-prtree 622 --name mine    reuse/replace a named tree — a second call with the
+ *                                 same --name tears the first down first
+ *   b7e-prtree 622 --vendor       also run scripts/vendor.js in the new tree
+ *   b7e-prtree 622 --json         one JSON object instead of the plain-text report
+ *
+ * `bc-dgx7.38`: three review sessions each hand-assembled this, one of them differently
+ * mid-run when `FETCH_HEAD` was clobbered by a concurrent `git fetch` elsewhere on the
+ * Mac. See lib/prtree.js for why the fix is never reading `FETCH_HEAD` at all — every
+ * path here resolves a full sha first, from something nobody else can move, and only
+ * fetches after.
+ *
+ * The repo read from and fetched into is resolved from `process.cwd()` via
+ * `git rev-parse --show-toplevel`, not from where this script itself lives — the same
+ * discipline `b7e-swbump`/`b7e-siblings` already follow, because the file that actually
+ * executes for any `b7e-*` command is always the main checkout's copy
+ * (`lib/foundation.js` puts the main checkout's `bin/` first on `PATH`), so resolving
+ * from `import.meta.url` would silently answer from the main checkout no matter which
+ * worktree the caller is really standing in.
+ *
+ * Prints the tree's absolute path on stdout, one line — everything else (the sha it
+ * resolved, where from, whether `node_modules` was linked, whether `vendor` ran) goes to
+ * stderr, so `cd "$(b7e-prtree 622)"` is the whole workflow. `--json` prints one object
+ * on stdout instead, with the same fields lib/prtree.js's `buildTree` returns.
+ *
+ * Exit codes: `0` built the tree. `1` bad argv. `2` not inside a git repository.
+ * `3` building the tree failed — a bad PR number, no such sha, `gh` unavailable, a
+ * network error, or a named tree kept by an earlier `--keep` run.
+ *
+ * @grant excluded
+ */
+import { execFileSync } from 'node:child_process';
+import { buildTree } from '../lib/prtree.js';
+
+const USAGE = 'usage: b7e-prtree <pr-number> [--merge] [--sha <sha>] [--name <slug>] [--vendor] [--keep] [--json]';
+
+const argv = process.argv.slice(2);
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+let prNumber = null;
+let sha = null;
+let merge = false;
+let name = null;
+let vendor = false;
+let keep = false;
+let jsonMode = false;
+const positionals = [];
+
+for (let i = 0; i < argv.length; i += 1) {
+  const a = argv[i];
+  const next = () => argv[(i += 1)];
+  switch (a) {
+    case '--sha':
+      sha = next();
+      break;
+    case '--merge':
+      merge = true;
+      break;
+    case '--name':
+      name = next();
+      break;
+    case '--vendor':
+      vendor = true;
+      break;
+    case '--keep':
+      keep = true;
+      break;
+    case '--json':
+      jsonMode = true;
+      break;
+    default:
+      if (a.startsWith('--')) {
+        console.error(`b7e-prtree: unrecognised argument "${a}"`);
+        console.error(USAGE);
+        process.exit(1);
+      }
+      positionals.push(a);
+  }
+}
+
+if (positionals.length > 1) {
+  console.error(`b7e-prtree: one pull request number, not ${positionals.length} ("${positionals.join('", "')}")`);
+  process.exit(1);
+}
+if (positionals.length === 1) prNumber = positionals[0];
+
+if (!prNumber && !sha) {
+  console.error('b7e-prtree: needs a pull request number or --sha <sha>');
+  console.error(USAGE);
+  process.exit(1);
+}
+if (prNumber && sha) {
+  console.error('b7e-prtree: give a pull request number OR --sha, not both');
+  process.exit(1);
+}
+if (merge && sha) {
+  console.error('b7e-prtree: --merge names a ref GitHub computes; it cannot be combined with --sha');
+  process.exit(1);
+}
+if (merge && !prNumber) {
+  console.error('b7e-prtree: --merge needs a pull request number');
+  process.exit(1);
+}
+
+if (!name) name = prNumber ? `pr${prNumber}${merge ? '-merge' : ''}` : String(sha).slice(0, 12);
+
+let repoRoot;
+try {
+  repoRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: process.cwd(), encoding: 'utf8' }).trim();
+} catch {
+  repoRoot = '';
+}
+if (!repoRoot) {
+  console.error('b7e-prtree: refusing — not inside a git repository');
+  process.exit(2);
+}
+
+let result;
+try {
+  result = await buildTree({ repoRoot, name, prNumber, sha, merge, vendor, keep });
+} catch (err) {
+  console.error(`b7e-prtree: ${err.message}`);
+  process.exit(3);
+}
+
+if (jsonMode) {
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(0);
+}
+
+console.log(result.dir);
+console.error(`sha ${result.sha} (${result.ref}${result.prNumber ? `, pr ${result.prNumber}` : ''})`);
+console.error(`node_modules ${result.nodeModulesLinked ? 'linked' : 'not linked (none in the source repo)'}`);
+if (vendor) console.error(`vendor ${result.vendored ? 'built' : 'not built'}`);
+process.exit(0);

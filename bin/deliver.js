@@ -2,7 +2,13 @@
 /**
  * Land finished work: push it, open the pull request, hand the merge over.
  *
- *   beadcause-deliver -w beadcause -b bc-7qo --tests "npm test — 42 passing" < summary.md
+ *   beadcause-deliver -w beadcause -b bc-7qo --tests "affected: 14 suites for 2 changed
+ *       files, all passed" < summary.md
+ *
+ * `--tests` is free text — `bin/b7e-shipgate`'s own last line is built to be pasted in
+ * verbatim (bc-xlz32.2): it runs `b7e-affected` into `b7e-gate --only` by default, so a
+ * reviewer sees the narrowing (or the whole-gate fallback, when a changed file matched no
+ * suite) instead of guessing at it from a bare "tests passed."
  *
  * This is how a session ends, and it has ended three different ways.
  *
@@ -1124,6 +1130,9 @@ if (autoMerge) {
     // work still lands — what is lost is the guarantee that this session cannot close its
     // own bead, which is worth a line somebody will read in the log.
     console.error(`beadcause-deliver: ${beadId} is NOT parked behind ${mergeId} — ${note}`);
+  } else if (note) {
+    // Parked, but an edge had to come off the pair to get there (bc-arj0.23).
+    console.error(`beadcause-deliver: ${note}`);
   }
 
   try {
@@ -1260,8 +1269,8 @@ const questionId = created.id || created.issue?.id;
 // closed by the merge, and a label nothing takes back off would leave it in the
 // inbox as a card with no question on it forever.
 {
-  const { parked, note } = park(bd, beadId, questionId, { label: false });
-  if (!parked) console.error(`beadcause-deliver: ${note}`);
+  const { note } = park(bd, beadId, questionId, { label: false });
+  if (note) console.error(`beadcause-deliver: ${note}`);
 }
 
 try {

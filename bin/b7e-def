@@ -31,6 +31,8 @@
  * the raw text and the walk is exactly as good as it was before. Good enough for
  * the application code in this repo; not a substitute for reading the file when
  * the shape is unusual.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';

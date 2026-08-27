@@ -2319,7 +2319,7 @@
     if (phase === 'OPEN') {
       const armed = state.armed === `${row.key}|merge`;
       buttons.push(`<button class="primary${armed ? ' confirm' : ''}" data-act="pr-merge-go" data-key="${esc(row.key)}"
-        ${busy ? 'disabled' : ''}>${armed ? `Tap again · merge #${p.number}` : prMergeLabel(p, live)}</button>`);
+        ${busy ? 'disabled' : ''}>${armed ? `Tap again · queue #${p.number}` : prMergeLabel(p, live)}</button>`);
       buttons.push(`<button class="secondary danger" data-act="pr-close" data-key="${esc(row.key)}"
         ${busy ? 'disabled' : ''}>Close it</button>`);
     }
@@ -2342,11 +2342,19 @@
       ${note}`;
   }
 
-  /** What the merge button promises, which must never overstate what it will do. */
+  /**
+   * What the merge button promises, which must never overstate what it will do.
+   *
+   * Since bc-02ldo it promises rather less, because it does rather less: the tap hands
+   * the pull request to the merge queue and the queue merges it once its gates pass, so
+   * every one of these says *queue*. A draft and a red rollup are still worth naming on
+   * the button — the queue will refuse both, and being told that before the tap is better
+   * than a card coming back an hour later to say it.
+   */
   function prMergeLabel(p, live) {
-    if (live?.draft ?? p.draft) return `Merge #${p.number} anyway (draft)`;
-    if ((live?.checks || p.checks)?.state === 'failing') return `Merge #${p.number} — checks red`;
-    return `Merge & push #${p.number}`;
+    if (live?.draft ?? p.draft) return `Queue #${p.number} anyway (draft)`;
+    if ((live?.checks || p.checks)?.state === 'failing') return `Queue #${p.number} — checks red`;
+    return `Queue #${p.number} to merge`;
   }
 
   /**
@@ -3104,10 +3112,10 @@
             // Worth saying before the tap rather than only in the toast after it:
             // this option is an instruction, and the bead stays open. A deferral is
             // also `closes: false` and means the opposite of an instruction — it puts
-            // nothing in motion and leaves this very card where it is — so the two
-            // cannot share one tag (lib/decision.js).
+            // nothing in motion and takes this card off the list until what it is
+            // waiting on clears — so the two cannot share one tag (lib/decision.js).
             o.defers
-              ? '<span class="hand-tag">↪ not yet — the card stays on your list</span>'
+              ? '<span class="hand-tag">↪ not yet — sets this card aside</span>'
               : o.closes === false
                 ? '<span class="hand-tag">↪ commissions the work</span>'
                 : ''
@@ -3365,9 +3373,12 @@
    * through `textContent` when paintPicked() repaints it.
    */
   function answerLabel(chosen, q) {
-    // *Answer & defer* is the third of these, and it is the only one of the three that
-    // promises the card will still be here afterwards.
-    if (chosen) return chosen.defers ? 'Answer & defer' : chosen.closes === false ? 'Answer & commission' : 'Answer & close';
+    // *Answer & set aside* is the third of these, and it is the only one of the three
+    // that finishes with the bead untouched: nothing closes, nothing is handed over,
+    // and the card goes off the list until what it is waiting on has cleared. It said
+    // *Answer & defer* until bc-y9cof, which was accurate about the tracker and silent
+    // about the only part you can see — that the card is going away.
+    if (chosen) return chosen.defers ? 'Answer & set aside' : chosen.closes === false ? 'Answer & commission' : 'Answer & close';
     // With nothing picked this describes a **typed** answer, and that is where a deferral
     // parts company with the gate predicate above. A typed answer on a card whose only
     // non-closing choice is a *not yet* closes: a deferral starts no work, so there is no
@@ -3398,7 +3409,7 @@
     !armed
       ? o.label
       : o.defers
-        ? `Tap again — defers ${q.id}`
+        ? `Tap again — sets ${q.id} aside`
         : o.closes === false
           ? `Tap again — commissions ${q.id}`
           : `Tap again — answers ${q.id}`;
@@ -3605,15 +3616,45 @@
    * cards further on — and a toast that fades after five seconds over an unrelated
    * question is indistinguishable from the answer having landed. The note stays until
    * the card is answered again or you dismiss it.
+   *
+   * **And it does not always get to say nothing was written.** An answer is several acts
+   * in a row and the answer itself is written last — deliberately, so a merge GitHub
+   * refuses leaves the question answerable — which means the window between the last act
+   * and the write is a window in which the act landed and the answer did not. *Nothing
+   * was written and nothing was lost* over a pull request that is merged, a branch that
+   * is gone and a work bead that closed is the most expensive sentence this app can
+   * print: it is read as *try again*, and it is wrong in the one direction that costs an
+   * afternoon. `f.landed` is the server's own account of what did happen (`performed` in
+   * lib/server.js) and it takes the reassurance's place rather than sitting beside it,
+   * because the two cannot both be true.
+   *
+   * The server's own sentences, minus their markup. `Merged #7 as c5004cce — closed
+   * zz-work` is the line the thread would have carried, and inventing a second
+   * vocabulary for the failure case would mean two accounts of one act that can
+   * disagree — but it arrives as bd prose, with the emphasis and the backticks the
+   * thread wanted, and this note is not a document. Same call `shipWhat` makes one
+   * screen up, for the same reason: paragraphs of markdown inside an alert would make it
+   * a different shape from `gateNoteHtml`, which is the whole point of it being a
+   * sibling.
    */
+  const plainly = (s) => String(s || '').replace(/\*\*/g, '').replace(/`/g, '');
+
   function failedNoteHtml(q) {
     const f = q.failed;
     if (!f) return '';
     const verb = f.from === 'dismiss' ? 'set aside' : f.from === 'comment' ? 'commented on' : 'answered';
+    const landed = Array.isArray(f.landed) ? f.landed.filter(Boolean) : [];
     return `<div class="failed-note">
       <strong>${esc(q.id)} was not ${verb} — ${esc(f.reason)}</strong>
-      <p>Nothing was written and nothing was lost. What you typed is still in the box
-      below; press the button under it again when you are ready to try.</p>
+      ${
+        landed.length
+          ? `<p><strong>But part of it had already happened, and that stands:</strong></p>
+      ${landed.map((line) => `<p>${esc(plainly(line))}</p>`).join('\n      ')}
+      <p>Only the answer itself did not go through. What you typed is still in the box
+      below; press the button under it again when you are ready to try.</p>`
+          : `<p>Nothing was written and nothing was lost. What you typed is still in the box
+      below; press the button under it again when you are ready to try.</p>`
+      }
       <div class="row">
         <button class="secondary" data-act="failed-dismiss" data-key="${esc(q.key)}">Dismiss this</button>
       </div>
@@ -8340,12 +8381,18 @@
                 // rather than off which button was pressed.
                 res?.handedBack
                 ? `Answered ${q.id} — handed back as work`
-                : // A deferral, where the card is *still there* and nothing was handed to
-                // anybody. Above `needsChoice` because the two are the only outcomes
-                // where the card survives the answer and they must not be confused: one
-                // is a decision you made, the other is a decision still owed.
+                : // A deferral: nothing was handed to anybody and the card has gone off
+                // the list until what you are waiting on clears. Same sentence as the
+                // dismissal above, off the same `until`, because since bc-y9cof it is
+                // the same record — and it is the whole of what this toast owes you,
+                // since a card that vanishes with "Deferred" on it reads as gone for
+                // good. The fallback matters: a set-aside that failed sends no `until`
+                // and the card is still there, so promising a return would be a lie
+                // about a card you can see.
                 res?.deferred
-                ? `Deferred ${q.id} — still on your list`
+                ? res?.setAside
+                  ? `${q.id} set aside — back when ${res.until ? `${res.until} clears` : 'someone comments'}`
+                  : `Not yet — ${q.id} answered, and still on your list`
                 : // The card did not go anywhere, and that is the one outcome a toast
                 // has to explain rather than confirm: everywhere else the card
                 // vanishing is the feedback. One of these options starts work, and a
@@ -8399,7 +8446,16 @@
         // question is indistinguishable from having been answered. So it goes on the
         // row, in the close gate's own family (`failedNoteHtml`), and stays there
         // until the card is answered again or you dismiss the note.
-        else q.failed = { reason: err.message || 'the write did not go through', from: dismiss ? 'dismiss' : close ? 'answer' : 'comment' };
+        // `landed` beside the reason, and it is not decoration: the server sends it only
+        // when this answer performed something before the write failed, and it is what
+        // stops the note claiming nothing was written over a merge that landed. Absent on
+        // almost every failure, which is what it should be — see `failedNoteHtml`.
+        else
+          q.failed = {
+            reason: err.message || 'the write did not go through',
+            from: dismiss ? 'dismiss' : close ? 'answer' : 'comment',
+            landed: Array.isArray(err.body?.landed) ? err.body.landed : null,
+          };
         // Reverse the travel first, then re-open the card underneath where the beads
         // came down. A tracker that refused the answer must not be shown swallowing it.
         await flight?.recall();
@@ -9747,26 +9803,30 @@
     }
 
     /**
-     * Merge it, from the full view. Two taps, and the first sends nothing.
+     * Queue it, from the full view. Two taps, and the first sends nothing.
      *
-     * The same arming as `/prs` and the delivery card, with the same 6-second window —
-     * this is the one control on this screen whose consequence is outside this Mac and
-     * cannot be taken back, and a phone in a pocket must not be able to do it on one tap.
+     * The same arming as `/prs` and the delivery card, with the same 6-second window.
+     * The tap no longer merges — bc-02ldo — but the arming is unchanged and for a reason
+     * that survived the change: what the second tap makes is the **approval**, which the
+     * queue then acts on unattended, and a phone in a pocket must not be able to approve
+     * a merge on one touch.
      *
      * `POST /api/pr/merge` is the board's own endpoint, not the delivery card's answer
-     * path: there is no bead being answered here. It merges, brings this Mac's base up
-     * behind it, and retires any delivery card that was asking about this same pull
-     * request — which is what stops the inbox from carrying a question that has been
-     * settled by the screen next door.
+     * path: there is no bead being answered here. It admits the pull request to the merge
+     * queue — filing the queue entry, or relabelling the card that was already asking
+     * about it into one, which is what takes that question out of the inbox.
      */
     if (act === 'pr-merge-go') {
       const row = byKey(key);
       if (!row?.pr) return;
       if (armFirst(key, 'merge')) return;
       await actOnPr(row, '/api/pr/merge', {}, (res) => {
-        const land = res.land?.note ? ` ${res.land.note}.` : '';
-        const cards = (res.cards || []).filter((c) => c.closed).map((c) => c.id);
-        return `Merged #${row.pr.number}.${land}${cards.length ? ` Closed ${cards.join(', ')}.` : ''}`;
+        // Never "merged" — the queue does that a minute or two from now, and a sentence
+        // claiming it already happened is one you would go looking for in `main`.
+        const others = (res.others || []).length ? ` ${res.others.join(', ')} is also open about it — close or supersede it.` : '';
+        if (res.alreadyMerged) return `#${row.pr.number} was already merged — nothing to queue.`;
+        if (!res.queued) return `#${row.pr.number} was already on the merge queue${res.id ? ` as ${res.id}` : ''}.${others}`;
+        return `Queued #${row.pr.number}${res.id ? ` as ${res.id}` : ''} — it merges once the queue's gates pass.${others}`;
       });
       return;
     }
@@ -10641,31 +10701,43 @@
     // of devices.
     //
     // **This has to be everything `adopt` treats as "absent means an old server, keep
-    // what's on screen" (bc-khoe.51), not merely everything it draws.** A warm boot's
-    // whole point is that nothing else has run `adopt` yet this document, so "what's on
-    // screen" is the state object's own hard-coded defaults — `rootboard: {owned:
-    // false}` chief among them — and absent silently reads as "this install has no
-    // board" rather than as "ask the daemon". Leaving one of these out does not fail
-    // loud: the field just does not draw until the next `/api/poll` happens to carry
-    // it, which on a quiet tracker is minutes to hours. `rootboard`, `tickets`,
-    // `cancelledTickets`, `strandedCancels`, `trouble` and `syncTrouble` are stored for
-    // that reason, and a field added to that list in `adopt` later has to be added here
-    // too, or this comment goes stale the same way the one it replaced did.
+    // what's on screen" (bc-khoe.51, bc-khoe.62), not merely everything it draws.** A
+    // warm boot's whole point is that nothing else has run `adopt` yet this document, so
+    // "what's on screen" is the state object's own hard-coded defaults — `rootboard:
+    // {owned: false}` and `me: []` chief among them — and absent silently reads as "this
+    // install has no board" or "this Mac has no `me`" rather than as "ask the daemon".
+    // Leaving one of these out does not fail loud: the field just does not draw until
+    // the next `/api/poll` happens to carry it, which on a quiet tracker is minutes to
+    // hours. `rootboard`, `tickets`, `cancelledTickets`, `strandedCancels`, `trouble`,
+    // `syncTrouble`, `me` and `consoles` are stored for that reason, and a field added to
+    // that list in `adopt` later has to be added here too, or this comment goes stale the
+    // same way the one it replaced did.
     //
-    // **Two more already carry the same guard and are deliberately still missing here.**
-    // `adopt` reads `data.consoles` and `data.me` on exactly this absent-means-an-old-
-    // server rule and neither is stored — that is bc-khoe.62, filed rather than folded
-    // in, because this bead's acceptance criteria named the board/tickets/trouble six.
-    // `me` is the one to be careful with: `adopt`'s own comment says keeping the last
-    // value is what stops a phone behind a cached service worker from calling your own
-    // questions somebody else's, and a warm boot has no last value to keep.
+    // **`me` is the one it was worth stopping to think about rather than just adding.**
+    // `adopt`'s own comment says keeping the last value is what stops a phone behind a
+    // cached service worker from calling your own questions somebody else's — but that is
+    // a description of what an empty `state.me` risks, not of what it does: `addresseeHtml`
+    // draws nothing at all while `state.me` is empty, and `addressedToMe` can only ever
+    // read false against an empty list. So the warm-boot gap this bead found is not a
+    // card misattributed to you — it is a "mine" narrowing with nothing on this Mac to be,
+    // for the frame or two before the next poll fills `state.me` in. Real and worth
+    // closing, and the closing is the same one line as the other seven.
     //
-    // **This overwrites the held entry, it does not merge into it** — so a payload from
-    // an older daemon that omits one of the six erases a newer daemon's copy of it,
-    // which is `adopt`'s rule inverted. Deliberate, and not settled here: public/
-    // monitor.js writes this same key with the whole payload untrimmed, so a merge in
-    // this function alone is undone by the next visit to /monitor. It is one policy for
-    // the key rather than a choice per writer, and it is bc-khoe.63.
+    // **`consoles` round-trips cleanly, checked against what the payload actually holds.**
+    // The worry was `dismissedChats` (a plain in-memory `Set`, reset on every new
+    // document) filtering a payload that still carried something dismissed on a different
+    // tab. It does not: the server's own `inboxConsoles()` already excludes anything with
+    // `closedAt` set before this payload is ever built, so a stored `consoles` list is
+    // already "open only" the same way the live fetch is, and an empty `dismissedChats`
+    // on a fresh document has nothing to do but agree with it.
+    //
+    // **Merging onto the held entry, rather than replacing it outright, is settled too —
+    // in `write()` in public/warm.js, not here (bc-khoe.63).** This key has three writers
+    // — this function, public/monitor.js's own `/api/questions` fetch, and the prewarm
+    // loop in public/warm.js — and a merge in this function alone would still be undone
+    // by either of the other two. `write()` merges any write to this one path onto
+    // whatever it already holds, so all three get the guarantee for free and none of them
+    // has to know about the other two.
     const {
       questions,
       requests,
@@ -10679,6 +10751,8 @@
       strandedCancels,
       trouble,
       syncTrouble,
+      me,
+      consoles,
     } = data;
     window.beadcause?.warm?.write?.(
       questionsPath(scope),
@@ -10695,6 +10769,8 @@
         strandedCancels,
         trouble,
         syncTrouble,
+        me,
+        consoles,
       },
       Number(data.seq) || 0
     );

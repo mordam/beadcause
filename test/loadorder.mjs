@@ -131,11 +131,21 @@ await check('the tool list has one home, and lib/agents.js re-exports it', async
   // Two copies of an allowlist is one copy that gets widened without the other noticing,
   // which is the whole reason foundation.js quoted agents.js and the cycle existed at
   // all. Whatever else moves, that must not become two arrays.
+  //
+  // The home moved in bc-wbrhi: lib/toolbelt.js keeps the hand-written half as
+  // `BASE_TOOL_LIST` and lib/tooldecl.js appends the b7e tools that declare themselves,
+  // so tooldecl is what everything else must be reading. The extra assertion is that
+  // toolbelt does **not** still export a list of its own — a leftover `DEFAULT_TOOL_LIST`
+  // there would be exactly the second copy this check exists to forbid, and it would look
+  // entirely reasonable sitting next to `BASE_TOOL_LIST`.
   const toolbelt = await import(path.join(LIB, 'toolbelt.js'));
+  const tooldecl = await import(path.join(LIB, 'tooldecl.js'));
   const agents = await import(path.join(LIB, 'agents.js'));
   const foundation = await import(path.join(LIB, 'foundation.js'));
-  assert.equal(agents.DEFAULT_TOOL_LIST, toolbelt.DEFAULT_TOOL_LIST, 'lib/agents.js has its own copy of the list');
-  assert.deepEqual(foundation.baseline('dispatch').allowedTools, toolbelt.DEFAULT_TOOL_LIST);
+  assert.equal(toolbelt.DEFAULT_TOOL_LIST, undefined, 'lib/toolbelt.js still exports a list of its own — that is the second copy');
+  assert.ok(Array.isArray(toolbelt.BASE_TOOL_LIST) && toolbelt.BASE_TOOL_LIST.length, 'lib/toolbelt.js no longer holds the hand-written half');
+  assert.equal(agents.DEFAULT_TOOL_LIST, tooldecl.DEFAULT_TOOL_LIST, 'lib/agents.js has its own copy of the list');
+  assert.deepEqual(foundation.baseline('dispatch').allowedTools, tooldecl.DEFAULT_TOOL_LIST);
   const src = fs.readFileSync(path.join(LIB, 'foundation.js'), 'utf8');
   assert.ok(
     !/^import[^\n]*from '\.\/agents\.js';$/m.test(src),

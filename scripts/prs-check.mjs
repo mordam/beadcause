@@ -482,15 +482,18 @@ try {
     )}"`
   );
 
-  reply = { status: 200, body: { ok: true, alreadyMerged: false, land: { note: 'fast-forwarded main to origin/main' } } };
+  reply = { status: 200, body: { ok: true, alreadyMerged: false, queued: true, action: 'admit', id: 'zz-q1', others: [] } };
   await evalJs(s, clickAct('merge'));
   await sleep(600);
-  ok(posted.length === 1 && posted[0].path === '/api/pr/merge', `the second tap merges — ${JSON.stringify(posted[0])}`);
+  ok(posted.length === 1 && posted[0].path === '/api/pr/merge', `the second tap queues it — ${JSON.stringify(posted[0])}`);
   ok(posted[0]?.body.number === 4 && posted[0]?.body.workspace === 'demo', 'and names the pull request it was pressed on');
-  const merged = await evalJs(s, SAID);
+  const queued = await evalJs(s, SAID);
+  // bc-02ldo: the tap queues, and the queue merges a minute or two later. A sentence
+  // saying "Merged" would be the one thing this must never say — it is what made the
+  // same pull request get tapped three times.
   ok(
-    /Merged #4/.test(merged?.text || '') && /fast-forwarded/.test(merged?.text || ''),
-    `both halves are reported, not one word over the pair — "${merged?.text}"`
+    /Queued #4/.test(queued?.text || '') && /zz-q1/.test(queued?.text || '') && !/^Merged/.test(queued?.text || ''),
+    `it says queued and names the bead, and never claims a merge — "${queued?.text}"`
   );
 
   /* --------------------------------------------------------------- a refusal */

@@ -379,9 +379,8 @@ try {
 } finally {
   disarmExit();
   close();
-  daemon.kill();
-  if (!KEEP) fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3 });
-  else console.log(`\nkept ${CONFIG_DIR}`);
+  killAndRemoveSync(daemon, KEEP ? null : tmp);
+  if (KEEP) console.log(`\nkept ${CONFIG_DIR}`);
 }
 
 const failed = results.filter((r) => !r.ok);

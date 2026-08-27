@@ -13,14 +13,19 @@
  *
  * 1. **A root counts itself, not its absence.** `underAnyOf` puts a root in its own set;
  *    a census that forgot would report every P0 and every epic as unrooted.
- * 2. **A closed parent is walked through, not stopped at.** The shape bc-rfnr.7's own
- *    comment names: an epic that closed over a still-open child. Not parentless by any
- *    obvious query — the walk is what finds it.
+ * 2. **A closed parent is walked through, not stopped at.** Two halves, and the suite
+ *    needs both because only the second one tells the two readings apart. The shape
+ *    bc-rfnr.7's own comment names is an epic that closed over a still-open child: not
+ *    parentless by any obvious query — the walk is what finds it. The half that
+ *    discriminates is an **open** root above a **closed** middle, where a walk that
+ *    stopped at the first closed ancestor would call a perfectly rooted bead an orphan.
  * 3. **A tracker with no roots at all reports no orphans.** The fail-open `hasRootAbove`
  *    already documents, at the scale of a whole workspace rather than one bead.
- * 4. **The Merge #NNN genre is excluded by label, not by title.** Counted into `unrooted`
- *    so the total stays honest, but never into `ordinary` — that is the number this bead
- *    exists to make visible, and delivery traffic must not move it.
+ * 4. **The two exclusions are by label, never by title** — the Merge #NNN genre, and a
+ *    bead already superseded. Both counted into `unrooted` so the total stays honest,
+ *    never into `ordinary` — that is the number this bead exists to make visible, and
+ *    neither delivery traffic nor work already decided against must move it. Each counts
+ *    itself, so `mergeGenre` can never absorb the other one as a residual.
  * 5. **The watch logs a new orphan once, not once per cycle.** The same restraint every
  *    other hold in this app already uses, and the reason a rising count is still
  *    noticeable without being a line every thirty seconds for as long as it holds.
@@ -48,6 +53,7 @@ const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 const { NO_ROOT_ABOVE } = await import(LIB('underroot.js'));
 const { MERGE_LABEL } = await import(LIB('mergebead.js'));
 const { DELIVERY_LABEL } = await import(LIB('delivery.js'));
+const { supersedeLabel } = await import(LIB('superseded.js'));
 
 let failures = 0;
 let ran = 0;
@@ -71,8 +77,9 @@ const parentEdge = (child, parent) => ({ issue_id: child, depends_on_id: parent,
 
 /**
  * A tracker with one root of each kind this bead has to get right: a P0, an epic at a
- * non-urgent priority (bc-htoy), a root that closed over an open child, a Merge #NNN
- * card of each genre, and two beads nothing has ever decided.
+ * non-urgent priority (bc-htoy), a root that closed over an open child, an open root
+ * with a *closed* bead between it and its grandchild, a Merge #NNN card of each genre,
+ * and two beads nothing has ever decided.
  */
 const build = () =>
   indexFrom(
@@ -83,11 +90,32 @@ const build = () =>
       row('zz-epic.1', { dependencies: [parentEdge('zz-epic.1', 'zz-epic')] }),
       row('zz-shut', { status: 'closed' }),
       row('zz-shut.1', { dependencies: [parentEdge('zz-shut.1', 'zz-shut')] }),
+      // The only shape in this file where "walk through a closed parent" and "stop at the
+      // first closed one" disagree: an OPEN root, a closed bead beneath it, and an open
+      // bead beneath that. See the check that reads it.
+      row('zz-live', { priority: 0 }),
+      row('zz-live.1', { status: 'closed', dependencies: [parentEdge('zz-live.1', 'zz-live')] }),
+      row('zz-live.1.1', { dependencies: [parentEdge('zz-live.1.1', 'zz-live.1')] }),
       row('zz-orphan'),
       row('zz-orphan2'),
       row('zz-orphan-closed', { status: 'closed' }),
       row('zz-merge-card', { labels: [MERGE_LABEL] }),
       row('zz-delivery-card', { labels: [DELIVERY_LABEL] }),
+    ].join('\n')
+  );
+
+/**
+ * A root, a bead nothing has decided, and a bead already decided *against* — the third
+ * population `ordinary` must not count. Kept out of `build()` on purpose: it is the only
+ * fixture that needs a `superseded-by:` label, and the counts every check above asserts
+ * over `build()` would otherwise all have to move to accommodate it.
+ */
+const supersededIdx = () =>
+  indexFrom(
+    [
+      row('zz-root', { priority: 0 }),
+      row('zz-gone', { labels: [supersedeLabel('zz-root')] }),
+      row('zz-orphan'),
     ].join('\n')
   );
 
@@ -113,6 +141,16 @@ await check('A CLOSED PARENT IS WALKED THROUGH, NOT STOPPED AT', () => {
   // zz-shut itself is closed, so it is not in the non-closed population at all — its
   // closedness is what makes it not a root, not a reason to count it as an orphan too.
   assert.equal(c.ordinary.includes('zz-shut'), false);
+  // And the half that actually discriminates, which everything above this line does not:
+  // zz-shut is closed *and* P2, so it is not a root under either reading and zz-shut.1 is
+  // an ordinary orphan whether the walk stops at a closed parent or goes through it.
+  // zz-live.1.1's only route to a root runs *through* the closed zz-live.1 and ends at
+  // the open P0 zz-live — so an implementation that stopped at the first closed ancestor
+  // would report a perfectly rooted bead as an orphan, which is the refactor the module
+  // header names as one of the two traps this suite exists to hold. Measured on
+  // 2026-08-24: that mutation leaves this file at 25/25 without this assertion.
+  assert.equal(c.ordinary.includes('zz-live.1.1'), false);
+  assert.equal(c.ordinary.includes('zz-live'), false);
 });
 
 await check('a closed bead is never counted, orphaned or not', () => {
@@ -134,10 +172,45 @@ await check('THE MERGE #NNN GENRE IS UNROOTED BUT NEVER ORDINARY', () => {
   assert.equal(c.mergeGenre, 2);
 });
 
+await check('A SUPERSEDED BEAD IS UNROOTED BUT NEVER ORDINARY', () => {
+  // A bead carrying `superseded-by:<id>` has been looked at and decided against, so it is
+  // exactly not a bead "nothing has decided above". `strandingsIn` (lib/rootclose.js) and
+  // `worthSaying` (lib/epicdone.js) both already drop it; this file used to count it.
+  // The label is spelled by lib/superseded.js's own helper, so a change to it lands here.
+  const c = orphanCensus(supersededIdx());
+  assert.deepEqual(c.ordinary, ['zz-orphan']);
+  assert.equal(c.superseded, 1);
+  assert.equal(c.unrooted, 2, 'still unrooted — having no root above it is true of it');
+});
+
+await check('AND `mergeGenre` DOES NOT ABSORB IT — a residual is only right with one exclusion', () => {
+  // `mergeGenre` was `unrooted - ordinary.length`, which reports every non-merge
+  // exclusion as a merge card. Each exclusion counts itself now, and the three add up.
+  const c = orphanCensus(supersededIdx());
+  assert.equal(c.mergeGenre, 0, 'no merge-queue or pr-delivery card in this fixture');
+  assert.equal(c.unrooted, c.ordinary.length + c.mergeGenre + c.superseded);
+});
+
+await check('a card that is both is reported as what filed it, not as decided against', () => {
+  // The documented order — merge genre asked first — so adding an exclusion can never
+  // change what an existing one counts.
+  const idx = indexFrom(
+    [
+      row('zz-root', { priority: 0 }),
+      row('zz-merge-gone', { labels: [MERGE_LABEL, supersedeLabel('zz-root')] }),
+    ].join('\n')
+  );
+  const c = orphanCensus(idx);
+  assert.equal(c.mergeGenre, 1);
+  assert.equal(c.superseded, 0);
+  assert.deepEqual(c.ordinary, []);
+});
+
 await check('nonClosed is every open/in-progress bead, orphan or not', () => {
   const c = orphanCensus(build());
-  // Every row above except the two explicitly closed ones (zz-shut, zz-orphan-closed).
-  assert.equal(c.nonClosed, 9);
+  // Every row above except the three explicitly closed ones (zz-shut, zz-orphan-closed,
+  // zz-live.1).
+  assert.equal(c.nonClosed, 11);
 });
 
 await check('excluded by the label, never by pattern-matching the title', () => {
@@ -163,9 +236,10 @@ await check('A TRACKER WITH NO ROOTS AT ALL REPORTS NO ORPHANS', () => {
 });
 
 await check('an empty or unreadable index counts nothing rather than throwing', () => {
-  assert.deepEqual(orphanCensus(indexFrom('')), { nonClosed: 0, unrooted: 0, mergeGenre: 0, ordinary: [] });
-  assert.deepEqual(orphanCensus({}), { nonClosed: 0, unrooted: 0, mergeGenre: 0, ordinary: [] });
-  assert.deepEqual(orphanCensus(null), { nonClosed: 0, unrooted: 0, mergeGenre: 0, ordinary: [] });
+  const nothing = { nonClosed: 0, unrooted: 0, mergeGenre: 0, superseded: 0, ordinary: [] };
+  assert.deepEqual(orphanCensus(indexFrom('')), nothing);
+  assert.deepEqual(orphanCensus({}), nothing);
+  assert.deepEqual(orphanCensus(null), nothing);
 });
 
 /* ---------------------------------------------------------------------- describeOrphan */
@@ -219,6 +293,16 @@ await check('the first pass reports every ordinary orphan it finds as new', asyn
   );
   assert.equal(out.counts[0].workspace, 'zz');
   assert.equal(out.errors.length, 0);
+});
+
+await check('AND THE WATCH NEVER SPENDS A LINE NAMING WORK ALREADY DECIDED AGAINST', async () => {
+  // The harm end to end: a superseded bead reaching `newOrphans` is a `[census]` line in
+  // the daemon log about a duplicate whose real work lives somewhere else.
+  const idx = withRoot(row('zz-orphan'), row('zz-gone', { labels: [supersedeLabel('zz-root')] }));
+  const watch = createOrphanWatch({ bd: graphSeq(idx) });
+  const out = await watch.sweep([{ name: 'zz' }]);
+  assert.deepEqual(out.newOrphans.map((r) => r.id), ['zz-orphan']);
+  assert.equal(out.counts[0].superseded, 1, 'counted, just not named');
 });
 
 await check('a bead already reported does not log again while it stays held', async () => {

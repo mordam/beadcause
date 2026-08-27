@@ -10,50 +10,42 @@
  *     beadcause-merge --bead bc-okja      # by the work bead it carries
  *     beadcause-merge -n                  # say what it would do, write nothing
  *
- * The MergeAdvocate's queue (lib/mergequeue.js) has had exactly one door into it since
+ * The MergeAdvocate's queue (lib/mergequeue.js) had exactly one door into it after
  * bc-r941: `beadcause-deliver`, filing a merge-bead at the end of a worker's session in a
  * space with auto-merge on. Everything else was outside it — a merge the queue handed
  * back, a delivery card in a space that asks rather than merges, a pull request Adam
  * opened himself — and the only thing that could be done with any of those was the
- * **Merge** tap on the phone, which is `pr.merge` and nothing else: no downmerge, no
+ * **Merge** tap on the phone, which was `pr.merge` and nothing else: no downmerge, no
  * baseline comparison, no one-at-a-time, no other branch's business considered.
  *
- * This is the other door. It does not merge anything. It says *this is approved* and puts
+ * This is the second door, and since bc-02ldo that tap is a third one onto the same
+ * function rather than a way round it. It does not merge anything. It says *this is approved* and puts
  * the pull request where the queue will find it — and then every gate the queue has still
  * applies, which is the entire point: an approval says the change is wanted, not that it
  * works. A branch that broke a check comes back as a card with the approval still on it.
  *
- * ## Why it is a command and not a button
+ * ## Why there is a command as well as a button
  *
- * The button exists and is right for what it does — a person looking at a card on a
- * phone, deciding. This is the same decision made in the place the work was actually
- * reviewed: a session, in the checkout, with the diff in front of it. `/merge` in Claude
- * Code is a wrapper around this, and the reason the logic is here rather than in the
- * skill is that a skill is prose a model interprets — where relabelling a bead into
- * somebody else's queue is the kind of thing that must happen the same way every time or
- * not at all. lib/mergeadmit.js decides, this does the writes, and the skill supplies the
- * pull request and Adam's word.
+ * The button and this are the same act now — bc-02ldo. Until then the button was
+ * `pr.merge` straight through, no bead and no queue behind it, and the two doors into
+ * `main` disagreed about what merging even was. What is left here that is not there is
+ * only what a *checkout* knows: which workspace this directory belongs to, which pull
+ * request the branch you are standing on names, and Adam's `-b`. `/merge` in Claude Code
+ * is a wrapper around this, and the reason the logic is here rather than in the skill is
+ * that a skill is prose a model interprets — where relabelling a bead into somebody
+ * else's queue is the kind of thing that must happen the same way every time or not at
+ * all.
  *
- * ## What it writes, and in what order
- *
- * Three writes at most, ordered so that a failure part-way leaves a state somebody can
- * see rather than a bead that is half in two queues:
- *
- * 1. **The bead's own state** — labels, and the queue block with the approval in it. This
- *    is the write that matters; everything else is a courtesy.
- * 2. **The assignee**, because `queueFor` selects on it and a bead with the label and the
- *    wrong owner is invisible to the queue in a way that looks exactly like being queued.
- * 3. **The comment**, and the note on the pull request. The record of who said this could
- *    land, which is the question anybody has about a merge six months later.
+ * So: **lib/mergeadmit.js decides and writes**, this supplies the pull request from a
+ * checkout, and the skill supplies Adam's word. What the writes are, in what order, and
+ * which of them may fail without failing the admission, is documented on `admitToQueue`
+ * there — beside the plan it executes, rather than in one of its two callers.
  */
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { ownAddresseeLabels } from '../lib/addressee.js';
 import { Bd } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
-import { deliveryBlock } from '../lib/delivery.js';
-import { admitComment, admitPlan } from '../lib/mergeadmit.js';
-import { MERGE_ASSIGNEE, MERGE_LABEL, mergeBeadBody, mergeBeadTitle, withQueueBlock } from '../lib/mergebead.js';
+import { admitPlan, admitToQueue } from '../lib/mergeadmit.js';
 import { ownerName } from '../lib/owner.js';
 import * as pr from '../lib/pr.js';
 import { repoUnits } from '../lib/repos.js';
@@ -234,149 +226,29 @@ if (dryRun) {
 
 /* ---------------------------------------------------------------------- the writes */
 
-const comment = admitComment(plan, { by: owner });
-
-if (plan.action === 'file') {
-  /**
-   * Nothing in the tracker is about this pull request, so the queue entry is made here —
-   * the same bead `beadcause-deliver` files, with the block built from what GitHub says
-   * rather than from what a session did, because there was no session.
-   *
-   * The work bead is optional and usually absent: this is the case where Adam opened the
-   * pull request himself. `finish` in lib/mergequeue.js already handles a block that
-   * names no bead — it closes the queue entry and stops — so the absence needs no
-   * special handling anywhere but in the body, which must not claim to be closing a bead
-   * that does not exist.
-   */
-  const delivery = {
-    workspace: ws.name,
-    bead: beadFlag,
-    repo: slug,
-    number,
-    url: view.url,
-    branch: view.branch,
-    base: view.base,
-    method: String(cfg.pr?.mergeMethod || 'merge'),
-    title: view.title,
-    summary: `Admitted to the merge queue by ${owner}.`,
-    tests: '',
-    risk: '',
-    left: '',
-  };
-
-  const body = beadFlag
-    ? mergeBeadBody(delivery, {})
-    : [
-        `**${slug || ws.name}** — pull request [#${number}](${view.url}) was admitted to the merge queue by ` +
-          `${owner}, and no work bead is named on it.`,
-        '',
-        `The queue brings \`${view.base}\` into \`${view.branch}\`, checks whatever \`${view.base}\` is not ` +
-          `already failing, merges, and closes this bead. Nothing else closes with it.`,
-        '',
-        '_What the merge acts on, in the form the server reads it:_',
-        deliveryBlock(delivery),
-      ].join('\n');
-
-  let filed;
-  try {
-    filed = await bd.create(ws, {
-      title: mergeBeadTitle(delivery),
-      body,
-      type: 'task',
-      // Above the work it gates, as bin/deliver.js files it, so a queue that is behind is
-      // visible on the board rather than buried under the beads waiting on it.
-      priority: 1,
-      // Whose merge this is, when a tracker is shared — the same labels
-      // `beadcause-deliver` puts on the merge-bead it files, and nothing at all on a
-      // single-person install. Without them a queue entry filed into the Climative graph
-      // belongs to nobody.
-      labels: [...plan.addLabels, ...ownAddresseeLabels(cfg)],
-      notes: withQueueBlock('', plan.state),
-    });
-  } catch (err) {
-    die(`could not file a merge-bead in ${ws.name} — ${first(err)}`, 5);
-  }
-  // `Bd.create` answers with the id itself.
-  const id = typeof filed === 'string' ? filed : filed?.id;
-  if (!id) die(`filed a merge-bead in ${ws.name} but bd said nothing about which`, 5);
-
-  try {
-    await bd.assign(ws, id, MERGE_ASSIGNEE);
-  } catch (err) {
-    die(`filed ${id}, but could not assign it to ${MERGE_ASSIGNEE} — the queue will not see it (${first(err)})`, 5);
-  }
-
-  if (beadFlag) {
-    // The work bead waits behind the queue entry, which is what stops anything closing it
-    // while the branch is still in a pull request — the same dependency bin/deliver.js
-    // makes, and the whole mechanism by which the merge is what finishes the work.
-    try {
-      await bd.addDep(ws, beadFlag, id);
-    } catch (err) {
-      console.error(`beadcause-merge: ${beadFlag} is NOT parked behind ${id} — ${first(err)}`);
-    }
-  }
-
-  await bd.comment(ws, id, comment).catch((err) => console.error(`beadcause-merge: ${id} took no comment — ${first(err)}`));
-  await pr
-    .comment(dir, number, `${owner} admitted this to the beadcause merge queue as ${id}. The queue merges it once its gates pass.`)
-    .catch((err) => console.error(`beadcause-merge: could not comment on ${where} — ${first(err)}`));
-
-  console.log(`queued ${where} ${view.url} ${id}`);
-  process.exit(0);
-}
-
-/* An existing bead: relabelled and re-armed, or simply told about the approval. */
-
-const spec = plan.spec;
-const row = rows.find((r) => r.id === plan.id) || {};
-
 /**
- * The description goes back to being a queue entry's, and only on `admit`.
+ * All of them, in lib/mergeadmit.js — and this file no longer knows what they are.
  *
- * A raised card's body is written to be answered — *it could not merge, so it is yours,
- * answering Merge merges it* — and leaving that on a bead that is back in the queue is a
- * bead whose own description tells the next reader to do something nobody is going to do.
- * `mergeBeadBody` is the other half of the same pair, from the same `beadpr` block, so
- * the round trip is lossless.
- *
- * The **title** is deliberately left alone. A delivery card's title is the question it
- * asked, a merge-bead's is `Merge #N — bead: what`, and rewriting one into the other
- * would rename a bead in the middle of somebody's board for no gain — the label is what
- * says which of the two it is now.
+ * They lived here until bc-02ldo, which is the bead about the app's Merge button doing
+ * something else entirely. Making the button queue meant a second caller for this exact
+ * sequence, and two copies of it is two copies that drift, so the sequence moved next to
+ * the decision that describes it and both doors call the one function.
  */
-const description =
-  plan.action === 'admit' ? mergeBeadBody({ ...spec, title: row.title || '' }, { tests: spec.tests || '' }) : undefined;
-
+let done;
 try {
-  await bd.update(ws, plan.id, {
-    description,
-    notes: withQueueBlock(row.notes || '', plan.state),
-    addLabels: plan.addLabels,
-    removeLabels: plan.removeLabels,
+  done = await admitToQueue(bd, ws, plan, {
+    cfg,
+    view,
+    repo: slug,
+    bead: beadFlag,
+    method: String(cfg.pr?.mergeMethod || 'merge'),
+    by: owner,
+    rows,
+    prComment: (n, text) => pr.comment(dir, n, text),
+    onWarn: (msg) => console.error(`beadcause-merge: ${msg}`),
   });
 } catch (err) {
-  die(`could not put ${plan.id} back on the queue — ${first(err)}`, 5);
+  die(first(err), err?.code || 5);
 }
 
-if (plan.assignee) {
-  try {
-    await bd.assign(ws, plan.id, plan.assignee);
-  } catch (err) {
-    die(
-      `${plan.id} carries the ${MERGE_LABEL} label now, but could not be assigned to ${plan.assignee} — ` +
-        `the queue selects on the assignee, so it will not pick this up until that is fixed (${first(err)})`,
-      5
-    );
-  }
-}
-
-await bd.comment(ws, plan.id, comment).catch((err) => console.error(`beadcause-merge: ${plan.id} took no comment — ${first(err)}`));
-
-if (plan.action === 'admit') {
-  await pr
-    .comment(dir, number, `${owner} approved this. It is back on the beadcause merge queue as ${plan.id}.`)
-    .catch((err) => console.error(`beadcause-merge: could not comment on ${where} — ${first(err)}`));
-}
-
-console.log(`${plan.action === 'approve' ? 'approved' : 'queued'} ${where} ${view.url} ${plan.id}`);
+console.log(`${done.action === 'approve' ? 'approved' : 'queued'} ${where} ${view.url} ${done.id}`);
