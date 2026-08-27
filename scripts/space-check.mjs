@@ -156,9 +156,11 @@ try {
 
   // `?t=` is how a browser that has never scanned the QR gets paired — the same pickup
   // the page does for the login window opened on the Mac at boot.
-  // `/config` since bc-khoe.10. The card was a section of the advocate console and then
-  // a chip on it; it is a page of its own now, so this check opens the page rather than
-  // opening the console and tapping a chip to reach it.
+  // `/config` since bc-khoe.10, and a 302 to `/#config` since bc-khoe.60 filled the
+  // Config pane — `lib/server.js` hops it the way it has hopped `/history` and
+  // `/releases` for months, so this opens the shell and lands on the pane rather than on
+  // the standalone document. The address this check asks for is deliberately the address
+  // a bookmark or a notification would still hold, not the hash it resolves to.
   await s.send('Page.navigate', { url: `${BASE}/config?t=${TOKEN}` });
   await sleep(1200);
 
@@ -756,11 +758,16 @@ try {
   /* ------------------------------------------------------------ the rest of it */
 
   /* Where the card is drawn, which is the other half of bc-khoe.10. Everything above
-     this line was pressed on /config — so this is the claim that the thirty checks before
-     it were not quietly passing against a card still on the console. */
+     this line was pressed on the Config pane — so this is the claim that the thirty
+     checks before it were not quietly passing against a card still on the console, and
+     `location` is what proves it landed on the pane rather than on the standalone
+     document `/config` still also serves (bc-khoe.60). */
   check(
-    'the card is the page — it is in #space, and this is /config',
-    await evalJs(s, `Boolean(document.querySelector('#space .space-card')) && location.pathname === '/config'`)
+    'the card is the pane — it is in #space, and the address is /#config',
+    await evalJs(
+      s,
+      `Boolean(document.querySelector('#space .space-card')) && location.pathname === '/' && location.hash === '#config'`
+    )
   );
   check(
     'and the pill that reaches it is on the row, lit',

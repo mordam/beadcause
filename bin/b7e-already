@@ -1,0 +1,107 @@
+#!/usr/bin/env node
+/**
+ * `b7e-already` — before writing a function: does `lib/` already have one for this,
+ * and can it actually be imported.
+ *
+ *   b7e-already <words>...              every top-level declaration in lib/, bin/ and
+ *                                        scripts/ whose name or doc comment matches any
+ *                                        of <words>, best match first — exported and
+ *                                        private both, `private` labelled distinctly
+ *                                        because "it exists but you cannot import it"
+ *                                        is a different answer from "it is not here"
+ *   b7e-already <words>... --private    only the private (unexported) matches
+ *   b7e-already --module <file>         everything one file declares at its top level,
+ *                                        class methods included — no search, the whole
+ *                                        surface
+ *   b7e-already --dir <root>            "this tree" is <root>, not the tree this file
+ *                                        is in
+ *
+ * bc-dgx7.81 is the session audit: five beads each asked "is there already something
+ * in lib/ for this" and answered it with a different pile of speculative greps against
+ * 284 modules — `grep -n "Ago|ago("` finding `ago(ms)` and not knowing it was private
+ * until a fourth call, `grep -n "^export function resolveSessionDir"` finding nothing
+ * because the real declaration is `export const resolveSessionDir = (...) => ...`, an
+ * arrow assigned to a `const` that shape structurally cannot match. `lib/already.js`
+ * does the work, over its own acorn parse (comments included, which `lib/imports.js`
+ * doesn't collect) rather than a regex over one written form of a declaration.
+ *
+ * Exit codes: `0` at least one match (or `--module` found declarations to list). `1`
+ * nothing matched — not a crash, a legitimate answer. `2` refused — bad usage.
+ *
+ * @grant read
+ */
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { search, moduleSurface, SCAN_DIRS } from '../lib/already.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.join(HERE, '..');
+
+const argv = process.argv.slice(2);
+const has = (f) => argv.includes(f);
+const value = (f, fallback = null) => {
+  const at = argv.indexOf(f);
+  return at === -1 ? fallback : (argv[at + 1] ?? fallback);
+};
+
+const HELP = has('--help') || has('-h');
+if (HELP) {
+  console.log(
+    [
+      'b7e-already <words>...            match against every declaration in lib/, bin/',
+      '                                  and scripts/ — name and the first line of its',
+      '                                  doc comment; exported and private both',
+      'b7e-already <words>... --private  only the private (unexported) matches',
+      'b7e-already --module <file>       everything one file declares, class methods',
+      '                                  included — no search, the whole surface',
+      'b7e-already --dir <root>          "this tree" is <root>',
+    ].join('\n'),
+  );
+  process.exit(0);
+}
+
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const green = (s) => `\x1b[32m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+
+const ROOT = path.resolve(value('--dir', REPO_ROOT));
+const MODULE = value('--module');
+const ONLY_PRIVATE = has('--private');
+
+function printEntry(e) {
+  const label = e.exported ? green('export') : amber('private');
+  const doc = e.doc ? ` — ${e.doc}` : '';
+  console.log(`${e.file}:${e.line} ${label} ${e.signature}${doc}`);
+}
+
+if (MODULE) {
+  let entries;
+  try {
+    entries = moduleSurface(ROOT, MODULE);
+  } catch (err) {
+    console.error(red(`refused — could not read ${MODULE} — ${err.message}`));
+    process.exit(2);
+  }
+  if (!entries.length) {
+    console.log(dim(`no top-level declarations found in ${MODULE}`));
+    process.exit(1);
+  }
+  for (const e of entries) printEntry(e);
+  process.exit(0);
+}
+
+const words = argv.filter((a, i) => !a.startsWith('-') && argv[i - 1] !== '--dir' && argv[i - 1] !== '--module');
+
+if (!words.length) {
+  console.error(red('refused — give one or more words to match, or --module <file>'));
+  process.exit(2);
+}
+
+const hits = search(ROOT, words, { onlyPrivate: ONLY_PRIVATE });
+if (!hits.length) {
+  console.log(dim(`no match for "${words.join(' ')}" in ${SCAN_DIRS.join('/, ')}/`));
+  process.exit(1);
+}
+for (const e of hits) printEntry(e);
+process.exit(0);

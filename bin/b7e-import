@@ -27,6 +27,8 @@
  * already uses the name, adding the import would close a cycle, the symbol is not
  * exported anywhere in this tree, or (removing) a name is not actually declared in
  * `--into`, or something else in the tree still references it. `2` refused — bad usage.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';

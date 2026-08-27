@@ -122,12 +122,47 @@ if (args[0] === 'show') {
   process.stdout.write(JSON.stringify([issue]));
   process.exit(0);
 }
-if (args[0] === 'dep' && args[1] === 'add') {
+if (args[0] === 'dep' && (args[1] === 'add' || args[1] === 'relate' || args[1] === 'remove' || args[1] === 'list')) {
+  const row = (i, id) => (i.dependencies || []).find((d) => d.id === id);
+  if (args[1] === 'list') {
+    const issue = w.issues[args[2]];
+    if (!issue) die('Error: no issue found matching "' + args[2] + '"');
+    // Outgoing rows only, with the type on each — measured against the real bd on
+    // 2026-08-27, and the shape lib/mentions.js's edgeTypeSync reads.
+    process.stdout.write(JSON.stringify((issue.dependencies || []).map((d) => ({ ...w.issues[d.id], ...d }))));
+    process.exit(0);
+  }
+  if (args[1] === 'remove') {
+    const issue = w.issues[args[2]];
+    if (issue) issue.dependencies = (issue.dependencies || []).filter((d) => d.id !== args[3]);
+    save();
+    // Real bd exits 0 over a pair with no edge and says it removed one anyway.
+    process.stdout.write('✓ Removed dependency: ' + args[2] + ' -> ' + args[3] + '\\n');
+    process.exit(0);
+  }
   const blocked = w.issues[args[2]];
   const blocker = w.issues[args[3]];
   if (!blocked || !blocker) die('Error: no issue found matching "' + (blocked ? args[3] : args[2]) + '"');
   // The one bd rule this whole suite is about, and the second way an edge fails.
   if (w.locked) die('Error: database is locked');
+  if (args[1] === 'relate') {
+    // Two rows, one at each end — what the real 'dep relate' writes.
+    for (const [a, b] of [[blocked, blocker], [blocker, blocked]]) {
+      if (!row(a, b.id)) a.dependencies = [...(a.dependencies || []), { id: b.id, dependency_type: 'relates-to', status: b.status }];
+    }
+    save();
+    process.stdout.write('ok\\n');
+    process.exit(0);
+  }
+  // One row per ORDERED pair: a second type on it is refused, in bd's own words, and
+  // the direction is the whole point — the reverse row survives (measured 2026-08-27).
+  const held = row(blocked, blocker.id);
+  if (held) {
+    die(
+      'Error: dependency ' + blocked.id + ' -> ' + blocker.id + ' already exists with type "' + held.dependency_type +
+        '" (requested "blocks"); remove it first with \\'bd dep remove\\' then re-add'
+    );
+  }
   const epic = (i) => i.issue_type === 'epic';
   if (epic(blocked) && !epic(blocker)) die('Error: epics can only block other epics, not tasks');
   if (!epic(blocked) && epic(blocker)) die('Error: tasks can only block other tasks, not epics');
@@ -182,6 +217,9 @@ const reset = (extra = {}) => {
         ...extra,
         issues: {
           'zz-task': issue('zz-task', { title: 'An ordinary bead a session is working' }),
+          // A question already on the phone, for the checks that need a pair to collide
+          // on without going through `beadcause-ask` to make one.
+          'zz-q': issue('zz-q', { title: 'Gross or net?', labels: ['human'] }),
           'zz-epic': issue('zz-epic', {
             title: 'Beadcause for a scrum squad — federate the engineers',
             issue_type: 'epic',
@@ -198,7 +236,9 @@ reset();
 
 const world = () => JSON.parse(fs.readFileSync(WORLD, 'utf8'));
 const bead = (id) => world().issues[id];
-const blockers = (id) => (bead(id)?.dependencies || []).map((d) => d.id);
+const blockers = (id) => (bead(id)?.dependencies || []).filter((d) => d.dependency_type === 'blocks').map((d) => d.id);
+/** The type of one edge, in one direction — the question bd answers per ordered pair. */
+const edgeOf = (a, b) => (bead(a)?.dependencies || []).find((d) => d.id === b)?.dependency_type || null;
 const created = () => Object.values(world().issues).filter((i) => /^zz-n/.test(i.id));
 
 const wsDir = path.join(tmp, 'ws', '.beads');
@@ -394,8 +434,101 @@ await check('park reports rather than throws, and never on the happy path', () =
     calls.push(args.join(' '));
     return 'ok';
   };
-  assert.deepEqual(park(ok, 'a', 'b'), { parked: true, labelled: false, note: '' });
+  assert.deepEqual(park(ok, 'a', 'b'), { parked: true, labelled: false, demoted: '', note: '' });
   assert.deepEqual(calls, ['dep add a b'], 'and adds exactly one edge, in bd’s argument order');
+});
+
+/* ------------------------------------------------ a see-also on the pair (bc-arj0.23)
+ *
+ * The third way the edge fails, and the one that costs the most. bd holds one row per
+ * ordered pair, so a work bead whose prose names what it is waiting on is already joined
+ * to it by the `relates-to` `relateMentions` drew on the way past — and the park is then
+ * refused over a see-also. `Bd.addDep` has outranked a mention since bc-arj0.20; `park`
+ * runs over a synchronous runner in a worker's terminal and could not reach it.
+ *
+ * What makes it worth more than a missing edge is the fallback: `human` on the work bead,
+ * which nothing takes off when the question is answered. So the collision does not lose
+ * an edge, it strands the bead.
+ */
+
+await check('a see-also on the pair gives way, and the park goes in — the bug', () => {
+  reset();
+  // Exactly what a prose mention leaves behind: two rows, one at each end.
+  runBd(['dep', 'relate', 'zz-task', 'zz-q']);
+  assert.equal(edgeOf('zz-task', 'zz-q'), 'relates-to', 'the mention is there before the park');
+  assert.equal(edgeOf('zz-q', 'zz-task'), 'relates-to', 'at both ends, which is what dep relate writes');
+
+  const res = park(runBd, 'zz-task', 'zz-q');
+  assert.equal(res.parked, true, 'the work is parked behind the question');
+  assert.equal(res.labelled, false, 'and NOT stranded under a `human` label nothing takes off');
+  assert.equal(res.demoted, 'relates-to', 'which is only true because the mention gave way');
+  assert.equal(edgeOf('zz-task', 'zz-q'), 'blocks', 'the declared edge is what the pair holds now');
+  assert.equal(edgeOf('zz-q', 'zz-task'), null, 'and the other half of the relate went with it');
+  assert.match(res.note, /took the `relates-to`/, 'an edge is never deleted in silence');
+  assert.deepEqual(bead('zz-task').labels, [], 'nothing to come back to deliberately');
+});
+
+await check('only the mention gives way — provenance and a real hold still refuse', () => {
+  for (const type of ['discovered-from', 'parent-child', 'blocks']) {
+    reset();
+    const w = world();
+    w.issues['zz-task'].dependencies = [{ id: 'zz-q', dependency_type: type, status: 'open' }];
+    fs.writeFileSync(WORLD, JSON.stringify(w, null, 2));
+
+    const res = park(runBd, 'zz-task', 'zz-q');
+    assert.equal(res.parked, false, `${type} is older than this write and is not its to take`);
+    assert.equal(res.demoted, '', `nothing was dropped over a ${type}`);
+    assert.equal(edgeOf('zz-task', 'zz-q'), type, `the ${type} edge is exactly where it was`);
+    assert.match(res.note, /already exists with type/, 'and bd’s own refusal is reported, in the same words');
+    assert.deepEqual(bead('zz-task').labels, [HUMAN_LABEL], 'so the old fallback still runs');
+  }
+});
+
+await check('a mention the far end does not share leaves that far end alone', () => {
+  reset();
+  const w = world();
+  // One row each way and they disagree: the mention is this write's to take, the
+  // discovered-from behind it is not. bd refuses per ordered pair, so only one is named.
+  w.issues['zz-task'].dependencies = [{ id: 'zz-q', dependency_type: 'relates-to', status: 'open' }];
+  w.issues['zz-q'] = issue('zz-q', { dependencies: [{ id: 'zz-task', dependency_type: 'discovered-from', status: 'open' }] });
+  fs.writeFileSync(WORLD, JSON.stringify(w, null, 2));
+
+  const res = park(runBd, 'zz-task', 'zz-q');
+  assert.equal(res.parked, true);
+  assert.equal(edgeOf('zz-task', 'zz-q'), 'blocks');
+  assert.equal(edgeOf('zz-q', 'zz-task'), 'discovered-from', 'the row nobody asked about is untouched');
+});
+
+await check('beadcause-ask parks over a mention end to end, and says so once', () => {
+  reset();
+  const res = ask(['--blocks', 'zz-task']);
+  assert.equal(res.status, 0, `exited ${res.status}: ${res.stderr}`);
+  const id = res.stdout;
+  // Draw the see-also the prose sweep would have drawn, then ask a second time over it.
+  runBd(['dep', 'remove', 'zz-task', id]);
+  runBd(['dep', 'relate', 'zz-task', id]);
+  const again = park(runBd, 'zz-task', id);
+  assert.equal(again.parked, true, 'the second ask parks the same bead behind the same question');
+  assert.equal(edgeOf('zz-task', id), 'blocks');
+  const ours = `beadcause-ask: ${again.note}`;
+  assert.match(ours, /so the declared edge could go in/);
+  assert.doesNotMatch(ours, /^\s+at /m, 'never a stack trace');
+});
+
+await check('one retry and no loop — a pair something else is writing is not raced', () => {
+  reset();
+  const calls = [];
+  const refuse = (args) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'dep' && args[1] === 'add') {
+      throw new Error('Error: dependency a -> b already exists with type "relates-to" (requested "blocks")');
+    }
+    if (args[0] === 'dep' && args[1] === 'list') return '[]';
+    return 'ok';
+  };
+  const res = park(refuse, 'a', 'b', { label: false });
+  assert.equal(res.parked, false, 'and it reports rather than throwing, as it always did');
+  assert.equal(calls.filter((c) => c.startsWith('dep add')).length, 2, 'the write and one retry, never a loop');
 });
 
 await check('park falls back to the label, unless the caller says not to', () => {

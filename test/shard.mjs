@@ -16,10 +16,11 @@
  * function passing proves nothing about the CLI's argv handling.
  */
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverSuites, REPO_ROOT } from '../lib/gate.js';
-import { shardOf } from '../lib/shard.js';
+import { narrowTo, shardOf } from '../lib/shard.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -101,6 +102,62 @@ const runCli = (args) => execFileSync(process.execPath, [CLI, ...args], { encodi
   } else {
     bad('bin/b7e-shard prints exactly what shardOf() computes', `${cliUnion.length} lines vs ${expected.length} expected`);
   }
+}
+
+/* ---------------------------------------------- narrowTo — a pull request's slice (bc-xlz32.8) */
+
+{
+  const wanted = [real[real.length - 1], real[3], real[1]];
+  const narrowed = narrowTo(real, wanted);
+  if (narrowed.length === 3 && narrowed.every((s, i) => s === [real[1], real[3], real[real.length - 1]][i])) {
+    ok('narrowTo keeps discoverSuites() order, not the order it was asked in');
+  } else {
+    bad('narrowTo keeps discoverSuites() order', narrowed.join(' '));
+  }
+
+  if (narrowTo(real, []).length === real.length && narrowTo(real, null).length === real.length) {
+    ok('an empty narrowing is the whole roster — nothing matched means run everything');
+  } else {
+    bad('an empty narrowing is the whole roster', `${narrowTo(real, []).length} vs ${real.length}`);
+  }
+
+  const withStranger = narrowTo(real, [real[2], 'scripts/spacebar-check.mjs']);
+  if (withStranger.length === 1 && withStranger[0] === real[2]) {
+    ok('a suite the gate has never heard of is dropped, not passed on to --only');
+  } else {
+    bad('a suite the gate has never heard of is dropped', withStranger.join(' '));
+  }
+
+  // The partition invariant has to survive narrowing too: four shards of a narrowed list,
+  // unioned, are that list — not a suite more (a stateful suite run twice) and not one
+  // fewer (a hole CI would go green through).
+  checkPartition('a narrowed list, sharded 4 ways', narrowTo(real, real.filter((_, i) => i % 7 === 0)), 4);
+}
+
+{
+  // The one part of bc-xlz32.8 that is shell rather than JavaScript, and the one whose
+  // failure mode is silent and expensive: `b7e-gate` handed no `--only` at all runs every
+  // suite, so a shard whose narrowed slice came out empty must exit, not fall through to
+  // an unguarded `$ONLY_ARGS`. Asserted as text because there is nowhere else to assert it.
+  const wf = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'test.yml'), 'utf8');
+  const guards = /if \[ ! -s slice\.txt \]/.test(wf) && /--from affected\.txt/.test(wf);
+  if (guards) ok('the workflow refuses to run a shard whose narrowed slice is empty');
+  else bad('the workflow refuses to run a shard whose narrowed slice is empty', 'the -s slice.txt guard is gone — an empty slice would run every suite');
+}
+
+{
+  const fromFile = path.join(ROOT, 'package.json'); // deliberately not a suite list
+  const printed = execFileSync(process.execPath, [CLI, '--index', '0', '--total', '1', '--from', fromFile], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  if (printed.length === 0) ok('bin/b7e-shard --from a file naming no known suite prints nothing');
+  else bad('bin/b7e-shard --from a file naming no known suite prints nothing', printed.join(' '));
+}
+
+try {
+  execFileSync(process.execPath, [CLI, '--index', '0', '--total', '4', '--from', path.join(ROOT, 'no-such-list.txt')], { encoding: 'utf8', stdio: 'pipe' });
+  bad('bin/b7e-shard refuses an unreadable --from', 'exited 0');
+} catch (e) {
+  if (e.status === 2) ok('bin/b7e-shard refuses an unreadable --from (exit 2)');
+  else bad('bin/b7e-shard refuses an unreadable --from', `exited ${e.status}, wanted 2`);
 }
 
 try {

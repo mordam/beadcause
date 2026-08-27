@@ -605,6 +605,41 @@ check('and it registers one listener however many polls land under the freeze', 
   assert.equal(edit.listeners.length, 1, 'a listener per skipped paint is a leak on a long edit');
 });
 
+check('a pick made while the screen is frozen still moves the title, in the same turn', () => {
+  // bc-ka5y.33. The freeze holds the *rows* still so a poll cannot move an option out
+  // from under a thumb — but the browser moves the `<select>`'s own value on the tap
+  // itself, no code involved, and the bar used to leave the shown label and the title
+  // naming the space the pick replaced until the thaw, under a banner promising the
+  // screen was held still.
+  //
+  // The shown label is what made that visible, and bc-ka5y.34 has since deleted that
+  // span — so the assertion it carried is gone with it, and what is left to check is the
+  // pair that survived: the title, still written whether or not the mode is frozen, and
+  // the control's own value, which the browser moved and no code here undid. The split
+  // is what this test is about, and both halves of it are still under test.
+  const h = fresh();
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
+
+  h.select.value = 'ws:beadcause';
+  h.select.events.change();
+
+  assert.equal(h.select.title, 'beadcause', 'the title still names the space the pick replaced');
+  assert.equal(h.select.value, 'ws:beadcause', 'the control disagrees with its own pick');
+});
+
+check('but the rows themselves still wait for the thaw, even on a pick', () => {
+  const h = fresh();
+  const before = h.select.innerHTML;
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
+
+  h.select.value = 'ws:beadcause';
+  h.select.events.change();
+
+  assert.equal(h.select.innerHTML, before, 'a pick rebuilt the rows under a frozen screen');
+});
+
 check('a page with no edit mode on it paints exactly as it always did', () => {
   const h = fresh();
   assert.equal(h.win.beadcause.editMode, undefined, 'this fixture is the five other pages');
