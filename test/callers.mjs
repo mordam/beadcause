@@ -627,7 +627,17 @@ check('every top-level function in this repo gets the extent acorn gives it', ()
   const wrong = [];
   let checked = 0;
   for (const f of files) {
-    const text = fs.readFileSync(path.join(callers.REPO_ROOT, f), 'utf8');
+    // The gate runs suites in parallel, and test/call.mjs writes its fixture into test/ —
+    // so a file this walk listed a moment ago can be gone by the time it is read. A file
+    // that no longer exists has no extent to disagree about, and only ENOENT is forgiven:
+    // the `checked` assertion below is what stops this quietly skipping the whole tree.
+    let text;
+    try {
+      text = fs.readFileSync(path.join(callers.REPO_ROOT, f), 'utf8');
+    } catch (err) {
+      if (err.code === 'ENOENT') continue;
+      throw err;
+    }
     let ast;
     try {
       ast = acorn.parse(text, { ecmaVersion: 2022, sourceType: 'module', allowHashBang: true, locations: true });
