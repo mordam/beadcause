@@ -24,6 +24,8 @@
  *
  * Exit codes: `0` every changed file matched at least one suite. `1` at least one did
  * not (stdout is empty in this case — see above). `2` refused — bad usage.
+ *
+ * @grant read
  */
 import path from 'node:path';
 import {

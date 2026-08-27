@@ -29,6 +29,8 @@
  * Exit codes: `0` ran cleanly, whether or not it wrote anything; `1` --renumber found no
  * unresolved conflict to resolve; `2` refused — bad usage, not a git repo, or `--against`
  * does not resolve to a commit.
+ *
+ * @grant excluded
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';

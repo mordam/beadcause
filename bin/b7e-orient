@@ -48,6 +48,8 @@
  * epic, or a bead this workspace never gave a home. An empty debrief section there
  * would read as "nobody has ever worked this family"; it means something narrower,
  * and this prints which.
+ *
+ * @grant read
  */
 import fs from 'node:fs';
 import path from 'node:path';

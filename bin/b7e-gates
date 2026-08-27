@@ -19,6 +19,8 @@
  * Exit codes: `0` a clean report, or every ended runner verified gone. `1` more than one
  * runner is mine (a real hazard — see `lib/gates.js`'s `hazardLine`), or `--end-mine`
  * left a survivor. `2` refused — bad usage.
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import {

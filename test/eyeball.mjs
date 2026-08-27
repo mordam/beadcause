@@ -37,6 +37,10 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { removeTreeSync } from './helpers/tmp.mjs';
+// The assembled list, which since bc-wbrhi is the hand-written half in lib/toolbelt.js
+// plus whatever the tools in bin/ declare — so asking the module is the only reading that
+// cannot go stale against a literal that is no longer there.
+import { DEFAULT_TOOL_LIST } from '../lib/tooldecl.js';
 import {
   DEFAULT_THEMES,
   DEFAULT_WIDTHS,
@@ -541,10 +545,19 @@ check('it is deliberately NOT on DEFAULT_TOOL_LIST, and the reason is written do
   // read"), and the only agent DEFAULT_TOOL_LIST governs is `dispatch`: one turn, one
   // `bd comment`, no branch. Adding it here would also turn test/grants.mjs red on sight
   // for being unclassified, and the answer to that failure is not to classify it.
-  const toolbelt = fs.readFileSync(path.join(ROOT, 'lib', 'toolbelt.js'), 'utf8');
-  const list = toolbelt.slice(toolbelt.indexOf('export const DEFAULT_TOOL_LIST'));
-  assert.ok(!/^\s*'Bash\(b7e-eyeball:\*\)'/m.test(list), 'b7e-eyeball was granted to dispatch');
-  assert.ok(list.includes('b7e-eyeball'), 'the reason it is not on the list is not written down');
+  //
+  // Both halves are still asserted, and since bc-wbrhi they live in two different places
+  // on purpose: the *decision* is `@grant excluded` in the tool's own header, where it
+  // cannot be made by accident, and the *reason* is the paragraph in lib/tooldecl.js,
+  // which is where the whole of that argument moved so it could keep arguing by
+  // cross-reference. Checking only the first would let the paragraph be deleted; checking
+  // only the second is what this used to do, and it could not tell a decision from a
+  // passing mention.
+  const src = fs.readFileSync(path.join(ROOT, 'bin', 'b7e-eyeball'), 'utf8');
+  assert.match(src, /^\s*\*\s*@grant excluded\s*$/m, 'b7e-eyeball no longer declares itself off the list');
+  assert.ok(!DEFAULT_TOOL_LIST.includes('Bash(b7e-eyeball:*)'), 'b7e-eyeball was granted to dispatch');
+  const argument = fs.readFileSync(path.join(ROOT, 'lib', 'tooldecl.js'), 'utf8');
+  assert.ok(argument.includes('b7e-eyeball'), 'the reason it is not on the list is not written down');
 });
 
 /* ------------------------------------------------------------------- done */
