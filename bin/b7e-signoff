@@ -66,6 +66,8 @@
  * the worktree could not be resolved (see the ordering trap above). `6` a later step
  * threw — the message names which one, and `results` up to that point are on stderr
  * so a re-run's caller can see what had already happened.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';

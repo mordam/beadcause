@@ -32,6 +32,8 @@
  *
  * Exit codes: 0 on success, 1 on a bad argv, 2 if building the sandbox itself failed
  * (a workspace directory that does not exist, `bd` not found for `--bd real`, a bad seed).
+ *
+ * @grant excluded
  */
 import { createSandbox } from '../lib/sandbox.js';
 

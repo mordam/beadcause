@@ -35,6 +35,8 @@
  *
  * Exit codes: `0` the script ran and exited `0`; the script's own exit code otherwise;
  * `2` refused — bad usage, or the verifier found a line that leaves the allowed roots.
+ *
+ * @grant excluded
  */
 import fs from 'node:fs';
 import path from 'node:path';
