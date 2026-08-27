@@ -75,13 +75,15 @@
   pane, and its chip row stays", and it is the reason this container is one pane rather
   than the three or four the chips look like.
 
-  Those two came off — History with bc-khoe.30.5, Advocates with bc-khoe.4 — and there is
-  one pending container again: **Config** (bc-khoe.60), which bc-khoe.50 added. So the
-  paragraphs above are the mechanism rather than a snapshot, and this is the shape it is
-  for: a view joins the grammar the moment the row needs it to light a pill, and its pane
-  arrives afterwards. The one rule that comes with it is in test/pagealias.mjs — while a
-  container is pending its addresses must stay documents, because `show()` falling to Home
-  is the right answer for a hash and the wrong answer for a home-screen shortcut.
+  Those two came off — History with bc-khoe.30.5, Advocates with bc-khoe.4 — and a third
+  arrived and came off in its turn: **Config**, which bc-khoe.50 added as `data-pending`
+  and bc-khoe.60 filled. Every view the grammar knows has a live pane now, so the two
+  paragraphs above describe the mechanism rather than a current snapshot, and this is the
+  shape it is for: a view joins the grammar the moment the row needs it to light a pill,
+  and its pane can arrive afterwards without the pill leading anywhere blank in between.
+  The one rule that comes with it is in test/pagealias.mjs — while a container is pending
+  its addresses must stay documents, because `show()` falling to Home is the right answer
+  for a hash and the wrong answer for a home-screen shortcut.
 
   ## The second half of the address (bc-k7lrc)
 

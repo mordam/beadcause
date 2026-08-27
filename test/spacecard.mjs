@@ -109,7 +109,7 @@ async function drawCard(detail) {
     querySelector: () => null,
     querySelectorAll: () => [],
   });
-  const nodes = { space: node(), pulse: node(), observing: node(), refresh: node() };
+  const nodes = { space: node(), pulse: node(), 'cfg-observing': node(), refresh: node() };
   const store = {
     'beadcause.token': 'tok',
     'beadcause.mon.open': JSON.stringify([`space:${detail.space}:cfg`]),

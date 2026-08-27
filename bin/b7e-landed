@@ -20,6 +20,16 @@
  * itself landed); `1` it is not — superseded by a bead that is not landed either, an
  * unlanded branch of its own, or no evidence at all; `2` refused — bad usage, or neither
  * `origin/<base>` nor `<base>` resolves in the tree asked about.
+ *
+ * Deliberately NOT on `DEFAULT_TOOL_LIST`, for the `b7e-worktree` reason rather than a
+ * read-only one: every question it answers has a branch, a `--base` or a bead already in
+ * hand, and `dispatch` — the one agent that list governs — has none of them: no branch of
+ * its own, `ownsRepo: false`, and one phone comment to answer with one `bd comment`. It
+ * also asks GitHub (`gh pr list`), which is not free the way a filesystem read is. A
+ * worker session already has the unrestricted CLI default and loses nothing by this
+ * staying off the narrower list.
+ *
+ * @grant excluded
  */
 import path from 'node:path';
 import {

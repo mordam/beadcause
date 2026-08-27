@@ -39,6 +39,8 @@
  * is the whole of what a merge later has to resolve.
  *
  * Exit codes: `0` current, `1` behind or diverged, `2` bad usage or not a git checkout.
+ *
+ * @grant read
  */
 import { git, gitCode, ok } from '../lib/gitref.js';
 

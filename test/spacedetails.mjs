@@ -116,6 +116,7 @@ check('a space that says nothing says null everywhere, not false', () => {
     requireApproval: null,
     reviewRequired: null,
     autoShip: null,
+    trustChecksAcrossDownmerge: null,
   });
 });
 
