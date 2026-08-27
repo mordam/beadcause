@@ -115,10 +115,10 @@
 
   ## Why a file of its own, and not a few lines in viewbar.js
 
-  `public/viewbar.js` draws the pill row on **twelve** pages and exactly one of them is
+  `public/viewbar.js` draws the pill row on **ten** pages and exactly one of them is
   this shell. Pane switching is a fact about the one document that has panes, so it lives
   in a file only that document loads, and the row asks it a question (`has`, `showing`)
-  rather than owning the answer. On the other eleven pages `window.beadcause.panes` is
+  rather than owning the answer. On the other nine pages `window.beadcause.panes` is
   simply absent, which is why the row reaches for it with `?.` where it reaches for
   `route` flat: a missing router is a bug, a missing set of panes is Tuesday.
 

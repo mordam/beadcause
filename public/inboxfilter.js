@@ -141,7 +141,7 @@
    * has never heard of. They are in this table anyway, because the pill row is one row
    * of six and a reader asking "what are the six" must not have to find two of them
    * somewhere else. public/viewbar.js draws the row from a list of its own — it is on
-   * twelve pages and this file is on one — and test/inboxkinds.mjs is what holds the
+   * ten pages and this file is on one — and test/inboxkinds.mjs is what holds the
    * two lists to the same six ids, labels and hrefs.
    *
    * ## What the amalgamation cost, and what it bought
@@ -589,7 +589,7 @@
    * How the page makes a kind reachable that the current scope cannot produce, if it
    * has an answer. Returns whether it moved anything.
    *
-   * `null` until a page registers one, and optional forever: the row is on twelve pages
+   * `null` until a page registers one, and optional forever: the row is on ten pages
    * and only Home has a scope at all, so a page that never calls `onWiden` is a page
    * where this seam has nothing to do. See `pick`.
    */
@@ -911,7 +911,7 @@
   function paint() {
     if (chrome) chrome.paint();
     // And the row, which is the kinds' half of the chrome now. Pushed rather than
-    // pulled: viewbar.js is loaded on twelve pages and this file on one, so the row
+    // pulled: viewbar.js is loaded on ten pages and this file on one, so the row
     // cannot ask which kind is selected — it would have to know the storage key, which
     // is the second place that knows this bead exists to remove. A no-op everywhere but
     // Home, where `mark` is what moves the lit pill.
